@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -24,7 +25,7 @@ import (
 
 const (
 	prefix   = "terminal-bench-science/"
-	maxEmbed = 1 << 20
+	maxEmbed = 256 << 10
 	preamble = "> This workflow is a worked example written for the Terminal-Bench-Science benchmark's own data. The paths, files and dates below belong to that example. Apply its method to this study's own data and question. `references/` holds the example's README, reference solution and environment recipe.\n\n"
 )
 
@@ -212,7 +213,7 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 			return err
 		}
 		f := file{Path: rel, Size: info.Size()}
-		if info.Size() <= maxEmbed {
+		if info.Size() <= maxEmbed && embeddable(rel) {
 			body, err := os.ReadFile(p)
 			if err != nil {
 				return err
@@ -280,6 +281,21 @@ func stringList(v any) []string {
 	}
 	return nil
 }
+
+// embeddable reports whether a file name is one of the recipe and code files
+// the bundle keeps; data files are only listed.
+func embeddable(rel string) bool {
+	name := path.Base(rel)
+	if strings.HasPrefix(name, "Dockerfile") {
+		return true
+	}
+	if ok, _ := path.Match("requirements*.txt", name); ok {
+		return true
+	}
+	return slices.Contains(codeExts, path.Ext(name))
+}
+
+var codeExts = strings.Fields(".md .py .sh .R .r .toml .yml .yaml .lock .jl .c .cc .cpp .h .hpp .rs .go .lean .m .f90 .java .js .ts .cfg .ipynb")
 
 // isReference reports whether a task file goes into the skill's references:
 // never the tests, and never the instruction, which is the skill body.

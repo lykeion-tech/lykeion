@@ -152,7 +152,7 @@ func TestSyncWritesTheReleasedWorkflowsOnly(t *testing.T) {
 }
 
 func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
-	src := fixture(t, map[string]string{"environment/blob.bin": "a\x00b", "environment/latin.txt": "\xff\xfe", "environment/big.txt": strings.Repeat("a", 1<<20+1)})
+	src := fixture(t, map[string]string{"environment/blob.py": "a\x00b", "environment/latin.py": "\xff\xfe", "environment/big.py": strings.Repeat("a", 256<<10+1), "environment/data.csv": "a,b"})
 	dst := filepath.Join(t.TempDir(), "bundle")
 	if err := run(src, "v0.1.0", dst, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
 		}
 	}
 	json.Unmarshal(b, &idx)
-	sizes := map[string]int64{"environment/blob.bin": 3, "environment/latin.txt": 2, "environment/big.txt": 1<<20 + 1}
+	sizes := map[string]int64{"environment/blob.py": 3, "environment/latin.py": 2, "environment/big.py": 256<<10 + 1, "environment/data.csv": 3}
 	seen := 0
 	for _, f := range idx.Workflows[0].Files {
 		if size, ok := sizes[f.Path]; ok {
@@ -185,8 +185,8 @@ func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
 			t.Errorf("%s should be embedded", f.Path)
 		}
 	}
-	if seen != 3 {
-		t.Fatalf("listed %d of the 3 unembedded files", seen)
+	if seen != 4 {
+		t.Fatalf("listed %d of the 4 unembedded files", seen)
 	}
 }
 
