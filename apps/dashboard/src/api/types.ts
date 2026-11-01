@@ -571,3 +571,24 @@ export interface AffectedMachineRun {
   study_title: string;
   colleague: string;
 }
+
+export type WorkflowSummary = {
+  slug: string;
+  name: string;
+  domain: string;
+  field: string;
+  subfield: string;
+  description: string;
+  tags: string[];
+  authors: { name: string; organization: string }[];
+  experience: string;
+  expert_hours: number;
+  agent_budget_sec: number;
+  cpus: number;
+  memory_mb: number;
+};
+export type WorkflowDetail = WorkflowSummary & {
+  files: { path: string; size: number; embedded: boolean }[];
+  readme: string;
+  instruction: string;
+};

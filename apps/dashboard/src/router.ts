@@ -21,6 +21,8 @@ import ColleaguesView from './features/workspace/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
 import TeamDetail from './features/teams/TeamDetail.vue';
 import TeamForm from './features/teams/TeamForm.vue';
+import WorkflowsView from './features/workflows/WorkflowsView.vue';
+import WorkflowDetail from './features/workflows/WorkflowDetail.vue';
 import SettingsView from './features/workspace/SettingsView.vue';
 import SignInView from './features/workspace/SignInView.vue';
 import AcceptInvite from './features/workspace/AcceptInvite.vue';
@@ -157,6 +159,17 @@ const routes: RouteRecordRaw[] = [
     component: TeamDetail,
     props: true,
     meta: { page: 'teams', title: 'Teams', ownHeader: true },
+  },
+  {
+    path: '/workflows',
+    component: WorkflowsView,
+    meta: { page: 'workflows', title: 'Workflows' },
+  },
+  {
+    path: '/workflows/:slug',
+    component: WorkflowDetail,
+    props: true,
+    meta: { page: 'workflows', title: 'Workflows', ownHeader: true },
   },
   {
     path: '/colleagues',

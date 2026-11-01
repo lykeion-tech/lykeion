@@ -2,6 +2,8 @@
 // workspace can drop it in one call, and everything a card owns sits under
 // ['ws', id, 'card', cardId].
 export const keys = {
+  workflows: ['workflows'] as const,
+  workflow: (slug: string) => ['workflows', slug] as const,
   cowriteDoc: (ws: string, project: string, file: string) =>
     ['ws', ws, 'coresearch', project, 'cowrite', 'doc', file] as const,
   cowriteChanges: (ws: string, project: string, file: string) =>
