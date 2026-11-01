@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +36,39 @@ type newCard struct {
 	AttachmentIDs []uuid.UUID  `json:"attachment_ids"`
 	Services      []newService `json:"services"`
 	Workflow      *string      `json:"workflow"`
+	// GroundingCriteria are the researcher's own tests for Grounding's work.
+	GroundingCriteria []string `json:"grounding_criteria"`
+}
+
+const (
+	maxGroundingCriteria   = 12
+	maxGroundingCriterionN = 200
+)
+
+// checkGroundingCriteria trims the criteria and refuses a bad set. A study that
+// includes Grounding needs at least one; any other takes none.
+func checkGroundingCriteria(in []string, from, to string) ([]string, error) {
+	includes := board.StageIndex(from) <= board.StageIndex(board.Grounding) && board.StageIndex(board.Grounding) <= board.StageIndex(to)
+	switch {
+	case !includes && len(in) > 0:
+		return nil, cardInputError("Grounding criteria are only for studies that include Grounding")
+	case includes && len(in) == 0:
+		return nil, cardInputError("a study that includes Grounding needs at least one Grounding criterion")
+	case len(in) > maxGroundingCriteria:
+		return nil, cardInputError(fmt.Sprintf("a study takes at most %d Grounding criteria", maxGroundingCriteria))
+	}
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		c = strings.TrimSpace(c)
+		switch {
+		case c == "" || utf8.RuneCountInString(c) > maxGroundingCriterionN:
+			return nil, cardInputError(fmt.Sprintf("a Grounding criterion is 1 to %d characters", maxGroundingCriterionN))
+		case slices.Contains(out, c):
+			return nil, cardInputError("a Grounding criterion is repeated: " + c)
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 // checkWorkflow refuses a study that names a Workflow but isn't one agent
@@ -360,6 +394,13 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = checkWorkflow(in, from, to, agent)
 	}
+	var criteria []byte
+	if err == nil {
+		var list []string
+		if list, err = checkGroundingCriteria(in.GroundingCriteria, from, to); err == nil {
+			criteria, err = json.Marshal(list)
+		}
+	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -414,7 +455,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
+			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow, GroundingCriteria: criteria,
 		}
 		if in.Workflow != nil {
 			release := workflow.Release()

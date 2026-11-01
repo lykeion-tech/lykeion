@@ -1426,3 +1426,46 @@ func TestCreatingAStudyWithPredicatesIsRefused(t *testing.T) {
 		t.Fatalf("status %d: %+v", code, out)
 	}
 }
+
+func TestGroundingCriteriaRules(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	many := make([]string, 13)
+	for i := range many {
+		many[i] = fmt.Sprintf("c%d", i)
+	}
+	grounding := map[string]string{"from": "grounding", "to": "grounding"}
+	hypotheses := map[string]string{"from": "hypotheses", "to": "hypotheses"}
+	for _, tc := range []struct {
+		name     string
+		scope    map[string]string
+		criteria []string
+		want     string
+	}{
+		{"missing", grounding, nil, "a study that includes Grounding needs at least one Grounding criterion"},
+		{"too many", grounding, many, ""},
+		{"too long", grounding, []string{strings.Repeat("x", 201)}, ""},
+		{"duplicate", grounding, []string{"a", " a "}, ""},
+		{"blank", grounding, []string{"  "}, ""},
+		{"not Grounding", hypotheses, []string{"a"}, "Grounding criteria are only for studies that include Grounding"},
+	} {
+		var e struct{ Error string }
+		body := map[string]any{"question": tc.name, "scope": tc.scope, "grounding_criteria": tc.criteria}
+		if code := s.call(t, "POST", "/api/cards", a, w.ID, body, &e); code != 400 || (tc.want != "" && e.Error != tc.want) {
+			t.Fatalf("%s: %d %q", tc.name, code, e.Error)
+		}
+	}
+	var c studyJSON
+	want := []string{"first", "second", "third"}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "ok", "scope": grounding, "grounding_criteria": want}, &c); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var got struct {
+		Criteria []string `json:"grounding_criteria"`
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &got); code != 200 || !slices.Equal(got.Criteria, want) {
+		t.Fatalf("%d %v", code, got.Criteria)
+	}
+}
