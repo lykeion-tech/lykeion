@@ -14,3 +14,4 @@ Use the sources server through the door (`call_tool`): `{"server": "sources", "t
   `lyk record put source --cites call:KEY --content '{"text": "<title> (<year>): <quoted passage>"}'`
 - If nothing fits, `lyk record put limitation --content '{"text": "searched <queries>; nothing relevant"}'`.
 - Never fill the gap from memory as if it were a source.
+- Never look up this study's own answer, the result it is testing.
