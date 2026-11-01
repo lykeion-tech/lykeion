@@ -8,7 +8,7 @@ import CreateStudy from '../studies/CreateStudy.vue';
 import StudyDetail from '../studies/StudyDetail.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
-import { byDomain } from '../../lib/workflows';
+import { byDomain, stripComments } from '../../lib/workflows';
 import type { WorkflowSummary } from '../../api/types';
 
 const summary = (slug: string, name: string, domain: string, tags: string[]): WorkflowSummary => ({
@@ -31,6 +31,12 @@ const fixtures = [
   summary('a', 'Alpha flow', 'earth-sciences', ['ocean']),
   summary('c', 'Cell flow', 'life-sciences', ['cells']),
 ];
+
+describe('stripComments', () => {
+  it('removes single and multi-line HTML comments', () => {
+    expect(stripComments('a<!-- x -->b\n<!--\nm\n-->c')).toBe('ab\nc');
+  });
+});
 
 describe('byDomain', () => {
   it('groups, sorts and searches', () => {
@@ -223,7 +229,12 @@ describe('Starting a study with a Workflow', () => {
       ...extra,
     });
   };
-  async function mountStudy(component: Component, props: Record<string, unknown>, extra = {}) {
+  async function mountStudy(
+    component: Component,
+    props: Record<string, unknown>,
+    extra = {},
+    library = true,
+  ) {
     workspaceId.value = 'w';
     const g = globalThis as { document?: unknown };
     g.document ??= { addEventListener() {}, removeEventListener() {} };
@@ -241,7 +252,7 @@ describe('Starting a study with a Workflow', () => {
       defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
     });
     seed(queryClient, extra);
-    queryClient.setQueryData(keys.workflows, { release: '1.2', workflows: fixtures });
+    if (library) queryClient.setQueryData(keys.workflows, { release: '1.2', workflows: fixtures });
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/:p(.*)*', component }],
@@ -324,6 +335,36 @@ describe('Starting a study with a Workflow', () => {
       await t.click(/^Remove workflow$/);
       expect(t.text()).not.toContain('Workflow: Zeta flow');
       expect(t.text()).toContain('Pre-registered');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('a study links its workflow by name and release', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mountStudy(
+      StudyDetail,
+      { id: 'c' },
+      { workflow: 'b', workflow_release: 'v0.1.0' },
+    );
+    try {
+      await t.click(/^Properties$/);
+      expect(t.text()).toContain('Zeta flow · v0.1.0');
+      expect(t.text()).not.toContain('Workflow: Zeta');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('does not call a workflow unavailable while the library loads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    );
+    const t = await mountStudy(StudyDetail, { id: 'c' }, { workflow: 'gone' }, false);
+    try {
+      await t.click(/^Properties$/);
+      expect(t.text()).not.toContain('no longer available');
     } finally {
       t.unmount();
     }

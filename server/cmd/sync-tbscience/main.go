@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -180,9 +181,12 @@ func run(src, tag, dst string, out io.Writer) error {
 func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 	slug := strings.TrimPrefix(tt.Task.Name, prefix)
 	m := tt.Metadata
+	if !slugRE.MatchString(slug) {
+		return workflow{}, fmt.Errorf("slug %q must match %s", slug, slugRE)
+	}
 	w := workflow{
-		Slug: slug, Name: capitalise(strings.ReplaceAll(slug, "-", " ")), Domain: m.Domain, Field: m.Field,
-		Subfield: m.Subfield, Description: tt.Task.Description, Tags: append([]string{}, m.Tags...),
+		Slug: slug, Name: capitalise(strings.ReplaceAll(slug, "-", " ")), Domain: kebab(m.Domain), Field: kebab(m.Field),
+		Subfield: kebab(m.Subfield), Description: tt.Task.Description, Tags: append([]string{}, m.Tags...),
 		Authors: []author{}, Experience: m.RelevantExperience, ExpertHours: m.ExpertTimeEstimateHours,
 		BudgetSec: tt.Agent.TimeoutSec, CPUs: tt.Environment.CPUs, MemoryMB: tt.Environment.MemoryMB, Files: []file{},
 	}
@@ -248,6 +252,13 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 	return w, write(filepath.Join(root, "skill", "SKILL.md"), []byte(skill))
 }
 
+var slugRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// kebab lowercases a taxonomy value and joins its words with hyphens.
+func kebab(v string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(v)), " ", "-")
+}
+
 // withoutContacts drops the author emails and profile links from a
 // task.toml, so the bundled copies carry no contact details.
 func withoutContacts(b []byte) ([]byte, error) {
@@ -301,7 +312,16 @@ var codeExts = strings.Fields(".md .py .sh .R .r .toml .yml .yaml .lock .jl .c .
 // never the tests, and never the instruction, which is the skill body.
 func isReference(rel string) bool {
 	top, _, _ := strings.Cut(rel, "/")
-	return rel == "README.md" || rel == "task.toml" || top == "solution" || top == "environment"
+	if top == "environment" {
+		name := path.Base(rel)
+		for _, pat := range []string{"Dockerfile*", "requirements*", "*.lock", "docker-compose*", "compose*"} {
+			if ok, _ := path.Match(pat, name); ok {
+				return true
+			}
+		}
+		return false
+	}
+	return rel == "README.md" || rel == "task.toml" || top == "solution"
 }
 
 func write(p string, b []byte) error {

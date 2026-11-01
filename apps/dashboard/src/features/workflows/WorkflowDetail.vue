@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
 import { useWorkflow, workflowFile } from '../../api/workflows';
-import { domainLabel } from '../../lib/workflows';
+import { domainLabel, stripComments } from '../../lib/workflows';
 import { matchesQuery } from '../../lib/search';
 import { useStudyComposer } from '../../state/study-composer';
 
@@ -44,7 +44,7 @@ const rows = computed(() => {
   if (!x) return [];
   return [
     ['Authors', x.authors.map((a) => `${a.name} (${a.organization})`).join(', ')],
-    ['Domain', [x.domain, x.field, x.subfield].filter(Boolean).join(' / ')],
+    ['Domain', [domainLabel(x.domain), x.field, x.subfield].filter(Boolean).join(' / ')],
     ['Tags', x.tags.join(', ')],
     ['Expert time', `${x.expert_hours} hours`],
     ['Agent budget', `${hours(x.agent_budget_sec)} hours`],
@@ -124,10 +124,10 @@ const unavailable = computed(
             </tr>
           </tbody>
         </table>
-        <RecordedMarkdown :content="w.readme" />
+        <RecordedMarkdown :content="stripComments(w.readme)" />
       </div>
       <div v-else-if="tab === 'Instruction'" class="workflow-body" role="tabpanel">
-        <RecordedMarkdown :content="w.instruction" />
+        <RecordedMarkdown :content="stripComments(w.instruction)" />
       </div>
       <div v-else class="workflow-body workflow-files" role="tabpanel">
         <div class="workflow-tree">
@@ -169,7 +169,7 @@ const unavailable = computed(
         <div class="workflow-preview">
           <p v-if="!chosen" class="workflow-count">Select a file to preview it.</p>
           <p v-else-if="unavailable">Preview unavailable ({{ chosen.size }} bytes)</p>
-          <RecordedMarkdown v-else-if="isMarkdown(chosen.path)" :content="preview" />
+          <RecordedMarkdown v-else-if="isMarkdown(chosen.path)" :content="stripComments(preview)" />
           <pre v-else>{{ preview }}</pre>
         </div>
       </div>

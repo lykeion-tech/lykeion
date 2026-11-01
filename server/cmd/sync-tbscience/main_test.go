@@ -209,3 +209,54 @@ func TestSyncRefusesAnUntaggedCheckout(t *testing.T) {
 		t.Fatal("temp folder left behind")
 	}
 }
+
+func TestSyncKebabsTheTaxonomy(t *testing.T) {
+	toml := strings.ReplaceAll(taskTOML, `domain = "life-sciences"`, `domain = " Life Sciences "`)
+	toml = strings.ReplaceAll(toml, `field = "biology"`, `field = "Cell Biology"`)
+	src, dst := fixture(t, map[string]string{"task.toml": toml}), filepath.Join(t.TempDir(), "bundle")
+	if err := run(src, "v0.1.0", dst, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dst, "index.json"))
+	if !strings.Contains(string(b), `"domain": "life-sciences"`) || !strings.Contains(string(b), `"field": "cell-biology"`) {
+		t.Fatalf("index = %s", b)
+	}
+}
+
+func TestSyncRefusesABadSlug(t *testing.T) {
+	src := fixture(t, nil)
+	put(t, src, "tasks/life-sciences/biology/protein-fold/task.toml", strings.ReplaceAll(taskTOML, "protein-fold", "Protein_Fold"))
+	git(t, src, "add", "-A")
+	git(t, src, "commit", "-q", "-m", "bad")
+	git(t, src, "tag", "-f", "v0.1.0")
+	put(t, src, "tasks/dataset.toml", "[[tasks]]\nname = \"terminal-bench-science/Protein_Fold\"\n")
+	git(t, src, "add", "-A")
+	git(t, src, "commit", "-q", "-m", "ds", "--amend")
+	git(t, src, "tag", "-f", "v0.1.0")
+	dst := filepath.Join(t.TempDir(), "bundle")
+	err := run(src, "v0.1.0", dst, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "Protein_Fold") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(dst); err == nil {
+		t.Fatal("bundle written")
+	}
+}
+
+func TestSyncKeepsOnlyRecipesFromEnvironmentAsReferences(t *testing.T) {
+	src := fixture(t, map[string]string{"environment/scoring_policy.py": "x = 1", "environment/requirements.txt": "numpy", "environment/uv.lock": "l"})
+	dst := filepath.Join(t.TempDir(), "bundle")
+	if err := run(src, "v0.1.0", dst, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dst, "protein-fold")
+	for p, want := range map[string]bool{
+		"task/environment/scoring_policy.py": true, "skill/references/environment/scoring_policy.py": false,
+		"skill/references/environment/requirements.txt": true, "skill/references/environment/uv.lock": true,
+		"skill/references/environment/Dockerfile": true,
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(p))); (err == nil) != want {
+			t.Errorf("%s present=%v want %v", p, err == nil, want)
+		}
+	}
+}

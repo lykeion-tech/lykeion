@@ -12,7 +12,7 @@ func TestAWorkflowStudyNeedsNoPreRegistration(t *testing.T) {
 	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "workflow": testWorkflow,
 		"assignee": map[string]any{"type": "agent", "id": agent},
 		"scope":    map[string]string{"from": "experimentation", "to": "experimentation"}})
-	if code != 201 || out["workflow"] != testWorkflow {
+	if code != 201 || out["workflow"] != testWorkflow || out["workflow_release"] != "v0.1.0" {
 		t.Fatalf("%d %v", code, out)
 	}
 }
@@ -51,6 +51,18 @@ func TestAStudyWithoutAWorkflowStillPreRegisters(t *testing.T) {
 	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
 		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}})
 	if code != 400 || out["error"] != "a study that runs Experimentation needs at least one pre-registered result" {
+		t.Fatalf("%d %v", code, out)
+	}
+}
+
+func TestAStudyRecordsTheWorkflowRelease(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "solo", "claude")
+	code, out := s.createWith(t, a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
+		"scope": map[string]string{"from": "experimentation", "to": "experimentation"}, "predicates": testPredicates})
+	if rel, has := out["workflow_release"]; code != 201 || !has || rel != nil {
 		t.Fatalf("%d %v", code, out)
 	}
 }

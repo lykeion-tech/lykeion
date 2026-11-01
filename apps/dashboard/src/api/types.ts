@@ -81,6 +81,7 @@ export interface Card {
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   pack_id: string | null;
   workflow?: string | null;
+  workflow_release?: string | null;
   block_kind: BlockKind;
   scope_from: Exclude<Column, 'done'>;
   scope_to: Exclude<Column, 'done'>;

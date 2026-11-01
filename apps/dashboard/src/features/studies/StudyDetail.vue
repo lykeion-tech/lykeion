@@ -542,12 +542,14 @@ function pin() {
               <RouterLink
                 v-if="workflows.data.value?.workflows.some((w) => w.slug === c?.workflow)"
                 :to="`/workflows/${c.workflow}`"
-                >Workflow:
-                {{
-                  workflows.data.value.workflows.find((w) => w.slug === c?.workflow)!.name
-                }}</RouterLink
+                >{{ workflows.data.value.workflows.find((w) => w.slug === c?.workflow)!.name
+                }}<template v-if="c.workflow_release">
+                  · {{ c.workflow_release }}</template
+                ></RouterLink
               >
-              <template v-else>This workflow is no longer available</template>
+              <template v-else-if="workflows.data.value"
+                >This workflow is no longer available</template
+              >
             </span>
           </div>
           <div class="property-row">

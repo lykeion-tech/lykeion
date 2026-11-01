@@ -36,3 +36,9 @@ export function byDomain(list: WorkflowSummary[], query: string) {
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+// Drops HTML comments, which the README and instruction files use for notes
+// to authors and the markdown renderer would show as text.
+export function stripComments(text: string) {
+  return text.replace(/<!--[\s\S]*?-->/g, '');
+}

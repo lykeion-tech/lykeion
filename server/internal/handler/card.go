@@ -484,6 +484,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
 		}
+		if in.Workflow != nil {
+			release := workflow.Release()
+			params.WorkflowRelease = &release
+		}
 		if in.Machine != nil {
 			params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
 			if err != nil {
