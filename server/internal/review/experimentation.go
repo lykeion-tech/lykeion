@@ -33,6 +33,12 @@ func ValueLabel(v ValueCheck) string {
 	return clip(v.Value + ": " + v.Sentence)
 }
 
+// ValueIdentity is what makes two value items the same: the work record and
+// the value it reports.
+func ValueIdentity(v ValueCheck) string {
+	return v.Record + " " + v.Value
+}
+
 const describedQuestion = "Does the sentence describe this number correctly: what it measures, its direction and its unit?"
 
 // clip is s cut to its first 80 characters.
@@ -47,7 +53,7 @@ func clip(s string) string {
 func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Result, error) {
 	r := Result{Column: board.Experimentation, Attempt: in.Attempt}
 
-	out := Item{Kind: KindOutputs, Label: "Declared outputs"}
+	out := Item{Kind: KindOutputs, Label: "Declared outputs", Identity: KindOutputs}
 	var latest *db.Record
 	for i := range in.Declared {
 		if latest == nil || !in.Declared[i].CreatedAt.Before(latest.CreatedAt) {
@@ -73,7 +79,7 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 	r.Items = append(r.Items, out)
 
 	for _, v := range in.Values {
-		it := Item{Key: v.Record, Kind: "value", Label: ValueLabel(v)}
+		it := Item{Key: v.Record, Kind: "value", Label: ValueLabel(v), Identity: ValueIdentity(v)}
 		traced := Check{ID: "traced", By: "server", Detail: v.Where, Status: Pass}
 		if !v.Found {
 			traced.Detail, traced.Status = "not printed by a script run that succeeded, nor in its saved files", Fail

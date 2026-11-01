@@ -710,3 +710,31 @@ func TestALongReviewKeepsItsLease(t *testing.T) {
 		t.Fatalf("one review made %d retry budgets", retries)
 	}
 }
+
+func TestHypothesesSharingTheirOpeningAreEachReviewed(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	ground := l.groundingPaper(t, c.ID, paperA)
+	opening := "Telomere length in adult human fibroblasts measured across many passages under standard culture predicts "
+	keys := map[string]bool{}
+	for _, end := range []string{"senescence onset.", "apoptosis rate."} {
+		keys[l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: opening + end,
+			Prediction: review.Prediction{Shape: "direction", Direction: "decrease"}, Control: review.Control{Text: "Young cells"}, Cites: []string{ground}})] = true
+	}
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	if n := len(nouls(stub.calls())); n != 2 {
+		t.Fatalf("Jev was asked about %d hypotheses, want 2", n)
+	}
+	rs := l.reviews(t, c.ID, "hypotheses")
+	if len(rs) != 1 || len(rs[0].Items) != 2 {
+		t.Fatalf("review records: %+v", rs)
+	}
+	for _, it := range rs[0].Items {
+		if !keys[it.Key] || it.Identity == "" {
+			t.Fatalf("item %+v", it)
+		}
+	}
+}

@@ -181,6 +181,28 @@ func LabelOf(rec db.Record) string {
 	return clip(b.Text)
 }
 
+// IdentityOf is what makes two item records the same item: a paper's id or a
+// dataset's accession without case, the outputs list as one item, otherwise
+// the whole text with its spacing collapsed, without case. Labels are cut
+// short for display, so they never match items.
+func IdentityOf(rec db.Record) string {
+	var b struct {
+		ID        string `json:"id"`
+		Accession string `json:"accession"`
+		Text      string `json:"text"`
+	}
+	_ = json.Unmarshal(rec.Body, &b)
+	switch rec.Kind {
+	case KindPaper:
+		return strings.ToLower(b.ID)
+	case KindDataset:
+		return strings.ToLower(b.Accession)
+	case KindOutputs:
+		return KindOutputs
+	}
+	return strings.ToLower(strings.Join(strings.Fields(b.Text), " "))
+}
+
 // GroundingSource says whether r is a paper or dataset Grounding declared:
 // with the sources server's calls, the only records a hypothesis may cite.
 func GroundingSource(r db.Record) bool {

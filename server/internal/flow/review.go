@@ -132,7 +132,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		// An item declared again keeps its earlier standing: it is not asked again.
 		rv.items = slices.DeleteFunc(rv.items, func(r db.Record) bool {
 			return slices.ContainsFunc(rv.carried, func(it review.Item) bool {
-				return it.Kind == r.Kind && strings.EqualFold(it.Label, review.LabelOf(r))
+				return sameItem(it, r)
 			})
 		})
 		var citeKeys, runKeys []string
@@ -187,13 +187,25 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 	return rv, err
 }
 
+// sameItem says whether r declares the item an earlier review saw. Reviews
+// written before items carried their identity match by label.
+func sameItem(it review.Item, r db.Record) bool {
+	if it.Kind != r.Kind {
+		return false
+	}
+	if it.Identity == "" {
+		return strings.EqualFold(it.Label, review.LabelOf(r))
+	}
+	return it.Identity == review.IdentityOf(r)
+}
+
 // latestItems keeps one of each item declared more than once in a round,
-// matched by kind and label without case: the last one declared.
+// matched by kind and identity: the last one declared.
 func latestItems(recs []db.Record) []db.Record {
 	seen := map[string]bool{}
 	var out []db.Record
 	for _, r := range slices.Backward(recs) {
-		k := r.Kind + "\x00" + strings.ToLower(review.LabelOf(r))
+		k := r.Kind + "\x00" + review.IdentityOf(r)
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, r)
@@ -241,7 +253,12 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 			return review.Result{}, fmt.Errorf("reading saved files: %w", err)
 		}
 		values := slices.DeleteFunc(valueChecks(MatchValuesIn(rv.work, runs, files), rv.work, runs, files), func(v review.ValueCheck) bool {
-			return slices.ContainsFunc(rv.carried, func(it review.Item) bool { return it.Label == review.ValueLabel(v) })
+			return slices.ContainsFunc(rv.carried, func(it review.Item) bool {
+				if it.Identity == "" {
+					return it.Label == review.ValueLabel(v)
+				}
+				return it.Identity == review.ValueIdentity(v)
+			})
 		})
 		return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
 			Values: values, Carried: rv.carried, Attempt: in.attempt})

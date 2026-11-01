@@ -146,7 +146,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	var askedText []string
 	var noQualifying []int
 	for _, rec := range in.Items {
-		it := Item{Key: rec.Key, Kind: rec.Kind}
+		it := Item{Key: rec.Key, Kind: rec.Kind, Identity: IdentityOf(rec)}
 		var title, text, abstract string
 		var hit sources.Hit
 		var missing, err error

@@ -29,12 +29,15 @@ type Check struct {
 }
 
 type Item struct {
-	Key     string  `json:"key"` // record key; "" for a missed paper
-	Kind    string  `json:"kind"`
-	Label   string  `json:"label"` // the paper id, accession, or the first 80 characters of the text
-	Status  string  `json:"status"`
-	Carried bool    `json:"carried,omitempty"`
-	Checks  []Check `json:"checks"`
+	Key   string `json:"key"` // record key; "" for a missed paper
+	Kind  string `json:"kind"`
+	Label string `json:"label"` // the paper id, accession, or the first 80 characters of the text
+	// Identity is what matches the item across declarations and attempts;
+	// the label is for display only.
+	Identity string  `json:"identity,omitempty"`
+	Status   string  `json:"status"`
+	Carried  bool    `json:"carried,omitempty"`
+	Checks   []Check `json:"checks"`
 }
 
 type Weakest struct {
