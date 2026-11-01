@@ -101,6 +101,9 @@ func TestItemsPromptPerColumn(t *testing.T) {
 	if !strings.Contains(itemsPrompt(board.Hypotheses), "never look up this study's own answer") {
 		t.Errorf("the Hypotheses prompt does not forbid looking up the answer")
 	}
+	if !strings.Contains(itemsPrompt(board.Hypotheses), "a Grounding record by its key") {
+		t.Errorf("the Hypotheses prompt does not say a hypothesis may cite Grounding records")
+	}
 	if !strings.Contains(itemsPrompt(board.Experimentation), "run_script") {
 		t.Errorf("the Experimentation prompt does not tie numbers to run_script runs")
 	}

@@ -188,3 +188,112 @@ func TestInstallPicksAFreeNameWhenCustomIsTaken(t *testing.T) {
 		}
 	}
 }
+
+// withInstructions is shipped with the leader's and first member's
+// instructions changed, as a later Lykeion release would ship it.
+func withInstructions(t *testing.T, shipped fstest.MapFS, name, leader, member string) fstest.MapFS {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(shipped[name+"/pack.json"].Data, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["leader"].(map[string]any)["agent"].(map[string]any)["instructions"] = leader
+	m["members"].([]any)[0].(map[string]any)["agent"].(map[string]any)["instructions"] = member
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	for k, v := range shipped {
+		out[k] = v
+	}
+	out[name+"/pack.json"] = &fstest.MapFile{Data: b}
+	return out
+}
+
+func TestInstallShippedRefreshesAnOlderShippedTeam(t *testing.T) {
+	st, ws, user, blobs := installLab(t)
+	ctx := context.Background()
+	old := shippedOf(t, "Grounding Team")
+	if err := installOnce(t, st, ws, user, blobs, old); err != nil {
+		t.Fatal(err)
+	}
+	// The owner's agents for the Team: the leader's as added, the member's
+	// edited by its owner.
+	var row db.FieldPack
+	agents := map[string]uuid.UUID{}
+	err := st.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		var err error
+		if row, err = tx.Q.ShippedPack(ctx, db.ShippedPackParams{WorkspaceID: ws, Name: "Grounding Team"}); err != nil {
+			return err
+		}
+		for member, instr := range map[string]string{"pi": "You are pi.", "member-1": "My own edit."} {
+			a, err := tx.Q.CreateAgent(ctx, db.CreateAgentParams{WorkspaceID: ws, Name: member + " · Grounding Team", Instructions: instr,
+				Harness: "claude", Visibility: "private", OwnerID: user, ConversationStarters: []byte("[]")})
+			if err != nil {
+				return err
+			}
+			agents[member] = a.ID
+			if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: ws, PackID: row.ID, UserID: user, Member: member, AgentID: a.ID}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := func() (db.FieldPack, map[string]string) {
+		t.Helper()
+		var r db.FieldPack
+		instr := map[string]string{}
+		err := st.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+			var err error
+			if r, err = tx.Q.ShippedPack(ctx, db.ShippedPackParams{WorkspaceID: ws, Name: "Grounding Team"}); err != nil {
+				return err
+			}
+			for member, id := range agents {
+				a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: ws, ID: id})
+				if err != nil {
+					return err
+				}
+				instr[member] = a.Instructions
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r, instr
+	}
+
+	// The same pack again changes nothing.
+	if err := installOnce(t, st, ws, user, blobs, old); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := current(); r.Sha256 != row.Sha256 || r.BlobKey != row.BlobKey {
+		t.Fatalf("an unchanged pack rewrote the row: sha %s blob %s", r.Sha256, r.BlobKey)
+	}
+
+	next := withInstructions(t, old, "Grounding Team", "You are pi, and you declare items.", "You are member-1, and you declare items.")
+	if err := installOnce(t, st, ws, user, blobs, next); err != nil {
+		t.Fatal(err)
+	}
+	r, instr := current()
+	if r.ID != row.ID || r.Sha256 == row.Sha256 || r.BlobKey == row.BlobKey {
+		t.Fatalf("the shipped row was not refreshed in place: id %s→%s sha %s→%s", row.ID, r.ID, row.Sha256, r.Sha256)
+	}
+	var m Manifest
+	if err := json.Unmarshal(r.Manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Leader.Agent.Instructions != "You are pi, and you declare items." {
+		t.Fatalf("the row keeps the old manifest: %q", m.Leader.Agent.Instructions)
+	}
+	if instr["pi"] != "You are pi, and you declare items." {
+		t.Errorf("the untouched leader agent keeps %q", instr["pi"])
+	}
+	if instr["member-1"] != "My own edit." {
+		t.Errorf("the edited member agent lost its owner's edit: %q", instr["member-1"])
+	}
+}

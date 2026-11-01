@@ -138,7 +138,7 @@ func recordCmd(e *env) *cobra.Command {
 			}
 			return record(cmd, e, a[0], body)
 		}}
-	put.Flags().StringSliceVar(&cites, "cites", nil, "the recorded calls and runs the record rests on, as call:KEY or run:KEY")
+	put.Flags().StringSliceVar(&cites, "cites", nil, "the recorded calls, runs and records the record rests on, as call:KEY, run:KEY or a record key such as r3")
 	contentFlags(put, "the record's JSON body")
 	outputFlag(put)
 	r.AddCommand(put)

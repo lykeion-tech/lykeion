@@ -11,8 +11,9 @@ For each hypothesis:
 - **Falsifier**: the observation that would prove it wrong.
 - **Mechanism**: why it should hold, in a few steps.
 - **Rivals**: other explanations of the same observation and what would tell them apart.
-- **Rests on**: the `call:KEY` of each retrieved source, in the hypothesis's `cites` (at least
-  one); reasoning from background knowledge is labelled in the text, never cited.
+- **Rests on**: the records it rests on, in the hypothesis's `cites` (at least one): a Grounding
+  record by its key (`r3`) or a retrieved source's `call:KEY`; reasoning from background
+  knowledge is labelled in the text, never cited.
 
 Declare each hypothesis as a `hypothesis` item (`lyk record put hypothesis`), its prediction in
 one of three shapes: a direction, a choice between named outcomes, or a numeric range with its

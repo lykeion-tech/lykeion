@@ -27,7 +27,7 @@ Recording a source (one record per source you rely on):
 Identifiers:
 - Copy identifiers exactly as the tool returned them; never complete or guess one.
 - A DOI of the form 10.48550/arXiv.NNNN.NNNNN names an arXiv preprint: report it also as
-  arXiv:NNNN.NNNNN (no version suffix). A source URL on arxiv.org/abs/ gives the same identifier.
+  arxiv:NNNN.NNNNN (no version suffix). A source URL on arxiv.org/abs/ gives the same identifier.
 - If a source has no identifier in what you retrieved, say so rather than inventing one.
 
 If a tool call fails or a text will not open, record that (`lyk record put limitation ...`) and

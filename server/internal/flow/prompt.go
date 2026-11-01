@@ -125,12 +125,12 @@ func itemsPrompt(column string) string {
 			"(when the study lists none, the research question itself). The server also searches from the question and criteria and Jev screens what it finds: papers that fit and are not cited count against the column, " +
 			"and `no_qualifying` stands only if no paper qualifies. Declare only sources that meet every criterion; record near-misses as ordinary records, never as items.\n"
 	case board.Hypotheses:
-		return "Declare each hypothesis as an item: `lyk record put hypothesis --content '{\"text\":\"the hypothesis\",\"prediction\":{\"shape\":\"direction\",\"direction\":\"increase\"},\"control\":{\"text\":\"the baseline it is compared with\"},\"cites\":[\"call:KEY\"]}'`.\n" +
+		return "Declare each hypothesis as an item: `lyk record put hypothesis --content '{\"text\":\"the hypothesis\",\"prediction\":{\"shape\":\"direction\",\"direction\":\"increase\"},\"control\":{\"text\":\"the baseline it is compared with\"},\"cites\":[\"r3\",\"call:KEY\"]}'`.\n" +
 			"The prediction takes one of three shapes: a direction (`{\"shape\":\"direction\",\"direction\":\"increase\"}`, or `decrease` or `no_change`); " +
 			"a choice between named outcomes (`{\"shape\":\"outcomes\",\"outcomes\":[\"A\",\"B\"],\"chosen\":\"A\"}`); " +
 			"or a numeric range with its uncertainty (`{\"shape\":\"range\",\"low\":0.2,\"high\":0.4,\"uncertainty\":\"90% interval\"}`). " +
 			"The control is `{\"text\":\"…\"}`, or `{\"none\":\"why there is none\"}`. " +
-			"Each hypothesis cites at least one recorded call (`call:KEY`): a source fetched in this study, by an earlier column or by you. " +
+			"Each hypothesis cites at least one record of this study: a Grounding record by its key (`r3`), or a recorded call (`call:KEY`) for a source you fetched. " +
 			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it, and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n"
 	case board.Experimentation:
 		return "Before you finish, declare the files the column produced, as saved with `lyk output put`, in one record that lists them all (only the latest counts): `lyk record put outputs --content '{\"files\":[\"results.csv\"]}'`. " +

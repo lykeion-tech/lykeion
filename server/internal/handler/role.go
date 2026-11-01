@@ -144,7 +144,7 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, k := range cites {
 				if !slices.Contains(found, k) {
-					return service.Invalid("no recorded call or run has the key " + k)
+					return service.Invalid("no recorded call, run or record has the key " + k)
 				}
 			}
 		}
@@ -171,12 +171,14 @@ func (h *H) createRecord(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	callKey = regexp.MustCompile(`^c[0-9]+$`)
-	runKey  = regexp.MustCompile(`^x[0-9]+$`)
+	callKey   = regexp.MustCompile(`^c[0-9]+$`)
+	runKey    = regexp.MustCompile(`^x[0-9]+$`)
+	recordKey = regexp.MustCompile(`^r[0-9]+$`)
 )
 
-// recordCites reads the calls and runs a record body cites, `call:<key>` or
-// `run:<key>` each, and returns their keys.
+// recordCites reads what a record body cites, `call:<key>`, `run:<key>` or a
+// bare record key such as `r3` (an earlier column's item), and returns the
+// keys.
 func recordCites(body json.RawMessage) ([]string, error) {
 	var v struct {
 		Cites json.RawMessage `json:"cites"`
@@ -187,7 +189,7 @@ func recordCites(body json.RawMessage) ([]string, error) {
 	}
 	var refs []string
 	if err := json.Unmarshal(v.Cites, &refs); err != nil {
-		return nil, errors.New("cites must be a list of call:KEY or run:KEY references")
+		return nil, errors.New("cites must be a list of call:KEY, run:KEY or record key references")
 	}
 	keys := make([]string, 0, len(refs))
 	for _, ref := range refs {
@@ -198,8 +200,11 @@ func recordCites(body json.RawMessage) ([]string, error) {
 			k, ok = strings.CutPrefix(ref, "run:")
 			ok = ok && runKey.MatchString(k)
 		}
+		if !ok && recordKey.MatchString(ref) {
+			k, ok = ref, true
+		}
 		if !ok {
-			return nil, fmt.Errorf("cite %q is not a call:KEY or run:KEY reference", ref)
+			return nil, fmt.Errorf("cite %q is not a call:KEY, run:KEY or record key reference", ref)
 		}
 		keys = append(keys, k)
 	}

@@ -239,7 +239,7 @@ func TestARecordMayCiteARun(t *testing.T) {
 	if c, e := post("run:x1", "call:c1"); c != 201 {
 		t.Fatalf("a run and a call cited: %d %s", c, e)
 	}
-	if c, e := post("run:x9"); c != 400 || e != "no recorded call or run has the key x9" {
+	if c, e := post("run:x9"); c != 400 || e != "no recorded call, run or record has the key x9" {
 		t.Fatalf("an unrecorded run: %d %q", c, e)
 	}
 	if c, _ := post("run:c1"); c != 400 {
@@ -291,7 +291,6 @@ func postScriptRun(t *testing.T, l *teamLab, extra map[string]any, tool string) 
 	return body
 }
 
-
 func TestPostRunIgnoresResultsFromOlderDaemons(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
@@ -302,5 +301,35 @@ func TestPostRunIgnoresResultsFromOlderDaemons(t *testing.T) {
 	}
 	if _, body := l.runRecord(t, leader.token, "x1"); body["results"] != nil || body["results_error"] != nil {
 		t.Fatalf("the record keeps results: %+v", body)
+	}
+}
+
+func TestAHypothesisMayCiteAGroundingRecord(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	// The paper Grounding declared, as that column left it.
+	err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), uuid.Nil, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(l.card.ID), BoardColumn: "grounding",
+			Kind: "paper", Role: "leader", Key: "r1", Body: json.RawMessage(`{"id":"arxiv:2106.01234","text":"a paper","cites":[]}`)})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(cites ...string) (int, string) {
+		var e struct{ Error string }
+		body := map[string]any{"text": "h", "prediction": map[string]any{"shape": "direction", "direction": "increase"},
+			"control": map[string]any{"none": "no baseline"}, "cites": cites}
+		c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "hypothesis", "body": body}, &e)
+		return c, e.Error
+	}
+	if c, e := post("r1"); c != 201 {
+		t.Fatalf("a hypothesis citing the Grounding paper: %d %s", c, e)
+	}
+	if c, e := post("r999"); c != 400 || e != "no recorded call, run or record has the key r999" {
+		t.Fatalf("an unknown record key: %d %q", c, e)
+	}
+	if c, _ := post("paper"); c != 400 {
+		t.Fatalf("a cite that is no key: %d", c)
 	}
 }

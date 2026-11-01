@@ -16,7 +16,7 @@ import (
 func TestShippedTeamsHaveNoCriteria(t *testing.T) {
 	put := regexp.MustCompile(`lyk record put (\w+)(?: --cites \S+)? --content '([^']*)'`)
 	kinds := map[string][]string{
-		"Grounding Team":       {"paper", "no_qualifying"},
+		"Grounding Team":       {"paper", "dataset", "no_qualifying"},
 		"Hypotheses Team":      {"hypothesis"},
 		"Experimentation Team": {"outputs"},
 	}
