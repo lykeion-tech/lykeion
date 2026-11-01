@@ -5,7 +5,12 @@ import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 import { useCards, useResearches, useWorkspace } from '../api/queries';
 import { workspaceId } from '../api/session';
-import { paletteEntries, rankPaletteEntries, type PaletteEntry } from '../lib/search';
+import {
+  paletteEntries,
+  paletteSelection,
+  rankPaletteEntries,
+  type PaletteEntry,
+} from '../lib/search';
 import { columnName, timeAgo } from '../lib/studies';
 
 const emit = defineEmits<{ close: [] }>();
@@ -28,9 +33,17 @@ const selected = computed(() => results.value[active.value]);
 const loading = computed(() => studies.isPending.value || researches.isPending.value);
 const failure = computed(() => studies.error.value || researches.error.value);
 watch(workspaceId, () => emit('close'), { flush: 'sync' });
-watch(results, () => {
-  active.value = 0;
+let rankedQuery = query.value;
+let moved = false;
+watch(results, (next, previous) => {
+  if (query.value !== rankedQuery) moved = false;
+  rankedQuery = query.value;
+  active.value = paletteSelection(previous, next, active.value, moved);
 });
+function select(index: number) {
+  moved = true;
+  active.value = index;
+}
 watch(active, async () => {
   await nextTick();
   list.value?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -58,9 +71,11 @@ async function open(entry?: PaletteEntry) {
 function key(event: KeyboardEvent) {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault();
-    active.value = Math.max(
-      0,
-      Math.min(results.value.length - 1, active.value + (event.key === 'ArrowDown' ? 1 : -1)),
+    select(
+      Math.max(
+        0,
+        Math.min(results.value.length - 1, active.value + (event.key === 'ArrowDown' ? 1 : -1)),
+      ),
     );
   } else if (event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
@@ -111,7 +126,7 @@ function key(event: KeyboardEvent) {
             role="option"
             :aria-selected="active === index"
             class="palette-option"
-            @mouseenter="active = index"
+            @mouseenter="select(index)"
             @mousedown.prevent
             @click="open(entry)"
           >
