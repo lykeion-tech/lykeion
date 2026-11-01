@@ -56,7 +56,9 @@ func screen(ctx context.Context, a Asker, qs map[string]string, framing []string
 		if !ok {
 			return nil, fmt.Errorf("jev gave no answer for %s", id)
 		}
-		cs = append(cs, Check{ID: id, By: "jev", Question: qs[id], P: &p, Status: StatusOf(p)})
+		status := StatusOf(p)
+		p = stored(p)
+		cs = append(cs, Check{ID: id, By: "jev", Question: qs[id], P: &p, Status: status})
 	}
 	return cs, nil
 }
@@ -292,7 +294,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		if !ok {
 			return Result{}, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
 		}
-		r.Weakest = &Weakest{Key: key, P: ans.Probabilities[ans.Choice]}
+		r.Weakest = &Weakest{Key: key, P: stored(ans.Probabilities[ans.Choice])}
 	}
 	return r, nil
 }

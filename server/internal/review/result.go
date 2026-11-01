@@ -2,6 +2,7 @@ package review
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -64,6 +65,12 @@ type Result struct {
 	Recall   *Recall  `json:"recall,omitempty"`
 	Weakest  *Weakest `json:"weakest,omitempty"`
 	Decision string   `json:"decision"`
+}
+
+// stored is p as a review keeps it, to 3 places; statuses are taken from p
+// as Jev gave it.
+func stored(p float64) float64 {
+	return math.Round(p*1000) / 1000
 }
 
 // StatusOf maps Jev's probability of yes to a status.

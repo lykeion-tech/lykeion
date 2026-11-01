@@ -19,10 +19,11 @@ type choiceCall struct {
 }
 
 // fakeAsker answers every Noul question with p(state, key), and every Choice
-// with choice at probability 0.6.
+// with choice at probability choiceP, or 0.6.
 type fakeAsker struct {
 	p       func(state, key string) float64
 	choice  string
+	choiceP float64
 	noul    []noulCall
 	choices []choiceCall
 }
@@ -41,7 +42,11 @@ func (f *fakeAsker) Noul(_ context.Context, state string, qs map[string]string) 
 
 func (f *fakeAsker) Choice(_ context.Context, state, instructions string, options map[string]string) (jev.Answer, error) {
 	f.choices = append(f.choices, choiceCall{state, instructions, options})
-	return jev.Answer{Choice: f.choice, Probabilities: map[string]float64{f.choice: 0.6}}, nil
+	p := f.choiceP
+	if p == 0 {
+		p = 0.6
+	}
+	return jev.Answer{Choice: f.choice, Probabilities: map[string]float64{f.choice: p}}, nil
 }
 
 // fakeSources resolves the ids it holds; ids in outage fail as an upstream

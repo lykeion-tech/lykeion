@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -180,6 +181,20 @@ func TestRecordsWrittenTogetherListInKeyOrder(t *testing.T) {
 	for i, k := range []string{"r1", "r2", "r9", "r10"} {
 		if all[i].Key != k {
 			t.Fatalf("order %+v", all)
+		}
+	}
+}
+
+func TestAnEmptyColumnListsNoRecords(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	for _, q := range []string{"?column=validation", "?column=validation&all=1", "?kind=nothing"} {
+		var raw json.RawMessage
+		if code := s.call(t, "GET", "/api/cards/"+c.ID+"/records"+q, a, w.ID, nil, &raw); code != 200 || string(raw) != "[]" {
+			t.Errorf("%s: %d %s", q, code, raw)
 		}
 	}
 }

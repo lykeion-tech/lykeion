@@ -148,3 +148,29 @@ func TestHypothesesNoItemsIsAFail(t *testing.T) {
 		t.Error("want redo")
 	}
 }
+
+func TestProbabilitiesAreStoredToThreePlaces(t *testing.T) {
+	tenth := 0.1
+	a := &fakeAsker{choice: "hyp:1", choiceP: tenth + 0.2, p: func(_, key string) float64 {
+		switch key {
+		case "lookup":
+			return 0.57 // inverted: 0.43000000000000005
+		case "falsifiable":
+			return 0.6996
+		}
+		return 0.9
+	}}
+	r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q", Cited: citedPaper(t, "p1"),
+		Items: []db.Record{hyp(t, "h1", Control{Text: "vehicle"}, "p1"), hyp(t, "h2", Control{Text: "vehicle"}, "p1")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup, falsifiable := checkOf(r.Items[0], "lookup"), checkOf(r.Items[0], "falsifiable")
+	if *lookup.P != 0.43 || *falsifiable.P != 0.7 || r.Weakest.P != 0.3 {
+		t.Errorf("stored lookup %v, falsifiable %v, weakest %v", *lookup.P, *falsifiable.P, r.Weakest.P)
+	}
+	// The status is taken from Jev's answer as given, before rounding.
+	if falsifiable.Status != Unclear {
+		t.Errorf("falsifiable at 0.6996 is %s", falsifiable.Status)
+	}
+}

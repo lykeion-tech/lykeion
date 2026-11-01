@@ -85,7 +85,9 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 				if id == "lookup" {
 					p = 1 - p
 				}
-				c.P, c.Status = &p, StatusOf(p)
+				c.Status = StatusOf(p)
+				p = stored(p)
+				c.P = &p
 				it.Checks = append(it.Checks, c)
 			}
 			asked = append(asked, it)
@@ -118,7 +120,7 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 		if !ok {
 			return Result{}, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
 		}
-		r.Weakest = &Weakest{Key: key, P: ans.Probabilities[ans.Choice]}
+		r.Weakest = &Weakest{Key: key, P: stored(ans.Probabilities[ans.Choice])}
 	}
 	return r, nil
 }

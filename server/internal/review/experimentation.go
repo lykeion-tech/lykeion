@@ -96,7 +96,9 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 			if !ok {
 				return Result{}, fmt.Errorf("jev gave no answer for described")
 			}
-			it.Checks = append(it.Checks, Check{ID: "described", By: "jev", Question: describedQuestion, P: &p, Status: StatusOf(p), Warning: true})
+			status := StatusOf(p)
+			p = stored(p)
+			it.Checks = append(it.Checks, Check{ID: "described", By: "jev", Question: describedQuestion, P: &p, Status: status, Warning: true})
 		}
 		it.Status = ItemStatus(it.Checks)
 		r.Items = append(r.Items, it)

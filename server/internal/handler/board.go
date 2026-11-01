@@ -232,6 +232,9 @@ func (h *H) cardRecords(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if out == nil {
+		out = []db.Record{}
+	}
 	writeJSON(w, 200, out)
 }
 
