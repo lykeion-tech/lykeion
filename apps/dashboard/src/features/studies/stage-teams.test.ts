@@ -657,11 +657,11 @@ describe('TeamDetail', () => {
       own.unmount();
     }
   });
-  it('shows Duplicate this Team and no edit for a built-in Team', async () => {
+  it('shows Duplicate and no edit for a built-in Team', async () => {
     const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
     try {
       expect(t.text()).toContain('Hypotheses Team');
-      expect(t.text()).toContain('Duplicate this Team');
+      expect(t.button(/^Duplicate$/)).toBeTruthy();
       expect(t.text()).not.toContain('Add Team');
       expect(t.text()).not.toMatch(/Delete/);
       expect(t.text()).toContain('scout');
@@ -674,7 +674,7 @@ describe('TeamDetail', () => {
   it('prefills the duplicate with the Team’s name and (duplicate)', async () => {
     const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
     try {
-      await t.click(/Duplicate this Team/);
+      await t.click(/^Duplicate$/);
       expect(t.input('Name of the duplicate')?.value).toBe('Hypotheses Team (duplicate)');
       expect(t.text()).not.toMatch(/copy/i);
     } finally {
@@ -685,7 +685,7 @@ describe('TeamDetail', () => {
   it('keeps editing for a researcher’s own Team', async () => {
     const t = await mount(TeamDetail, () => ({ id: 't2' }), '/teams/t2');
     try {
-      expect(t.text()).not.toContain('Duplicate this Team');
+      expect(t.button(/^Duplicate$/)).toBeFalsy();
       await t.click(/scout/);
       expect(t.text()).toContain('Edit skills');
     } finally {

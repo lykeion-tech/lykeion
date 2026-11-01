@@ -40,8 +40,32 @@ func TestEveryTenantTableHasAPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Keep the count explicit so a missing table cannot make the policy check pass.
-	if n != 61 {
-		t.Fatalf("found %d tenant tables, want 61", n)
+	if n != 62 {
+		t.Fatalf("found %d tenant tables, want 62", n)
+	}
+}
+
+func TestAgentCapabilitiesCannotReferenceAnotherWorkspace(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	user, first, second, agent := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO "user"(id,email) VALUES($1,'agent-capability-rls@test')`, []any{user}},
+		{`INSERT INTO workspace(id,slug,name) VALUES($1,'agent-cap-a','a'),($2,'agent-cap-b','b')`, []any{first, second}},
+		{`INSERT INTO agent(id,workspace_id,name,harness,owner_id) VALUES($1,$2,'agent','claude',$3)`, []any{agent, second, user}},
+	} {
+		if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO agent_capabilities(workspace_id,agent_id) VALUES($1,$2)`, first, agent); err == nil {
+		t.Fatal("accepted agent from another workspace")
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO agent_capabilities(workspace_id,agent_id) VALUES($1,$2)`, second, agent); err != nil {
+		t.Fatalf("own workspace: %v", err)
 	}
 }
 

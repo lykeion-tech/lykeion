@@ -36,6 +36,45 @@ type Tx struct {
 	after  []func()
 }
 
+type AgentCapabilities struct {
+	Skills     json.RawMessage `json:"skills"`
+	Connectors json.RawMessage `json:"connectors"`
+}
+
+func (t *Tx) AgentCapabilities(ctx context.Context, agent uuid.UUID) (AgentCapabilities, error) {
+	var c AgentCapabilities
+	err := t.raw.QueryRow(ctx, `SELECT skills, connectors FROM agent_capabilities WHERE workspace_id=$1 AND agent_id=$2`, t.WS, agent).Scan(&c.Skills, &c.Connectors)
+	return c, err
+}
+
+func (t *Tx) SetAgentCapabilities(ctx context.Context, agent uuid.UUID, c AgentCapabilities) error {
+	_, err := t.raw.Exec(ctx, `INSERT INTO agent_capabilities(workspace_id,agent_id,skills,connectors) VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,agent_id) DO UPDATE SET skills=excluded.skills,connectors=excluded.connectors`, t.WS, agent, c.Skills, c.Connectors)
+	return err
+}
+
+func (t *Tx) AgentHasLiveStudyRuns(ctx context.Context, agent uuid.UUID) (bool, error) {
+	var live bool
+	err := t.raw.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id=$1 AND agent_id=$2 AND kind <> 'coresearch' AND status IN ('queued','dispatched','running'))`, t.WS, agent).Scan(&live)
+	return live, err
+}
+
+func (t *Tx) AgentTeams(ctx context.Context, agent uuid.UUID) ([]db.TeamAgent, error) {
+	rows, err := t.raw.Query(ctx, `SELECT workspace_id, pack_id, user_id, member, agent_id FROM team_agent WHERE workspace_id=$1 AND agent_id=$2 ORDER BY pack_id, member`, t.WS, agent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []db.TeamAgent
+	for rows.Next() {
+		var item db.TeamAgent
+		if err := rows.Scan(&item.WorkspaceID, &item.PackID, &item.UserID, &item.Member, &item.AgentID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 // SetCoresearchRunConnectors binds the selected workspace connectors to one run.
 func (t *Tx) SetCoresearchRunConnectors(ctx context.Context, run uuid.UUID, ids []uuid.UUID) error {
 	for _, id := range ids {

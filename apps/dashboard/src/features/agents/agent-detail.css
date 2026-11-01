@@ -364,6 +364,9 @@
   border-radius: 12px;
   background: var(--input);
 }
+.agent-pane .add-starter {
+  background: var(--input);
+}
 .agent-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 370px;

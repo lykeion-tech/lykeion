@@ -88,39 +88,10 @@ async function chooseCapability(kind: 'skills' | 'connectors', name: string) {
   if (capabilities.value[kind].includes(name)) return;
   selectCapability(kind, name);
   if (kind === 'skills') {
-    const prefix = props.modelValue && !/\s$/.test(props.modelValue) ? ' ' : '';
-    emit('update:modelValue', `${props.modelValue}${prefix}/${name} `);
     await nextTick();
     textarea.value?.focus();
   }
 }
-const highlighted = computed(() => {
-  const text = props.modelValue;
-  const names = [...capabilities.value.skills].sort((a, b) => b.length - a.length);
-  const parts: { text: string; selected: boolean }[] = [];
-  let start = 0,
-    cursor = 0;
-  while (cursor < text.length) {
-    const found =
-      text[cursor] === '/'
-        ? names.find(
-            (n) =>
-              text.startsWith(`/${n}`, cursor) &&
-              (cursor + n.length + 1 === text.length || /\s/.test(text[cursor + n.length + 1]!)),
-          )
-        : undefined;
-    if (!found) {
-      cursor++;
-      continue;
-    }
-    if (cursor > start) parts.push({ text: text.slice(start, cursor), selected: false });
-    parts.push({ text: `/${found}`, selected: true });
-    cursor += found.length + 1;
-    start = cursor;
-  }
-  if (start < text.length) parts.push({ text: text.slice(start), selected: false });
-  return parts;
-});
 
 const caret = ref(0),
   mentionIndex = ref(0),
@@ -171,18 +142,9 @@ function submit() {
 }
 function removeSkill(name: string) {
   capabilities.value.skills = capabilities.value.skills.filter((n) => n !== name);
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  emit(
-    'update:modelValue',
-    props.modelValue.replace(new RegExp(`(^|\\s)/${escaped}(?=\\s|$)`, 'g'), '$1'),
-  );
 }
 function edit(e: Event) {
   const el = e.target as HTMLTextAreaElement;
-  capabilities.value.skills = capabilities.value.skills.filter((name) => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(^|\\s)/${escaped}(?=\\s|$)`).test(el.value);
-  });
   emit('update:modelValue', el.value);
   caret.value = el.selectionStart ?? el.value.length;
   mentionIndex.value = 0;
@@ -204,10 +166,10 @@ onMounted(() => autosize(textarea.value));
 async function insertSkill(name: string) {
   selectCapability('skills', name);
   const start = props.modelValue.slice(0, caret.value).lastIndexOf('/');
-  const at = start + name.length + 2;
+  const at = start;
   emit(
     'update:modelValue',
-    `${props.modelValue.slice(0, start)}/${name} ${props.modelValue.slice(caret.value)}`,
+    `${props.modelValue.slice(0, start)}${props.modelValue.slice(caret.value)}`,
   );
   dismissed.value = true;
   await nextTick();
@@ -332,12 +294,6 @@ const inline = (text?: string) =>
         @change="pick"
       />
       <div class="composer-input-wrap">
-        <div v-if="modelValue" class="composer-input-mirror" aria-hidden="true">
-          <template v-for="(part, index) in highlighted" :key="index"
-            ><span v-if="part.selected" class="composer-selection">{{ part.text }}</span
-            ><template v-else>{{ part.text }}</template></template
-          >{{ '\n' }}
-        </div>
         <textarea
           ref="textarea"
           class="composer-textarea"
@@ -354,12 +310,6 @@ const inline = (text?: string) =>
             dismissed = false;
           "
           @keydown="keydown"
-          @scroll="
-            ($event.target as HTMLTextAreaElement).previousElementSibling &&
-            (($event.target as HTMLTextAreaElement).previousElementSibling!.scrollTop = (
-              $event.target as HTMLTextAreaElement
-            ).scrollTop)
-          "
         />
       </div>
       <div

@@ -188,6 +188,7 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/teams", h.createTeam)
 		r.Patch("/api/teams/{id}", h.updateTeamSettings)
 		r.Post("/api/teams/{id}/skills", h.saveTeamSkills)
+		r.Post("/api/teams/{id}/connectors", h.saveTeamConnectors)
 		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)
 
 		r.Get("/api/me", h.me)
@@ -306,6 +307,9 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/agents", h.listAgents)
 			r.Post("/api/agents", h.createAgent)
 			r.Get("/api/agents/{id}", h.getAgent)
+			r.Post("/api/agents/{id}/duplicate", h.duplicateAgent)
+			r.Get("/api/agents/{id}/customize", h.getAgentCapabilities)
+			r.Put("/api/agents/{id}/customize", h.saveAgentCapabilities)
 			r.Patch("/api/agents/{id}", h.updateAgent)
 			r.Delete("/api/agents/{id}", h.deleteAgent)
 			r.Post("/api/agents/{id}/archive", h.archiveAgent)

@@ -383,7 +383,7 @@ function tabKey(event: KeyboardEvent, index: number) {
                   copyName = manifest.name + ' (duplicate)';
                 "
               >
-                Duplicate this Team</button
+                Duplicate</button
               ><button v-if="added || builtIn" class="button primary" @click="newStudy">
                 <Icon name="plus" :size="14" />New study</button
               ><button

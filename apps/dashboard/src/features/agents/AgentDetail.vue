@@ -20,6 +20,7 @@ import { workspaceId } from '../../api/session';
 import type { AgentDefinition, Card } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
+import Modal from '../../ui/Modal.vue';
 import { useStudyComposer } from '../../state/study-composer';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
@@ -33,6 +34,7 @@ import {
 import { notify } from '../../state/notice';
 import { agentNameWithoutCli } from '../../lib/agent-name';
 import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
+import AgentCustomize from './AgentCustomize.vue';
 import '../coresearch/l2.css';
 
 const props = defineProps<{ id: string }>();
@@ -69,6 +71,7 @@ const runtimes = useRuntimes();
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   section = ref<'general' | 'access'>('general'),
+  capabilitySection = ref<'instructions' | 'customize'>('instructions'),
   search = ref(''),
   collapsed = ref<string[]>([]),
   busy = ref(false),
@@ -76,6 +79,9 @@ const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
 const general = ref({ name: '', description: '', harness: 'claude', model: '' }),
   visibility = ref<'workspace' | 'private'>('workspace'),
   instructions = ref('');
+const copyName = ref<string | null>(null),
+  copyBusy = ref(false),
+  copyError = ref('');
 const modelChoices = computed(() => {
   const runtime = runtimes.data.value?.find(
     (r) =>
@@ -193,6 +199,9 @@ watch(
     editGeneration++;
     busy.value = false;
     tab.value = requestedTab();
+    copyName.value = null;
+    copyBusy.value = false;
+    copyError.value = '';
     error.value = '';
   },
   { flush: 'sync' },
@@ -255,6 +264,33 @@ async function deleteAgent() {
     if (generation === editGeneration) busy.value = false;
   }
 }
+async function duplicateAgent() {
+  const name = copyName.value?.trim();
+  if (!name || copyBusy.value) return;
+  const ws = workspaceId.value,
+    id = props.id,
+    generation = editGeneration;
+  copyBusy.value = true;
+  copyError.value = '';
+  try {
+    const copy = await api<AgentDefinition>(
+      'POST',
+      `/api/agents/${id}/duplicate`,
+      { name },
+      undefined,
+      { workspace: ws },
+    );
+    await client.invalidateQueries({ queryKey: keys.agents(ws) });
+    if (generation === editGeneration) {
+      copyName.value = null;
+      await router.push(`/agents/${copy.id}`);
+    }
+  } catch (e) {
+    if (generation === editGeneration) copyError.value = (e as Error).message;
+  } finally {
+    if (generation === editGeneration) copyBusy.value = false;
+  }
+}
 function toggle(id: string) {
   collapsed.value = collapsed.value.includes(id)
     ? collapsed.value.filter((x) => x !== id)
@@ -296,6 +332,18 @@ function toggle(id: string) {
               </p>
             </div>
             <div class="agent-actions">
+              <button
+                class="button"
+                :disabled="copyBusy"
+                @click="
+                  copyError = '';
+                  copyName =
+                    [...agentNameWithoutCli(agent.name, agent.harness)].slice(0, 52).join('') +
+                    ' (duplicate)';
+                "
+              >
+                Duplicate
+              </button>
               <button v-if="mayDelete" class="button" :disabled="busy" @click="deleteAgent">
                 <Icon name="trash" :size="14" />Delete agent
               </button>
@@ -311,7 +359,7 @@ function toggle(id: string) {
         </header>
         <div class="agent-tabs-bar" role="tablist">
           <button
-            v-for="t in ['overview', 'work', 'capabilities', 'settings'] as const"
+            v-for="t in ['overview', 'capabilities', 'work', 'settings'] as const"
             :key="t"
             role="tab"
             :aria-selected="tab === t"
@@ -419,9 +467,16 @@ function toggle(id: string) {
 
       <div v-else class="agent-split">
         <nav class="agent-subnav">
-          <template v-if="tab === 'capabilities'"
-            ><button aria-current="page">Instructions</button></template
-          >
+          <template v-if="tab === 'capabilities'">
+            <button
+              v-for="item in ['instructions', 'customize'] as const"
+              :key="item"
+              :aria-current="capabilitySection === item ? 'page' : undefined"
+              @click="capabilitySection = item"
+            >
+              {{ item === 'instructions' ? 'Instructions' : 'Customize' }}
+            </button>
+          </template>
           <template v-else
             ><button
               v-for="s in ['general', 'access'] as const"
@@ -434,13 +489,12 @@ function toggle(id: string) {
           >
         </nav>
         <form
-          v-if="tab === 'capabilities'"
+          v-if="tab === 'capabilities' && capabilitySection === 'instructions'"
           class="agent-pane"
           @submit.prevent="patch({ instructions })"
         >
           <h2>Instructions</h2>
           <p class="agent-lede">Set the instructions this agent works from.</p>
-          <label class="agent-label" for="agent-instructions">System prompt</label>
           <textarea
             id="agent-instructions"
             v-model="instructions"
@@ -454,6 +508,7 @@ function toggle(id: string) {
             </button>
           </footer>
         </form>
+        <AgentCustomize v-else-if="tab === 'capabilities'" :id="id" :editable="editable" />
         <form
           v-else-if="section === 'general'"
           class="agent-pane"
@@ -550,7 +605,7 @@ function toggle(id: string) {
           <button
             v-if="editable"
             type="button"
-            class="button"
+            class="button add-starter"
             :disabled="starters.length >= 12"
             @click="starters.push({ label: '', prompt: '' })"
           >
@@ -613,11 +668,68 @@ function toggle(id: string) {
     <p v-if="detail.error.value" class="inline-error agent-error" role="alert">
       {{ detail.error.value.message }} <button @click="detail.refetch()">Retry</button>
     </p>
+    <Modal v-if="copyName !== null" title="Duplicate agent" @close="!copyBusy && (copyName = null)">
+      <form class="agent-copy" @submit.prevent="duplicateAgent">
+        <h2>Duplicate agent</h2>
+        <p>
+          The copy is a personal agent you can change.
+          <template v-if="agents.data.value?.find((item) => item.id === id)?.team_member">
+            Team-only skills and connectors are not copied.
+          </template>
+        </p>
+        <label
+          >Name<input
+            v-model="copyName"
+            aria-label="Name of the duplicate"
+            maxlength="64"
+            :disabled="copyBusy"
+        /></label>
+        <p v-if="copyError" role="alert" class="inline-error">{{ copyError }}</p>
+        <footer>
+          <button type="button" class="button" :disabled="copyBusy" @click="copyName = null">
+            Cancel</button
+          ><button class="button primary" :disabled="copyBusy || !copyName.trim()">
+            {{ copyBusy ? 'Duplicating…' : 'Duplicate' }}
+          </button>
+        </footer>
+      </form>
+    </Modal>
   </section>
 </template>
 <style src="./agent-detail.css" />
 
 <style scoped>
+.agent-copy {
+  padding: 24px;
+}
+.agent-copy h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+.agent-copy p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.agent-copy label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.agent-copy input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.agent-copy footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
 :deep(.agent-avatar .aristotle-art) {
   width: 44px;
   height: 48px;

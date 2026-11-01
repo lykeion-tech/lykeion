@@ -32,6 +32,30 @@ import (
 
 var testSecret = bytes.Repeat([]byte{7}, 32)
 
+func TestStandaloneAgentConnectorSelection(t *testing.T) {
+	f := newConnFix(t, ok(`{}`))
+	ctx := t.Context()
+	var agent uuid.UUID
+	if err := f.env.Owner.QueryRow(ctx, `INSERT INTO agent(workspace_id,name,harness,owner_id) VALUES($1,'agent','claude',$2) RETURNING id`, f.ws, f.user).Scan(&agent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `INSERT INTO agent_capabilities(workspace_id,agent_id,skills,connectors) VALUES($1,$2,'[]','[{"name":"ensembl","catalogue":"ensembl"}]')`, f.ws, agent); err != nil {
+		t.Fatal(err)
+	}
+	role := f.role(f.card, "agent")
+	if _, err := f.env.Owner.Exec(ctx, `UPDATE agent_run SET agent_id=$1 WHERE id=$2`, agent, role.AgentRunID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.h.Connectors(ctx, role)
+	if err != nil || len(got) != 1 || got[0].Name != "ensembl" {
+		t.Fatalf("selected connectors: %+v %v", got, err)
+	}
+	_, err = f.h.Fetch(ctx, role, runTok(role), ConnectorIn{Connector: "ena", Path: "/"})
+	if err == nil || !strings.Contains(err.Error(), "does not have") {
+		t.Fatalf("unselected connector was allowed: %v", err)
+	}
+}
+
 type connFix struct {
 	t               *testing.T
 	env             *testutil.Env

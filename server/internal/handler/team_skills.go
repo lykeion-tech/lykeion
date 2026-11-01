@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -55,6 +56,14 @@ func plural(n int32, one, many string) string {
 }
 
 func (h *H) saveTeamSkills(w http.ResponseWriter, r *http.Request) {
+	h.saveTeamCapabilities(w, r, false)
+}
+
+func (h *H) saveTeamConnectors(w http.ResponseWriter, r *http.Request) {
+	h.saveTeamCapabilities(w, r, true)
+}
+
+func (h *H) saveTeamCapabilities(w http.ResponseWriter, r *http.Request, connectors bool) {
 	ws, scopeErr := uuid.Parse(middleware.FromHeader(r))
 	if scopeErr != nil {
 		writeErr(w, 400, "X-Workspace-ID required")
@@ -66,8 +75,9 @@ func (h *H) saveTeamSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Member string   `json:"member"`
-		Skills []string `json:"skills"`
+		Member     string           `json:"member"`
+		Skills     []string         `json:"skills"`
+		Connectors []pack.Connector `json:"connectors"`
 	}
 	var source db.FieldPack
 	err := h.memberTx(r, ws, false, func(tx *store.Tx) (err error) {
@@ -79,8 +89,8 @@ func (h *H) saveTeamSkills(w http.ResponseWriter, r *http.Request) {
 	if !answer(w, r, err) {
 		return
 	}
-	if err := readJSON(r, &in); err != nil || in.Member == "" || in.Skills == nil {
-		writeErr(w, 400, "member and skills are required")
+	if err := readJSON(r, &in); err != nil || in.Member == "" || (!connectors && in.Skills == nil) || (connectors && in.Connectors == nil) {
+		writeErr(w, 400, "member and capabilities are required")
 		return
 	}
 	base, err := pack.Load(r.Context(), h.Blobs, source)
@@ -103,6 +113,34 @@ func (h *H) saveTeamSkills(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "unknown Team member")
 		return
 	}
+	if connectors {
+		for i, c := range in.Connectors {
+			if c.URL == "" && len(c.Command) == 0 && len(c.Env) == 0 {
+				at := slices.IndexFunc(target.Connectors, func(old pack.Connector) bool {
+					name := old.Name
+					if name == "" && old.Catalogue != "" {
+						name = old.Catalogue
+					}
+					return name == c.Name && old.Catalogue == c.Catalogue && old.Workspace == c.Workspace
+				})
+				if at >= 0 {
+					in.Connectors[i] = target.Connectors[at]
+					continue
+				}
+			}
+			if c.Catalogue == "" && c.Workspace == "" && c.URL == "" && len(c.Command) == 0 && len(c.Env) == 0 {
+				writeErr(w, 400, "select a connector from the library")
+				return
+			}
+			if c.URL == "" && len(c.Command) == 0 && len(c.Env) == 0 {
+				continue
+			}
+			if !slices.ContainsFunc(target.Connectors, func(old pack.Connector) bool { return reflect.DeepEqual(old, c) }) {
+				writeErr(w, 400, "select a connector from the library")
+				return
+			}
+		}
+	}
 	var additions []string
 	for _, name := range in.Skills {
 		if !slices.Contains(target.Skills, name) {
@@ -119,7 +157,11 @@ func (h *H) saveTeamSkills(w http.ResponseWriter, r *http.Request) {
 	if !answer(w, r, err) {
 		return
 	}
-	target.Skills = in.Skills
+	if connectors {
+		target.Connectors = in.Connectors
+	} else {
+		target.Skills = in.Skills
+	}
 	folders := map[string]map[string][]byte{}
 	for _, mem := range append([]pack.Member{m.Leader, m.Auditor}, m.Members...) {
 		for _, name := range mem.Skills {

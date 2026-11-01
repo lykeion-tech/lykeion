@@ -33,6 +33,9 @@ const harnesses = computed(() =>
       </div>
     </div>
     <p v-if="card" class="member-role">{{ member.role }}</p>
+    <p v-if="member.skills?.length" class="member-capabilities">
+      Skills: {{ member.skills.join(', ') }}
+    </p>
     <button
       v-if="editableSkills"
       class="edit-skills"

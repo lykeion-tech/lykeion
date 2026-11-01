@@ -527,6 +527,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	var out []Claimed
 	var refused []db.AgentRun
 	teams := map[uuid.UUID]TeamClaim{}
+	agentSkills := map[uuid.UUID][]string{}
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -765,6 +766,18 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					if team != nil {
 						teams[t.ID] = *team
+					} else if t.Kind != "coresearch" && t.AgentID != nil {
+						cfg, err := tx.AgentCapabilities(ctx, *t.AgentID)
+						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+							return err
+						}
+						if err == nil {
+							var names []string
+							if err := json.Unmarshal(cfg.Skills, &names); err != nil {
+								return err
+							}
+							agentSkills[t.ID] = names
+						}
 					}
 					var python string
 					var files []ClaimedAttachment
@@ -836,6 +849,13 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 			conns, skills := s.teamTools(ctx, team)
 			out[i].Connectors = slices.DeleteFunc(conns, func(c pack.Connector) bool { return c.Workspace != "" })
 			out[i].Skills = skills
+		} else if names, ok := agentSkills[out[i].AgentRun.ID]; ok {
+			library := skill.Service{Store: s.Store, Blobs: s.Blobs}
+			skills, err := library.EnabledFolders(ctx, out[i].AgentRun.WorkspaceID, out[i].AgentRun.ResponsibleUserID)
+			if err != nil {
+				return nil, err
+			}
+			out[i].Skills = slices.DeleteFunc(skills, func(s toolroute.RoutedSkill) bool { return !slices.Contains(names, s.Name) })
 		}
 	}
 	return out, nil
@@ -869,6 +889,19 @@ func ClaimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.C
 			return nil, &TeamClaim{Pack: row, Role: t.Role, Added: len(added) > 0}, nil
 		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, nil, err
+		}
+	}
+	if t.AgentID != nil {
+		cfg, err := tx.AgentCapabilities(ctx, *t.AgentID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, err
+		}
+		if err == nil {
+			var selected []pack.Connector
+			if err := json.Unmarshal(cfg.Connectors, &selected); err != nil {
+				return nil, nil, err
+			}
+			return slices.DeleteFunc(selected, func(c pack.Connector) bool { return c.Catalogue == "" }), nil, nil
 		}
 	}
 	out := []pack.Connector{}
@@ -1575,6 +1608,24 @@ func WorkspaceConnectorRows(ctx context.Context, tx *store.Tx, run db.AgentRun) 
 			return []WorkspaceConnectorRow{}, nil
 		}
 		refs = member.Connectors
+	} else if run.AgentID != nil {
+		cfg, err := tx.AgentCapabilities(ctx, *run.AgentID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil {
+			if err := json.Unmarshal(cfg.Connectors, &refs); err != nil {
+				return nil, err
+			}
+		} else {
+			rows, err := tx.Q.ListWorkspaceMCPServers(ctx, tx.WS)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				refs = append(refs, pack.Connector{Name: row.Name, Workspace: row.ID.String()})
+			}
+		}
 	} else {
 		rows, err := tx.Q.ListWorkspaceMCPServers(ctx, tx.WS)
 		if err != nil {

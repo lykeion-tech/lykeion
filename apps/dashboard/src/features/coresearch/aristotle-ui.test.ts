@@ -135,6 +135,31 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('duplicates the agent using the chosen name', async () => {
+    const fetch = vi.fn(async (url: string, init: { method: string }) => response(init.method === 'POST' || String(url).endsWith('/api/agents/copied') ? { ...agent, id: 'copied' } : [], 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, router, settle } = await mount('/agents/aristotle', true, true);
+    const duplicate = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Duplicate')!;
+    (duplicate.props.onClick as () => void)();
+    await settle();
+    (byLabel(root, 'Name of the duplicate').props['onUpdate:modelValue'] as (s: string) => void)('Research copy');
+    await settle();
+    const form = all(root).find((n) => n.tag === 'form' && n.props.class === 'agent-copy')!;
+    await (form.props.onSubmit as (event: { preventDefault(): void }) => Promise<void>)({ preventDefault() {} });
+    await settle();
+    const sent = fetch.mock.calls.find((c) => String(c[0]).endsWith('/api/agents/aristotle/duplicate'))!;
+    expect(JSON.parse((sent[1] as unknown as { body: string }).body)).toEqual({ name: 'Research copy' });
+    expect(router.currentRoute.value.path).toBe('/agents/copied');
+  });
+  it('places Capabilities second and offers Customize', async () => {
+    const { root, settle } = await mount('/agents/aristotle', true, true);
+    const tabs = all(root).filter((n) => n.props.role === 'tab').map((n) => textOf(n).trim());
+    expect(tabs).toEqual(['Overview', 'Capabilities', 'Work', 'Settings']);
+    const capabilities = all(root).find((n) => n.props.role === 'tab' && textOf(n).trim() === 'Capabilities')!;
+    (capabilities.props.onClick as () => void)();
+    await settle();
+    expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Customize')).toBe(true);
+  });
   it('uses the conversation agent avatar in the rail', async () => {
     const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
     client.setQueryData(keys.agents('lab'), [

@@ -14244,24 +14244,3 @@
   min-width: 0;
   width: 100%;
 }
-.coresearch .composer-input-wrap > * {
-  grid-area: 1 / 1;
-}
-.coresearch .composer-input-mirror {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  overflow: hidden;
-  max-height: 200px;
-  pointer-events: none;
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--type-body);
-  line-height: 1.5;
-}
-.coresearch .composer-input-wrap:has(.composer-input-mirror) textarea {
-  color: transparent;
-  caret-color: var(--ink);
-}
-.coresearch .composer-selection {
-  color: var(--accent);
-}

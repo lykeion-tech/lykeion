@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -78,7 +79,35 @@ func teamRow(ctx context.Context, tx *store.Tx, role middleware.Role) (*db.Field
 // it runs outside any transaction.
 func (h *Hosted) declared(ctx context.Context, role middleware.Role, row *db.FieldPack) (map[string]bool, error) {
 	if row == nil {
-		return nil, nil
+		var selected map[string]bool
+		err := h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+			run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: role.AgentRunID})
+			if err != nil {
+				return err
+			}
+			if run.Kind == "coresearch" || run.AgentID == nil {
+				return nil
+			}
+			cfg, err := tx.AgentCapabilities(ctx, *run.AgentID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			var refs []pack.Connector
+			if err := json.Unmarshal(cfg.Connectors, &refs); err != nil {
+				return err
+			}
+			selected = map[string]bool{}
+			for _, c := range refs {
+				if c.Catalogue != "" {
+					selected[c.Catalogue] = true
+				}
+			}
+			return nil
+		})
+		return selected, err
 	}
 	p, err := pack.Load(ctx, h.Blobs, *row)
 	if err != nil {
@@ -175,7 +204,10 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 		return ConnectorOut{}, err
 	}
 	if listed != nil && !listed[e.Name] {
-		return ConnectorOut{}, fmt.Errorf("this study's Team does not declare `%s` for this member: list_connectors names the ones it does", e.Name)
+		if team != nil {
+			return ConnectorOut{}, fmt.Errorf("this study's Team does not declare `%s` for this member: list_connectors names the ones it does", e.Name)
+		}
+		return ConnectorOut{}, fmt.Errorf("this agent does not have `%s`: list_connectors names the connectors it can use", e.Name)
 	}
 	if err := connectors.Ready(e, row, h.Conn.Contact); err != nil {
 		return ConnectorOut{}, err

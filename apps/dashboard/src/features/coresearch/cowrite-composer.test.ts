@@ -329,14 +329,15 @@ describe('Cowrite composer', () => {
     await m.click('Add');
     await m.click('Skills');
     await m.click('Research');
-    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('/Research ');
-    expect(
-      all(m.root).some((n) => n.props.class === 'composer-selection' && textOf(n) === '/Research'),
-    ).toBe(true);
-    await m.edit('/Research Analyze this');
+    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('');
+    expect(m.label('Remove Research')).toBeDefined();
+    await m.edit('Analyze this');
     await m.click('Send');
     const post = fetch.mock.calls.find((c) => c[1]?.method === 'POST')!;
-    expect(JSON.parse(post[1].body).capabilities).toEqual({ skills: ['Research'], connectors: [] });
+    expect(JSON.parse(post[1].body)).toMatchObject({
+      body: 'Analyze this',
+      capabilities: { skills: ['Research'], connectors: [] },
+    });
     expect(fetch.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(false);
   });
   it('changes retry identity when a connector selection changes', async () => {
@@ -372,8 +373,36 @@ describe('Cowrite composer', () => {
     )!;
     (option.props.onMousedown as (e: unknown) => void)({ preventDefault() {} });
     await m.settle();
-    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('/Research ');
+    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('');
     expect(m.label('Remove Research')).toBeDefined();
+    await m.edit('Analyze this');
+    expect(m.label('Remove Research')).toBeDefined();
+  });
+  it('preserves surrounding text when selecting a slash suggestion', async () => {
+    const m = await mount();
+    (all(m.root).find((n) => n.tag === 'textarea')!.props.onInput as (e: unknown) => void)({
+      target: { value: 'Before /Res after', selectionStart: 11 },
+    });
+    await m.settle();
+    const option = all(m.root).find(
+      (n) => n.props.role === 'option' && textOf(n).trim() === 'Research',
+    )!;
+    expect(option).toBeDefined();
+    (option.props.onMousedown as (e: unknown) => void)({ preventDefault() {} });
+    await m.settle();
+    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('Before  after');
+    expect(m.label('Remove Research')).toBeDefined();
+  });
+  it('removes only the skill chip, preserving message text', async () => {
+    const m = await mount();
+    await m.click('Add');
+    await m.click('Skills');
+    await m.click('Research');
+    await m.edit('Please discuss /Research later');
+    await m.click('Remove Research');
+    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe(
+      'Please discuss /Research later',
+    );
   });
   it('selects a connector without changing workspace policy', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
