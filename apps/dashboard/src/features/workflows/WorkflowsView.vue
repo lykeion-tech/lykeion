@@ -14,9 +14,6 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
       {{ workflows.error.value.message }}
     </p>
     <template v-if="workflows.data.value">
-      <p class="workflows-caption">
-        From Terminal-Bench-Science {{ workflows.data.value.release }}
-      </p>
       <div class="agent-toolbar">
         <label class="agent-search"
           ><Icon name="search" :size="14" /><input
@@ -36,9 +33,11 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
             :to="'/workflows/' + w.slug"
             class="workflow-card"
           >
-            <span aria-hidden="true">{{ group.emoji }}</span>
             <strong>{{ w.name }}</strong>
             <small>{{ w.description }}</small>
+            <small class="workflow-source"
+              >From Terminal-Bench-Science {{ workflows.data.value.release }}</small
+            >
           </RouterLink>
         </div>
       </section>
@@ -54,6 +53,12 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
 .workflows-caption {
   color: var(--muted);
   margin: 0 0 12px;
+}
+.workflows-page .agent-search input:focus-visible {
+  outline: none;
+}
+.workflows-page .agent-search:has(input:focus-visible) {
+  border-color: var(--focus-ring);
 }
 .workflow-group {
   margin-top: 24px;
@@ -88,5 +93,12 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
   line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.workflow-card .workflow-source {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--input);
 }
 </style>

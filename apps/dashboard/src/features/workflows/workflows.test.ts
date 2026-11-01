@@ -159,7 +159,7 @@ describe('Workflows pages', () => {
   it('the Files tab shows tests and marks unembedded files', async () => {
     vi.stubGlobal('fetch', vi.fn());
     const m = await mount(WorkflowDetail, { slug: 'b' });
-    expect(m.text()).toContain('Workflows');
+    expect(m.text()).not.toContain('Workflows');
     await m.click(/^Files$/);
     expect(m.text()).toContain('tests');
     expect(m.text()).not.toContain('test.sh');

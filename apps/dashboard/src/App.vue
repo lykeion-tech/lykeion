@@ -141,8 +141,8 @@ const groups = [
     name: 'IT Department',
     items: [
       { id: 'teams', name: 'Teams', icon: 'network' },
-      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'workflows', name: 'Workflows', icon: 'flask' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
     ],
   },

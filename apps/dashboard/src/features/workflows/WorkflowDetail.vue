@@ -88,10 +88,6 @@ const unavailable = computed(
     </p>
     <template v-if="w">
       <div class="agent-page-header">
-        <nav class="workflow-crumbs" aria-label="Breadcrumb">
-          <RouterLink to="/workflows">Workflows</RouterLink> › {{ domainLabel(w.domain) }} ›
-          {{ w.name }}
-        </nav>
         <header class="agent-hero">
           <div class="agent-identity">
             <div class="team-heading">
@@ -178,9 +174,12 @@ const unavailable = computed(
 </template>
 <style src="../agents/agent-detail.css" />
 <style scoped>
-.workflow-crumbs {
-  padding: 12px var(--gutter) 0;
-  color: var(--muted);
+.workflow-detail .team-heading {
+  flex: 1;
+  min-width: 0;
+}
+.workflow-detail .agent-identity > .agent-actions {
+  flex: none;
 }
 .workflow-body {
   padding: 20px var(--gutter);
