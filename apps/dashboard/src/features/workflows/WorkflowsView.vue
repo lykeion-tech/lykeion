@@ -48,6 +48,7 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
 <style src="../../ui/directory.css" />
 <style scoped>
 .workflows-page {
+  padding-inline: 20px;
   padding-bottom: 32px;
 }
 .workflows-caption {
