@@ -10,7 +10,9 @@ import ConnectorConfigFields, {
 import { useLibraryMutations } from '../../../../api/library';
 import { useWorkspaces } from '../../../../api/queries';
 import { workspaceId } from '../../../../api/session';
+import type { WorkspaceMcpSummary } from '../../../../api/types';
 import { useResourceDraft, guardResourceDrafts } from '../../../../state/resource-draft';
+const props = defineProps<{ editing?: WorkspaceMcpSummary }>();
 const emit = defineEmits<{ close: []; created: [id: string] }>();
 const workspaces = useWorkspaces();
 const allowed = computed(() =>
@@ -18,9 +20,12 @@ const allowed = computed(() =>
     workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
   ),
 );
-const empty = { revision: 0, value: emptyConnector() };
+const empty = {
+  revision: props.editing?.revision ?? 0,
+  value: emptyConnector(props.editing?.name, props.editing?.transport),
+};
 const form = useResourceDraft(
-  computed(() => workspaceId.value + ':add-connector'),
+  computed(() => workspaceId.value + ':connector:' + (props.editing?.id ?? 'add')),
   computed(() => (allowed.value ? empty : undefined)),
 );
 const fields = computed({
@@ -40,7 +45,13 @@ async function submit() {
   busy.value = true;
   error.value = '';
   try {
-    const response = await mutations.createWorkspaceMCP(connectorInput(fields.value));
+    const input = connectorInput(fields.value);
+    const response = props.editing
+      ? await mutations.updateWorkspaceMCP(props.editing.id, {
+          ...input,
+          revision: props.editing.revision,
+        })
+      : await mutations.createWorkspaceMCP(input);
     if (token === visit && ws === workspaceId.value) emit('created', response.id);
   } catch (e) {
     if (token === visit && ws === workspaceId.value) {
@@ -56,17 +67,20 @@ async function submit() {
   <Modal
     v-slot="{ close }"
     class="add-connector-modal"
-    title="Add connector"
+    :title="editing ? 'Edit connector' : 'Add connector'"
     :before-close="guardResourceDrafts"
     @close="emit('close')"
     ><section class="add-connector">
       <header>
-        <h2>Add connector</h2>
+        <h2>{{ editing ? 'Edit connector' : 'Add connector' }}</h2>
         <button class="icon-button" aria-label="Close add connector" @click="close">
           <Icon name="close" :size="18" />
         </button>
       </header>
       <div class="body">
+        <p v-if="editing" class="scope">
+          Enter the full configuration again; saved values are private.
+        </p>
         <ConnectorConfigFields v-if="fields" v-model="fields" :disabled="!allowed || busy" />
         <p v-if="!allowed" role="alert">
           Only workspace owners and admins can add custom connectors. Your draft is preserved.
@@ -86,7 +100,7 @@ async function submit() {
           :title="problem"
           @click="submit"
         >
-          Add connector
+          {{ editing ? 'Save connector' : 'Add connector' }}
         </button>
       </footer>
     </section></Modal

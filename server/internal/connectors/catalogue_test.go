@@ -105,7 +105,7 @@ func TestEachTierIsReadyOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 		want            string // "" for ready
 	}{
 		{"open with no row", "ensembl", nil, "", ""},
-		{"open, disabled", "ensembl", row(false, nil, false), "", "the workspace owner enables `ensembl` in Connectors"},
+		{"open, disabled", "ensembl", row(false, nil, false), "", ""},
 		{"key, none saved", "materials-project", nil, "", "saves a key for `materials-project`"},
 		{"key, saved", "materials-project", row(true, sealed, false), "", ""},
 		{"key, works keyless", "ncbi-gene", nil, "", ""},
@@ -113,7 +113,7 @@ func TestEachTierIsReadyOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 		{"restricted, confirmed", "kegg", row(true, nil, true), "", ""},
 		{"restricted, confirmed, no key", "omim", row(true, nil, true), "", "saves a key for `omim`"},
 		{"restricted, confirmed, keyed", "omim", row(true, sealed, true), "", ""},
-		{"restricted, confirmed, disabled", "omim", row(false, sealed, true), "", "enables `omim`"},
+		{"restricted, confirmed, disabled", "omim", row(false, sealed, true), "", ""},
 		{"contact missing", "unpaywall", nil, "", "CONTACT_EMAIL"},
 		{"contact set", "unpaywall", nil, "lab@example.org", ""},
 	} {

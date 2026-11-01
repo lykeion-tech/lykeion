@@ -80,6 +80,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	tools := []string{claudeTools}
 	if o.Coresearch {
 		tools = []string{"Skill,Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
+		if o.DoorURL != "" {
+			tools = append(tools, "mcp__lyk_door")
+		}
 	}
 	var deny []string
 	if o.ReadOnly {
@@ -206,7 +209,7 @@ func claudeMCP(o ExecOptions) []byte {
 	if o.Coresearch && o.SourcesURL != "" {
 		servers["lyk_sources"] = map[string]any{"type": "http", "url": o.SourcesURL, "headers": map[string]string{"Authorization": "Bearer ${LYK_TOKEN}"}}
 	}
-	if o.DoorURL != "" && !o.Coresearch {
+	if o.DoorURL != "" {
 		servers["lyk_door"] = map[string]any{"type": "http", "url": o.DoorURL, "headers": map[string]string{"Authorization": "Bearer " + o.DoorToken}, "timeout": doorCallTimeout.Milliseconds()}
 	}
 	return raw(map[string]any{"mcpServers": servers})

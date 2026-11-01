@@ -589,3 +589,78 @@ func TestDeleteConversationWaitsForBlobWriter(t *testing.T) {
 		t.Fatal("blob retained after writer released lock")
 	}
 }
+
+func TestAristotleTurnCarriesSelectedCapabilities(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	ref := csRegister(t, s, a, ws, "selected", "claude")
+	in := map[string]any{"body": "Analyze", "request_id": uuid.NewString(), "capabilities": map[string]any{"skills": []string{"aeon"}, "connectors": []string{"ensembl"}}}
+	var out struct{ Run db.AgentRun }
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, &out); code != 201 {
+		t.Fatalf("accept: %d", code)
+	}
+	if !strings.Contains(out.Run.Prompt, "aeon") || !strings.Contains(out.Run.Prompt, "ensembl") {
+		t.Fatal("selected capabilities absent from run")
+	}
+	claims := csClaim(t, s, a, ref)
+	if len(claims) != 1 || !strings.Contains(claims[0].AgentRun.Prompt, "aeon") || !strings.Contains(claims[0].AgentRun.Prompt, "ensembl") {
+		t.Fatal("selected capabilities absent from claim")
+	}
+	in["capabilities"] = map[string]any{"skills": []string{"different"}}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, nil); code != 409 {
+		t.Fatalf("changed retry: %d", code)
+	}
+}
+
+func TestCoresearchClaimsOnlySelectedWorkspaceConnectors(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	var selected, other mcpView
+	if code := s.call(t, "POST", "/api/mcp-servers", a, ws, mcpInput("selected", 0, map[string]any{"url": "https://selected.example/mcp"}), &selected); code != 201 {
+		t.Fatal(code)
+	}
+	if code := s.call(t, "POST", "/api/mcp-servers", a, ws, mcpInput("other", 0, map[string]any{"url": "https://other.example/mcp"}), &other); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, a, ws, "custom-selected", "claude")
+	in := map[string]any{"body": "Analyze", "request_id": uuid.NewString(), "capabilities": map[string]any{"workspace_connectors": []string{selected.ID}}}
+	var accepted struct{ Conversation struct{ ID uuid.UUID } }
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, &accepted); code != 201 {
+		t.Fatalf("accept: %d", code)
+	}
+	claims := csClaim(t, s, a, ref)
+	if len(claims) != 1 || len(claims[0].WorkspaceConnectors) != 1 || claims[0].WorkspaceConnectors[0].ID.String() != selected.ID {
+		t.Fatalf("unexpected selected connector claim in %d claims", len(claims))
+	}
+	if err := s.H.AgentRuns.Cancel(t.Context(), uuid.MustParse(ws), uuid.MustParse(s.userID(t, a)), claims[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/coresearch/conversations/"+accepted.Conversation.ID.String()+"/turns", a, ws, map[string]any{"body": "Next message", "request_id": uuid.NewString()}, nil); code != 201 {
+		t.Fatalf("next turn: %d", code)
+	}
+	claims = csClaim(t, s, a, ref)
+	if len(claims) != 1 || len(claims[0].WorkspaceConnectors) != 0 || claims[0].CallToken != "" {
+		t.Fatal("connector carried into next message")
+	}
+}
+
+func TestCoresearchRequiresKeylessDeclarationForCommand(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	var command mcpView
+	if code := s.call(t, "POST", "/api/mcp-servers", a, ws, mcpInput("local", 0, map[string]any{"command": "node", "args": []string{"server.js"}}), &command); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, a, ws, "keyless-command", "claude")
+	in := map[string]any{"body": "Analyze", "request_id": uuid.NewString(), "capabilities": map[string]any{"workspace_connectors": []string{command.ID}}}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, nil); code != 422 {
+		t.Fatalf("undeclared command: %d", code)
+	}
+	if code := s.call(t, "PUT", "/api/mcp-servers/"+command.ID, a, ws, mcpInput("local", 1, map[string]any{"command": "node", "args": []string{"server.js"}, "keyless": true}), nil); code != 200 {
+		t.Fatalf("declare: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, nil); code != 201 {
+		t.Fatalf("declared command: %d", code)
+	}
+	claims := csClaim(t, s, a, ref)
+	if len(claims) != 1 || len(claims[0].WorkspaceConnectors) != 1 || claims[0].CallToken == "" || len(claims[0].WorkspaceConnectors[0].Command) != 2 {
+		t.Fatal("declared command not included in claim")
+	}
+}

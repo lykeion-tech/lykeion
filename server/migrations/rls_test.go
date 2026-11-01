@@ -39,10 +39,35 @@ func TestEveryTenantTableHasAPolicy(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	// 26 before 0012, plus card_team, team_agent, autoresearch_team,
-	// workspace_connector and connector_fetch, plus five UI library tables, workspace availability and team_rating, then attachment, runtime_share, agent_run_machine_attempt and nine Coresearch tables and personal conversations and turn receipts, then seven Cowrite tables, then the Coresearch blob cleanup queue.
-	if n != 60 {
-		t.Fatalf("found %d tenant tables, want 60", n)
+	// Keep the count explicit so a missing table cannot make the policy check pass.
+	if n != 61 {
+		t.Fatalf("found %d tenant tables, want 61", n)
+	}
+}
+
+func TestCoresearchConnectorCannotReferenceAnotherWorkspacesRun(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	user, first, second, card, run := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	queries := []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO "user"(id,email) VALUES($1,'connector-rls@test')`, []any{user}},
+		{`INSERT INTO workspace(id,slug,name) VALUES($1,'connector-a','a'),($2,'connector-b','b')`, []any{first, second}},
+		{`INSERT INTO card(id,workspace_id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'x','x',$3,'grounding')`, []any{card, second, user}},
+		{`INSERT INTO agent_run(id,workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt) VALUES($1,$2,$3,$4,'grounding',1,'worker','claude','x')`, []any{run, second, card, user}},
+	}
+	for _, q := range queries {
+		if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO coresearch_run_connector(workspace_id,agent_run_id,connector_id) VALUES($1,$2,$3)`, first, run, uuid.New()); err == nil {
+		t.Fatal("accepted a connector selection referencing another workspace's run")
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO coresearch_run_connector(workspace_id,agent_run_id,connector_id) VALUES($1,$2,$3)`, second, run, uuid.New()); err != nil {
+		t.Fatalf("own workspace: %v", err)
 	}
 }
 

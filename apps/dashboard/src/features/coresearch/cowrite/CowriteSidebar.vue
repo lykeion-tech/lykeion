@@ -8,7 +8,6 @@ const props = withDefaults(
     chats: ChatRow[];
     activeChatId?: string;
     tab?: 'files' | 'chats';
-    computeActive?: boolean;
     owner?: boolean;
     chatTitles?: Record<string, string>;
     // When each chat last moved, as an ISO time.
@@ -18,7 +17,6 @@ const props = withDefaults(
 );
 const emit = defineEmits<{
   'update:tab': ['files' | 'chats'];
-  compute: [];
   search: [];
   newChat: [];
   newFile: [];
@@ -44,32 +42,6 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
     </div>
     <div class="tsb-menu">
       <button
-        type="button"
-        :class="[
-          row,
-          computeActive ? 'bg-surface-2 text-fg' : 'text-fg-subtle hover:bg-surface hover:text-fg',
-        ]"
-        @click="emit('compute')"
-      >
-        <span class="grid h-4 w-4 shrink-0 place-items-center opacity-90"
-          ><svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect
-              x="4.5"
-              y="4.5"
-              width="7"
-              height="7"
-              rx="1.2"
-              stroke="currentColor"
-              stroke-width="1.2"
-            />
-            <path
-              d="M6.5 2.5v2M9.5 2.5v2M6.5 11.5v2M9.5 11.5v2M2.5 6.5h2M2.5 9.5h2M11.5 6.5h2M11.5 9.5h2"
-              stroke="currentColor"
-              stroke-width="1.2"
-              stroke-linecap="round"
-            /></svg></span
-        >Compute</button
-      ><button
         v-if="owner"
         type="button"
         :class="row"

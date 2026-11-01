@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -328,7 +327,7 @@ func TestWorkspaceMCPCleanupPreventsStaleRecreation(t *testing.T) {
 	}
 }
 
-func TestCommandInventoryDisableFencePreservesStartedCall(t *testing.T) {
+func TestCommandInventoryIgnoresOldAvailabilityPolicy(t *testing.T) {
 	for _, operation := range []string{"list", "publish"} {
 		t.Run(operation, func(t *testing.T) {
 			env := testutil.Setup(t)
@@ -431,8 +430,8 @@ func TestCommandInventoryDisableFencePreservesStartedCall(t *testing.T) {
 			}
 			select {
 			case err := <-done:
-				if !errors.Is(err, ErrDisabled) {
-					t.Fatalf("inventory policy refusal: %v", err)
+				if err != nil {
+					t.Fatalf("inventory unexpectedly refused: %v", err)
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("inventory request hung")

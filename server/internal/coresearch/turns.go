@@ -22,16 +22,16 @@ type Service struct {
 }
 
 func EnqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body string) (db.AgentRun, error) {
-	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "", false)
+	return enqueueTurn(ctx, tx, runs, chat, user, body, "", "", false, nil)
 }
 
 // With queue, a Cowrite turn may wait behind the chat's turn in progress; at
 // most one waits at a time, and the claim runs them in order.
-func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, selection ...*Selection) (db.AgentRun, error) {
-	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model, queue, selection...)
+func EnqueueAristotleTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, capabilities *Capabilities, selection ...*Selection) (db.AgentRun, error) {
+	return enqueueTurn(ctx, tx, runs, chat, user, body, instructions, model, queue, capabilities, selection...)
 }
 
-func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, selections ...*Selection) (db.AgentRun, error) {
+func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.CoresearchChat, user uuid.UUID, body, instructions, model string, queue bool, capabilities *Capabilities, selections ...*Selection) (db.AgentRun, error) {
 	var zero db.AgentRun
 	if user != chat.OwnerID {
 		return zero, errors.New("chat owner required")
@@ -94,7 +94,7 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if p.PythonVersion != nil {
 		env = "Python " + *p.PythonVersion
 	}
-	prompt := Prompt(PromptIn{Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
+	prompt := Prompt(PromptIn{Capabilities: capabilities, Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
 	if instructions != "" {
 		prompt = "Agent instructions:\n" + instructions + "\n\n" + prompt
 	}
@@ -105,6 +105,21 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	r, err := tx.Q.EnqueueCoresearchAgentRun(ctx, db.EnqueueCoresearchAgentRunParams{WorkspaceID: tx.WS, OwnerID: user, Harness: chat.Cli, Prompt: prompt, ContinuityScope: "coresearch:" + chat.ID.String(), CoresearchChatID: &chat.ID})
 	if err != nil {
 		return zero, err
+	}
+	if capabilities != nil {
+		seen := map[uuid.UUID]bool{}
+		for _, id := range capabilities.WorkspaceConnectors {
+			if seen[id] {
+				return zero, doc.ErrInvalid
+			}
+			seen[id] = true
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return zero, err
+			}
+		}
+		if err := tx.SetCoresearchRunConnectors(ctx, r.ID, capabilities.WorkspaceConnectors); err != nil {
+			return zero, err
+		}
 	}
 	if model != "" {
 		r, err = tx.Q.SetAristotleRunModel(ctx, db.SetAristotleRunModelParams{ID: r.ID, Model: model})

@@ -4,9 +4,6 @@ import { workspaceId } from '../../../../api/session';
 import { useSkillLibrary } from '../../../../api/library';
 import { matchesQuery } from '../../../../lib/search';
 import Icon from '../../../../ui/Icon.vue';
-import AvailabilitySwitch from './AvailabilitySwitch.vue';
-import { useAvailabilityChanges } from '../../../../state/availability';
-const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import SkillDialog from './SkillDialog.vue';
 import AddSkillDialog from './AddSkillDialog.vue';
@@ -62,7 +59,6 @@ function created(id: string) {
         <Icon name="plus" :size="14" />Add skill
       </button>
     </div>
-    <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
       v-model:field="field"
@@ -86,14 +82,6 @@ function created(id: string) {
           <strong>{{ s.name }}</strong
           ><span>{{ s.description }}</span>
         </button>
-        <AvailabilitySwitch
-          :name="s.name"
-          :checked="s.policy_enabled ?? true"
-          :disabled="!policy.allowed.value || !!policy.pending.value"
-          @toggle="
-            policy.toggle('skill', s.id, s.policy_revision ?? 0, !(s.policy_enabled ?? true))
-          "
-        />
       </div>
     </CapabilityList>
     <SkillDialog

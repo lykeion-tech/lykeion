@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import {
   useAristotle,
   acceptanceRequest,
+  wireCapabilities,
   conversationKey,
   defaultStarters,
   restoreConversation,
@@ -246,6 +247,7 @@ const blocker = computed(() =>
     ? undefined
     : `No available own machine with ${harness.value}; connect a machine in Settings.`,
 );
+const composerCapabilities = ref({ skills: [] as string[], connectors: [] as string[] });
 const draft = ref(''),
   busy = ref(false),
   error = ref('');
@@ -267,6 +269,7 @@ watch(
   () => {
     viewGeneration++;
     draft.value = '';
+    composerCapabilities.value = { skills: [], connectors: [] };
     error.value = '';
     busy.value = false;
     pending = null;
@@ -292,6 +295,7 @@ watch(
           selectedModel.value = held.model;
         }
         attachments.value = held.attachments;
+        composerCapabilities.value = held.capabilities ?? { skills: [], connectors: [] };
         pending = held.pending;
       }
     }
@@ -316,6 +320,7 @@ function rememberComposer() {
     harness: harness.value,
     model: selectedAgentId.value ? selectedModel.value : effectiveModel.value,
     attachments: attachments.value,
+    capabilities: composerCapabilities.value,
     pending,
   });
 }
@@ -341,6 +346,7 @@ watch(
     if (route.path === '/coresearch') {
       const id = restoreConversation(owned, readText(lastKey(state.scope.value)) ?? null);
       if (id) openConversation(id);
+      else void router.replace('/coresearch/new');
     } else if (route.params.conversationId) {
       const selected = owned.find((c) => c.id === route.params.conversationId);
       if (selected) writeText(lastKey(state.scope.value), selected.id);
@@ -352,7 +358,7 @@ watch(
   },
   { immediate: true },
 );
-async function send(prompt?: string) {
+async function send(prompt?: string, capabilities?: { skills: string[]; connectors: string[] }) {
   if (prompt) draft.value = prompt;
   if (
     !draft.value.trim() ||
@@ -371,6 +377,9 @@ async function send(prompt?: string) {
     path = route.path;
   const generation = ++viewGeneration;
   const options = {
+    ...(capabilities && (capabilities.skills.length || capabilities.connectors.length)
+      ? { capabilities: wireCapabilities(capabilities) }
+      : {}),
     mode: startsSession.value ? mode.value : (conversation.value?.mode ?? 'experiment'),
     ...(startsSession.value && mode.value === 'cowrite' ? { template: template.value } : {}),
     ...(startsSession.value
@@ -674,11 +683,13 @@ async function stop() {
               :models="models"
               :draft="isDraft"
               :attachments="attachments"
+              :initial-capabilities="composerCapabilities"
               :busy="busy || uploading"
               :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"
               :error="error"
               :active-run="activeRun ?? undefined"
-              @send="send()"
+              @capabilities="composerCapabilities = $event"
+              @send="send(undefined, $event)"
               @stop="stop"
               @update:cli="chooseCli"
               @update:selected-model="selectedModel = $event"
@@ -698,11 +709,13 @@ async function stop() {
             :models="models"
             :draft="startsSession"
             :attachments="attachments"
+            :initial-capabilities="composerCapabilities"
             :busy="busy || uploading"
             :blocker="historyUnavailable ? 'Load conversation history before sending.' : blocker"
             :error="error"
             :active-run="activeRun ?? undefined"
-            @send="send()"
+            @capabilities="composerCapabilities = $event"
+            @send="send(undefined, $event)"
             @stop="stop"
             @update:cli="chooseCli"
             @update:selected-model="selectedModel = $event"

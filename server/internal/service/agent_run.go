@@ -37,10 +37,11 @@ import (
 // autoresearch agent run's token may only post its run's report and open
 // cards.
 const (
-	ScopeCoresearch = "coresearch:chat"
-	ScopeRole       = "card:role"
-	ScopeReport     = "report:write"
-	ScopeCardCreate = "card:create"
+	ScopeCoresearch          = "coresearch:chat"
+	ScopeCoresearchConnector = "coresearch:connector"
+	ScopeRole                = "card:role"
+	ScopeReport              = "report:write"
+	ScopeCardCreate          = "card:create"
 	// ScopeCall records a connector call. Only the daemon's tool door holds a
 	// token with it; the agent's own token never does.
 	ScopeCall = "call:record"
@@ -699,6 +700,8 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return err
 						}
 						err = claimConnectorNames(conns, team, workspace, mcp)
+					} else if err == nil {
+						workspace, err = s.workspaceConnectorClaims(ctx, tx, t)
 					}
 					if err != nil {
 						// No token is issued. Access refusals settle without an execution
@@ -748,11 +751,15 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					callPlain := ""
-					if t.Kind != "coresearch" {
+					if t.Kind != "coresearch" || len(workspace) > 0 {
 						var callHash string
 						callPlain, callHash, _ = auth.NewToken(AgentRunPrefix)
+						callScope := ScopeCall
+						if t.Kind == "coresearch" {
+							callScope = ScopeCoresearchConnector
+						}
 						if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: callHash, WorkspaceID: ref.WorkspaceID,
-							AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{ScopeCall}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+							AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{callScope}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
 							return err
 						}
 					}
@@ -864,19 +871,9 @@ func ClaimConnectors(ctx context.Context, tx *store.Tx, t db.AgentRun) ([]pack.C
 			return nil, nil, err
 		}
 	}
-	rows, err := tx.Q.ListWorkspaceConnectors(ctx, tx.WS)
-	if err != nil {
-		return nil, nil, err
-	}
-	disabled := map[string]bool{}
-	for _, r := range rows {
-		disabled[r.Name] = !r.Enabled
-	}
 	out := []pack.Connector{}
 	for _, e := range connectors.Catalogue {
-		if !disabled[e.Name] {
-			out = append(out, pack.Connector{Catalogue: e.Name})
-		}
+		out = append(out, pack.Connector{Catalogue: e.Name})
 	}
 	return out, nil, nil
 }
@@ -1545,12 +1542,30 @@ type WorkspaceConnectorRow struct {
 // WorkspaceConnectorRows resolves the run's current Team declarations, or the
 // solo library. Canonical stored manifests require no blob I/O in this transaction.
 func WorkspaceConnectorRows(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]WorkspaceConnectorRow, error) {
-	_, team, err := ClaimConnectors(ctx, tx, run)
-	if err != nil {
-		return nil, err
-	}
+	var team *TeamClaim
 	refs := []pack.Connector{}
-	if team != nil {
+	if run.Kind == "coresearch" {
+		ids, err := tx.CoresearchRunConnectors(ctx, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			row, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id})
+			if err != nil {
+				return nil, err
+			}
+			refs = append(refs, pack.Connector{Name: row.Name, Workspace: id.String()})
+		}
+	} else {
+		var err error
+		_, team, err = ClaimConnectors(ctx, tx, run)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if run.Kind == "coresearch" {
+		// The references above are frozen for this one turn.
+	} else if team != nil {
 		var manifest pack.Manifest
 		if err := json.Unmarshal(team.Pack.Manifest, &manifest); err != nil {
 			return nil, err
@@ -1616,9 +1631,13 @@ func (s *AgentRuns) workspaceConnectorClaims(ctx context.Context, tx *store.Tx, 
 				Command string
 				Args    []string
 				Env     map[string]string
+				Keyless bool
 			}
 			if json.Unmarshal([]byte(raw), &config) != nil {
 				return nil, errors.New("workspace command configuration unavailable")
+			}
+			if run.Kind == "coresearch" && !config.Keyless {
+				return nil, errors.New("workspace command has not been declared keyless")
 			}
 			claim.Command = append([]string{config.Command}, config.Args...)
 			claim.Env = config.Env

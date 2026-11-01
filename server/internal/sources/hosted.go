@@ -111,7 +111,7 @@ func (h *Hosted) record(ctx context.Context, role middleware.Role, token, kind, 
 				}
 			}
 			payload := map[string]any{"agent_run_id": role.AgentRunID, "kind": kind, "key": key, "body": body}
-			if slices.Contains(role.Scopes, service.ScopeCoresearch) {
+			if slices.Contains(role.Scopes, service.ScopeCoresearch) || slices.Contains(role.Scopes, service.ScopeCoresearchConnector) {
 				run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: role.AgentRunID})
 				if err != nil {
 					return err

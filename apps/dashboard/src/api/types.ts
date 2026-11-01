@@ -460,6 +460,7 @@ export interface WorkspaceMcpSummary {
   id: string;
   name: string;
   transport: 'url' | 'command';
+  keyless?: boolean;
   revision: number;
   created_by: string;
   created_at: string;

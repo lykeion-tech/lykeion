@@ -7,7 +7,7 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import type { RuntimeModel, SkillSummary } from '../../api/types';
 import type { SessionMode } from './types';
-import type { ComposerAttachment } from './aristotle';
+import { connectorLabel, type ComposerAttachment } from './aristotle';
 import ComposerPlusMenu from './cowrite/ComposerPlusMenu.vue';
 import ComposerModeStrip from './cowrite/ComposerModeStrip.vue';
 import ModelSwitcher from './cowrite/ModelSwitcher.vue';
@@ -26,6 +26,7 @@ const props = withDefaults(
     cli?: string;
     clis?: string[];
     attachments?: ComposerAttachment[];
+    initialCapabilities?: { skills: string[]; connectors: string[] };
   }>(),
   {
     mode: 'experiment',
@@ -37,7 +38,7 @@ const props = withDefaults(
 );
 const emit = defineEmits<{
   'update:modelValue': [string];
-  send: [];
+  send: [{ skills: string[]; connectors: string[] }];
   stop: [];
   'update:mode': [SessionMode];
   'update:template': [string];
@@ -46,6 +47,7 @@ const emit = defineEmits<{
   files: [File[]];
   remove: [string];
   manage: [string];
+  capabilities: [{ skills: string[]; connectors: string[] }];
 }>();
 const plusOpen = ref(false),
   plus = ref<HTMLElement>(),
@@ -53,6 +55,73 @@ const plusOpen = ref(false),
   textarea = ref<HTMLTextAreaElement>(),
   card = ref<HTMLElement>(),
   room = ref<number>();
+const capabilities = ref<{ skills: string[]; connectors: string[] }>({
+  skills: [...(props.initialCapabilities?.skills ?? [])],
+  connectors: [...(props.initialCapabilities?.connectors ?? [])],
+});
+watch(
+  () => props.initialCapabilities,
+  (value) => {
+    const next = { skills: [...(value?.skills ?? [])], connectors: [...(value?.connectors ?? [])] };
+    if (
+      JSON.stringify(next.skills) !== JSON.stringify(capabilities.value.skills) ||
+      JSON.stringify(next.connectors) !== JSON.stringify(capabilities.value.connectors)
+    )
+      capabilities.value = next;
+  },
+);
+watch(
+  capabilities,
+  (value) => emit('capabilities', { skills: [...value.skills], connectors: [...value.connectors] }),
+  { deep: true },
+);
+function selectCapability(kind: 'skills' | 'connectors', name: string) {
+  if (!capabilities.value[kind].includes(name)) capabilities.value[kind].push(name);
+}
+watch(
+  () => props.modelValue,
+  (value, old) => {
+    if (!value && old && props.busy) capabilities.value = { skills: [], connectors: [] };
+  },
+);
+async function chooseCapability(kind: 'skills' | 'connectors', name: string) {
+  if (capabilities.value[kind].includes(name)) return;
+  selectCapability(kind, name);
+  if (kind === 'skills') {
+    const prefix = props.modelValue && !/\s$/.test(props.modelValue) ? ' ' : '';
+    emit('update:modelValue', `${props.modelValue}${prefix}/${name} `);
+    await nextTick();
+    textarea.value?.focus();
+  }
+}
+const highlighted = computed(() => {
+  const text = props.modelValue;
+  const names = [...capabilities.value.skills].sort((a, b) => b.length - a.length);
+  const parts: { text: string; selected: boolean }[] = [];
+  let start = 0,
+    cursor = 0;
+  while (cursor < text.length) {
+    const found =
+      text[cursor] === '/'
+        ? names.find(
+            (n) =>
+              text.startsWith(`/${n}`, cursor) &&
+              (cursor + n.length + 1 === text.length || /\s/.test(text[cursor + n.length + 1]!)),
+          )
+        : undefined;
+    if (!found) {
+      cursor++;
+      continue;
+    }
+    if (cursor > start) parts.push({ text: text.slice(start, cursor), selected: false });
+    parts.push({ text: `/${found}`, selected: true });
+    cursor += found.length + 1;
+    start = cursor;
+  }
+  if (start < text.length) parts.push({ text: text.slice(start), selected: false });
+  return parts;
+});
+
 const caret = ref(0),
   mentionIndex = ref(0),
   dismissed = ref(false);
@@ -69,9 +138,8 @@ const skills = useQuery({
     }),
 });
 const matches = computed(() =>
-  (skills.data.value ?? []).filter(
-    (s) =>
-      s.policy_enabled && s.name.toLowerCase().includes(mention.value?.[1]?.toLowerCase() ?? ''),
+  (skills.data.value ?? []).filter((s) =>
+    s.name.toLowerCase().includes(mention.value?.[1]?.toLowerCase() ?? ''),
   ),
 );
 const mentionOpen = computed(() => !!mention.value && !!matches.value.length);
@@ -95,10 +163,26 @@ function escape(e: KeyboardEvent) {
   if (e.key === 'Escape') plusOpen.value = false;
 }
 function submit() {
-  if (!props.busy && !props.blocker && !props.activeRun && props.modelValue.trim()) emit('send');
+  if (!props.busy && !props.blocker && !props.activeRun && props.modelValue.trim())
+    emit('send', {
+      skills: [...capabilities.value.skills],
+      connectors: [...capabilities.value.connectors],
+    });
+}
+function removeSkill(name: string) {
+  capabilities.value.skills = capabilities.value.skills.filter((n) => n !== name);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  emit(
+    'update:modelValue',
+    props.modelValue.replace(new RegExp(`(^|\\s)/${escaped}(?=\\s|$)`, 'g'), '$1'),
+  );
 }
 function edit(e: Event) {
   const el = e.target as HTMLTextAreaElement;
+  capabilities.value.skills = capabilities.value.skills.filter((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|\\s)/${escaped}(?=\\s|$)`).test(el.value);
+  });
   emit('update:modelValue', el.value);
   caret.value = el.selectionStart ?? el.value.length;
   mentionIndex.value = 0;
@@ -118,6 +202,7 @@ watch(
 );
 onMounted(() => autosize(textarea.value));
 async function insertSkill(name: string) {
+  selectCapability('skills', name);
   const start = props.modelValue.slice(0, caret.value).lastIndexOf('/');
   const at = start + name.length + 2;
   emit(
@@ -185,7 +270,7 @@ const inline = (text?: string) =>
       :class="draft ? 'composer-card--hero' : 'composer-card--docked'"
       :style="room === undefined ? undefined : { '--mention-ceiling': `${room}px` }"
     >
-        <div v-if="blocker" class="composer-blocker" role="status">
+      <div v-if="blocker" class="composer-blocker" role="status">
         {{ blocker }} <RouterLink to="/settings?tab=machines">Settings</RouterLink>
       </div>
       <div v-if="attachments.length" class="composer-attachments">
@@ -203,6 +288,39 @@ const inline = (text?: string) =>
           </button></span
         >
       </div>
+      <div
+        v-if="capabilities.skills.length || capabilities.connectors.length"
+        class="composer-attachments"
+      >
+        <span
+          v-for="name in capabilities.skills"
+          :key="'s' + name"
+          class="composer-attachment composer-capability"
+          >{{ name
+          }}<button
+            class="composer-chip-x"
+            type="button"
+            :aria-label="`Remove ${name}`"
+            @click="removeSkill(name)"
+          >
+            ×
+          </button></span
+        >
+        <span
+          v-for="name in capabilities.connectors"
+          :key="'c' + name"
+          class="composer-attachment composer-capability"
+          >{{ connectorLabel(name)
+          }}<button
+            class="composer-chip-x"
+            type="button"
+            :aria-label="`Remove ${connectorLabel(name)}`"
+            @click="capabilities.connectors = capabilities.connectors.filter((n) => n !== name)"
+          >
+            ×
+          </button></span
+        >
+      </div>
       <p v-if="error" class="composer-attach-refusal" role="alert">{{ error }}</p>
       <input
         ref="input"
@@ -213,21 +331,37 @@ const inline = (text?: string) =>
         :disabled="busy"
         @change="pick"
       />
-      <textarea
-        ref="textarea"
-        class="composer-textarea"
-        :value="modelValue"
-        aria-label="Message the agent"
-        :placeholder="cowrite ? 'What is the paper about?' : 'What are you running? — / for skills'"
-        :rows="draft ? 2 : 1"
-        :disabled="busy"
-        @input="edit"
-        @select="
-          caret = ($event.target as HTMLTextAreaElement).selectionStart;
-          dismissed = false;
-        "
-        @keydown="keydown"
-      />
+      <div class="composer-input-wrap">
+        <div v-if="modelValue" class="composer-input-mirror" aria-hidden="true">
+          <template v-for="(part, index) in highlighted" :key="index"
+            ><span v-if="part.selected" class="composer-selection">{{ part.text }}</span
+            ><template v-else>{{ part.text }}</template></template
+          >{{ '\n' }}
+        </div>
+        <textarea
+          ref="textarea"
+          class="composer-textarea"
+          :value="modelValue"
+          aria-label="Message the agent"
+          :placeholder="
+            cowrite ? 'What is the paper about?' : 'What are you running? — / for skills'
+          "
+          :rows="draft ? 2 : 1"
+          :disabled="busy"
+          @input="edit"
+          @select="
+            caret = ($event.target as HTMLTextAreaElement).selectionStart;
+            dismissed = false;
+          "
+          @keydown="keydown"
+          @scroll="
+            ($event.target as HTMLTextAreaElement).previousElementSibling &&
+            (($event.target as HTMLTextAreaElement).previousElementSibling!.scrollTop = (
+              $event.target as HTMLTextAreaElement
+            ).scrollTop)
+          "
+        />
+      </div>
       <div
         v-if="mentionOpen"
         class="mention-menu"
@@ -287,6 +421,7 @@ const inline = (text?: string) =>
               :cowrite="cowrite"
               :template="template"
               @update:template="emit('update:template', $event)"
+              @select="chooseCapability"
               @attach="input?.click()"
               @close="plusOpen = false"
               @manage="emit('manage', $event)"

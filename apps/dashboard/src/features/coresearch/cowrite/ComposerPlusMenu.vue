@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { parseMarkdownBlocks } from '../../../lib/markdown';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useSkills, useConnectors } from '../../../api/queries';
-import { useAvailabilityChanges } from '../../../state/availability';
+import { useSkills, useConnectors, useWorkspaceMCPServers } from '../../../api/queries';
 import Icon from '../../../ui/Icon.vue';
 import { useTemplates } from './api';
 const props = defineProps<{ cowrite?: boolean; template: string }>();
@@ -11,10 +10,36 @@ const emit = defineEmits<{
   attach: [];
   'update:template': [string];
   manage: [string];
+  select: [kind: 'skills' | 'connectors', name: string];
 }>();
 const skills = useSkills(),
   connectors = useConnectors(),
-  changes = useAvailabilityChanges();
+  custom = useWorkspaceMCPServers();
+const connectorRows = computed(() => {
+  const rows = (connectors.data.value ?? []).map((c) => ({
+    id: c.name,
+    name: c.name,
+    description: c.purpose,
+  }));
+  if (!rows.some((c) => c.name.toLowerCase() === 'openalex'))
+    rows.unshift({
+      id: 'openalex',
+      name: 'openalex',
+      description: 'Papers, preprints and abstracts across all fields.',
+    });
+  return [
+    ...rows,
+    ...(custom.data.value ?? []).map((c) => ({
+      id: `workspace:${c.id}:${c.name}`,
+      name: c.name,
+      description:
+        c.transport === 'command' && !c.keyless
+          ? 'Declare this command keyless in Settings to use it here.'
+          : 'Custom connector',
+      disabled: c.transport === 'command' && !c.keyless,
+    })),
+  ];
+});
 const templates = useTemplates(() => (props.cowrite ? 'new' : ''));
 const sub = ref(''),
   root = ref<HTMLElement>(),
@@ -184,57 +209,33 @@ const inline = (text?: string) =>
             </button>
           </template>
           <template v-else>
-            <div
+            <button
+              type="button"
+              role="menuitem"
+              @click="
+                emit(
+                  'select',
+                  section.id === 'skills' ? 'skills' : 'connectors',
+                  row.id.startsWith('workspace:') ? row.id : row.name,
+                );
+                emit('close');
+              "
               v-for="row in section.id === 'skills'
                 ? (skills.data.value ?? []).map((s) => ({
                     id: s.id,
                     name: s.name,
                     description: s.description,
-                    enabled: s.policy_enabled,
-                    revision: s.policy_revision,
                   }))
-                : (connectors.data.value ?? []).map((c) => ({
-                    id: c.name,
-                    name: c.name,
-                    description: c.purpose,
-                    enabled: c.policy_enabled,
-                    revision: c.revision,
-                  }))"
+                : connectorRows"
               :key="row.id"
-              class="cmenu-row cmenu-row--switch"
+              :disabled="!!('disabled' in row && row.disabled)"
+              class="cmenu-row"
               :title="section.id === 'skills' ? row.description : undefined"
             >
               <span class="cmenu-label"
                 >{{ row.name }}<span class="md-inline cmenu-desc" v-html="inline(row.description)"
               /></span>
-              <button
-                type="button"
-                role="switch"
-                :aria-checked="row.enabled"
-                :aria-label="row.name"
-                :disabled="
-                  !!changes.pending.value ||
-                  !(section.id === 'skills'
-                    ? changes.allowed.value
-                    : changes.catalogueAllowed.value)
-                "
-                class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                :class="row.enabled ? 'bg-accent' : 'border border-line bg-surface-2'"
-                @click="
-                  changes.toggle(
-                    section.id === 'skills' ? 'skill' : 'catalogue',
-                    row.id,
-                    row.revision,
-                    !row.enabled,
-                  )
-                "
-              >
-                <span
-                  class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
-                  :class="row.enabled ? 'left-[18px]' : 'left-0.5'"
-                />
-              </button>
-            </div>
+            </button>
           </template>
         </div>
         <template v-if="section.id !== 'template'"
@@ -247,14 +248,14 @@ const inline = (text?: string) =>
     </div>
     <p
       v-if="
-        changes.error.value || skills.error.value || connectors.error.value || templates.error.value
+        skills.error.value || connectors.error.value || custom.error.value || templates.error.value
       "
       role="alert"
     >
       {{
-        changes.error.value ||
         skills.error.value?.message ||
         connectors.error.value?.message ||
+        custom.error.value?.message ||
         templates.error.value?.message
       }}
     </p>

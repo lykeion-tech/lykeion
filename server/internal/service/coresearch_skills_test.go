@@ -3,7 +3,6 @@ package service
 import (
 	"archive/tar"
 	"bytes"
-	"errors"
 	"io"
 	"lykeion/server/internal/middleware"
 	"slices"
@@ -15,10 +14,11 @@ import (
 	"lykeion/server/internal/skill"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/toolroute"
 	db "lykeion/server/pkg/db/generated"
 )
 
-func TestCoresearchClaimCarriesEnabledSkills(t *testing.T) {
+func TestCoresearchClaimCarriesAllSkills(t *testing.T) {
 	f := setup(t)
 	f.T.Blobs = storage.Local{Dir: t.TempDir()}
 	library := skill.Service{Store: f.T.Store, Blobs: f.T.Blobs}
@@ -84,7 +84,7 @@ func TestCoresearchClaimCarriesEnabledSkills(t *testing.T) {
 			t.Fatalf("%s has no skill content", s.Name)
 		}
 	}
-	if !slices.Contains(names, enabled.Name) || !slices.Contains(names, bundle) || slices.Contains(names, disabled.Name) || slices.Contains(names, hiddenBundle) {
+	if !slices.Contains(names, enabled.Name) || !slices.Contains(names, bundle) || !slices.Contains(names, disabled.Name) || !slices.Contains(names, hiddenBundle) {
 		t.Fatalf("wrong enabled skills: %v", names)
 	}
 	if len(c.MCP) != 0 || len(c.Connectors) != 0 || len(c.WorkspaceConnectors) != 0 || c.CallToken != "" {
@@ -92,7 +92,7 @@ func TestCoresearchClaimCarriesEnabledSkills(t *testing.T) {
 	}
 }
 
-func TestGlobalDisabledSkillHidesExistingPin(t *testing.T) {
+func TestOldAvailabilitySettingDoesNotHideExistingPin(t *testing.T) {
 	f := setup(t)
 	f.T.Blobs = storage.Local{Dir: t.TempDir()}
 	library := skill.Service{Store: f.T.Store, Blobs: f.T.Blobs}
@@ -127,6 +127,13 @@ func TestGlobalDisabledSkillHidesExistingPin(t *testing.T) {
 	if _, err = availability.Set(t.Context(), f.T.Store, f.WS, f.Owner, "skill", d.ID, 0, false); err != nil {
 		t.Fatal(err)
 	}
+	_, stillAvailable, err := library.CandidatesForScope(ctx, f.WS, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(stillAvailable, func(c toolroute.Skill) bool { return c.Name == d.Name }) {
+		t.Fatal("skill hidden by old workspace policy")
+	}
 	if err = library.Delete(t.Context(), f.WS, f.Owner, d.ID, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -141,12 +148,10 @@ func TestGlobalDisabledSkillHidesExistingPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range candidates {
-		if c.Name == d.Name {
-			t.Error("globally disabled pinned skill remains a candidate")
-		}
+	if !slices.ContainsFunc(candidates, func(c toolroute.Skill) bool { return c.Name == d.Name }) {
+		t.Fatal("existing pinned skill disappeared")
 	}
-	if _, err = library.ResolveForScope(prepared, f.WS, scope, []string{d.Name}); !errors.Is(err, skill.ErrRoutingChanged) {
-		t.Fatalf("disabled pinned snapshot resolved: %v", err)
+	if _, err = library.ResolveForScope(prepared, f.WS, scope, []string{d.Name}); err != nil {
+		t.Fatalf("existing pin could not be resolved: %v", err)
 	}
 }

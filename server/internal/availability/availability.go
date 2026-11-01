@@ -35,7 +35,7 @@ func Get(ctx context.Context, tx *store.Tx, kind, id string) (Policy, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Policy{Enabled: true}, nil
 	}
-	return Policy{row.Enabled, row.Revision}, err
+	return Policy{true, row.Revision}, err
 }
 func Set(ctx context.Context, st *store.Store, ws, user uuid.UUID, kind, id string, expected int64, enabled bool) (Policy, error) {
 	var out Policy

@@ -24,6 +24,7 @@ type Config struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	Keyless bool              `json:"keyless,omitempty"`
 }
 type Summary struct {
 	availability.Policy
@@ -34,6 +35,7 @@ type Summary struct {
 	CreatedBy uuid.UUID `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Keyless   bool      `json:"keyless,omitempty"`
 }
 type Service struct {
 	Store   *store.Store
@@ -130,7 +132,23 @@ func (s *Service) List(ctx context.Context, ws, user uuid.UUID) ([]Summary, erro
 			if err != nil {
 				return err
 			}
-			out = append(out, Summary{policy, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
+			keyless := false
+			if r.Transport == "command" {
+				ciphertext, e := tx.Q.GetWorkspaceMCPServerConfig(ctx, db.GetWorkspaceMCPServerConfigParams{WorkspaceID: ws, ID: r.ID})
+				if e != nil {
+					return e
+				}
+				raw, e := s.Secrets.Open(ws, resource(r.ID), ciphertext)
+				if e != nil {
+					return e
+				}
+				var config Config
+				if e := json.Unmarshal([]byte(raw), &config); e != nil {
+					return e
+				}
+				keyless = config.Keyless
+			}
+			out = append(out, Summary{policy, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt, keyless})
 		}
 		return nil
 	})
@@ -156,7 +174,7 @@ func (s *Service) Create(ctx context.Context, ws, user uuid.UUID, name string, c
 		if err != nil {
 			return err
 		}
-		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
+		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt, c.Command != "" && c.Keyless}
 		return emit(ctx, tx, "connector.created", user, out)
 	})
 	return out, safeError(err)
@@ -190,7 +208,7 @@ func (s *Service) Update(ctx context.Context, ws, user, id uuid.UUID, expected i
 		if err != nil {
 			return err
 		}
-		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt}
+		out = Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt, c.Command != "" && c.Keyless}
 		out.Policy, err = availability.Get(ctx, tx, "mcp", id.String())
 		if err != nil {
 			return err
@@ -222,7 +240,7 @@ func (s *Service) Delete(ctx context.Context, ws, user, id uuid.UUID, expected i
 		if err != nil {
 			return err
 		}
-		return emit(ctx, tx, "connector.deleted", user, Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt})
+		return emit(ctx, tx, "connector.deleted", user, Summary{availability.Policy{Enabled: true}, r.ID, r.Name, r.Transport, r.Revision, r.CreatedBy, r.CreatedAt, r.UpdatedAt, false})
 	})
 	var stale *StaleRevision
 	if errors.As(err, &stale) {

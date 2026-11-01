@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watchEffect } from 'vue';
 import type { PDFDocumentProxy, TextLayer } from 'pdfjs-dist';
-import { loadPdfjs, pageLinks, type PageLink } from './lib/pdf-render';
+import { loadPdfjs, pageLinks, rasterWidth, type PageLink } from './lib/pdf-render';
 const props = defineProps<{
   n: number;
   path: string;
@@ -39,7 +39,7 @@ watchEffect((onCleanup) => {
       const base = drawing.getViewport({ scale: 1 }),
         shown = c.parentElement?.clientWidth || base.width,
         dpr = window.devicePixelRatio || 1;
-      const viewport = drawing.getViewport({ scale: Math.min(shown * dpr, 2600) / base.width });
+      const viewport = drawing.getViewport({ scale: rasterWidth(shown, dpr) / base.width });
       c.width = viewport.width;
       c.height = viewport.height;
       const task = drawing.render({

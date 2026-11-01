@@ -57,8 +57,12 @@ func TestSavingATeamReplacesItInPlace(t *testing.T) {
 	if c := s.call(t, "PUT", "/api/availability/skill/bundle:anndata", a, w.ID, map[string]any{"enabled": false, "revision": 0}, nil); c != 200 {
 		t.Fatalf("disable skill: %d", c)
 	}
-	if c, _ := s.saveSkills(t, a, w.ID, source.ID, "anndata"); c != 409 {
-		t.Fatalf("disabled skill: %d", c)
+	if c, _ := s.saveSkills(t, a, w.ID, source.ID, "anndata"); c != 200 {
+		t.Fatalf("skill hidden by old availability setting: %d", c)
+	}
+	s.call(t, "GET", "/api/teams/"+source.ID, a, w.ID, nil, &updated)
+	if !slices.Equal(updated.Manifest.Leader.Skills, []string{"anndata"}) {
+		t.Fatalf("skill not saved: %v", updated.Manifest.Leader.Skills)
 	}
 	if c := s.call(t, "POST", "/api/teams/"+source.ID+"/skills", a, w.ID, map[string]any{"member": "unknown", "skills": []string{}}, nil); c != 400 {
 		t.Fatalf("unknown member: %d", c)

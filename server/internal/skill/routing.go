@@ -356,7 +356,7 @@ func (s TeamSelection) Fence(ctx context.Context, tx *store.Tx, user uuid.UUID) 
 	return nil
 }
 
-// EnabledFolders snapshots current workspace availability for a chat turn.
+// EnabledFolders loads available skill folders for a chat turn.
 // Immutable folder blobs are loaded only after the metadata transaction closes.
 func (s *Service) EnabledFolders(ctx context.Context, ws, user uuid.UUID) ([]toolroute.RoutedSkill, error) {
 	var versions []db.WorkspaceSkillVersion
@@ -366,27 +366,13 @@ func (s *Service) EnabledFolders(ctx context.Context, ws, user uuid.UUID) ([]too
 			return err
 		}
 		for _, b := range science.Skills() {
-			p, err := availability.Get(ctx, tx, "skill", "bundle:"+b.Name)
-			if err != nil {
-				return err
-			}
-			if p.Enabled {
-				candidates.Skills = append(candidates.Skills, toolroute.Skill{Name: b.Name})
-			}
+			candidates.Skills = append(candidates.Skills, toolroute.Skill{Name: b.Name})
 		}
 		active, err := activeVersions(ctx, tx)
 		if err != nil {
 			return err
 		}
-		for _, v := range active {
-			p, err := availability.Get(ctx, tx, "skill", v.SkillID.String())
-			if err != nil {
-				return err
-			}
-			if p.Enabled {
-				versions = append(versions, v)
-			}
-		}
+		versions = append(versions, active...)
 		return nil
 	})
 	if err != nil {

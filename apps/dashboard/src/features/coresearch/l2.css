@@ -6277,7 +6277,8 @@
   order: 0;
 }
 .coresearch.composer-card--docked > .composer-textarea,
-.coresearch .composer-card--docked > .composer-textarea {
+.coresearch .composer-card--docked > .composer-textarea,
+.coresearch .composer-card--docked > .composer-input-wrap {
   flex: 1 1 0;
   min-width: 0;
   order: 1;
@@ -9262,6 +9263,10 @@
   padding: 12px 0 40vh;
   caret-color: var(--ink);
 }
+.coresearch .manuscript-editor .cm-editor.cm-focused,
+.coresearch .manuscript-editor .cm-content:focus-visible {
+  outline: none;
+}
 .coresearch.manuscript-editor .cm-gutters,
 .coresearch .manuscript-editor .cm-gutters {
   border-right: 0;
@@ -9674,7 +9679,8 @@
   order: 0;
 }
 .coresearch.home-chat .composer-card > .composer-textarea,
-.coresearch .home-chat .composer-card > .composer-textarea {
+.coresearch .home-chat .composer-card > .composer-textarea,
+.coresearch .home-chat .composer-card > .composer-input-wrap {
   flex: 1 1 160px;
   min-width: 0;
   order: 1;
@@ -12753,6 +12759,9 @@
   flex: 1 1 auto;
   min-height: 0;
 }
+.coresearch .ms-pdf-body .pdf-stage {
+  background: var(--sidebar);
+}
 .coresearch.pdf-stage .pdf-page,
 .coresearch .pdf-stage .pdf-page {
   margin-inline: auto;
@@ -14223,4 +14232,36 @@
   height: 1px;
   margin: 10px 8px;
   background: var(--hairline-strong);
+}
+
+.coresearch .composer-capability {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.coresearch .composer-input-wrap {
+  display: grid;
+  min-width: 0;
+  width: 100%;
+}
+.coresearch .composer-input-wrap > * {
+  grid-area: 1 / 1;
+}
+.coresearch .composer-input-mirror {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  max-height: 200px;
+  pointer-events: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--type-body);
+  line-height: 1.5;
+}
+.coresearch .composer-input-wrap:has(.composer-input-mirror) textarea {
+  color: transparent;
+  caret-color: var(--ink);
+}
+.coresearch .composer-selection {
+  color: var(--accent);
 }

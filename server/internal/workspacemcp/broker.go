@@ -131,7 +131,7 @@ func (b *Broker) rows(ctx context.Context, role middleware.Role, call bool) ([]b
 		if err != nil {
 			return middleware.ErrRoleUnauthorized
 		}
-		if call && !slices.Contains(tok.Scopes, service.ScopeCall) {
+		if call && !slices.Contains(tok.Scopes, service.ScopeCall) && !slices.Contains(tok.Scopes, service.ScopeCoresearchConnector) {
 			return middleware.ErrRoleUnauthorized
 		}
 		if !call && !slices.Contains(tok.Scopes, service.ScopeRole) && !slices.Contains(tok.Scopes, service.ScopeReport) {
@@ -303,7 +303,7 @@ func listTools(ctx context.Context, s *mcp.ClientSession) ([]toolroute.Tool, err
 		if err != nil {
 			return nil, ErrBroker
 		}
-		tools = append(tools, toolroute.Tool{Name: t.Name, Description: t.Description})
+		tools = append(tools, toolroute.Tool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
 	}
 	return tools, nil
 }
@@ -738,6 +738,9 @@ func (b *Broker) CommandReceipt(ctx context.Context, run middleware.Role, id uui
 // RecordFence validates the execution receipt and returns the check that must
 // run after LockRole in the same transaction as the evidence write.
 func (b *Broker) RecordFence(ctx context.Context, run middleware.Role, ticket, server, tool string, args any, answer string) (func(*store.Tx) error, error) {
+	if ticket == "" && slices.Contains(run.Scopes, service.ScopeCoresearchConnector) {
+		return nil, ErrBroker
+	}
 	var receipt callReceipt
 	if ticket != "" {
 		sealed, err := base64.RawURLEncoding.DecodeString(ticket)

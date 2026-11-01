@@ -70,7 +70,7 @@ func TestOwnersControlConnectors(t *testing.T) {
 	}
 	var ens connectorView
 	s.call(t, "PUT", "/api/connectors/ensembl", a, w.ID, map[string]any{"revision": 0, "enabled": false}, &ens)
-	if ens.Enabled || !strings.Contains(ens.Reason, "enables `ensembl`") {
+	if !ens.Enabled || !ens.PolicyEnabled {
 		t.Fatalf("disable: %+v", ens)
 	}
 	for _, c := range []struct {
@@ -135,7 +135,7 @@ func TestConnectorPolicyIsSeparateFromReadiness(t *testing.T) {
 	if code := s.call(t, "PUT", "/api/connectors/biogrid", token, ws, map[string]any{"revision": 0, "enabled": false}, &saved); code != 200 {
 		t.Fatal(code)
 	}
-	if saved["policy_enabled"] != false || saved["enabled"] != false {
+	if saved["policy_enabled"] != true || saved["enabled"] != false {
 		t.Fatalf("disabled policy: %+v", saved)
 	}
 	if code := s.call(t, "PUT", "/api/connectors/biogrid", token, ws, map[string]any{"revision": 1, "enabled": true}, &saved); code != 200 {
@@ -178,7 +178,7 @@ func TestOwnersSaveTheWorkspacesOpenAlexKey(t *testing.T) {
 			t.Fatal("OpenAlex joined the connector catalogue")
 		}
 	}
-	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 1, "enabled": false}, &v); code != 200 || v.PolicyEnabled || v.Enabled || !v.KeySet {
+	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 1, "enabled": false}, &v); code != 200 || !v.PolicyEnabled || !v.Enabled || !v.KeySet {
 		t.Fatalf("disable while preserving key: %d %+v", code, v)
 	}
 	if code := s.call(t, "PUT", "/api/connectors/openalex", a, w.ID, map[string]any{"revision": 2, "enabled": true}, &v); code != 200 || !v.PolicyEnabled || !v.Enabled || !v.KeySet {

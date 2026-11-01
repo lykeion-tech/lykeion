@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { ref } from 'vue';
 import type { Build, Version, Comment } from './types';
 import RightPaneTabs from '../RightPaneTabs.vue';
 import PdfPane from './PdfPane.vue';
@@ -7,7 +7,6 @@ import ProjectInfoPane from './ProjectInfoPane.vue';
 import VersionsPane from './VersionsPane.vue';
 import CommentsPane from './CommentsPane.vue';
 import LogPane from './LogPane.vue';
-import ComputePanel from './ComputePanel.vue';
 const props = defineProps<{
   projectId: string;
   title: string;
@@ -17,7 +16,6 @@ const props = defineProps<{
   comments: (Comment & { path: string })[];
   people: { id: string; name: string }[];
   meId?: string;
-  compute?: boolean;
   noMachine?: boolean;
   disabled?: boolean;
   cursor?: { path: string; line: number };
@@ -32,42 +30,21 @@ const emit = defineEmits<{
   redo: [];
   goToSource: [path: string, line: number];
   deleteComment: [id: string];
-  'update:compute': [value: boolean];
   focus: [value: boolean];
 }>();
 const tools = ref(false),
   active = ref('info'),
   focus = ref(false);
-watch(
-  () => props.compute,
-  (v) => {
-    if (v) {
-      tools.value = true;
-      active.value = 'compute';
-    } else if (active.value === 'compute') {
-      active.value = 'info';
-      tools.value = false;
-    }
-  },
-  { immediate: true },
-);
-// Compute is the sidebar's own tab: it never shares the strip with the
-// paper's tools, and it closes.
-const tabs = computed(() =>
-  active.value === 'compute'
-    ? [{ id: 'compute', label: 'Compute', title: 'The machine this paper runs on', closable: true }]
-    : [
-        { id: 'info', label: 'Project Info' },
-        { id: 'versions', label: 'Versions' },
-        { id: 'comments', label: 'Comments' },
-        { id: 'logs', label: 'Logs' },
-      ],
-);
+const tabs = [
+  { id: 'info', label: 'Project Info' },
+  { id: 'versions', label: 'Versions' },
+  { id: 'comments', label: 'Comments' },
+  { id: 'logs', label: 'Logs' },
+];
 function close() {
   tools.value = false;
   focus.value = false;
   emit('focus', false);
-  emit('update:compute', false);
 }
 </script>
 <template>
@@ -105,13 +82,6 @@ function close() {
           :log="log"
           :failed="logFailed"
           @jump="(path, line) => emit('goToSource', path, line)"
-        /><ComputePanel
-          v-else-if="active === 'compute'"
-          role="tabpanel"
-          aria-label="Compute"
-          :project-id="projectId"
-          :title="title"
-          :disabled="disabled"
         /></div
     ></template>
     <div v-else class="task-rightpane-card">

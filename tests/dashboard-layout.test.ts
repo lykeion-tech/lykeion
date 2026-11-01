@@ -1,10 +1,16 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { resolveConfig } from 'vite';
 
 const src = 'apps/dashboard/src';
 
 describe('the dashboard source layout', () => {
+  it('keeps the dashboard and landing-page Vite dependency caches separate', async () => {
+    const dashboard = await resolveConfig({ configFile: 'apps/dashboard/vite.config.ts' }, 'serve');
+    const web = await resolveConfig({ configFile: 'apps/web/vite.config.ts' }, 'serve');
+    expect(dashboard.cacheDir).not.toBe(web.cacheDir);
+  });
   it('has a features folder and a ui folder', () => {
     expect(existsSync(join(src, 'features'))).toBe(true);
     expect(existsSync(join(src, 'ui'))).toBe(true);

@@ -49,3 +49,12 @@ func TestCowriteSelectionPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptNamesSelectedCapabilitiesForCurrentTurn(t *testing.T) {
+	p := Prompt(PromptIn{Message: "analyze", Capabilities: &Capabilities{Skills: []string{"aeon"}, Connectors: []string{"ensembl"}}})
+	for _, value := range []string{"aeon", "ensembl"} {
+		if !strings.Contains(p, value) {
+			t.Fatalf("selected capability %s missing from prompt", value)
+		}
+	}
+}

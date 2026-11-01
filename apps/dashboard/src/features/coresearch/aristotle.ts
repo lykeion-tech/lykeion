@@ -66,6 +66,21 @@ export interface ComposerAttachment {
   upload_id: string;
   name: string;
 }
+export interface ComposerCapabilities {
+  skills: string[];
+  connectors: string[];
+}
+export function connectorLabel(value: string) {
+  return value.startsWith('workspace:') ? value.slice(value.indexOf(':', 10) + 1) : value;
+}
+export function wireCapabilities(value: ComposerCapabilities) {
+  const workspace = value.connectors.filter((c) => c.startsWith('workspace:'));
+  return {
+    skills: value.skills,
+    connectors: value.connectors.filter((c) => !c.startsWith('workspace:')),
+    ...(workspace.length ? { workspace_connectors: workspace.map((c) => c.split(':')[1]!) } : {}),
+  };
+}
 export interface ComposerContinuation {
   scope: string;
   path: string;
@@ -78,6 +93,7 @@ export interface ComposerContinuation {
   harness: string;
   model: string | null;
   attachments: ComposerAttachment[];
+  capabilities?: ComposerCapabilities;
   pending: AcceptanceRequest | null;
 }
 let continuation: ComposerContinuation | null = null;
@@ -93,6 +109,9 @@ export function holdComposerContinuation(value: ComposerContinuation) {
   continuation = {
     ...value,
     attachments: value.attachments.map((file) => ({ ...file })),
+    capabilities: value.capabilities
+      ? { skills: [...value.capabilities.skills], connectors: [...value.capabilities.connectors] }
+      : undefined,
     pending: value.pending ? { ...value.pending } : null,
   };
 }
@@ -117,10 +136,15 @@ export function acceptanceRequest(
     : { body, target, request_id: crypto.randomUUID(), ...(payload ? { payload } : {}) };
 }
 export function restoreConversation(
-  list: { id: string; is_welcome: boolean }[],
+  list: { id: string; is_welcome: boolean; mode?: string }[],
   saved: string | null,
 ) {
-  return list.find((c) => c.id === saved)?.id ?? list.find((c) => c.is_welcome)?.id ?? list[0]?.id;
+  const conversations = list.filter((c) => c.mode !== 'cowrite');
+  return (
+    conversations.find((c) => c.id === saved)?.id ??
+    conversations.find((c) => c.is_welcome)?.id ??
+    conversations[0]?.id
+  );
 }
 export const conversationKey = (ws: string, member: string) =>
   [...keys.coresearchConversations(ws), member] as const;

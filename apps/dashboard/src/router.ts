@@ -58,7 +58,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/coresearch/new',
     component: AristotleChat,
-    meta: { page: 'coresearch', title: 'New', ownHeader: true, conversationRail: true },
+    meta: { page: 'coresearch', title: 'New', tabTitle: 'Coresearch', ownHeader: true, conversationRail: true },
   },
   {
     path: '/coresearch/projects',

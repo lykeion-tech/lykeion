@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
 import { PDF_ZOOM_PRESETS, PX_PER_PT, fitScale, keepCentre, nextZoom } from "./pdf-zoom";
+import { rasterWidth } from "./pdf-render";
+
+it("renders fitted pages at twice their on-screen resolution even below a device pixel ratio of one", () => {
+  expect(rasterWidth(621, 0.9)).toBe(1242);
+  expect(rasterWidth(621, 3)).toBe(1863);
+  expect(rasterWidth(2000, 2)).toBe(2600);
+});
 
 const letter = { width: 612, height: 792 };
 

@@ -30,7 +30,7 @@ function record() {
   t.title = props.title;
   t.icon = props.icon;
 }
-watch(() => [route.fullPath, props.title], record, { flush: 'post' });
+watch(() => [route.fullPath, props.title], record, { flush: 'post', immediate: true });
 // A tab opened from anywhere, the new-tab button included, is selected first and shown here.
 watch(selected, () => {
   if (!navigating) void select(active.value);

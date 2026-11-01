@@ -733,4 +733,12 @@ describe('Aristotle UI', () => {
     expect(change).toHaveBeenCalledWith('nav');
     app.unmount();
   });
+  it('uses the chat icon for Cowrite session details', () => {
+    const app = createTreeApp({ render: () => h(RailFabs, { view: 'context', session: true }) });
+    const root = node('root');
+    app.mount(root);
+    const button = byLabel(root, 'Show session details');
+    expect(all(button).some((n) => n.tag === 'svg' && String(n.props.class).includes('lucide-message-square'))).toBe(true);
+    app.unmount();
+  });
 });

@@ -37,7 +37,6 @@ func (h *H) viewOf(e connectors.Entry, row *db.WorkspaceConnector) connectorView
 	v := connectorView{PolicyEnabled: true, Name: e.Name, Domain: e.Domain, Purpose: e.Purpose, Tier: e.Tier, Terms: e.Terms,
 		TakesKey: e.KeyHeader != "" || e.KeyQuery != ""}
 	if row != nil {
-		v.PolicyEnabled = row.Enabled
 		v.Revision = row.Revision
 		v.KeySet, v.LicenceConfirmed = len(row.KeyCiphertext) > 0, row.LicenceConfirmedAt != nil
 	}
@@ -154,9 +153,6 @@ func (h *H) setConnector(w http.ResponseWriter, r *http.Request) {
 		}
 		if row.Revision != *in.Revision {
 			return &workspacemcp.StaleRevision{Revision: row.Revision}
-		}
-		if in.Enabled != nil {
-			row.Enabled = *in.Enabled
 		}
 		if in.Key != nil {
 			row.KeyCiphertext = nil

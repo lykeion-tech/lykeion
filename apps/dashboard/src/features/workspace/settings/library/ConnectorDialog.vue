@@ -5,8 +5,12 @@ import Icon from '../../../../ui/Icon.vue';
 import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../../api/library';
 import { useMe, useMembers } from '../../../../api/queries';
 
-const props = defineProps<{ kind: 'catalogue' | 'custom'; connectorId: string }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{
+  kind: 'catalogue' | 'custom';
+  connectorId: string;
+  canEdit?: boolean;
+}>();
+const emit = defineEmits<{ close: []; edit: [] }>();
 const catalogue = useConnectorLibrary(),
   custom = useWorkspaceMCPServers();
 const members = useMembers(),
@@ -88,6 +92,9 @@ const author = computed(() => {
         <p class="hint footer-hint">
           Available connectors can be selected for Teams and routed to agents.
         </p>
+      </footer>
+      <footer v-if="server && kind === 'custom' && canEdit">
+        <button class="button" type="button" @click="emit('edit')">Edit connector</button>
       </footer>
     </section>
   </Modal>

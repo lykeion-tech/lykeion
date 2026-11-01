@@ -143,7 +143,7 @@ func TestConnectorStaleSaveRejected(t *testing.T) {
 		Revision int64
 		Enabled  bool
 	}
-	if c := s.call(t, "PUT", "/api/connectors/ensembl", owner, ws.ID, map[string]any{"revision": 0, "enabled": false}, &got); c != 200 || got.Revision != 1 || got.Enabled {
+	if c := s.call(t, "PUT", "/api/connectors/ensembl", owner, ws.ID, map[string]any{"revision": 0, "enabled": false}, &got); c != 200 || got.Revision != 1 || !got.Enabled {
 		t.Fatalf("initial revision: %d %+v", c, got)
 	}
 	var conflict struct {
@@ -153,7 +153,7 @@ func TestConnectorStaleSaveRejected(t *testing.T) {
 	if c := s.call(t, "PUT", "/api/connectors/ensembl", owner, ws.ID, map[string]any{"revision": 0, "enabled": true}, &conflict); c != 409 || conflict.Code != "stale_revision" || conflict.Revision != 1 {
 		t.Fatalf("stale: %d %+v", c, conflict)
 	}
-	if s.count(t, `SELECT count(*) FROM workspace_connector WHERE name='ensembl' AND revision=1 AND NOT enabled`) != 1 {
+	if s.count(t, `SELECT count(*) FROM workspace_connector WHERE name='ensembl' AND revision=1 AND enabled`) != 1 {
 		t.Fatal("CAS changed saved state")
 	}
 	if c := s.call(t, "PUT", "/api/connectors/ensembl", owner, ws.ID, map[string]any{"revision": 1, "enabled": true}, &got); c != 200 || got.Revision != 2 {
@@ -178,6 +178,20 @@ func TestWorkspaceMCPRunTokensAreRefused(t *testing.T) {
 	}
 	if s.count(t, `SELECT count(*) FROM workspace_mcp_server`) != 0 {
 		t.Fatal("run actor wrote config")
+	}
+}
+
+func TestWorkspaceCommandReportsExplicitKeylessDeclaration(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "keyless@lab.org")
+	ws := s.workspace(t, owner, "lab")
+	var created map[string]any
+	if code := s.call(t, "POST", "/api/mcp-servers", owner, ws.ID, mcpInput("keyless", 0, map[string]any{"command": "node", "args": []string{"server.js"}, "keyless": true}), &created); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var rows []map[string]any
+	if code := s.call(t, "GET", "/api/mcp-servers", owner, ws.ID, nil, &rows); code != 200 || len(rows) != 1 || rows[0]["keyless"] != true {
+		t.Fatalf("list: %d %+v", code, rows)
 	}
 }
 func TestWorkspaceMCPForeignAndRemovedMembersCannotMutate(t *testing.T) {

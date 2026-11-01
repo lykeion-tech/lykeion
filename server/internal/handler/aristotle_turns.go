@@ -14,6 +14,7 @@ import (
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/doc"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/workspacemcp"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -22,9 +23,41 @@ type acceptancePayload struct {
 	Model                *string
 	Harness              *string `json:",omitempty"`
 	Attachments          []coresearchAttachment
-	Selection            *coresearch.Selection `json:"Selection,omitempty"`
-	Queue                bool                  `json:",omitempty"`
-	AgentID              *uuid.UUID            `json:",omitempty"`
+	Selection            *coresearch.Selection    `json:"Selection,omitempty"`
+	Queue                bool                     `json:",omitempty"`
+	AgentID              *uuid.UUID               `json:",omitempty"`
+	Capabilities         *coresearch.Capabilities `json:",omitempty"`
+}
+
+func (h *H) validateCoresearchConnectors(ctx context.Context, tx *store.Tx, capabilities *coresearch.Capabilities) error {
+	if capabilities == nil {
+		return nil
+	}
+	seen := map[uuid.UUID]bool{}
+	for _, id := range capabilities.WorkspaceConnectors {
+		if id == uuid.Nil || seen[id] {
+			return coresearchInputError("invalid connector selection")
+		}
+		seen[id] = true
+		row, err := tx.Q.LockWorkspaceMCPServer(ctx, db.LockWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return coresearchInputError("selected connector is unavailable")
+		}
+		if err != nil {
+			return err
+		}
+		if row.Transport == "command" {
+			if h.Connectors == nil {
+				return coresearchInputError("selected command is unavailable")
+			}
+			raw, err := h.Connectors.Open(tx.WS, "mcp-servers/"+id.String(), row.ConfigCiphertext)
+			var config workspacemcp.Config
+			if err != nil || json.Unmarshal([]byte(raw), &config) != nil || !config.Keyless {
+				return coresearchInputError("declare this command keyless in Settings before using it in Coresearch")
+			}
+		}
+	}
+	return nil
 }
 
 func sameAcceptancePayload(stored, want string) bool {
@@ -49,8 +82,9 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		Attachments []coresearchAttachment `json:"attachments,omitempty"`
 		Selection   *coresearch.Selection  `json:"selection,omitempty"`
 		// Queue lets a Cowrite turn wait behind the one in progress.
-		Queue   bool       `json:"queue,omitempty"`
-		AgentID *uuid.UUID `json:"agent_id,omitempty"`
+		Queue        bool                     `json:"queue,omitempty"`
+		AgentID      *uuid.UUID               `json:"agent_id,omitempty"`
+		Capabilities *coresearch.Capabilities `json:"capabilities,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.RequestID == uuid.Nil || !utf8.ValidString(in.Body) || strings.TrimSpace(in.Body) == "" || len(in.Body) > 262144 {
 		writeErr(w, 400, "body and request_id UUID required")
@@ -70,7 +104,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	if len(in.Attachments) == 0 {
 		in.Attachments = nil
 	}
-	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue, in.AgentID})
+	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue, in.AgentID, in.Capabilities})
 	receiptBody := string(payload)
 	var response json.RawMessage
 	// Staging may outlive another identical request's upload claim. Only a
@@ -361,7 +395,10 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 					return e
 				}
 			}
-			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Queue, in.Selection)
+			if e := h.validateCoresearchConnectors(ctx, tx, in.Capabilities); e != nil {
+				return e
+			}
+			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Queue, in.Capabilities, in.Selection)
 			if errors.Is(e, doc.ErrInvalid) {
 				return coresearchInputError("invalid selection version or UTF-16 bounds")
 			}

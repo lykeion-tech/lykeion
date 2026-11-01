@@ -60,6 +60,42 @@ read -r line || true
 	}
 }
 
+func TestCoresearchSelectedConnectorDoorIsConfigured(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		t.Run(harness, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), ".codex"))
+			args := filepath.Join(t.TempDir(), "args")
+			bin := script(t, `printf '%s\n' "$@" > `+args+`
+read -r line || true
+`)
+			o := ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox, Coresearch: true, SourcesURL: "http://localhost/sources", DoorURL: "http://localhost/door", DoorToken: "door-secret"}
+			var backend Backend = Claude{Bin: bin}
+			if harness == "codex" {
+				backend = Codex{Bin: bin}
+			}
+			session, err := backend.Execute(t.Context(), "research", o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range session.Messages {
+			}
+			<-session.Done
+			path := args
+			if harness == "claude" {
+				path = filepath.Join(o.Dir, ".lyk-mcp.json")
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), "lyk_door") {
+				t.Fatal("selected connector door absent")
+			}
+		})
+	}
+}
+
 func TestCoresearchCodexDefaultUsageIsReportable(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", filepath.Join(os.Getenv("HOME"), ".codex"))

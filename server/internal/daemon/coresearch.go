@@ -734,6 +734,24 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	if study != nil {
 		opts.ReadDirs = append([]string{study.Dir}, study.Bases.Folders()...)
 	}
+	if len(c.WorkspaceConnectors) > 0 {
+		private, err := d.privatePaths()
+		if err != nil {
+			fail(err)
+			return nil
+		}
+		door := &Door{Coresearch: true, Server: d.cfg.Server, RunToken: c.Token, CallToken: c.CallToken,
+			WorkspaceConnectors: c.WorkspaceConnectors, Harness: c.AgentRun.Harness, Study: study,
+			PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
+			Child: func() agent.ExecOptions { return opts }}
+		if err := door.Start(); err != nil {
+			fail(err)
+			return nil
+		}
+		defer door.Close()
+		opts.DoorURL, opts.DoorToken = door.URL, door.Token
+		opts.Env = append(opts.Env, "LYK_DOOR_TOKEN="+door.Token)
+	}
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil

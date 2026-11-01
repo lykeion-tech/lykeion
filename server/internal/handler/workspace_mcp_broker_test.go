@@ -104,6 +104,78 @@ func TestWorkspaceRemoteMCPStaysOnServer(t *testing.T) {
 	}
 }
 
+func TestCoresearchSelectedRemoteMCPUsesServerBroker(t *testing.T) {
+	s, jwt, ws, selected, upstream := brokerFixture(t)
+	var other mcpView
+	if code := s.call(t, "POST", "/api/mcp-servers", jwt, ws, mcpInput("other", 0, map[string]any{"url": upstream.URL}), &other); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, jwt, ws, "selected-broker", "claude")
+	in := map[string]any{"body": "Search", "request_id": uuid.NewString(), "capabilities": map[string]any{"workspace_connectors": []string{selected.ID}}}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", jwt, ws, in, nil); code != 201 {
+		t.Fatalf("accept %d", code)
+	}
+	claims := csClaim(t, s, jwt, ref)
+	if len(claims) != 1 || claims[0].CallToken == "" {
+		t.Fatalf("missing connector authority in %d claims", len(claims))
+	}
+	claim := claims[0]
+	ref.Attempt = claim.AgentRun.Attempt
+	if err := s.H.AgentRuns.Start(t.Context(), uuid.MustParse(s.userID(t, jwt)), ref, claim.AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(claim)
+	if bytes.Contains(raw, []byte("remote-secret")) || bytes.Contains(raw, []byte(upstream.URL)) {
+		t.Fatal("remote configuration left the server")
+	}
+	var tools []toolroute.Tool
+	if code := s.call(t, "POST", "/api/role/mcp-servers/"+selected.ID+"/tools", claim.CallToken, "", map[string]any{}, &tools); code != 200 || len(tools) != 1 {
+		t.Fatalf("selected tools: %d %+v", code, tools)
+	}
+	inventory, _ := json.Marshal(tools)
+	if !bytes.Contains(inventory, []byte(`"input_schema"`)) {
+		t.Fatal("tool argument schema absent")
+	}
+	if code := s.call(t, "POST", "/api/role/mcp-servers/"+other.ID+"/tools", claim.CallToken, "", map[string]any{}, nil); code != 404 {
+		t.Fatalf("unselected: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/role/mcp-servers/"+selected.ID+"/tools", claim.Token, "", map[string]any{}, nil); code != 403 && code != 401 {
+		t.Fatalf("agent token: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/role/calls", claim.CallToken, "", map[string]any{"server": "forged", "tool": "echo", "answer": "fake"}, nil); code < 400 {
+		t.Fatalf("forged call record: %d", code)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), "POST", s.URL+"/api/role/mcp-servers/"+selected.ID+"/call", strings.NewReader(`{"tool":"echo","args":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+claim.CallToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var answer json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		t.Fatal(err)
+	}
+	ticket := resp.Header.Get(workspacemcp.RecordHeader)
+	if resp.StatusCode != 200 || !strings.Contains(string(answer), "answer") || ticket == "" {
+		t.Fatalf("call status %d, receipt present %t", resp.StatusCode, ticket != "")
+	}
+	if code := s.call(t, "POST", "/api/role/calls", claim.CallToken, "", map[string]any{"server": "lab", "tool": "echo", "args": map[string]any{}, "answer": "answer", "workspace_call": ticket}, nil); code != 201 {
+		t.Fatalf("record selected call: %d", code)
+	}
+	var event json.RawMessage
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT payload FROM event WHERE workspace_id=$1 AND type='sources.called' AND payload->>'agent_run_id'=$2`, ws, claim.AgentRun.ID.String()).Scan(&event); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(event, []byte("answer")) || bytes.Contains(event, []byte("echo")) {
+		t.Fatal("private connector call leaked into a workspace event")
+	}
+}
+
 func TestWorkspaceMCPBrokerRejectsAgentToken(t *testing.T) {
 	s, jwt, ws, saved, _ := brokerFixture(t)
 	claim := brokerRun(t, s, jwt, ws)

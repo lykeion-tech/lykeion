@@ -47,6 +47,75 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestCoresearchDoorExposesOnlyConnectorTools(t *testing.T) {
+	d := &Door{Coresearch: true}
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	s, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var names []string
+	for tool, err := range s.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	if !slices.Contains(names, "list_connectors") || !slices.Contains(names, "call_tool") || slices.Contains(names, "run_code") || slices.Contains(names, "run_script") || slices.Contains(names, "set_up_environment") {
+		t.Fatalf("tools: %v", names)
+	}
+	if _, ok := d.find("sources"); ok {
+		t.Fatal("sources exposed through connector door")
+	}
+}
+
+func TestCoresearchCommandRequiresSandbox(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+	d := &Door{Coresearch: true, Server: server.URL, CallToken: "private", Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: t.TempDir()} }}
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, err := d.sessionContext(t.Context(), target{kind: "command", c: pack.Connector{Name: "local", Workspace: uuid.NewString(), Command: []string{"true"}}})
+	if !errors.Is(err, agent.ErrNoSandbox) {
+		t.Fatalf("expected sandbox requirement, got %v", err)
+	}
+}
+
+func TestCoresearchCommandUsesSandbox(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+	sentinel := errors.New("sandbox invoked")
+	d := &Door{Coresearch: true, Server: server.URL, CallToken: "private", Child: func() agent.ExecOptions {
+		return agent.ExecOptions{Sandbox: func(_ context.Context, paths agent.CLIPaths, name string, _ ...string) (*exec.Cmd, error) {
+			if name != "node" || len(paths.Write) != 1 {
+				t.Fatal("connector sandbox grants missing")
+			}
+			return nil, sentinel
+		}}
+	}}
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, err := d.sessionContext(t.Context(), target{kind: "command", c: pack.Connector{Name: "local", Workspace: uuid.NewString(), Command: []string{"node"}}})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("sandbox not invoked: %v", err)
+	}
+}
+
 // stubCommand notes its pid, a child's pid and whether it saw a run token,
 // in its working folder, then answers echo over stdin and stdout.
 func stubCommand() {

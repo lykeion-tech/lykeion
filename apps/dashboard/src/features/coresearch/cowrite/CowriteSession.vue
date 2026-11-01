@@ -20,6 +20,7 @@ import {
 import {
   useAristotle,
   acceptanceRequest,
+  wireCapabilities,
   type AcceptanceRequest,
   type ComposerAttachment,
   holdComposerContinuation,
@@ -115,7 +116,6 @@ const fileID = ref(''),
   tab = ref<'files' | 'chats'>('files'),
   namingNew = ref(false),
   membersOpen = ref(false),
-  compute = ref(false),
   focused = ref(false),
   compiling = ref(false),
   refusedAfter = ref<number | null>(null),
@@ -143,6 +143,7 @@ const people = computed(() =>
     .filter((m) => projectMembers.data.value?.some((p) => p.user_id === m.user_id))
     .map((m) => ({ id: m.user_id, name: m.name?.trim() || m.email || m.user_id })),
 );
+const composerCapabilities = ref({ skills: [] as string[], connectors: [] as string[] });
 const draft = ref(''),
   busy = ref(false),
   attachments = ref<ComposerAttachment[]>([]);
@@ -207,6 +208,7 @@ watch(
   () => chat.value?.id,
   () => {
     draft.value = '';
+    composerCapabilities.value = { skills: [], connectors: [] };
     pending = null;
     selectedRequest = undefined;
     attachments.value = [];
@@ -218,6 +220,7 @@ watch(
     if (held) {
       draft.value = held.body;
       attachments.value = held.attachments;
+      composerCapabilities.value = held.capabilities ?? { skills: [], connectors: [] };
       pending = held.pending;
       if (pending?.payload) {
         const options = JSON.parse(pending.payload);
@@ -317,7 +320,7 @@ const turnBlocked = computed(
   () =>
     !owner.value || busy.value || !!activeRun.value || !!props.project.archived_at || !chat.value,
 );
-async function send() {
+async function send(capabilities?: { skills: string[]; connectors: string[] }) {
   const body = draft.value;
   if (turnBlocked.value || !body.trim() || !chat.value) return;
   if (selectedRequest?.body !== body) selectedRequest = undefined;
@@ -331,6 +334,9 @@ async function send() {
   try {
     await editor.value?.flush();
     const options = {
+      ...(capabilities && (capabilities.skills.length || capabilities.connectors.length)
+        ? { capabilities: wireCapabilities(capabilities) }
+        : {}),
       ...(attachments.value.length ? { attachments: attachments.value } : {}),
       ...(selectionValue ? { selection: selectionValue } : {}),
       ...(queue ? { queue: true } : {}),
@@ -472,6 +478,7 @@ async function manage(page: string) {
     harness: chat.value?.cli ?? '',
     model: model.value,
     attachments: attachments.value,
+    capabilities: composerCapabilities.value,
     pending,
   });
   await router.push(`/settings?tab=${page}`);
@@ -697,8 +704,6 @@ async function build() {
         :chat-titles="chatTitles"
         :chat-times="chatTimes"
         :owner="project.role === 'owner'"
-        :compute-active="compute"
-        @compute="compute = !compute"
         @search="editor?.search()"
         @new-chat="newChat"
         @new-file="namingNew = true"
@@ -805,7 +810,9 @@ async function build() {
                     :selected-model="model"
                     :models="sessionModels"
                     :attachments="attachments"
-                    @send="send()"
+                    :initial-capabilities="composerCapabilities"
+                    @capabilities="composerCapabilities = $event"
+                    @send="send($event)"
                     @stop="stop"
                     @files="attach"
                     @remove="attachments = attachments.filter((f) => f.upload_id !== $event)"
@@ -822,7 +829,6 @@ async function build() {
       </div>
       <CowriteRightPane
         :key="`${workspaceId}:${project.id}:${me.data.value?.id}`"
-        v-model:compute="compute"
         :project-id="project.id"
         :title="project.name"
         :builds="builds.data.value ?? []"

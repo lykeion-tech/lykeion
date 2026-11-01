@@ -156,7 +156,7 @@ func TestCoresearchSeesEnabledConnectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "materials-project") || strings.Contains(string(data), `"ensembl"`) || strings.Contains(string(data), key) {
+	if !strings.Contains(string(data), "materials-project") || !strings.Contains(string(data), `"ensembl"`) || strings.Contains(string(data), key) {
 		t.Fatalf("wrong connectors: %s", data)
 	}
 	fetched, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "fetch", Arguments: map[string]any{"connector": "materials-project", "path": "/materials/summary/mp-149"}})

@@ -8,9 +8,10 @@ export type ConnectorFields = {
   args: string[];
   headers: { name: string; value: string }[];
   env: { name: string; value: string }[];
+  keyless: boolean;
 };
 export function emptyConnector(name = '', transport: 'url' | 'command' = 'url'): ConnectorFields {
-  return { name, transport, url: '', command: '', args: [], headers: [], env: [] };
+  return { name, transport, url: '', command: '', args: [], headers: [], env: [], keyless: false };
 }
 export function connectorInput(value: ConnectorFields): {
   name: string;
@@ -28,6 +29,7 @@ export function connectorInput(value: ConnectorFields): {
             command: value.command,
             args: [...value.args],
             env: Object.fromEntries(value.env.map((p) => [p.name, p.value])),
+            keyless: value.keyless,
           },
   };
 }
@@ -180,6 +182,10 @@ defineProps<{ disabled?: boolean }>();
       Command arguments and environment values must contain no secrets. The command runs on the
       machine claiming the run.
     </p>
+    <label
+      ><input v-model="value.keyless" type="checkbox" :disabled="disabled" /> I confirm that this
+      command, its arguments, and environment contain no credentials.</label
+    >
     <div v-for="(pair, i) in value.env" :key="i" class="pair">
       <input
         v-model="pair.name"

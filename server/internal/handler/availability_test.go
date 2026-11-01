@@ -51,7 +51,7 @@ func TestWorkspaceAvailabilityPermissionsAndCAS(t *testing.T) {
 			for _, row := range rows {
 				if row["id"] == item.id {
 					found = true
-					if row["policy_enabled"] != false || row["policy_revision"] != float64(1) || row["revision"] != float64(1) {
+					if row["policy_enabled"] != true || row["policy_revision"] != float64(1) || row["revision"] != float64(1) {
 						t.Fatalf("policy missing: %v", row)
 					}
 				}
@@ -66,7 +66,7 @@ func TestWorkspaceAvailabilityPermissionsAndCAS(t *testing.T) {
 	}
 }
 
-func TestDisabledWorkspaceSkillsSuspendAndResumeExistingPins(t *testing.T) {
+func TestOldAvailabilityPolicyDoesNotSuspendExistingSkillPins(t *testing.T) {
 	l := newAgentLab(t)
 	j, _ := noulJev(t, 0.9)
 	l.s.H.Engine.Jev = j
@@ -83,10 +83,11 @@ func TestDisabledWorkspaceSkillsSuspendAndResumeExistingPins(t *testing.T) {
 	if c := l.s.call(t, "POST", "/api/role/tools", run.token, "", map[string]any{"need": "use the imported method"}, &out); c != 200 {
 		t.Fatal(c)
 	}
-	for _, s := range out.Skills {
-		if s.Name == "kept-method" || s.Name == "disabled-method" || s.Name == "aeon" {
-			t.Fatalf("disabled skill routed: %s", s.Name)
-		}
+	if len(out.Skills) == 0 {
+		t.Fatal("no skills routed")
+	}
+	if !bytes.Equal(first, routedFolder(t, l, run.token, "kept-method")) {
+		t.Fatal("old availability setting changed the pinned skill")
 	}
 	if c := l.s.call(t, "PUT", "/api/availability/skill/"+pinned.ID, l.jwt, l.ws, map[string]any{"enabled": true, "revision": 1}, nil); c != 200 {
 		t.Fatal(c)
@@ -97,7 +98,7 @@ func TestDisabledWorkspaceSkillsSuspendAndResumeExistingPins(t *testing.T) {
 
 }
 
-func TestDisabledCustomConnectorStopsNewCallsButFinishesStartedCall(t *testing.T) {
+func TestOldAvailabilityPolicyDoesNotStopCustomConnectorCalls(t *testing.T) {
 	s, jwt, ws, saved, upstream := brokerFixture(t)
 	claim := brokerRun(t, s, jwt, ws)
 	entered := make(chan struct{})
@@ -166,8 +167,8 @@ func TestDisabledCustomConnectorStopsNewCallsButFinishesStartedCall(t *testing.T
 	case <-time.After(5 * time.Second):
 		t.Fatal("started call stranded")
 	}
-	if c := s.call(t, "POST", endpoint, claim.CallToken, "", map[string]any{"tool": "echo", "args": map[string]any{}}, nil); c < 400 {
-		t.Fatalf("disabled new call accepted: %d", c)
+	if c := s.call(t, "POST", endpoint, claim.CallToken, "", map[string]any{"tool": "echo", "args": map[string]any{}}, nil); c != 200 {
+		t.Fatalf("connector unavailable: %d", c)
 	}
 }
 
@@ -192,7 +193,7 @@ func TestAvailabilityForeignWorkspaceAndAtomicEvent(t *testing.T) {
 	}
 }
 
-func TestDisabledSkillCannotEnterNewTeamSelection(t *testing.T) {
+func TestOldAvailabilityPolicyDoesNotBlockTeamSkillSelection(t *testing.T) {
 	s := newServer(t)
 	jwt := s.signIn(t, "policy-team@lab.org")
 	ws := s.workspace(t, jwt, "policy-team")
@@ -201,8 +202,8 @@ func TestDisabledSkillCannotEnterNewTeamSelection(t *testing.T) {
 		if c := s.call(t, "PUT", "/api/availability/skill/"+item.id, jwt, ws.ID, map[string]any{"enabled": false, "revision": 0}, nil); c != 200 {
 			t.Fatal(c)
 		}
-		if _, err := s.H.skillService().SelectForTeam(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, jwt)), []string{item.name}); err == nil {
-			t.Fatalf("disabled %s entered new Team", item.name)
+		if _, err := s.H.skillService().SelectForTeam(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, jwt)), []string{item.name}); err != nil {
+			t.Fatalf("skill %s unavailable: %v", item.name, err)
 		}
 	}
 }
@@ -239,14 +240,14 @@ func TestAvailabilityUUIDAliasesSharePolicy(t *testing.T) {
 					}
 				}
 			}
-			if got["policy_enabled"] != enabled || got["policy_revision"] != float64(i+1) {
+			if got["policy_enabled"] != true || got["policy_revision"] != float64(i+1) {
 				t.Fatalf("canonical read: %v", got)
 			}
 			if c := s.call(t, "PUT", "/api/availability/"+item.kind+"/"+item.id, jwt, ws.ID, map[string]any{"enabled": true, "revision": i}, nil); c != 409 {
 				t.Fatalf("alias stale CAS: %d", c)
 			}
 			if item.kind == "skill" {
-				if c := s.call(t, "GET", item.path+alias, jwt, ws.ID, nil, &got); c != 200 || got["policy_enabled"] != enabled {
+				if c := s.call(t, "GET", item.path+alias, jwt, ws.ID, nil, &got); c != 200 || got["policy_enabled"] != true {
 					t.Fatalf("alias detail: %d %v", c, got)
 				}
 			}
@@ -254,7 +255,7 @@ func TestAvailabilityUUIDAliasesSharePolicy(t *testing.T) {
 	}
 }
 
-func TestDisabledCustomConnectorCannotEnterNewTeam(t *testing.T) {
+func TestOldAvailabilityPolicyDoesNotBlockTeamConnectors(t *testing.T) {
 	s := newServer(t)
 	jwt := s.signIn(t, "connector-team@lab.org")
 	ws := s.workspace(t, jwt, "team-policy")
@@ -268,12 +269,12 @@ func TestDisabledCustomConnectorCannotEnterNewTeam(t *testing.T) {
 	if c := s.call(t, "PUT", "/api/availability/mcp/"+custom.ID, jwt, ws.ID, map[string]any{"enabled": false, "revision": 0}, nil); c != 200 {
 		t.Fatal(c)
 	}
-	if c := s.call(t, "POST", "/api/teams", jwt, ws.ID, form, nil); c != 400 {
-		t.Fatalf("disabled connector entered Team: %d", c)
+	if c := s.call(t, "POST", "/api/teams", jwt, ws.ID, form, nil); c != 201 {
+		t.Fatalf("connector unavailable to Team: %d", c)
 	}
 }
 
-func TestCommandCompletionRequiresPriorEnabledAuthorization(t *testing.T) {
+func TestCommandCompletionRequiresPriorAuthorization(t *testing.T) {
 	s, jwt, ws, _, _ := brokerFixture(t)
 	var command mcpView
 	if c := s.call(t, "POST", "/api/mcp-servers", jwt, ws, mcpInput("command", 0, map[string]any{"command": "fixture"}), &command); c != 201 {
@@ -306,8 +307,8 @@ func TestCommandCompletionRequiresPriorEnabledAuthorization(t *testing.T) {
 	if c := s.call(t, "PUT", "/api/availability/mcp/"+command.ID, jwt, ws, map[string]any{"enabled": false, "revision": 0}, nil); c != 200 {
 		t.Fatal(c)
 	}
-	if c, _ := request(map[string]any{"fingerprint": fingerprint, "begin": map[string]any{"tool": "actual", "args": args}}); c < 400 {
-		t.Fatalf("new disabled command authorized: %d", c)
+	if c, _ := request(map[string]any{"fingerprint": fingerprint, "begin": map[string]any{"tool": "actual", "args": args}}); c != 200 {
+		t.Fatalf("command unavailable: %d", c)
 	}
 	record := map[string]any{"tool": "actual", "args": args, "answer_sha256": workspacemcp.AnswerHash("completed")}
 	if c, _ := request(map[string]any{"fingerprint": fingerprint, "record": record}); c < 400 {

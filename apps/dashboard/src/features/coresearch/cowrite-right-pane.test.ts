@@ -4,8 +4,8 @@ import { createTreeApp, node, all, textOf } from '../../../../../tests/daemon-tr
 import CowriteRightPane from './cowrite/CowriteRightPane.vue';
 import ProjectInfoPane from './cowrite/ProjectInfoPane.vue';
 import ComputePanel from './cowrite/ComputePanel.vue';
-import CommentsPane from './cowrite/CommentsPane.vue';
 import CowriteSidebar from './cowrite/CowriteSidebar.vue';
+import CommentsPane from './cowrite/CommentsPane.vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { workspaceId } from '../../api/session';
 const cleanup: (() => void)[] = [];
@@ -78,21 +78,16 @@ it('Tools opens the four permanent tabs in source order and Close returns to PDF
   await click(root, 'Close panel');
   expect(textOf(root)).toContain('Compile');
 });
-it('Compute opens as its own closable tab and shows the real empty-kernel state', async () => {
-  const closed: boolean[] = [];
-  const root = mount(CowriteRightPane, {
-    ...base,
-    compute: true,
-    'onUpdate:compute': (v: boolean) => closed.push(v),
-  });
-  await vi.waitFor(() => expect(textOf(root)).toContain('No live kernels'));
-  expect(
-    all(root)
-      .filter((n) => n.props.role === 'tab')
-      .map(textOf),
-  ).toEqual(['Compute']);
-  await click(root, 'Close Compute');
-  expect(closed).toEqual([false]);
+it('Cowrite does not offer Compute in its sidebar', () => {
+  const root = mount(CowriteSidebar, { name: 'Paper', chats: [], owner: true });
+  expect(textOf(root)).not.toContain('Compute');
+  expect(textOf(root)).toContain('Members');
+});
+it('Cowrite does not offer a Compute pane', async () => {
+  const root = mount(CowriteRightPane, { ...base, compute: true });
+  await nextTick();
+  expect(textOf(root)).not.toContain('No live kernels');
+  expect(textOf(root)).not.toContain('Compute');
 });
 it('Stop requests a reason and sends it to the actual kernel operation route', async () => {
   compute = {

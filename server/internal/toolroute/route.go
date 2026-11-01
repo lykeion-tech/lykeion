@@ -55,6 +55,7 @@ type Skill struct {
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	InputSchema any    `json:"input_schema,omitempty"`
 }
 
 // Connector is named as call_tool names it.

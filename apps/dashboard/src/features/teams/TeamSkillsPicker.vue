@@ -15,12 +15,7 @@ watch(
   },
 );
 const options = computed(() =>
-  [
-    ...new Set([
-      ...(props.member.skills ?? []),
-      ...(library.data.value ?? []).filter((s) => s.policy_enabled).map((s) => s.name),
-    ]),
-  ]
+  [...new Set([...(props.member.skills ?? []), ...(library.data.value ?? []).map((s) => s.name)])]
     .sort()
     .filter((name) => name.toLowerCase().includes(search.value.toLowerCase())),
 );

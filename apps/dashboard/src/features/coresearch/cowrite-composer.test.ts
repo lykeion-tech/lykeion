@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { h, nextTick } from 'vue';
+import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import AristotleChat from './AristotleChat.vue';
+import AristotleComposer from './AristotleComposer.vue';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import {
@@ -109,6 +110,7 @@ async function mount({ draft = true, onWelcome = false, role = 'owner', choices 
       revision: 3,
     },
   ]);
+  client.setQueryData(keys.workspaceMCP('lab'), []);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }],
@@ -320,85 +322,118 @@ describe('Cowrite composer', () => {
     await m.click('Add');
     expect(textOf(m.root)).not.toContain('Template');
   });
-  it('shows disabled skill and connector switches to a member', async () => {
+  it('sends selected capabilities with the current message without changing workspace policy', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
     const m = await mount({ role: 'member' });
     await m.click('Add');
     await m.click('Skills');
-    expect(m.label('Research').props.disabled).toBe(true);
-    await m.click('Connectors');
-    expect(m.label('openalex').props.disabled).toBe(true);
-    expect(textOf(m.root)).not.toContain('Delegation');
+    await m.click('Research');
+    expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('/Research ');
+    expect(
+      all(m.root).some((n) => n.props.class === 'composer-selection' && textOf(n) === '/Research'),
+    ).toBe(true);
+    await m.edit('/Research Analyze this');
+    await m.click('Send');
+    const post = fetch.mock.calls.find((c) => c[1]?.method === 'POST')!;
+    expect(JSON.parse(post[1].body).capabilities).toEqual({ skills: ['Research'], connectors: [] });
+    expect(fetch.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(false);
   });
-  it('lists only enabled skills after slash and inserts a selected skill', async () => {
+  it('changes retry identity when a connector selection changes', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    const m = await mount();
+    await m.edit('Find papers');
+    await m.click('Send');
+    await m.click('Add');
+    await m.click('Connectors');
+    await m.click('openalex');
+    await m.click('Send');
+    const posts = fetch.mock.calls.filter((c) => c[1]?.method === 'POST');
+    const first = JSON.parse(posts[0]![1].body),
+      second = JSON.parse(posts[1]![1].body);
+    expect(first.request_id).not.toBe(second.request_id);
+    expect(second.capabilities.connectors).toEqual(['openalex']);
+    await m.click('Remove openalex');
+    await m.click('Send');
+    const last = JSON.parse(fetch.mock.calls.filter((c) => c[1]?.method === 'POST')[2]![1].body);
+    expect(last.capabilities).toBeUndefined();
+  });
+  it('includes formerly disabled skills in slash suggestions', async () => {
     const m = await mount();
     m.client.setQueryData(keys.skills('lab'), [
       { id: 'yes', name: 'Research', policy_enabled: true },
       { id: 'no', name: 'Disabled', policy_enabled: false },
     ]);
     await m.edit('/');
-    expect(m.label('Skills')).toBeDefined();
-    expect(textOf(m.root)).not.toContain('Disabled');
+    expect(textOf(m.root)).toContain('Disabled');
     const option = all(m.root).find(
       (n) => n.props.role === 'option' && textOf(n).trim() === 'Research',
     )!;
     (option.props.onMousedown as (e: unknown) => void)({ preventDefault() {} });
     await m.settle();
     expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('/Research ');
+    expect(m.label('Remove Research')).toBeDefined();
   });
-  it('writes owner switches through Settings APIs and refetches their authoritative state', async () => {
-    let skillEnabled = true,
-      connectorEnabled = true;
-    const fetch = vi.fn((url, init) => {
-      if (init.method === 'PUT') {
-        if (String(url).includes('availability')) skillEnabled = JSON.parse(init.body).enabled;
-        else connectorEnabled = JSON.parse(init.body).enabled;
-        return Promise.resolve(response({}));
-      }
-      return Promise.resolve(
-        response(
-          String(url).endsWith('/skills')
-            ? [{ id: 'skill', name: 'Research', policy_enabled: skillEnabled, policy_revision: 3 }]
-            : [{ name: 'openalex', policy_enabled: connectorEnabled, revision: 4 }],
-        ),
-      );
-    });
+  it('selects a connector without changing workspace policy', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);
-    const m = await mount();
+    const m = await mount({ role: 'member' });
     await m.click('Add');
-    await m.click('Skills');
-    await m.click('Research');
-    await m.settle();
-    expect(
-      fetch.mock.calls.some(
-        (c) =>
-          c[0] === '/api/availability/skill/skill' &&
-          c[1].method === 'PUT' &&
-          JSON.parse(c[1].body).revision === 2,
-      ),
-    ).toBe(true);
-    expect(m.label('Research').props['aria-checked']).toBe(false);
     await m.click('Connectors');
     await m.click('openalex');
-    await m.settle();
-    expect(
-      fetch.mock.calls.some(
-        (c) =>
-          c[0] === '/api/connectors/openalex' &&
-          c[1].method === 'PUT' &&
-          JSON.parse(c[1].body).revision === 3,
-      ),
-    ).toBe(true);
-    expect(m.label('openalex').props['aria-checked']).toBe(false);
+    await m.edit('Find papers');
+    await m.click('Send');
+    const post = fetch.mock.calls.find((c) => c[1]?.method === 'POST')!;
+    expect(JSON.parse(post[1].body).capabilities).toEqual({ skills: [], connectors: ['openalex'] });
+    expect(fetch.mock.calls.some((c) => c[1]?.method === 'PUT')).toBe(false);
+  });
+  it('selects a workspace connector for only the submitted message', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    const m = await mount();
+    const id = '1439a232-45e6-4abe-ae67-6b9152fb9c60';
+    m.client.setQueryData(keys.workspaceMCP('lab'), [{ id, name: 'Lab MCP', transport: 'url' }]);
+    await m.click('Add');
+    await m.click('Connectors');
+    await m.click('Lab MCP');
+    expect(m.label('Remove Lab MCP')).toBeDefined();
+    await m.edit('Search this');
+    await m.click('Send');
+    const post = fetch.mock.calls.find((c) => c[1]?.method === 'POST')!;
+    expect(JSON.parse(post[1].body).capabilities.workspace_connectors).toEqual([id]);
+  });
+  it('clears a selected connector when switching conversations', async () => {
+    vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal('document', { addEventListener() {}, removeEventListener() {} });
+    const client = new QueryClient();
+    const capabilities = ref({ skills: [] as string[], connectors: ['openalex'] });
+    const app = createTreeApp({
+      render: () =>
+        h(AristotleComposer, {
+          modelValue: 'Question',
+          busy: false,
+          initialCapabilities: capabilities.value,
+        }),
+    });
+    app.use(VueQueryPlugin, { queryClient: client });
+    const root = node('root');
+    app.mount(root);
+    cleanups.push(() => {
+      app.unmount();
+      client.clear();
+    });
+    expect(all(root).some((n) => n.props['aria-label'] === 'Remove openalex')).toBe(true);
+    capabilities.value = { skills: [], connectors: [] };
+    await nextTick();
+    expect(all(root).some((n) => n.props['aria-label'] === 'Remove openalex')).toBe(false);
+  });
+  it('keeps the manage links available', async () => {
+    const m = await mount();
+    await m.click('Add');
+    await m.click('Connectors');
     await m.click('Manage connectors');
     expect(m.router.currentRoute.value.fullPath).toBe('/settings?tab=connectors');
-  });
-  it('allows an admin to change skills but keeps built-in connector switches disabled', async () => {
-    const m = await mount({ role: 'admin' });
-    await m.click('Add');
-    await m.click('Skills');
-    expect(m.label('Research').props.disabled).toBe(false);
-    await m.click('Connectors');
-    expect(m.label('openalex').props.disabled).toBe(true);
   });
   it('uses a fresh request id after a model change and retains the exact id for an unchanged retry', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
@@ -420,6 +455,9 @@ describe('Cowrite composer', () => {
     vi.stubGlobal('fetch', fetch);
     const m = await mount();
     await m.edit('Retain this request');
+    await m.click('Add');
+    await m.click('Connectors');
+    await m.click('openalex');
     await m.click('Send');
     const first = JSON.parse(fetch.mock.calls[0]![1].body);
     await m.click('Add');
@@ -433,6 +471,7 @@ describe('Cowrite composer', () => {
     await m.settle();
     await m.settle();
     expect(all(m.root).find((n) => n.tag === 'textarea')!.props.value).toBe('Retain this request');
+    expect(m.label('Remove openalex')).toBeDefined();
     await m.click('Send');
     expect(JSON.parse(fetch.mock.calls[1]![1].body)).toEqual(first);
   });

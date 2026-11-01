@@ -201,11 +201,11 @@ func TestASingleAgentSeesEveryEnabledConnector(t *testing.T) {
 		t.Fatalf("an Autoresearch run: %v", got)
 	}
 	f.env.Owner.Exec(context.Background(), `INSERT INTO workspace_connector (workspace_id, name, enabled, updated_by) VALUES ($1, 'uniprot', false, $2)`, f.ws, f.user)
-	if got := f.names(f.role(f.card2, "agent")); slices.Contains(got, "uniprot") || !slices.Contains(got, "ensembl") {
-		t.Fatalf("a disabled connector is listed: %v", got)
+	if got := f.names(f.role(f.card2, "agent")); !slices.Contains(got, "uniprot") || !slices.Contains(got, "ensembl") {
+		t.Fatalf("connector missing despite old setting: %v", got)
 	}
-	if _, err := f.fetch(f.card2, uniprot); err == nil || !strings.Contains(err.Error(), "the workspace owner enables `uniprot` in Connectors") {
-		t.Fatalf("a disabled connector was fetched: %v", err)
+	if _, err := f.fetch(f.card2, uniprot); err != nil {
+		t.Fatalf("connector unavailable despite old setting: %v", err)
 	}
 }
 
@@ -484,8 +484,8 @@ func TestAWorkspaceSearchesOpenAlexUnderItsOwnKey(t *testing.T) {
 	if _, err := f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET enabled = false WHERE workspace_id = $1 AND name = 'openalex'`, f.ws); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.h.openAlex(ctx, role); err == nil || !strings.Contains(err.Error(), "enables `openalex`") {
-		t.Fatalf("disabled OpenAlex should be unavailable: %v", err)
+	if oa, err := f.h.openAlex(ctx, role); err != nil || oa.Key != "workspace-key-1" {
+		t.Fatalf("OpenAlex unavailable despite old setting: %v", err)
 	}
 	if _, err := f.env.Owner.Exec(ctx, `UPDATE workspace_connector SET enabled = true WHERE workspace_id = $1 AND name = 'openalex'`, f.ws); err != nil {
 		t.Fatal(err)

@@ -89,7 +89,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			args = append(args, "-c", override)
 		}
 	}
-	if o.DoorURL != "" && !o.Coresearch {
+	if o.DoorURL != "" {
 		// The door's token stays out of argv: Codex reads it from the env.
 		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_door.url=%s", raw(o.DoorURL)), "-c", `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`,
 			"-c", fmt.Sprintf("mcp_servers.lyk_door.tool_timeout_sec=%d", int(doorCallTimeout.Seconds())))

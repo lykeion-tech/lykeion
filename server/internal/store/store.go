@@ -36,6 +36,33 @@ type Tx struct {
 	after  []func()
 }
 
+// SetCoresearchRunConnectors binds the selected workspace connectors to one run.
+func (t *Tx) SetCoresearchRunConnectors(ctx context.Context, run uuid.UUID, ids []uuid.UUID) error {
+	for _, id := range ids {
+		if _, err := t.raw.Exec(ctx, `INSERT INTO coresearch_run_connector(workspace_id, agent_run_id, connector_id) VALUES ($1,$2,$3)`, t.WS, run, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tx) CoresearchRunConnectors(ctx context.Context, run uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := t.raw.Query(ctx, `SELECT connector_id FROM coresearch_run_connector WHERE workspace_id=$1 AND agent_run_id=$2 ORDER BY connector_id`, t.WS, run)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // CardTeamAssignment describes one Team assigned to a study stage.
 type CardTeamAssignment struct {
 	CardID uuid.UUID

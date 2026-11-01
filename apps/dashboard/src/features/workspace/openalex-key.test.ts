@@ -25,6 +25,8 @@ vi.mock('../../api/library', () => {
 });
 vi.mock('../../api/queries', () => ({
   useWorkspaces: () => ({ data: ref([{ id: 'one', role: role.value }]), refetch: vi.fn() }),
+  useMe: () => ({ data: ref({ id: 'me' }) }),
+  useMembers: () => ({ data: ref([]) }),
 }));
 vi.mock('../../state/availability', () => ({
   useAvailabilityChanges: () => ({
@@ -80,18 +82,24 @@ async function openDialog(root: ReturnType<typeof node>) {
   await nextTick();
 }
 
-it('lists OpenAlex under Literature with a working availability switch', async () => {
+it('lists OpenAlex under Literature without an availability switch', async () => {
   const root = mount();
   expect(textOf(byLabel(root, 'OpenAlex')!)).not.toContain('searches a day');
-  const availability = byLabel(root, 'Enable OpenAlex')!;
-  expect(availability).toBeDefined();
-  (availability.props.onClick as (event: unknown) => void)({ stopPropagation() {} });
-  expect(toggle).toHaveBeenCalledWith('catalogue', 'openalex', 0, false);
+  expect(byLabel(root, 'Enable OpenAlex')).toBeUndefined();
+  expect(toggle).not.toHaveBeenCalled();
   await click(root, 'Literature');
   expect(byLabel(root, 'OpenAlex')).toBeDefined();
   expect(byLabel(root, 'telescope')).toBeUndefined();
   await click(root, 'Workspace');
   expect(byLabel(root, 'OpenAlex')).toBeUndefined();
+});
+
+it('lets an owner reconfigure an existing custom connector', async () => {
+  const root = mount();
+  (byLabel(root, 'my connector')!.props.onClick as () => void)();
+  await nextTick();
+  await click(root, 'Edit connector');
+  expect(byLabel(root, 'Name')).toBeDefined();
 });
 
 it('tells a workspace without a key what a free key gives, and saves one', async () => {

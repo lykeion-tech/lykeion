@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,6 +103,85 @@ func TestWorkspaceMCPCallIsRecordedOnce(t *testing.T) {
 				t.Fatalf("records=%d calls=%d", records, brokerCalls)
 			}
 		})
+	}
+}
+
+func TestCoresearchDoorListsAndCallsSelectedRemoteConnector(t *testing.T) {
+	id := uuid.New()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer ltk_private" {
+			t.Error("missing broker authority")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/role/mcp-servers/" + id.String() + "/tools":
+			fmt.Fprint(w, `[{"name":"echo","description":"Echo","input_schema":{"type":"object","properties":{"q":{"type":"string"}}}}]`)
+		case "/api/role/mcp-servers/" + id.String() + "/call":
+			w.Header().Set(workspacemcp.RecordHeader, "receipt")
+			fmt.Fprint(w, `{"content":[{"type":"text","text":"server answer"}]}`)
+		case "/api/role/calls":
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	d := &Door{Coresearch: true, Server: server.URL, CallToken: "ltk_private", WorkspaceConnectors: []service.WorkspaceConnectorClaim{{ID: id, Name: "lab", Transport: "url"}}}
+	must(t, d.Start())
+	defer d.Close()
+	listed, _, err := d.listCoresearchConnectors(t.Context(), nil, struct{}{})
+	must(t, err)
+	if output := text(listed); !strings.Contains(output, `"lab"`) || !strings.Contains(output, `"input_schema"`) {
+		t.Fatalf("tool inventory: %s", output)
+	}
+	answer, err := callTool(t, d, "lab", "echo", map[string]any{"q": "test"})
+	if err != nil || answer != "server answer" {
+		t.Fatalf("connector answer: %q %v", answer, err)
+	}
+}
+
+func TestCoresearchDoorRunsKeylessCommandThroughSandbox(t *testing.T) {
+	id := uuid.New()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(workspacemcp.RecordHeader, "receipt")
+		if r.URL.Path == "/api/role/calls" {
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+	defer server.Close()
+	self, err := os.Executable()
+	must(t, err)
+	called := false
+	options := agent.ExecOptions{Dir: t.TempDir(), MCPToken: "ltk_agent_private", Env: []string{"LYK_DOOR_TOKEN=door-private"}, Sandbox: func(ctx context.Context, paths agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
+		called = true
+		if len(paths.Write) != 1 {
+			t.Fatal("missing isolated command directory")
+		}
+		cmd := exec.CommandContext(ctx, name, args...)
+		ownGroup(cmd)
+		return cmd, nil
+	}}
+	d := &Door{Coresearch: true, Server: server.URL, CallToken: "ltk_private", WorkspaceConnectors: []service.WorkspaceConnectorClaim{{ID: id, Name: "local", Transport: "command", Command: []string{self}, Env: map[string]string{"LYK_DOOR_STUB": "1"}}}, Child: func() agent.ExecOptions { return options }}
+	must(t, d.Start())
+	defer d.Close()
+	listed, _, err := d.listCoresearchConnectors(t.Context(), nil, struct{}{})
+	must(t, err)
+	if !strings.Contains(text(listed), `"echo"`) || !called {
+		t.Fatal("sandboxed command tools missing")
+	}
+	answer, err := callTool(t, d, "local", "echo", map[string]any{"q": "hello"})
+	if err != nil || !strings.Contains(answer, "echo hello") {
+		t.Fatalf("command answer: %q %v", answer, err)
+	}
+	env, err := os.ReadFile(filepath.Join(d.connectorDir, "stub.env"))
+	must(t, err)
+	if strings.Contains(string(env), "ltk_agent_private") || strings.Contains(string(env), "door-private") {
+		t.Fatal("run credentials reached the command")
 	}
 }
 
@@ -437,7 +517,7 @@ func TestWorkspaceMCPRecordRejectsChangedAuthority(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
+func TestOldAvailabilityPolicyDoesNotInterruptWorkspaceCommand(t *testing.T) {
 	f := fixture(t)
 	ctx := t.Context()
 	id := workspaceTestCommand(t, f, f.runs.Keys)
@@ -475,9 +555,9 @@ func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
 	}
 	_, err = availability.Set(ctx, f.runs.Store, f.ws, f.user, "mcp", id.String(), 0, false)
 	must(t, err)
-	answer, denied := callTool(t, d, "workspace-command", "echo", map[string]any{"q": "concurrent-after-disable"})
-	if denied == nil || answer != "" {
-		t.Fatalf("disabled concurrent call: %q %v", answer, denied)
+	answer, err := callTool(t, d, "workspace-command", "echo", map[string]any{"q": "concurrent-after-disable"})
+	if err != nil || !strings.Contains(answer, "echo concurrent-after-disable") {
+		t.Fatalf("concurrent call: %q %v", answer, err)
 	}
 	must(t, os.WriteFile(filepath.Join(d.connectorDir, "stub.release"), []byte("release"), 0600))
 	select {
@@ -490,20 +570,20 @@ func TestWorkspaceCommandDisableKeepsStartedAnswer(t *testing.T) {
 	}
 	var records int
 	must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&records))
-	if records != 1 {
+	if records != 2 {
 		t.Fatalf("completed records: %d", records)
 	}
 	answer, err = callTool(t, d, "workspace-command", "echo", map[string]any{"q": "after"})
-	if err == nil || answer != "" {
-		t.Fatalf("disabled new call: %q %v", answer, err)
+	if err != nil || !strings.Contains(answer, "echo after") {
+		t.Fatalf("subsequent call: %q %v", answer, err)
 	}
 	must(t, f.env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND kind='call'`, f.card).Scan(&records))
-	if records != 1 {
-		t.Fatalf("new disabled record: %d", records)
+	if records != 3 {
+		t.Fatalf("subsequent record: %d", records)
 	}
 }
 
-func TestDoorRoutingSkipsDisabledWorkspaceClaims(t *testing.T) {
+func TestDoorRoutingIgnoresOldAvailabilityPolicy(t *testing.T) {
 	for _, transport := range []string{"command", "url"} {
 		t.Run(transport, func(t *testing.T) {
 			f := fixture(t)
@@ -558,17 +638,20 @@ func TestDoorRoutingSkipsDisabledWorkspaceClaims(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 				t.Fatal(err)
 			}
-			found := false
+			found, foundPreviouslyDisabled := false, false
 			for _, tool := range result.Tools {
 				if tool.Server == kept.Name {
 					found = true
 				}
 				if tool.Server == "disabled" || tool.Server == "workspace-command" {
-					t.Fatal("disabled tool routed")
+					foundPreviouslyDisabled = true
 				}
 			}
 			if !found {
 				t.Fatalf("enabled connector omitted: %+v", result.Tools)
+			}
+			if !foundPreviouslyDisabled {
+				t.Fatal("connector hidden by old availability policy")
 			}
 		})
 	}

@@ -1,24 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { workspaceId } from '../../../../api/session';
-import {
-  useConnectorLibrary,
-  useOpenAlexConnector,
-  useWorkspaceMCPServers,
-} from '../../../../api/library';
+import { useConnectorLibrary, useWorkspaceMCPServers } from '../../../../api/library';
 import { useWorkspaces } from '../../../../api/queries';
 import { matchesQuery } from '../../../../lib/search';
 import Icon from '../../../../ui/Icon.vue';
-import AvailabilitySwitch from './AvailabilitySwitch.vue';
-import { useAvailabilityChanges } from '../../../../state/availability';
-const policy = useAvailabilityChanges();
 import CapabilityList from './CapabilityList.vue';
 import ConnectorDialog from './ConnectorDialog.vue';
 import AddConnectorDialog from './AddConnectorDialog.vue';
 import OpenAlexDialog from './OpenAlexDialog.vue';
 const catalogue = useConnectorLibrary(),
   custom = useWorkspaceMCPServers(),
-  openalex = useOpenAlexConnector(),
   workspaces = useWorkspaces();
 const query = ref(''),
   field = ref(''),
@@ -26,7 +18,8 @@ const query = ref(''),
   kind = ref<'catalogue' | 'custom'>('catalogue'),
   showDetail = ref(false),
   showOpenAlex = ref(false),
-  adding = ref(false);
+  adding = ref(false),
+  editing = ref(false);
 const allowed = computed(() =>
   ['owner', 'admin'].includes(
     workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role ?? '',
@@ -87,6 +80,7 @@ watch(
     selected.value = '';
     showDetail.value = false;
     adding.value = false;
+    editing.value = false;
     showOpenAlex.value = false;
     query.value = '';
     field.value = '';
@@ -102,7 +96,6 @@ watch(
         <Icon name="plus" :size="14" />Add connector
       </button>
     </div>
-    <p v-if="policy.error.value" class="inline-error" role="alert">{{ policy.error.value }}</p>
     <CapabilityList
       v-model:query="query"
       v-model:field="field"
@@ -132,24 +125,6 @@ watch(
               <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
             </div>
           </button>
-          <AvailabilitySwitch
-            name="OpenAlex"
-            :checked="openalex.data.value?.policy_enabled ?? false"
-            :disabled="
-              !openalex.data.value ||
-              openalex.isError.value ||
-              !policy.catalogueAllowed.value ||
-              !!policy.pending.value
-            "
-            @toggle="
-              policy.toggle(
-                'catalogue',
-                'openalex',
-                openalex.data.value!.revision,
-                !openalex.data.value!.policy_enabled,
-              )
-            "
-          />
         </div>
         <div v-else-if="row.type === 'catalogue'" class="connector-entry">
           <button
@@ -165,19 +140,6 @@ watch(
               <p>{{ row.connector.purpose }}</p>
             </div>
           </button>
-          <AvailabilitySwitch
-            :name="row.connector.name"
-            :checked="row.connector.policy_enabled"
-            :disabled="!policy.catalogueAllowed.value || !!policy.pending.value"
-            @toggle="
-              policy.toggle(
-                'catalogue',
-                row.connector.name,
-                row.connector.revision,
-                !row.connector.policy_enabled,
-              )
-            "
-          />
         </div>
         <div v-else class="connector-entry">
           <button
@@ -191,26 +153,20 @@ watch(
               ><small
                 >Custom · {{ row.connector.transport === 'url' ? 'Remote URL' : 'Command' }}</small
               >
-            </div></button
-          ><AvailabilitySwitch
-            :name="row.connector.name"
-            :checked="row.connector.policy_enabled ?? true"
-            :disabled="!policy.allowed.value || !!policy.pending.value"
-            @toggle="
-              policy.toggle(
-                'mcp',
-                row.connector.id,
-                row.connector.policy_revision ?? 0,
-                !(row.connector.policy_enabled ?? true),
-              )
-            "
-          />
-        </div> </template></CapabilityList
+            </div>
+          </button>
+        </div>
+      </template></CapabilityList
     ><ConnectorDialog
       v-if="showDetail && selected"
       :key="workspaceId + kind + selected"
       :connector-id="selected"
       :kind="kind"
+      :can-edit="allowed"
+      @edit="
+        showDetail = false;
+        editing = true;
+      "
       @close="showDetail = false"
     /><OpenAlexDialog
       v-if="showOpenAlex"
@@ -221,6 +177,15 @@ watch(
       :key="workspaceId"
       @close="adding = false"
       @created="created"
+    /><AddConnectorDialog
+      v-if="editing && selected"
+      :key="workspaceId + ':edit:' + selected"
+      :editing="custom.data.value?.find((c) => c.id === selected)"
+      @close="editing = false"
+      @created="
+        editing = false;
+        open($event, 'custom');
+      "
     />
   </section>
 </template>

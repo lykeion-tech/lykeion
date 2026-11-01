@@ -9,6 +9,10 @@ import type { PDFDocumentProxy, PageViewport } from "pdfjs-dist";
  */
 let loading: Promise<typeof import("pdfjs-dist")> | null = null;
 
+export function rasterWidth(shown: number, deviceScale: number): number {
+  return Math.min(Math.ceil(shown * Math.max(2, deviceScale || 1)), 2600);
+}
+
 export function loadPdfjs(): Promise<typeof import("pdfjs-dist")> {
   loading ??= (async () => {
     const [pdfjs, worker] = await Promise.all([

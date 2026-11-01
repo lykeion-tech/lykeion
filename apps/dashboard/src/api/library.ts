@@ -39,6 +39,7 @@ export type WorkspaceMcpConfig =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      keyless?: boolean;
       url?: never;
       headers?: never;
     };

@@ -19,7 +19,7 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {
-	// Coresearch uses only the scoped sources server; ordinary projects use provider defaults.
+	// Coresearch uses scoped sources and any connector selected for this turn.
 	Coresearch bool
 	// Aristotle permits the server-frozen model for a personal conversation.
 	Aristotle  bool

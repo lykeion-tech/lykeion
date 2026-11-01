@@ -211,9 +211,6 @@ func Get(name string) (Entry, bool) {
 // Ready says whether a workspace may fetch from e: row is its stored choice,
 // nil when there is none, and contact the server's contact email.
 func Ready(e Entry, row *db.WorkspaceConnector, contact string) error {
-	if row != nil && !row.Enabled {
-		return fmt.Errorf("the workspace owner enables `%s` in Connectors", e.Name)
-	}
 	if e.ContactRequired && contact == "" {
 		return errors.New(e.Name + " needs the server's contact email: the server operator sets CONTACT_EMAIL")
 	}

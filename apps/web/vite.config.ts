@@ -10,6 +10,7 @@ const dashboard = process.env.LYK_DASHBOARD_URL ?? 'http://127.0.0.1:1430';
 // preserved so the cookie and the same-host WebSocket check agree.
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
+  cacheDir: fileURLToPath(new URL('../../node_modules/.vite/lykeion-web', import.meta.url)),
   plugins: [vue()],
   server: {
     port: 1440,

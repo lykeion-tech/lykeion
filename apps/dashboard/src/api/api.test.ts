@@ -651,7 +651,7 @@ describe('shared library queries and mutations', () => {
     expect(client.getQueryData(keys.skillFile('w2', 's1', 2, 'data/a.bin'))).toBeUndefined();
     expect(client.getQueryData(keys.skillFile('w1', 's1', 2, 'data/a.bin'))).toBeUndefined();
   });
-  it('Team drafts retain unavailable selected skills and connector names and become invalid', async () => {
+  it('Team drafts retain missing selections and ignore old availability policy', async () => {
     const { default: TeamForm } = await import('../features/teams/TeamForm.vue');
     const { createMemoryHistory, createRouter } = await import('vue-router');
     app.use(createRouter({ history: createMemoryHistory(), routes: [] }));
@@ -712,7 +712,7 @@ describe('shared library queries and mutations', () => {
     client.setQueryData(keys.connectors('w1'), [{ name: 'geo' }]);
     await vi.waitFor(() => expect(form.canCreate.value).toBe(true));
     client.setQueryData(keys.skills('w1'), [{ ...detail, policy_enabled: false }]);
-    await vi.waitFor(() => expect(form.canCreate.value).toBe(false));
+    await vi.waitFor(() => expect(form.canCreate.value).toBe(true));
     expect(form.members.value[0]!.skills).toEqual(['method']);
     client.setQueryData(keys.skills('w1'), [detail]);
     client.setQueryData(keys.workspaceMCP('w1'), [
@@ -725,7 +725,7 @@ describe('shared library queries and mutations', () => {
     client.setQueryData(keys.workspaceMCP('w1'), [
       { id: 'm1', name: 'custom', policy_enabled: false, policy_revision: 1 },
     ]);
-    await vi.waitFor(() => expect(form.canCreate.value).toBe(false));
+    await vi.waitFor(() => expect(form.canCreate.value).toBe(true));
     expect(form.members.value[0]!.connectors[0]!.value).toBe('m1');
   });
   it('retains real stale revision errors and does not publish a failed draft', async () => {

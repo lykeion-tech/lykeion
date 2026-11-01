@@ -432,22 +432,14 @@ onUnmounted(() => {
       v-show="railView === 'context'"
       class="sidebar coresearch cowrite-context-rail"
     >
-      <button
-        v-if="railView === 'context'"
-        ref="workspaceTrigger"
-        class="workspace-switch nav-item"
-        data-shell-menu-trigger
-        aria-haspopup="menu"
-        :aria-expanded="workspaceMenu"
-        aria-controls="workspace-menu"
-        @click="toggleWorkspace"
-        @keydown.down.prevent="!workspaceMenu && toggleWorkspace()"
-      >
-        <span class="workspace-avatar">{{ workspaceName[0] }}</span
-        ><span>{{ workspaceName }}</span
-        ><Icon name="down" class="push-right" :size="14" />
-      </button>
       <div id="cowrite-context-rail" class="cowrite-context-slot" />
+      <SidebarFooter
+        v-if="railView === 'context'"
+        ref="sidebarFooter"
+        :selected="current === 'settings'"
+        :help-open="help"
+        @toggle-help="toggleHelp"
+      />
     </div>
     <ConversationRail v-else-if="aristotleShell && railView === 'context'">
       <template #footer>
@@ -999,10 +991,16 @@ onUnmounted(() => {
 .application .sidebar.cowrite-context-rail {
   padding: 0;
   overflow: hidden;
+  background: var(--sidebar);
 }
-.application .sidebar.cowrite-context-rail > .workspace-switch {
-  margin: 12px 10px 0;
-  width: auto;
+.application .cowrite-context-rail .task-sidebar {
+  padding-top: 2px;
+}
+.application .sidebar.cowrite-context-rail .task-sidebar :is(div, button, span, p, strong, small) {
+  color: #666a6d;
+}
+.application .cowrite-context-rail > .sidebar-bottom {
+  padding: 0 10px;
   flex: none;
 }
 .application .cowrite-context-slot {

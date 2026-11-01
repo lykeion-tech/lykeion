@@ -1,11 +1,7 @@
 import { invalidationsFor } from '../../api/realtime';
 import { keys } from '../../api/keys';
 import { describe, it, expect } from 'vitest';
-import {
-  acceptanceRequest,
-  defaultStarters,
-  restoreConversation,
-} from './aristotle';
+import { acceptanceRequest, defaultStarters, restoreConversation } from './aristotle';
 describe('Aristotle request and restoration state', () => {
   it('retains a UUID on transport retry, replaces it after edits or target changes', () => {
     const first = acceptanceRequest(null, 'question', '');
@@ -22,6 +18,14 @@ describe('Aristotle request and restoration state', () => {
     expect(restoreConversation(list, 'deleted')).toBe('welcome');
     expect(restoreConversation(list, 'welcome')).toBe('welcome');
     expect(restoreConversation(list.slice(0, 1), null)).toBe('welcome');
+  });
+  it('does not restore a Cowrite session as the Coresearch home', () => {
+    const list = [
+      { id: 'welcome', is_welcome: true, mode: 'experiment' },
+      { id: 'paper', is_welcome: false, mode: 'cowrite' },
+    ];
+    expect(restoreConversation(list, 'paper')).toBe('welcome');
+    expect(restoreConversation(list.slice(1), 'paper')).toBeUndefined();
   });
   it('ships research prompts rather than workplace actions', () => {
     expect(defaultStarters).toHaveLength(3);
