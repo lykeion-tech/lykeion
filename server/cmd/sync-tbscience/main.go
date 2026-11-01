@@ -216,7 +216,7 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 			if err != nil {
 				return err
 			}
-			if f.Embedded = !bytes.Contains(body, []byte{0}); f.Embedded {
+			if f.Embedded = utf8.Valid(body) && !bytes.Contains(body, []byte{0}); f.Embedded {
 				if rel == "task.toml" {
 					if body, err = withoutContacts(body); err != nil {
 						return err
@@ -238,7 +238,11 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 	if err != nil {
 		return w, err
 	}
-	skill := "---\nname: workflow-" + slug + "\ndescription: " + tt.Task.Description + "\n---\n\n" + preamble + string(instruction)
+	desc, err := json.Marshal(tt.Task.Description)
+	if err != nil {
+		return w, err
+	}
+	skill := "---\nname: workflow-" + slug + "\ndescription: " + string(desc) + "\n---\n\n" + preamble + string(instruction)
 	return w, write(filepath.Join(root, "skill", "SKILL.md"), []byte(skill))
 }
 

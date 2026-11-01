@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"lykeion/server/internal/science"
 )
 
 const taskTOML = `[task]
 name = "terminal-bench-science/protein-fold"
-description = "Fold a small protein."
+description = "Fold: a small protein # quickly."
 authors = ["Ada Lovelace <ada-secret@example.org>"]
 
 [metadata]
@@ -112,7 +114,7 @@ func TestSyncWritesTheReleasedWorkflowsOnly(t *testing.T) {
 	}
 	w := idx.Workflows[0]
 	if w.Slug != "protein-fold" || w.Name != "Protein fold" || w.Domain != "life-sciences" || w.Field != "biology" ||
-		w.Subfield != "structural" || w.Description != "Fold a small protein." || w.Experience != "PhD in structural biology" ||
+		w.Subfield != "structural" || w.Description != "Fold: a small protein # quickly." || w.Experience != "PhD in structural biology" ||
 		w.Expert_hours != 2.5 || w.Budget != 900 || w.Cpus != 2 || w.Mem != 4096 ||
 		len(w.Tags) != 2 || len(w.Authors) != 2 || w.Authors[1].Name != "Grace Hopper" || w.Authors[1].Organization != "Navy" {
 		t.Fatalf("workflow = %+v", w)
@@ -126,10 +128,14 @@ func TestSyncWritesTheReleasedWorkflowsOnly(t *testing.T) {
 		}
 		return nil
 	})
-	want := "---\nname: workflow-protein-fold\ndescription: Fold a small protein.\n---\n\n> This workflow is a worked example written for the Terminal-Bench-Science benchmark's own data. The paths, files and dates below belong to that example. Apply its method to this study's own data and question. `references/` holds the example's README, reference solution and environment recipe.\n\n" + instruction
+	want := "---\nname: workflow-protein-fold\ndescription: \"Fold: a small protein # quickly.\"\n---\n\n> This workflow is a worked example written for the Terminal-Bench-Science benchmark's own data. The paths, files and dates below belong to that example. Apply its method to this study's own data and question. `references/` holds the example's README, reference solution and environment recipe.\n\n" + instruction
 	got, _ := os.ReadFile(filepath.Join(dst, "protein-fold", "skill", "SKILL.md"))
 	if string(got) != want {
 		t.Fatalf("SKILL.md = %q", got)
+	}
+	fm, _, err := science.ParseFrontmatter(got)
+	if err != nil || fm.Description != "Fold: a small protein # quickly." {
+		t.Fatalf("frontmatter = %+v, %v", fm, err)
 	}
 	for _, p := range []string{"skill/references/solution/solve.sh", "skill/references/README.md", "skill/references/task.toml", "skill/references/environment/Dockerfile", "task/tests/test.sh"} {
 		if _, err := os.Stat(filepath.Join(dst, "protein-fold", filepath.FromSlash(p))); err != nil {
@@ -146,7 +152,7 @@ func TestSyncWritesTheReleasedWorkflowsOnly(t *testing.T) {
 }
 
 func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
-	src := fixture(t, map[string]string{"environment/blob.bin": "a\x00b", "environment/big.txt": strings.Repeat("a", 1<<20+1)})
+	src := fixture(t, map[string]string{"environment/blob.bin": "a\x00b", "environment/latin.txt": "\xff\xfe", "environment/big.txt": strings.Repeat("a", 1<<20+1)})
 	dst := filepath.Join(t.TempDir(), "bundle")
 	if err := run(src, "v0.1.0", dst, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
@@ -162,7 +168,7 @@ func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
 		}
 	}
 	json.Unmarshal(b, &idx)
-	sizes := map[string]int64{"environment/blob.bin": 3, "environment/big.txt": 1<<20 + 1}
+	sizes := map[string]int64{"environment/blob.bin": 3, "environment/latin.txt": 2, "environment/big.txt": 1<<20 + 1}
 	seen := 0
 	for _, f := range idx.Workflows[0].Files {
 		if size, ok := sizes[f.Path]; ok {
@@ -179,8 +185,8 @@ func TestSyncListsButDoesNotEmbedBinaryOrLargeFiles(t *testing.T) {
 			t.Errorf("%s should be embedded", f.Path)
 		}
 	}
-	if seen != 2 {
-		t.Fatalf("listed %d of the 2 unembedded files", seen)
+	if seen != 3 {
+		t.Fatalf("listed %d of the 3 unembedded files", seen)
 	}
 }
 
