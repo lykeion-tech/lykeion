@@ -26,6 +26,7 @@ type Check struct {
 	ID       string   `json:"id"`                 // e.g. "exists", "criterion:2", "falsifiable"
 	By       string   `json:"by"`                 // "server" | "jev"
 	Question string   `json:"question,omitempty"` // the exact Jev instructions
+	Inverted bool     `json:"inverted,omitempty"` // a yes fails the check, so P is 1 minus Jev's yes
 	Detail   string   `json:"detail,omitempty"`   // server checks: what was found
 	P        *float64 `json:"p,omitempty"`        // Jev's probability of yes, after any inversion
 	Status   string   `json:"status"`
@@ -35,7 +36,7 @@ type Check struct {
 type Item struct {
 	Key   string `json:"key"` // record key; "" for a missed paper
 	Kind  string `json:"kind"`
-	Label string `json:"label"` // the paper id, accession, or the first 80 characters of the text
+	Label string `json:"label"` // the paper id, accession, or the text cut to fit 80 characters
 	// Identity is what matches the item across declarations and attempts;
 	// the label is for display only.
 	Identity string  `json:"identity,omitempty"`
@@ -162,6 +163,8 @@ func RedoNote(r Result) string {
 					continue
 				}
 				switch {
+				case c.Question != "" && c.P != nil && c.Inverted:
+					fmt.Fprintf(&b, "  - %s: \"%s\" (Jev answered yes: %.2f — a yes fails this check)\n", c.ID, c.Question, 1-*c.P)
 				case c.Question != "" && c.P != nil:
 					fmt.Fprintf(&b, "  - %s: \"%s\" (scored %.2f)\n", c.ID, c.Question, *c.P)
 				case c.Detail != "":

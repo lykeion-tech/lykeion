@@ -42,16 +42,16 @@ func ValueIdentity(v ValueCheck) string {
 
 const describedQuestion = "Does the sentence describe this number correctly: what it measures, its direction and its unit?"
 
-// clip is s cut to at most 80 characters at the last word boundary (or at
-// 80 when it has no space), with an ellipsis when anything was cut.
+// clip is s cut to fit 80 characters, ellipsis included, at the last word
+// boundary (or mid-word when it has no space).
 func clip(s string) string {
 	r := []rune(s)
 	if len(r) <= 80 {
 		return s
 	}
-	cut := 80
-	if r[80] != ' ' {
-		for i := 79; i > 0; i-- {
+	cut := 79
+	if r[79] != ' ' {
+		for i := 78; i > 0; i-- {
 			if r[i] == ' ' {
 				cut = i
 				break

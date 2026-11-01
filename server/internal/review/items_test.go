@@ -90,7 +90,10 @@ func TestClipCutsAtWordBoundaryWithEllipsis(t *testing.T) {
 	if got, want := clip(long), strings.TrimSpace(strings.Repeat("word ", 16))+"…"; got != want {
 		t.Errorf("word cut: %q, want %q", got, want)
 	}
-	if got, want := clip(strings.Repeat("é", 100)), strings.Repeat("é", 80)+"…"; got != want {
+	if got, want := clip(strings.Repeat("é", 100)), strings.Repeat("é", 79)+"…"; got != want {
 		t.Errorf("rune cut: %q", got)
+	}
+	if got := clip(strings.Repeat("ab ", 40)); len([]rune(got)) > 80 {
+		t.Errorf("clip is %d characters", len([]rune(got)))
 	}
 }

@@ -54,6 +54,15 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 	}
 }
 
+func TestRedoNoteShowsJevsOwnAnswerForInvertedChecks(t *testing.T) {
+	p := 0.1 // stored after inversion: Jev answered yes at 0.9
+	bad := it("bad", Fail, Check{ID: "lookup", By: "jev", Question: "Does it already contain the answer?", P: &p, Inverted: true, Status: Fail})
+	want := "Jev's review sent back these items:\n- bad:\n  - lookup: \"Does it already contain the answer?\" (Jev answered yes: 0.90 — a yes fails this check)\n" + redoAnswer
+	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestRedoNoteShowsQuestionsAndDetails(t *testing.T) {
 	p := 0.126
 	bad := it("bad", Fail,

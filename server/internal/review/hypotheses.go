@@ -84,6 +84,7 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 				c := Check{ID: id, By: "jev", Question: hypothesisQuestions[id]}
 				if id == "lookup" {
 					p = 1 - p
+					c.Inverted = true
 				}
 				c.Status = StatusOf(p)
 				p = stored(p)

@@ -185,7 +185,7 @@ func control(c Control) string {
 }
 
 // LabelOf is the label the reviewers give an item record: a paper's id, a
-// dataset's accession, otherwise the first 80 characters of its text.
+// dataset's accession, otherwise its text cut to fit 80 characters.
 func LabelOf(rec db.Record) string {
 	var b struct {
 		ID        string `json:"id"`

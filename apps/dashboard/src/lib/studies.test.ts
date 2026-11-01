@@ -446,6 +446,12 @@ describe('Grounding criteria and review blocks', () => {
         '#3',
       ),
     ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
+    expect(
+      studies.inboxText(
+        { kind: 'blocked', text: "Study #3's grounding column failed Jev's review twice: paper P1. Comment on the study." },
+        '#3',
+      ),
+    ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
     expect(studies.inboxText({ kind: 'blocked', text: 'Study #3 scored low twice.' }, '#3')).toBe(
       '#3 scored low twice and is waiting for you',
     );
