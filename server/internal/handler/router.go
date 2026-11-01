@@ -191,6 +191,9 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/teams/{id}/connectors", h.saveTeamConnectors)
 		r.Post("/api/teams/{id}/duplicate", h.duplicateTeam)
 
+		r.Get("/api/workflows", h.listWorkflows)
+		r.Get("/api/workflows/{slug}", h.getWorkflow)
+		r.Get("/api/workflows/{slug}/files", h.getWorkflowFile)
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
 		r.Post("/api/cli-token", h.cliToken)
