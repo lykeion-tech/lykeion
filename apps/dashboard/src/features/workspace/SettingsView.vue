@@ -55,7 +55,7 @@ const groups = computed(() =>
       title: 'Personal',
       suffix: me.data.value?.email.split('@')[0] ?? '',
       items: [
-        { id: 'profile', label: 'Profile', icon: 'users' },
+        { id: 'profile', label: 'Profile', icon: 'user' },
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
         { id: 'storage', label: 'Storage', icon: 'layers' },

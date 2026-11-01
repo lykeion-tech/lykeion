@@ -658,6 +658,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   background: transparent;
   color: var(--text);
 }
+.property-line :deep(.property-pill > .icon),
+.machine-chip :deep(.machine-trigger > .icon) {
+  transform: translateY(-1px);
+}
 .property-line :deep(.property-pill:hover:not(:disabled)),
 .machine-chip :deep(.machine-trigger:hover:not(:disabled)) {
   background: var(--fill-chip);

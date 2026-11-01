@@ -1,6 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
 
+test('Back leaves the restored Coresearch conversation and Forward returns to it', async ({
+  page,
+}) => {
+  await installAristotleFixture(page);
+  await page.goto('/#/studies');
+  await page.getByRole('link', { name: 'Coresearch', exact: true }).click();
+  await expect(page).toHaveURL(/coresearch\/conversations\/welcome$/);
+  await page.getByRole('button', { name: 'Go back' }).click();
+  await expect(page).toHaveURL(/#\/studies$/);
+  await page.getByRole('button', { name: 'Go forward' }).click();
+  await expect(page).toHaveURL(/coresearch\/conversations\/welcome$/);
+});
+
 for (const [theme, surface, accent] of [
   ['dawn', 'rgb(42, 35, 44)', 'rgb(170, 66, 120)'],
   ['pale', 'rgb(42, 45, 64)', 'rgb(128, 84, 196)'],

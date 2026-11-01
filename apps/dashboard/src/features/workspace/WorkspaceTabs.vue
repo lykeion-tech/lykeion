@@ -23,8 +23,12 @@ function record() {
   const t = active.value;
   if (t.path !== route.fullPath) {
     t.history = t.history.slice(0, t.index + 1);
-    t.history.push(route.fullPath);
-    t.index = t.history.length - 1;
+    if (t.path === '/coresearch' && route.path.startsWith('/coresearch/')) {
+      t.history[t.index] = route.fullPath;
+    } else {
+      t.history.push(route.fullPath);
+      t.index = t.history.length - 1;
+    }
   }
   t.path = route.fullPath;
   t.title = props.title;
@@ -47,7 +51,9 @@ async function select(t: Tab) {
 }
 async function history(delta: number) {
   const t = active.value;
-  const index = t.index + delta;
+  let index = t.index + delta;
+  if (delta < 0 && t.history[index] === '/coresearch' && t.path.startsWith('/coresearch/'))
+    index--;
   if (index < 0 || index >= t.history.length) return;
   t.index = index;
   t.path = t.history[index]!;
