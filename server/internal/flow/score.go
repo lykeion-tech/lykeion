@@ -221,12 +221,16 @@ var (
 
 // Score asks Jev to score the study's current column once it is declared
 // done and its auditor settled, then moves the study on, redoes the column or
-// blocks it. Jev is asked with no transaction open. When Jev cannot be reached
-// the study stays where it is, its owner hears once, and the next pass retries.
+// blocks it. A column reviewed item by item goes to reviewColumn instead. Jev
+// is asked with no transaction open. When Jev cannot be reached the study
+// stays where it is, its owner hears once, and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 	in, ok, err := e.readScoring(ctx, ws, card)
 	if err != nil || !ok {
 		return err
+	}
+	if usesReview(in.card) {
+		return e.reviewColumn(ctx, ws, in)
 	}
 	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
 	var runs map[string]Run
@@ -245,6 +249,13 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 		e.Kick(ws, card)
 	}
 	return nil
+}
+
+func (e *Engine) retry() *jev.Retry {
+	if e.Retry != nil {
+		return e.Retry()
+	}
+	return jev.NewRetry()
 }
 
 func (e *Engine) now() time.Time {
@@ -376,10 +387,7 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, va
 	if err != nil {
 		return nil, err
 	}
-	retry := jev.NewRetry()
-	if e.Retry != nil {
-		retry = e.Retry()
-	}
+	retry := e.retry()
 	var out map[string]jev.ScoreAnswer
 	for budget := maxJevInput - len(asked) - 256; ; budget /= 2 {
 		state := scoringState(in, quotes, values, budget)
@@ -584,13 +592,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		if jerr != nil {
-			slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", jerr)
-			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
-			if err != nil || open > 0 {
-				return err
-			}
-			return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
-				Text: unavailableText(c.Number, c.BoardColumn)})
+			return scoringUnavailable(ctx, tx, c, jerr)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -651,6 +653,18 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": verdict})
 	})
 	return moved, err
+}
+
+// scoringUnavailable leaves the study where it is and tells its owner once;
+// the next pass retries.
+func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
+	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
+	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
+	if err != nil || open > 0 {
+		return err
+	}
+	return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
+		Text: unavailableText(c.Number, c.BoardColumn)})
 }
 
 // writeServer stores a record the server writes itself, under the study's

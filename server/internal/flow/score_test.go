@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -25,22 +26,47 @@ import (
 )
 
 // jevStub answers score requests with the score its func gives each
-// question's instructions, or with status when status is not 200.
+// question's instructions, noul requests with noul's probability of yes (0.9
+// when nil), choice requests with the first option at 0.9, or with status
+// when status is not 200.
 type jevStub struct {
 	mu       sync.Mutex
 	status   int
 	score    func(instructions string) float64
+	noul     func(instructions string) float64
 	requests []jevRequest
 	maxState int // above this many bytes of state, answer as Jev does when a request is too long
 }
 
 type jevRequest struct {
 	State     string
-	Questions map[string]struct {
-		Type         string
-		Instructions string
-		Criteria     []string
+	Questions map[string]jevQuestion
+}
+
+// jevQuestion is one asked question: a score's levels are in Criteria, a
+// choice's options in Options.
+type jevQuestion struct {
+	Type, Instructions string
+	Criteria           []string
+	Options            map[string]string
+}
+
+func (q *jevQuestion) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Type, Instructions string
+		Criteria           json.RawMessage
 	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	q.Type, q.Instructions = raw.Type, raw.Instructions
+	switch {
+	case raw.Type == "choice":
+		return json.Unmarshal(raw.Criteria, &q.Options)
+	case len(raw.Criteria) > 0:
+		return json.Unmarshal(raw.Criteria, &q.Criteria)
+	}
+	return nil
 }
 
 func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub {
@@ -54,6 +80,7 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 		}
 		s.mu.Lock()
 		s.requests = append(s.requests, req)
+		noul := s.noul
 		s.mu.Unlock()
 		if s.status != 200 {
 			http.Error(w, "unavailable", s.status)
@@ -65,7 +92,19 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 		}
 		answers := map[string]any{}
 		for id, q := range req.Questions {
-			answers[id] = map[string]any{"type": "score", "score": s.score(q.Instructions), "probabilities": map[string]float64{"4": 1}}
+			switch q.Type {
+			case "noul":
+				p := 0.9
+				if noul != nil {
+					p = noul(q.Instructions)
+				}
+				answers[id] = map[string]any{"type": "noul", "noul": p}
+			case "choice":
+				opts := slices.Sorted(maps.Keys(q.Options))
+				answers[id] = map[string]any{"type": "choice", "choice": opts[0], "probabilities": map[string]float64{opts[0]: 0.9}}
+			default:
+				answers[id] = map[string]any{"type": "score", "score": s.score(q.Instructions), "probabilities": map[string]float64{"4": 1}}
+			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"model": jev.Model, "answers": answers})
 	}))
@@ -76,6 +115,12 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 			Sleep: func(context.Context, time.Duration) error { return nil }}
 	}
 	return s
+}
+
+func (s *jevStub) setNoul(f func(instructions string) float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noul = f
 }
 
 func (s *jevStub) calls() []jevRequest {
@@ -141,6 +186,11 @@ func (l *lab) declare(t *testing.T, id uuid.UUID, cites ...string) error {
 	ctx := context.Background()
 	l.e.Kick(l.ws, id)
 	c := l.card(t, id)
+	if l.legacy {
+		if _, err := l.env.Owner.Exec(ctx, "UPDATE card SET legacy_column = board_column WHERE id = $1", id); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return l.st.InWorkspace(ctx, l.ws, l.owner, func(tx *store.Tx) error {
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: l.ws, CardID: id, BoardColumn: c.BoardColumn, Round: c.Round})
 		if err != nil {
@@ -215,6 +265,7 @@ func TestVerdictThresholds(t *testing.T) {
 
 func TestHighMovesOnAndTheLastColumnEnds(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "grounding", "hypotheses", a)
@@ -249,6 +300,7 @@ func TestHighMovesOnAndTheLastColumnEnds(t *testing.T) {
 
 func TestMiddleMovesOnWithAnInboxItem(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	const weak = "Does it answer what the researcher asked?"
 	l.jev(t, 200, levels(map[string]float64{weak: 3, "Does it say what it couldn't do?": 3.5}))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
@@ -265,6 +317,7 @@ func TestMiddleMovesOnWithAnInboxItem(t *testing.T) {
 
 func TestLowRedoesOnceThenBlocks(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	const weak = "Does it say what it couldn't do?"
 	l.jev(t, 200, levels(map[string]float64{weak: 2}))
 	c := l.study(t, "hypotheses", true, nil)
@@ -314,6 +367,7 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 	for _, tc := range []string{"503", "no key"} {
 		t.Run(tc, func(t *testing.T) {
 			l := newLab(t)
+			l.legacy = true
 			stub := l.jev(t, 503, nil)
 			if tc == "no key" {
 				l.e.Jev = nil
@@ -364,6 +418,7 @@ func (h countHandler) WithGroup(string) slog.Handler      { return h }
 
 func TestAuditorRunsLikeEveryRun(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	c := l.study(t, "hypotheses", true, nil)
 	l.done(t, c.ID)
@@ -411,6 +466,7 @@ func TestAuditorRunsLikeEveryRun(t *testing.T) {
 
 func TestTheCoreCriteriaAreAskedVerbatim(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	m := l.man
 	m.Criteria = []string{"Does it name the cell line?"}
@@ -466,6 +522,7 @@ func TestTheCoreCriteriaAreAskedVerbatim(t *testing.T) {
 
 func TestTheStateFitsJevsLimit(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "grounding", "grounding", a)
@@ -507,6 +564,7 @@ func TestTheStateFitsJevsLimit(t *testing.T) {
 
 func TestALongQuestionStillFitsJevsLimit(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "grounding", "grounding", a)
@@ -544,7 +602,7 @@ func TestInboxSentences(t *testing.T) {
 		middleScoreText(7, "grounding", weak, false): "Study #7's Grounding column scored in the middle; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
 		middleScoreText(7, "grounding", weak, true):  "Study #7's Grounding column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
 		blockedText(7, "grounding", weak):            "Study #7 scored low twice in its Grounding column, lowest on “Does it say what it couldn't do?” (level 3 of 5). Comment on the study to tell the Team what to fix.",
-		doneText(7, "validation"):                     "Study #7 is done, in its Validation column.",
+		doneText(7, "validation"):                    "Study #7 is done, in its Validation column.",
 		unavailableText(7, "grounding"):              "Scoring is unavailable for study #7's Grounding column. It stays there, and Lykeion keeps retrying.",
 	} {
 		if got != want {
@@ -555,6 +613,7 @@ func TestInboxSentences(t *testing.T) {
 
 func TestACallWhoseBlobIsGoneIsScoredAsUnreadable(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	l.e.Blobs = storage.Local{Dir: t.TempDir()}
 	stub := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
@@ -584,6 +643,7 @@ func TestACallWhoseBlobIsGoneIsScoredAsUnreadable(t *testing.T) {
 
 func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE agent SET harness = m.harness, model = m.model
 		FROM agent m WHERE m.id = $2 AND agent.id = $1`, l.team["auditor"], l.team["member-1"]); err != nil {
@@ -605,6 +665,7 @@ func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
 
 func TestScoringStateReportsValues(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "experimentation", "experimentation", a)
@@ -635,6 +696,7 @@ func TestScoringStateReportsValues(t *testing.T) {
 
 func TestJevSeesOutputsAsAList(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "experimentation", "experimentation", a)
@@ -664,6 +726,7 @@ func TestJevSeesOutputsAsAList(t *testing.T) {
 
 func TestAColumnNoTeamWorksIsScoredOnTheCoreQuestionsAlone(t *testing.T) {
 	l := newLab(t)
+	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
 	l.e.RatingDraw = always(true)
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")

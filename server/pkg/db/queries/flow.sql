@@ -43,9 +43,11 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind
 RETURNING id;
 
 -- Moves a study on, restarts its column or blocks it once the column is
--- scored, and releases the scoring lease.
+-- scored, and releases the scoring lease. Leaving a column clears
+-- legacy_column: the old scoring holds only for the column it was set on.
 -- name: SaveCardFlow :exec
-UPDATE card SET board_column = @board_column, state = @state, block_kind = @block_kind, round = @round,
+UPDATE card SET legacy_column = CASE WHEN board_column = @board_column THEN legacy_column ELSE '' END,
+  board_column = @board_column, state = @state, block_kind = @block_kind, round = @round,
   redos = @redos, handoff_note = @handoff_note, gating_until = NULL, version = version + 1
 WHERE id = @id AND workspace_id = @workspace_id;
 

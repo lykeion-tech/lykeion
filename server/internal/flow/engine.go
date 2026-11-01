@@ -15,6 +15,7 @@ import (
 
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -27,7 +28,8 @@ type Engine struct {
 	Store     *store.Store
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
-	Jev       *jev.Client // nil when the lab has no TypeSafe key
+	Jev       *jev.Client    // nil when the lab has no TypeSafe key
+	Sources   review.Sources // resolves Grounding's papers and datasets; nil reviews no Grounding column
 	Retry     func() *jev.Retry
 	Now       func() time.Time
 	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic

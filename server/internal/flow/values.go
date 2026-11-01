@@ -148,6 +148,16 @@ func parseNumber(s string) (number, bool) {
 // after a letter or `_` is part of a name and is not a value.
 func tokens(out string) []*big.Rat {
 	var rs []*big.Rat
+	eachToken(out, func(_ int, r *big.Rat) bool {
+		rs = append(rs, r)
+		return true
+	})
+	return rs
+}
+
+// eachToken calls f with each number tokens reads in out and the byte offset
+// where it starts, until f returns false.
+func eachToken(out string, f func(start int, r *big.Rat) bool) {
 	for _, ix := range numberToken.FindAllStringIndex(out, -1) {
 		i := ix[0]
 		if out[i] == '-' && i > 0 && out[i-1] >= '0' && out[i-1] <= '9' {
@@ -156,11 +166,10 @@ func tokens(out string) []*big.Rat {
 		if joinedToName(out, ix[0]) {
 			continue
 		}
-		if n, ok := parseNumber(out[i:ix[1]]); ok {
-			rs = append(rs, n.r)
+		if n, ok := parseNumber(out[i:ix[1]]); ok && !f(i, n.r) {
+			return
 		}
 	}
-	return rs
 }
 
 // joinedToName reports whether the number at out[start:end] follows a letter

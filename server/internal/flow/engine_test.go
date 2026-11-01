@@ -25,6 +25,9 @@ type lab struct {
 	pack  db.FieldPack
 	man   pack.Manifest
 	team  map[string]uuid.UUID // member name → the owner's agent for it
+	// legacy has declare put each column under the old scoring, as for a
+	// column already under way when item review shipped.
+	legacy bool
 }
 
 func (l *lab) in(t *testing.T, fn func(tx *store.Tx) error) {
