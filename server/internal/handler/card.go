@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -18,8 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
-	"lykeion/server/internal/flow"
-	"lykeion/server/internal/predicate"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -36,26 +32,13 @@ type newCard struct {
 	Assignee   *assigneeIn `json:"assignee"`
 	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
-	AttachmentIDs []uuid.UUID   `json:"attachment_ids"`
-	Services      []newService  `json:"services"`
-	Predicates    []predicateIn `json:"predicates"`
-	Workflow      *string       `json:"workflow"`
+	AttachmentIDs []uuid.UUID  `json:"attachment_ids"`
+	Services      []newService `json:"services"`
+	Workflow      *string      `json:"workflow"`
 }
-
-// predicateIn is a result the study declares before it runs, as a name and a
-// condition over the numbers its script will report.
-type predicateIn struct {
-	Name string `json:"name"`
-	Text string `json:"text"`
-}
-
-const maxPredicates = 8
-
-// maxPredicatesJSON stays under the card.predicates size check, leaving room for the stored keys.
-const maxPredicatesJSON = 6000
 
 // checkWorkflow refuses a study that names a Workflow but isn't one agent
-// working Experimentation alone with nothing pre-registered.
+// working Experimentation alone.
 func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 	if in.Workflow == nil {
 		return nil
@@ -67,44 +50,6 @@ func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 		return cardInputError("a workflow study is worked by one agent")
 	case from != board.Experimentation || to != board.Experimentation:
 		return cardInputError("a workflow study runs Experimentation only")
-	case len(in.Predicates) > 0:
-		return cardInputError("a workflow study has no pre-registered results")
-	}
-	return nil
-}
-
-// checkPredicates refuses predicates a study cannot be pre-registered with.
-func checkPredicates(in []predicateIn, from, to string) error {
-	runs := board.StageIndex(from) <= board.StageIndex(board.Experimentation) && board.StageIndex(board.Experimentation) <= board.StageIndex(to)
-	switch {
-	case !runs && len(in) > 0:
-		return cardInputError("only a study that runs Experimentation has pre-registered results")
-	case runs && len(in) == 0:
-		return cardInputError("a study that runs Experimentation needs at least one pre-registered result")
-	case len(in) > maxPredicates:
-		return cardInputError("a study can pre-register at most " + strconv.Itoa(maxPredicates) + " results")
-	}
-	seen := map[string]bool{}
-	for i, p := range in {
-		label := "pre-registered result " + strconv.Itoa(i+1)
-		if p.Name != "" {
-			label = "pre-registered result " + p.Name
-		}
-		switch {
-		case p.Name == "" || utf8.RuneCountInString(p.Name) > 80:
-			return cardInputError(label + " needs a name of 1 to 80 characters")
-		case strings.ContainsFunc(p.Name, func(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }):
-			return cardInputError(label + " has a line break or control character in its name")
-		case seen[p.Name]:
-			return cardInputError(label + " repeats a name")
-		}
-		seen[p.Name] = true
-		if _, err := predicate.Parse(p.Text); err != nil {
-			return cardInputError(label + ": " + err.Error())
-		}
-	}
-	if b, _ := json.Marshal(in); len(b) > maxPredicatesJSON {
-		return cardInputError("the pre-registered results are too large; shorten their names or texts")
 	}
 	return nil
 }
@@ -323,8 +268,6 @@ type studyView struct {
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
-	// Preregistration is each predicate's binding outcome so far.
-	Preregistration []flow.Decision `json:"preregistration"`
 }
 
 type serviceNameView struct {
@@ -369,15 +312,6 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	if err := machineView(r.Context(), tx, &v); err != nil {
 		return v, err
 	}
-	recs, err := tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: c.WorkspaceID, CardID: c.ID, Kind: "preregistration"})
-	if err != nil {
-		return v, err
-	}
-	bodies := make([][]byte, len(recs))
-	for i, rec := range recs {
-		bodies[i] = rec.Body
-	}
-	v.Preregistration = flow.Binding(bodies)
 	return v, nil
 }
 
@@ -423,10 +357,8 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		in.Title = titleFrom(in.Question)
 	}
 	from, to, chosen, agent, err := studyScope(in)
-	if err == nil && in.Workflow != nil {
+	if err == nil {
 		err = checkWorkflow(in, from, to, agent)
-	} else if err == nil {
-		err = checkPredicates(in.Predicates, from, to)
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -493,9 +425,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-		}
-		if params.Predicates, err = json.Marshal(append([]predicateIn{}, in.Predicates...)); err != nil {
-			return err
 		}
 		// No card may ask what an active card asks. The workspace lock makes two
 		// identical cards created at once see each other.

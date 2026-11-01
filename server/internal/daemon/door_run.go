@@ -471,15 +471,6 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	if err != nil {
 		return nil, nil, err
 	}
-	// Each script writes its results to a folder of its own, so a file left by
-	// an earlier run or planted by code is never read as this script's.
-	resultsDir, err := os.MkdirTemp(d.tmp, "results-")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer os.RemoveAll(resultsDir)
-	resultsPath := filepath.Join(resultsDir, "results.json")
-	cmd.Env = append(cmd.Env, "LYK_RESULTS="+resultsPath)
 	// pipes, not files: the sandbox loses some interpreters' buffered output to a file
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// the sandbox starts the script in a session of its own, whose group killGroup ends
@@ -512,43 +503,7 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	}
 	body := map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
 		"output": stdout.String(), "error": errText, "exit_status": status, "packages": packages}
-	if results, errMsg := readResults(resultsPath); errMsg != "" {
-		body["results_error"] = errMsg
-	} else if results != nil {
-		body["results"] = string(results)
-	}
 	return d.answerRun(ctx, body)
-}
-
-// maxResults is the largest results file a script may leave.
-const maxResults = 64 << 10
-
-// readResults reads the script's results file: nil when it wrote none, a
-// reason when the file can't be taken.
-func readResults(path string) ([]byte, string) {
-	// opened without following a link and without blocking, then checked on
-	// the open handle, so a link or a pipe the script made is refused
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, ""
-	}
-	if err != nil {
-		return nil, "the results file could not be read: " + err.Error()
-	}
-	defer f.Close()
-	if st, err := f.Stat(); err != nil {
-		return nil, "the results file could not be read: " + err.Error()
-	} else if !st.Mode().IsRegular() {
-		return nil, "the results file is not a regular file"
-	}
-	b, err := io.ReadAll(io.LimitReader(f, maxResults+1))
-	if err != nil {
-		return nil, "the results file could not be read: " + err.Error()
-	}
-	if len(b) > maxResults {
-		return nil, fmt.Sprintf("the results file is over %d KiB", maxResults>>10)
-	}
-	return b, ""
 }
 
 // insideDir resolves a relative path in dir, refusing one that leaves dir

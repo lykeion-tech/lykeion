@@ -296,7 +296,7 @@ func TestAStudyListsAndServesItsFiles(t *testing.T) {
 	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
 	odd := s.uploadData(t, a, w.ID, "résumé \"x\".bin", []byte{0, 1, 2, 3})
 	var c card
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{csv, odd}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv, odd}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	var v studyFilesView
@@ -322,7 +322,7 @@ func TestAStudyListsAndServesItsFiles(t *testing.T) {
 		t.Fatalf("odd name %d %q", resp.StatusCode, disp)
 	}
 	var plain card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "no files"}, &plain)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "no files"}, &plain)
 	var raw map[string]json.RawMessage
 	s.call(t, "GET", "/api/cards/"+plain.ID, a, w.ID, nil, &raw)
 	if string(raw["attachments"]) != "[]" {
@@ -341,7 +341,7 @@ func TestAnotherWorkspaceCantSeeTheFiles(t *testing.T) {
 	wa, wb := s.workspace(t, a, "lab"), s.workspace(t, b, "other")
 	csv := s.uploadData(t, a, wa.ID, "data.csv", []byte(attachedCSV))
 	var c card
-	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{csv}}, &c)
+	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
 	if code := s.call(t, "GET", "/api/cards/"+c.ID, b, wb.ID, nil, nil); code != 404 {
 		t.Fatalf("view: %d", code)
 	}
@@ -361,7 +361,7 @@ func TestDeletingAStudyDeletesItsFiles(t *testing.T) {
 	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
 	pending := s.uploadData(t, a, w.ID, "keep.csv", []byte(attachedCSV))
 	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{csv}}, &c)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
 	key := w.ID + "/attachments/" + csv
 	has := func(k string) bool {
 		rc, err := s.H.Blobs.Get(t.Context(), k)
@@ -393,7 +393,7 @@ func TestADeleteThatRollsBackKeepsTheFiles(t *testing.T) {
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
 	csv := s.uploadData(t, a, w.ID, "data.csv", []byte(attachedCSV))
 	var c card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{csv}}, &c)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{csv}}, &c)
 	if code := s.call(t, "DELETE", "/api/cards/"+c.ID, b, w.ID, nil, nil); code != 403 {
 		t.Fatal("a non-owner deleted the study")
 	}
@@ -413,7 +413,7 @@ func TestDeletingAWorkspaceDeletesItsFiles(t *testing.T) {
 	linked := s.uploadData(t, a, wa.ID, "data.csv", []byte(attachedCSV))
 	pending := s.uploadData(t, a, wa.ID, "later.csv", []byte(attachedCSV))
 	theirs := s.uploadData(t, b, wb.ID, "theirs.csv", []byte(attachedCSV))
-	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{linked}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q?", "attachment_ids": []string{linked}}, nil); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	has := func(k string) bool {
@@ -476,7 +476,7 @@ func TestAStudyMayHoldTenGigabytesUnpacked(t *testing.T) {
 	w := s.workspace(t, tok, "lab")
 	ids := []string{s.uploadData(t, tok, w.ID, "one.zip", archiveBytes(t, "a", 6<<30)), s.uploadData(t, tok, w.ID, "two.zip", archiveBytes(t, "b", 6<<30))}
 	var out struct{ Error string }
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": ids}, &out); code != 400 || !strings.Contains(out.Error, "at most 10 GB") {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": ids}, &out); code != 400 || !strings.Contains(out.Error, "at most 10 GB") {
 		t.Fatalf("%d %+v", code, out)
 	}
 	if s.count(t, `SELECT count(*) FROM card`) != 0 {
@@ -529,14 +529,14 @@ func TestInnerFilesAreCappedPerStudy(t *testing.T) {
 		}
 	}
 	var out struct{ Error string }
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": ids}, &out); code != 400 || out.Error != "A study can have at most 20,000 files and directories inside archives" {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": ids}, &out); code != 400 || out.Error != "A study can have at most 20,000 files and directories inside archives" {
 		t.Fatalf("%d %+v", code, out)
 	}
 	if s.count(t, `SELECT count(*) FROM card`) != 0 || s.count(t, `SELECT count(*) FROM record`) != 0 || s.count(t, `SELECT count(*) FROM attachment WHERE card_id IS NULL`) != 2 {
 		t.Fatal("refused study changed pending uploads or stored sources")
 	}
 	exactly := s.uploadData(t, tok, w.ID, "exact.zip", archiveTreeBytes(t, 9998, 1, false))
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{exactly, ids[1]}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{exactly, ids[1]}}, nil); code != 201 {
 		t.Fatalf("exactly 20,000 entries: %d", code)
 	}
 }
@@ -670,7 +670,7 @@ func TestAnArchivesRecordListsItsInnerPaths(t *testing.T) {
 	w := s.workspace(t, tok, "lab")
 	id := s.uploadData(t, tok, w.ID, "data.zip", archiveBytes(t, "nested/a.txt", 0))
 	var c card
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	var answer string
@@ -698,7 +698,7 @@ func TestAnEmptyArchivesRecordIsAnArchive(t *testing.T) {
 	}
 	id := s.uploadData(t, tok, w.ID, "empty.txt", b.Bytes())
 	var c card
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	var answer string
@@ -730,7 +730,7 @@ func TestArchiveStudyCreationReadsOnlyTheManifest(t *testing.T) {
 	id := s.uploadData(t, tok, w.ID, "data.zip", archiveBytes(t, "nested/a.txt", 0))
 	key := w.ID + "/attachments/" + id
 	s.H.Blobs = originalArchiveUnreadable{s.H.Blobs, key}
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{id}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, nil); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 }
@@ -761,7 +761,7 @@ func TestArchiveManifestHashMatchesItsSourceAnswer(t *testing.T) {
 		t.Fatalf("manifest hash/size: %q %d", hash, size)
 	}
 	var c card
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	var answer, answerHash, blob string
@@ -803,7 +803,7 @@ func TestArchiveSourceManifestMatchesFinalFiles(t *testing.T) {
 		t.Fatalf("accounting: %d entries %d bytes", files, unpacked)
 	}
 	var c card
-	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", tok, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{id}}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	var answer, hash string
@@ -948,7 +948,7 @@ func TestACoresearchUploadCannotBeAttachedToAStudy(t *testing.T) {
 	if resp.StatusCode != 201 || up.UploadID == "" {
 		t.Fatalf("coresearch upload %d", resp.StatusCode)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q?", "attachment_ids": []string{up.UploadID}}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q?", "attachment_ids": []string{up.UploadID}}, nil); code != 400 {
 		t.Fatalf("study took a coresearch upload: %d", code)
 	}
 }

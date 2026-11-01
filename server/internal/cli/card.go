@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -18,24 +16,6 @@ type cardView struct {
 	Question    string `json:"question"`
 	BoardColumn string `json:"board_column"`
 	State       string `json:"state"`
-	Predicates  []struct {
-		Name string `json:"name"`
-		Text string `json:"text"`
-	} `json:"predicates"`
-}
-
-// values prints a decision's values: the number alone for one key, else
-// key=value pairs in key order.
-func values(m map[string]float64) string {
-	keys := slices.Sorted(maps.Keys(m))
-	if len(keys) == 1 {
-		return strconv.FormatFloat(m[keys[0]], 'g', -1, 64)
-	}
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = k + "=" + strconv.FormatFloat(m[k], 'g', -1, 64)
-	}
-	return strings.Join(parts, ", ")
 }
 
 // byNumber resolves a card number to its id.
@@ -80,7 +60,6 @@ func agentID(cmd *cobra.Command, e *env, ref string) (string, error) {
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, machine, agent string
-	var predicates []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -90,17 +69,6 @@ func cardCmd(e *env) *cobra.Command {
 		in := map[string]any{"question": strings.Join(a, " ")}
 		if cmd.Flags().Changed("machine") {
 			in["machine"] = machine
-		}
-		if len(predicates) > 0 {
-			list := make([]map[string]string, 0, len(predicates))
-			for _, pair := range predicates {
-				name, text, ok := strings.Cut(pair, "=")
-				if !ok {
-					return fmt.Errorf("--predicate requires NAME=TEXT")
-				}
-				list = append(list, map[string]string{"name": name, "text": text})
-			}
-			in["predicates"] = list
 		}
 		if title != "" {
 			in["title"] = title
@@ -128,7 +96,6 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&agent, "agent", "", "agent NAME|ID that works the whole study (default: Teams)")
-	newCmd.Flags().StringArrayVar(&predicates, "predicate", nil, "pre-registered result NAME=TEXT, such as 'effect=effect > 0.2' (repeatable)")
 	c.AddCommand(newCmd,
 		&cobra.Command{Use: "machine CARD NAME|ID|mine", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 			if err := e.inWorkspace(); err != nil {
@@ -167,28 +134,6 @@ func cardCmd(e *env) *cobra.Command {
 			}
 			fmt.Fprintf(e.out, "#%d %s\ncolumn: %s  state: %s\n\n%s\n",
 				x.Number, x.Title, x.BoardColumn, x.State, x.Question)
-			if len(x.Predicates) > 0 {
-				var view struct {
-					Preregistration []struct {
-						Name    string             `json:"name"`
-						Outcome string             `json:"outcome"`
-						Run     string             `json:"run"`
-						Values  map[string]float64 `json:"values"`
-					} `json:"preregistration"`
-				}
-				if err := e.client().Do(cmd.Context(), "GET", "/api/cards/"+x.ID, nil, &view); err != nil {
-					return err
-				}
-				for _, p := range x.Predicates {
-					outcome := "not decided yet"
-					for _, d := range view.Preregistration {
-						if d.Name == p.Name && (d.Outcome == "held" || d.Outcome == "missed") {
-							outcome = fmt.Sprintf("%s (%s, run %s)", d.Outcome, values(d.Values), d.Run)
-						}
-					}
-					fmt.Fprintf(e.out, "pre-registered: %s: %s — %s\n", p.Name, p.Text, outcome)
-				}
-			}
 			var comments []struct {
 				Body      string `json:"body"`
 				CreatedAt string `json:"created_at"`

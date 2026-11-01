@@ -75,7 +75,7 @@ func TestAUsedTeamCannotBeEdited(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation")
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, nil); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c, e := s.saveSkills(t, a, w.ID, r); c != 409 || !strings.Contains(e, "Used by 1 study") {
@@ -99,7 +99,7 @@ func TestLockCountsOnlyUnfinishedColumns(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	g, r, r2 := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation"), s.addedTeam(t, a, w.ID, "r2", "validation")
 	var c studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, &c); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": teamAssignee(map[string]string{"grounding": g, "validation": r})}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
 	if c, e := s.saveSkills(t, a, w.ID, g); c != 409 {

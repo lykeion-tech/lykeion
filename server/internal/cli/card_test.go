@@ -276,35 +276,13 @@ func TestCardNewAndCardMachineFlags(t *testing.T) {
 	}
 }
 
-func TestCardNewSendsPredicates(t *testing.T) {
-	var posted map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&posted); err != nil {
-			t.Error(err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id":"x","number":1,"title":"q"}`))
-	}))
-	defer srv.Close()
-	var out bytes.Buffer
-	e := &env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out}
+func TestCardNewHasNoPredicateFlag(t *testing.T) {
+	e := &env{cfg: Config{Server: "http://unused", Token: "ltk_run", Workspace: "w"}, out: &bytes.Buffer{}}
 	cmd := cardCmd(e)
-	cmd.SetArgs([]string{"new", "q", "--predicate", "effect=effect > 0.2", "--predicate", "gap=a = b"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	want := []any{map[string]any{"name": "effect", "text": "effect > 0.2"}, map[string]any{"name": "gap", "text": "a = b"}}
-	if !reflect.DeepEqual(posted["predicates"], want) {
-		t.Fatalf("posted predicates %#v, want %#v", posted["predicates"], want)
-	}
-	posted = nil
-	cmd = cardCmd(e)
-	cmd.SetArgs([]string{"new", "q", "--predicate", "effect"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "NAME=TEXT") {
-		t.Fatalf("missing text: %v", err)
-	}
-	if posted != nil {
-		t.Fatal("invalid predicate reached server")
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"new", "--predicate", "effect=effect > 0", "q"})
+	if err := cmd.Execute(); err == nil || err.Error() != "unknown flag: --predicate" {
+		t.Fatalf("--predicate: %v", err)
 	}
 }
 
@@ -350,65 +328,6 @@ func TestCardNewSendsAnAgent(t *testing.T) {
 	}
 	if posted != nil {
 		t.Fatal("an unknown agent reached the server")
-	}
-}
-
-func TestCardShowPrintsPredicates(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasSuffix(r.URL.Path, "/comments") {
-			w.Write([]byte(`[]`))
-			return
-		}
-		if r.URL.Path == "/api/cards/x" {
-			w.Write([]byte(`{"id":"x","preregistration":[]}`))
-			return
-		}
-		w.Write([]byte(`[{"id":"x","number":1,"title":"t","question":"why","predicates":[{"name":"effect","text":"effect > 0.2"}]}]`))
-	}))
-	defer srv.Close()
-	var out bytes.Buffer
-	cmd := cardCmd(&env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out})
-	cmd.SetArgs([]string{"show", "1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "why\npre-registered: effect: effect > 0.2 — not decided yet\n") {
-		t.Fatalf("%q", out.String())
-	}
-}
-
-func TestCardShowPrintsBindingOutcomes(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/cards/x/comments":
-			w.Write([]byte(`[]`))
-		case "/api/cards/x":
-			w.Write([]byte(`{"id":"x","preregistration":[{"name":"effect","text":"effect > 0.2","outcome":"missed","round":1,"run":"x1","values":{"effect":0.12}},
-				{"name":"both","text":"a > 0 and b > 0","outcome":"held","round":1,"run":"x1","values":{"b":2,"a":1}},
-				{"name":"open","text":"c > 0","outcome":"unconfirmed","reason":"no results run named"}]}`))
-		default:
-			w.Write([]byte(`[{"id":"x","number":1,"title":"t","question":"why","predicates":[{"name":"effect","text":"effect > 0.2"},
-				{"name":"both","text":"a > 0 and b > 0"},{"name":"open","text":"c > 0"},{"name":"later","text":"d > 0"}]}]`))
-		}
-	}))
-	defer srv.Close()
-	var out bytes.Buffer
-	cmd := cardCmd(&env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &out})
-	cmd.SetArgs([]string{"show", "1"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"pre-registered: effect: effect > 0.2 — missed (0.12, run x1)\n",
-		"pre-registered: both: a > 0 and b > 0 — held (a=1, b=2, run x1)\n",
-		"pre-registered: open: c > 0 — not decided yet\n",
-		"pre-registered: later: d > 0 — not decided yet\n",
-	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("no %q in %q", want, out.String())
-		}
 	}
 }
 

@@ -54,30 +54,30 @@ func TestDuplicateCards(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	var first card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Does X raise Y?"}, &first)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Does X raise Y?"}, &first)
 
 	var dup struct {
 		Error  string `json:"error"`
 		CardID string `json:"card_id"`
 		Number int    `json:"number"`
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "  does x\n raise   Y? "}, &dup); code != 409 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "  does x\n raise   Y? "}, &dup); code != 409 {
 		t.Fatalf("duplicate question: %d", code)
 	}
 	if dup.CardID != first.ID || dup.Number != first.Number || !strings.Contains(dup.Error, "#1") {
 		t.Fatalf("%+v", dup)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "title": "DOES X RAISE Y?", "question": "other words"}, nil); code != 409 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"title": "DOES X RAISE Y?", "question": "other words"}, nil); code != 409 {
 		t.Fatalf("duplicate title: %d", code)
 	}
 	var other card
-	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Another question?"}, &other)
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Another question?"}, &other)
 
 	// two identical cards at once: exactly one is created
 	codes := make(chan int, 2)
 	for range 2 {
 		go func() {
-			codes <- s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"predicates": testPredicates, "question": "Is Z lower in mice?"}, nil)
+			codes <- s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Is Z lower in mice?"}, nil)
 		}()
 	}
 	if c1, c2 := <-codes, <-codes; c1+c2 != 201+409 {
