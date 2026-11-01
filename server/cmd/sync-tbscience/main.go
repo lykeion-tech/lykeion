@@ -64,8 +64,8 @@ type taskFile struct {
 		Description string
 	}
 	Metadata struct {
-		AuthorName              []string `toml:"author_name"`
-		AuthorOrganization      []string `toml:"author_organization"`
+		AuthorName              any `toml:"author_name"`
+		AuthorOrganization      any `toml:"author_organization"`
 		Domain                  string
 		Field                   string
 		Subfield                string
@@ -185,10 +185,11 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 		Authors: []author{}, Experience: m.RelevantExperience, ExpertHours: m.ExpertTimeEstimateHours,
 		BudgetSec: tt.Agent.TimeoutSec, CPUs: tt.Environment.CPUs, MemoryMB: tt.Environment.MemoryMB, Files: []file{},
 	}
-	for i, n := range m.AuthorName {
+	orgs := stringList(m.AuthorOrganization)
+	for i, n := range stringList(m.AuthorName) {
 		a := author{Name: n}
-		if i < len(m.AuthorOrganization) {
-			a.Organization = m.AuthorOrganization[i]
+		if i < len(orgs) {
+			a.Organization = orgs[i]
 		}
 		w.Authors = append(w.Authors, a)
 	}
@@ -249,14 +250,35 @@ func bundleTask(dir, tmp string, tt taskFile) (workflow, error) {
 // withoutContacts drops the author emails and profile links from a
 // task.toml, so the bundled copies carry no contact details.
 func withoutContacts(b []byte) ([]byte, error) {
-	var m map[string]map[string]any
+	var m map[string]any
 	if err := toml.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
-	delete(m["task"], "authors")
-	delete(m["metadata"], "author_email")
-	delete(m["metadata"], "author_profile")
+	if t, ok := m["task"].(map[string]any); ok {
+		delete(t, "authors")
+	}
+	if t, ok := m["metadata"].(map[string]any); ok {
+		delete(t, "author_email")
+		delete(t, "author_profile")
+	}
 	return toml.Marshal(m)
+}
+
+// stringList reads a task.toml value that is either one string or a list.
+func stringList(v any) []string {
+	switch v := v.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var out []string
+		for _, e := range v {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // isReference reports whether a task file goes into the skill's references:
