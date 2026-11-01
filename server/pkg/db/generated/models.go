@@ -31,6 +31,13 @@ type Agent struct {
 	DeletedAt            *time.Time      `json:"deleted_at"`
 }
 
+type AgentCapability struct {
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	AgentID     uuid.UUID       `json:"agent_id"`
+	Skills      json.RawMessage `json:"skills"`
+	Connectors  json.RawMessage `json:"connectors"`
+}
+
 type AgentRun struct {
 	ID                    uuid.UUID       `json:"id"`
 	WorkspaceID           uuid.UUID       `json:"workspace_id"`
@@ -274,6 +281,7 @@ type Card struct {
 	Redos        int32           `json:"redos"`
 	Machine      *string         `json:"machine"`
 	Predicates   json.RawMessage `json:"predicates"`
+	Workflow     *string         `json:"workflow"`
 }
 
 type CardTeam struct {
@@ -532,6 +540,12 @@ type CoresearchRun struct {
 	ClaimToken      *uuid.UUID      `json:"claim_token"`
 	LeaseExpiresAt  *time.Time      `json:"lease_expires_at"`
 	ReceiptSha      *string         `json:"receipt_sha"`
+}
+
+type CoresearchRunConnector struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	ConnectorID uuid.UUID `json:"connector_id"`
 }
 
 type CoresearchSetup struct {

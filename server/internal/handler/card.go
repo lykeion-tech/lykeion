@@ -23,6 +23,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
+	"lykeion/server/internal/workflow"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -38,6 +39,7 @@ type newCard struct {
 	AttachmentIDs []uuid.UUID   `json:"attachment_ids"`
 	Services      []newService  `json:"services"`
 	Predicates    []predicateIn `json:"predicates"`
+	Workflow      *string       `json:"workflow"`
 }
 
 // predicateIn is a result the study declares before it runs, as a name and a
@@ -51,6 +53,25 @@ const maxPredicates = 8
 
 // maxPredicatesJSON stays under the card.predicates size check, leaving room for the stored keys.
 const maxPredicatesJSON = 6000
+
+// checkWorkflow refuses a study that names a Workflow but isn't one agent
+// working Experimentation alone with nothing pre-registered.
+func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
+	if in.Workflow == nil {
+		return nil
+	}
+	switch _, ok := workflow.Get(*in.Workflow); {
+	case !ok:
+		return cardInputError("no workflow named " + *in.Workflow)
+	case agent == nil:
+		return cardInputError("a workflow study is worked by one agent")
+	case from != board.Experimentation || to != board.Experimentation:
+		return cardInputError("a workflow study runs Experimentation only")
+	case len(in.Predicates) > 0:
+		return cardInputError("a workflow study has no pre-registered results")
+	}
+	return nil
+}
 
 // checkPredicates refuses predicates a study cannot be pre-registered with.
 func checkPredicates(in []predicateIn, from, to string) error {
@@ -402,7 +423,9 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		in.Title = titleFrom(in.Question)
 	}
 	from, to, chosen, agent, err := studyScope(in)
-	if err == nil {
+	if err == nil && in.Workflow != nil {
+		err = checkWorkflow(in, from, to, agent)
+	} else if err == nil {
 		err = checkPredicates(in.Predicates, from, to)
 	}
 	if err != nil {
@@ -459,7 +482,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, AssigneeID: agent, Round: 1,
+			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
 		}
 		if in.Machine != nil {
 			params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
