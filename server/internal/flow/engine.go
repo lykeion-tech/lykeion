@@ -227,10 +227,39 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 // instructions and role protocol are current; execution state is minted anew.
 func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, runPrompt, runAssignment string) (db.AgentRun, error) {
 	agentID := a.ID
+	harness, model := a.Harness, a.Model
+	if m != nil && c.StudyCli != nil && c.AuditorCli != nil {
+		member := m.Leader
+		if role == "auditor" {
+			member = m.Auditor
+		} else if role != "leader" {
+			for _, candidate := range m.Members {
+				if candidate.Name == role {
+					member = candidate
+					break
+				}
+			}
+		}
+		harness, model = studyCLI(role, *c.StudyCli, *c.AuditorCli, member.Agent)
+	}
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
-		Role: role, Harness: a.Harness, Model: a.Model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,
+		Role: role, Harness: harness, Model: model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,
 		ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
 		Skill:           strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
+}
+
+func studyCLI(role, worker, auditor string, def pack.AgentDef) (string, string) {
+	cli := worker
+	if role == "auditor" {
+		cli = auditor
+	}
+	if len(def.Models) > 0 {
+		return cli, def.Models[cli]
+	}
+	if def.Harness == cli {
+		return cli, def.Model
+	}
+	return cli, ""
 }
 
 // ContinuityScope names the CLI session a run continues on its owner's

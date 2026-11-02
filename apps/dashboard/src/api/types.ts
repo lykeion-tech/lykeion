@@ -233,6 +233,7 @@ export interface Runtime {
   device_name: string;
   custom_name: string | null;
   status: 'online' | 'offline';
+  unhealthy_reason?: string | null;
   last_seen_at: string;
   max_concurrent: number;
   created_at: string;
@@ -347,6 +348,7 @@ export interface TeamManifest {
 // Team is built in: every workspace has it and it can't be changed.
 export interface StoreTeam {
   avatar_url: string;
+  agent_clis?: ('claude' | 'codex')[];
   id: string;
   created_at: string;
   name: string;
@@ -363,6 +365,7 @@ export interface TeamDetail {
   avatar_url: string;
   id: string;
   manifest: TeamManifest;
+  my_agents?: Record<string, AgentDefinition>;
 }
 
 export type Autoresearch = {

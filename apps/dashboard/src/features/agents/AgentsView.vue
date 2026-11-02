@@ -276,7 +276,8 @@ async function save() {
                 v-else-if="a.avatar_url"
                 :value="a.avatar_url.slice(6)"
                 :size="20"
-              /><template v-else>{{ agentDisplayName(a.name)[0] }}</template></span
+              /><template v-else>{{ agentDisplayName(a.name)[0] }}</template>
+              <span v-if="!a.archived_at" class="avatar-active-dot" role="img" aria-label="Active" title="Active"></span></span
             ><span
               ><b
                 >{{ agentNameWithoutCli(a.name, a.harness)
@@ -498,6 +499,19 @@ async function save() {
 </style>
 
 <style scoped>
+.agent-cell > .avatar {
+  position: relative;
+  overflow: visible;
+}
+.avatar-active-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39a35a;
+}
 .avatar :deep(.aristotle-art) {
   width: 28px;
   height: 28px;

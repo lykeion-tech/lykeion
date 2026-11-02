@@ -10,9 +10,10 @@ import AgentsView from '../agents/AgentsView.vue';
 import CreateStudy from './CreateStudy.vue';
 import StudyDetail from './StudyDetail.vue';
 import { workspaceId } from '../../api/session';
-import { useStudyComposer } from '../../state/study-composer';
 import { keys } from '../../api/keys';
 import type { Picked, Range } from '../../lib/studies';
+
+vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
 
 vi.mock('../../ui/CompactSelect.vue', () => ({
   default: {
@@ -322,6 +323,107 @@ async function mountPicker(agents = false, lastSet: Picked | null = null, oneAge
 }
 
 describe('AssignPicker', () => {
+  it('shows saved Agent and Team icons in the picker', async () => {
+    const assignee = ref<Picked | null>(null);
+    const range = ref<Range>({ from: 'grounding', to: 'validation' });
+    const p = await mount(
+      AssignPicker,
+      () => ({
+        modelValue: assignee.value,
+        'onUpdate:modelValue': (value: Picked | null) => (assignee.value = value),
+        range: range.value,
+        'onUpdate:range': (value: Range) => (range.value = value),
+        oneAgent: true,
+      }),
+      '/',
+      (client) => {
+        client.setQueryData(keys.agents('w'), [
+          {
+            id: 'a',
+            name: 'Scientist',
+            harness: 'claude',
+            avatar_url: 'emoji:🧬',
+            visibility: 'workspace',
+            owner_id: 'u1',
+            archived_at: null,
+          },
+        ]);
+        client.setQueryData(keys.teams('w', '', ''), [
+          {
+            ...storeTeam('t', 'Grounding Team', 'grounding', 'shipped'),
+            avatar_url: 'emoji:🔬',
+            agent_clis: ['codex'],
+          },
+        ]);
+        client.setQueryData(keys.runtimes('w'), [
+          { owner_id: 'u1', harness: 'claude', status: 'online', unhealthy_reason: null },
+          { owner_id: 'u1', harness: 'codex', status: 'online', unhealthy_reason: null },
+        ]);
+      },
+    );
+    try {
+      await p.click(/Built-in Teams/);
+      expect(p.text()).toContain('🧬');
+      expect(p.text()).toContain('🔬');
+      expect(p.nodes().some((n) => n.props['aria-label'] === 'Claude Code')).toBe(true);
+      expect(p.nodes().some((n) => n.props['aria-label'] === 'Codex')).toBe(true);
+      expect(all(p.button(/Scientist/)!).some((n) => n.props['aria-label'] === 'CLI online')).toBe(
+        true,
+      );
+      expect(
+        all(p.button(/Grounding Team/)!).some((n) => n.props['aria-label'] === 'Team CLIs online'),
+      ).toBe(true);
+      await p.click(/Scientist/);
+      expect(all(p.button(/Scientist/)!).some((n) => n.props['aria-label'] === 'CLI online')).toBe(
+        true,
+      );
+    } finally {
+      p.unmount();
+    }
+  });
+
+  it('does not show online status for unhealthy or another member’s runtimes', async () => {
+    const assignee = ref<Picked | null>(null);
+    const range = ref<Range>({ from: 'grounding', to: 'validation' });
+    const p = await mount(
+      AssignPicker,
+      () => ({
+        modelValue: assignee.value,
+        'onUpdate:modelValue': (value: Picked | null) => (assignee.value = value),
+        range: range.value,
+        'onUpdate:range': (value: Range) => (range.value = value),
+        oneAgent: true,
+      }),
+      '/',
+      (client) => {
+        client.setQueryData(keys.agents('w'), [
+          {
+            id: 'a',
+            name: 'Scientist',
+            harness: 'claude',
+            visibility: 'workspace',
+            owner_id: 'u1',
+            archived_at: null,
+          },
+        ]);
+        client.setQueryData(keys.teams('w', '', ''), [
+          { ...storeTeam('t', 'Grounding Team', 'grounding', 'shipped'), agent_clis: ['codex'] },
+        ]);
+        client.setQueryData(keys.runtimes('w'), [
+          { owner_id: 'u1', harness: 'claude', status: 'online', unhealthy_reason: 'sign_in' },
+          { owner_id: 'u2', harness: 'codex', status: 'online', unhealthy_reason: null },
+        ]);
+      },
+    );
+    try {
+      await p.click(/Built-in Teams/);
+      expect(p.nodes().some((n) => n.props['aria-label'] === 'CLI online')).toBe(false);
+      expect(p.nodes().some((n) => n.props['aria-label'] === 'Team CLIs online')).toBe(false);
+    } finally {
+      p.unmount();
+    }
+  });
+
   it('offers only Teams and Team sets', async () => {
     const p = await mountPicker();
     try {
@@ -378,17 +480,11 @@ describe('AssignPicker', () => {
       for (const visible of ['Aristotle', 'Team copy']) expect(menu).toContain(visible);
       for (const hidden of ['Colleague private', 'Retired agent'])
         expect(menu).not.toContain(hidden);
-      const manage = p.nodes().find((n) => textOf(n).trim() === 'Manage agents');
-      expect(manage?.props.href).toBe('/agents');
-      expect(manage?.props.role).toBe('menuitem');
-      const { composer, openComposer } = useStudyComposer();
-      openComposer();
-      for (const onClick of [manage!.props.onClick].flat() as ((e: unknown) => void)[]) onClick({});
-      expect(composer.open).toBe(false);
-      await p.click(/^Solo agent$/);
+      expect(menu).not.toContain('Manage agents');
+      await p.click(/^SSolo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
       expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
-      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
+      expect(p.button(/Stages/)?.props.disabled).toBe(false);
     } finally {
       p.unmount();
     }
@@ -397,7 +493,7 @@ describe('AssignPicker', () => {
   it('shows the Stages pill when nothing is picked', async () => {
     const p = await mountPicker();
     try {
-      expect(p.button(/Grounding → Validation/)).toBeTruthy();
+      expect(p.button(/Stages/)).toBeTruthy();
     } finally {
       p.unmount();
     }
@@ -453,6 +549,73 @@ describe('new agent model picker', () => {
 });
 
 describe('TeamDetail', () => {
+  it('updates the researcher’s built-in Team member CLI', async () => {
+    const base = manifest('Hypotheses Team', 'hypotheses');
+    const team = {
+      ...base,
+      leader: {
+        ...base.leader,
+        agent: { ...base.leader.agent, models: { claude: 'sonnet', codex: 'gpt' } },
+      },
+    };
+    const payload = {
+      id: 't1',
+      uploaded_by: null,
+      visibility: 'workspace',
+      manifest: team,
+      my_agents: { lead: { id: 'my-leader', name: 'lead', harness: 'claude', model: 'sonnet' } },
+    };
+    let changed = false;
+    const fetch = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH') changed = true;
+      const result = String(path).startsWith('/api/teams?')
+        ? [storeTeam('t1', 'Hypotheses Team', 'hypotheses', 'shipped')]
+        : String(path).startsWith('/api/agents') && init?.method !== 'PATCH'
+          ? []
+          : {
+              ...payload,
+              my_agents: {
+                lead: { ...payload.my_agents.lead, harness: changed ? 'codex' : 'claude' },
+              },
+            };
+      return new Response(JSON.stringify(result), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(
+      TeamDetail,
+      () => ({ id: 't1' }),
+      '/teams/t1',
+      (client) => {
+        client.setQueryData(keys.team('w', 't1'), payload);
+      },
+    );
+    try {
+      const header = () => t.nodes().find((n) => n.props.class === 'agent-meta')!;
+      expect(textOf(header())).toContain('Claude Code');
+      expect(textOf(header())).not.toContain('Codex');
+      const trigger = t.nodes().find((n) => n.props['aria-label'] === 'CLI: Claude Code');
+      expect(trigger).toBeTruthy();
+      await (trigger!.props.onClick as () => Promise<void>)();
+      await nextTick();
+      const codex = t.nodes().find((n) => n.props['aria-label'] === 'Codex');
+      expect(codex).toBeTruthy();
+      (codex!.props.onClick as () => void)();
+      await vi.waitFor(() =>
+        expect(
+          fetch.mock.calls.some(
+            (call: any[]) =>
+              call[0] === '/api/agents/my-leader' &&
+              JSON.parse(String(call[1]?.body)).harness === 'codex',
+          ),
+        ).toBe(true),
+      );
+      await vi.waitFor(() => expect(textOf(header())).toContain('Codex'));
+      expect(textOf(header())).not.toContain('Claude Code');
+    } finally {
+      t.unmount();
+    }
+  });
+
   it('lets the Team owner edit the profile and choose workspace access', async () => {
     const fetch = vi.fn(
       async (path: RequestInfo | URL, init?: RequestInit) =>
@@ -906,8 +1069,9 @@ describe('Grounding criteria', () => {
       expect(t.button(/^Grounding criteria · 0$/)?.props.class).toContain('required');
       await openCriteria(t);
       expect(t.input('Criterion 1')?.value).toBe('');
-      await t.click(/Grounding → Validation/);
+      await t.click(/Stages/);
       await t.change('From stage', 'hypotheses');
+      expect(textOf(t.button(/Stages/)!).trim()).toBe('Stages: Hypotheses → Validation');
       expect(t.button(/^Grounding criteria/)).toBeUndefined();
       expect(t.input('Criterion 1')).toBeUndefined();
       await t.fill('Describe your study', 'Question');
@@ -1068,13 +1232,7 @@ describe('the one-row New study window', () => {
       const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
       expect(row).toBeTruthy();
       const text = textOf(row!);
-      const order = [
-        'Built-in Teams',
-        'Grounding → Validation',
-        'Grounding criteria · 0',
-        'Machines',
-        'No deadline',
-      ];
+      const order = ['Built-in Teams', 'Stages', 'Grounding criteria · 0', 'No deadline'];
       const at = order.map((label) => text.indexOf(label));
       expect(
         at.every((i) => i >= 0),
@@ -1096,14 +1254,15 @@ describe('the one-row New study window', () => {
     try {
       expect(t.text()).not.toContain(soloLine);
       // The pills carry an avatar letter before the name; menu items don't.
-      await t.click(/^BBuilt-in Teams$/);
-      await t.click(/^Solo agent$/);
-      expect(t.text()).not.toContain(soloLine);
+      await t.click(/BBuilt-in Teams/);
       await t.click(/^SSolo agent$/);
+      expect(t.button(/^CLIs$/)).toBeUndefined();
+      expect(t.text()).not.toContain(soloLine);
+      await t.click(/SSolo agent/);
       await t.click(/^Hypotheses Team/);
       expect(t.text()).not.toContain(soloLine);
-      await t.click(/^HHypotheses Team$/);
-      await t.click(/^Solo agent$/);
+      await t.click(/Hypotheses Team/);
+      await t.click(/^SSolo agent$/);
       await t.fill('Describe your study', 'Question');
       await addCriterion(t);
       await t.submit();
@@ -1111,6 +1270,24 @@ describe('the one-row New study window', () => {
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
       expect(body.scope).toEqual({ from: 'grounding', to: 'validation' });
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('creates a Team study without a separate CLI override', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
+    try {
+      await t.fill('Describe your study', 'Question');
+      await addCriterion(t);
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      const body = JSON.parse(String(posted![1]?.body));
+      expect(body.study_cli).toBeUndefined();
+      expect(body.auditor_cli).toBeUndefined();
+      expect(body.machine).toBeUndefined();
     } finally {
       t.unmount();
     }
@@ -1125,7 +1302,7 @@ describe('the one-row New study window', () => {
       expect(t.input('Criterion 1')?.value).toBe('');
       await t.fill('Criterion 1', 'Prospective cohort');
       expect(textOf(t.button(/^Grounding criteria/)!).trim()).toBe('Grounding criteria · 1');
-      await t.click(/Grounding → Validation/);
+      await t.click(/Stages/);
       await t.change('From stage', 'hypotheses');
       expect(t.button(/^Grounding criteria/)).toBeUndefined();
     } finally {

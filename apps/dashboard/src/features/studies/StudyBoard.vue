@@ -7,8 +7,16 @@ import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
-import { useCards, useMe, useMembers, useWorkspace } from '../../api/queries';
+import {
+  useAgents,
+  useCards,
+  useMe,
+  useMembers,
+  useResearches,
+  useWorkspace,
+} from '../../api/queries';
 import type { Card } from '../../api/types';
+import { agentDisplayName } from '../../lib/agent-name';
 import {
   blockLabel,
   boardColumns,
@@ -38,6 +46,8 @@ const router = useRouter();
 const cards = useCards();
 const me = useMe();
 const members = useMembers();
+const agents = useAgents();
+const researches = useResearches();
 const workspace = useWorkspace();
 const { openComposer } = useStudyComposer();
 const client = useQueryClient();
@@ -94,12 +104,12 @@ async function removeStudy(id: string) {
 }
 
 type Display = { mode: 'Board' | 'List'; properties: string[] };
-const propertyNames = ['Role', 'Updated'];
+const propertyNames = ['Question', 'Owner', 'Assignee', 'Deadline', 'Project', 'Role', 'Updated'];
 const displayKey = props.projectId ? 'lykeion.project-display' : 'lykeion.study-display';
 const saved = readJSON<Partial<Display>>(displayKey, {});
 const display = reactive<Display>({
   mode: saved.mode === 'List' ? 'List' : 'Board',
-  properties: Array.isArray(saved.properties) ? saved.properties : propertyNames,
+  properties: Array.isArray(saved.properties) ? saved.properties : [...propertyNames],
 });
 watch(
   display,
@@ -134,6 +144,14 @@ const number = (c: Card) => studyNumber(workspace.data.value, c);
 function ownerName(id: string) {
   const m = members.data.value?.find((x) => x.user_id === id);
   return m ? m.name || m.email : 'Former member';
+}
+function assigneeName(card: Card) {
+  if (card.assignee_type === 'team') return 'Team';
+  if (!card.assignee_id) return 'Unassigned';
+  if (card.assignee_type === 'member') return ownerName(card.assignee_id);
+  return agentDisplayName(
+    agents.data.value?.find((agent) => agent.id === card.assignee_id)?.name ?? 'Unavailable agent',
+  );
 }
 const options = (category: Category) =>
   category === 'Owner'
@@ -385,14 +403,16 @@ onUnmounted(() => {
           @keydown="menuKeys"
         >
           <span class="display-caption">Card properties</span>
-          <div class="property-chips">
+          <div class="property-options">
             <button
               v-for="name in propertyNames"
               :key="name"
-              :aria-pressed="display.properties.includes(name)"
+              role="switch"
+              :aria-checked="display.properties.includes(name)"
               @click="toggleProperty(name)"
             >
-              {{ name }}
+              <span>{{ name }}</span>
+              <span class="property-switch" aria-hidden="true"></span>
             </button>
           </div>
         </div>
@@ -425,12 +445,6 @@ onUnmounted(() => {
     ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
   <p v-if="actionError" class="board-action-error" role="alert">{{ actionError }}</p>
-  <p v-if="cards.isError.value" class="board-read-error" role="alert">
-    Studies: {{ cards.error.value?.message }}
-    <button class="text-button" :disabled="cards.isFetching.value" @click="cards.refetch()">
-      Retry studies
-    </button>
-  </p>
   <p v-if="cards.isPending.value" role="status">Loading studies…</p>
   <div v-if="cards.data.value && display.mode === 'Board'" class="board-scroll">
     <section
@@ -472,8 +486,26 @@ onUnmounted(() => {
                 columnName(card.board_column)
               }}</span></small
             ><span>{{ studyDisplayTitle(card.title) }}</span>
+            <span
+              v-if="display.properties.includes('Question') && card.question"
+              class="card-question"
+              >{{ card.question }}</span
+            >
             <span v-if="card.waiting" class="card-waiting">{{ card.waiting }}</span>
             <div class="card-metadata">
+              <span v-if="display.properties.includes('Owner')"
+                >Owner: {{ ownerName(card.owner_id) }}</span
+              >
+              <span v-if="display.properties.includes('Assignee')"
+                >Assignee: {{ assigneeName(card) }}</span
+              >
+              <span v-if="display.properties.includes('Deadline') && card.deadline"
+                >Due {{ new Date(card.deadline).toLocaleDateString() }}</span
+              >
+              <span v-if="display.properties.includes('Project') && card.research_id">{{
+                researches.data.value?.find((project) => project.id === card.research_id)?.name ??
+                'Unavailable project'
+              }}</span>
               <span v-if="display.properties.includes('Role')"
                 ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
                   card.role ? roleLabel(card.role) : ownerName(card.owner_id)
@@ -688,7 +720,7 @@ onUnmounted(() => {
   color: var(--muted);
 }
 .display-popover {
-  width: 288px;
+  width: 258px;
   padding: 12px;
 }
 .display-row {
@@ -760,23 +792,44 @@ onUnmounted(() => {
 .display-row input:checked:after {
   left: 11px;
 }
-.property-chips {
+.property-options > button {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.property-chips > button {
-  font-size: 12px;
-  line-height: 18px;
-  padding: 2px 8px;
-  border: 1px solid #ffffff30;
-  border-radius: 5px;
-  color: var(--muted);
-}
-.property-chips > button[aria-pressed='true'] {
-  background: #00000005;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 0;
+  font-size: 14px;
   color: var(--text);
-  border-color: #00000002;
+}
+.property-options > button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.property-switch {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--toggle-track-strong);
+}
+.property-switch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+}
+.property-options > button[aria-checked='true'] .property-switch {
+  background: var(--primary);
+}
+.property-options > button[aria-checked='true'] .property-switch::after {
+  left: 11px;
 }
 .filter-summary {
   display: flex;
@@ -801,6 +854,16 @@ onUnmounted(() => {
   margin-top: 5px;
   font-size: 11px;
   color: var(--muted);
+}
+.card-question {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
 }
 /* Why the study waits, from the machine's open wait: two lines at most. */
 .card-waiting {
@@ -1337,8 +1400,7 @@ onUnmounted(() => {
 .task-card[draggable='true'] {
   cursor: grab;
 }
-.board-action-error,
-.board-read-error {
+.board-action-error {
   margin: 8px 20px;
   color: var(--error-text);
   font-size: 13px;

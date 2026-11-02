@@ -26,6 +26,8 @@ import (
 
 type newCard struct {
 	Machine    *string     `json:"machine"`
+	StudyCLI   *string     `json:"study_cli"`
+	AuditorCLI *string     `json:"auditor_cli"`
 	ResearchID *uuid.UUID  `json:"research_id"`
 	Title      string      `json:"title"`
 	Question   string      `json:"question"`
@@ -397,6 +399,13 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		in.Title = titleFrom(in.Question)
 	}
 	from, to, chosen, agent, err := studyScope(in)
+	validCLI := func(s *string) bool { return s == nil || *s == "claude" || *s == "codex" }
+	if err == nil && (!validCLI(in.StudyCLI) || !validCLI(in.AuditorCLI)) {
+		err = cardInputError("invalid CLI")
+	}
+	if err == nil && ((in.AuditorCLI == nil) != (in.StudyCLI == nil) || (in.AuditorCLI != nil && (agent != nil || *in.StudyCLI == *in.AuditorCLI))) {
+		err = cardInputError("auditor CLI requires a Team and a different study CLI")
+	}
 	if err == nil {
 		err = checkWorkflow(in, from, to, agent)
 	}
@@ -462,6 +471,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
 			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow, GroundingCriteria: criteria,
+			StudyCli: in.StudyCLI, AuditorCli: in.AuditorCLI,
 		}
 		if in.Workflow != nil {
 			release := workflow.Release()
@@ -1012,17 +1022,29 @@ func machineView(ctx context.Context, tx *store.Tx, v *studyView) error {
 		return nil
 	}
 	needed := map[string]bool{}
-	for _, t := range v.Teams {
-		agents, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: v.OwnerID})
+	if v.StudyCli != nil && v.AuditorCli != nil {
+		runs, err := tx.Q.CardAgentRuns(ctx, db.CardAgentRunsParams{WorkspaceID: tx.WS, CardID: &v.ID})
 		if err != nil {
 			return err
 		}
-		for _, member := range agents {
-			harness, err := tx.Q.AgentHarnessForHistory(ctx, db.AgentHarnessForHistoryParams{WorkspaceID: tx.WS, ID: member.AgentID})
+		for _, run := range runs {
+			if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
+				needed[run.Harness] = true
+			}
+		}
+	} else {
+		for _, t := range v.Teams {
+			agents, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: t.PackID, UserID: v.OwnerID})
 			if err != nil {
 				return err
 			}
-			needed[harness] = true
+			for _, member := range agents {
+				harness, err := tx.Q.AgentHarnessForHistory(ctx, db.AgentHarnessForHistoryParams{WorkspaceID: tx.WS, ID: member.AgentID})
+				if err != nil {
+					return err
+				}
+				needed[harness] = true
+			}
 		}
 	}
 	for _, harness := range []struct{ key, label string }{{"claude", "Claude Code"}, {"codex", "Codex"}} {

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useMe, useMembers, useRuntimes } from '../../api/queries';
 import { studyMachines } from './machines';
 import Icon from '../../ui/Icon.vue';
+import { backendLabel } from '../../lib/backends';
 
 const value = defineModel<string>({ default: '' });
 defineProps<{ disabled?: boolean; chip?: boolean }>();
@@ -34,7 +35,9 @@ async function show() {
     emit('open');
     await nextTick();
     root.value
-      ?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
+      ?.querySelector<HTMLButtonElement>(
+        '[role="menuitemradio"][aria-checked="true"]:not(:disabled), [role="menuitemradio"]:not(:disabled)',
+      )
       ?.focus();
   }
 }
@@ -88,13 +91,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       :disabled="disabled"
       @click="show"
     >
-      <Icon name="monitor" :size="14" /><span>{{ selected }}</span
-      ><Icon name="down" :size="12" />
+      <Icon name="monitor" :size="14" /><span>{{ selected }}</span>
     </button>
     <div v-if="open" class="machine-menu" role="menu" aria-label="Choose machine">
-      <button type="button" role="menuitemradio" :aria-checked="!value" @click="choose('')">
-        <span>My machines</span><Icon v-if="!value" name="check" :size="14" />
-      </button>
       <button
         v-for="machine in machines"
         :key="machine.id"
@@ -103,8 +102,28 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         :aria-checked="value === machine.id"
         @click="choose(machine.id)"
       >
-        <span>{{ machineLabel(machine) }}</span
-        ><Icon v-if="value === machine.id" name="check" :size="14" />
+        <span class="machine-details">
+          <span class="machine-heading">
+            <Icon name="monitor" :size="14" />
+            <span>{{ machineLabel(machine) }}</span>
+            <small :class="{ online: machine.online }">{{
+              machine.online ? 'Online' : 'Offline'
+            }}</small>
+          </span>
+          <span class="machine-runtimes">
+            <span v-for="runtime in machine.runtimes" :key="runtime.id" class="machine-runtime">
+              <i :class="runtime.harness" aria-hidden="true">{{
+                runtime.harness === 'claude'
+                  ? '✳'
+                  : runtime.harness === 'codex'
+                    ? '◎'
+                    : runtime.harness[0]
+              }}</i>
+              {{ backendLabel(runtime.harness) }}
+            </span>
+          </span>
+        </span>
+        <Icon v-if="value === machine.id" name="check" :size="14" />
       </button>
       <button
         v-if="value && !machines.some((m) => m.id === value)"
@@ -193,5 +212,46 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 }
 .machine-menu button .icon {
   flex: none;
+}
+.machine-menu .machine-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.machine-menu .machine-heading,
+.machine-menu .machine-runtimes,
+.machine-menu .machine-runtime {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.machine-menu .machine-heading > span {
+  flex: 1;
+}
+.machine-heading small {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+.machine-heading small.online {
+  color: var(--success, #278241);
+}
+.machine-menu .machine-runtimes {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.machine-menu .machine-runtime {
+  flex: none;
+}
+.machine-runtime i {
+  font-size: 15px;
+  font-style: normal;
+  line-height: 1;
+}
+.machine-runtime i.claude {
+  color: #d78b70;
 }
 </style>

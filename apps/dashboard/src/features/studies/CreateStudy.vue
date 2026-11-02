@@ -16,7 +16,6 @@ import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
 import { useWorkflows } from '../../api/workflows';
 import { domainEmoji } from '../../lib/workflows';
-import MachinePicker from '../machines/MachinePicker.vue';
 
 const props = defineProps<{ assignee?: Assignee; projectId?: string; workflow?: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -25,13 +24,11 @@ const cards = useCards();
 const workspace = useWorkspace();
 const me = useMe();
 const isMac = navigator.platform.includes('Mac');
-const machine = ref('');
 let generation = 0;
 watch(
   workspaceId,
   () => {
     generation++;
-    machine.value = '';
     busy.value = false;
     error.value = '';
   },
@@ -106,7 +103,7 @@ const sentCriteria = computed(() =>
   criteria.value.map((row) => row.text.trim()).filter((text) => text),
 );
 
-// Chips that don't fit the row fold into a "⋯" chip: the due date, then the machine.
+// Chips that don't fit the row fold into a "⋯" chip.
 const chipRow = ref<HTMLElement>();
 const folded = ref(0);
 let fitting = 0;
@@ -120,7 +117,7 @@ async function fit() {
   const overflows = () =>
     (line.lastElementChild?.getBoundingClientRect().right ?? 0) >
     line.getBoundingClientRect().right;
-  while (visit === fitting && folded.value < 2 && overflows()) {
+  while (visit === fitting && folded.value < 1 && overflows()) {
     folded.value++;
     await nextTick();
   }
@@ -139,7 +136,6 @@ watch(
     range.value,
     grounds.value,
     sentCriteria.value.length,
-    machine.value,
     deadline.value,
     menu.value,
   ],
@@ -201,7 +197,6 @@ const blocked = computed(
     files.uploading.value ||
     files.failed.value,
 );
-
 async function submit() {
   if (blocked.value) return;
   const workspace = workspaceId.value;
@@ -216,7 +211,6 @@ async function submit() {
   // a single Team keeps its own stage, so the server takes no range for it,
   // while a Team set always runs its range.
   const fields = {
-    ...(machine.value ? { machine: machine.value } : {}),
     ...(props.projectId ? { research_id: props.projectId } : {}),
     title: title.value.trim(),
     question: question.value.trim(),
@@ -238,7 +232,7 @@ async function submit() {
     if (!current()) return;
     notify('Study created.');
     if (another.value) {
-      title.value = question.value = deadline.value = machine.value = '';
+      title.value = question.value = deadline.value = '';
       assignee.value = props.assignee ? { ...props.assignee } : null;
       range.value = workflowSlug.value ? { ...workflowRange } : initialRange();
       criteria.value = [];
@@ -328,7 +322,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             :last-set="lastSet"
             @open="closeMenu"
             @picked="(last) => (usedLastSet = last)"
-          />
+          >
+          </AssignPicker>
           <span v-if="workflowSlug" class="property-pill workflow-chip">
             {{ workflowInfo ? domainEmoji(workflowInfo.domain) : '🧪' }} Workflow:
             {{ workflowInfo?.name ?? workflowSlug }}
@@ -341,7 +336,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               <Icon name="close" :size="12" />
             </button>
           </span>
-          <div v-if="grounds" class="property-anchor">
+          <div v-if="grounds" class="property-anchor criteria-anchor">
             <button
               type="button"
               :class="['property-pill', { required: !sentCriteria.length }]"
@@ -392,9 +387,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               <p v-if="criteriaError" class="composer-error" role="alert">{{ criteriaError }}</p>
             </section>
           </div>
-          <div v-if="folded < 2" class="property-anchor machine-chip">
-            <MachinePicker v-model="machine" chip :disabled="busy" @open="closeMenu" />
-          </div>
           <div v-if="folded < 1" class="property-anchor">
             <button type="button" class="property-pill" @click="openMenu('deadline')">
               <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
@@ -421,9 +413,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               role="group"
               aria-label="More properties"
             >
-              <div v-if="folded > 1" class="machine-chip">
-                <MachinePicker v-model="machine" chip :disabled="busy" />
-              </div>
               <div class="property-anchor">
                 <button type="button" class="property-pill" @click="openMenu('deadline')">
                   <Icon name="clock" :size="14" />{{ deadline || 'No deadline' }}</button
@@ -611,6 +600,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   gap: 6px;
 }
 .property-line {
+  position: relative;
   display: flex;
   gap: 6px;
   min-height: 26px;
@@ -620,35 +610,25 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .property-line :deep(.property-anchor) {
   flex: none;
 }
-.property-line :deep(.property-pill),
-.machine-chip :deep(.machine-trigger) {
+.property-line :deep(.property-pill) {
   height: 26px;
   border: 1px solid var(--control-border);
   border-radius: 7px;
   background: transparent;
   color: var(--text);
 }
-.property-line :deep(.property-pill > .icon),
-.machine-chip :deep(.machine-trigger > .icon) {
+.property-line :deep(.property-pill > .icon) {
   transform: translateY(-1px);
 }
-.property-line :deep(.property-pill:hover:not(:disabled)),
-.machine-chip :deep(.machine-trigger:hover:not(:disabled)) {
+.property-line :deep(.property-pill:hover:not(:disabled)) {
   background: var(--fill-chip);
 }
 .property-line .property-pill.required {
   border-color: var(--stage-experimentation-dot);
 }
-.machine-chip :deep(.machine-picker) {
-  gap: 6px;
-  white-space: nowrap;
-}
-.machine-chip :deep(.machine-trigger) {
-  max-width: 160px;
-  font-size: 12px;
-}
 .property-line :deep(.assignee-pill) {
   max-width: 180px;
+  border-radius: 7px;
 }
 .more-pill {
   padding: 0 10px;
@@ -663,10 +643,15 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   right: 0;
 }
 .criteria-menu {
+  left: 0;
+  right: auto;
   width: 460px;
   max-width: calc(100vw - 64px);
   padding: 10px;
   font-size: 12px;
+}
+.criteria-anchor {
+  position: static;
 }
 .criteria-menu > p {
   margin: 4px 0 8px;
@@ -679,9 +664,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   gap: 6px;
   min-width: 0;
   padding: 8px;
-}
-.fold-menu:has(:deep(.machine-menu)) {
-  overflow: visible;
 }
 .composer-footer {
   display: flex;
@@ -909,6 +891,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .variables-header {
   justify-content: space-between;
 }
+.criteria-menu .variables-header > span {
+  font-size: 14px;
+}
+.criteria-menu .variables-header > button,
+.criteria-menu .variable-row > button {
+  font-size: 12px;
+}
 .variable-row {
   margin-top: 6px;
 }
@@ -921,6 +910,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   min-width: 0;
   flex: 1;
   font: inherit;
+  outline: none;
+}
+.variable-row input:focus-visible {
+  box-shadow: 0 1px 0 var(--text);
 }
 .composer-files ul {
   list-style: none;

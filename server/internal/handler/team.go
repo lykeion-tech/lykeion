@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,6 +35,7 @@ type storeTeam struct {
 	Added       bool            `json:"added"`
 	AvatarURL   string          `json:"avatar_url"`
 	Visibility  string          `json:"visibility"`
+	AgentCLIs   []string        `json:"agent_clis"`
 }
 
 // shownManifest is a stored manifest without its version.
@@ -60,9 +62,24 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
+			clis := []string{}
+			members, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: p.ID, UserID: user})
+			if err != nil {
+				return err
+			}
+			for _, member := range members {
+				a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: member.AgentID})
+				if err != nil {
+					return err
+				}
+				if (a.Harness == "claude" || a.Harness == "codex") && !slices.Contains(clis, a.Harness) {
+					clis = append(clis, a.Harness)
+				}
+			}
+			slices.Sort(clis)
 			out = append(out, storeTeam{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name, Sha256: p.Sha256,
 				Manifest: manifest, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
-				Domain: p.Domain, Stage: p.Stage, Added: p.Added, AvatarURL: p.AvatarUrl, Visibility: p.Visibility})
+				Domain: p.Domain, Stage: p.Stage, Added: p.Added, AvatarURL: p.AvatarUrl, Visibility: p.Visibility, AgentCLIs: clis})
 		}
 		return nil
 	})
@@ -79,11 +96,12 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out struct {
-		ID         uuid.UUID       `json:"id"`
-		Manifest   json.RawMessage `json:"manifest"`
-		AvatarURL  string          `json:"avatar_url"`
-		Visibility string          `json:"visibility"`
-		UploadedBy *uuid.UUID      `json:"uploaded_by"`
+		ID         uuid.UUID           `json:"id"`
+		Manifest   json.RawMessage     `json:"manifest"`
+		AvatarURL  string              `json:"avatar_url"`
+		Visibility string              `json:"visibility"`
+		UploadedBy *uuid.UUID          `json:"uploaded_by"`
+		MyAgents   map[string]db.Agent `json:"my_agents"`
 	}
 	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
 		p, err := visiblePack(r, tx, user, id)
@@ -95,6 +113,18 @@ func (h *H) getTeam(w http.ResponseWriter, r *http.Request) {
 		out.Visibility, out.UploadedBy = p.Visibility, p.UploadedBy
 		if p.Source == "shipped" {
 			out.Visibility = "workspace"
+			out.MyAgents = map[string]db.Agent{}
+			rows, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: id, UserID: user})
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: tx.WS, ID: row.AgentID})
+				if err != nil {
+					return err
+				}
+				out.MyAgents[row.Member] = a
+			}
 		}
 		out.Manifest, err = shownManifest(p.Manifest)
 		return err
