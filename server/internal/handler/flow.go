@@ -137,7 +137,8 @@ func (h *H) memberResult(w http.ResponseWriter, r *http.Request) {
 	var handIn json.RawMessage
 	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
 		run, err = tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: role.WorkspaceID, ID: ticket})
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && (run.CardID == nil || *run.CardID != role.CardID || !flow.IsMember(run.Role)) {
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (run.CardID == nil || *run.CardID != role.CardID ||
+			run.BoardColumn != role.Column || run.Round != role.Round || !flow.IsMember(run.Role)) {
 			return errNoMemberRun
 		}
 		if err != nil || run.Status != "completed" {

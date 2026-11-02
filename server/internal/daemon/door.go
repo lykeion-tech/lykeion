@@ -772,25 +772,64 @@ func (d *Door) memberTiming() (wait, poll time.Duration) {
 	return wait, poll
 }
 
+// askTries is how many times ask_member reaches for the server before it
+// tells the leader to ask again later.
+const askTries = 3
+
+// askBusy is what ask_member answers when the server can't be reached: a
+// machine fault is never the agent's to see.
+const askBusy = "Lykeion is busy; try ask_member again in a minute."
+
+// transientStatus says whether a reply means the server or the way to it failed
+// for now, rather than refusing the request.
+func transientStatus(status int) bool {
+	return status >= 500 || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests
+}
+
 // askMember starts the member's run through the server. A busy answer, a
 // 409 the API client would turn into a bare error, carries the working
-// member's ticket, so the door reads the reply itself.
+// member's ticket, so the door reads the reply itself. A server it can't
+// reach is tried again: an ask that landed answers busy with its own ticket.
 func (d *Door) askMember(ctx context.Context, _ *mcp.CallToolRequest, in askMemberIn) (*mcp.CallToolResult, any, error) {
+	ctx, cancel := d.runContext(ctx)
+	defer cancel()
 	body, err := json.Marshal(in)
 	if err != nil {
 		return nil, nil, err
 	}
+	_, backoff := d.memberTiming()
+	for try := 1; ; try++ {
+		res, retry, err := d.ask(ctx, body)
+		if !retry {
+			return res, nil, err
+		}
+		if try == askTries {
+			return cited("", askBusy), nil, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(time.Duration(try) * backoff):
+		}
+	}
+}
+
+// ask posts one ask and says whether it is worth trying again.
+func (d *Door) ask(ctx context.Context, body []byte) (*mcp.CallToolResult, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(d.Server, "/")+"/api/role/members", bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, err
+		return nil, false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+d.RunToken)
 	resp, err := (&http.Client{Timeout: callTimeout}).Do(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, ctx.Err() == nil, err
 	}
 	defer resp.Body.Close()
+	if transientStatus(resp.StatusCode) {
+		return nil, true, nil
+	}
 	var out struct {
 		Busy   bool   `json:"busy,omitempty"`
 		Ticket string `json:"ticket"`
@@ -801,36 +840,51 @@ func (d *Door) askMember(ctx context.Context, _ *mcp.CallToolRequest, in askMemb
 	case resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusConflict && out.Busy:
 		out.Error = ""
 		text, err := json.Marshal(out)
-		return cited("", string(text)), nil, err
+		return cited("", string(text)), false, err
 	case out.Error != "":
-		return nil, nil, errors.New(out.Error)
+		return nil, false, errors.New(out.Error)
 	}
-	return nil, nil, errors.New(resp.Status)
+	return nil, false, errors.New(resp.Status)
 }
 
 // memberResult polls the member's run until it is no longer working or the
-// wait is over, and answers the server's last reply.
+// wait is over, and answers the server's last reply. A failed poll is a
+// server hiccup, not news for the leader: it waits on, and a wait that saw no
+// reply at all answers working.
 func (d *Door) memberResult(ctx context.Context, _ *mcp.CallToolRequest, in memberResultIn) (*mcp.CallToolResult, any, error) {
 	wait, poll := d.memberTiming()
 	ctx, cancel := d.runContext(ctx)
 	defer cancel()
 	api := &apiclient.Client{Server: d.Server, Token: d.RunToken, HTTP: &http.Client{Timeout: callTimeout}}
-	deadline := time.Now().Add(wait)
+	start := time.Now()
+	deadline := start.Add(wait)
+	var last json.RawMessage
 	for {
 		var out json.RawMessage
 		err := api.Do(ctx, "GET", "/api/role/members/"+url.PathEscape(in.Ticket), nil, &out)
 		var he *apiclient.HTTPError
-		if errors.As(err, &he) && he.Status == http.StatusNotFound {
+		switch {
+		case errors.As(err, &he) && he.Status == http.StatusNotFound:
 			return nil, nil, errors.New("no such member run")
+		case errors.As(err, &he) && he.Status == http.StatusForbidden:
+			return nil, nil, errors.New("only a Team's leader asks its members")
+		case ctx.Err() != nil:
+			return nil, nil, ctx.Err()
+		case err == nil:
+			var s struct{ Status string }
+			json.Unmarshal(out, &s)
+			if s.Status != "working" {
+				return cited("", string(out)), nil, nil
+			}
+			last = out
 		}
-		if err != nil {
-			return nil, nil, err
-		}
-		var s struct{ Status string }
-		json.Unmarshal(out, &s)
 		left := time.Until(deadline)
-		if s.Status != "working" || left <= 0 {
-			return cited("", string(out)), nil, nil
+		if left <= 0 {
+			if last == nil {
+				last, _ = json.Marshal(map[string]any{"status": "working", "elapsed_seconds": int(time.Since(start).Seconds()),
+					"hand_in": nil, "reason": "", "comments": []any{}})
+			}
+			return cited("", string(last)), nil, nil
 		}
 		select {
 		case <-ctx.Done():

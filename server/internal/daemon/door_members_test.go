@@ -72,6 +72,9 @@ type memberServer struct {
 	polls int
 	done  bool
 	auth  []string
+	// fail answers the next fail requests with 503, as a server restarting
+	// does.
+	fail int
 }
 
 func newMemberServer(t *testing.T) *memberServer {
@@ -80,6 +83,14 @@ func newMemberServer(t *testing.T) *memberServer {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		m.auth = append(m.auth, r.Header.Get("Authorization"))
+		if m.fail > 0 {
+			m.fail--
+			if r.Method == "GET" {
+				m.polls++
+			}
+			w.WriteHeader(503)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == "POST" && r.URL.Path == "/api/role/members":
@@ -200,5 +211,38 @@ func TestMemberToolDefaults(t *testing.T) {
 	d := &Door{}
 	if w, p := d.memberTiming(); w != 10*time.Minute || p != 5*time.Second {
 		t.Fatalf("wait %v poll %v", w, p)
+	}
+}
+
+func TestMemberToolsRideOutServerHiccups(t *testing.T) {
+	m := newMemberServer(t)
+	d := memberDoor(t, m.URL, true)
+	m.mu.Lock()
+	m.fail = 1
+	m.mu.Unlock()
+	if got, err := doorTool(t, d, "ask_member", map[string]any{"member": "scoper", "task": "Find papers."}); err != nil || got != `{"ticket":"t1"}` {
+		t.Fatalf("ask after a 503: %q %v", got, err)
+	}
+
+	m.mu.Lock()
+	m.fail, m.done = 1, true
+	m.mu.Unlock()
+	got, err := doorTool(t, d, "member_result", map[string]any{"ticket": "t1"})
+	if err != nil || !strings.Contains(got, `"status":"done"`) {
+		t.Fatalf("result after a 503: %q %v", got, err)
+	}
+
+	// A server that stays down until the wait ends reads as still working,
+	// with nothing about the fault.
+	m.mu.Lock()
+	m.fail, m.done = 1<<20, false
+	m.mu.Unlock()
+	got, err = doorTool(t, d, "member_result", map[string]any{"ticket": "t1"})
+	if err != nil || !strings.Contains(got, `"status":"working"`) || !strings.Contains(got, `"elapsed_seconds"`) || strings.Contains(got, "503") {
+		t.Fatalf("result while the server is down: %q %v", got, err)
+	}
+	got, err = doorTool(t, d, "ask_member", map[string]any{"member": "scoper", "task": "More."})
+	if err != nil || got != "Lykeion is busy; try ask_member again in a minute." {
+		t.Fatalf("ask while the server is down: %q %v", got, err)
 	}
 }

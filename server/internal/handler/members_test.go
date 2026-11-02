@@ -202,3 +202,55 @@ func TestLeaderReclaimListsMemberHandIns(t *testing.T) {
 		t.Fatal("the first attempt's prompt already listed a member")
 	}
 }
+
+// A member's run parked for a machine fault keeps the fault's text in its
+// error until it ends; when it then fails for an agent reason, the leader
+// reads that reason, never the fault.
+func TestMemberResultNeverShowsAParkedFault(t *testing.T) {
+	for _, agentText := range []string{"the model refused the task", ""} {
+		l, leader := groundingLab(t)
+		_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+		m := l.claim(t)
+		ref := maps.Clone(m.ref)
+		ref["failure_reason"], ref["error"] = "provider_network", "connection reset by peer at api.example"
+		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+m.id+"/fail", l.personal, "", ref, nil); c != 200 {
+			t.Fatalf("park %d", c)
+		}
+		if c, out := l.result(t, leader.token, ask.Ticket); c != 200 || out.Status != "working" || strings.Contains(out.Reason, "connection reset") {
+			t.Fatalf("parked: %d %+v", c, out)
+		}
+		if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET retry_after = NULL, max_attempts = attempt + 1 WHERE id = $1", ask.Ticket); err != nil {
+			t.Fatal(err)
+		}
+		for l.s.count(t, "SELECT count(*) FROM agent_run WHERE id = $1 AND status = 'failed'", ask.Ticket) == 0 {
+			m = l.claim(t)
+			ref = maps.Clone(m.ref)
+			ref["failure_reason"], ref["error"] = "agent_error", agentText
+			if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+m.id+"/fail", l.personal, "", ref, nil); c != 200 {
+				t.Fatalf("fail %d", c)
+			}
+		}
+		c, out := l.result(t, leader.token, ask.Ticket)
+		if c != 200 || out.Status != "failed" || out.Reason == "" || strings.Contains(out.Reason, "connection reset") || agentText != "" && out.Reason != agentText {
+			t.Fatalf("failed (%q): %d %+v", agentText, c, out)
+		}
+	}
+}
+
+// A ticket names a member's run of the leader's own column and round.
+func TestMemberResultKeepsToItsColumn(t *testing.T) {
+	l, leader := groundingLab(t)
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET round = round + 1 WHERE id = $1", ask.Ticket); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := l.result(t, leader.token, ask.Ticket); c != 404 {
+		t.Fatalf("another round's run: %d", c)
+	}
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET round = round - 1, board_column = 'hypotheses' WHERE id = $1", ask.Ticket); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := l.result(t, leader.token, ask.Ticket); c != 404 {
+		t.Fatalf("another column's run: %d", c)
+	}
+}
