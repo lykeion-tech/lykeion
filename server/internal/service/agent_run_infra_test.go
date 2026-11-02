@@ -182,7 +182,7 @@ func TestBackoffSchedule(t *testing.T) {
 	if r := f.unhealthy(t, runtime.RuntimeID); r != "provider_network" {
 		t.Fatalf("unhealthy %q", r)
 	}
-	want := "laptop keeps failing to run Claude Code (provider_network). Waiting studies continue once it recovers."
+	want := "Claude Code on laptop cannot reach its provider. Waiting studies continue once the connection is back."
 	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 1 || w[0].Text != want {
 		t.Fatalf("items %+v", w)
 	}
@@ -277,7 +277,7 @@ func TestThreeRunsFailingOnceFlagTheRuntime(t *testing.T) {
 		}
 		f.failOnce(t, runtime, "timeout")
 	}
-	want := "laptop keeps failing to run Claude Code (timeout). Waiting studies continue once it recovers."
+	want := "Runs of Claude Code on laptop keep running out of time. Waiting studies continue once it recovers."
 	if w := f.openWaits(t, runtime.RuntimeID); f.unhealthy(t, runtime.RuntimeID) != "timeout" || len(w) != 1 || w[0].Text != want {
 		t.Fatalf("items %+v", w)
 	}
@@ -346,7 +346,7 @@ func TestSweepsThirdLostAttemptRaisesTheItem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := "laptop keeps failing to run Claude Code (runtime_offline). Waiting studies continue once it recovers."
+	want := "laptop is offline. Waiting studies continue once it is back online."
 	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 1 || w[0].Text != want {
 		t.Fatalf("items %+v", w)
 	}

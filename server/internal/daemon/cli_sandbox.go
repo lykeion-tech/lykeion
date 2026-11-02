@@ -104,11 +104,7 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	if guest != "" {
 		private = slices.DeleteFunc(private, func(path string) bool { return path == d.cfg.StateDir })
 		roots = append(roots, d.cfg.StateDir, d.cacheDir())
-		for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
-			if path != "" && !slices.Contains(p.Hidden, path) {
-				p.Hidden = append(p.Hidden, path)
-			}
-		}
+		p.Hidden = hideCLIHomes(p.Hidden, home)
 	}
 	p.Hidden = append(p.Hidden, private...)
 	if guest == "" && cli.ManagedSkills == "" {
@@ -495,4 +491,15 @@ func protectCoresearchSkills(p *sandbox.Policy, run string, cli agent.CLIPaths, 
 	}
 	maskParent(home)
 	return nil
+}
+
+// hideCLIHomes adds the CLIs' homes, which hold the person's sign-ins and
+// config wherever they live, to hidden.
+func hideCLIHomes(hidden []string, home string) []string {
+	for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
+		if path != "" && !slices.Contains(hidden, path) {
+			hidden = append(hidden, path)
+		}
+	}
+	return hidden
 }

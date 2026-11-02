@@ -270,7 +270,9 @@ func Run(ctx context.Context, cfg Config) error {
 	// Before the first claim: a machine fixed while the daemon was down is
 	// cleared, and one that broke is flagged. A restart is also how an owner
 	// who fixed a fence breach clears it.
+	preflightStart := time.Now()
 	d.preflightAll(ctx, true)
+	slog.Info("start preflight done", "took", time.Since(preflightStart).Round(time.Millisecond))
 	background(func() { d.preflights(ctx) })
 	if d.bases != nil {
 		// Bases build in the background; a run started before one is ready

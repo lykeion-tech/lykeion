@@ -30,8 +30,8 @@ func ConservativeUpperBound(model string, input, cacheRead, cacheWrite int64) bo
 
 // CostFor estimates one usage row at standard API list prices. A model with no
 // list price is priced at its provider's most expensive known model, or the
-// most expensive overall when the provider has none, so a card's budget still
-// binds; estimated is true then.
+// most expensive overall when the provider has none, so the spend shown never
+// understates what a run cost; estimated is true then.
 func CostFor(provider, model string, input, output, cacheRead, cacheWrite int64) (usd float64, estimated bool) {
 	p, ok := Prices[model]
 	if !ok {

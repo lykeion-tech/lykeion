@@ -147,7 +147,7 @@ func TestWaitingUnclaimedRun(t *testing.T) {
 	if events() != before+1 {
 		t.Fatalf("flagging the machine told no page")
 	}
-	want := "Waiting for laptop: laptop keeps failing to run Claude Code (cli_broken). Waiting studies continue once it recovers."
+	want := "Waiting for laptop: Claude Code on laptop keeps failing to start or answer. Waiting studies continue once it recovers."
 	if card, study := s.waiting(t, a, w.ID, c.ID); card != want || study != want {
 		t.Fatalf("waiting on a flagged machine: %q %q", card, study)
 	}

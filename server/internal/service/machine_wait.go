@@ -35,8 +35,18 @@ func machineWaitText(machine, harness, reason, tool string) string {
 		return fmt.Sprintf("%s could not start the sandbox for %s. Restart the Lykeion daemon there; waiting studies continue by themselves.", machine, name)
 	case agent.ReasonFenceBreach:
 		return fmt.Sprintf("A run on %s used %s, which is outside Lykeion's sources, so its work was discarded. Check %s's apps and plugins on that machine.", machine, tool, name)
+	case agent.ReasonDoor:
+		return fmt.Sprintf("%s on %s cannot reach Lykeion's tools. Waiting studies continue once it recovers.", name, machine)
+	case agent.ReasonCLIBroken:
+		return fmt.Sprintf("%s on %s keeps failing to start or answer. Waiting studies continue once it recovers.", name, machine)
+	case agent.ReasonProviderNetwork:
+		return fmt.Sprintf("%s on %s cannot reach its provider. Waiting studies continue once the connection is back.", name, machine)
+	case "timeout":
+		return fmt.Sprintf("Runs of %s on %s keep running out of time. Waiting studies continue once it recovers.", name, machine)
+	case agent.ReasonRuntimeOffline:
+		return fmt.Sprintf("%s is offline. Waiting studies continue once it is back online.", machine)
 	}
-	return fmt.Sprintf("%s keeps failing to run %s (%s). Waiting studies continue once it recovers.", machine, name, reason)
+	return fmt.Sprintf("%s keeps failing to run %s. Waiting studies continue once it recovers.", machine, name)
 }
 
 func harnessName(harness string) string {
