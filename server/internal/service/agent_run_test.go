@@ -215,7 +215,7 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 		}
 	}
 	// One million aggregate input tokens uses the disclosed long-band upper bound.
-	want := 8.5 // 0.5 reported cost + 8.0 estimated cost.
+	want := 8.5001 // 0.5 reported + 8.0 listed + 0.0001 for an unlisted model at the highest price.
 	var spent, cost float64
 	var msgs, rows int
 	if err := f.Env.Owner.QueryRow(ctx, "SELECT spent_usd FROM card WHERE id = $1", f.Card).Scan(&spent); err != nil {
@@ -229,6 +229,10 @@ func TestSettleOnceAndAddSpend(t *testing.T) {
 	}
 	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1", id).Scan(&rows); err != nil {
 		t.Fatal(err)
+	}
+	var estimated int
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id = $1 AND estimated AND model = 'nobody-knows'", id).Scan(&estimated); err != nil || estimated != 1 {
+		t.Fatalf("estimated rows %d, err %v", estimated, err)
 	}
 	if math.Abs(spent-want) > 1e-9 || math.Abs(cost-want) > 1e-9 || rows != 3 || msgs != 1 || f.settledCount() != 1 {
 		t.Fatalf("spent %v, cost %v (want %v), usage rows %d, messages %d, settled %d", spent, cost, want, rows, msgs, f.settledCount())

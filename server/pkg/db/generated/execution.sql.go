@@ -841,8 +841,8 @@ func (q *Queries) InsertAgentRunToken(ctx context.Context, arg InsertAgentRunTok
 }
 
 const insertAgentRunUsage = `-- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported, estimated)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
 type InsertAgentRunUsageParams struct {
@@ -856,6 +856,7 @@ type InsertAgentRunUsageParams struct {
 	CacheWriteTokens int64     `json:"cache_write_tokens"`
 	CostUsd          float64   `json:"cost_usd"`
 	CostReported     bool      `json:"cost_reported"`
+	Estimated        bool      `json:"estimated"`
 }
 
 func (q *Queries) InsertAgentRunUsage(ctx context.Context, arg InsertAgentRunUsageParams) error {
@@ -870,6 +871,7 @@ func (q *Queries) InsertAgentRunUsage(ctx context.Context, arg InsertAgentRunUsa
 		arg.CacheWriteTokens,
 		arg.CostUsd,
 		arg.CostReported,
+		arg.Estimated,
 	)
 	return err
 }

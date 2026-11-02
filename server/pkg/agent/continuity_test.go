@@ -322,7 +322,7 @@ func TestCodexModelComesFromTheAccount(t *testing.T) {
 	})
 }
 
-func TestUnpricedCodexModelRunsWithAVisibleWarning(t *testing.T) {
+func TestUnpricedCodexModelAddsNoNoticeToTheTranscript(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	bin := catalogScript(t, `{"models":[{"slug":"gpt-unpriced","visibility":"list"}]}`, "", filepath.Join(t.TempDir(), "args"))
 	s, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
@@ -333,12 +333,10 @@ func TestUnpricedCodexModelRunsWithAVisibleWarning(t *testing.T) {
 	if r.Err != nil || r.Model != "gpt-unpriced" || r.Usage[0].CostUSD != nil {
 		t.Fatalf("%+v", r)
 	}
-	warned := false
 	for _, m := range ms {
-		warned = warned || (m.Type == "status" && strings.Contains(string(m.Content), `"priced":false`) && strings.Contains(string(m.Content), "count $0"))
-	}
-	if !warned {
-		t.Fatal("an unpriced model ran without a visible warning")
+		if m.Type == "status" && (strings.Contains(string(m.Content), "No list price") || strings.Contains(string(m.Content), "count $0")) {
+			t.Fatalf("unpriced model left a notice in the transcript: %s", m.Content)
+		}
 	}
 }
 

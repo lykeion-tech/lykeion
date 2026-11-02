@@ -204,7 +204,13 @@ type Report struct {
 	PolicyDigest string `json:"policy_digest"`
 	// Model is the model the attempt ran on; pricing and review use it.
 	Model string `json:"model"`
+	// provider is the model provider of the harness that ran the attempt; it
+	// picks the price an unlisted model is estimated at.
+	provider string
 }
+
+// providers maps a harness to the provider whose list prices apply.
+var providers = map[string]string{"codex": "openai", "claude": "anthropic"}
 
 // check refuses a report that would lower spend or name an unknown reason,
 // and fills in agent_error for a failure that names none.
@@ -225,7 +231,7 @@ func (r *Report) check(ok bool) error {
 		if u.CostUSD != nil {
 			cost = *u.CostUSD
 		} else {
-			cost = pricing.Cost(u.Model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
+			cost, r.Usage[i].Estimated = pricing.CostFor(r.provider, u.Model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
 		}
 		if cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
 			return ErrBadReport
@@ -237,7 +243,7 @@ func (r *Report) check(ok bool) error {
 		r.Usage[i].CostUSD = &cost
 	}
 	for _, named := range r.NamingUsage {
-		single := Report{Usage: []agent.Usage{named}}
+		single := Report{Usage: []agent.Usage{named}, provider: r.provider}
 		if err := single.check(ok); err != nil {
 			return err
 		}
@@ -267,6 +273,7 @@ func (r *Report) check(ok bool) error {
 			}
 			existing.CostUSD = &cost
 			existing.CostReported = existing.CostReported && addition.CostReported
+			existing.Estimated = existing.Estimated || addition.Estimated
 			found = true
 			break
 		}
@@ -1099,6 +1106,13 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 	// Work on a copy so callers can safely reuse one report concurrently.
 	r.Usage = slices.Clone(r.Usage)
 	r.NamingUsage = slices.Clone(r.NamingUsage)
+	// An unknown runtime leaves the provider empty; the transaction below
+	// rejects the ref.
+	_ = s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID})
+		r.provider = providers[rt.Harness]
+		return err
+	})
 	if err := r.check(ok); err != nil {
 		return db.AgentRun{}, err
 	}
@@ -1140,7 +1154,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		spent := 0.0
 		for _, u := range r.Usage {
 			cost := *u.CostUSD
-			if err := tx.Q.InsertAgentRunUsage(ctx, db.InsertAgentRunUsageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, Model: u.Model, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUsd: cost, CostReported: u.CostReported}); err != nil {
+			if err := tx.Q.InsertAgentRunUsage(ctx, db.InsertAgentRunUsageParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, Model: u.Model, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, CostUsd: cost, CostReported: u.CostReported, Estimated: u.Estimated}); err != nil {
 				return err
 			}
 			spent += cost

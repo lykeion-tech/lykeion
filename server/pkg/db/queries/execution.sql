@@ -139,8 +139,8 @@ UPDATE agent_run SET cost_usd = cost_usd + @cost_usd, late_usage_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND status = 'cancelled';
 
 -- name: InsertAgentRunUsage :exec
-INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported)
-VALUES (@workspace_id, @agent_run_id, @attempt, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd, @cost_reported);
+INSERT INTO agent_run_usage (workspace_id, agent_run_id, attempt, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, cost_reported, estimated)
+VALUES (@workspace_id, @agent_run_id, @attempt, @model, @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @cost_usd, @cost_reported, @estimated);
 
 -- name: CancelAgentRun :execrows
 UPDATE agent_run SET status = 'cancelled', completed_at = now()

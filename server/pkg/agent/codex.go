@@ -216,9 +216,6 @@ func parseCodex(model string) parser {
 				message += " Per-request pricing bands are unavailable; long-context rates applied to all aggregate tokens are a conservative upper bound."
 			}
 			_, priced := pricing.Prices[model]
-			if !priced {
-				message = "No list price is known for " + model + "; its tokens are recorded but count $0 against the card budget."
-			}
 			emit(Message{Type: "status", Content: cp})
 			emit(Message{Type: "status", Content: raw(map[string]any{"type": "accounting", "model": model, "policy": "api_list_price_estimate", "priced": priced, "conservative_upper_bound": upper, "message": message})})
 			return true, nil

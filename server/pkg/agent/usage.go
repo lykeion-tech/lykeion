@@ -15,6 +15,9 @@ type Usage struct {
 	// CostReported is set by the server: true only when the CLI reported the
 	// cost itself. A cost priced from the rate table is an estimate.
 	CostReported bool `json:"-"`
+	// Estimated is set by the server when the model had no list price and was
+	// priced at its provider's highest.
+	Estimated bool `json:"-"`
 }
 
 // MCPServer is a tool server the server sent for an agent run, besides sources.
