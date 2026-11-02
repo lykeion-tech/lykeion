@@ -367,6 +367,12 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.redoLabel(1, 3, 2)).toBe('Redone once');
     expect(studies.redoLabel(1, 4, 2)).toBe('Redone once, then after your reply');
   });
+  it('titles an Inbox item by its study, or by what it is when it has none', () => {
+    expect(studies.inboxTitle({ kind: 'blocked' }, 'Why?')).toBe('Why?');
+    expect(studies.inboxTitle({ kind: 'waiting_for_machine' })).toBe('Waiting for machine');
+    expect(studies.inboxTitle({ kind: 'autoresearch_report' })).toBe('Autoresearch');
+    expect(studies.inboxTitle({ kind: 'blocked' })).toBe('Study');
+  });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();

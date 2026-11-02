@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import Icon from '../../ui/Icon.vue';
 import { useCards, useInbox } from '../../api/queries';
 import type { InboxItem } from '../../api/types';
-import { inboxText, timeAgo } from '../../lib/studies';
+import { inboxText, inboxTitle, timeAgo } from '../../lib/studies';
 
 const route = useRoute();
 const archived = ref(false);
@@ -27,8 +27,7 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   done: { label: 'Done', mark: '✓' },
 };
 const titleOf = (item: InboxItem) =>
-  cards.data.value?.find((card) => card.id === item.card_id)?.title ??
-  (item.kind === 'autoresearch_report' ? 'Autoresearch' : 'Study');
+  inboxTitle(item, cards.data.value?.find((card) => card.id === item.card_id)?.title);
 const line = (item: InboxItem) =>
   inboxText(item, titleOf(item)) ?? `${kinds[item.kind].label}: ${item.text}`;
 </script>

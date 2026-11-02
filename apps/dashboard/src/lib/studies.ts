@@ -319,6 +319,15 @@ export function flowView(recs: StudyRecord[]): FlowView {
 // An Inbox item in the words the researcher reads, or null when the server's
 // sentence is to be shown as it is. The criterion and the need are lifted out
 // of the server's sentence (see the Go functions that write them).
+// An Inbox item's title: its study's, or what the item is when it has no
+// study, as a machine's wait has none.
+export function inboxTitle(item: { kind: InboxItem['kind'] }, study?: string): string {
+  if (study) return study;
+  if (item.kind === 'autoresearch_report') return 'Autoresearch';
+  if (item.kind === 'waiting_for_machine') return 'Waiting for machine';
+  return 'Study';
+}
+
 export function inboxText(
   item: { kind: InboxItem['kind']; text: string },
   study: string,
