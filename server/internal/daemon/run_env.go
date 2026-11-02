@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // lykDir is the directory holding this executable, resolved through
@@ -39,7 +40,8 @@ func runPath() (string, error) {
 // token, server address, config path or lyk on its PATH.
 func cliEnv(handIn bool, token, server, dir string) ([]string, error) {
 	if handIn {
-		return []string{"PATH=" + os.Getenv("PATH")}, nil
+		path, err := handInPath()
+		return []string{"PATH=" + path}, err
 	}
 	path, err := runPath()
 	if err != nil {
@@ -59,4 +61,22 @@ func doorEnv(handIn bool, harness string, door *Door) []string {
 		return nil
 	}
 	return []string{"LYK_DOOR=" + door.URL, "LYK_DOOR_TOKEN=" + door.Token}
+}
+
+// handInPath is the person's PATH without any entry that resolves to lyk's
+// directory, so a hand-in run's CLI finds no lyk even when the daemon was
+// started from it.
+func handInPath() (string, error) {
+	lyk, err := lykDir()
+	if err != nil {
+		return "", err
+	}
+	var kept []string
+	for _, entry := range filepath.SplitList(os.Getenv("PATH")) {
+		if real, err := filepath.EvalSymlinks(entry); err == nil && real == lyk {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return strings.Join(kept, string(os.PathListSeparator)), nil
 }

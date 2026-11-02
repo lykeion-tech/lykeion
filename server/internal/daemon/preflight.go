@@ -101,7 +101,7 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		return agent.ReasonCLIBroken, err.Error()
 	}
 	defer func() { reservation.Remove(); reservation.Release() }()
-	path, err := runPath()
+	path, err := handInPath()
 	if err != nil {
 		return agent.ReasonCLIBroken, err.Error()
 	}
@@ -109,8 +109,8 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 	if err != nil {
 		return agent.ReasonCLIBroken, err.Error()
 	}
-	// The same isolation as a study run's CLI: its folder, sandbox, door
-	// and the adapter's own flags; no study, no run token.
+	// The same isolation as a hand-in run's CLI: its folder, sandbox, door,
+	// PATH without lyk and the adapter's own flags; no study, no run token.
 	opts := agent.ExecOptions{ScratchReservation: reservation, Dir: dir, OutputSchema: preflightSchema, CacheDir: d.runCacheDir(""),
 		Env: []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
 	opts.Sandbox = d.cliSandbox(dir, nil, false)

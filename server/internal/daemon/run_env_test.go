@@ -41,6 +41,10 @@ func TestHandInRunEnvHasNoLyk(t *testing.T) {
 	has := func(env []string, prefix string) bool {
 		return slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, prefix) })
 	}
+	lykd, _ := lykDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	must(t, os.Symlink(lykd, alias))
+	t.Setenv("PATH", lykd+string(os.PathListSeparator)+alias+string(os.PathListSeparator)+"/usr/bin")
 	hand, err := cliEnv(true, "ltk_x", "http://s", t.TempDir())
 	must(t, err)
 	for _, k := range []string{"LYK_TOKEN", "LYK_SERVER", "LYK_CONFIG", "LYK_DOOR"} {
@@ -49,7 +53,7 @@ func TestHandInRunEnvHasNoLyk(t *testing.T) {
 		}
 	}
 	lyk, _ := lykDir()
-	if !slices.Contains(hand, "PATH="+os.Getenv("PATH")) || strings.Contains(strings.Join(hand, ":"), lyk+string(os.PathListSeparator)) {
+	if !slices.Contains(hand, "PATH=/usr/bin") {
 		t.Fatalf("hand-in PATH %v", hand)
 	}
 	if got := doorEnv(true, "claude", &Door{Token: "d"}); len(got) != 0 {
