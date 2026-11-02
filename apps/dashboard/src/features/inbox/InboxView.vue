@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import StudyDetail from '../studies/StudyDetail.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
+import MachineWait from './MachineWait.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
@@ -89,6 +90,11 @@ watch(
           :id="selected.card_id"
           :key="selected.card_id"
           embedded
+        />
+        <MachineWait
+          v-else-if="selected?.kind === 'waiting_for_machine'"
+          :key="selected.id"
+          :item="selected"
         />
         <div v-else-if="selectedReport" class="conversation-empty">
           <Icon name="zap" :size="38" />

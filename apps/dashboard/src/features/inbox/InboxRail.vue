@@ -22,6 +22,7 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   blocked: { label: 'Blocked', mark: '!' },
   no_tool: { label: 'No tool', mark: '?' },
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
+  waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
   done: { label: 'Done', mark: '✓' },
 };
 const titleOf = (item: InboxItem) =>

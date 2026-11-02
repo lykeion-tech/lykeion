@@ -195,6 +195,7 @@ export interface InboxItem {
     | 'blocked'
     | 'no_tool'
     | 'scoring_unavailable'
+    | 'waiting_for_machine'
     | 'done';
   text: string;
   read_at: string | null;
