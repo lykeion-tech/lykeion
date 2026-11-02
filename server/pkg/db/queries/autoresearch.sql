@@ -17,7 +17,7 @@ WHERE workspace_id = @workspace_id AND autoresearch_id = @autoresearch_id;
 SELECT * FROM autoresearch WHERE workspace_id = @workspace_id AND id = @id;
 
 -- name: ListAutoresearches :many
-SELECT * FROM autoresearch a WHERE workspace_id = @workspace_id AND NOT EXISTS (SELECT 1 FROM study_draft_request d WHERE d.workspace_id=a.workspace_id AND d.autoresearch_id=a.id) ORDER BY created_at;
+SELECT a.* FROM autoresearch a WHERE a.workspace_id = @workspace_id AND NOT EXISTS (SELECT 1 FROM study_draft_request d WHERE d.workspace_id=a.workspace_id AND d.autoresearch_id=a.id) ORDER BY a.created_at;
 
 -- name: UpdateAutoresearch :one
 UPDATE autoresearch SET title = @title, description = @description, title_template = @title_template

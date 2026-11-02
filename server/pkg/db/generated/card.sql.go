@@ -291,7 +291,7 @@ VALUES ($1, $2, $3, $4, $5, $6,
   COALESCE((SELECT min(b.position) FROM card b WHERE b.workspace_id = $1 AND b.board_column = $7::text), 1) - 1,
   COALESCE(NULLIF($8::text, ''), 'grounding'), COALESCE(NULLIF($9::text, ''), 'validation'),
   $10, $11, $7::text, $12, $13, $14, $15, $16, $17, $18)
-RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date
 `
 
 type CreateCardParams struct {
@@ -376,6 +376,7 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 		&i.LegacyColumn,
 		&i.StudyCli,
 		&i.AuditorCli,
+		&i.StartDate,
 	)
 	return i, err
 }
@@ -426,7 +427,7 @@ func (q *Queries) DeleteCard(ctx context.Context, arg DeleteCardParams) error {
 }
 
 const getCard = `-- name: GetCard :one
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli FROM card WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date FROM card WHERE workspace_id = $1 AND id = $2
 `
 
 type GetCardParams struct {
@@ -474,6 +475,7 @@ func (q *Queries) GetCard(ctx context.Context, arg GetCardParams) (Card, error) 
 		&i.LegacyColumn,
 		&i.StudyCli,
 		&i.AuditorCli,
+		&i.StartDate,
 	)
 	return i, err
 }
@@ -590,7 +592,7 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 }
 
 const listCards = `-- name: ListCards :many
-SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column, c.study_cli, c.auditor_cli,
+SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column, c.study_cli, c.auditor_cli, c.start_date,
   COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
     WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND w IS NOT NULL
     ORDER BY t.created_at, t.id LIMIT 1), '')::text AS waiting,
@@ -640,6 +642,7 @@ type ListCardsRow struct {
 	LegacyColumn      string          `json:"legacy_column"`
 	StudyCli          *string         `json:"study_cli"`
 	AuditorCli        *string         `json:"auditor_cli"`
+	StartDate         *time.Time      `json:"start_date"`
 	Waiting           string          `json:"waiting"`
 	Queued            bool            `json:"queued"`
 	Role              string          `json:"role"`
@@ -698,6 +701,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.LegacyColumn,
 			&i.StudyCli,
 			&i.AuditorCli,
+			&i.StartDate,
 			&i.Waiting,
 			&i.Queued,
 			&i.Role,

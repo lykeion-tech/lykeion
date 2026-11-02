@@ -926,7 +926,7 @@ func (q *Queries) LastOriginCard(ctx context.Context, arg LastOriginCardParams) 
 }
 
 const listAutoresearches = `-- name: ListAutoresearches :many
-SELECT id, workspace_id, owner_id, title, description, execution_mode, title_template, status, pause_reason, created_at, assignee_type, assignee_id, scope_from, scope_to FROM autoresearch a WHERE workspace_id = $1 AND NOT EXISTS (SELECT 1 FROM study_draft_request d WHERE d.workspace_id=a.workspace_id AND d.autoresearch_id=a.id) ORDER BY created_at
+SELECT a.id, a.workspace_id, a.owner_id, a.title, a.description, a.execution_mode, a.title_template, a.status, a.pause_reason, a.created_at, a.assignee_type, a.assignee_id, a.scope_from, a.scope_to FROM autoresearch a WHERE a.workspace_id = $1 AND NOT EXISTS (SELECT 1 FROM study_draft_request d WHERE d.workspace_id=a.workspace_id AND d.autoresearch_id=a.id) ORDER BY a.created_at
 `
 
 func (q *Queries) ListAutoresearches(ctx context.Context, workspaceID uuid.UUID) ([]Autoresearch, error) {

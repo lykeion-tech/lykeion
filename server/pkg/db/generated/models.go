@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Agent struct {
@@ -289,6 +290,7 @@ type Card struct {
 	LegacyColumn      string          `json:"legacy_column"`
 	StudyCli          *string         `json:"study_cli"`
 	AuditorCli        *string         `json:"auditor_cli"`
+	StartDate         *time.Time      `json:"start_date"`
 }
 
 type CardTeam struct {
@@ -751,6 +753,16 @@ type StageAddon struct {
 	Mcp         json.RawMessage `json:"mcp"`
 	UpdatedBy   uuid.UUID       `json:"updated_by"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type StudyDraftRequest struct {
+	WorkspaceID    uuid.UUID   `json:"workspace_id"`
+	AutoresearchID uuid.UUID   `json:"autoresearch_id"`
+	ResearchID     *uuid.UUID  `json:"research_id"`
+	StartDate      pgtype.Date `json:"start_date"`
+	Deadline       *time.Time  `json:"deadline"`
+	CardID         *uuid.UUID  `json:"card_id"`
+	Completed      bool        `json:"completed"`
 }
 
 type TeamAgent struct {

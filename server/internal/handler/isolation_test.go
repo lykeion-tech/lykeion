@@ -218,7 +218,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
@@ -278,6 +278,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]any{"research_id": nil}
 		case route == "/api/cards":
 			body = map[string]any{"question": "outsider card"}
+		case route == "/api/study-drafts":
+			body = map[string]string{"agent_id": uuid.NewString(), "prompt": "outsider draft"}
 		case route == "/api/cards/{id}/teams":
 			body = map[string]string{"validation": c.ID}
 		case route == "/api/cards/{id}" && method == http.MethodPatch:

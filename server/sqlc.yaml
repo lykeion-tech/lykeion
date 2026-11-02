@@ -34,3 +34,10 @@ sql:
             go_type: encoding/json.RawMessage
           - column: runtime.metrics
             go_type: encoding/json.RawMessage
+          - column: card.grounding_criteria
+            go_type: encoding/json.RawMessage
+            go_struct_tag: json:"-"
+          - column: card.start_date
+            go_type:
+              type: time.Time
+              pointer: true

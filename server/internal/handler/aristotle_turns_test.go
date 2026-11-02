@@ -59,7 +59,11 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET status='offline' WHERE workspace_id=$1`, ws); e != nil {
 		t.Fatal(e)
 	}
-	if code := s.call(t, "PATCH", "/api/agents/"+boot.Agent.ID.String(), a, ws, map[string]string{"model": "later-model", "instructions": "Later instructions", "harness": "codex"}, nil); code != 200 {
+	// The CLI and model stay fixed while the accepted run is live; instructions may still change.
+	if code := s.call(t, "PATCH", "/api/agents/"+boot.Agent.ID.String(), a, ws, map[string]string{"model": "later-model", "harness": "codex"}, nil); code != 409 {
+		t.Fatalf("CLI change during a live run: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/agents/"+boot.Agent.ID.String(), a, ws, map[string]string{"instructions": "Later instructions"}, nil); code != 200 {
 		t.Fatal(code)
 	}
 	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, &again); code != 201 || !reflect.DeepEqual(out, again) {
@@ -101,6 +105,9 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	// Terminalize the accepted run so another turn can verify frozen config.
 	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled' WHERE id=$1`, out.Run.ID); e != nil {
 		t.Fatal(e)
+	}
+	if code := s.call(t, "PATCH", "/api/agents/"+boot.Agent.ID.String(), a, ws, map[string]string{"model": "later-model", "harness": "codex"}, nil); code != 200 {
+		t.Fatalf("CLI change after the run settled: %d", code)
 	}
 	csRegister(t, s, a, ws, "aristotle", "claude")
 	for _, catalog := range []any{[]any{}, []map[string]string{{"value": "new-cli-model", "label": "New CLI model", "description": "New catalog"}}} {
