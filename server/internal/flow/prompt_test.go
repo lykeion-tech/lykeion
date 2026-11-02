@@ -140,3 +140,12 @@ func TestAuditorProtocolNoLongerFeedsJev(t *testing.T) {
 		}
 	}
 }
+
+// Claude asks before shell redirection writes a file, and nobody answers an
+// unattended run, so every run is told to write files with its file tools.
+func TestThePromptSaysHowToWriteFiles(t *testing.T) {
+	p := prompt(db.Card{Number: 1, BoardColumn: "hypotheses", Question: "q?"}, "agent", nil, "", nil)
+	if !strings.Contains(p, "Create files with your file tools (Write), inside $TMPDIR or the run folder, not with shell redirection.\n") {
+		t.Fatalf("the prompt doesn't say how to write files:\n%s", p)
+	}
+}
