@@ -6,7 +6,11 @@ ALTER TABLE agent_run
     (kind = 'role' AND card_id IS NOT NULL AND coresearch_chat_id IS NULL)
     OR (kind = 'autoresearch' AND card_id IS NULL AND requester_id IS NOT NULL AND coresearch_chat_id IS NULL)
     OR (kind = 'coresearch' AND card_id IS NULL AND requester_id IS NOT NULL AND coresearch_chat_id IS NOT NULL)
-    OR (kind = 'rerun' AND card_id IS NOT NULL));
+    OR (kind = 'rerun' AND card_id IS NOT NULL)),
+  -- A rerun replays recorded scripts without an agent CLI, so it names none.
+  DROP CONSTRAINT agent_run_harness_check,
+  ADD CONSTRAINT agent_run_harness_check CHECK (harness IN ('claude', 'codex', 'cursor', 'antigravity', '')),
+  ADD CONSTRAINT agent_run_rerun_harness CHECK ((kind = 'rerun') = (harness = ''));
 
 -- A Validation column worked under the old protocol starts again as a fresh round under the new review rules.
 -- Blocked cards stay blocked; their owner's comment restarts them as before.

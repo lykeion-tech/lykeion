@@ -15,12 +15,19 @@ func TestRerunRunKind(t *testing.T) {
 	ctx := t.Context()
 	u, ws, card := seedWorkspace(t, env)
 	ins := `INSERT INTO agent_run (workspace_id, card_id, kind, responsible_user_id, board_column, round, role, harness, prompt)
-		VALUES ($1, $2, 'rerun', $3, 'validation', 1, 'rerun', 'claude', 'p')`
+		VALUES ($1, $2, 'rerun', $3, 'validation', 1, 'rerun', '', 'p')`
 	if _, err := env.Owner.Exec(ctx, ins, ws, card, u); err != nil {
 		t.Fatalf("a rerun on a card: %v", err)
 	}
 	_, err := env.Owner.Exec(ctx, ins, ws, nil, u)
 	wantCode(t, err, "23514", "a rerun without a card")
+	bare := `INSERT INTO agent_run (workspace_id, card_id, kind, responsible_user_id, board_column, round, role, harness, prompt)
+		VALUES ($1, $2, $4, $3, 'validation', 1, 'rerun', $5, 'p')`
+	if _, err := env.Owner.Exec(ctx, bare, ws, card, u, "rerun", ""); err != nil {
+		t.Fatalf("a rerun with no harness: %v", err)
+	}
+	_, err = env.Owner.Exec(ctx, bare, ws, card, u, "role", "")
+	wantCode(t, err, "23514", "a role run with no harness")
 }
 
 func TestValidationInProgressRestartsAtMigration(t *testing.T) {

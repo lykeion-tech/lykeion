@@ -176,7 +176,10 @@ func JSONBodyLimit(r *http.Request) int64 {
 	if daemonMessagePost(r) {
 		return MaxDaemonMessageBytes
 	}
-	if r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs") {
+	// A rerun's result carries each replayed script's whole output, as a run
+	// record's post does.
+	if r.Method == http.MethodPost && (r.URL.Path == "/api/role/calls" || r.URL.Path == "/api/role/runs" ||
+		strings.HasPrefix(r.URL.Path, "/api/daemon/reruns/") && strings.HasSuffix(r.URL.Path, "/result")) {
 		return MaxCallBodyBytes
 	}
 	return MaxBodyBytes

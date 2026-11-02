@@ -140,6 +140,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/agent-runs/{id}/start", h.daemonStart())
 			r.Post("/agent-runs/{id}/messages", h.daemonMessages())
 			r.Post("/agent-runs/{id}/hand-in", h.daemonHandIn)
+			r.Post("/reruns/{id}/result", h.daemonRerunResult)
 			r.Post("/agent-runs/{id}/complete", h.daemonSettle(true))
 			r.Post("/agent-runs/{id}/fail", h.daemonSettle(false))
 			r.Get("/agent-runs/{id}/status", h.daemonStatus)

@@ -260,6 +260,10 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 // then blocks it. A member's or the auditor's run wakes no one. Validation
 // columns, which take no hand-in, go through afterProtocolRun.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
+	// A rerun's result is its record; its settling wakes no one.
+	if t.Kind == "rerun" {
+		return nil
+	}
 	if t.BoardColumn == board.Validation {
 		return e.afterProtocolRun(ctx, t)
 	}

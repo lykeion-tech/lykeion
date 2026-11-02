@@ -1,5 +1,8 @@
 DELETE FROM agent_run WHERE kind = 'rerun';
 ALTER TABLE agent_run
+  DROP CONSTRAINT agent_run_rerun_harness,
+  DROP CONSTRAINT agent_run_harness_check,
+  ADD CONSTRAINT agent_run_harness_check CHECK (harness IN ('claude', 'codex', 'cursor', 'antigravity')),
   DROP CONSTRAINT agent_run_kind_shape,
   DROP CONSTRAINT agent_run_kind_check,
   ADD CONSTRAINT agent_run_kind_check CHECK (kind IN ('role', 'autoresearch', 'coresearch')),
