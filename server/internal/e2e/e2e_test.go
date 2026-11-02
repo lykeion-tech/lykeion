@@ -276,6 +276,7 @@ case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --j
 IFS= read -r prompt
 case "$prompt" in *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0;; esac
 case "$prompt" in *models-init*) exit 1;; esac
+case "$*" in *--json-schema*) if [ -n "$LYK_TOKEN$LYK_CONFIG$LYK_SERVER" ]; then exit 41; fi;; esac
 case "$*" in *--json-schema*) handin=',"structured_output":{"status":"done","answer":"Scoped the question.","reason":null,"papers":[],"datasets":[],"no_qualifying":null,"replies":[]}';; esac
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))

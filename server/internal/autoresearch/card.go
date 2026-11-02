@@ -168,7 +168,7 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 	}
 	if s.Engine != nil {
 		if err := s.Engine.Start(ctx, tx, c); err != nil {
-			return db.Card{}, fmt.Errorf("%w: %v", ErrStartFailed, err)
+			return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
 		}
 	}
 	return c, s.notify(ctx, tx, ap, &c.ID, run.ID, "autoresearch_card", fmt.Sprintf("%s opened #%d %s", ap.Title, c.Number, c.Title))

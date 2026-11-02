@@ -137,8 +137,9 @@ func (t *Tx) CardTeamAssignments(ctx context.Context) ([]CardTeamAssignment, err
 func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
 
 // Savepoint runs fn inside a savepoint of t: an error from fn undoes only
-// what fn wrote and leaves t usable. Events fn emits are dropped; what fn
-// leaves to AfterCommit runs once t commits, unless fn's work was undone.
+// what fn wrote and leaves t usable. Events fn emits are published with t's
+// when fn succeeds; what fn leaves to AfterCommit runs once t commits, unless
+// fn's work was undone.
 func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 	sp, err := t.raw.Begin(ctx)
 	if err != nil {
@@ -153,6 +154,7 @@ func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 		return err
 	}
 	t.after = append(t.after, inner.after...)
+	t.events = append(t.events, inner.events...)
 	return nil
 }
 

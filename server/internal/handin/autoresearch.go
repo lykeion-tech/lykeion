@@ -88,7 +88,11 @@ func (s *HandIns) autoresearch(ctx context.Context, tx *store.Tx, run uuid.UUID,
 	// A study that cannot start is not the agent's to fix, so it is skipped
 	// and named in the report.
 	for _, st := range studies {
-		_, err := s.Autoresearch.OpenCardForAgentRun(ctx, tx, run, st.title, st.question)
+		// A study that fails to start leaves nothing behind.
+		err := tx.Savepoint(ctx, func(sp *store.Tx) error {
+			_, err := s.Autoresearch.OpenCardForAgentRun(ctx, sp, run, st.title, st.question)
+			return err
+		})
 		var cs CannotStart
 		switch {
 		case err == nil, errors.Is(err, ErrDuplicate):

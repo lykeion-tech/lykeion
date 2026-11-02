@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handin"
@@ -36,7 +37,12 @@ func (o autoresearchOps) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, 
 	case errors.Is(err, autoresearch.ErrAlreadyActive):
 		return c, handin.ErrDuplicate
 	case errors.Is(err, autoresearch.ErrStartFailed), errors.As(err, &nb):
-		return c, handin.CannotStart{Reason: err.Error()}
+		// A database or cancelled-context cause is a failure of the server,
+		// not a reason this study cannot start.
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) && ctx.Err() == nil {
+			return c, handin.CannotStart{Reason: err.Error()}
+		}
 	}
 	return c, err
 }

@@ -84,3 +84,49 @@ func TestAutoresearchHandIn(t *testing.T) {
 		t.Fatalf("report %q, cards %d", report, cards())
 	}
 }
+
+// A database failure while a study starts, after its card was created, is a
+// server failure: nothing of the hand-in stays, and a retry applies it whole.
+func TestAutoresearchHandInStartFailureLeavesNothing(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	ap, run, _, _ := s.runOnly(t, a, w.ID)
+	personal := s.personalToken(t, a)
+	var runtime string
+	var attempt int32
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT runtime_id, attempt FROM agent_run WHERE id=$1`, *run.AgentRunID).Scan(&runtime, &attempt); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`CREATE FUNCTION fail_late() RETURNS trigger AS $$ BEGIN
+			IF EXISTS (SELECT 1 FROM card WHERE id = NEW.card_id AND title = 'Fails late') THEN RAISE EXCEPTION 'boom'; END IF;
+			RETURN NEW; END $$ LANGUAGE plpgsql`,
+		`CREATE TRIGGER fail_late BEFORE INSERT ON agent_run FOR EACH ROW EXECUTE FUNCTION fail_late()`,
+	} {
+		if _, err := s.Env.Owner.Exec(t.Context(), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := map[string]any{"workspace_id": w.ID, "runtime_id": runtime, "attempt": attempt, "hand_in": map[string]any{
+		"status": "done", "answer": "did it", "reason": nil, "report": "Two new papers.",
+		"new_studies": []map[string]string{{"title": "Fine", "question": "Does X?"}, {"title": "Fails late", "question": "Does Y?"}}}}
+	post := func() int {
+		return s.call(t, "POST", "/api/daemon/agent-runs/"+*run.AgentRunID+"/hand-in", personal, "", in, nil)
+	}
+	count := func() int {
+		return s.count(t, `SELECT count(*) FROM card WHERE origin = $1`, "autoresearch:"+ap.ID)
+	}
+	if c := post(); c < 500 || count() != 0 {
+		t.Fatalf("status %d, cards %d", c, count())
+	}
+	if s.count(t, `SELECT count(*) FROM autoresearch_run WHERE id = $1 AND report = ''`, run.ID) != 1 {
+		t.Fatal("a report was kept")
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `DROP TRIGGER fail_late ON agent_run`); err != nil {
+		t.Fatal(err)
+	}
+	if c := post(); c != 200 || count() != 2 {
+		t.Fatalf("retry: status %d, cards %d", c, count())
+	}
+}
