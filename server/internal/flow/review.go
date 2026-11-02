@@ -54,12 +54,14 @@ func usesReview(c db.Card) bool {
 // transaction open. The auditor's findings are never part of it: Jev reviews
 // the items and their evidence alone.
 type reviewing struct {
-	items   []db.Record          // this round's item records
-	carried []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
-	cited   map[string]db.Record // what the hypotheses cite, by the cite as written
-	saved   []string             // names of the files saved in this column
-	work    []db.Record          // this round's records that may report values, and the column's outputs
-	runs    []db.Record          // the run records the work cites
+	items    []db.Record          // this round's item records
+	carried  []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
+	cited    map[string]db.Record // what the hypotheses cite, by the cite as written
+	saved    []string             // names of the files saved in this column
+	work     []db.Record          // this round's records that may report values, and the column's outputs
+	runs     []db.Record          // the run records the work cites
+	comments []string             // the researchers' comments on the study, oldest first
+	declined map[string]string    // missed papers the Team declined this round, by normalised id, with its reason
 }
 
 // reviewColumn reviews the study's current column item by item, writes the
@@ -92,6 +94,13 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if err != nil {
 			return err
 		}
+		cs, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
+		if err != nil {
+			return err
+		}
+		for _, cm := range cs {
+			rv.comments = append(rv.comments, strings.ReplaceAll(cm.Body, "\n", " "))
+		}
 		var declared *db.Record
 		var withdrawn []db.Record
 		for _, r := range recs {
@@ -101,6 +110,14 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			case r.Kind == review.KindWithdrawn:
 				if r.Round == c.Round {
 					withdrawn = append(withdrawn, r)
+				}
+			case r.Kind == "declined":
+				if r.Round == c.Round {
+					d := records.Body[struct{ Item, Reason string }](r)
+					if rv.declined == nil {
+						rv.declined = map[string]string{}
+					}
+					rv.declined[handin.NormID(d.Item)] = d.Reason
 				}
 			case r.Kind == "output":
 				rv.work = append(rv.work, r)
@@ -344,7 +361,7 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 			return review.Result{}, errNoSources
 		}
 		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card),
-			Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
+			Comments: rv.comments, Declined: rv.declined, Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 	case board.Hypotheses:
 		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
 			Carried: rv.carried, Attempt: in.attempt})

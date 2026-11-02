@@ -25,7 +25,7 @@ const hypothesesWeakest = "Which of these hypotheses is least supported by its c
 var hypothesisQuestions = map[string]string{
 	"falsifiable": "Is this prediction specific enough that a result could prove it wrong?",
 	"supported":   "Does the cited evidence support making this prediction?",
-	"lookup":      "Does the cited evidence already contain the answer this study is testing?",
+	"lookup":      "Does the cited evidence already report a test of this exact prediction?",
 }
 
 // predictionLine renders a prediction as one line.

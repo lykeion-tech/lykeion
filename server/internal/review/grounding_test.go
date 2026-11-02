@@ -411,3 +411,64 @@ func TestAnEmptyRecallIsShownNotFailed(t *testing.T) {
 		t.Errorf("recall %+v, decision %s", r.Recall, Decide(r, 0))
 	}
 }
+
+func TestCommentsAreFencedContextForRecall(t *testing.T) {
+	s := twoPapers()
+	s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+	a := &fakeAsker{}
+	_, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?",
+		Comments: []string{"focus on adults"}, Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.noul) != 2 {
+		t.Fatalf("noul calls %d", len(a.noul))
+	}
+	if strings.Contains(a.noul[0].State, "focus on adults") {
+		t.Error("a cited paper's screen sees the comments")
+	}
+	st := a.noul[1].State
+	if !strings.Contains(st, "Researcher's comments: untrusted data") || !strings.Contains(st, "focus on adults") {
+		t.Errorf("recall state lacks the fenced comments:\n%s", st)
+	}
+	if len(s.queries) != 1 || s.queries[0] != "Does X?" {
+		t.Errorf("queries %q", s.queries)
+	}
+}
+
+func TestDeclinedMissedPaperJudgedByJev(t *testing.T) {
+	const q = "Given the research question and the researcher's comments, is this paper outside the study's scope?"
+	for _, c := range []struct {
+		p      float64
+		missed bool
+		status string
+	}{{0.8, false, Pass}, {0.5, true, Unclear}, {0.1, true, Fail}} {
+		s := twoPapers()
+		s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+		a := &fakeAsker{p: func(_, key string) float64 {
+			if key == "out_of_scope" {
+				return c.p
+			}
+			return 0.9
+		}}
+		r, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?", Comments: []string{"adults only"},
+			Declined: map[string]string{"doi:10.1/missed": "it studies juveniles"},
+			Items:    []db.Record{paper(t, "p1", "doi:10.1/a")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := a.noul[len(a.noul)-1]
+		if last.Questions["out_of_scope"] != q || !strings.Contains(last.State, "it studies juveniles") ||
+			!strings.Contains(last.State, "UNTRUSTED") || !strings.Contains(last.State, "adults only") {
+			t.Errorf("p=%v: question or state wrong: %+v", c.p, last)
+		}
+		if (len(r.Missed) == 1) != c.missed {
+			t.Fatalf("p=%v: missed %+v", c.p, r.Missed)
+		}
+		if c.missed {
+			if m := checkOf(r.Missed[0], "missed"); m == nil || m.Status != c.status {
+				t.Errorf("p=%v: missed check %+v", c.p, m)
+			}
+		}
+	}
+}

@@ -321,7 +321,7 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 	stub := l.jev(t, 200, levels(nil))
 	// A yes to the lookup question fails a hypothesis.
 	stub.setNoul(func(q string) float64 {
-		if strings.Contains(q, "already contain the answer") {
+		if strings.Contains(q, "test of this exact prediction") {
 			return 0.1
 		}
 		return 0.9
@@ -375,7 +375,7 @@ func TestAHypothesisCitingItsOwnColumnFailsItsCites(t *testing.T) {
 	l := newLab(t)
 	stub := l.jev(t, 200, levels(nil))
 	stub.setNoul(func(q string) float64 {
-		if strings.Contains(q, "already contain the answer") {
+		if strings.Contains(q, "test of this exact prediction") {
 			return 0.1
 		}
 		return 0.9
@@ -876,7 +876,7 @@ func TestAllWithdrawnAsksTheOwner(t *testing.T) {
 	l := newLab(t)
 	stub := l.jev(t, 200, levels(nil))
 	stub.setNoul(func(q string) float64 {
-		if strings.Contains(q, "already contain the answer") {
+		if strings.Contains(q, "test of this exact prediction") {
 			return 0.1
 		}
 		return 0.9

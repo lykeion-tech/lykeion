@@ -30,7 +30,7 @@ func TestHypothesesQuestions(t *testing.T) {
 	want := map[string]string{
 		"falsifiable": "Is this prediction specific enough that a result could prove it wrong?",
 		"supported":   "Does the cited evidence support making this prediction?",
-		"lookup":      "Does the cited evidence already contain the answer this study is testing?",
+		"lookup":      "Does the cited evidence already report a test of this exact prediction?",
 	}
 	got := a.noul[0].Questions
 	if len(got) != 3 {
@@ -172,5 +172,12 @@ func TestProbabilitiesAreStoredToThreePlaces(t *testing.T) {
 	// The status is taken from Jev's answer as given, before rounding.
 	if falsifiable.Status != Unclear {
 		t.Errorf("falsifiable at 0.6996 is %s", falsifiable.Status)
+	}
+}
+
+func TestLookupAsksAboutThisExactPrediction(t *testing.T) {
+	q := hypothesisQuestions["lookup"]
+	if q != "Does the cited evidence already report a test of this exact prediction?" {
+		t.Fatal(q)
 	}
 }

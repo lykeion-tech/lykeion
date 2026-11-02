@@ -43,16 +43,21 @@ func TestMissingDeclaredFileFails(t *testing.T) {
 	}
 }
 
-func TestNoOutputsRecordFails(t *testing.T) {
-	r, err := Experimentation(context.Background(), &fakeAsker{}, ExperimentationInput{Saved: []string{"a.csv"}})
+func TestValuesOnlyHandInPassesDeclaredOutputs(t *testing.T) {
+	r, err := Experimentation(context.Background(), &fakeAsker{}, ExperimentationInput{
+		Values: []ValueCheck{{Record: "r1", Value: "0.42", Sentence: "AUC was 0.42", Found: true, Where: "run:x1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Items) != 1 || r.Items[0].Status != Fail {
-		t.Fatalf("items: %+v", r.Items)
+	if len(r.Items) != 1 || r.Items[0].Kind != "value" || Decide(r, 0) != DecidePass {
+		t.Fatalf("values only: %+v", r)
 	}
-	if c := checkOf(r.Items[0], "declared"); c == nil || c.Status != Fail {
-		t.Errorf("declared: %+v", c)
+	r, err = Experimentation(context.Background(), &fakeAsker{}, ExperimentationInput{Saved: []string{"a.csv"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Decide(r, 0) != DecideRedo || len(Reasons(r)) != 1 || Reasons(r)[0] != "The Team handed in no outputs or values." {
+		t.Fatalf("neither: %+v %q", r, Reasons(r))
 	}
 }
 
