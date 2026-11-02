@@ -1168,7 +1168,8 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 	run := "/" + root + `/run dir \[1\]\*`
 	reads := []string{filepath.Join(root, "study {a}"), filepath.Join(root, "a,Read,b"), filepath.Join(root, "bases", "python")}
 	allow := "Read(" + run + "/**)\nRead(/" + root + `/study \{a\}/**)` + "\nRead(/" + root + "/bases/python/**)\n--disallowedTools\n"
-	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\nWebFetch\nWebSearch\n--mcp-config\n"
+	studyDeny := "WebFetch\nWebSearch\nTask\nAgent\nAskUserQuestion\nEnterPlanMode\nExitPlanMode\n--mcp-config\n"
+	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\n" + studyDeny
 	for _, c := range []struct{ inherit, readOnly bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
@@ -1184,7 +1185,7 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 			// Nothing else is pre-approved, and no account rule may edit or run
 			// commands either.
 			want = "\n--permission-mode\ndontAsk\n--allowedTools\nSkill,mcp__lyk_door__call_tool\n" + allow
-			deny = strings.TrimSuffix(deny, "WebFetch\nWebSearch\n--mcp-config\n") + "Edit(//**)\nBash\nWebFetch\nWebSearch\n--mcp-config\n"
+			deny = strings.TrimSuffix(deny, studyDeny) + "Edit(//**)\nBash\n" + studyDeny
 		}
 		if !strings.Contains(string(a), want) || !strings.Contains(string(a), deny) || strings.Contains(string(a), "a,Read,b") {
 			t.Fatalf("inherit=%v readOnly=%v, want %q and %q, args:\n%s", c.inherit, c.readOnly, want, deny, a)
@@ -1358,6 +1359,13 @@ func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	}
 	if i := slices.Index(argv, "--disallowedTools"); i < 0 || !slices.Contains(argv[i:], "WebFetch") || !slices.Contains(argv[i:], "WebSearch") {
 		t.Fatalf("web tools not denied: %s", a)
+	}
+	// Subagents, questions to a person and plan mode have no place in an
+	// unattended study run.
+	for _, tool := range []string{"Task", "Agent", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"} {
+		if i := slices.Index(argv, "--disallowedTools"); !slices.Contains(argv[i:], tool) {
+			t.Fatalf("%s not denied: %s", tool, a)
+		}
 	}
 	var cfg struct {
 		MCPServers map[string]json.RawMessage `json:"mcpServers"`

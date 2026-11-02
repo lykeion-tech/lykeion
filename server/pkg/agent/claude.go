@@ -120,8 +120,10 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	if !o.Coresearch {
 		// A study's evidence comes only through the sources server, whatever
-		// the person's own rules allow; a deny rule wins over them.
-		deny = append(deny, "WebFetch", "WebSearch")
+		// the person's own rules allow; a deny rule wins over them. Nobody
+		// answers an unattended run, so it has no subagents, questions or
+		// plan mode either; the fence still stops any that slip through.
+		deny = append(deny, "WebFetch", "WebSearch", "Task", "Agent", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode")
 	}
 	if len(deny) > 0 {
 		tools = append(append(tools, "--disallowedTools"), deny...)
