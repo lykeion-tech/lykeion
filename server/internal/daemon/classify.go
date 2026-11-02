@@ -15,7 +15,7 @@ var (
 	unauthorized = regexp.MustCompile(`(?i)\b401 unauthorized|\b(?:status|http|api error:?|error:?)\s*(?:code\s*)?401\b`)
 	// "Not logged in" counts only as a CLI's own message, at a line start or right after the folded "stderr:".
 	notLoggedIn = regexp.MustCompile(`(?im)(?:^|stderr:)\s*(?:error:\s*)?not logged in\b`)
-	// The sandbox package's launch and policy errors, which carry no type.
+	// Sandbox launch failures that reach the daemon as text, not as sandbox.ErrPolicy.
 	sandboxSignatures = []string{"sandbox failed to start", "install bubblewrap", "no sandbox on", "sandbox policy", "sandbox path", "sandbox carved", "sandbox read folder", "sandbox restricted", "sandbox grant", "sandbox started but", "bwrap:", "sandbox-exec:"}
 	signInSignatures  = map[string][]string{
 		"claude": {"please run /login", "oauth token has expired", "invalid api key"},
@@ -36,7 +36,7 @@ func classify(harness string, err error, stderr string, _ []agent.Message) strin
 		text = err.Error() + "\n" + stderr
 	}
 	lower := strings.ToLower(text)
-	if errors.Is(err, sandbox.ErrLoopbackOnlyUnsupported) || containsAny(lower, sandboxSignatures) {
+	if errors.Is(err, sandbox.ErrPolicy) || errors.Is(err, sandbox.ErrLoopbackOnlyUnsupported) || containsAny(lower, sandboxSignatures) {
 		return agent.ReasonSandbox
 	}
 	if containsAny(lower, signInSignatures[harness]) || unauthorized.MatchString(text) || notLoggedIn.MatchString(text) {
@@ -64,4 +64,18 @@ func failReason(current, harness string, err error) string {
 		return current
 	}
 	return classify(harness, err, "", nil)
+}
+
+// failReport marks r failed with err, keeping a specific reason already set.
+func failReport(r *Report, harness string, err error) {
+	r.Kind = "fail"
+	r.Error = err.Error()
+	r.FailureReason = failReason(r.FailureReason, harness, err)
+}
+
+// failResult fails r with a finished CLI's error. The agent package's own
+// reason is set first so the text match cannot override it.
+func failResult(r *Report, harness string, res agent.Result) {
+	r.FailureReason = res.Reason
+	failReport(r, harness, res.Err)
 }

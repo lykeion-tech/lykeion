@@ -741,3 +741,13 @@ func TestCLISandboxClaudeTakesRefreshLocks(t *testing.T) {
 		t.Error("sibling of the refresh lock was writable")
 	}
 }
+
+// A machine whose sandbox failed its startup check fails runs as a sandbox
+// fault, never as the agent's.
+func TestUnavailableCLISandboxIsASandboxFault(t *testing.T) {
+	d := &daemon{cfg: Config{Home: t.TempDir()}, sandboxErr: errors.New("sandbox-exec missing")}
+	_, err := d.cliSandbox(t.TempDir(), nil, false)(context.Background(), agent.CLIPaths{}, "claude")
+	if err == nil || classify("claude", err, "", nil) != agent.ReasonSandbox {
+		t.Fatalf("err %v classified %q", err, classify("claude", err, "", nil))
+	}
+}

@@ -51,11 +51,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	var cont *continuity
 	var final agent.Result
 	// A reason already set stays unless the new failure names an infrastructure cause.
-	fail := func(err error) {
-		r.Kind = "fail"
-		r.Error = err.Error()
-		r.FailureReason = failReason(r.FailureReason, c.AgentRun.Harness, err)
-	}
+	fail := func(err error) { failReport(&r, c.AgentRun.Harness, err) }
 	// Registered before the deferred report, so it runs after the finished
 	// marker: gc never finds the folder unheld with only an older marker.
 	var reservation *agent.ScratchReservation
@@ -390,10 +386,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	r.Usage, r.SessionID, r.Model = res.Usage, res.SessionID, res.Model
 	if res.Err != nil {
-		// The agent package's own reason is set first so the text match
-		// cannot override it.
-		r.FailureReason = res.Reason
-		fail(res.Err)
+		failResult(&r, c.AgentRun.Harness, res)
 	}
 	if streamErr != nil {
 		fail(streamErr)

@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"testing"
 
@@ -33,6 +35,13 @@ func TestClassify(t *testing.T) {
 		{"429 body mentioning 401", "codex", errors.New("exit status 1"), "unexpected status 429 Too Many Requests: request 401 queued", agent.ReasonAgentError},
 		{"not logged in mid-sentence", "claude", errors.New("exit status 1"), "the script printed: user is not logged in to the site", agent.ReasonAgentError},
 		{"codex not logged in folded by agent", "codex", fmt.Errorf("%w; stderr: %s", errors.New("exit status 1"), "Error: not logged in"), "", agent.ReasonSignIn},
+		{"hidden path", "claude", fmt.Errorf("sandbox hidden path %q holds a write path: %w", "/h/x", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"missing hidden path", "claude", fmt.Errorf("sandbox missing hidden path %q is inside a write folder: %w", "/h/x", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"lock path", "claude", fmt.Errorf("sandbox lock path %q is not a lock folder: %w", "/h/x", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"blocked path", "codex", fmt.Errorf("sandbox blocked path %q is not inside a write folder: %w", "/h/x", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"write", "codex", fmt.Errorf("sandbox write-file path %q is protected: %w", "/h/x", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"home sockets", "codex", fmt.Errorf("sandbox home sockets: %w", sandbox.ErrPolicy), "", agent.ReasonSandbox},
+		{"real policy error", "claude", realPolicyErr(), "", agent.ReasonSandbox},
 		{"plain agent error", "claude", errors.New("agent exited without a terminal result"), "Traceback: ValueError: bad input", agent.ReasonAgentError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,6 +65,33 @@ func TestFailReason(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := failReason(tc.current, "claude", signIn); got != tc.want {
 				t.Fatalf("failReason = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// realPolicyErr is what the sandbox returns for a lock path that would grant
+// the whole home folder, a message no text signature names.
+func realPolicyErr() error {
+	home, _ := os.MkdirTemp("", "classify-")
+	defer os.RemoveAll(home)
+	_, err := sandbox.Policy{Home: home, LockDirs: []string{home}}.Command(context.Background(), "true")
+	return err
+}
+
+// The agent package's reason is applied before the text is classified: a
+// specific one stays, a generic one gives way to the machine's cause.
+func TestResultFailureKeepsTheAgentPackagesReason(t *testing.T) {
+	sandboxText := errors.New("sandbox failed to start: exit status 71")
+	for _, tc := range []struct{ name, reason, want string }{
+		{"specific stays", agent.ReasonProviderNetwork, agent.ReasonProviderNetwork},
+		{"generic is classified", agent.ReasonAgentError, agent.ReasonSandbox},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := Report{Kind: "complete", FailureReason: agent.ReasonDoor}
+			failResult(&r, "claude", agent.Result{Err: sandboxText, Reason: tc.reason})
+			if r.Kind != "fail" || r.Error != sandboxText.Error() || r.FailureReason != tc.want {
+				t.Fatalf("report = %+v, want reason %q", r, tc.want)
 			}
 		})
 	}

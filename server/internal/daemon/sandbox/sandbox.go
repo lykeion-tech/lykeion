@@ -96,6 +96,22 @@ const sandboxExec = "/usr/bin/sandbox-exec"
 // mistaken for an exact loopback boundary.
 var ErrLoopbackOnlyUnsupported = errors.New("macOS cannot enforce service binding only to 127.0.0.1; hidden services are blocked")
 
+// ErrPolicy marks every error from building or starting a sandboxed command,
+// so callers can tell a fault of the machine's sandbox from the program's own.
+var ErrPolicy = errors.New("cannot build the sandbox")
+
+type policyError struct{ error }
+
+func (e policyError) Unwrap() []error { return []error{e.error, ErrPolicy} }
+
+// PolicyError marks err as a sandbox fault while keeping its text.
+func PolicyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return policyError{err}
+}
+
 // Command returns name with args wrapped in the platform's sandbox. A path
 // that cannot be expressed safely fails closed with an error.
 //
@@ -107,6 +123,11 @@ var ErrLoopbackOnlyUnsupported = errors.New("macOS cannot enforce service bindin
 // make the start fail.
 // A successful command must be paired with defer CloseCommand(cmd).
 func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	cmd, err := p.command(ctx, name, args...)
+	return cmd, PolicyError(err)
+}
+
+func (p Policy) command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
 	if err := p.validateNetwork(); err != nil {
 		return nil, err
 	}

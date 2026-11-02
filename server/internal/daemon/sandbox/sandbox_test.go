@@ -170,6 +170,10 @@ func TestRefusesPathsThatCannotBeExpressed(t *testing.T) {
 		if _, err := p.bwrapArgs("true"); err == nil {
 			t.Errorf("%s: bwrap args accepted %q", name, append(p.Write, p.Read...))
 		}
+		// The daemon tells a machine's sandbox fault from the agent's by this mark.
+		if _, err := p.Command(context.Background(), "true"); !errors.Is(err, ErrPolicy) {
+			t.Errorf("%s: command error %v is not a policy error", name, err)
+		}
 	}
 	// Two write folders may nest: a run's temp folder can sit in its study.
 	if _, err := (Policy{Home: home, Write: []string{study, mkdir(t, filepath.Join(study, "tmp"))}}).seatbeltProfile(); err != nil {
