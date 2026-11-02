@@ -248,7 +248,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer services.Stop()
-	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
+	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema, Env: []string{
 		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path,
 	}}
 	opts.Env = append(opts.Env, services.Env()...)
@@ -370,6 +370,29 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			}
 		}
 	}
+	// The hand-in follows only a turn that ended cleanly inside the fence.
+	var handInProblems []string
+	var handInErr error
+	if c.OutputSchema != "" && res.Err == nil && streamErr == nil && breach == "" && runCtx.Err() == nil {
+		// A resumed Claude turn counts its usage from the last turn's snapshot.
+		snapshot := res.ClaudeSnapshot
+		reask := func(p, resume string) agent.Result {
+			prompt, opts.Resume, opts.ClaudeBaseline = p, resume, snapshot
+			next, more, launchErr := execute()
+			if next.ClaudeSnapshot != nil {
+				snapshot = next.ClaudeSnapshot
+			}
+			streamErr = errors.Join(streamErr, more)
+			if next.Err == nil {
+				next.Err = errors.Join(launchErr, more)
+			}
+			if next.Err == nil && breach != "" {
+				next.Err = errFenceBreach
+			}
+			return next
+		}
+		res, handInProblems, handInErr = d.handIn(runCtx, c, res, reask, sink)
+	}
 	final = res
 	if final.Err == nil && streamErr != nil {
 		final.Err = streamErr
@@ -394,6 +417,15 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if !errors.As(streamErr, &oversized) {
 			localErr = streamErr
 		}
+	}
+	if handInErr != nil {
+		fail(handInErr)
+		if retryableControlLoss(handInErr) {
+			r.FailureReason = agent.ReasonRuntimeOffline
+		}
+	}
+	if len(handInProblems) > 0 {
+		r.Kind, r.FailureReason, r.Error = "fail", agent.ReasonHandInInvalid, strings.Join(handInProblems, "\n")
 	}
 	// A breach outranks whatever the stopped CLI reported; the text is for
 	// the person and never reaches the agent.

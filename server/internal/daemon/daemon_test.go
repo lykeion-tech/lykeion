@@ -53,6 +53,9 @@ type daemonFixture struct {
 	rejectMessages     atomic.Bool
 	messageCalls       atomic.Int32
 	attachmentGets     atomic.Int32
+	// intercept, when set, sees each request first and answers it by
+	// returning true.
+	intercept atomic.Pointer[func(http.ResponseWriter, *http.Request) bool]
 }
 
 func fixture(t *testing.T) *daemonFixture {
@@ -77,6 +80,9 @@ func fixture(t *testing.T) *daemonFixture {
 	f.h = h
 	t.Cleanup(h.MCPBroker.Close)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fn := f.intercept.Load(); fn != nil && (*fn)(w, r) {
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/prepare-lease") && f.refusePrepare.Swap(false) {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err != nil {
@@ -135,6 +141,16 @@ func fixture(t *testing.T) *daemonFixture {
 	f.cfg = Config{Server: srv.URL, Token: token.Token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test", Slots: 2, Poll: 40 * time.Millisecond, Heartbeat: 100 * time.Millisecond, Flush: 50 * time.Millisecond, Harnesses: map[string]string{"claude": fakeClaude(t)},
 		Preflight: func(context.Context, string) (string, string) { return "", "" }}
 	t.Cleanup(func() { _ = agent.RemoveTree(f.cfg.StateDir) })
+	// The fake CLIs give no real hand-in; tests of other things take it as accepted.
+	accept := func(w http.ResponseWriter, r *http.Request) bool {
+		if !strings.HasSuffix(r.URL.Path, "/hand-in") {
+			return false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"accepted":true}`))
+		return true
+	}
+	f.intercept.Store(&accept)
 	f.enqueue(t)
 	return f
 }
@@ -296,7 +312,7 @@ func TestSecondRunOnTheCardAndRoleResumesWithoutDoubleCharge(t *testing.T) {
 	argv, err := os.ReadFile(filepath.Join(f.cfg.Home, ".caches", "npm", "argv"))
 	must(t, err)
 	lines := strings.Split(strings.TrimSpace(string(argv)), "\n")
-	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.HasSuffix(lines[1], "--resume s") {
+	if len(lines) != 2 || strings.Contains(lines[0], "--resume") || !strings.Contains(lines[1]+" ", " --resume s ") {
 		t.Fatalf("invocations:\n%s", argv)
 	}
 	var cost float64

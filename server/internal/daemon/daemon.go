@@ -116,6 +116,11 @@ type claimed struct {
 	Services    []service.ClaimedService    `json:"services"`
 	// Skills are a Team member's own skills, placed where its CLI reads them.
 	Skills []toolroute.RoutedSkill `json:"skills"`
+	// OutputSchema is the schema the run's final answer, its hand-in, must
+	// fit; empty for a run that owes none. Lead marks the run that works its
+	// column through.
+	OutputSchema string `json:"output_schema"`
+	Lead         bool   `json:"lead"`
 }
 type daemon struct {
 	modelProbeMu       sync.Mutex
