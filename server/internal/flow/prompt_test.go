@@ -55,11 +55,35 @@ func TestExperimentationRunsAreToldToSaveOutputs(t *testing.T) {
 	if p := Protocol("auditor", "experimentation", "", nil); strings.Contains(p, put) {
 		t.Errorf("the auditor is told to save outputs:\n%s", p)
 	}
-	for _, col := range []string{"hypotheses", "validation"} {
-		for _, role := range []string{"leader", "agent", "auditor", "Curie"} {
-			if p := Protocol(role, col, "", nil); strings.Contains(p, put) {
-				t.Errorf("%s on %s is told to save outputs:\n%s", role, col, p)
+	for _, col := range []string{"grounding", "hypotheses"} {
+		for _, role := range []string{"leader", "agent", "Curie"} {
+			if p := Protocol(role, col, "", nil); !strings.Contains(p, put) || !strings.Contains(p, "never by a path in a run folder") || strings.Contains(p, install) {
+				t.Errorf("%s on %s is not told how files are kept, or is told to install:\n%s", role, col, p)
 			}
+		}
+	}
+	for _, role := range []string{"leader", "agent", "auditor", "Curie"} {
+		if p := Protocol(role, "validation", "", nil); strings.Contains(p, put) {
+			t.Errorf("%s on validation is told to save outputs:\n%s", role, p)
+		}
+	}
+}
+
+// Every hand-in role, the auditor included, is told the sources server's
+// tools by name, since find_tools lists only other connectors; the auditor
+// never passes an item it could not check.
+func TestHandInRolesAreToldTheSourcesTools(t *testing.T) {
+	for _, col := range []string{board.Grounding, board.Hypotheses, board.Experimentation} {
+		for _, role := range []string{"leader", "agent", "auditor", "Curie"} {
+			p := Protocol(role, col, "", nil)
+			for _, want := range []string{`"server": "sources"`, "search_literature", "fetch_text", "search_datasets", "open_dataset"} {
+				if !strings.Contains(p, want) {
+					t.Errorf("%s on %s is not told %q", role, col, want)
+				}
+			}
+		}
+		if p := Protocol("auditor", col, "", nil); !strings.Contains(p, "An item you could not check against a source is a concern, never a pass.") {
+			t.Errorf("the auditor on %s may pass an unchecked item:\n%s", col, p)
 		}
 	}
 }

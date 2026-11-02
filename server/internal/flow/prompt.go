@@ -117,13 +117,20 @@ const (
 		"A replacement with a different id or text is a new item, so also withdraw the old one. A sent-back item left unanswered fails again.\n"
 )
 
+// keptFiles tells every hand-in run how a file outlives it: the run folder is
+// cleared when the run ends, so files are kept in outputs/ and named, never
+// reached by a run-folder path.
+const keptFiles = "Leave any file you want kept, or want the leader or a later run to read, in `outputs/` in the run folder: it is saved when the run ends, and everything else is deleted. " +
+	"`read_output` reads a file saved earlier in this study, by its name; refer to a saved file by that name, never by a path in a run folder.\n"
+
+// sourcesTools names the sources server's tools, which find_tools does not list.
+const sourcesTools = "Literature and datasets come from Lykeion's sources server: `call_tool` with `\"server\": \"sources\"` and the tool `search_literature`, `fetch_text`, `search_datasets` or `open_dataset`.\n"
+
 // workOutputs tells an Experimentation run how its code runs and how the
 // files its scripts wrote are kept, since the run folder is cleared when the
 // run ends, and that the packages its code needs are its own to install.
 const workOutputs = "Run Python, R or Julia through `run_code` (a live session, for exploring) and `run_script` (a saved script run start to finish, for results), never through the shell: both run in the study's environment. " +
-	"Every reported number comes from a `run_script` run.\n" +
-	"Leave the files your results come from in `outputs/` in the run folder: they are saved when the run ends, and everything else is deleted. " +
-	"`read_output` reads a file saved earlier in this study, by its name.\n" +
+	"Every reported number comes from a `run_script` run, and the files your results come from go in `outputs/`.\n" +
 	"Install any package you need into the study's folder from your code runs, or with `set_up_environment`; it needs no approval.\n"
 
 // itemsPrompt describes the item fields of a column's hand-in, and what Jev
@@ -131,7 +138,7 @@ const workOutputs = "Run Python, R or Julia through `run_code` (a live session, 
 func itemsPrompt(column string) string {
 	switch column {
 	case board.Grounding:
-		return "- `papers`: each paper the column's answer rests on. `id` is `doi:` then the DOI, `arxiv:` then the arXiv id with no version suffix, or `pmid:` then the PubMed id, copied exactly as Lykeion's sources returned it; " +
+		return "- `papers`: each paper the column's answer rests on. `id` is `doi:` then the DOI, `arxiv:` then the arXiv id with no version suffix, or `pmid:` then the PubMed id, taken from a hit's `doi`, `pmid` or arXiv id exactly as Lykeion's sources returned it, never from a hit's own `openalex:` or `europepmc:` id, which a hand-in does not accept; " +
 			"`why` says what the paper contributes to the answer.\n" +
 			"- `datasets`: each dataset, by its `accession` (or an https link), with `why` it fits.\n" +
 			"- `no_qualifying`: when no source qualifies, say so here with the `reason` (what was searched and why nothing fits) instead of offering the nearest one; null otherwise.\n" +
@@ -166,6 +173,7 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 	"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
 	"Your final answer is your hand-in: `status` (`done`, or `could_not_do` with a `reason`), `answer` (your findings overall, in plain language), " +
 	"and `concerns`, one per problem: `item` names the item (its id, accession, hypothesis text, value name, or `outputs`) and `concern` says what is wrong. " +
+	"An item you could not check against a source is a concern, never a pass. " +
 	"Leave `replies` empty. You hand in no items and ask no members.\n"
 
 // Protocol is the skill text appended to an agent's instructions for its role
@@ -205,7 +213,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 		b.WriteString("\nHow you run the column:\n" +
 			"1. Decide the next task and give it to the member who fits it with `ask_member`. Say only what the member cannot read in the study for themselves.\n" +
 			"2. Wait for the result with `member_result`. It waits up to 10 minutes; while the member is still `working`, call it again. One member works at a time, so wait for one member's result before you ask the next.\n" +
-			"3. A member hands in the same fields you do. Copy the items you keep into your own hand-in, edited as needed: only your hand-in counts.\n" +
+			"3. A member hands in the same fields you do. Copy the items you keep into your own hand-in, edited as needed: only your hand-in counts. Pass a member's files on by their saved names (`read_output` reads them), never by a path in its run folder.\n" +
 			"4. When no member fits a task, do it yourself.\n" +
 			"5. When the column delivers what it must, end with your hand-in.\n\n")
 	case "agent":
@@ -218,10 +226,13 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 	if role != "auditor" {
 		b.WriteString(handInIntro + itemsPrompt(column))
 	}
-	if column == board.Experimentation && role != "auditor" {
-		b.WriteString("\n" + workOutputs)
+	if role != "auditor" {
+		b.WriteString("\n" + keptFiles)
 	}
-	b.WriteString("\nTo find a skill or database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
+	if column == board.Experimentation && role != "auditor" {
+		b.WriteString(workOutputs)
+	}
+	b.WriteString("\n" + sourcesTools + "To find a skill or another database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
 	return b.String()
 }
 
