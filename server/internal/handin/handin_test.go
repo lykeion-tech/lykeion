@@ -130,3 +130,17 @@ func TestHypothesisNeedsExactlyOneOfControlAndReason(t *testing.T) {
 		}
 	}
 }
+
+// A hypothesis missing its control is told every other problem in the same
+// re-ask, and a blank no_control is no reason at all.
+func TestHypothesisControlProblemDoesNotHideOthers(t *testing.T) {
+	raw := `{"status":"done","answer":"a","hypotheses":[{"text":"t","prediction_shape":"direction","direction":null,"outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":null,"no_control":"  ","cites":["r1"]}]}`
+	_, probs := Parse(Hypotheses, []byte(raw))
+	if len(probs) != 2 || probs[0] != "hypotheses 1: give either a control or the reason there is none" || !strings.Contains(probs[1], "direction") {
+		t.Errorf("%q", probs)
+	}
+	raw = `{"status":"done","answer":"a","hypotheses":[{"text":"t","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":null,"no_control":null,"cites":["r1"]}]}`
+	if _, probs = Parse(Hypotheses, []byte(raw)); len(probs) != 1 {
+		t.Errorf("the control problem is told twice: %q", probs)
+	}
+}

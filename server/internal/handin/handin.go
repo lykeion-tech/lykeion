@@ -177,13 +177,14 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(within(n.Reason, 2000), "no_qualifying: reason must be 1 to 2000 characters")
 	}
 	for i, x := range h.Hypotheses {
-		if (deref(x.Control) != "") == (deref(x.NoControl) != "") {
-			probs = append(probs, fmt.Sprintf("hypotheses %d: give either a control or the reason there is none", i+1))
-			continue
-		}
+		// The control problem is told in the hand-in's own words; review's
+		// version of it is dropped, and any other problem is still told.
+		badControl := (strings.TrimSpace(deref(x.Control)) != "") == (strings.TrimSpace(deref(x.NoControl)) != "")
+		add(!badControl, "hypotheses %d: give either a control or the reason there is none", i+1)
 		b, _ := json.Marshal(x.Body(x.Cites))
 		if err := review.Validate(review.KindHypothesis, board.Hypotheses, b); err != nil {
-			probs = append(probs, fmt.Sprintf("hypotheses %d: %s", i+1, strings.TrimPrefix(err.Error(), "hypothesis: ")))
+			msg := strings.TrimPrefix(err.Error(), "hypothesis: ")
+			add(badControl && strings.HasPrefix(msg, "control "), "hypotheses %d: %s", i+1, msg)
 		}
 	}
 	add(len(h.Outputs) <= 50, "outputs: list at most 50 file names")
