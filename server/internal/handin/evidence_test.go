@@ -96,3 +96,23 @@ func TestEvidenceCountsEarlierColumn(t *testing.T) {
 		t.Error("a Hypotheses paper is not Grounding")
 	}
 }
+
+// A sources answer names a paper's PubMed id in its pmid field; a hand-in
+// names it pmid:N. Neither a shorter number nor a bare number in an answer
+// counts.
+func TestEvidenceFindsPubMedIdsInCallAnswers(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Grounding, "call", "c1", map[string]any{"answer": `{"results":[{"id":"europepmc:MED:35872898","pmid":"35872898","title":"x"}]}`}),
+		rec(board.Grounding, "call", "c2", map[string]any{"answer": `cohort of 4242 mice`}),
+	})
+	for _, id := range []string{"pmid:35872898", "PMID:35872898"} {
+		if s := e.Sources(id); len(s) != 1 || s[0] != "call:c1" {
+			t.Errorf("%s: %v", id, s)
+		}
+	}
+	for _, id := range []string{"pmid:3587289", "pmid:4242"} {
+		if s := e.Sources(id); s != nil {
+			t.Errorf("%s found in %v", id, s)
+		}
+	}
+}

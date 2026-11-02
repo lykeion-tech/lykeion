@@ -39,6 +39,11 @@ func NormID(s string) string {
 	return s
 }
 
+// pmidField is a "pmid" field of a sources hit in a call's answer. Its number
+// is indexed as pmid:N only there, so a bare number elsewhere in an answer
+// never counts as a PubMed id.
+var pmidField = regexp.MustCompile(`"pmid"\s*:\s*"?(\d{1,9})\b`)
+
 // arxivVersion is the vN a hand-in may add to an arXiv id.
 var arxivVersion = regexp.MustCompile(`v[0-9]+$`)
 
@@ -98,6 +103,9 @@ func NewEvidence(recs []db.Record) Evidence {
 			ref := "call:" + r.Key
 			for _, t := range tokens(b.Answer) {
 				e.add(t, ref)
+			}
+			for _, m := range pmidField.FindAllStringSubmatch(b.Answer, -1) {
+				e.add("pmid:"+m[1], ref)
 			}
 		case "search":
 			for _, id := range b.Results {
