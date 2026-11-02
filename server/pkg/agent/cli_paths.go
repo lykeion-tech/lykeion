@@ -21,6 +21,8 @@ type CLIPaths struct {
 	WriteData  []string
 	// WriteFiles permits creation and replacement of these exact filenames.
 	WriteFiles []string
+	// LockDirs are exact lock folders the CLI creates and removes.
+	LockDirs []string
 	// WriteSQLite permits numeric-version SQLite stores and their side files.
 	WriteSQLite []string
 	Blocked     []string
@@ -86,6 +88,10 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 		if goos == "linux" {
 			p.WriteData = []string{filepath.Join(home, ".credentials.json")}
 		}
+		// Claude takes these lock folders before refreshing its sign-in, and
+		// without them it keeps the expired token. The second is the legacy
+		// lock beside the home, named after it.
+		p.LockDirs = []string{filepath.Join(home, ".oauth_refresh.lock"), home + ".lock"}
 		// The person's own instructions, customizations and prompt history
 		// stay unreadable; the sign-in stays. As for Codex, only existing
 		// entries are listed.

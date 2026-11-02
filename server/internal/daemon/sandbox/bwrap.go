@@ -25,7 +25,7 @@ func (p Policy) bwrapArgs(name string, args ...string) ([]string, error) {
 	if err := p.validateNetwork(); err != nil {
 		return nil, err
 	}
-	if len(p.WriteFiles) != 0 || len(p.WriteSQLite) != 0 {
+	if len(p.WriteFiles) != 0 || len(p.WriteSQLite) != 0 || len(p.LockDirs) != 0 {
 		return nil, fmt.Errorf("exact file lifecycle grants are unsupported on Linux")
 	}
 	r, err := p.resolve()

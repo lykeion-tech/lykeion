@@ -50,6 +50,11 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		return sandbox.Policy{}, err
 	}
 	p := sandbox.Policy{Home: home, HomeRead: true, Write: append([]string{d.cacheDir()}, cli.Write...), WriteData: cli.WriteData, WriteFiles: cli.WriteFiles, WriteSQLite: cli.WriteSQLite, Blocked: cli.Blocked, Keychain: cli.Keychain}
+	// bubblewrap cannot grant a path that does not exist yet without opening
+	// its whole folder, so on Linux the lock folders stay closed.
+	if runtime.GOOS == "darwin" {
+		p.LockDirs = cli.LockDirs
+	}
 	cache := d.runCacheDir(guest)
 	if guest != "" {
 		harness := filepath.Base(cli.ConfigHome)

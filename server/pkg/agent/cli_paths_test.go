@@ -162,3 +162,20 @@ func TestClaudeSandboxHidesPersonalFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeGetsRefreshLocks(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		h := filepath.Join(t.TempDir(), ".claude")
+		p, err := SandboxPaths("claude", h, "/r", "", goos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{filepath.Join(h, ".oauth_refresh.lock"), filepath.Join(filepath.Dir(h), ".claude.lock")}
+		if !slices.Equal(p.LockDirs, want) {
+			t.Errorf("%s: lock dirs %v, want %v", goos, p.LockDirs, want)
+		}
+		if _, err := os.Lstat(want[0]); !os.IsNotExist(err) {
+			t.Errorf("%s: lock pre-created", goos)
+		}
+	}
+}

@@ -38,9 +38,13 @@ func TestCLIPolicyShape(t *testing.T) {
 		}
 	}
 	d := &daemon{cfg: Config{Home: scratch, StateDir: filepath.Join(home, "state")}}
-	p, err := d.cliPolicy(run, nil, false, agent.CLIPaths{Keychain: true})
+	lock := filepath.Join(home, ".claude.lock")
+	p, err := d.cliPolicy(run, nil, false, agent.CLIPaths{Keychain: true, LockDirs: []string{lock}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if (runtime.GOOS == "darwin") != slices.Contains(p.LockDirs, lock) {
+		t.Fatalf("lock dirs %v on %s", p.LockDirs, runtime.GOOS)
 	}
 	if !p.HomeRead || !p.Keychain || !slices.Contains(p.Write, run) || !slices.Contains(p.RestrictedRoots, scratch) || !slices.Contains(p.Hidden, filepath.Join(home, ".ssh")) {
 		t.Fatalf("policy %+v", p)
@@ -694,5 +698,37 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	}
 	if err := probe(filepath.Join(codex, "config.toml")); err != nil {
 		t.Errorf("study run cannot read the account's config.toml: %v", err)
+	}
+}
+
+func TestCLISandboxClaudeTakesRefreshLocks(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("lock folders are granted on macOS only")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk-config.json"))
+	scratch := t.TempDir()
+	run := filepath.Join(scratch, "run")
+	claude := filepath.Join(home, ".claude")
+	must(t, os.MkdirAll(run, 0700))
+	must(t, os.MkdirAll(claude, 0700))
+	paths, err := agent.SandboxPaths("claude", claude, run, "", runtime.GOOS)
+	must(t, err)
+	paths.Keychain = false
+	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+	sh := func(script string) error {
+		cmd, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/sh", "-c", script)
+		must(t, err)
+		cmd.Dir = run
+		return cmd.Run()
+	}
+	for _, lock := range []string{filepath.Join(claude, ".oauth_refresh.lock"), filepath.Join(home, ".claude.lock")} {
+		if err := sh("mkdir '" + lock + "' && rmdir '" + lock + "' && mkdir '" + lock + "' && rmdir '" + lock + "'"); err != nil {
+			t.Errorf("lock %s denied: %v", lock, err)
+		}
+	}
+	if sh("mkdir '"+filepath.Join(claude, "other.lock")+"'") == nil {
+		t.Error("sibling of the refresh lock was writable")
 	}
 }

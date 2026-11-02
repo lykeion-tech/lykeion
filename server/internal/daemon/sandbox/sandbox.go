@@ -69,6 +69,10 @@ type Policy struct {
 	WriteData []string
 	// WriteFiles grants lifecycle operations on exact filenames (macOS only).
 	WriteFiles []string
+	// LockDirs are exact folder paths the process may create, fill and
+	// remove, again and again (macOS only). Each may be absent or an existing
+	// folder, never a link; nothing beside it opens.
+	LockDirs []string
 	// WriteSQLite grants numeric-version SQLite stores directly in these folders.
 	WriteSQLite []string
 	// Keychain allows the macOS Keychain services.
@@ -186,7 +190,7 @@ type resolved struct {
 	home                           string
 	write, read, readOnly, hidden  []string
 	blocked, writeData, writeFiles []string
-	writeSQLite                    []string
+	writeSQLite, lockDirs          []string
 	restricted                     []string
 	carved                         []string
 	lateReadOnly                   []string
@@ -291,7 +295,7 @@ func (p Policy) resolve() (resolved, error) {
 		if !fi.IsDir() || h.inside(c) {
 			return resolved{}, fmt.Errorf("sandbox restricted root %q is not a proper directory outside the home root", raw)
 		}
-		for _, grant := range slices.Concat(r.read, r.write, p.WriteData, p.WriteFiles, p.WriteSQLite) {
+		for _, grant := range slices.Concat(r.read, r.write, p.WriteData, p.WriteFiles, p.WriteSQLite, p.LockDirs) {
 			// File grants are resolved below; spelling checks still run there.
 			if isAtOrUnder(c, grant) {
 				return resolved{}, fmt.Errorf("sandbox grant %q would reopen restricted root %q", grant, raw)
@@ -397,6 +401,28 @@ func (p Policy) resolve() (resolved, error) {
 		}
 		r.writeFiles = append(r.writeFiles, c)
 	}
+	// A lock folder is never created here: one that exists looks held.
+	for _, raw := range p.LockDirs {
+		parent, err := r.policyPath(filepath.Dir(raw), h)
+		if err != nil {
+			return resolved{}, err
+		}
+		if err := checkSpelling(raw); err != nil {
+			return resolved{}, err
+		}
+		c := filepath.Join(parent, filepath.Base(raw))
+		if fi, err := os.Lstat(c); err == nil && (!fi.IsDir() || h.inside(c)) {
+			return resolved{}, fmt.Errorf("sandbox lock path %q is not a lock folder", raw)
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return resolved{}, err
+		}
+		for _, protected := range slices.Concat(r.blocked, r.readOnly, r.lateReadOnly) {
+			if isAtOrUnder(c, protected) {
+				return resolved{}, fmt.Errorf("sandbox lock path %q is protected", raw)
+			}
+		}
+		r.lockDirs = append(r.lockDirs, c)
+	}
 	for _, raw := range p.WriteData {
 		c, err := r.policyPath(raw, h)
 		if err != nil {
@@ -420,7 +446,7 @@ func (p Policy) resolve() (resolved, error) {
 		if slices.Contains(r.carved, root) {
 			continue
 		}
-		for _, grant := range slices.Concat(r.writeData, r.writeFiles, r.writeSQLite) {
+		for _, grant := range slices.Concat(r.writeData, r.writeFiles, r.writeSQLite, r.lockDirs) {
 			if isAtOrUnder(root, grant) {
 				return resolved{}, fmt.Errorf("sandbox grant %q would reopen restricted root %q", grant, root)
 			}
@@ -439,7 +465,7 @@ func (p Policy) resolve() (resolved, error) {
 						return resolved{}, fmt.Errorf("sandbox missing hidden path %q is inside a write folder", raw)
 					}
 				}
-				for _, file := range r.writeFiles {
+				for _, file := range slices.Concat(r.writeFiles, r.lockDirs) {
 					if isAtOrUnder(file, missing) {
 						return resolved{}, fmt.Errorf("sandbox missing hidden path %q holds a writable file", raw)
 					}
@@ -457,7 +483,7 @@ func (p Policy) resolve() (resolved, error) {
 			return resolved{}, err
 		}
 		if c != h.path {
-			for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite) {
+			for _, w := range slices.Concat(r.write, r.writeData, r.writeFiles, r.writeSQLite, r.lockDirs) {
 				if isAtOrUnder(w, c) {
 					return resolved{}, fmt.Errorf("sandbox hidden path %q holds a write path", raw)
 				}

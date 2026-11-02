@@ -91,7 +91,7 @@ func (p Policy) seatbeltProfile() (string, error) {
 	meta := []string{"allow file-read-metadata", `(literal "/etc")`, `(literal "/tmp")`, `(literal "/var")`}
 	seen := map[string]bool{}
 	dirs := []string{"/opt/homebrew", "/private/var/db/timezone", "/private/var/select/sh"}
-	paths := slices.Concat(dirs, r.read, r.write, r.writeData, r.writeFiles, r.writeSQLite, r.carved)
+	paths := slices.Concat(dirs, r.read, r.write, r.writeData, r.writeFiles, r.writeSQLite, r.lockDirs, r.carved)
 	if p.HomeRead {
 		paths = append(paths, r.home)
 	}
@@ -138,6 +138,11 @@ func (p Policy) seatbeltProfile() (string, error) {
 	}
 	for _, file := range r.writeFiles {
 		rule("allow file-read* file-write* (literal " + sbplString(file) + ")")
+	}
+	// A lock folder's subpath matches the folder itself, so it can be made,
+	// filled and removed; its siblings stay closed.
+	for _, dir := range r.lockDirs {
+		rule("allow file-read* file-write* (subpath " + sbplString(dir) + ")")
 	}
 	for _, file := range r.writeData {
 		rule("allow file-read* (literal " + sbplString(file) + ")")
