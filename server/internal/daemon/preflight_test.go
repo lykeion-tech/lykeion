@@ -34,7 +34,7 @@ const (
 	// isolatedHello checks the hello runs as a study run does: in the
 	// sandbox, with the door as its MCP server and no person's token.
 	isolatedHello = `case "$LYK_TOKEN" in lyk_*) exit 8;; esac
-[ -n "$LYK_DOOR_TOKEN" ] || exit 7
+[ -z "$LYK_DOOR_TOKEN" ] || exit 7
 grep -q lyk_door .lyk-mcp.json || exit 6
 touch "$HOME/escaped" 2>/dev/null && exit 9
 IFS= read -r first

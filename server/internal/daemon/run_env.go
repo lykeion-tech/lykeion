@@ -33,3 +33,30 @@ func runPath() (string, error) {
 	}
 	return lyk + string(os.PathListSeparator) + os.Getenv("PATH"), nil
 }
+
+// cliEnv is the environment a study run's CLI starts with. A hand-in run
+// answers in its final message and the daemon posts it, so its CLI holds no
+// token, server address, config path or lyk on its PATH.
+func cliEnv(handIn bool, token, server, dir string) ([]string, error) {
+	if handIn {
+		return []string{"PATH=" + os.Getenv("PATH")}, nil
+	}
+	path, err := runPath()
+	if err != nil {
+		return nil, err
+	}
+	return []string{"LYK_TOKEN=" + token, "LYK_SERVER=" + server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path}, nil
+}
+
+// doorEnv is what the CLI needs to reach the door. Claude Code carries the
+// door's token in its MCP config; Codex reads it from the environment, so a
+// Codex hand-in run gets that one variable and nothing else.
+func doorEnv(handIn bool, harness string, door *Door) []string {
+	if handIn {
+		if harness == "codex" {
+			return []string{"LYK_DOOR_TOKEN=" + door.Token}
+		}
+		return nil
+	}
+	return []string{"LYK_DOOR=" + door.URL, "LYK_DOOR_TOKEN=" + door.Token}
+}

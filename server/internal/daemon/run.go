@@ -238,20 +238,20 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		study = envs.ForStudy(d.bases, studyDir)
 		study.PythonVersion = c.PythonVersion
 	}
-	path, err := runPath()
-	if err != nil {
-		fail(err)
-		return nil
-	}
 	services, err := d.startServices(runCtx, c, study, guest != "")
 	if err != nil {
 		fail(err)
 		return nil
 	}
 	defer services.Stop()
-	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema, Env: []string{
-		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path,
-	}}
+	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
+	if c.OutputSchema == "" {
+		opts.MCPToken = c.Token
+	}
+	if opts.Env, err = cliEnv(c.OutputSchema != "", c.Token, d.cfg.Server, dir); err != nil {
+		fail(err)
+		return nil
+	}
 	opts.Env = append(opts.Env, services.Env()...)
 	opts.CacheDir = d.runCacheDir(guest)
 	if guest != "" {
@@ -279,7 +279,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Guest: guest != "", Leader: c.Leader, Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)
@@ -292,7 +292,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	defer door.Close()
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
-	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
+	opts.Env = append(opts.Env, doorEnv(c.OutputSchema != "", c.AgentRun.Harness, door)...)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
 		fail(err)
 		return nil

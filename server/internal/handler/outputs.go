@@ -233,6 +233,40 @@ func (h *H) downloadOutput(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// roleOutputByName streams the newest of the run's study's outputs saved
+// under the name in the query.
+func (h *H) roleOutputByName(w http.ResponseWriter, r *http.Request) {
+	name, err := cleanOutputName(r.URL.Query().Get("name"))
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	var rec db.Record
+	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		recs, err := tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, Kind: "output"})
+		if err != nil {
+			return err
+		}
+		err = storage.ErrNotFound
+		// Oldest first: the last match is the newest.
+		for _, c := range recs {
+			var meta struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(c.Body, &meta) == nil && meta.Name == name {
+				rec, err = c, nil
+			}
+		}
+		return err
+	})
+	if err == nil {
+		err = h.serveOutput(w, r, rec, func(rd io.Reader) io.Reader { return roleBlobReader{r.Context(), rd} })
+	}
+	if err != nil {
+		roleError(w, r, err)
+	}
+}
+
 // roleOutput streams one of the run's own study's outputs to its daemon.
 func (h *H) roleOutput(w http.ResponseWriter, r *http.Request) {
 	var rec db.Record

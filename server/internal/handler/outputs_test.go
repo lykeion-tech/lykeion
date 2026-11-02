@@ -11,6 +11,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -452,5 +453,52 @@ func TestDeletingAStudyDeletesItsRunOverflow(t *testing.T) {
 		if l.stored(k) {
 			t.Fatalf("%s outlived its study", k)
 		}
+	}
+}
+
+func TestReadOutputByName(t *testing.T) {
+	l := newTeamLab(t, 0)
+	leader := l.claim(t)
+	for _, size := range []int64{300, 500} {
+		if code, out := l.postOutput(t, leader.token, "results/a.txt", size, nil); code != 201 {
+			t.Fatalf("upload %d %v", code, out)
+		}
+	}
+	if code, out := l.postOutput(t, leader.token, "b.txt", 40, nil); code != 201 {
+		t.Fatalf("upload %d %v", code, out)
+	}
+	byName := func(tok, name string) (int, []byte) {
+		return l.s.blobRequest(t, "GET", "/api/role/outputs/by-name?name="+url.QueryEscape(name), tok, nil)
+	}
+	if code, body := byName(leader.token, "results/a.txt"); code != 200 || len(body) != 500 {
+		t.Fatalf("newest of two: %d, %d bytes", code, len(body))
+	}
+	if code, body := byName(leader.token, "b.txt"); code != 200 || len(body) != 40 {
+		t.Fatalf("the other file: %d, %d bytes", code, len(body))
+	}
+	if code, _ := byName(leader.token, "missing.txt"); code != 404 {
+		t.Fatalf("no such name: %d", code)
+	}
+	for _, bad := range []string{"", "../a.txt", "/etc/passwd", "a\\b"} {
+		if code, _ := byName(leader.token, bad); code != 400 {
+			t.Fatalf("name %q: %d, want 400", bad, code)
+		}
+	}
+	l.complete(t, leader)
+	// Another study's run holds none of this study's names.
+	var second card
+	if c := l.s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "Why else?",
+		"assignee": teamAssignee(map[string]string{"hypotheses": l.team})}, &second); c != 201 {
+		t.Fatalf("second study: %d", c)
+	}
+	var other teamRun
+	for i := 0; i < 3; i++ {
+		other = l.claim(t)
+		if l.s.count(t, "SELECT count(*) FROM agent_run WHERE id = $1 AND card_id = $2", other.id, second.ID) == 1 {
+			break
+		}
+	}
+	if code, _ := byName(other.token, "b.txt"); code != 404 {
+		t.Fatalf("another study's run: %d", code)
 	}
 }

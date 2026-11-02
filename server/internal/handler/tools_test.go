@@ -137,3 +137,20 @@ func TestNothingQualifyingTellsTheResearcher(t *testing.T) {
 		t.Fatalf("%d no_tool items after an outage, want still three", n)
 	}
 }
+
+func TestFindToolsRaisesNoInbox(t *testing.T) {
+	l := newTeamLabWith(t, testutil.PackOpts{Name: "hyp", Stage: "hypotheses", Members: 1, Catalogue: map[string][]string{"pi": {"uniprot"}}})
+	j, _ := noulJev(t, 0.1)
+	l.s.H.Engine.Jev = j
+	leader := l.claim(t)
+	var out toolsOut
+	if c := l.s.call(t, "POST", "/api/role/tools", leader.token, "", map[string]any{"need": "run a cryo-EM reconstruction", "notify": false}, &out); c != 200 {
+		t.Fatalf("tools: %d %s", c, out.Error)
+	}
+	if len(out.Skills)+len(out.Tools) != 0 {
+		t.Fatalf("routed %+v", out)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'no_tool'", l.card.ID); n != 0 {
+		t.Fatalf("%d no_tool items for a search that asked for none", n)
+	}
+}

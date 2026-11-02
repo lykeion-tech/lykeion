@@ -312,6 +312,8 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Need           string                      `json:"need"`
 		ConnectorTools map[string][]toolroute.Tool `json:"connector_tools"`
+		// Notify false looks for tools without telling the owner when none fit.
+		Notify *bool `json:"notify"`
 	}
 	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Need) == "" {
 		writeErr(w, 400, "need required")
@@ -436,7 +438,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			if _, err := records.WriteAs(r.Context(), tx, wr, "tools", map[string]any{"need": in.Need, "skills": skills, "tools": tools, "judged": res.Judged}); err != nil {
 				return err
 			}
-			if !res.Empty() {
+			if !res.Empty() || in.Notify != nil && !*in.Notify {
 				return nil
 			}
 			open, err := tx.Q.CountOpenNoTool(r.Context(), db.CountOpenNoToolParams{WorkspaceID: tx.WS, CardID: role.CardID, Need: in.Need})

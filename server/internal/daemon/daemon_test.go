@@ -168,9 +168,13 @@ func fakeClaude(t *testing.T) string {
 	p := filepath.Join(os.Getenv("HOME"), "fake-bin", "claude")
 	must(t, os.MkdirAll(filepath.Dir(p), 0700))
 	must(t, os.WriteFile(p, []byte(`#!/bin/sh
+case "$*" in
+*--json-schema*) [ -z "$LYK_TOKEN$LYK_SERVER$LYK_CONFIG$LYK_DOOR$LYK_DOOR_TOKEN" ] || exit 48;;
+*)
 case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
 case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
-[ ! -f "$LYK_CONFIG" ] || [ "$(cat "$LYK_CONFIG")" = '{}' ] || exit 43
+[ ! -f "$LYK_CONFIG" ] || [ "$(cat "$LYK_CONFIG")" = '{}' ] || exit 43;;
+esac
 mkdir -p "$npm_config_cache"
 printf '%s\n' "$*" >> "$npm_config_cache/argv"
 project="$CLAUDE_CONFIG_DIR/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"

@@ -675,7 +675,7 @@ func TestTheCallTokenNeverReachesTheCLI(t *testing.T) {
 	must(t, err)
 	cfg, err := os.ReadFile(filepath.Join(seen, "mcp"))
 	must(t, err)
-	if !strings.Contains(string(env), "LYK_DOOR_TOKEN=") || !strings.Contains(string(cfg), `"lyk_door"`) {
+	if !strings.Contains(string(cfg), `"lyk_door"`) {
 		t.Fatalf("the CLI was not given the door: %s", cfg)
 	}
 	var calls int
@@ -685,8 +685,9 @@ func TestTheCallTokenNeverReachesTheCLI(t *testing.T) {
 	}
 	// every run token the CLI can see is checked against what it may do
 	tokens := regexp.MustCompile(`ltk_[A-Za-z0-9_-]+`).FindAllString(string(env)+string(cfg), -1)
-	if len(tokens) == 0 {
-		t.Fatal("no run token reached the CLI")
+	// a hand-in run's CLI holds no run token at all: it has no lyk to use it
+	if len(tokens) != 0 || strings.Contains(string(env), "LYK_TOKEN=") {
+		t.Fatalf("a run token reached the CLI: %v", tokens)
 	}
 	for _, tok := range tokens {
 		var scopes []string

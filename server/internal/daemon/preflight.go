@@ -131,7 +131,7 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		return agent.ReasonDoor, err.Error()
 	}
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
-	opts.Env = append(opts.Env, "LYK_DOOR="+door.URL, "LYK_DOOR_TOKEN="+door.Token)
+	opts.Env = append(opts.Env, doorEnv(true, harness, door)...)
 
 	backend, err := d.cfg.NewBackend(harness, bin)
 	if err != nil {

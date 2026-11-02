@@ -88,6 +88,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/blobs/{sha}", h.getBlob)
 			r.Get("/attachments/{id}", h.roleAttachment)
 			r.Post("/outputs", h.uploadOutput)
+			r.Get("/outputs/by-name", h.roleOutputByName)
 			r.Get("/outputs/{key}", h.roleOutput)
 		})
 		// Only the daemon's tool door holds a call token; the agent's cannot record.

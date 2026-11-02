@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -75,6 +77,9 @@ type Door struct {
 	// Leader offers ask_member and member_result: the run is a Team
 	// leader's, which delegates to its members.
 	Leader bool
+	// HandIn offers read_output and find_tools: the run's CLI has no lyk, so
+	// the door answers what lyk output and lyk tools did.
+	HandIn bool
 	// MemberWait is how long one member_result call waits for the member,
 	// and MemberPoll how often it asks the server; 0 means 10 minutes and
 	// 5 seconds.
@@ -174,6 +179,10 @@ func (d *Door) Start() error {
 		mcp.AddTool(srv, &mcp.Tool{Name: "run_code", Description: runCodeDescription}, d.runCode)
 		mcp.AddTool(srv, &mcp.Tool{Name: "run_script", Description: runScriptDescription}, d.runScript)
 		mcp.AddTool(srv, &mcp.Tool{Name: "set_up_environment", Description: setupDescription}, d.setUp)
+		if d.HandIn {
+			mcp.AddTool(srv, &mcp.Tool{Name: "read_output", Description: readOutputDescription}, d.readOutput)
+			mcp.AddTool(srv, &mcp.Tool{Name: "find_tools", Description: findToolsDescription}, d.findTools)
+		}
 		if d.Leader {
 			mcp.AddTool(srv, &mcp.Tool{Name: "ask_member", Description: askMemberDescription}, d.askMember)
 			mcp.AddTool(srv, &mcp.Tool{Name: "member_result", Description: memberResultDescription}, d.memberResult)
@@ -582,8 +591,22 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "need required", http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), toolsTimeout)
+	res, status, err := d.route(r.Context(), in.Need, !d.HandIn)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+// route lists the run's servers' tools and asks the server which skills and
+// tools fit the need. When notify is false the server raises no Inbox item
+// for a need nothing fits.
+func (d *Door) route(ctx context.Context, need string, notify bool) (toolroute.Result, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, toolsTimeout)
 	defer cancel()
+	var res toolroute.Result
 	listed := map[string][]toolroute.Tool{}
 	for _, c := range d.Connectors {
 		if c.Catalogue != "" {
@@ -607,30 +630,97 @@ func (d *Door) tools(w http.ResponseWriter, r *http.Request) {
 			if disabledWorkspaceConnector(err) {
 				continue
 			}
-			http.Error(w, "workspace connector tools unavailable", http.StatusBadGateway)
-			return
+			return res, http.StatusBadGateway, errors.New("workspace connector tools unavailable")
 		}
 		listed[c.Name] = tools
 	}
-	var res toolroute.Result
 	api := &apiclient.Client{Server: d.Server, Token: d.RunToken, HTTP: &http.Client{Timeout: toolsTimeout}}
-	if err := api.Do(ctx, "POST", "/api/role/tools", map[string]any{"need": in.Need, "connector_tools": listed}, &res); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+	if err := api.Do(ctx, "POST", "/api/role/tools", map[string]any{"need": need, "connector_tools": listed, "notify": notify}, &res); err != nil {
+		return res, http.StatusBadGateway, err
 	}
-	{
-		o := d.Child()
-		for _, s := range res.Skills {
-			if err := placeRouted(d.Harness, o.Dir, s); err != nil {
-				slog.Warn("write a routed skill", "skill", s.Name, "err", err)
-			}
+	o := d.Child()
+	for _, s := range res.Skills {
+		if err := placeRouted(d.Harness, o.Dir, s); err != nil {
+			slog.Warn("write a routed skill", "skill", s.Name, "err", err)
 		}
 	}
 	for i := range res.Skills {
 		res.Skills[i].Folder = nil
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	return res, 0, nil
+}
+
+const (
+	findToolsDescription  = "Find the skills and connector tools that fit a need. Answers the matches; call a tool with call_tool. Nothing fitting is a plain answer, not an error."
+	readOutputDescription = "Read a file saved earlier in this study by its name, as it was saved: the newest one of that name. Text comes back whole; a binary or very large file answers only its name, size and type."
+	// maxReadOutput is the largest output read_output returns inline.
+	maxReadOutput = 256 << 10
+)
+
+type findToolsIn struct {
+	Need string `json:"need" jsonschema:"what you need to do, in a sentence"`
+}
+
+type readOutputIn struct {
+	Name string `json:"name" jsonschema:"the file's name, as saved: its path relative to the run folder"`
+}
+
+func (d *Door) findTools(ctx context.Context, _ *mcp.CallToolRequest, in findToolsIn) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(in.Need) == "" {
+		return nil, nil, errors.New("need required")
+	}
+	res, _, err := d.route(ctx, in.Need, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	b, err := json.Marshal(res)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+}
+
+// readOutput answers one of the study's saved files: text inline, anything
+// binary or large as its name, size and type.
+func (d *Door) readOutput(ctx context.Context, _ *mcp.CallToolRequest, in readOutputIn) (*mcp.CallToolResult, any, error) {
+	ctx, cancel := d.runContext(ctx)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(d.Server, "/")+"/api/role/outputs/by-name?name="+url.QueryEscape(in.Name), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+d.RunToken)
+	resp, err := (&http.Client{Timeout: callTimeout}).Do(req)
+	if err != nil {
+		return nil, nil, errors.New("outputs unavailable; try again")
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, nil, fmt.Errorf("no file named %q was saved in this study", in.Name)
+	case resp.StatusCode == http.StatusBadRequest:
+		return nil, nil, errors.New("a file's name is its path relative to the run folder, with no .. segment, backslash or NUL")
+	case resp.StatusCode != http.StatusOK:
+		return nil, nil, errors.New("outputs unavailable; try again")
+	}
+	typ := resp.Header.Get("Content-Type")
+	var data []byte
+	if textual(typ) && resp.ContentLength <= maxReadOutput {
+		if data, err = io.ReadAll(io.LimitReader(resp.Body, maxReadOutput+1)); err != nil {
+			return nil, nil, errors.New("outputs unavailable; try again")
+		}
+	}
+	if data != nil && len(data) <= maxReadOutput && utf8.Valid(data) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil, nil
+	}
+	b, _ := json.Marshal(map[string]any{"name": in.Name, "size_bytes": resp.ContentLength, "content_type": typ, "note": "this file is binary or too large to show"})
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+}
+
+// textual says whether a content type names text a model can read.
+func textual(typ string) bool {
+	m, _, err := mime.ParseMediaType(typ)
+	return err == nil && (strings.HasPrefix(m, "text/") || strings.Contains(m, "json") || strings.HasSuffix(m, "+xml") || m == "application/xml" || m == "application/x-ndjson" || m == "application/yaml")
 }
 
 // list is a server's tools, by name and description.
