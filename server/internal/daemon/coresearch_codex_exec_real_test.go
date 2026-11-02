@@ -183,3 +183,65 @@ func TestRealCoresearchCodexIgnoresUninitializedOrStaleBundledSkills(t *testing.
 		})
 	}
 }
+
+func TestRealCodexStudyRunResumesWithIsolationFlags(t *testing.T) {
+	if os.Getenv("LYK_TEST_SKILLS_REAL") != "1" {
+		t.Skip("opt-in installed CLI offline transport")
+	}
+	bin, err := exec.LookPath("codex")
+	must(t, err)
+	root := t.TempDir()
+	run := filepath.Join(root, "study")
+	account := filepath.Join(cliAccountFixture(t), ".codex")
+	must(t, os.MkdirAll(run, 0700))
+	must(t, os.MkdirAll(account, 0700))
+	t.Setenv("CODEX_HOME", account)
+	must(t, os.WriteFile(filepath.Join(account, "AGENTS.md"), []byte("USER-CUSTOM-INSTRUCTIONS"), 0600))
+	requests := make(chan []byte, 4)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
+		if err != nil {
+			t.Error(err)
+		}
+		select {
+		case requests <- b:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"offline fixture; no model invoked","type":"invalid_request_error","code":"fixture"}}`))
+	}))
+	defer upstream.Close()
+	d := &daemon{cfg: Config{Home: filepath.Join(root, "daemon")}}
+	var resume string
+	for turn := 0; turn < 2; turn++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		opts := agent.ExecOptions{Dir: run, ConfigHome: account, Model: "gpt-fixture", Resume: resume, Env: []string{"STUDY_FIXTURE_KEY=offline"}}
+		opts.Sandbox = func(ctx context.Context, p agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
+			extra := []string{"-c", `model_provider="offline_fixture"`, "-c", `model_providers.offline_fixture.name="Offline fixture"`, "-c", "model_providers.offline_fixture.base_url=" + string(offlineProviderJSON(upstream.URL)), "-c", `model_providers.offline_fixture.env_key="STUDY_FIXTURE_KEY"`, "-c", `model_providers.offline_fixture.wire_api="responses"`, "-c", `model_providers.offline_fixture.requires_openai_auth=false`, "-c", `model_providers.offline_fixture.request_max_retries=0`, "-c", `model_providers.offline_fixture.stream_max_retries=0`}
+			at := len(args) - 1
+			if i := slices.Index(args, "resume"); i >= 0 {
+				at = i
+			}
+			return d.cliSandbox(run, nil, false)(ctx, p, name, slices.Concat(args[:at], extra, args[at:])...)
+		}
+		sess, err := (agent.Codex{Bin: bin}).Execute(ctx, "Say hello.", opts)
+		must(t, err)
+		var logs strings.Builder
+		for m := range sess.Messages {
+			logs.Write(m.Content)
+		}
+		result := <-sess.Done
+		select {
+		case raw := <-requests:
+			t.Logf("turn %d: offline request; account AGENTS.md seen=%v; resume=%v", turn, strings.Contains(string(raw), "USER-CUSTOM-INSTRUCTIONS"), resume != "")
+		default:
+			t.Fatalf("turn %d never reached offline fixture: result=%+v logs=%s", turn, result, logs.String())
+		}
+		if result.SessionID == "" {
+			t.Fatal("no persisted session for resume")
+		}
+		resume = result.SessionID
+		cancel()
+	}
+}

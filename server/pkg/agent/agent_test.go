@@ -933,10 +933,31 @@ func TestCodexKeepsAccountConfig(t *testing.T) {
 	}
 	collect(t, session)
 	got, _ := os.ReadFile(args)
-	for _, flag := range []string{"--ignore-user-config", "--ignore-rules", "--disable"} {
-		if strings.Contains(string(got), flag) {
-			t.Fatalf("discarded personal config: %s", got)
+	if strings.Contains(string(got), "--ignore-user-config") {
+		t.Fatalf("discarded personal config: %s", got)
+	}
+}
+
+func TestCodexStudyRunIsIsolated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"gpt-5.6-sol\"\n"), 0o600)
+	args := filepath.Join(t.TempDir(), "args")
+	bin := catalogScript(t, `{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}`, "", args)
+	session, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, session)
+	raw, _ := os.ReadFile(args)
+	got := "\n" + string(raw)
+	for _, want := range []string{"--ignore-rules", "--disable\napps", "--disable\nhooks", "--disable\nmemories", "--disable\nmulti_agent", "--disable\nplugins", "--disable\nremote_plugin", "-m\ngpt-5.6-sol"} {
+		if !strings.Contains(got, "\n"+want+"\n") {
+			t.Fatalf("study run args lack %q: %s", want, raw)
 		}
+	}
+	if strings.Contains(got, "\n--ignore-user-config\n") {
+		t.Fatalf("study run discarded config.toml: %s", raw)
 	}
 }
 

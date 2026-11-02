@@ -68,6 +68,14 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		if o.SourcesURL != "" {
 			args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_sources.url=%s", raw(o.SourcesURL)), "-c", `mcp_servers.lyk_sources.bearer_token_env_var="LYK_TOKEN"`)
 		}
+	} else {
+		// A study run keeps the account's config.toml settings but none of the
+		// person's own context: no memories, rules, hooks, plugins or ChatGPT
+		// apps, whose connectors reach the web past the sources server.
+		args = append(args, "--ignore-rules")
+		for _, feature := range []string{"apps", "hooks", "memories", "multi_agent", "plugins", "remote_plugin"} {
+			args = append(args, "--disable", feature)
+		}
 	}
 	if clash := personalClash(personal, o); !o.Coresearch && clash != "" {
 		// -c deep-merges into a personal entry of the same name, so its headers
