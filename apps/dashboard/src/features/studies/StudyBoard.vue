@@ -17,6 +17,7 @@ import {
   filterCategories as categories,
   filterOptions,
   groupByColumn,
+  boardActivity,
   matchesFilters,
   roleLabel,
   stateLabel,
@@ -149,7 +150,7 @@ const visible = computed(() =>
   ),
 );
 const grouped = computed(() => groupByColumn(visible.value));
-const working = computed(() => all.value.filter((c) => c.role && !c.queued && !c.ending).length);
+const activity = computed(() => boardActivity(all.value));
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
 );
@@ -277,9 +278,19 @@ onUnmounted(() => {
     </div>
     <div class="toolbar-group push-right">
       <div class="working-control">
-        <button class="button compact" disabled>{{ working }} agents working</button>
+        <button class="button compact" disabled>
+          {{ activity.working }} agents working<template v-if="activity.waiting"
+            >, {{ activity.waiting }} waiting</template
+          >
+        </button>
         <div class="working-tooltip" role="tooltip">
-          {{ working ? 'Studies with a role running now' : 'No agents working right now' }}
+          {{
+            activity.waiting
+              ? 'Studies with a role running now, and studies waiting for a machine'
+              : activity.working
+                ? 'Studies with a role running now'
+                : 'No agents working right now'
+          }}
         </div>
       </div>
       <div class="menu-anchor">

@@ -367,6 +367,29 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.redoLabel(1, 3, 2)).toBe('Redone once');
     expect(studies.redoLabel(1, 4, 2)).toBe('Redone once, then after your reply');
   });
+  it('counts a study whose run waits on a machine as waiting, not working', () => {
+    const card = (over: {
+      role?: string;
+      queued?: boolean;
+      waiting?: string;
+      ending?: string;
+    }) => ({
+      role: 'scoper',
+      queued: false,
+      waiting: '',
+      ending: '',
+      ...over,
+    });
+    expect(
+      studies.boardActivity([
+        card({}),
+        card({ waiting: 'Waiting for laptop: it is offline.' }),
+        card({ queued: true }),
+        card({ role: '' }),
+        card({ ending: 'stopped', waiting: 'Waiting for laptop: it is offline.' }),
+      ]),
+    ).toEqual({ working: 1, waiting: 1 });
+  });
   it('titles an Inbox item by its study, or by what it is when it has none', () => {
     expect(studies.inboxTitle({ kind: 'blocked' }, 'Why?')).toBe('Why?');
     expect(studies.inboxTitle({ kind: 'waiting_for_machine' })).toBe('Waiting for machine');
@@ -454,7 +477,10 @@ describe('Grounding criteria and review blocks', () => {
     ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
     expect(
       studies.inboxText(
-        { kind: 'blocked', text: "Study #3's grounding column failed Jev's review twice: paper P1. Comment on the study." },
+        {
+          kind: 'blocked',
+          text: "Study #3's grounding column failed Jev's review twice: paper P1. Comment on the study.",
+        },
         '#3',
       ),
     ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");

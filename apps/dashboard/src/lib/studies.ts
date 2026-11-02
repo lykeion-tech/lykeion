@@ -319,6 +319,18 @@ export function flowView(recs: StudyRecord[]): FlowView {
 // An Inbox item in the words the researcher reads, or null when the server's
 // sentence is to be shown as it is. The criterion and the need are lifted out
 // of the server's sentence (see the Go functions that write them).
+// How many studies have an agent at work, and how many have a run waiting
+// on a machine; a run queued for a free slot is neither.
+export function boardActivity(
+  cards: { role: string; queued: boolean; waiting?: string; ending: string }[],
+): { working: number; waiting: number } {
+  const live = cards.filter((c) => c.role && !c.ending);
+  return {
+    working: live.filter((c) => !c.queued && !c.waiting).length,
+    waiting: live.filter((c) => c.waiting).length,
+  };
+}
+
 // An Inbox item's title: its study's, or what the item is when it has no
 // study, as a machine's wait has none.
 export function inboxTitle(item: { kind: InboxItem['kind'] }, study?: string): string {
