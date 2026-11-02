@@ -685,6 +685,9 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		must(t, agent.PlaceBlocked(paths))
 	}
+	// The run folder's process marker is bound read-only at launch; without
+	// it bwrap won't start, and every probe below would fail for that alone.
+	must(t, os.WriteFile(filepath.Join(run, ".agent-process"), []byte("test-owned-process-marker"), 0600))
 	probe := func(path string) error {
 		cmd, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/cat", path)
 		must(t, err)
