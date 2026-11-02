@@ -110,3 +110,9 @@ func TestClaudeSplitsMCPServer(t *testing.T) {
 		t.Fatalf("%+v", ms)
 	}
 }
+
+func TestClaudeStructuredOutputIsNotABreach(t *testing.T) {
+	if breach, tool := Fenced("claude", Message{Type: "tool_use", Tool: "StructuredOutput"}); breach {
+		t.Fatalf("StructuredOutput fenced as %q", tool)
+	}
+}

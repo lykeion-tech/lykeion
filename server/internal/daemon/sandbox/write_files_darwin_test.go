@@ -86,6 +86,24 @@ func TestPlantedLockPathIsClearedAtLaunch(t *testing.T) {
 	}
 }
 
+// A lock folder another process holds at launch, or one that is gone, is
+// never an error and a held one is never removed.
+func TestLockCleanupToleratesVanishedLock(t *testing.T) {
+	h := tempDir(t)
+	held := mkdir(t, filepath.Join(h, "held.lock"))
+	if err := os.WriteFile(filepath.Join(held, "pid"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(h, "gone.lock")
+	p := Policy{Home: h, HomeRead: true, LockDirs: []string{held, gone}}
+	if _, err := p.seatbeltProfile(); err != nil {
+		t.Fatalf("launch refused: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(held, "pid")); err != nil {
+		t.Fatalf("held lock disturbed: %v", err)
+	}
+}
+
 func TestLockDirRejectsUnsafePaths(t *testing.T) {
 	h := tempDir(t)
 	for _, lock := range []string{filepath.Join(h, "absent", "x.lock"), filepath.Join(h, "bad\nname.lock"), h} {

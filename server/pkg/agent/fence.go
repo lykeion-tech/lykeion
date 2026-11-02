@@ -15,6 +15,8 @@ var claudeAllowed = map[string]bool{
 	// Skill loads the skills Lykeion staged; ToolSearch loads the door's own
 	// tool schemas.
 	"Skill": true, "ToolSearch": true,
+	// The hand-in's own structured-output tool, if the CLI reports it as a call.
+	"StructuredOutput": true,
 	// Background shells the run started itself.
 	"BashOutput": true, "TaskOutput": true, "KillShell": true, "KillBash": true, "TaskStop": true,
 	// Resources of the configured MCP servers, which is the door alone.
