@@ -130,3 +130,38 @@ func TestCommentInNextPrompt(t *testing.T) {
 		t.Fatalf("delivered again %d %+v", code, got)
 	}
 }
+
+// A running turn and a waiting leader are given only their own study's
+// comments posted since the turn started: never an older comment, another
+// study's, or another workspace's.
+func TestCommentsOfOtherStudiesAndEarlierAreNeverClaimed(t *testing.T) {
+	l, leader := groundingLab(t)
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	l.claim(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `INSERT INTO comment (workspace_id, card_id, author_id, body, created_at)
+		SELECT c.workspace_id, c.id, c.owner_id, 'Posted before the run.', r.started_at - interval '1 minute'
+		FROM card c JOIN agent_run r ON r.card_id = c.id WHERE r.id = $1`, leader.id); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := l.s.workspace(t, l.jwt, "elsewhere").ID
+	for _, w := range []string{l.ws, elsewhere} {
+		if _, err := l.s.Env.Owner.Exec(t.Context(), `WITH o AS (SELECT owner_id FROM card WHERE id = $1),
+			c AS (INSERT INTO card (workspace_id, number, title, question, owner_id, board_column)
+				SELECT $2, 900, 't', 'Another study?', owner_id, 'grounding' FROM o RETURNING id, workspace_id, owner_id)
+			INSERT INTO comment (workspace_id, card_id, author_id, body) SELECT workspace_id, id, owner_id, 'For another study.' FROM c`, l.card.ID, w); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM comment WHERE body = 'For another study.'"); n != 2 {
+		t.Fatalf("%d other comments", n)
+	}
+	if code, got := l.runComments(t, leader); code != 200 || len(got) != 0 {
+		t.Fatalf("running turn took %d %+v", code, got)
+	}
+	if code, out := l.result(t, leader.token, ask.Ticket); code != 200 || len(out.Comments) != 0 {
+		t.Fatalf("member_result took %d %+v", code, out.Comments)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM record WHERE kind = 'comment_delivery'"); n != 0 {
+		t.Fatalf("%d receipts written", n)
+	}
+}
