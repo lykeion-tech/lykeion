@@ -159,14 +159,43 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a); err != nil || clash != "" {
 		return clash != "", err
 	}
-	cited, err := citedRecords(ctx, tx, c, summary)
+	note, err := auditNote(ctx, tx, c, summary)
 	if err != nil {
 		return false, err
 	}
-	note := "The leader declared the column done. Audit its summary and the records it cites:\n\n" +
-		evidence(records.Body[struct{ Text string }](summary).Text, cited, maxJevInput)
 	_, err = e.enqueue(ctx, tx, c, "auditor", m, a, note)
 	return false, err
+}
+
+// auditNote is what the auditor is asked to audit: on a hand-in column the
+// leader's answer and the items this attempt handed in, by their ids; on
+// Validation the summary and the records it cites.
+func auditNote(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) (string, error) {
+	text := records.Body[struct{ Text string }](summary).Text
+	if !handsIn(c.BoardColumn) {
+		cited, err := citedRecords(ctx, tx, c, summary)
+		if err != nil {
+			return "", err
+		}
+		return "The leader declared the column done. Audit its summary and the records it cites:\n\n" + evidence(text, cited, maxJevInput), nil
+	}
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return "", err
+	}
+	var grounding []db.Record
+	if c.BoardColumn == board.Grounding {
+		grounding = recs
+	} else if grounding, err = tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: board.Grounding}); err != nil {
+		return "", err
+	}
+	round := slices.DeleteFunc(slices.Clone(recs), func(r db.Record) bool { return r.Round != c.Round })
+	items := itemLines(standing(round), recs, grounding)
+	if len(items) == 0 {
+		items = []string{"(none)"}
+	}
+	return "The leader handed the column in. Audit its answer and the items it handed in:\n\n" +
+		fence.Untrusted("The leader's answer", text) + "\nThe items:\n" + capped(items, maxEarlierWork), nil
 }
 
 // auditorClash names the leader or member whose copy runs the same harness

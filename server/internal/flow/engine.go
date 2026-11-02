@@ -215,6 +215,15 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 		return "", err
 	}
 	p := prompt(c, role, comments, ws.ResearchContext, files)
+	if handsIn(c.BoardColumn) {
+		earlier, err := earlierWork(ctx, tx, c)
+		if err != nil {
+			return "", err
+		}
+		if earlier != "" {
+			p += "\n" + earlier
+		}
+	}
 	if note != "" {
 		p += "\n" + note + "\n"
 	}

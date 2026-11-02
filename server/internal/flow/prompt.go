@@ -172,7 +172,7 @@ func itemsPrompt(column string) string {
 }
 
 // auditorHandIn is the auditor's hand-in.
-const auditorHandIn = "Your prompt holds the leader's answer. Check that each paper, dataset and quote traces to a source this study looked up through Lykeion's sources, " +
+const auditorHandIn = "Your prompt holds the leader's answer and the items it handed in. Check that each paper, dataset and quote traces to a source this study looked up through Lykeion's sources, " +
 	"that each reported value appears in the output file or script run it names, " +
 	"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
 	"Your final answer is your hand-in: `status` (`done`, or `could_not_do` with a `reason`), `answer` (your findings overall, in plain language), " +
@@ -202,7 +202,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 	}
 	fmt.Fprintf(&b, "What the column delivers: %s.\n\n", deliverables[column])
 	if i, j := board.StageIndex(scopeFrom), board.StageIndex(column); i >= 0 && i < j {
-		fmt.Fprintf(&b, "Earlier columns of this study (%s) came before yours. Their papers and datasets count as sources here, by their ids, and `read_output` reads the files they saved.\n\n",
+		fmt.Fprintf(&b, "Earlier columns of this study (%s) came before yours, and your prompt lists what they handed in. Their papers and datasets count as sources here, by their ids, and `read_output` reads the files they saved.\n\n",
 			strings.Join(board.Stages[i:j], ", "))
 	}
 	switch role {

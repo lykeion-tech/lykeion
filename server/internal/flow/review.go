@@ -2,6 +2,7 @@ package flow
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -238,6 +239,15 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 				id = it.Label // reviews written before items carried their identity
 			}
 			out.Failed[id] = it.Key
+			// A reply names a value by the name it was handed in with.
+			if it.Kind == "value" {
+				if i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); i >= 0 {
+					if name := valueOf(recs[i]).Name; name != "" {
+						out.Failed[name] = it.Key
+					}
+				}
+				out.Failed[it.Label] = it.Key
+			}
 		}
 	}
 	for _, it := range prev.Missed {
@@ -377,7 +387,9 @@ func (e *Engine) outputTexts(ctx context.Context, recs []db.Record) (map[string]
 func valueChecks(ms []ValueMatch, work []db.Record, runs map[string]Run, files map[string]string) []review.ValueCheck {
 	text := map[string]string{}
 	for _, r := range work {
-		text[r.Key] = records.Body[struct{ Text string }](r).Text
+		// A handed-in value has a name, not a sentence.
+		b := records.Body[struct{ Text, Name string }](r)
+		text[r.Key] = cmp.Or(b.Text, b.Name)
 	}
 	var out []review.ValueCheck
 	for _, m := range ms {
