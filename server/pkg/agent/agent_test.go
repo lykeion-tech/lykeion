@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1284,7 +1285,7 @@ func TestClaudeRunsWithoutThePersonsHooks(t *testing.T) {
 	}
 	collect(t, s)
 	a, _ := os.ReadFile(args)
-	if !strings.Contains(string(a), "--settings\n{\"disableAllHooks\":true}\n") {
+	if !strings.Contains(string(a), "--settings\n{\"disableAllHooks\":true,") {
 		t.Fatalf("claude ran with\n%s", a)
 	}
 }
@@ -1323,5 +1324,41 @@ echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)}
 				}
 			})
 		}
+	}
+}
+
+// A study run reads none of the person's own settings, CLAUDE.md files or MCP
+// servers: only the run's door.
+func TestClaudeStudyRunIsIsolated(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	mcp := filepath.Join(t.TempDir(), "mcp")
+	s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args+`; cat .lyk-mcp.json > `+mcp)}.Execute(context.Background(), "p",
+		ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	a, _ := os.ReadFile(args)
+	argv := strings.Split(strings.TrimSuffix(string(a), "\n"), "\n")
+	has := func(flag, value string) bool {
+		i := slices.Index(argv, flag)
+		return i >= 0 && (value == "" || i+1 < len(argv) && argv[i+1] == value)
+	}
+	if !has("--strict-mcp-config", "") || !has("--setting-sources", "project") {
+		t.Fatalf("claude ran with\n%s", a)
+	}
+	var settings struct {
+		DisableAllHooks  bool     `json:"disableAllHooks"`
+		ClaudeMdExcludes []string `json:"claudeMdExcludes"`
+	}
+	if i := slices.Index(argv, "--settings"); i < 0 || json.Unmarshal([]byte(argv[i+1]), &settings) != nil || !settings.DisableAllHooks || !slices.Equal(settings.ClaudeMdExcludes, []string{"**"}) {
+		t.Fatalf("settings: %s", a)
+	}
+	var cfg struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	b, _ := os.ReadFile(mcp)
+	if json.Unmarshal(b, &cfg) != nil || len(cfg.MCPServers) != 1 || cfg.MCPServers["lyk_door"] == nil {
+		t.Fatalf("MCP config: %s", b)
 	}
 }

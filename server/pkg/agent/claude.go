@@ -72,11 +72,11 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	mode := "dontAsk"
 	if !o.ReadOnly {
-		mode = "default" // the account's own allow and deny rules decide the rest
+		mode = "default" // no account rule loads, so a tool not allowed here is refused
 	}
-	// Glob and Grep obey Read path rules; reads elsewhere go to the account's
-	// own rules, or are refused in an isolated run. The CLI's own homes in the
-	// run folder are its alone: it uses them, its file tools may not.
+	// Glob and Grep obey Read path rules; reads elsewhere are refused. The
+	// CLI's own homes in the run folder are its alone: it uses them, its file
+	// tools may not.
 	tools := []string{claudeTools}
 	if o.Coresearch {
 		tools = []string{"Skill,Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
@@ -120,17 +120,13 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if len(deny) > 0 {
 		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
-	// The person's own hooks and plugin hooks stay out of runs, so how a run
-	// behaves doesn't depend on what they have installed.
-	settings := `{"disableAllHooks":true}`
+	// A run brings its own role, skills and tools, so how it behaves doesn't
+	// depend on what the person has installed: none of their settings, hooks,
+	// plugins or MCP servers load, and no CLAUDE.md becomes instructions, even
+	// one in the run's own folders or added after startup.
+	settings := `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "project", "--settings", settings})
 	if o.Coresearch {
-		// Chat documents remain readable data, but never become implicit project
-		// instructions, including nested files introduced after startup.
-		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
-	}
-	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--settings", settings})
-	if o.Coresearch {
-		args = append(args, "--strict-mcp-config", "--setting-sources", "project")
 		o.CLIPaths.ManagedSkills, err = SkillsDir("claude", o.Dir)
 		if err != nil {
 			cleanup(true)

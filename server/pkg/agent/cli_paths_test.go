@@ -127,3 +127,38 @@ func TestCLIPathsRejectRedirectedState(t *testing.T) {
 		t.Fatal("created directory through a link")
 	}
 }
+func TestClaudeSandboxBlocksPersonalFiles(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		h := t.TempDir()
+		for _, dir := range []string{"plugins/cache", "skills", "agents", "commands", "rules", "sessions"} {
+			if err := os.MkdirAll(filepath.Join(h, dir), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, file := range []string{"CLAUDE.md", "history.jsonl", ".credentials.json", "settings.json"} {
+			if err := os.WriteFile(filepath.Join(h, file), []byte("personal"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p, err := SandboxPaths("claude", h, "/r", "", goos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"CLAUDE.md", "plugins", "skills", "agents", "commands", "rules", "history.jsonl"} {
+			if !slices.Contains(p.Hidden, filepath.Join(h, name)) {
+				t.Errorf("%s: %s is not hidden", goos, name)
+			}
+		}
+		for _, kept := range []string{".credentials.json", "settings.json", "sessions", "projects/-r"} {
+			if slices.Contains(p.Hidden, filepath.Join(h, kept)) {
+				t.Errorf("%s: %s is hidden", goos, kept)
+			}
+		}
+		if goos == "linux" && !slices.Equal(p.WriteData, []string{filepath.Join(h, ".credentials.json")}) {
+			t.Errorf("sign-in not writable: %v", p.WriteData)
+		}
+		if len(p.Blocked) != 0 {
+			t.Errorf("%s: blocked %v", goos, p.Blocked)
+		}
+	}
+}

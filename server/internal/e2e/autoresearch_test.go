@@ -116,9 +116,9 @@ func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
 	if a := read("autoresearch.args"); strings.Contains(a, "\nplan\n") {
 		t.Fatalf("the agent run ran read-only: %s", a)
 	}
-	// a manual run_only run uses the account's setup and never resumes
+	// a manual run_only run streams its input, never resumes and loads only its own MCP config
 	if a := read("autoresearch.args"); !strings.Contains(a, "--input-format\nstream-json") || strings.Contains(a, "--resume") ||
-		strings.Contains(a, "--strict-mcp-config") {
-		t.Fatalf("the agent run did not run in continuity mode: %s", a)
+		!strings.Contains(a, "--strict-mcp-config") {
+		t.Fatalf("the agent run lost its stream input or isolation: %s", a)
 	}
 }

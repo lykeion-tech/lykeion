@@ -43,6 +43,11 @@ func ClaudeProjectDir(home, cwd string) string {
 // besides the memories stores.
 var personalCodexFiles = []string{"AGENTS.md", "AGENTS.override.md", "plugins", "skills", "rules", "hooks", "agents", "history.jsonl", "archived_sessions", "prompts", "transcription-history.jsonl"}
 
+// personalClaudeFiles are the Claude home entries a study run may not read.
+// Project memories are not among them: Claude loads only the run folder's
+// own, and a person may keep thousands, more than a sandbox profile can list.
+var personalClaudeFiles = []string{"CLAUDE.md", "rules", "plugins", "skills", "agents", "commands", "history.jsonl"}
+
 // SandboxPaths selects state paths without creating empty CLI state files.
 func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) {
 	p := CLIPaths{ConfigHome: home, Keychain: goos == "darwin"}
@@ -80,6 +85,16 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 		}
 		if goos == "linux" {
 			p.WriteData = []string{filepath.Join(home, ".credentials.json")}
+		}
+		// The person's own instructions, customizations and prompt history
+		// stay unreadable; the sign-in stays. As for Codex, only existing
+		// entries are listed.
+		for _, name := range personalClaudeFiles {
+			if _, err := os.Lstat(filepath.Join(home, name)); err == nil {
+				p.Hidden = append(p.Hidden, filepath.Join(home, name))
+			} else if !os.IsNotExist(err) {
+				return p, err
+			}
 		}
 	case "codex":
 		if goos == "linux" {
