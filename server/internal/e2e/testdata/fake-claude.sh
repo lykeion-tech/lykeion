@@ -2,10 +2,19 @@
 # Stands in for Claude Code: reads its role from the prompt and records what
 # that role would, through lyk. The prompt arrives on stdin: in continuity mode
 # as one stream-json user frame on the first line, with stdin left open until
-# the result; in private mode as plain text up to end of file.
+# the result; in private mode as plain text up to end of file. Like a real
+# Claude Code it reports its version and schema flag, answers the daemon's
+# preflight hello, and, given a schema, ends with a structured answer.
+case "$1" in
+  --version) echo "2.1.0 (Claude Code)"; exit 0 ;;
+  --help) echo "  --json-schema <schema>  JSON Schema"; exit 0 ;;
+esac
 case "$*" in
   *"--input-format stream-json"*) IFS= read -r prompt ;;
   *) prompt="$(cat)" ;;
+esac
+case "$prompt" in
+  *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0 ;;
 esac
 # The role is the first word after "You are the" in the prompt: "autoresearch
 # role", or "<role> on Lykeion study" for a study's leader, member or agent.
@@ -58,4 +67,8 @@ case "$*" in
   *"--resume"*) n=2 ;;
   *) n=1 ;;
 esac
-echo '{"type":"result","is_error":false,"total_cost_usd":0.0'$n',"session_id":"s","modelUsage":{"m":{"inputTokens":'$n',"outputTokens":'$n',"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.0'$n'}}}' >&3
+handin=''
+case "$*:$role" in
+  *--json-schema*:autoresearch) handin=',"structured_output":{"status":"done","answer":"Nothing new this week.","reason":null,"report":"Nothing new this week.","new_studies":[{"title":"Z and W","question":"Does Z lower W in mouse liver?"}]}' ;;
+esac
+echo '{"type":"result","is_error":false'"$handin"',"total_cost_usd":0.0'$n',"session_id":"s","modelUsage":{"m":{"inputTokens":'$n',"outputTokens":'$n',"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.0'$n'}}}' >&3

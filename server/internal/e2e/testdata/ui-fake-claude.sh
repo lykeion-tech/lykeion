@@ -2,6 +2,7 @@
 # A probe never reads prompts, reports work, or creates a resumable session.
 case "$1" in
   --version) echo '2.1.0 (Claude Code)'; exit 0 ;;
+  --help) echo '  --json-schema <schema>  JSON Schema'; exit 0 ;;
 esac
 # Naming is an independent, tool-free conversation. Its fixture never invokes
 # lyk or writes a research result from that conversation.
@@ -32,6 +33,10 @@ done
 case "$*" in
   *"--input-format stream-json"*) IFS= read -r prompt ;;
   *) prompt="$(cat)" ;;
+esac
+# The daemon's preflight hello is answered as a real Claude Code would.
+case "$prompt" in
+  *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0 ;;
 esac
 case "$prompt" in
   *"You are the autoresearch role"*)

@@ -208,6 +208,12 @@ func (l *lab) member(t *testing.T, email string) (uuid.UUID, string, string) {
 }
 func (l *lab) queue(t *testing.T, owner uuid.UUID, n int) (uuid.UUID, []uuid.UUID) {
 	t.Helper()
+	return l.queueIn(t, owner, n, "grounding")
+}
+
+// queueIn opens a study in column and queues n runs of it.
+func (l *lab) queueIn(t *testing.T, owner uuid.UUID, n int, column string) (uuid.UUID, []uuid.UUID) {
+	t.Helper()
 	ctx := context.Background()
 	var card uuid.UUID
 	ids := []uuid.UUID{}
@@ -216,13 +222,13 @@ func (l *lab) queue(t *testing.T, owner uuid.UUID, n int) (uuid.UUID, []uuid.UUI
 		if err != nil {
 			return err
 		}
-		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: "grounding", WorkspaceID: l.ws, Number: num, Title: "Acceptance", Question: "q", OwnerID: owner})
+		c, err := tx.Q.CreateCard(ctx, db.CreateCardParams{BoardColumn: column, WorkspaceID: l.ws, Number: num, Title: "Acceptance", Question: "q", OwnerID: owner})
 		if err != nil {
 			return err
 		}
 		card = c.ID
 		for i := 0; i < n; i++ {
-			r, err := l.runs.Enqueue(ctx, tx, owner, service.NewAgentRun{Card: card, Column: "grounding", Round: 1, Role: "scoper", Harness: "claude", Prompt: "test", MaxAttempts: 2})
+			r, err := l.runs.Enqueue(ctx, tx, owner, service.NewAgentRun{Card: card, Column: column, Round: 1, Role: "scoper", Harness: "claude", Prompt: "test", MaxAttempts: 2})
 			if err != nil {
 				return err
 			}
@@ -262,10 +268,17 @@ func (l *lab) settled(t *testing.T, ids []uuid.UUID) {
 func (l *lab) config(t *testing.T, token, script string) daemon.Config {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "claude")
+	// Like a real Claude Code, the fake reports its version and schema flag,
+	// answers the daemon's preflight hello, and, given a schema, ends with a
+	// structured answer: a scoper's Grounding hand-in. Only a run carries a
+	// token.
 	prelude := `#!/bin/sh
+case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
+IFS= read -r prompt
+case "$prompt" in *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0;; esac
+case "$*" in *--json-schema*) handin=',"structured_output":{"status":"done","answer":"Scoped the question.","reason":null,"papers":[],"datasets":[],"no_qualifying":null,"replies":[]}';; esac
 case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
 case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
-IFS= read -r prompt
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))
 	state := t.TempDir()
@@ -296,7 +309,7 @@ func startDaemon(t *testing.T, cfg daemon.Config) func() {
 }
 
 const quick = `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"evidence"}]}}'
-echo '{"type":"result","session_id":"synthetic","is_error":false,"modelUsage":{"model-a":{"inputTokens":10,"outputTokens":2,"costUSD":0.01},"model-b":{"inputTokens":20,"outputTokens":3,"costUSD":0.02}}}'
+echo '{"type":"result","session_id":"synthetic","is_error":false'"$handin"',"modelUsage":{"model-a":{"inputTokens":10,"outputTokens":2,"costUSD":0.01},"model-b":{"inputTokens":20,"outputTokens":3,"costUSD":0.02}}}'
 `
 
 func (l *lab) accounting(t *testing.T, card uuid.UUID, ids []uuid.UUID) {
@@ -509,7 +522,9 @@ exec sleep 300
 				t.Fatalf("stale report changed current attempt: %+v", current)
 			}
 			expectHTTP(t, api.Do(context.Background(), "POST", runPath(id, "start"), old, nil), 409)
-			expectHTTP(t, api.Do(context.Background(), "POST", runPath(id, "messages"), map[string]any{"workspace_id": old.WorkspaceID, "runtime_id": old.RuntimeID, "attempt": old.Attempt, "messages": []service.Message{{Seq: 1, Type: "text", Content: json.RawMessage(`"stale"`)}}}, nil), 409)
+			// The earlier attempt's late messages, from the machine that ran
+			// it, join that attempt; the running one never gets them.
+			must(t, api.Do(context.Background(), "POST", runPath(id, "messages"), map[string]any{"workspace_id": old.WorkspaceID, "runtime_id": old.RuntimeID, "attempt": old.Attempt, "messages": []service.Message{{Seq: 1, Type: "text", Content: json.RawMessage(`"stale"`)}}}, nil))
 		}
 		must(t, cmd.Process.Signal(syscall.SIGKILL))
 		err = cmd.Wait()
@@ -548,8 +563,11 @@ exec sleep 300
 	if n := l.count(t, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id=$1", id); n != 0 {
 		t.Fatal("stale report charged usage")
 	}
-	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", id); n != 0 {
-		t.Fatal("stale message accepted")
+	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=2", id); n != 0 {
+		t.Fatal("stale message reached the running attempt")
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=1 AND content='\"stale\"'::jsonb", id); n != 1 {
+		t.Fatalf("the earlier attempt holds %d late messages, want 1", n)
 	}
 }
 func floatPtr(v float64) *float64 { return &v }
@@ -557,7 +575,10 @@ func floatPtr(v float64) *float64 { return &v }
 func TestReportSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
-	card, ids := l.queue(t, owner, 1)
+	// A Validation run hands nothing in, so its whole result is the report
+	// the outage must not lose; a run that hands in needs the server to
+	// accept the hand-in before it can complete.
+	card, ids := l.queueIn(t, owner, 1, "validation")
 	id := ids[0]
 	flag := filepath.Join(t.TempDir(), "finish")
 	cfg := l.config(t, tok, fmt.Sprintf("while [ ! -f '%s' ]; do sleep 0.05; done\n", flag)+quick)
