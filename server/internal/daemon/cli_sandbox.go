@@ -106,6 +106,10 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		}
 	}
 	p.Hidden = append(p.Hidden, private...)
+	if guest == "" && cli.ManagedSkills == "" {
+		// Coresearch projects the account's customizations itself.
+		p.Hidden = append(p.Hidden, cli.Hidden...)
+	}
 	if d.bases != nil {
 		roots = append(roots, d.bases.Dir)
 	}

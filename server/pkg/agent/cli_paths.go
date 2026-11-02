@@ -24,7 +24,9 @@ type CLIPaths struct {
 	// WriteSQLite permits numeric-version SQLite stores and their side files.
 	WriteSQLite []string
 	Blocked     []string
-	Keychain    bool
+	// Hidden are the person's own CLI files a study run may not read.
+	Hidden   []string
+	Keychain bool
 }
 
 // ClaudeProjectDir encodes a working folder as Claude's project store name.
@@ -82,13 +84,25 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 				p.Blocked = append(p.Blocked, filepath.Join(home, name))
 			}
 		} else {
-			for _, name := range []string{"sessions", "cache", "tmp", ".tmp", "shell_snapshots", "thread-writer-locks", "plugins/cache"} {
+			for _, name := range []string{"sessions", "cache", "tmp", ".tmp", "shell_snapshots", "thread-writer-locks"} {
 				p.Write = append(p.Write, filepath.Join(home, name))
 			}
 			for _, name := range []string{"auth.json", "models_cache.json", "history.jsonl", "session_index.jsonl", "installation_id", ".sqlite-maintenance.lock", "version.json"} {
 				p.WriteFiles = append(p.WriteFiles, filepath.Join(home, name))
 			}
 			p.WriteSQLite = []string{home}
+		}
+		// The person's own instructions, memories and customizations stay
+		// unreadable: a run brings its own role, skills and tools. An absent
+		// entry holds nothing personal, and the sandbox refuses absent hidden
+		// paths beside writable state, so only existing ones are listed.
+		for _, name := range []string{"AGENTS.md", "AGENTS.override.md", "memories", "memories_v2", "plugins", "skills", "rules", "hooks", "agents"} {
+			path := filepath.Join(home, name)
+			if _, err := os.Lstat(path); err == nil {
+				p.Hidden = append(p.Hidden, path)
+			} else if !os.IsNotExist(err) {
+				return p, err
+			}
 		}
 	default:
 		return p, fmt.Errorf("unsupported CLI %q", harness)

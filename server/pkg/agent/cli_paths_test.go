@@ -50,6 +50,27 @@ func TestCodexPaths(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+func TestCodexSandboxBlocksPersonalFiles(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		h := t.TempDir()
+		for _, dir := range []string{"memories", "plugins/cache", "skills", "rules", "hooks", "agents"} {
+			os.MkdirAll(filepath.Join(h, dir), 0700)
+		}
+		os.WriteFile(filepath.Join(h, "AGENTS.md"), []byte("personal"), 0600)
+		p, err := SandboxPaths("codex", h, "/r", "", goos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"memories", "AGENTS.md", "plugins", "skills", "rules", "hooks", "agents"} {
+			if !slices.Contains(p.Hidden, filepath.Join(h, name)) {
+				t.Errorf("%s: %s is not hidden: %v", goos, name, p.Hidden)
+			}
+		}
+		if slices.Contains(p.Hidden, filepath.Join(h, "memories_v2")) || slices.Contains(p.Write, filepath.Join(h, "plugins", "cache")) {
+			t.Errorf("%s: absent path hidden or plugin cache writable: %+v", goos, p)
+		}
+	}
+}
 func TestPlaceBlockedNeverOverwrites(t *testing.T) {
 	h := t.TempDir()
 	config := filepath.Join(h, "config.toml")
@@ -84,13 +105,13 @@ func TestClaudeBlockedConfigOutsideWrite(t *testing.T) {
 func TestCLIPathsRejectRedirectedState(t *testing.T) {
 	h := t.TempDir()
 	other := t.TempDir()
-	if err := os.Symlink(other, filepath.Join(h, "plugins")); err != nil {
+	if err := os.Symlink(other, filepath.Join(h, "sessions")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SandboxPaths("codex", h, "/run", "", "darwin"); err == nil {
 		t.Fatal("accepted symlinked state")
 	}
-	if _, err := os.Stat(filepath.Join(other, "cache")); !os.IsNotExist(err) {
+	if entries, _ := os.ReadDir(other); len(entries) != 0 {
 		t.Fatal("created directory through a link")
 	}
 }

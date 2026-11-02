@@ -642,3 +642,54 @@ func TestCLISandboxHidesManagedDaemonLog(t *testing.T) {
 		})
 	}
 }
+
+func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk-config.json"))
+	scratch := t.TempDir()
+	run := filepath.Join(scratch, "run")
+	codex := filepath.Join(home, ".codex")
+	personal := []string{filepath.Join(codex, "memories", "MEMORY.md"), filepath.Join(codex, "AGENTS.md"), filepath.Join(codex, "plugins", "cache", "p"), filepath.Join(codex, "skills", "mine", "SKILL.md")}
+	for _, path := range append(personal, filepath.Join(codex, "config.toml")) {
+		must(t, os.MkdirAll(filepath.Dir(path), 0700))
+		must(t, os.WriteFile(path, []byte("personal"), 0600))
+	}
+	must(t, os.MkdirAll(run, 0700))
+	paths, err := agent.SandboxPaths("codex", codex, run, "", runtime.GOOS)
+	must(t, err)
+	paths.Keychain = false
+	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+	p, err := d.cliPolicy(run, nil, false, paths)
+	must(t, err)
+	for _, name := range []string{"memories", "AGENTS.md", "plugins", "skills"} {
+		if !slices.Contains(p.Hidden, filepath.Join(codex, name)) {
+			t.Errorf("policy does not hide %s", name)
+		}
+	}
+	coresearch := paths
+	coresearch.ManagedSkills = filepath.Join(run, ".agents", "skills")
+	if p, err = d.cliPolicy(run, nil, false, coresearch); err != nil || slices.Contains(p.Hidden, filepath.Join(codex, "plugins")) {
+		t.Fatalf("Coresearch policy changed: %v %v", p.Hidden, err)
+	}
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	if runtime.GOOS == "linux" {
+		must(t, agent.PlaceBlocked(paths))
+	}
+	probe := func(path string) error {
+		cmd, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/cat", path)
+		must(t, err)
+		cmd.Dir = run
+		return cmd.Run()
+	}
+	for _, path := range personal {
+		if probe(path) == nil {
+			t.Errorf("study run read %s", path)
+		}
+	}
+	if err := probe(filepath.Join(codex, "config.toml")); err != nil {
+		t.Errorf("study run cannot read the account's config.toml: %v", err)
+	}
+}
