@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { chooseCompact, labPack, groundingCriterion, withBuiltInTeams } from './lab';
+import { chooseCompact, labPack, withBuiltInTeams } from './lab';
 
 async function workspace(request: APIRequestContext) {
   const created = await request.post('/api/workspaces', {
@@ -57,8 +57,8 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   const dialog = page.getByRole('dialog', { name: 'New study' });
   const question = `Which stage Team works an unpicked column? ${Date.now()}`;
   await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-  await expect(dialog.getByRole('button', { name: 'Assignee: Built-in Teams' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+  await expect(dialog.getByRole('button', { name: 'Assignees' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Assignees' }).click();
   const menu = dialog.getByRole('menu');
   await expect(
     menu.getByRole('menuitem', { name: 'Hypotheses Team Built for Hypotheses' }),
@@ -66,7 +66,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Picker lab agent' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+  await dialog.getByRole('button', { name: 'Assignees' }).click();
   await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
   await chooseCompact(page, 'From stage', 'Hypotheses');
   await chooseCompact(page, 'To stage', 'Hypotheses');
@@ -152,7 +152,7 @@ test('a workspace without a built-in Team shows why a study can’t start', asyn
   await dialog
     .getByRole('textbox', { name: 'Describe your study' })
     .fill(`Who works this without built-in Teams? ${Date.now()}`);
-  await groundingCriterion(dialog);
+
   await dialog.getByRole('button', { name: /^Create study/ }).click();
   await expect(dialog.getByRole('alert')).toHaveText('No built-in Team for Grounding');
 });

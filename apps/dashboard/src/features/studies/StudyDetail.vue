@@ -132,7 +132,6 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
-const criteria = computed(() => c.value?.grounding_criteria ?? []);
 const services = computed(() => c.value?.services ?? []);
 async function download(a: { id: string; name: string }) {
   try {
@@ -587,7 +586,15 @@ function pin() {
               <span class="avatar">{{ name(c.owner_id)[0] }}</span
               >{{ name(c.owner_id) }}
             </div>
-            <small>Deadline</small>
+            <small>Start date</small>
+            <div class="v">
+              {{
+                c.start_date
+                  ? new Date(c.start_date).toLocaleDateString(undefined, { timeZone: 'UTC' })
+                  : 'None'
+              }}
+            </div>
+            <small>Due date</small>
             <div class="v">
               {{ c.deadline ? new Date(c.deadline).toLocaleDateString() : 'None' }}
             </div>
@@ -600,12 +607,6 @@ function pin() {
                   </button>
                   <small>{{ formatSize(a.size_bytes) }}</small>
                 </li>
-              </ul>
-            </template>
-            <template v-if="criteria.length">
-              <small>Grounding criteria</small>
-              <ul class="v grounding-criteria" aria-label="Grounding criteria">
-                <li v-for="(text, i) in criteria" :key="i">{{ text }}</li>
               </ul>
             </template>
             <p v-if="services.length" class="v services-note">
@@ -1626,17 +1627,6 @@ function pin() {
   margin: 0;
 }
 .details-body .attached-files,
-.details-body .grounding-criteria {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-.grounding-criteria li {
-  overflow-wrap: anywhere;
-}
 .details-body .services-note {
   grid-column: 1 / -1;
   color: var(--muted);

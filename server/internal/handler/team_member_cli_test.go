@@ -12,7 +12,7 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	auth := s.signIn(t, "team-cli@lab.org")
 	ws := s.workspace(t, auth, "team-cli")
 	id := s.builtInID(t, ws.ID, "grounding")
-	if code := s.call(t, "POST", "/api/cards", auth, ws.ID, map[string]any{"question": "Question", "grounding_criteria": []string{"Published"}}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", auth, ws.ID, map[string]any{"question": "Question"}, nil); code != 201 {
 		t.Fatalf("study %d", code)
 	}
 	var detail struct {

@@ -63,6 +63,7 @@ export interface Card {
   assignee_id: string | null;
   owner_id: string;
   deadline: string | null;
+  start_date?: string | null;
   spent_usd: number;
   board_column: Column;
   state: 'working' | 'done' | 'blocked' | 'stopped';
@@ -93,7 +94,6 @@ export interface Card {
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[];
   services: { name: string }[];
   // What every Grounding source must meet, as the researcher wrote them.
-  grounding_criteria: string[];
 }
 
 export type BlockKind = '' | 'low_score';

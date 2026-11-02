@@ -1427,52 +1427,19 @@ func TestCreatingAStudyWithPredicatesIsRefused(t *testing.T) {
 	}
 }
 
-func TestGroundingCriteriaRules(t *testing.T) {
+func TestGroundingCriteriaRemoved(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	many := make([]string, 13)
-	for i := range many {
-		many[i] = fmt.Sprintf("c%d", i)
+	token := s.signIn(t, "no-criteria@lab.org")
+	ws := s.workspace(t, token, "no-criteria")
+	var created map[string]any
+	if code := s.call(t, "POST", "/api/cards", token, ws.ID, map[string]any{"question": "What evidence answers this question?"}, &created); code != 201 {
+		t.Fatalf("create without criteria: %d", code)
 	}
-	// Each is within the limits, but together they are more bytes than a
-	// study keeps.
-	wide := make([]string, 12)
-	for i := range wide {
-		wide[i] = fmt.Sprintf("%02d", i) + strings.Repeat("é", 198)
+	if _, ok := created["grounding_criteria"]; ok {
+		t.Fatal("removed field was exposed")
 	}
-	grounding := map[string]string{"from": "grounding", "to": "grounding"}
-	hypotheses := map[string]string{"from": "hypotheses", "to": "hypotheses"}
-	for _, tc := range []struct {
-		name     string
-		scope    map[string]string
-		criteria []string
-		want     string
-	}{
-		{"missing", grounding, nil, "a study that includes Grounding needs at least one Grounding criterion"},
-		{"too many", grounding, many, ""},
-		{"too long", grounding, []string{strings.Repeat("x", 201)}, ""},
-		{"duplicate", grounding, []string{"a", " a "}, ""},
-		{"blank", grounding, []string{"  "}, ""},
-		{"too large together", grounding, wide, "the Grounding criteria are too long together: at most 4096 bytes"},
-		{"not Grounding", hypotheses, []string{"a"}, "Grounding criteria are only for studies that include Grounding"},
-	} {
-		var e struct{ Error string }
-		body := map[string]any{"question": tc.name, "scope": tc.scope, "grounding_criteria": tc.criteria}
-		if code := s.call(t, "POST", "/api/cards", a, w.ID, body, &e); code != 400 || (tc.want != "" && e.Error != tc.want) {
-			t.Fatalf("%s: %d %q", tc.name, code, e.Error)
-		}
-	}
-	var c studyJSON
-	want := []string{"first", "second", "third"}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "ok", "scope": grounding, "grounding_criteria": want}, &c); code != 201 {
-		t.Fatalf("create: %d", code)
-	}
-	var got struct {
-		Criteria []string `json:"grounding_criteria"`
-	}
-	if code := s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &got); code != 200 || !slices.Equal(got.Criteria, want) {
-		t.Fatalf("%d %v", code, got.Criteria)
+	if code := s.call(t, "POST", "/api/cards", token, ws.ID, map[string]any{"question": "Another question", "grounding_criteria": []string{"old"}}, nil); code != 400 {
+		t.Fatalf("obsolete field accepted: %d", code)
 	}
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,18 @@ func TestEmitPublishesAfterCommitOnly(t *testing.T) {
 	})
 	if err == nil || len(published) != 1 {
 		t.Fatal("a rolled-back event was published")
+	}
+	var order []string
+	s.Publish = func(context.Context, []db.Event) { order = append(order, "publish") }
+	if err := s.InWorkspace(context.Background(), ws, u, func(tx *Tx) error {
+		tx.AfterCommit(func() { order = append(order, "commit") })
+		tx.AfterPublish(func() { order = append(order, "after-publish") })
+		return tx.Emit(context.Background(), "ordered", nil, System, nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(order, ","); got != "commit,publish,after-publish" {
+		t.Fatalf("callback order: %s", got)
 	}
 }
 

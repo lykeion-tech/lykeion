@@ -17,7 +17,7 @@ func TestCreateStudyCLIs(t *testing.T) {
 		{"unknown", "claude", "other", 400},
 		{"missing", "claude", "", 400},
 	} {
-		body := map[string]any{"question": tc.question, "study_cli": tc.worker, "grounding_criteria": []string{"Published study"}}
+		body := map[string]any{"question": tc.question, "study_cli": tc.worker}
 		if tc.auditor != "" {
 			body["auditor_cli"] = tc.auditor
 		}

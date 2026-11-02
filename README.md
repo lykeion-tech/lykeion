@@ -15,7 +15,7 @@ Lykeion is a research lab where AI agents do the scientific work and people stee
   - **Autoresearch:** scheduled or triggered agent work.
   - **Coresearch:** shared projects with an Experiment mode (files, notebook kernels and recorded runs) and a Cowrite mode (a LaTeX paper edited together with agents).
   - **Aristotle:** the workspace's memory.
-  - Grounding criteria the researcher writes, an Inbox, and scientific skills and data connectors.
+  - An Inbox, scientific skills, and data connectors.
 
 ## Repository layout
 

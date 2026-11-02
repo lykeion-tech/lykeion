@@ -324,8 +324,8 @@ describe('Starting a study with a Workflow', () => {
     try {
       expect(t.text()).toContain('Workflow: Zeta flow');
       expect(t.text()).not.toContain('Grounding criteria');
-      await t.click(/Built-in Teams/);
-      await t.click(/^Solo agent$/);
+      await t.click(/^Assignees$/);
+      await t.click(/Solo agent/);
       await t.fill('Describe your study', 'Question');
       await t.submit();
       const posted = fetchMock.mock.calls.find((call) => call[0] === '/api/cards');
@@ -339,14 +339,14 @@ describe('Starting a study with a Workflow', () => {
     }
   });
 
-  it('removing the workflow restores the Grounding criteria', async () => {
+  it('removing the workflow leaves Grounding criteria absent', async () => {
     vi.stubGlobal('fetch', posting());
     const t = await mountStudy(CreateStudy, { workflow: 'b' });
     try {
       expect(t.text()).not.toContain('Grounding criteria');
       await t.click(/^Remove workflow$/);
       expect(t.text()).not.toContain('Workflow: Zeta flow');
-      expect(t.text()).toContain('Grounding criteria');
+      expect(t.text()).not.toContain('Grounding criteria');
     } finally {
       t.unmount();
     }

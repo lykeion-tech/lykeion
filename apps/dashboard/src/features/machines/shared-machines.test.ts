@@ -761,79 +761,15 @@ describe('Shared machines', () => {
       t.unmount();
     }
   });
-  it('offers owner machines on any OS and eligible offline Linux VMs by their own id', async () => {
-    fetching();
-    const t = await mount(
-      CreateStudy,
-      () => ({}),
-      '/',
-      (c) =>
-        c.setQueryData(keys.runtimes('w'), [
-          runtime({ os: 'darwin' }),
-          runtime({
-            id: 'mac',
-            daemon_id: 'host',
-            owner_id: 'u2',
-            device_name: 'Ada Mac',
-            os: 'darwin',
-            visibility: 'workspace',
-          }),
-          runtime({
-            id: 'vm',
-            daemon_id: 'vm-id',
-            owner_id: 'u2',
-            device_name: 'Linux VM',
-            visibility: 'workspace',
-          }),
-          runtime({
-            id: 'unknown',
-            daemon_id: 'unknown',
-            owner_id: 'u2',
-            os: '',
-            visibility: 'workspace',
-          }),
-          runtime({
-            id: 'chosen',
-            daemon_id: 'chosen',
-            owner_id: 'u2',
-            device_name: 'Chosen Linux',
-            shared_with: ['u1'],
-          }),
-          runtime({ id: 'no', daemon_id: 'no', owner_id: 'u2', device_name: 'Private Linux' }),
-        ]),
-    );
-    try {
-      expect(t.text()).toContain('Machines');
-      await t.click(/^Machines$/);
-      expect(t.text()).toContain('Bench');
-      expect(t.text()).toContain('Linux VM (Ada)');
-      expect(t.text()).toContain('Chosen Linux (Ada)');
-      expect(t.text()).not.toContain('Ada Mac');
-      expect(t.text()).not.toContain('Private Linux');
-      expect(
-        t
-          .all()
-          .some((n) => n.props.role === 'menuitemradio' && textOf(n).includes('Linux VM (Ada)')),
-      ).toBe(true);
-    } finally {
-      t.unmount();
-    }
-  });
-  it.each(['', 'd1'])('posts a machine only when chosen (%s)', async (machine) => {
+  it('creates a study without a machine override', async () => {
     const f = fetching();
     const t = await mount(CreateStudy, () => ({}));
     try {
+      expect(t.text()).not.toContain('Machines');
       await t.fill('Describe your study', 'Question');
-      await t.click(/^Grounding criteria · 0$/);
-      await t.fill('Criterion 1', 'Prospective cohort');
-      if (machine) {
-        await t.click(/^Machines$/);
-        await t.click(/^Bench$/);
-      }
       await t.submit();
       const body = bodies(f).find((c) => c.path === '/api/cards')!.body;
-      if (machine) expect(body.machine).toBe(machine);
-      else expect(body).not.toHaveProperty('machine');
+      expect(body).not.toHaveProperty('machine');
     } finally {
       t.unmount();
     }

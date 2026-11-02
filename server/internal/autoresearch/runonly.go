@@ -35,6 +35,15 @@ const maxSnapshot = 100
 func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch, r db.AutoresearchRun) error {
 	end := func(status, reason string) error {
 		r.Status, r.Reason = status, reason
+		draft, err := tx.LockStudyDraft(ctx, ap.ID)
+		if err != nil {
+			return err
+		}
+		if draft != nil {
+			if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not start creating the study. Check that its CLI is online and try again."); err != nil {
+				return err
+			}
+		}
 		return s.setRun(ctx, tx, r)
 	}
 	w, err := tx.Q.GetWorkspace(ctx, tx.WS)

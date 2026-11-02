@@ -45,15 +45,11 @@ const (
 	paperB2 = "arxiv:2101.00003"
 )
 
-// groundingStudy is a study worked by one agent from Grounding to Hypotheses,
-// with one Grounding criterion.
+// groundingStudy is a study worked by one agent from Grounding to Hypotheses.
 func (l *lab) groundingStudy(t *testing.T) db.Card {
 	t.Helper()
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.scoped(t, "grounding", "hypotheses", a)
-	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE card SET grounding_criteria = '["Studies adult human cells"]' WHERE id = $1`, c.ID); err != nil {
-		t.Fatal(err)
-	}
 	return c
 }
 

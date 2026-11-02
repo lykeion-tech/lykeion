@@ -26,6 +26,7 @@ const props = defineProps<{
   lastSet?: Picked | null;
   menuBelow?: boolean;
   buttonLabel?: string;
+  defaultLabel?: string;
 }>();
 const assignee = defineModel<Picked | null>({ required: true });
 const range = defineModel<Range>('range', { required: true });
@@ -67,7 +68,7 @@ const isSet = computed(
 // An Autoresearch must name its assignee; a study left alone gets built-in Teams.
 const name = computed(() => {
   const a = assignee.value;
-  if (!a) return props.agents ? '' : 'Built-in Teams';
+  if (!a) return props.agents ? '' : (props.defaultLabel ?? 'Built-in Teams');
   if (!('teams' in a)) return agentList.data.value?.find((x) => x.id === a.id)?.name ?? 'Agent';
   if (isSet.value) return 'Your Team set';
   return teamDisplayParts(
@@ -217,38 +218,40 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <button
         type="button"
         class="property-pill assignee-pill"
-        :aria-label="name ? `Assignee: ${name}` : 'Unassigned'"
+        :aria-label="
+          !assignee && defaultLabel ? defaultLabel : name ? `Assignee: ${name}` : 'Unassigned'
+        "
         @click="openMenu('assignee')"
       >
-        <span class="availability-icon">
-        <AvatarDisplay
-          v-if="name && !buttonLabel && selectedAvatar"
-          :value="selectedAvatar.startsWith('emoji:') ? selectedAvatar.slice(6) : selectedAvatar"
-          :size="14"
-        />
-        <span
-          v-else-if="selectedAgent?.built_in_key === 'aristotle' && !buttonLabel"
-          class="picker-aristotle"
-          ><Aristotle still
-        /></span>
-        <Icon
-          v-else-if="name && !buttonLabel && assignee?.type === 'team'"
-          name="network"
-          :size="14"
-        />
-        <Icon
-          v-else-if="name && !buttonLabel && selectedAgent?.source === 'built_in'"
-          name="bot"
-          :size="14"
-        />
-        <span v-else-if="name && !buttonLabel" class="avatar">{{ name[0] }}</span>
-        <span
-          v-if="selectedOnline"
-          class="availability-dot"
-          role="img"
-          :aria-label="selectedAgent ? 'CLI online' : 'Team CLIs online'"
-          :title="selectedAgent ? 'CLI online' : 'Team CLIs online'"
-        ></span>
+        <span v-if="assignee || !defaultLabel" class="availability-icon">
+          <AvatarDisplay
+            v-if="name && !buttonLabel && selectedAvatar"
+            :value="selectedAvatar.startsWith('emoji:') ? selectedAvatar.slice(6) : selectedAvatar"
+            :size="14"
+          />
+          <span
+            v-else-if="selectedAgent?.built_in_key === 'aristotle' && !buttonLabel"
+            class="picker-aristotle"
+            ><Aristotle still
+          /></span>
+          <Icon
+            v-else-if="name && !buttonLabel && assignee?.type === 'team'"
+            name="network"
+            :size="14"
+          />
+          <Icon
+            v-else-if="name && !buttonLabel && selectedAgent?.source === 'built_in'"
+            name="bot"
+            :size="14"
+          />
+          <span v-else-if="name && !buttonLabel" class="avatar">{{ name[0] }}</span>
+          <span
+            v-if="selectedOnline"
+            class="availability-dot"
+            role="img"
+            :aria-label="selectedAgent ? 'CLI online' : 'Team CLIs online'"
+            :title="selectedAgent ? 'CLI online' : 'Team CLIs online'"
+          ></span>
         </span>
         <span>{{ buttonLabel || name || 'Unassigned' }}</span>
       </button>
@@ -266,19 +269,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           role="menuitem"
           @click="assign({ type: 'agent', id: a.id })"
         >
-          <span class="availability-icon"><AvatarDisplay v-if="a.avatar_url" :value="a.avatar_url.slice(6)" :size="14" />
-          <span v-else-if="a.built_in_key === 'aristotle'" class="picker-aristotle"
-            ><Aristotle still
-          /></span>
-          <Icon v-else-if="a.source === 'built_in' || a.built_in_key" name="bot" :size="14" />
-          <span v-else class="avatar" aria-hidden="true">{{ a.name[0] }}</span
-          ><span
-            v-if="cliOnline(a.harness)"
-            class="availability-dot"
-            role="img"
-            aria-label="CLI online"
-            title="CLI online"
-          ></span></span
+          <span class="availability-icon"
+            ><AvatarDisplay v-if="a.avatar_url" :value="a.avatar_url.slice(6)" :size="14" />
+            <span v-else-if="a.built_in_key === 'aristotle'" class="picker-aristotle"
+              ><Aristotle still
+            /></span>
+            <Icon v-else-if="a.source === 'built_in' || a.built_in_key" name="bot" :size="14" />
+            <span v-else class="avatar" aria-hidden="true">{{ a.name[0] }}</span
+            ><span
+              v-if="cliOnline(a.harness)"
+              class="availability-dot"
+              role="img"
+              aria-label="CLI online"
+              title="CLI online"
+            ></span></span
           ><span>{{ a.name }}</span
           ><span
             v-if="a.harness === 'claude' || a.harness === 'codex'"
@@ -304,17 +308,17 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             role="menuitem"
             @click="assign({ type: 'team', teams: { [t.stage]: t.id } })"
           >
-            <span class="availability-icon"><AvatarDisplay v-if="t.avatar_url" :value="t.avatar_url.slice(6)" :size="14" /><Icon
-              v-else
-              name="network"
-              :size="14"
-            /><span
-              v-if="teamOnline(t)"
-              class="availability-dot"
-              role="img"
-              aria-label="Team CLIs online"
-              title="Team CLIs online"
-            ></span></span
+            <span class="availability-icon"
+              ><AvatarDisplay v-if="t.avatar_url" :value="t.avatar_url.slice(6)" :size="14" /><Icon
+                v-else
+                name="network"
+                :size="14" /><span
+                v-if="teamOnline(t)"
+                class="availability-dot"
+                role="img"
+                aria-label="Team CLIs online"
+                title="Team CLIs online"
+              ></span></span
             ><span><TeamName :name="t.name" /></span
             ><span
               v-for="cli in t.agent_clis ?? []"
@@ -351,19 +355,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             role="menuitem"
             @click="assign({ type: 'agent', id: a.id })"
           >
-            <span class="availability-icon"><AvatarDisplay v-if="a.avatar_url" :value="a.avatar_url.slice(6)" :size="14" />
-            <span v-else-if="a.built_in_key === 'aristotle'" class="picker-aristotle"
-              ><Aristotle still
-            /></span>
-            <Icon v-else-if="a.source === 'built_in' || a.built_in_key" name="bot" :size="14" />
-            <span v-else class="avatar" aria-hidden="true">{{ a.name[0] }}</span
-            ><span
-              v-if="cliOnline(a.harness)"
-              class="availability-dot"
-              role="img"
-              aria-label="CLI online"
-              title="CLI online"
-            ></span></span
+            <span class="availability-icon"
+              ><AvatarDisplay v-if="a.avatar_url" :value="a.avatar_url.slice(6)" :size="14" />
+              <span v-else-if="a.built_in_key === 'aristotle'" class="picker-aristotle"
+                ><Aristotle still
+              /></span>
+              <Icon v-else-if="a.source === 'built_in' || a.built_in_key" name="bot" :size="14" />
+              <span v-else class="avatar" aria-hidden="true">{{ a.name[0] }}</span
+              ><span
+                v-if="cliOnline(a.harness)"
+                class="availability-dot"
+                role="img"
+                aria-label="CLI online"
+                title="CLI online"
+              ></span></span
             ><span>{{ a.name }}</span
             ><span
               v-if="a.harness === 'claude' || a.harness === 'codex'"
@@ -428,11 +433,14 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         @click="openMenu('stages')"
       >
         <Icon name="circle" :size="14" />
-        <span>Stages: {{
-          unstaged
-            ? 'Choose a stage'
-            : stageName(range.from) + (range.from === range.to ? '' : ' → ' + stageName(range.to))
-        }}</span>
+        <span
+          >Stages:
+          {{
+            unstaged
+              ? 'Choose a stage'
+              : stageName(range.from) + (range.from === range.to ? '' : ' → ' + stageName(range.to))
+          }}</span
+        >
       </button>
       <div
         v-if="menu === 'stages' && unstaged"
@@ -524,16 +532,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .availability-dot {
   position: absolute;
   right: -4px;
-  bottom: -6px;
+  bottom: -1px;
   display: inline-block;
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #39a35a;
-}
-.assignee-pill .availability-dot {
-  bottom: -2px;
 }
 .picker-aristotle :deep(.aristotle-art) {
   width: 14px;

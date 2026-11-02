@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,55 +31,15 @@ type newCard struct {
 	Title      string      `json:"title"`
 	Question   string      `json:"question"`
 	Deadline   *time.Time  `json:"deadline"`
+	StartDate  *time.Time  `json:"start_date"`
 	Assignee   *assigneeIn `json:"assignee"`
 	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
 	AttachmentIDs []uuid.UUID  `json:"attachment_ids"`
 	Services      []newService `json:"services"`
 	Workflow      *string      `json:"workflow"`
-	// GroundingCriteria are the researcher's own tests for Grounding's work.
-	GroundingCriteria []string `json:"grounding_criteria"`
 }
 
-const (
-	maxGroundingCriteria      = 12
-	maxGroundingCriterionN    = 200
-	maxGroundingCriteriaBytes = 4096
-)
-
-// checkGroundingCriteria trims the criteria and refuses a bad set. A study that
-// includes Grounding needs at least one; any other takes none.
-func checkGroundingCriteria(in []string, from, to string) ([]string, error) {
-	includes := board.StageIndex(from) <= board.StageIndex(board.Grounding) && board.StageIndex(board.Grounding) <= board.StageIndex(to)
-	switch {
-	case !includes && len(in) > 0:
-		return nil, cardInputError("Grounding criteria are only for studies that include Grounding")
-	case includes && len(in) == 0:
-		return nil, cardInputError("a study that includes Grounding needs at least one Grounding criterion")
-	case len(in) > maxGroundingCriteria:
-		return nil, cardInputError(fmt.Sprintf("a study takes at most %d Grounding criteria", maxGroundingCriteria))
-	}
-	out := make([]string, 0, len(in))
-	for _, c := range in {
-		c = strings.TrimSpace(c)
-		switch {
-		case c == "" || utf8.RuneCountInString(c) > maxGroundingCriterionN:
-			return nil, cardInputError(fmt.Sprintf("a Grounding criterion is 1 to %d characters", maxGroundingCriterionN))
-		case slices.Contains(out, c):
-			return nil, cardInputError("a Grounding criterion is repeated: " + c)
-		}
-		out = append(out, c)
-	}
-	// The study keeps the list as JSON text within maxGroundingCriteriaBytes;
-	// Postgres writes ", " between entries, one byte more than here.
-	if b, err := json.Marshal(out); err != nil || len(b)+len(out) > maxGroundingCriteriaBytes {
-		return nil, cardInputError(fmt.Sprintf("the Grounding criteria are too long together: at most %d bytes", maxGroundingCriteriaBytes))
-	}
-	return out, nil
-}
-
-// checkWorkflow refuses a study that names a Workflow but isn't one agent
-// working Experimentation alone.
 func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 	if in.Workflow == nil {
 		return nil
@@ -303,6 +262,7 @@ type cardTeamView struct {
 // is labelled for another stage.
 type studyView struct {
 	db.Card
+	StartDate     *time.Time              `json:"start_date"`
 	MachineLabel  string                  `json:"machine_label"`
 	MachineNotice string                  `json:"machine_notice"`
 	Teams         map[string]cardTeamView `json:"teams"`
@@ -325,6 +285,11 @@ type attachmentView struct {
 
 func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	v := studyView{Card: c, Teams: map[string]cardTeamView{}, OffLabel: []string{}, Attachments: []attachmentView{}, Services: []serviceNameView{}}
+	var err error
+	v.StartDate, err = tx.StudyStartDate(r.Context(), c.ID)
+	if err != nil {
+		return v, err
+	}
 	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
 	if err != nil {
 		return v, err
@@ -391,6 +356,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "question required")
 		return
 	}
+	if in.StartDate != nil && in.Deadline != nil && in.StartDate.After(*in.Deadline) {
+		writeErr(w, 400, "start date must be on or before the due date")
+		return
+	}
 	if err := checkServices(in.Services); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -408,13 +377,6 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		err = checkWorkflow(in, from, to, agent)
-	}
-	var criteria []byte
-	if err == nil {
-		var list []string
-		if list, err = checkGroundingCriteria(in.GroundingCriteria, from, to); err == nil {
-			criteria, err = json.Marshal(list)
-		}
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -470,7 +432,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		params := db.CreateCardParams{
 			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
 			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow, GroundingCriteria: criteria,
+			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
 			StudyCli: in.StudyCLI, AuditorCli: in.AuditorCLI,
 		}
 		if in.Workflow != nil {
@@ -504,6 +466,11 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		card, err := tx.Q.CreateCard(r.Context(), params)
 		if err != nil {
 			return err
+		}
+		if in.StartDate != nil {
+			if err := tx.SetStudyStartDate(r.Context(), card.ID, in.StartDate); err != nil {
+				return err
+			}
 		}
 		for col, pack := range teams {
 			if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
@@ -605,13 +572,18 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 
 type cardListView struct {
 	db.ListCardsRow
-	Teams map[string]cardTeamView `json:"teams"`
+	Teams     map[string]cardTeamView `json:"teams"`
+	StartDate *time.Time              `json:"start_date"`
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 	cards := []cardListView{}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		rows, err := tx.Q.ListCards(r.Context(), ws)
+		if err != nil {
+			return err
+		}
+		starts, err := tx.StudyStartDates(r.Context())
 		if err != nil {
 			return err
 		}
@@ -631,7 +603,11 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 			if teams == nil {
 				teams = map[string]cardTeamView{}
 			}
-			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams})
+			var start *time.Time
+			if date, ok := starts[card.ID]; ok {
+				start = &date
+			}
+			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams, StartDate: start})
 		}
 		return nil
 	})

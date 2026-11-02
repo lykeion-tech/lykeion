@@ -23,7 +23,7 @@ test('search opens with researches and standalone and nested studies, previews a
         title,
         question: title,
         research_id,
-        grounding_criteria: ['Peer-reviewed source'],
+
       },
     });
     expect(response.status()).toBe(201);
