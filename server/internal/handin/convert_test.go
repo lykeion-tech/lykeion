@@ -259,8 +259,9 @@ func TestConvertModeRules(t *testing.T) {
 		t.Fatalf("runs: %v %v", kinds(recs), probs)
 	}
 	a := body(t, recs[0])
-	tst := a["Test"].(map[string]any)
-	if a["Measurement"] != "slope" || a["Control"] != "baseline" || tst["StatDigits"] != 2.0 || tst["PDigits"] != 2.0 {
+	var tst map[string]any
+	tst = a["test"].(map[string]any)
+	if a["measurement"] != "slope" || a["control"] != "baseline" || tst["stat_digits"] != 2.0 || tst["p_digits"] != 2.0 || tst["df1"] != 28.0 {
 		t.Errorf("assessment %v", a)
 	}
 	recs, probs = Convert(Validation, true, vHandIn(t, "", verdictOK, flaggedOK), validationEvidence("claims"), Review{})
@@ -279,5 +280,21 @@ func TestVerdictSourceMustBeKnown(t *testing.T) {
 		"flagged error 1: source not found among the study's attachments or recorded sources"}
 	if !slices.Equal(probs, want) {
 		t.Errorf("got %q\nwant %q", probs, want)
+	}
+}
+
+func TestValidationReplies(t *testing.T) {
+	prev := Review{Failed: map[string]string{"a stated claim": "r8", "doi:10.1001/a\nthe quote": "r9"}}
+	h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[],
+		"verdicts":[`+verdictOK+`],"flagged_errors":[{"source":"10.1001/a","quote":"The  quote","problem":"p"}],"replies":[
+		{"item":"A Stated  Claim","action":"withdrawn","reason":"unsupported"},
+		{"item":"doi:10.1001/a the quote","action":"corrected","reason":"fixed"},
+		{"item":"c","action":"corrected","reason":"fixed"}]}`)
+	recs, probs := Convert(Validation, true, h, validationEvidence("claims"), prev)
+	if len(probs) > 0 {
+		t.Fatal(probs)
+	}
+	if !slices.Equal(kinds(recs), []string{"verdict", "flagged_error", "withdrawn", "summary"}) || body(t, recs[2])["item"] != "r8" {
+		t.Fatalf("kinds %v", kinds(recs))
 	}
 }

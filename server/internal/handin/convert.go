@@ -278,6 +278,9 @@ func (c *converter) validation(h HandIn) {
 	}
 	for i, f := range h.FlaggedErrs {
 		if src, ok := c.source(f.Source); ok {
+			// The identity review.IdentityOf gives it; a reply's spacing
+			// collapses the line break, as identity does here.
+			c.declared[identity(src+"\n"+f.Quote)] = true
 			c.item("flagged error", i+1, review.KindFlaggedError, review.FlaggedErrorBody{Source: src, Quote: f.Quote, Problem: f.Problem})
 		} else {
 			c.problem("flagged error %d: source not found among the study's attachments or recorded sources", i+1)

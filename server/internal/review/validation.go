@@ -21,11 +21,11 @@ const (
 // values are its measurement and control, the reported test, and the observed
 // named outcome.
 type Assessment struct {
-	Hypothesis  string
-	Measurement string
-	Control     *string
-	Test        *statcheck.Test
-	Observed    *string
+	Hypothesis  string          `json:"hypothesis"`
+	Measurement string          `json:"measurement"`
+	Control     *string         `json:"control"`
+	Test        *statcheck.Test `json:"test"`
+	Observed    *string         `json:"observed"`
 }
 
 // Measured is a value recomputed by a script run, keyed by value name.

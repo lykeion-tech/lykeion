@@ -2,6 +2,7 @@ package handin
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -159,6 +160,12 @@ func TestValidationSchemaIsStrict(t *testing.T) {
 
 func TestKindForValidation(t *testing.T) {
 	defer func(v bool) { validationHandsIn = v }(validationHandsIn)
+	validationHandsIn = false
+	for _, role := range []string{"leader", "agent", "auditor"} {
+		if got, ok := KindFor("role", role, "validation"); ok || got != "" {
+			t.Errorf("gated %s: got %q %v", role, got, ok)
+		}
+	}
 	validationHandsIn = true
 	cases := []struct {
 		role string
@@ -197,15 +204,39 @@ func TestParseValidationKeepsNumberText(t *testing.T) {
 	if b.Test.StatDigits != 2 || b.Test.PDigits != 3 || *b.Control != "base" || *b.Observed != "up" {
 		t.Errorf("%+v", b.Test)
 	}
+	dfs := `{"status":"done","answer":"a","assessments":[
+		{"hypothesis":"h","measurement":"m","control":null,"observed":null,"test":{"kind":"t","statistic":2,"df1":null,"df2":null,"p":0.05,"p_bound":"="}},
+		{"hypothesis":"h","measurement":"m","control":null,"observed":null,"test":{"kind":"F","statistic":2,"df1":2,"df2":null,"p":0.05,"p_bound":"="}},
+		{"hypothesis":"h","measurement":"m","control":null,"observed":null,"test":{"kind":"z","statistic":2,"df1":null,"df2":null,"p":0.05,"p_bound":"="}}]}`
+	_, probs = Parse(Validation, []byte(dfs))
+	if want := []string{"assessments 1: a t test needs df1", "assessments 2: an F test needs df1 and df2"}; !slices.Equal(probs, want) {
+		t.Errorf("dfs: got %q want %q", probs, want)
+	}
+	long := strings.Repeat("x", 2001)
+	lens := `{"status":"done","answer":"a",
+		"assessments":[{"hypothesis":"  ","measurement":"m","control":null,"observed":"` + long + `","test":null}],
+		"verdicts":[{"claim":"` + long + `","verdict":"supported","source":" ","quote":"q"}],
+		"flagged_errors":[{"source":"s","quote":"q","problem":"` + long + `"}]}`
+	_, probs = Parse(Validation, []byte(lens))
+	for _, want := range []string{
+		"assessments 1: hypothesis and measurement must each be 1 to 2000 characters",
+		"assessments 1: observed must be 1 to 2000 characters",
+		"verdicts 1: claim, source and quote must each be 1 to 2000 characters",
+		"flagged_errors 1: source, quote and problem must each be 1 to 2000 characters",
+	} {
+		if !contains(probs, want) {
+			t.Errorf("want %q in %q", want, probs)
+		}
+	}
 	bad := `{"status":"done","answer":"a","verdicts":[{"claim":"c","verdict":"maybe","source":"s","quote":"q"}],
 		"assessments":[{"hypothesis":"","measurement":"","control":null,"observed":null,"test":{"kind":"w","statistic":1,"df1":null,"df2":null,"p":0.5,"p_bound":"~"}}],
 		"flagged_errors":[{"source":"","quote":"q","problem":"p"}]}`
 	_, probs = Parse(Validation, []byte(bad))
 	for _, want := range []string{
-		"assessments 1: hypothesis and measurement are both required",
+		"assessments 1: hypothesis and measurement must each be 1 to 2000 characters",
 		"assessments 1: test kind must be t, F, chi2, r or z, and p_bound =, < or >",
 		"verdicts 1: verdict must be supported, refuted or not_enough_info",
-		"flagged_errors 1: source, quote and problem are all required",
+		"flagged_errors 1: source, quote and problem must each be 1 to 2000 characters",
 	} {
 		if !contains(probs, want) {
 			t.Errorf("want %q in %q", want, probs)

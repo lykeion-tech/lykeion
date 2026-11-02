@@ -10,13 +10,14 @@ import (
 
 // Test is one reported result such as t(28) = 2.20, p = .04.
 type Test struct {
-	Kind       string // t, F, chi2, r or z
-	Statistic  float64
-	StatDigits int // decimals the statistic was reported with
-	DF1, DF2   float64
-	P          float64
-	PDigits    int    // decimals the p was reported with
-	PBound     string // "=", "<" or ">"
+	Kind       string  `json:"kind"` // t, F, chi2, r or z
+	Statistic  float64 `json:"statistic"`
+	StatDigits int     `json:"stat_digits"` // decimals the statistic was reported with
+	DF1        float64 `json:"df1"`
+	DF2        float64 `json:"df2"`
+	P          float64 `json:"p"`
+	PDigits    int     `json:"p_digits"` // decimals the p was reported with
+	PBound     string  `json:"p_bound"`  // "=", "<" or ">"
 }
 
 // P is the two-tailed p for t, r and z, and the upper-tail p for F and chi2.

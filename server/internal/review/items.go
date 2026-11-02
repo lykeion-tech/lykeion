@@ -219,34 +219,47 @@ func control(c Control) string {
 	return check((c.Text != "") != (c.None != ""), "control needs exactly one of text or none")
 }
 
+// itemText is what LabelOf and IdentityOf read of an item record's body.
+type itemText struct {
+	ID         string `json:"id"`
+	Accession  string `json:"accession"`
+	Text       string `json:"text"`
+	Hypothesis string `json:"hypothesis"`
+	Claim      string `json:"claim"`
+	Source     string `json:"source"`
+	Quote      string `json:"quote"`
+}
+
 // LabelOf is the label the reviewers give an item record: a paper's id, a
-// dataset's accession, otherwise its text cut to fit 80 characters.
+// dataset's accession, an assessment's hypothesis, a verdict's claim, a
+// flagged error's source and quote, otherwise its text, cut to fit 80
+// characters.
 func LabelOf(rec db.Record) string {
-	var b struct {
-		ID        string `json:"id"`
-		Accession string `json:"accession"`
-		Text      string `json:"text"`
-	}
+	var b itemText
 	_ = json.Unmarshal(rec.Body, &b)
 	switch rec.Kind {
 	case KindPaper:
 		return b.ID
 	case KindDataset:
 		return b.Accession
+	case KindAssessment:
+		return clip(strings.TrimSpace(b.Hypothesis))
+	case KindVerdict:
+		return clip(strings.TrimSpace(b.Claim))
+	case KindFlaggedError:
+		return clip(strings.TrimSpace(b.Source) + ": " + strings.TrimSpace(b.Quote))
 	}
 	return clip(b.Text)
 }
 
 // IdentityOf is what makes two item records the same item: a paper's id or a
-// dataset's accession without case, the outputs list as one item, otherwise
-// the whole text with its spacing collapsed, without case. Labels are cut
-// short for display, so they never match items.
+// dataset's accession without case, the outputs list as one item, a flagged
+// error's source and quote each collapsed and joined by a line break,
+// otherwise the whole text (an assessment's hypothesis, a verdict's claim)
+// with its spacing collapsed, without case. Labels are cut short for display,
+// so they never match items.
 func IdentityOf(rec db.Record) string {
-	var b struct {
-		ID        string `json:"id"`
-		Accession string `json:"accession"`
-		Text      string `json:"text"`
-	}
+	var b itemText
 	_ = json.Unmarshal(rec.Body, &b)
 	switch rec.Kind {
 	case KindPaper:
@@ -255,9 +268,17 @@ func IdentityOf(rec db.Record) string {
 		return strings.ToLower(b.Accession)
 	case KindOutputs:
 		return KindOutputs
+	case KindAssessment:
+		return collapse(b.Hypothesis)
+	case KindVerdict:
+		return collapse(b.Claim)
+	case KindFlaggedError:
+		return collapse(b.Source) + "\n" + collapse(b.Quote)
 	}
-	return strings.ToLower(strings.Join(strings.Fields(b.Text), " "))
+	return collapse(b.Text)
 }
+
+func collapse(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
 
 // GroundingSource says whether r is a paper or dataset Grounding declared:
 // with the sources server's calls, the only records a hypothesis may cite.

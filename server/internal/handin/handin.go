@@ -27,8 +27,8 @@ const (
 	Validation      Kind = "validation"
 )
 
-// validationHandsIn says whether Validation's lead and members owe a
-// hand-in; until its engine reads hand-ins they still work through lyk.
+// validationHandsIn says whether Validation's runs, its auditor's included,
+// owe a hand-in; until its engine reads hand-ins they still work through lyk.
 var validationHandsIn = false
 
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
@@ -36,12 +36,15 @@ func KindFor(runKind, role, column string) (Kind, bool) {
 	switch {
 	case runKind == "autoresearch":
 		return Autoresearch, true
-	case role == "auditor":
+	case role == "auditor" && (column != board.Validation || validationHandsIn):
 		return Auditor, true
 	}
 	switch column {
 	case board.Validation:
-		return Validation, validationHandsIn
+		if !validationHandsIn {
+			return "", false
+		}
+		return Validation, true
 	case board.Grounding:
 		return Grounding, true
 	case board.Hypotheses:
@@ -275,21 +278,29 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(s.Title != "" && s.Question != "", "new_studies %d: title and question are both required", i+1)
 	}
 	for i, a := range h.Assessments {
-		add(strings.TrimSpace(a.Hypothesis) != "" && a.Measurement != "", "assessments %d: hypothesis and measurement are both required", i+1)
+		add(within(a.Hypothesis, 2000) && within(a.Measurement, 2000), "assessments %d: hypothesis and measurement must each be 1 to 2000 characters", i+1)
+		add(a.Control == nil || within(*a.Control, 2000), "assessments %d: control must be 1 to 2000 characters", i+1)
+		add(a.Observed == nil || within(*a.Observed, 2000), "assessments %d: observed must be 1 to 2000 characters", i+1)
 		if t := a.Test; t != nil {
 			add(slices.Contains([]string{"t", "F", "chi2", "r", "z"}, t.Kind) && slices.Contains([]string{"=", "<", ">"}, t.PBound),
 				"assessments %d: test kind must be t, F, chi2, r or z, and p_bound =, < or >", i+1)
 			_, e1 := t.Statistic.Float64()
 			_, e2 := t.P.Float64()
 			add(e1 == nil && e2 == nil, "assessments %d: test statistic and p must be numbers", i+1)
+			switch t.Kind {
+			case "F":
+				add(t.DF1 != nil && t.DF2 != nil, "assessments %d: an F test needs df1 and df2", i+1)
+			case "t", "chi2", "r":
+				add(t.DF1 != nil, "assessments %d: a %s test needs df1", i+1, t.Kind)
+			}
 		}
 	}
 	for i, v := range h.Verdicts {
 		add(slices.Contains([]string{"supported", "refuted", "not_enough_info"}, v.Verdict), "verdicts %d: verdict must be supported, refuted or not_enough_info", i+1)
-		add(v.Claim != "" && v.Source != "" && v.Quote != "", "verdicts %d: claim, source and quote are all required", i+1)
+		add(within(v.Claim, 2000) && within(v.Source, 2000) && within(v.Quote, 2000), "verdicts %d: claim, source and quote must each be 1 to 2000 characters", i+1)
 	}
 	for i, f := range h.FlaggedErrs {
-		add(f.Source != "" && f.Quote != "" && f.Problem != "", "flagged_errors %d: source, quote and problem are all required", i+1)
+		add(within(f.Source, 2000) && within(f.Quote, 2000) && within(f.Problem, 2000), "flagged_errors %d: source, quote and problem must each be 1 to 2000 characters", i+1)
 	}
 	return h, probs
 }
