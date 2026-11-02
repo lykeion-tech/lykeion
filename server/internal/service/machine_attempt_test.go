@@ -70,6 +70,7 @@ func TestMachineAccountingSurvivesRetryAndRuntimeDeletion(t *testing.T) {
 			c := f.runtime(t, ownerC, "machine-c", "codex")
 			exec(`UPDATE runtime SET visibility='workspace' WHERE id=$1`, c.RuntimeID)
 			exec(`UPDATE card SET machine='machine-c' WHERE id=$1`, f.Card)
+			exec(`UPDATE agent_run SET retry_after=NULL WHERE id=$1`, id)
 			second := claim(ownerC, c)
 			c.Attempt = second.AgentRun.Attempt
 			if c.Attempt != 2 {

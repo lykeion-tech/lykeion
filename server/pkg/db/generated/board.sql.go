@@ -408,6 +408,21 @@ func (q *Queries) MarkQueueOffline(ctx context.Context) error {
 	return err
 }
 
+const resolveMachineWaits = `-- name: ResolveMachineWaits :exec
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+`
+
+type ResolveMachineWaitsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+}
+
+func (q *Queries) ResolveMachineWaits(ctx context.Context, arg ResolveMachineWaitsParams) error {
+	_, err := q.db.Exec(ctx, resolveMachineWaits, arg.WorkspaceID, arg.RuntimeID)
+	return err
+}
+
 const roundAgentRunRecords = `-- name: RoundAgentRunRecords :many
 SELECT agent_run_id::uuid AS agent_run_id, kind, body FROM record
 WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
@@ -711,6 +726,32 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	var ok bool
 	err := row.Scan(&ok)
 	return ok, err
+}
+
+const upsertMachineWait = `-- name: UpsertMachineWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
+VALUES ($1, $2, 'waiting_for_machine', $3, $4, $5)
+ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine' AND resolved_at IS NULL DO NOTHING
+`
+
+type UpsertMachineWaitParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	UserID      uuid.UUID  `json:"user_id"`
+	Text        string     `json:"text"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+	Cause       *string    `json:"cause"`
+}
+
+// One open item per machine and cause: later waits on it add nothing.
+func (q *Queries) UpsertMachineWait(ctx context.Context, arg UpsertMachineWaitParams) error {
+	_, err := q.db.Exec(ctx, upsertMachineWait,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Text,
+		arg.RuntimeID,
+		arg.Cause,
+	)
+	return err
 }
 
 const waitLockCard = `-- name: WaitLockCard :exec

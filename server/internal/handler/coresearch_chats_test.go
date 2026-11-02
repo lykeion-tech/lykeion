@@ -544,6 +544,10 @@ func TestCoresearchLifecycleReplayOutsideProjectHasOnlyIdentifiers(t *testing.T)
 	if _, e := s.H.AgentRuns.Fail(t.Context(), owner, ref, run.ID, service.Report{Error: "temporary", FailureReason: "provider_network"}); e != nil {
 		t.Fatal(e)
 	}
+	// Skip the parked run's backoff.
+	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET retry_after=NULL WHERE id=$1", run.ID); e != nil {
+		t.Fatal(e)
+	}
 	second := csClaim(t, s, a, ref)
 	if len(second) != 1 {
 		t.Fatal(second)

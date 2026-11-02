@@ -11,7 +11,7 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
-func TestBreachFailsTheRun(t *testing.T) {
+func TestBreachDiscardsTheRun(t *testing.T) {
 	f := fixture(t)
 	// A web fetch, then work the CLI would hand in if it were left running.
 	must(t, os.WriteFile(f.cfg.Harnesses["claude"], []byte(`#!/bin/sh
@@ -24,11 +24,11 @@ echo '{"type":"assistant","message":{"content":[{"type":"text","text":"final ans
 echo '{"type":"result","is_error":false,"session_id":"s"}'
 `), 0700))
 	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { s := f.status(t); return s == "failed" || s == "completed" })
+	waitFor(t, func() bool { return f.parked(t) || f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
 	var status, reason, text string
 	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT status, coalesce(failure_reason, ''), error FROM agent_run WHERE id=$1", f.id).Scan(&status, &reason, &text))
-	if status != "failed" || reason != agent.ReasonFenceBreach || text != "used WebFetch, which is outside Lykeion's sources" {
+	if status != "queued" || reason != agent.ReasonFenceBreach || text != "used WebFetch, which is outside Lykeion's sources" {
 		t.Fatalf("status %q reason %q error %q", status, reason, text)
 	}
 	var finals int
@@ -55,7 +55,7 @@ func TestBreachedSessionIsNotSavedAsReady(t *testing.T) {
 		}), nil
 	}
 	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { s := f.status(t); return s == "failed" || s == "completed" })
+	waitFor(t, func() bool { return f.parked(t) || f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
 	var reason string
 	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT coalesce(failure_reason, '') FROM agent_run WHERE id=$1", f.id).Scan(&reason))

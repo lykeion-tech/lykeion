@@ -280,10 +280,14 @@ func TestOnlyMachineAndNetworkFailuresRetry(t *testing.T) {
 	}
 
 	f.enqueue(t, 1, "claude")
-	for n, want := range []string{"queued", "failed"} {
+	// A network failure waits for the machine however often it happens.
+	for n := range 2 {
 		tk, err := f.T.Fail(ctx, f.Owner, ref, attempt(), Report{Error: "connection reset", FailureReason: "provider_network"})
-		if err != nil || tk.Status != want || reasonOf(tk) != "provider_network" {
+		if err != nil || tk.Status != "queued" || reasonOf(tk) != "provider_network" {
 			t.Fatalf("attempt %d: %s %q %v", n+1, tk.Status, reasonOf(tk), err)
+		}
+		if n == 0 {
+			f.clearBackoff(t)
 		}
 	}
 	for _, reason := range []string{"context_exhausted", "agent_error", ""} {
@@ -297,8 +301,8 @@ func TestOnlyMachineAndNetworkFailuresRetry(t *testing.T) {
 			t.Fatalf("%q: %s attempt %d %q %v", reason, tk.Status, tk.Attempt, reasonOf(tk), err)
 		}
 	}
-	if f.settledCount() != 4 {
-		t.Fatalf("settled %d, want 4", f.settledCount())
+	if f.settledCount() != 3 {
+		t.Fatalf("settled %d, want 3", f.settledCount())
 	}
 }
 
@@ -377,6 +381,7 @@ func TestSweepReclaimsLostWork(t *testing.T) {
 	if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{ref}, nil); err != nil {
 		t.Fatal(err)
 	}
+	f.clearBackoff(t)
 	got, err = f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 1)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("claim: %v, got %d runs", err, len(got))
@@ -392,13 +397,14 @@ func TestSweepReclaimsLostWork(t *testing.T) {
 	if err := f.Env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id = $1", got[0].AgentRun.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status != "failed" || f.settledCount() != 1 {
-		t.Fatalf("after the last attempt: %s, settled %d", status, f.settledCount())
+	// Losing the machine never fails the run, however many attempts it allows.
+	if status != "queued" || f.settledCount() != 0 {
+		t.Fatalf("after the second lost attempt: %s, settled %d", status, f.settledCount())
 	}
 	if _, err := f.T.Complete(ctx, f.Owner, ref, got[0].AgentRun.ID, Report{}); err != nil {
 		t.Fatalf("a late report for a swept agent run should return the stored result: %v", err)
 	}
-	if f.settledCount() != 1 {
+	if f.settledCount() != 0 {
 		t.Fatal("a late report fired OnSettled again")
 	}
 }
@@ -530,6 +536,7 @@ func TestAttemptReplayCannotChargeOrSettleReclaimedRun(t *testing.T) {
 	if again, err := f.T.Fail(ctx, f.Owner, old, id, r); err != nil || again.Status != "queued" {
 		t.Fatalf("replay: %+v %v", again, err)
 	}
+	f.clearBackoff(t)
 	current, _ := f.claimStart(t, ref)
 	if current.Attempt != 2 {
 		t.Fatalf("attempt %d", current.Attempt)
@@ -753,14 +760,11 @@ func TestSweepRollbackDoesNotLoseStateEventsOrNotification(t *testing.T) {
 	ctx := context.Background()
 	f.enqueue(t, 1, "claude")
 	ref, id := f.claimStart(t, f.runtime(t, f.Owner, "d1", "claude"))
-	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run SET max_attempts=1 WHERE id=$1", id); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET last_seen_at=now()-interval '5 minutes' WHERE id=$1", ref.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
 	// Force the event insert to fail after the sweeper's state mutation.
-	if _, err := f.Env.Owner.Exec(ctx, `CREATE FUNCTION reject_failed_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'agent_run.failed' THEN RAISE EXCEPTION 'injected event failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_failed_event BEFORE INSERT ON event FOR EACH ROW EXECUTE FUNCTION reject_failed_event()`); err != nil {
+	if _, err := f.Env.Owner.Exec(ctx, `CREATE FUNCTION reject_failed_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'agent_run.requeued' THEN RAISE EXCEPTION 'injected event failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_failed_event BEFORE INSERT ON event FOR EACH ROW EXECUTE FUNCTION reject_failed_event()`); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.T.Sweep(ctx); err == nil {
@@ -779,22 +783,19 @@ func TestSweepRollbackDoesNotLoseStateEventsOrNotification(t *testing.T) {
 	if err := f.T.Sweep(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if status, err := f.T.Status(ctx, f.Owner, ref, id); err != nil || status != "failed" {
+	if status, err := f.T.Status(ctx, f.Owner, ref, id); err != nil || status != "queued" {
 		t.Fatalf("swept %s %v", status, err)
 	}
-	if f.settledCount() != 1 {
+	if f.settledCount() != 0 {
 		t.Fatalf("settled %d", f.settledCount())
 	}
 }
 
-func TestDeletedRuntimeIsSweptWithDurableNotification(t *testing.T) {
+func TestDeletedRuntimeIsSweptBackToTheQueue(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	f.enqueue(t, 1, "claude")
 	ref, id := f.claimStart(t, f.runtime(t, f.Owner, "d1", "claude"))
-	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run SET max_attempts=1 WHERE id=$1", id); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := f.Env.Owner.Exec(ctx, "DELETE FROM runtime WHERE id=$1", ref.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +806,7 @@ func TestDeletedRuntimeIsSweptWithDurableNotification(t *testing.T) {
 	if err := f.Env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id=$1", id).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status != "failed" || f.settledCount() != 1 {
+	if status != "queued" || f.settledCount() != 0 {
 		t.Fatalf("status %s settled %d", status, f.settledCount())
 	}
 }
@@ -839,13 +840,10 @@ func TestSweepAndCancelDoNotDeadlockAcrossTwoRuns(t *testing.T) {
 	if a.String() < b.String() {
 		second = b
 	}
-	if _, err := f.Env.Owner.Exec(ctx, "UPDATE agent_run SET max_attempts=1 WHERE card_id=$1", f.Card); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET last_seen_at=now()-interval '5 minutes' WHERE id=$1", ref.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Env.Owner.Exec(ctx, `CREATE FUNCTION pause_sweep_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'agent_run.failed' THEN PERFORM pg_sleep(0.3); END IF; RETURN NEW; END $$; CREATE TRIGGER pause_sweep_event BEFORE INSERT ON event FOR EACH ROW EXECUTE FUNCTION pause_sweep_event()`); err != nil {
+	if _, err := f.Env.Owner.Exec(ctx, `CREATE FUNCTION pause_sweep_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'agent_run.requeued' THEN PERFORM pg_sleep(0.3); END IF; RETURN NEW; END $$; CREATE TRIGGER pause_sweep_event BEFORE INSERT ON event FOR EACH ROW EXECUTE FUNCTION pause_sweep_event()`); err != nil {
 		t.Fatal(err)
 	}
 	sweep := make(chan error, 1)
@@ -871,8 +869,9 @@ func TestSweepAndCancelDoNotDeadlockAcrossTwoRuns(t *testing.T) {
 	if err := <-sweep; err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if f.settledCount() != 2 {
-		t.Fatalf("settled %d", f.settledCount())
+	// The sweep parks both runs; only the cancelled one settles.
+	if want := map[bool]int{true: 1, false: 0}[cancelErr == nil]; f.settledCount() != want {
+		t.Fatalf("settled %d, want %d", f.settledCount(), want)
 	}
 }
 

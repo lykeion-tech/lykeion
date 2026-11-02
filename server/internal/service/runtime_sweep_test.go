@@ -206,9 +206,6 @@ func TestRuntimeSweepNewWorkspaceCandidateIsRecoveredNextPass(t *testing.T) {
 	}
 	other.enqueue(t, 1, "claude")
 	ref, run := other.claimStart(t, other.runtime(t, other.Owner, "later-runtime", "claude"))
-	if _, err = f.Env.Owner.Exec(ctx, "UPDATE agent_run SET max_attempts=1 WHERE id=$1", run); err != nil {
-		t.Fatal(err)
-	}
 	blocker, err := f.Env.Owner.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +279,7 @@ func TestRuntimeSweepNewWorkspaceCandidateIsRecoveredNextPass(t *testing.T) {
 	if err = f.Env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id=$1", run).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status != "failed" || f.settledCount() != 1 {
+	if status != "queued" || f.settledCount() != 0 {
 		t.Fatalf("candidate lost after next pass: %s settlements=%d", status, f.settledCount())
 	}
 }

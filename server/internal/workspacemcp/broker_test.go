@@ -203,6 +203,10 @@ func TestWorkspaceMCPRemoteSessionsArePerRunAndCloseOnCancellation(t *testing.T)
 	if _, err := runs.Fail(ctx, user, ref, role.AgentRunID, service.Report{FailureReason: "provider_network", Error: "retry"}); err != nil {
 		t.Fatal(err)
 	}
+	// Skip the parked run's backoff.
+	if _, err := env.Owner.Exec(ctx, `UPDATE agent_run SET retry_after=NULL WHERE id=$1`, role.AgentRunID); err != nil {
+		t.Fatal(err)
+	}
 	retry, err := runs.Claim(ctx, user, []service.RuntimeRef{ref}, 1)
 	if err != nil || len(retry) != 1 || retry[0].AgentRun.ID != role.AgentRunID || retry[0].AgentRun.Attempt != 2 {
 		t.Fatalf("retry claim: %+v %v", retry, err)

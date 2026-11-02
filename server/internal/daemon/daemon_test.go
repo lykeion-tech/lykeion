@@ -216,6 +216,20 @@ func (f *daemonFixture) status(t *testing.T) string {
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT status FROM agent_run WHERE id=$1", f.id).Scan(&s))
 	return s
 }
+// parked reports whether the server put the run back to wait for the machine.
+func (f *daemonFixture) parked(t *testing.T) bool {
+	t.Helper()
+	var ok bool
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT status = 'queued' AND infra_failures > 0 FROM agent_run WHERE id=$1", f.id).Scan(&ok))
+	return ok
+}
+
+// skipBackoff lets the daemon reclaim a parked run at once.
+func (f *daemonFixture) skipBackoff(t *testing.T) {
+	t.Helper()
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET retry_after = NULL WHERE id=$1", f.id)
+	must(t, err)
+}
 func startDaemon(t *testing.T, cfg Config) (context.CancelFunc, <-chan error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -811,7 +825,7 @@ func TestControlPlaneTransportLossRetriesWithoutDuplicateCLI(t *testing.T) {
 			// The fake CLI appends one argv line per launch.
 			invocations := filepath.Join(f.cfg.Home, ".caches", "npm", "argv")
 			cancel, done := startDaemon(t, f.cfg)
-			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+			waitFor(t, func() bool { f.skipBackoff(t); s := f.status(t); return s == "completed" || s == "failed" })
 			stopDaemon(t, cancel, done)
 			if s := f.status(t); s != "completed" {
 				t.Fatalf("transport loss terminally settled run: %s", s)
@@ -1281,11 +1295,13 @@ echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Not logge
 			}
 			must(t, os.WriteFile(f.cfg.Harnesses["claude"], []byte(body), 0700))
 			cancel, done := startDaemon(t, f.cfg)
-			wantStatus, wantNotes := "completed", 0
+			// A signed-out CLI parks the run for the machine instead of failing it.
+			wantNotes := 0
+			reached := func() bool { return f.status(t) == "completed" }
 			if diagnostic {
-				wantStatus, wantNotes = "failed", 1
+				wantNotes, reached = 1, func() bool { return f.parked(t) }
 			}
-			waitFor(t, func() bool { return f.status(t) == wantStatus })
+			waitFor(t, reached)
 			stopDaemon(t, cancel, done)
 			var count, matching int
 			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT count(*), count(*) FILTER (WHERE content->>'message'=$2) FROM agent_run_message WHERE agent_run_id=$1 AND type='status' AND content->>'type'='sandbox'", f.id, "The CLI couldn't read your sign-in inside Lykeion's sandbox. Sign in to the CLI on this machine, then run again.").Scan(&count, &matching))

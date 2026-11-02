@@ -112,3 +112,13 @@ SELECT DISTINCT k::text AS blob_key FROM record r,
     CASE WHEN r.kind = 'run' THEN coalesce(r.workspace_id::text || '/' || r.card_id::text || '/' || (r.body->>'packages_sha256'), '') ELSE '' END
   ]) AS k
 WHERE r.workspace_id = @workspace_id AND r.card_id = @card_id AND k <> '';
+
+-- One open item per machine and cause: later waits on it add nothing.
+-- name: UpsertMachineWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
+VALUES (@workspace_id, @user_id, 'waiting_for_machine', @text, @runtime_id, @cause)
+ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine' AND resolved_at IS NULL DO NOTHING;
+
+-- name: ResolveMachineWaits :exec
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;

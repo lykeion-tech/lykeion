@@ -569,7 +569,9 @@ func (q *Queries) ExtendLease(ctx context.Context, arg ExtendLeaseParams) (int64
 
 const finishAgentRun = `-- name: FinishAgentRun :exec
 UPDATE agent_run SET status = $1, completed_at = now(), cost_usd = cost_usd + $2,
-  session_id = $3, error = $4, failure_reason = $5
+  session_id = $3, error = $4, failure_reason = $5,
+  -- a success ends the run's streak of machine failures
+  infra_failures = CASE WHEN $1 = 'completed' THEN 0 ELSE infra_failures END
 WHERE id = $6 AND workspace_id = $7
 `
 
@@ -1191,6 +1193,51 @@ func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (Lo
 	return i, err
 }
 
+const markRuntimeHealthy = `-- name: MarkRuntimeHealthy :execrows
+UPDATE runtime SET unhealthy_reason = NULL WHERE id = $1 AND workspace_id = $2 AND owner_id = $3
+`
+
+type MarkRuntimeHealthyParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+}
+
+func (q *Queries) MarkRuntimeHealthy(ctx context.Context, arg MarkRuntimeHealthyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markRuntimeHealthy, arg.ID, arg.WorkspaceID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const parkAgentRun = `-- name: ParkAgentRun :exec
+UPDATE agent_run SET status = 'queued', runtime_id = NULL, prepare_lease_expires_at = NULL, started_at = NULL,
+  cost_usd = cost_usd + $1, error = $2, failure_reason = $3, infra_failures = infra_failures + 1,
+  retry_after = now() + CASE infra_failures WHEN 0 THEN interval '30 seconds' WHEN 1 THEN interval '2 minutes' ELSE interval '10 minutes' END
+WHERE id = $4 AND workspace_id = $5
+`
+
+type ParkAgentRunParams struct {
+	CostUsd       float64   `json:"cost_usd"`
+	Error         string    `json:"error"`
+	FailureReason *string   `json:"failure_reason"`
+	ID            uuid.UUID `json:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id"`
+}
+
+// ParkAgentRun requeues a run behind a growing backoff without spending an attempt.
+func (q *Queries) ParkAgentRun(ctx context.Context, arg ParkAgentRunParams) error {
+	_, err := q.db.Exec(ctx, parkAgentRun,
+		arg.CostUsd,
+		arg.Error,
+		arg.FailureReason,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	return err
+}
+
 const privatizeDepartingMemberRuntimes = `-- name: PrivatizeDepartingMemberRuntimes :exec
 UPDATE runtime SET visibility = 'private' WHERE workspace_id = $1 AND owner_id = $2
 `
@@ -1691,6 +1738,21 @@ func (q *Queries) SetRuntimeSharing(ctx context.Context, arg SetRuntimeSharingPa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setRuntimeUnhealthy = `-- name: SetRuntimeUnhealthy :exec
+UPDATE runtime SET unhealthy_reason = $1 WHERE id = $2 AND workspace_id = $3
+`
+
+type SetRuntimeUnhealthyParams struct {
+	Reason      *string   `json:"reason"`
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetRuntimeUnhealthy(ctx context.Context, arg SetRuntimeUnhealthyParams) error {
+	_, err := q.db.Exec(ctx, setRuntimeUnhealthy, arg.Reason, arg.ID, arg.WorkspaceID)
+	return err
 }
 
 const startAgentRun = `-- name: StartAgentRun :execrows

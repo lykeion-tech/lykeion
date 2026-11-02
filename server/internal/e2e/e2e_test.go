@@ -449,7 +449,7 @@ func (l *lab) useAttemptScratch(t *testing.T, id uuid.UUID) {
 	}
 }
 
-func TestKilledDaemonsAgentRunIsRetriedThenFails(t *testing.T) {
+func TestKilledDaemonsAgentRunIsRetriedAndKeepsWaiting(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
 	_, ids := l.queue(t, owner, 1)
@@ -531,14 +531,20 @@ exec sleep 300
 			if r := l.run(t, id); r.Status != "queued" || r.Attempt != 1 {
 				t.Fatalf("first death did not queue retry: %+v", r)
 			}
+			// Skip the parked run's backoff.
+			_, err = l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET retry_after=NULL WHERE id=$1", id)
+			must(t, err)
 		}
 		old = ref
 	}
+	// A lost machine never fails the run: it waits again, unsettled.
 	r := l.run(t, id)
-	if r.Status != "failed" || r.Attempt != 2 || r.FailureReason == nil || *r.FailureReason != "runtime_offline" {
-		t.Fatalf("final failure %+v", r)
+	if r.Status != "queued" || r.Attempt != 2 || r.FailureReason == nil || *r.FailureReason != "runtime_offline" {
+		t.Fatalf("after the second death %+v", r)
 	}
-	l.settled(t, ids)
+	if n := l.count(t, "SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=$1", id); n != 0 {
+		t.Fatalf("a parked run settled %d times", n)
+	}
 	if n := l.count(t, "SELECT count(*) FROM agent_run_usage WHERE agent_run_id=$1", id); n != 0 {
 		t.Fatal("stale report charged usage")
 	}
@@ -763,15 +769,22 @@ exec sleep 300
 			return errors.Is(e, os.ErrNotExist) && finished == nil
 		})
 		if attempt == 1 {
+			waitFor(t, "lost attempt parked", func() bool { r := l.run(t, id); return r.Status == "queued" && r.RetryAfter != nil })
+			// Skip the parked run's backoff.
+			_, err = l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET retry_after=NULL WHERE id=$1", id)
+			must(t, err)
 			waitFor(t, "retry after immediate restart", func() bool { r := l.run(t, id); return r.Status == "running" && r.Attempt == 2 })
 		}
 	}
-	waitFor(t, "retry exhaustion after second immediate restart", func() bool { return l.run(t, id).Status == "failed" })
+	// A lost machine never fails the run: it waits again, unsettled.
+	waitFor(t, "second lost attempt parked", func() bool { r := l.run(t, id); return r.Status == "queued" && r.Attempt == 2 })
 	r := l.run(t, id)
-	if r.Attempt != 2 || r.FailureReason == nil || *r.FailureReason != "runtime_offline" {
+	if r.FailureReason == nil || *r.FailureReason != "runtime_offline" || r.InfraFailures != 2 {
 		t.Fatalf("recovery result: %+v", r)
 	}
-	l.settled(t, ids)
+	if n := l.count(t, "SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=$1", id); n != 0 {
+		t.Fatalf("a parked run settled %d times", n)
+	}
 	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1", id); n != 2 {
 		t.Fatalf("lost prior evidence: %d", n)
 	}

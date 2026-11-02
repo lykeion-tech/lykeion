@@ -116,7 +116,9 @@ ORDER BY seq LIMIT 500;
 
 -- name: FinishAgentRun :exec
 UPDATE agent_run SET status = @status, completed_at = now(), cost_usd = cost_usd + @cost_usd,
-  session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason)
+  session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason),
+  -- a success ends the run's streak of machine failures
+  infra_failures = CASE WHEN @status = 'completed' THEN 0 ELSE infra_failures END
 WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: RecordAgentRunProfile :exec
@@ -269,3 +271,16 @@ WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt 
 -- name: SetRuntimeCompute :exec
 UPDATE runtime SET metrics=sqlc.narg(metrics),models=coalesce(sqlc.narg(models)::jsonb,models)
 WHERE id= @id AND workspace_id= @workspace_id AND owner_id= @owner_id;
+
+-- ParkAgentRun requeues a run behind a growing backoff without spending an attempt.
+-- name: ParkAgentRun :exec
+UPDATE agent_run SET status = 'queued', runtime_id = NULL, prepare_lease_expires_at = NULL, started_at = NULL,
+  cost_usd = cost_usd + @cost_usd, error = @error, failure_reason = @failure_reason, infra_failures = infra_failures + 1,
+  retry_after = now() + CASE infra_failures WHEN 0 THEN interval '30 seconds' WHEN 1 THEN interval '2 minutes' ELSE interval '10 minutes' END
+WHERE id = @id AND workspace_id = @workspace_id;
+
+-- name: SetRuntimeUnhealthy :exec
+UPDATE runtime SET unhealthy_reason = @reason WHERE id = @id AND workspace_id = @workspace_id;
+
+-- name: MarkRuntimeHealthy :execrows
+UPDATE runtime SET unhealthy_reason = NULL WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
