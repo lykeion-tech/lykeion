@@ -201,3 +201,83 @@ func TestConvertAudit(t *testing.T) {
 		t.Errorf("audit %v", a)
 	}
 }
+
+func validationEvidence(mode string) Evidence {
+	e := NewEvidence([]db.Record{
+		rec(board.Grounding, "call", "c1", map[string]any{"answer": "hits: doi:10.1001/a"}),
+		rec(board.Grounding, "call", "c2", map[string]any{"server": "attachments", "args": map[string]any{"name": "data.csv"}, "answer": "x,y"}),
+		rec(board.Hypotheses, "hypothesis", "r3", map[string]any{"text": "Slope rises with dose"}),
+		rec(board.Experimentation, "value", "r5", map[string]any{"name": "slope", "value": "0.4"}),
+		rec(board.Experimentation, "value", "r6", map[string]any{"name": "baseline", "value": "0.1"}),
+	})
+	e.Mode = mode
+	return e
+}
+
+const (
+	assessOK   = `{"hypothesis":" Slope rises with dose ","measurement":"slope","control":"baseline","observed":null,"test":{"kind":"t","statistic":2.31,"df1":28,"df2":null,"p":0.03,"p_bound":"="}}`
+	verdictOK  = `{"claim":"c","verdict":"supported","source":"data.csv","quote":"x,y"}`
+	flaggedOK  = `{"source":"https://doi.org/10.1001/A","quote":"q","problem":"p"}`
+	validEmpty = `"status":"done","answer":"a","reason":null,"replies":[]`
+)
+
+func vHandIn(t *testing.T, as, vs, fs string) HandIn {
+	return parsed(t, Validation, `{`+validEmpty+`,"assessments":[`+as+`],"verdicts":[`+vs+`],"flagged_errors":[`+fs+`]}`)
+}
+
+func TestConvertModeRules(t *testing.T) {
+	cases := []struct {
+		name, mode, as, vs, fs string
+		want                   []string
+	}{
+		{"verdicts in runs mode", "runs", assessOK, verdictOK, "", []string{"this study has recorded runs: hand in assessments, not verdicts"}},
+		{"flagged in runs mode", "runs", assessOK, "", flaggedOK, []string{"this study has recorded runs: hand in assessments, not verdicts"}},
+		{"assessments in claims mode", "claims", assessOK, verdictOK, "", []string{"this study has no recorded runs: hand in verdicts, not assessments"}},
+		{"unknown hypothesis", "runs", `{"hypothesis":"Slope falls","measurement":"slope","control":null,"observed":null,"test":null}`, "", "",
+			[]string{"assessment 1: hypothesis Slope falls matches no hypothesis of this study"}},
+		{"unknown measurement", "runs", `{"hypothesis":"Slope rises with dose","measurement":"intercept","control":"none","observed":null,"test":null}`, "", "",
+			[]string{"assessment 1: measurement intercept matches no recorded value of this study", "assessment 1: control none matches no recorded value of this study"}},
+		{"done empty runs", "runs", "", "", "", []string{"a done Validation hand-in needs at least one assessment"}},
+		{"done empty claims", "claims", "", "", "", []string{"a done Validation hand-in needs at least one verdict or flagged error"}},
+	}
+	for _, c := range cases {
+		recs, probs := Convert(Validation, true, vHandIn(t, c.as, c.vs, c.fs), validationEvidence(c.mode), Review{})
+		if !slices.Equal(probs, c.want) {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, probs, c.want)
+		}
+		if recs != nil {
+			t.Errorf("%s: records %v", c.name, kinds(recs))
+		}
+	}
+	h := parsed(t, Validation, `{"status":"could_not_do","answer":"a","reason":"no runs to check","replies":[],"assessments":[],"verdicts":[],"flagged_errors":[]}`)
+	if recs, probs := Convert(Validation, true, h, validationEvidence("runs"), Review{}); recs != nil || probs != nil {
+		t.Errorf("could_not_do: %v %v", recs, probs)
+	}
+
+	recs, probs := Convert(Validation, true, vHandIn(t, assessOK, "", ""), validationEvidence("runs"), Review{})
+	if len(probs) > 0 || !slices.Equal(kinds(recs), []string{"assessment", "summary"}) {
+		t.Fatalf("runs: %v %v", kinds(recs), probs)
+	}
+	a := body(t, recs[0])
+	tst := a["Test"].(map[string]any)
+	if a["Measurement"] != "slope" || a["Control"] != "baseline" || tst["StatDigits"] != 2.0 || tst["PDigits"] != 2.0 {
+		t.Errorf("assessment %v", a)
+	}
+	recs, probs = Convert(Validation, true, vHandIn(t, "", verdictOK, flaggedOK), validationEvidence("claims"), Review{})
+	if len(probs) > 0 || !slices.Equal(kinds(recs), []string{"verdict", "flagged_error", "summary"}) {
+		t.Fatalf("claims: %v %v", kinds(recs), probs)
+	}
+	if f := body(t, recs[1]); f["source"] != "doi:10.1001/a" || f["problem"] != "p" {
+		t.Errorf("flagged %v", f)
+	}
+}
+
+func TestVerdictSourceMustBeKnown(t *testing.T) {
+	vs := verdictOK + `,{"claim":"c","verdict":"refuted","source":"made-up.pdf","quote":"q"},{"claim":"c","verdict":"not_enough_info","source":"10.1001/a","quote":"q"}`
+	_, probs := Convert(Validation, true, vHandIn(t, "", vs, `{"source":"nowhere","quote":"q","problem":"p"}`), validationEvidence("claims"), Review{})
+	want := []string{"verdict 2: source not found among the study's attachments or recorded sources",
+		"flagged error 1: source not found among the study's attachments or recorded sources"}
+	if !slices.Equal(probs, want) {
+		t.Errorf("got %q\nwant %q", probs, want)
+	}
+}

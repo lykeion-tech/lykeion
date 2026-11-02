@@ -50,7 +50,14 @@ func TestValidateItems(t *testing.T) {
 		{"withdrawn ok", KindWithdrawn, board.Grounding, `{"item":"r3","reason":"it does not resolve"}`, true},
 		{"withdrawn in hypotheses", KindWithdrawn, board.Hypotheses, `{"item":"r3","reason":"r"}`, true},
 		{"withdrawn in experimentation", KindWithdrawn, board.Experimentation, `{"item":"r3","reason":"r"}`, true},
-		{"withdrawn in validation", KindWithdrawn, board.Validation, `{"item":"r3","reason":"r"}`, false},
+		{"withdrawn in validation", KindWithdrawn, board.Validation, `{"item":"r3","reason":"r"}`, true},
+		{"assessment ok", KindAssessment, board.Validation, `{"Hypothesis":"h","Measurement":"slope","Control":null,"Test":null,"Observed":null}`, true},
+		{"assessment no measurement", KindAssessment, board.Validation, `{"Hypothesis":"h","Measurement":""}`, false},
+		{"verdict ok", KindVerdict, board.Validation, `{"claim":"c","verdict":"refuted","source":"data.csv","quote":"q"}`, true},
+		{"verdict bad", KindVerdict, board.Validation, `{"claim":"c","verdict":"maybe","source":"data.csv","quote":"q"}`, false},
+		{"verdict no source", KindVerdict, board.Validation, `{"claim":"c","verdict":"supported","source":"","quote":"q"}`, false},
+		{"flagged ok", KindFlaggedError, board.Validation, `{"source":"s","quote":"q","problem":"p"}`, true},
+		{"flagged no problem", KindFlaggedError, board.Validation, `{"source":"s","quote":"q","problem":""}`, false},
 		{"withdrawn no key", KindWithdrawn, board.Grounding, `{"item":"arxiv:2106.01234","reason":"r"}`, false},
 		{"withdrawn no reason", KindWithdrawn, board.Grounding, `{"item":"r3","reason":""}`, false},
 		{"withdrawn long reason", KindWithdrawn, board.Grounding, `{"item":"r3","reason":"` + long + `"}`, false},
@@ -74,6 +81,14 @@ func TestItemsOnlyInTheirColumn(t *testing.T) {
 		}
 		if Validate(kind, board.Validation, []byte(`{}`)) == nil {
 			t.Errorf("%s accepted in validation", kind)
+		}
+	}
+	for _, kind := range []string{KindAssessment, KindVerdict, KindFlaggedError} {
+		if got, ok := ColumnOf(kind); !ok || got != board.Validation {
+			t.Errorf("ColumnOf(%s)=%s,%v", kind, got, ok)
+		}
+		if Validate(kind, board.Experimentation, []byte(`{}`)) == nil {
+			t.Errorf("%s accepted in experimentation", kind)
 		}
 	}
 	if _, ok := ColumnOf("note"); ok {

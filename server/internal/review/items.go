@@ -21,6 +21,9 @@ const (
 	KindHypothesis   = "hypothesis"    // hypotheses
 	KindOutputs      = "outputs"       // experimentation: the files the run must produce
 	KindWithdrawn    = "withdrawn"     // any reviewed column: an item sent back and dropped
+	KindAssessment   = "assessment"    // validation: a hypothesis checked against recorded values
+	KindVerdict      = "verdict"       // validation: a claim judged against a source
+	KindFlaggedError = "flagged_error" // validation: an error found in a source
 )
 
 type PaperBody struct {
@@ -58,6 +61,17 @@ type HypothesisBody struct {
 type OutputsBody struct {
 	Files []string `json:"files"` // names of the study's saved output files
 }
+type VerdictBody struct {
+	Claim   string `json:"claim"`
+	Verdict string `json:"verdict"` // "supported" | "refuted" | "not_enough_info"
+	Source  string `json:"source"`  // an attachment name or a recorded source id
+	Quote   string `json:"quote"`
+}
+type FlaggedErrorBody struct {
+	Source  string `json:"source"`
+	Quote   string `json:"quote"`
+	Problem string `json:"problem"`
+}
 type WithdrawnBody struct {
 	Item   string `json:"item"` // the key of the item record withdrawn, e.g. "r3"
 	Reason string `json:"reason"`
@@ -69,10 +83,13 @@ var columns = map[string]string{
 	KindNoQualifying: board.Grounding,
 	KindHypothesis:   board.Hypotheses,
 	KindOutputs:      board.Experimentation,
+	KindAssessment:   board.Validation,
+	KindVerdict:      board.Validation,
+	KindFlaggedError: board.Validation,
 }
 
 // withdrawnIn are the columns reviewed item by item, where an item may be withdrawn.
-var withdrawnIn = []string{board.Grounding, board.Hypotheses, board.Experimentation}
+var withdrawnIn = []string{board.Grounding, board.Hypotheses, board.Experimentation, board.Validation}
 
 var itemKey = regexp.MustCompile(`^r[0-9]+$`)
 
@@ -91,7 +108,7 @@ func Validate(kind, column string, body []byte) error {
 	switch {
 	case kind == KindWithdrawn:
 		if !slices.Contains(withdrawnIn, column) {
-			return service.Invalid("withdrawn records are written in the Grounding, Hypotheses or Experimentation column")
+			return service.Invalid("withdrawn records are written in the Grounding, Hypotheses, Experimentation or Validation column")
 		}
 	case !ok:
 		return nil
@@ -125,6 +142,22 @@ func Validate(kind, column string, body []byte) error {
 		var b OutputsBody
 		if msg = decode(dec, &b); msg == "" {
 			msg = check(len(b.Files) >= 1 && len(b.Files) <= 50, "outputs lists 1 to 50 file names")
+		}
+	case KindAssessment:
+		var b Assessment
+		if msg = decode(dec, &b); msg == "" {
+			msg = check(strings.TrimSpace(b.Hypothesis) != "" && b.Measurement != "", "an assessment names its hypothesis and measurement")
+		}
+	case KindVerdict:
+		var b VerdictBody
+		if msg = decode(dec, &b); msg == "" {
+			msg = all(check(slices.Contains([]string{"supported", "refuted", "not_enough_info"}, b.Verdict), "verdict must be supported, refuted or not_enough_info"),
+				check(b.Claim != "" && b.Source != "" && b.Quote != "", "a verdict needs its claim, source and quote"))
+		}
+	case KindFlaggedError:
+		var b FlaggedErrorBody
+		if msg = decode(dec, &b); msg == "" {
+			msg = check(b.Source != "" && b.Quote != "" && b.Problem != "", "a flagged error needs its source, quote and problem")
 		}
 	case KindWithdrawn:
 		var b WithdrawnBody

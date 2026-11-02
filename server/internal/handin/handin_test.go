@@ -37,7 +37,7 @@ func walk(t *testing.T, path string, n any) {
 }
 
 func TestSchemasFitStrictMode(t *testing.T) {
-	for _, k := range []Kind{Grounding, Hypotheses, Experimentation, Auditor, Autoresearch} {
+	for _, k := range []Kind{Grounding, Hypotheses, Experimentation, Auditor, Autoresearch, Validation} {
 		var doc any
 		if err := json.Unmarshal([]byte(Schema(k)), &doc); err != nil {
 			t.Fatalf("%s: %v", k, err)
@@ -88,10 +88,8 @@ func TestKindFor(t *testing.T) {
 		want           Kind
 		ok             bool
 	}{
-		{"role", "leader", "validation", "", false},
 		{"role", "searcher", "grounding", Grounding, true},
 		{"role", "auditor", "hypotheses", Auditor, true},
-		{"role", "auditor", "validation", "", false},
 		{"autoresearch", "", "", Autoresearch, true},
 		{"coresearch", "", "", "", false},
 	}
@@ -142,5 +140,75 @@ func TestHypothesisControlProblemDoesNotHideOthers(t *testing.T) {
 	raw = `{"status":"done","answer":"a","hypotheses":[{"text":"t","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":null,"no_control":null,"cites":["r1"]}]}`
 	if _, probs = Parse(Hypotheses, []byte(raw)); len(probs) != 1 {
 		t.Errorf("the control problem is told twice: %q", probs)
+	}
+}
+
+func TestValidationSchemaIsStrict(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(Schema(Validation)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	walk(t, "validation", doc)
+	props := doc["properties"].(map[string]any)
+	for _, k := range []string{"status", "answer", "reason", "replies", "assessments", "verdicts", "flagged_errors"} {
+		if _, ok := props[k]; !ok {
+			t.Errorf("no %s", k)
+		}
+	}
+}
+
+func TestKindForValidation(t *testing.T) {
+	defer func(v bool) { validationHandsIn = v }(validationHandsIn)
+	validationHandsIn = true
+	cases := []struct {
+		role string
+		want Kind
+	}{
+		{"leader", Validation},
+		{"agent", Validation},
+		{"replicator", Validation},
+		{"auditor", Auditor},
+	}
+	for _, c := range cases {
+		if got, ok := KindFor("role", c.role, "validation"); !ok || got != c.want {
+			t.Errorf("%s: got %q %v", c.role, got, ok)
+		}
+	}
+	if got, ok := KindFor("role", "auditor", "hypotheses"); !ok || got != Auditor {
+		t.Errorf("hypotheses auditor: %q %v", got, ok)
+	}
+}
+
+func TestParseValidationKeepsNumberText(t *testing.T) {
+	raw := `{"status":"done","answer":"a","reason":null,"replies":[],"verdicts":[],"flagged_errors":[],"assessments":[
+		{"hypothesis":"h","measurement":"slope","control":null,"observed":null,
+		 "test":{"kind":"t","statistic":2.310,"df1":28,"df2":null,"p":0.03,"p_bound":"="}},
+		{"hypothesis":"h2","measurement":"slope","control":"base","observed":"up",
+		 "test":{"kind":"z","statistic":1.2e-1,"df1":null,"df2":null,"p":4E-3,"p_bound":"<"}}]}`
+	h, probs := Parse(Validation, []byte(raw))
+	if len(probs) > 0 {
+		t.Fatal(probs)
+	}
+	a := h.Assessments[0].Assessment()
+	if a.Test == nil || a.Test.Statistic != 2.31 || a.Test.StatDigits != 3 || a.Test.DF1 != 28 || a.Test.P != 0.03 || a.Test.PDigits != 2 || a.Test.PBound != "=" {
+		t.Errorf("%+v", a.Test)
+	}
+	b := h.Assessments[1].Assessment()
+	if b.Test.StatDigits != 2 || b.Test.PDigits != 3 || *b.Control != "base" || *b.Observed != "up" {
+		t.Errorf("%+v", b.Test)
+	}
+	bad := `{"status":"done","answer":"a","verdicts":[{"claim":"c","verdict":"maybe","source":"s","quote":"q"}],
+		"assessments":[{"hypothesis":"","measurement":"","control":null,"observed":null,"test":{"kind":"w","statistic":1,"df1":null,"df2":null,"p":0.5,"p_bound":"~"}}],
+		"flagged_errors":[{"source":"","quote":"q","problem":"p"}]}`
+	_, probs = Parse(Validation, []byte(bad))
+	for _, want := range []string{
+		"assessments 1: hypothesis and measurement are both required",
+		"assessments 1: test kind must be t, F, chi2, r or z, and p_bound =, < or >",
+		"verdicts 1: verdict must be supported, refuted or not_enough_info",
+		"flagged_errors 1: source, quote and problem are all required",
+	} {
+		if !contains(probs, want) {
+			t.Errorf("want %q in %q", want, probs)
+		}
 	}
 }

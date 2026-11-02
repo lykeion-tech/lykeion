@@ -63,6 +63,17 @@ var schemas = map[Kind]string{
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),
 		"replies", list(reply())),
+	Validation: build(
+		"assessments", list(object(
+			"hypothesis", str(), "measurement", str(), "control", nullStr(),
+			"test", nullObj(object(
+				"kind", enum("t", "F", "chi2", "r", "z"),
+				"statistic", obj{"type": "number"}, "df1", nullNum(), "df2", nullNum(),
+				"p", obj{"type": "number"}, "p_bound", enum("=", "<", ">"))),
+			"observed", nullStr())),
+		"verdicts", list(object("claim", str(), "verdict", enum("supported", "refuted", "not_enough_info"), "source", str(), "quote", str())),
+		"flagged_errors", list(object("source", str(), "quote", str(), "problem", str())),
+		"replies", list(reply())),
 	Autoresearch: build(
 		"report", nullStr(),
 		"new_studies", list(object("title", str(), "question", str()))),

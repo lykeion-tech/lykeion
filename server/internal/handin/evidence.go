@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -68,12 +70,19 @@ type Evidence struct {
 	grounding map[string]string
 	saved     map[string]bool     // names of the study's output files
 	scripts   map[string][]string // a script's path → its run_script runs, run:KEY
+	attached  map[string]bool     // names of the study's attached files
+	hyps      map[string]bool     // the Hypotheses column's hypothesis texts, trimmed
+	values    map[string]bool     // names of the Experimentation column's values
+	// Mode is how Validation checks the study, set by the caller: "runs" when
+	// Experimentation's lead handed in, else "claims".
+	Mode string
 }
 
 // NewEvidence indexes the live records among recs, from every column.
 // A call's answer is searched as stored, which is cut at records.MaxCallAnswer.
 func NewEvidence(recs []db.Record) Evidence {
-	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{}, scripts: map[string][]string{}}
+	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{}, scripts: map[string][]string{},
+		attached: map[string]bool{}, hyps: map[string]bool{}, values: map[string]bool{}}
 	for _, r := range recs {
 		if r.SupersededAt != nil {
 			continue
@@ -96,6 +105,11 @@ func NewEvidence(recs []db.Record) Evidence {
 			Name      string   `json:"name"`
 			Tool      string   `json:"tool"`
 			Path      string   `json:"path"`
+			Server    string   `json:"server"`
+			Text      string   `json:"text"`
+			Args      struct {
+				Name string `json:"name"`
+			} `json:"args"`
 		}
 		_ = json.Unmarshal(r.Body, &b)
 		switch r.Kind {
@@ -106,6 +120,17 @@ func NewEvidence(recs []db.Record) Evidence {
 			}
 			for _, m := range pmidField.FindAllStringSubmatch(b.Answer, -1) {
 				e.add("pmid:"+m[1], ref)
+			}
+			if b.Server == records.AttachmentServer && b.Args.Name != "" {
+				e.attached[b.Args.Name] = true
+			}
+		case review.KindHypothesis:
+			if r.BoardColumn == board.Hypotheses {
+				e.hyps[strings.TrimSpace(b.Text)] = true
+			}
+		case "value":
+			if r.BoardColumn == board.Experimentation {
+				e.values[b.Name] = true
 			}
 		case "search":
 			for _, id := range b.Results {
@@ -186,6 +211,15 @@ func (e Evidence) Grounding(id string) (key string, ok bool) {
 // Saved says whether an output file named name was saved in the study, by
 // any of its runs.
 func (e Evidence) Saved(name string) bool { return e.saved[name] }
+
+// Attached says whether a file named name is attached to the study.
+func (e Evidence) Attached(name string) bool { return e.attached[name] }
+
+// Hypothesis says whether text, trimmed, is a hypothesis of the study.
+func (e Evidence) Hypothesis(text string) bool { return e.hyps[strings.TrimSpace(text)] }
+
+// Value says whether the study recorded a value named name.
+func (e Evidence) Value(name string) bool { return e.values[name] }
 
 // Scripts are the recorded run_script runs of the script at path, written
 // run:KEY as a value cites them; nil when none was recorded.
