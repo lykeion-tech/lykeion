@@ -256,6 +256,26 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 	return out, nil
 }
 
+// redoNote is the note that sends res's failed items back. A hypothesis is
+// named by its whole text, as a reply names it; the review labels it cut
+// short.
+func redoNote(ctx context.Context, tx *store.Tx, c db.Card, res review.Result) (string, error) {
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return "", err
+	}
+	res.Items = slices.Clone(res.Items)
+	for i, it := range res.Items {
+		if it.Kind != review.KindHypothesis || it.Status != review.Fail {
+			continue
+		}
+		if j := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); j >= 0 {
+			res.Items[i].Label = oneLine(records.Body[review.HypothesisBody](recs[j]).Text)
+		}
+	}
+	return review.RedoNote(res), nil
+}
+
 // withdrawal is the reason given by the last of withdrawn naming the item,
 // by its record key or by a record declaring the same item; recs are the
 // column's records the names are looked up in.
@@ -578,7 +598,9 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		switch res.Decision {
 		case review.DecideRedo:
 			next.Redos, next.Round = 1, c.Round+1
-			next.HandoffNote = review.RedoNote(res)
+			if next.HandoffNote, err = redoNote(ctx, tx, c, res); err != nil {
+				return err
+			}
 		case review.DecideBlock:
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"

@@ -153,12 +153,7 @@ func RedoNote(r Result) string {
 	b.WriteString("Jev's review sent back these items:\n")
 	for _, it := range r.Items {
 		if it.Status == Fail {
-			// Replies name an item by its identity; a hypothesis's label is
-			// cut short, so its whole text is shown.
 			name := it.Label
-			if it.Kind == KindHypothesis && it.Identity != "" {
-				name = it.Identity
-			}
 			fmt.Fprintf(&b, "- %s:\n", name)
 			for _, c := range it.Checks {
 				if c.Status != Fail || c.Warning {

@@ -75,7 +75,7 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		}
 	}
 	if latest == nil {
-		out.Checks = []Check{{ID: "declared", By: "server", Detail: "no outputs record", Status: Fail}}
+		out.Checks = []Check{{ID: "declared", By: "server", Detail: "no output files were handed in", Status: Fail}}
 	} else {
 		var b OutputsBody
 		if err := json.Unmarshal(latest.Body, &b); err != nil {
@@ -85,7 +85,7 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		out.Checks = []Check{{ID: "declared", By: "server", Status: Pass}}
 		for _, f := range b.Files {
 			if !slices.Contains(in.Saved, f) {
-				out.Checks = append(out.Checks, Check{ID: "file:" + f, By: "server", Detail: "not saved with lyk output put", Status: Fail})
+				out.Checks = append(out.Checks, Check{ID: "file:" + f, By: "server", Detail: "not among the study's saved files", Status: Fail})
 			}
 		}
 	}

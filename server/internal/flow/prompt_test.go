@@ -104,6 +104,9 @@ func TestItemsPromptPerColumn(t *testing.T) {
 	if !strings.Contains(itemsPrompt(board.Hypotheses), "Grounding papers and datasets") {
 		t.Errorf("the Hypotheses prompt does not say a hypothesis may cite Grounding papers")
 	}
+	if !strings.Contains(itemsPrompt(board.Experimentation), "At least one is required") {
+		t.Errorf("the Experimentation prompt does not ask for an output file")
+	}
 	if !strings.Contains(itemsPrompt(board.Experimentation), "run_script") {
 		t.Errorf("the Experimentation prompt does not tie numbers to run_script runs")
 	}

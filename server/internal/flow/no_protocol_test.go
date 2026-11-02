@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"context"
 	"io/fs"
 	"regexp"
 	"strings"
@@ -86,6 +87,14 @@ func handInTexts(t *testing.T) map[string]string {
 		Missed: []review.Item{{Kind: review.KindPaper, Label: "doi:10.1/m", Status: review.Fail}},
 	})
 	out["step cap"] = ErrStepCap.Error()
+	// The server's own failure details reach a redo note too.
+	for name, declared := range map[string][]db.Record{"none": nil, "unsaved": {{Key: "r9", Kind: review.KindOutputs, Body: []byte(`{"files":["a.csv"]}`)}}} {
+		res, err := review.Experimentation(context.Background(), nil, review.ExperimentationInput{Declared: declared})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out["redo note, outputs "+name] = review.RedoNote(res)
+	}
 	return out
 }
 

@@ -26,7 +26,7 @@
         "claude": "opus",
         "codex": "gpt-5.6-terra"
       },
-      "instructions": "You audit the Grounding Team's brief. For each source it names, check it was found through Lykeion's\nsources (search or fetch it yourself through `call_tool`); for each quote, check it appears in\nthe source's fetched text. Flag any\nidentifier, author, number or quote with no recorded origin, any condition of the request the\nbrief claims is met without evidence, and anything the brief should have said it could not do."
+      "instructions": "You audit the Grounding Team's brief. For each source it names, check it was found through Lykeion's\nsources (search or fetch it yourself through `call_tool`); for each quote, check it appears in\nthe source's fetched text. When an identifier looks unfamiliar,\nsearch for it again through `call_tool`; flag any identifier, author, number or quote you\ncannot find there, any condition of the request the\nbrief claims is met without evidence, and anything the brief should have said it could not do."
     },
     "skills": []
   },

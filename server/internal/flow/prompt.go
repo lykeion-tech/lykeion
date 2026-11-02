@@ -154,15 +154,15 @@ func itemsPrompt(column string) string {
 	case board.Hypotheses:
 		return "- `hypotheses`: each hypothesis, with\n" +
 			"  - `text`: the hypothesis;\n" +
-			"  - `prediction_shape` and that shape's fields: `direction`, with `direction` set to `increase`, `decrease` or `no_change`; `outcomes`, with the named `outcomes` and the `chosen` one; " +
-			"or `range`, with `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty;\n" +
+			"  - `prediction_shape` is `direction`, `outcomes` or `range`; then fill that shape's fields: for `direction`, `direction` (`increase`, `decrease` or `no_change`); for `outcomes`, the named `outcomes` and the `chosen` one; " +
+			"for `range`, `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty;\n" +
 			"  - `control`: the baseline it is compared with, or `no_control`: why there is none (give exactly one);\n" +
 			"  - `cites`: the ids it rests on, at least one: the DOI, arXiv or PubMed ids or accessions of the study's Grounding papers and datasets, or of sources you looked up through Lykeion's sources in this study.\n" +
 			replies +
 			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it (a cited source must itself report the effect you predict, so a prediction stronger or more precise than its sources fails), " +
 			"and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n"
 	case board.Experimentation:
-		return "- `outputs`: the names of the files in `outputs/` the results come from.\n" +
+		return "- `outputs`: the names of the files in `outputs/` the results come from. At least one is required: the table or figure your values come from.\n" +
 			"- `values`: each reported number: `name` says what it measures, `value` is the number as printed, and `file` names the saved output file or the `run_script` script that shows it. " +
 			"The number must appear in that file or in that script's recorded output.\n" +
 			replies +

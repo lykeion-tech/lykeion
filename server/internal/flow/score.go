@@ -195,7 +195,7 @@ func auditNote(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) 
 		items = []string{"(none)"}
 	}
 	return "The leader handed the column in. Audit its answer and the items it handed in:\n\n" +
-		fence.Untrusted("The leader's answer", text) + "\nThe items:\n" + capped(items, maxEarlierWork), nil
+		fence.Untrusted("The leader's answer", text) + fence.Untrusted("The items it handed in", capped(items, maxEarlierWork)), nil
 }
 
 // auditorClash names the leader or member whose copy runs the same harness

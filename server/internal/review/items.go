@@ -56,7 +56,7 @@ type HypothesisBody struct {
 	Cites      []string   `json:"cites"` // at least one
 }
 type OutputsBody struct {
-	Files []string `json:"files"` // file names as saved with `lyk output put`
+	Files []string `json:"files"` // names of the study's saved output files
 }
 type WithdrawnBody struct {
 	Item   string `json:"item"` // the key of the item record withdrawn, e.g. "r3"

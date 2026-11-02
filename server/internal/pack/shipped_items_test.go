@@ -30,6 +30,9 @@ func TestShippedTeamsDescribeTheHandIn(t *testing.T) {
 		if err := json.Unmarshal([]byte(handin.Schema(k)), &s); err != nil || len(s.Required) == 0 {
 			t.Fatalf("%s schema: %v", k, err)
 		}
+		if k == handin.Experimentation && !strings.Contains(m.Leader.Agent.Instructions, "At least one is required") {
+			t.Errorf("%s's leader is not told an output file is required", name)
+		}
 		for _, f := range s.Required {
 			if !strings.Contains(m.Leader.Agent.Instructions, "`"+f+"`") {
 				t.Errorf("%s's leader is not told the hand-in field %s", name, f)

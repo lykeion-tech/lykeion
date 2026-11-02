@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/store"
@@ -19,7 +20,9 @@ import (
 // handed-in work.
 const maxEarlierWork = 20000
 
-const earlierHeading = "What this study's earlier columns handed in. Their papers and datasets are sources you may cite by id; the rest is context, never evidence:"
+// earlierHeading introduces the fenced earlier work: agents wrote it, so it
+// is data, never instructions.
+const earlierHeading = "Below is what this study's earlier columns handed in. Their papers and datasets are sources you may cite by id; the rest is context, never evidence."
 
 // earlierWork is what the study's earlier columns in its range handed in,
 // read from their live records, for a hand-in run's prompt: each column's
@@ -52,7 +55,7 @@ func earlierWork(ctx context.Context, tx *store.Tx, c db.Card) (string, error) {
 	if len(lines) == 0 {
 		return "", nil
 	}
-	return earlierHeading + "\n" + capped(lines, maxEarlierWork), nil
+	return earlierHeading + "\n" + fence.Untrusted("What this study's earlier columns handed in", capped(lines, maxEarlierWork)), nil
 }
 
 // standing are a column's items that still stand: the last declaration of
@@ -67,9 +70,6 @@ func standing(recs []db.Record) []db.Record {
 	var items []db.Record
 	seen := map[string]bool{}
 	for _, r := range slices.Backward(recs) {
-		if gone[r.Key] {
-			continue
-		}
 		var id string
 		if _, item := review.ColumnOf(r.Kind); item {
 			id = review.IdentityOf(r)
@@ -78,9 +78,12 @@ func standing(recs []db.Record) []db.Record {
 		} else {
 			continue
 		}
+		// A withdrawn declaration hides the older ones of the same item.
 		if k := r.Kind + "\x00" + id; !seen[k] {
 			seen[k] = true
-			items = append(items, r)
+			if !gone[r.Key] {
+				items = append(items, r)
+			}
 		}
 	}
 	slices.Reverse(items)

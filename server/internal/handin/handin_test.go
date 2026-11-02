@@ -64,6 +64,10 @@ func TestParseRejectsShapeProblems(t *testing.T) {
 	if _, probs := Parse(Grounding, []byte(`{"status":"done","answer":"ok","papers":[{"id":"arxiv:2106.01234","why":"w"}]}`)); len(probs) != 0 {
 		t.Errorf("valid hand-in: %q", probs)
 	}
+	dup := `{"status":"done","answer":"ok","values":[{"name":"Slope","value":"1","file":"a.csv"},{"name":" slope ","value":"2","file":"a.csv"}]}`
+	if _, probs := Parse(Experimentation, []byte(dup)); !contains(probs, "values 2: another value already has the name  slope ") {
+		t.Errorf("two values of one name: %q", probs)
+	}
 	if _, probs := Parse(Grounding, []byte(`{"status":"done","answer":"ok","concerns":[]}`)); len(probs) == 0 {
 		t.Error("a field of another kind must be refused")
 	}

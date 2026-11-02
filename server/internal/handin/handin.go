@@ -190,8 +190,12 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	for i, o := range h.Outputs {
 		add(o != "", "outputs %d: a file name cannot be empty", i+1)
 	}
+	names := map[string]bool{}
 	for i, v := range h.Values {
 		add(v.Name != "" && v.Value != "", "values %d: name and value are both required", i+1)
+		n := strings.ToLower(strings.Join(strings.Fields(v.Name), " "))
+		add(n == "" || !names[n], "values %d: another value already has the name %s", i+1, v.Name)
+		names[n] = true
 	}
 	for i, c := range h.Concerns {
 		add(c.Item != "" && within(c.Concern, 2000), "concerns %d: name the item and give a concern of 1 to 2000 characters", i+1)

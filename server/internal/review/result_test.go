@@ -78,16 +78,6 @@ func TestRedoNoteShowsQuestionsAndDetails(t *testing.T) {
 	}
 }
 
-// A reply names a hypothesis by its whole text, never by its record key.
-func TestRedoNoteNamesAHypothesisByItsText(t *testing.T) {
-	bad := it("a short label…", Fail, Check{ID: "falsifiable", Status: Fail})
-	bad.Key, bad.Kind, bad.Identity = "r4", KindHypothesis, "the whole hypothesis text"
-	want := "Jev's review sent back these items:\n- the whole hypothesis text:\n  - falsifiable\n" + redoAnswer
-	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
-		t.Errorf("got %q", got)
-	}
-}
-
 func TestRedoNoteOffersMissedPapers(t *testing.T) {
 	r := Result{Missed: []Item{it("doi:10.1/m", Fail, Check{ID: "criterion:1", Status: Pass}, Check{ID: "missed", Status: Fail})}}
 	want := "Jev's review sent back these items:\n- doi:10.1/m: consider this paper (it meets every criterion but was not cited)\n" + redoAnswer
