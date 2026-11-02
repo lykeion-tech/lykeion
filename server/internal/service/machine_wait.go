@@ -193,9 +193,10 @@ func flagRuntime(ctx context.Context, tx *store.Tx, rt db.Runtime, reason, detai
 	return runtimeHealthChanged(ctx, tx, rt.ID)
 }
 
-// lockBeforeRuntime takes the workspace's execution and event locks, which
-// every writer that also locks a runtime row takes first; a runtime update
-// followed by an event would otherwise deadlock with such a writer.
+// lockBeforeRuntime takes the workspace's execution and event locks before
+// a runtime row is written. Every other writer of runtime rows locks the
+// workspace row first too (a member's request through the workspace
+// middleware), so a runtime update followed by an event can't deadlock.
 func lockBeforeRuntime(ctx context.Context, tx *store.Tx) error {
 	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
 		return err

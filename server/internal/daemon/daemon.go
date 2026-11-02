@@ -102,7 +102,8 @@ type claimed struct {
 		// CardID is the run's study; nil for a run on no card.
 		CardID      *uuid.UUID `json:"card_id"`
 		BoardColumn string     `json:"board_column"`
-		// Kind is what the run is: a study role's, an Autoresearch's, ...
+		// Kind is "role" (a study's), "autoresearch" or "coresearch"; the
+		// daemon branches only on "autoresearch", whose hand-in has no outputs.
 		Kind string `json:"kind"`
 	} `json:"agent_run"`
 	Token string `json:"token"`

@@ -501,7 +501,7 @@ func TestHealthReportsTakeLocksInWorkspaceOrder(t *testing.T) {
 				deadline := time.Now().Add(10 * time.Second)
 				for {
 					var waiting int
-					if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'").Scan(&waiting); err != nil {
+					if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").Scan(&waiting); err != nil {
 						return err
 					}
 					if waiting > 0 {
