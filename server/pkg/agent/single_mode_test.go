@@ -128,7 +128,7 @@ func TestClaudeArgsSingleMode(t *testing.T) {
 		collect(t, session)
 		got, _ := os.ReadFile(args)
 		text := string(got)
-		if !strings.Contains(text, "--input-format\nstream-json\n") || !strings.Contains(text, "--strict-mcp-config") || !strings.Contains(text, "--setting-sources\nproject\n") {
+		if !strings.Contains(text, "--input-format\nstream-json\n") || !strings.Contains(text, "--strict-mcp-config") || strings.Contains(text, "--setting-sources") {
 			t.Fatalf("args %s", text)
 		}
 		if ro && (!strings.Contains(text, "--permission-mode\ndontAsk\n") || !strings.Contains(text, "Edit(//**)\nBash\n")) {

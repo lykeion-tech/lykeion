@@ -1327,8 +1327,8 @@ echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)}
 	}
 }
 
-// A study run reads none of the person's own settings, CLAUDE.md files or MCP
-// servers: only the run's door.
+// A study run keeps the account's settings but no CLAUDE.md file, hook or MCP
+// server of the person's: only the run's door.
 func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
 	mcp := filepath.Join(t.TempDir(), "mcp")
@@ -1344,7 +1344,7 @@ func TestClaudeStudyRunIsIsolated(t *testing.T) {
 		i := slices.Index(argv, flag)
 		return i >= 0 && (value == "" || i+1 < len(argv) && argv[i+1] == value)
 	}
-	if !has("--strict-mcp-config", "") || !has("--setting-sources", "project") {
+	if !has("--strict-mcp-config", "") || has("--setting-sources", "") {
 		t.Fatalf("claude ran with\n%s", a)
 	}
 	var settings struct {

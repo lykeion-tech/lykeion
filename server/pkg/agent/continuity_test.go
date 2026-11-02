@@ -46,7 +46,7 @@ echo '`+c.terminal+`'`)
 				t.Fatalf("the CLI saw %q, want %q", got, want)
 			}
 			argv, _ := os.ReadFile(args)
-			for _, isolation := range []string{"dontAsk", "--ignore-user-config"} {
+			for _, isolation := range []string{"--setting-sources", "dontAsk", "--ignore-user-config"} {
 				if strings.Contains(string(argv), isolation) {
 					t.Errorf("continuity run kept isolation flag %q", isolation)
 				}

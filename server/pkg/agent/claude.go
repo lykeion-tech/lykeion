@@ -72,11 +72,11 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	mode := "dontAsk"
 	if !o.ReadOnly {
-		mode = "default" // no account rule loads, so a tool not allowed here is refused
+		mode = "default" // the account's own allow and deny rules decide the rest
 	}
-	// Glob and Grep obey Read path rules; reads elsewhere are refused. The
-	// CLI's own homes in the run folder are its alone: it uses them, its file
-	// tools may not.
+	// Glob and Grep obey Read path rules; reads elsewhere go to the account's
+	// own rules, or are refused in an isolated run. The CLI's own homes in the
+	// run folder are its alone: it uses them, its file tools may not.
 	tools := []string{claudeTools}
 	if o.Coresearch {
 		tools = []string{"Skill,Read,Edit,Write,Bash,Glob,Grep,mcp__lyk_sources"}
@@ -121,12 +121,15 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
 	// A run brings its own role, skills and tools, so how it behaves doesn't
-	// depend on what the person has installed: none of their settings, hooks,
-	// plugins or MCP servers load, and no CLAUDE.md becomes instructions, even
-	// one in the run's own folders or added after startup.
+	// depend on what the person has installed: none of their hooks or MCP
+	// servers run, and no CLAUDE.md becomes instructions, even one in the
+	// run's own folders or added after startup. A study run keeps the
+	// account's settings, which may carry its sign-in and default model; the
+	// sandbox hides its plugins, skills and instructions.
 	settings := `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
-	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--setting-sources", "project", "--settings", settings})
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
 	if o.Coresearch {
+		args = append(args, "--setting-sources", "project")
 		o.CLIPaths.ManagedSkills, err = SkillsDir("claude", o.Dir)
 		if err != nil {
 			cleanup(true)
