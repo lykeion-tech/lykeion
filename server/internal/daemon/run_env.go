@@ -65,16 +65,31 @@ func doorEnv(handIn bool, harness string, door *Door) []string {
 
 // handInPath is the person's PATH without any entry that resolves to lyk's
 // directory, so a hand-in run's CLI finds no lyk even when the daemon was
-// started from it.
+// started from it. An entry whose only file is a link named lyk to the
+// daemon (an install's own bin folder) goes too; one that also holds other
+// tools stays, so such a lyk can still be found there, without a token or
+// config to use.
 func handInPath() (string, error) {
 	lyk, err := lykDir()
 	if err != nil {
+		return "", err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return "", err
 	}
 	var kept []string
 	for _, entry := range filepath.SplitList(os.Getenv("PATH")) {
 		if real, err := filepath.EvalSymlinks(entry); err == nil && real == lyk {
 			continue
+		}
+		if exe, err := filepath.EvalSymlinks(filepath.Join(entry, "lyk")); err == nil && exe == self {
+			if files, err := os.ReadDir(entry); err == nil && len(files) == 1 {
+				continue
+			}
 		}
 		kept = append(kept, entry)
 	}

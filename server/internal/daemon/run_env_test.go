@@ -74,3 +74,21 @@ func TestHandInRunEnvHasNoLyk(t *testing.T) {
 		t.Fatalf("a Validation run's door env %v", got)
 	}
 }
+
+// A PATH directory holding only a link named lyk to the daemon's executable
+// is dropped from a hand-in run's PATH; one that also holds other tools is
+// kept, since dropping it would take those tools from the run.
+func TestHandInPathDropsALinkedLykDirectory(t *testing.T) {
+	self, err := os.Executable()
+	must(t, err)
+	only, shared := t.TempDir(), t.TempDir()
+	must(t, os.Symlink(self, filepath.Join(only, "lyk")))
+	must(t, os.Symlink(self, filepath.Join(shared, "lyk")))
+	must(t, os.WriteFile(filepath.Join(shared, "python3"), nil, 0o755))
+	t.Setenv("PATH", only+string(os.PathListSeparator)+shared+string(os.PathListSeparator)+"/usr/bin")
+	got, err := handInPath()
+	must(t, err)
+	if want := shared + string(os.PathListSeparator) + "/usr/bin"; got != want {
+		t.Fatalf("hand-in PATH %q, want %q", got, want)
+	}
+}
