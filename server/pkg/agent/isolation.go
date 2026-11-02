@@ -176,7 +176,10 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
-		if ok && !filteredEnvKey(k) && (!o.Guest || guestAmbientEnvKey(k)) && (!o.Coresearch || !strings.HasPrefix(strings.ToUpper(k), "LYK_")) {
+		// A door is the daemon's to give: one in the person's own environment
+		// belongs to some other run.
+		door := strings.EqualFold(k, "LYK_DOOR") || strings.EqualFold(k, "LYK_DOOR_TOKEN")
+		if ok && !door && !filteredEnvKey(k) && (!o.Guest || guestAmbientEnvKey(k)) && (!o.Coresearch || !strings.HasPrefix(strings.ToUpper(k), "LYK_")) {
 			values[k] = v
 		}
 	}
