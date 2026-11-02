@@ -69,9 +69,9 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured) []Sta
 		} else {
 			r.Status, r.Reasons = byShape(h.Prediction, a, m)
 		}
-		if r.Status == Supported && h.Control.None != "" {
+		if none := strings.TrimSpace(h.Control.None); r.Status == Supported && none != "" {
 			r.Status = Caveated
-			r.Reasons = append(r.Reasons, "no control: "+h.Control.None)
+			r.Reasons = append(r.Reasons, "no control: "+none)
 		}
 		for _, name := range []*string{&a.Measurement, a.Control} {
 			if name == nil {
