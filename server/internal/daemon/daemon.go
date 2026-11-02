@@ -585,6 +585,18 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 	if pending {
 		return errMessagesPending
 	}
+	if r.Kind == "complete" && r.HandIn != nil {
+		probs, err := d.postHandIn(ctx, r, r.HandIn)
+		if err != nil {
+			return err
+		}
+		// The session that could correct the answer is gone: the run is
+		// tried again, and the agent never hears why.
+		if len(probs) > 0 {
+			r.Kind, r.FailureReason = "fail", agent.ReasonRuntimeOffline
+			r.Error = "the hand-in kept while the server was unreachable had problems:\n" + strings.Join(probs, "\n")
+		}
+	}
 	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil); err != nil {
 		return err
 	}

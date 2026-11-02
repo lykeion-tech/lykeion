@@ -45,7 +45,10 @@ type Report struct {
 	PolicyDigest  string        `json:"policy_digest,omitempty"`
 	Model         string        `json:"model,omitempty"`
 	Messages      []wireMsg     `json:"messages,omitempty"`
-	Rejections    []time.Time   `json:"rejections,omitempty"`
+	// HandIn is a completed attempt's final answer the server has not yet
+	// taken: it is posted as the hand-in before the report itself.
+	HandIn     json.RawMessage `json:"hand_in,omitempty"`
+	Rejections []time.Time     `json:"rejections,omitempty"`
 }
 type wireMsg struct {
 	Seq     int32           `json:"seq"`

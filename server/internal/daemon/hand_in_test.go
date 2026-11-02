@@ -340,7 +340,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 	for i := range 30 {
 		must(t, os.WriteFile(filepath.Join(out, fmt.Sprintf("f%02d.csv", i)), []byte("1"), 0600))
 	}
-	probs, err := sendOutputs(t.Context(), role, dir, map[string]bool{})
+	probs, err := sendOutputs(t.Context(), role, dir, noneSaved)
 	must(t, err)
 	want := []string{"outputs/f00.csv was not saved: A run can save at most 100 outputs", "and 29 more files were not saved"}
 	if uploads != 1 || !slices.Equal(probs, want) {
@@ -352,7 +352,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(linked, "outputs"), 0700))
 	must(t, os.WriteFile(filepath.Join(linked, "secret"), []byte("s"), 0600))
 	must(t, os.Link(filepath.Join(linked, "secret"), filepath.Join(linked, "outputs", "s.txt")))
-	probs, err = sendOutputs(t.Context(), role, linked, map[string]bool{})
+	probs, err = sendOutputs(t.Context(), role, linked, noneSaved)
 	must(t, err)
 	if uploads != 0 || !slices.Equal(probs, []string{"outputs/s.txt was not saved: it is a hard link to another file"}) {
 		t.Fatalf("%d uploads, problems %q", uploads, probs)
@@ -367,7 +367,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 		must(t, f.Truncate(maxOutputBytes+1))
 		f.Close()
 	}
-	probs, err = sendOutputs(t.Context(), role, big, map[string]bool{})
+	probs, err = sendOutputs(t.Context(), role, big, noneSaved)
 	must(t, err)
 	if uploads != 0 || len(probs) != maxOutputProblems || probs[len(probs)-1] != "and 6 more files were not saved" {
 		t.Fatalf("%d uploads, %d problems, last %q", uploads, len(probs), probs[len(probs)-1])
@@ -402,3 +402,57 @@ func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
 		t.Fatalf("err %v, problems %q, %d hand-ins", err, probs, handIns)
 	}
 }
+
+func handInPosts(paths []string) int {
+	n := 0
+	for _, p := range paths {
+		if strings.HasSuffix(p, "/hand-in") {
+			n++
+		}
+	}
+	return n
+}
+
+// A hand-in the server can't take for now (no answer, a 5xx, 408 or 429)
+// waits with the attempt's final report and is posted again; the agent's
+// work is neither lost nor done again.
+func TestHandInWaitsForTheServer(t *testing.T) {
+	for _, code := range []int{503, 429} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			f := fixture(t)
+			calls, paths, _ := handInRun(t, f, nil, func(n int) (int, string) {
+				if n == 1 {
+					return code, `{"error":"unavailable"}`
+				}
+				return 200, `{"accepted":true}`
+			})
+			if len(calls) != 1 || handInPosts(paths) != 2 {
+				t.Fatalf("backend ran %d times, %d hand-in posts", len(calls), handInPosts(paths))
+			}
+			if status, reason, msg, _ := f.outcome(t); status != "completed" {
+				t.Fatalf("outcome = %s/%s %q", status, reason, msg)
+			}
+		})
+	}
+}
+
+// A kept hand-in the server then finds problems with can't be corrected: the
+// session that would correct it is gone. The run is tried again without the
+// agent hearing why, as for any machine failure.
+func TestKeptHandInWithProblemsIsTriedAgain(t *testing.T) {
+	f := fixture(t)
+	calls, _, failed := handInRun(t, f, nil, func(n int) (int, string) {
+		if n == 1 {
+			return 502, `{"error":"bad gateway"}`
+		}
+		return 200, oneProblem
+	})
+	if len(calls) != 1 || len(f.reasks(t)) != 0 {
+		t.Fatalf("backend ran %d times, %d re-asks", len(calls), len(f.reasks(t)))
+	}
+	if failed["failure_reason"] != agent.ReasonRuntimeOffline || !strings.Contains(fmt.Sprint(failed["error"]), "claim 1 cites no source") {
+		t.Fatalf("failure report = %v", failed)
+	}
+}
+
+func noneSaved() (map[string]bool, error) { return map[string]bool{}, nil }

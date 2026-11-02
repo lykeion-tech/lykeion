@@ -38,26 +38,35 @@ func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec f
 	// An Autoresearch run has no study to keep outputs in, and its token may
 	// not touch records: its hand-in goes alone.
 	outputs := c.AgentRun.Kind != "autoresearch"
+	// The saved outputs are listed only once there is a file to send, so a
+	// run without outputs needs the server only for the hand-in itself.
 	var saved map[string]bool
-	if outputs {
-		var err error
-		if saved, err = savedOutputs(ctx, role, c.AgentRun.ID); err != nil {
-			return res, nil, err
+	listSaved := func() (map[string]bool, error) {
+		if saved == nil {
+			var err error
+			saved, err = savedOutputs(ctx, role, c.AgentRun.ID)
+			return saved, err
 		}
+		return saved, nil
 	}
 	dir := filepath.Join(d.cfg.Home, scratchName(c.AgentRun.ID, c.AgentRun.Attempt))
+	var runtimeID uuid.UUID
+	if c.AgentRun.RuntimeID != nil {
+		runtimeID = *c.AgentRun.RuntimeID
+	}
+	attempt := Report{AgentRunID: c.AgentRun.ID, WorkspaceID: c.AgentRun.WorkspaceID, RuntimeID: runtimeID, Attempt: c.AgentRun.Attempt}
 	for asked := 0; ; asked++ {
 		var probs []string
 		var err error
 		if outputs {
-			if probs, err = sendOutputs(ctx, role, dir, saved); err != nil {
+			if probs, err = sendOutputs(ctx, role, dir, listSaved); err != nil {
 				return res, nil, err
 			}
 		}
 		// A refused output is fixed before the hand-in, which is kept once accepted.
 		if len(probs) == 0 {
-			if probs, err = d.submitHandIn(ctx, c, res.Output); err != nil {
-				return res, nil, err
+			if probs, err = d.postHandIn(ctx, attempt, handInJSON(res.Output)); err != nil {
+				return res, nil, &unsentHandIn{err}
 			}
 		}
 		if len(probs) == 0 || asked == maxHandInReasks {
@@ -93,24 +102,43 @@ func reaskPrompt(probs []string) string {
 	return b.String()
 }
 
-// submitHandIn posts output as the attempt's hand-in and returns the
-// server's problems with it. Output that is not JSON is sent as a string,
-// so the server names the problem.
-func (d *daemon) submitHandIn(ctx context.Context, c claimed, output string) ([]string, error) {
+// unsentHandIn is a hand-in post that got no verdict: the answer is whole,
+// and only the server is missing.
+type unsentHandIn struct{ err error }
+
+func (e *unsentHandIn) Error() string { return e.err.Error() }
+func (e *unsentHandIn) Unwrap() error { return e.err }
+
+// waitsForServer reports whether a failed post is one Multica's daemon
+// retries a terminal report for: no answer from the server, a 5xx, 408 or
+// 429. A stopping daemon counts: its post got no answer either.
+func waitsForServer(err error) bool {
+	var e *apiclient.HTTPError
+	if !errors.As(err, &e) {
+		return true
+	}
+	return e.Status >= 500 || e.Status == http.StatusRequestTimeout || e.Status == http.StatusTooManyRequests
+}
+
+// handInJSON is the run's final answer as a hand-in. An answer that is not
+// JSON is sent as a string, so the server names the problem.
+func handInJSON(output string) json.RawMessage {
 	handIn := json.RawMessage(output)
 	if !json.Valid(handIn) {
 		handIn, _ = json.Marshal(output)
 	}
-	var runtimeID uuid.UUID
-	if c.AgentRun.RuntimeID != nil {
-		runtimeID = *c.AgentRun.RuntimeID
-	}
-	body := map[string]any{"workspace_id": c.AgentRun.WorkspaceID, "runtime_id": runtimeID, "attempt": c.AgentRun.Attempt, "hand_in": handIn}
+	return handIn
+}
+
+// postHandIn posts handIn as attempt's hand-in and returns the server's
+// problems with it.
+func (d *daemon) postHandIn(ctx context.Context, attempt Report, handIn json.RawMessage) ([]string, error) {
+	body := map[string]any{"workspace_id": attempt.WorkspaceID, "runtime_id": attempt.RuntimeID, "attempt": attempt.Attempt, "hand_in": handIn}
 	var reply struct {
 		Accepted bool     `json:"accepted"`
 		Problems []string `json:"problems"`
 	}
-	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+c.AgentRun.ID.String()+"/hand-in", body, &reply); err != nil {
+	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+attempt.AgentRunID.String()+"/hand-in", body, &reply); err != nil {
 		return nil, err
 	}
 	if !reply.Accepted && len(reply.Problems) == 0 {
@@ -143,9 +171,10 @@ func savedOutputs(ctx context.Context, role *apiclient.Client, run uuid.UUID) (m
 }
 
 // sendOutputs saves each regular file under the run folder's outputs folder
-// not yet in saved, under its path in the run folder. Links are never
-// followed. A file the server's limits refuse is a problem for the agent.
-func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, saved map[string]bool) ([]string, error) {
+// not yet among the saved ones, which listSaved gives when first needed,
+// under its path in the run folder. Links are never followed. A file the
+// server's limits refuse is a problem for the agent.
+func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, listSaved func() (map[string]bool, error)) ([]string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
@@ -168,7 +197,11 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, saved 
 		}
 	}
 	err = fs.WalkDir(root.FS(), "outputs", func(name string, e fs.DirEntry, err error) error {
-		if err != nil || !e.Type().IsRegular() || saved[name] {
+		if err != nil || !e.Type().IsRegular() {
+			return err
+		}
+		saved, err := listSaved()
+		if err != nil || saved[name] {
 			return err
 		}
 		// After one refusal the server's caps are reached; the rest are counted.

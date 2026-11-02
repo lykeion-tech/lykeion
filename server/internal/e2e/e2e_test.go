@@ -572,13 +572,22 @@ exec sleep 300
 }
 func floatPtr(v float64) *float64 { return &v }
 
+// A Validation run hands nothing in: its whole result is the report.
 func TestReportSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
+	reportSurvivesOutage(t, "validation")
+}
+
+// A Grounding run's hand-in can't be posted while the server is down: it is
+// kept with the report, posted when the server is back, and the run
+// completes on its first attempt without the agent working again.
+func TestHandInSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
+	reportSurvivesOutage(t, "grounding")
+}
+
+func reportSurvivesOutage(t *testing.T, column string) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
-	// A Validation run hands nothing in, so its whole result is the report
-	// the outage must not lose; a run that hands in needs the server to
-	// accept the hand-in before it can complete.
-	card, ids := l.queueIn(t, owner, 1, "validation")
+	card, ids := l.queueIn(t, owner, 1, column)
 	id := ids[0]
 	flag := filepath.Join(t.TempDir(), "finish")
 	cfg := l.config(t, tok, fmt.Sprintf("while [ ! -f '%s' ]; do sleep 0.05; done\n", flag)+quick)
@@ -618,6 +627,9 @@ func TestReportSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
 		if report.AgentRunID != id || report.Attempt != 1 {
 			t.Fatalf("lost durable attempt: %+v", report)
 		}
+		if kind == "outbox" && (report.Kind != "complete" || (len(report.HandIn) > 0) != (column == "grounding")) {
+			t.Fatalf("durable report %s with hand-in %s", report.Kind, report.HandIn)
+		}
 	}
 	l.mu.Lock()
 	l.loseACK = true
@@ -652,6 +664,11 @@ func TestReportSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
 	}
 	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=1 AND content='\"evidence\"'::jsonb", id); n != 1 {
 		t.Fatal("replay lost or duplicated stream evidence")
+	}
+	if column == "grounding" {
+		if n := l.count(t, "SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='hand_in'", id); n != 1 {
+			t.Fatalf("hand-ins recorded: %d", n)
+		}
 	}
 }
 func queueFiles(t *testing.T, state, kind string) []string {

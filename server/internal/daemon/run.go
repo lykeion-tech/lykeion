@@ -65,7 +65,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return err
 	}
 	defer func() {
-		if ctx.Err() != nil {
+		// A kept hand-in is a finished answer: a stopping daemon keeps it.
+		if ctx.Err() != nil && r.HandIn == nil {
 			r.Kind = "fail"
 			r.Error = ctx.Err().Error()
 			r.FailureReason = agent.ReasonRuntimeOffline
@@ -420,7 +421,15 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	// The hand-in step's own failures are the machine's or the server's,
 	// never the agent's: the reason is set first so no text match relabels it.
-	if handInErr != nil {
+	// A hand-in the server could not take for now waits with the report in
+	// the outbox, which posts it until the server answers; any other failure
+	// of the step parks the run.
+	var unsent *unsentHandIn
+	switch {
+	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "":
+		r.HandIn = handInJSON(res.Output)
+		slog.Warn("hand-in kept until the server answers", "run", r.AgentRunID, "attempt", r.Attempt, "err", handInErr)
+	case handInErr != nil:
 		r.FailureReason = agent.ReasonRuntimeOffline
 		fail(handInErr)
 	}
