@@ -58,7 +58,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		args = append(args, "-m", model)
 	}
 	if o.Coresearch {
-		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent", "--disable", "skill_mcp_dependency_install")
+		args = append(args, "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins", "--disable", "remote_plugin", "--disable", "multi_agent", "--disable", "skill_mcp_dependency_install", "--disable", "apps", "--disable", "memories")
 		args = append(args, "-c", `project_root_markers=[".agent-owned"]`, "-c", `skills.bundled.enabled=false`)
 		o.CLIPaths.ManagedSkills, err = SkillsDir("codex", o.Dir)
 		if err != nil {
@@ -73,17 +73,21 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		// person's own context: no memories, rules, hooks, plugins or ChatGPT
 		// apps, whose connectors reach the web past the sources server.
 		args = append(args, "--ignore-rules")
-		for _, feature := range []string{"apps", "hooks", "memories", "multi_agent", "plugins", "remote_plugin"} {
+		for _, feature := range []string{"apps", "hooks", "memories", "multi_agent", "plugins", "remote_plugin", "skill_mcp_dependency_install"} {
 			args = append(args, "--disable", feature)
 		}
 	}
-	if clash := personalClash(personal, o); !o.Coresearch && clash != "" {
+	if clash := personalClash(personal, o); !o.Coresearch && (clash != "" || personal.Unreadable) {
 		// -c deep-merges into a personal entry of the same name, so its headers
 		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
 		// Personal servers are not re-supplied: their secrets would sit in argv.
+		// A config that cannot be read could start servers nothing turns off.
 		args = append(args, "--ignore-user-config")
 		if o.OnMessage != nil {
 			text := "Your Codex config.toml has an MCP server named " + clash + ", which Lykeion uses; this run ignores your config.toml. Rename that entry to keep your Codex settings in Lykeion runs."
+			if clash == "" {
+				text = "Lykeion could not read your Codex config.toml, so this run ignores it. Fix the file to keep your Codex settings in Lykeion runs."
+			}
 			if err = o.OnMessage(Message{Type: "status", Content: raw(map[string]string{"type": "continuity", "message": text})}); err != nil {
 				cleanup(true)
 				return nil, err

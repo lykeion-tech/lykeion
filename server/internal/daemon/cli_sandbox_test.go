@@ -650,7 +650,7 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	scratch := t.TempDir()
 	run := filepath.Join(scratch, "run")
 	codex := filepath.Join(home, ".codex")
-	personal := []string{filepath.Join(codex, "memories", "MEMORY.md"), filepath.Join(codex, "AGENTS.md"), filepath.Join(codex, "plugins", "cache", "p"), filepath.Join(codex, "skills", "mine", "SKILL.md")}
+	personal := []string{filepath.Join(codex, "memories", "MEMORY.md"), filepath.Join(codex, "AGENTS.md"), filepath.Join(codex, "plugins", "cache", "p"), filepath.Join(codex, "skills", "mine", "SKILL.md"), filepath.Join(codex, "memories.lock"), filepath.Join(codex, "history.jsonl")}
 	for _, path := range append(personal, filepath.Join(codex, "config.toml")) {
 		must(t, os.MkdirAll(filepath.Dir(path), 0700))
 		must(t, os.WriteFile(path, []byte("personal"), 0600))
@@ -662,10 +662,13 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
 	p, err := d.cliPolicy(run, nil, false, paths)
 	must(t, err)
-	for _, name := range []string{"memories", "AGENTS.md", "plugins", "skills"} {
+	for _, name := range []string{"memories", "AGENTS.md", "plugins", "skills", "memories.lock", "history.jsonl"} {
 		if !slices.Contains(p.Hidden, filepath.Join(codex, name)) {
 			t.Errorf("policy does not hide %s", name)
 		}
+	}
+	if slices.Contains(p.WriteFiles, filepath.Join(codex, "history.jsonl")) {
+		t.Error("hidden history stays writable")
 	}
 	coresearch := paths
 	coresearch.ManagedSkills = filepath.Join(run, ".agents", "skills")

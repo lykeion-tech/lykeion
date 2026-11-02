@@ -941,7 +941,9 @@ func TestCodexKeepsAccountConfig(t *testing.T) {
 func TestCodexStudyRunIsIsolated(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"gpt-5.6-sol\"\n"), 0o600)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"gpt-5.6-sol\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	args := filepath.Join(t.TempDir(), "args")
 	bin := catalogScript(t, `{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}`, "", args)
 	session, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox})
@@ -951,13 +953,36 @@ func TestCodexStudyRunIsIsolated(t *testing.T) {
 	collect(t, session)
 	raw, _ := os.ReadFile(args)
 	got := "\n" + string(raw)
-	for _, want := range []string{"--ignore-rules", "--disable\napps", "--disable\nhooks", "--disable\nmemories", "--disable\nmulti_agent", "--disable\nplugins", "--disable\nremote_plugin", "-m\ngpt-5.6-sol"} {
+	for _, want := range []string{"--ignore-rules", "--disable\napps", "--disable\nhooks", "--disable\nmemories", "--disable\nmulti_agent", "--disable\nplugins", "--disable\nremote_plugin", "--disable\nskill_mcp_dependency_install", "-m\ngpt-5.6-sol"} {
 		if !strings.Contains(got, "\n"+want+"\n") {
 			t.Fatalf("study run args lack %q: %s", want, raw)
 		}
 	}
 	if strings.Contains(got, "\n--ignore-user-config\n") {
 		t.Fatalf("study run discarded config.toml: %s", raw)
+	}
+}
+
+func TestCodexIgnoresAConfigItCannotRead(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("[mcp_servers.x]\ncommand = \"/usr/bin/touch\"\nargs = [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := filepath.Join(t.TempDir(), "args")
+	bin := script(t, `printf '%s\n' "$@" > '`+args+`'; echo '{"type":"turn.completed","usage":{}}'`)
+	var notices []Message
+	session, err := (Codex{Bin: bin}).Execute(context.Background(), "p", ExecOptions{Dir: t.TempDir(), Model: "gpt-5.6-sol", Sandbox: testSandbox, OnMessage: func(m Message) error { notices = append(notices, m); return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, session)
+	got, _ := os.ReadFile(args)
+	if !strings.Contains(string(got), "\n--ignore-user-config\n") {
+		t.Fatalf("unreadable config.toml still loads: %s", got)
+	}
+	if len(notices) == 0 || !strings.Contains(string(notices[0].Content), "config.toml") {
+		t.Fatalf("no notice that config.toml is ignored: %+v", notices)
 	}
 }
 

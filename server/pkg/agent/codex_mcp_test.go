@@ -214,49 +214,53 @@ func mcpCacheFixture(t *testing.T, names []string, explicit bool) (root, cache, 
 }
 
 func TestCodexStudyRunStartsNoPersonalMCP(t *testing.T) {
-	names := []string{"ordinary", "dots.and spaces \"quote\" = \\ λ"}
-	_, cache, path, probes := mcpCacheFixture(t, names, false)
-	before, _ := os.ReadFile(path)
-	var argv []string
-	opts := ExecOptions{Dir: t.TempDir(), CacheDir: cache, Model: "fixture", DoorURL: "http://127.0.0.1:1/mcp", Sandbox: func(ctx context.Context, _ CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
-		argv = slices.Clone(args)
-		return exec.CommandContext(ctx, os.Args[0], append([]string{"--codex-mcp-fixture", "cli"}, args...)...), nil
-	}}
-	s, err := (Codex{Bin: os.Args[0]}).Execute(context.Background(), "probe", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, result := collectWithin(t, s, 10*time.Second); result.Err != nil {
-		t.Fatal(result.Err)
-	}
-	for _, probe := range probes {
-		if _, err := os.Stat(probe); !os.IsNotExist(err) {
-			t.Error("a personal MCP server was started")
-		}
-	}
-	for _, secret := range []string{"private-sentinel", "private-header", "forwarded-sentinel"} {
-		if strings.Contains(strings.Join(argv, "\n"), secret) {
-			t.Error("personal secret copied into argv")
-		}
-	}
-	if after, _ := os.ReadFile(path); !reflect.DeepEqual(before, after) {
-		t.Error("personal config changed")
-	}
-	var overlay map[string]map[string]map[string]any
-	for i, arg := range argv {
-		if arg == "-c" && strings.TrimSpace(strings.SplitN(argv[i+1], "=", 2)[0]) == "mcp_servers" {
-			if err := toml.Unmarshal([]byte(argv[i+1]), &overlay); err != nil {
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%v", explicit), func(t *testing.T) {
+			names := []string{"ordinary", "dots.and spaces \"quote\" = \\ λ"}
+			_, cache, path, probes := mcpCacheFixture(t, names, explicit)
+			before, _ := os.ReadFile(path)
+			var argv []string
+			opts := ExecOptions{Dir: t.TempDir(), CacheDir: cache, Model: "fixture", DoorURL: "http://127.0.0.1:1/mcp", Sandbox: func(ctx context.Context, _ CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
+				argv = slices.Clone(args)
+				return exec.CommandContext(ctx, os.Args[0], append([]string{"--codex-mcp-fixture", "cli"}, args...)...), nil
+			}}
+			s, err := (Codex{Bin: os.Args[0]}).Execute(context.Background(), "probe", opts)
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-	}
-	if len(overlay["mcp_servers"]) != len(names)+1 {
-		t.Fatalf("overlay does not cover every personal server: %v", overlay)
-	}
-	for name, server := range overlay["mcp_servers"] {
-		if len(server) != 1 || server["enabled"] != false {
-			t.Errorf("overlay for %q is not just enabled=false: %v", name, server)
-		}
+			if _, result := collectWithin(t, s, 10*time.Second); result.Err != nil {
+				t.Fatal(result.Err)
+			}
+			for _, probe := range probes {
+				if _, err := os.Stat(probe); !os.IsNotExist(err) {
+					t.Error("a personal MCP server was started")
+				}
+			}
+			for _, secret := range []string{"private-sentinel", "private-header", "forwarded-sentinel"} {
+				if strings.Contains(strings.Join(argv, "\n"), secret) {
+					t.Error("personal secret copied into argv")
+				}
+			}
+			if after, _ := os.ReadFile(path); !reflect.DeepEqual(before, after) {
+				t.Error("personal config changed")
+			}
+			var overlay map[string]map[string]map[string]any
+			for i, arg := range argv {
+				if arg == "-c" && strings.TrimSpace(strings.SplitN(argv[i+1], "=", 2)[0]) == "mcp_servers" {
+					if err := toml.Unmarshal([]byte(argv[i+1]), &overlay); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if len(overlay["mcp_servers"]) != len(names)+1 {
+				t.Fatalf("overlay does not cover every personal server: %v", overlay)
+			}
+			for name, server := range overlay["mcp_servers"] {
+				if len(server) != 1 || server["enabled"] != false {
+					t.Errorf("overlay for %q is not just enabled=false: %v", name, server)
+				}
+			}
+		})
 	}
 }
 

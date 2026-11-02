@@ -197,6 +197,17 @@ func TestRealCodexStudyRunResumesWithoutPersonalContext(t *testing.T) {
 	must(t, os.MkdirAll(account, 0700))
 	t.Setenv("CODEX_HOME", account)
 	must(t, os.WriteFile(filepath.Join(account, "AGENTS.md"), []byte("USER-CUSTOM-INSTRUCTIONS"), 0600))
+	// The account's personal entries exist, so the run starts and resumes with
+	// all of them hidden.
+	for _, dir := range []string{"skills/mine", "plugins/cache/x", "memories", "memories_v2", "archived_sessions", "prompts"} {
+		must(t, os.MkdirAll(filepath.Join(account, dir), 0700))
+	}
+	for _, file := range []string{"skills/mine/SKILL.md", "memories/MEMORY.md", "memories/memory_summary.md", "memories_v2/memory_summary.md", "prompts/mine.md", "memories.lock", "memories_v2.lock", "history.jsonl", "transcription-history.jsonl"} {
+		must(t, os.WriteFile(filepath.Join(account, file), []byte("USER-PERSONAL-CONTEXT"), 0600))
+	}
+	for _, db := range []string{"memories_1.sqlite", "memories_v2_1.sqlite"} {
+		must(t, exec.Command("sqlite3", filepath.Join(account, db), "PRAGMA journal_mode=WAL; CREATE TABLE m(x); INSERT INTO m VALUES('USER-PERSONAL-CONTEXT');").Run())
+	}
 	marker := filepath.Join(run, "personal-mcp-started")
 	must(t, os.WriteFile(filepath.Join(account, "config.toml"), []byte("[mcp_servers.personal]\ncommand=\"/usr/bin/touch\"\nargs=[\""+marker+"\"]\n"), 0600))
 	requests := make(chan []byte, 4)
@@ -236,8 +247,8 @@ func TestRealCodexStudyRunResumesWithoutPersonalContext(t *testing.T) {
 		result := <-sess.Done
 		select {
 		case raw := <-requests:
-			if strings.Contains(string(raw), "USER-CUSTOM-INSTRUCTIONS") {
-				t.Fatalf("turn %d: the account's AGENTS.md reached the model", turn)
+			if strings.Contains(string(raw), "USER-CUSTOM-INSTRUCTIONS") || strings.Contains(string(raw), "USER-PERSONAL-CONTEXT") {
+				t.Fatalf("turn %d: the account's personal context reached the model", turn)
 			}
 			t.Logf("turn %d: offline request without the account's AGENTS.md; resume=%v", turn, resume != "")
 		default:

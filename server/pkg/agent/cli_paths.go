@@ -39,6 +39,10 @@ func ClaudeProjectDir(home, cwd string) string {
 	}, cwd))
 }
 
+// personalCodexFiles are the Codex home entries a study run may not read,
+// besides the memories stores.
+var personalCodexFiles = []string{"AGENTS.md", "AGENTS.override.md", "plugins", "skills", "rules", "hooks", "agents", "history.jsonl", "archived_sessions", "prompts", "transcription-history.jsonl"}
+
 // SandboxPaths selects state paths without creating empty CLI state files.
 func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) {
 	p := CLIPaths{ConfigHome: home, Keychain: goos == "darwin"}
@@ -92,16 +96,20 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 			}
 			p.WriteSQLite = []string{home}
 		}
-		// The person's own instructions, memories and customizations stay
-		// unreadable: a run brings its own role, skills and tools. An absent
-		// entry holds nothing personal, and the sandbox refuses absent hidden
-		// paths beside writable state, so only existing ones are listed.
-		for _, name := range []string{"AGENTS.md", "AGENTS.override.md", "memories", "memories_v2", "plugins", "skills", "rules", "hooks", "agents"} {
-			path := filepath.Join(home, name)
-			if _, err := os.Lstat(path); err == nil {
-				p.Hidden = append(p.Hidden, path)
-			} else if !os.IsNotExist(err) {
-				return p, err
+		// The person's own instructions, memories, history and customizations
+		// stay unreadable: a run brings its own role, skills and tools. An
+		// absent entry holds nothing personal, and the sandbox refuses absent
+		// hidden paths beside writable state, so only existing ones are listed.
+		entries, err := os.ReadDir(home)
+		if err != nil && !os.IsNotExist(err) {
+			return p, err
+		}
+		for _, e := range entries {
+			// Codex opens its memories databases even with memories off, and
+			// cannot resume a session without them, so they stay readable.
+			memories := strings.HasPrefix(e.Name(), "memories") && !strings.Contains(e.Name(), ".sqlite")
+			if memories || slices.Contains(personalCodexFiles, e.Name()) {
+				p.Hidden = append(p.Hidden, filepath.Join(home, e.Name()))
 			}
 		}
 	default:

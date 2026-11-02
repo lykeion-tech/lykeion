@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,18 +85,24 @@ func codexCatalog(ctx context.Context, bin string, o ExecOptions, args ...string
 type codexConfig struct {
 	Model      string                    `toml:"model"`
 	MCPServers map[string]map[string]any `toml:"mcp_servers"`
+	// Unreadable marks a config.toml that exists but cannot be read here,
+	// so what it would turn on is unknown.
+	Unreadable bool `toml:"-"`
 }
 
-// readCodexConfig parses the account's config.toml; a missing or unreadable
-// file reads as empty, leaving Codex to report its own config errors.
+// readCodexConfig parses the account's config.toml; a missing file reads as
+// empty, and one that cannot be read or parsed as empty and Unreadable.
 func readCodexConfig(home string) codexConfig {
 	var cfg codexConfig
 	if home == "" {
 		return cfg
 	}
 	b, err := readLimited(filepath.Join(home, "config.toml"), codexCatalogLimit)
-	if err != nil || toml.Unmarshal(b, &cfg) != nil || len(cfg.Model) > 200 {
+	if errors.Is(err, fs.ErrNotExist) {
 		return codexConfig{}
+	}
+	if err != nil || toml.Unmarshal(b, &cfg) != nil || len(cfg.Model) > 200 {
+		return codexConfig{Unreadable: true}
 	}
 	return cfg
 }

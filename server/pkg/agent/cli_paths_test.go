@@ -50,24 +50,36 @@ func TestCodexPaths(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
-func TestCodexSandboxBlocksPersonalFiles(t *testing.T) {
+func TestCodexSandboxHidesPersonalFiles(t *testing.T) {
+	personal := []string{"memories", "AGENTS.md", "plugins", "skills", "rules", "hooks", "agents", "memories.lock", "memories_v2.lock", "history.jsonl", "archived_sessions", "prompts", "transcription-history.jsonl"}
 	for _, goos := range []string{"darwin", "linux"} {
 		h := t.TempDir()
-		for _, dir := range []string{"memories", "plugins/cache", "skills", "rules", "hooks", "agents"} {
-			os.MkdirAll(filepath.Join(h, dir), 0700)
+		for _, dir := range []string{"memories", "plugins/cache", "skills", "rules", "hooks", "agents", "archived_sessions", "prompts"} {
+			if err := os.MkdirAll(filepath.Join(h, dir), 0700); err != nil {
+				t.Fatal(err)
+			}
 		}
-		os.WriteFile(filepath.Join(h, "AGENTS.md"), []byte("personal"), 0600)
+		for _, file := range []string{"AGENTS.md", "memories_1.sqlite", "memories_1.sqlite-wal", "memories.lock", "memories_v2.lock", "history.jsonl", "transcription-history.jsonl", "state_5.sqlite"} {
+			if err := os.WriteFile(filepath.Join(h, file), []byte("personal"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		p, err := SandboxPaths("codex", h, "/r", "", goos)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"memories", "AGENTS.md", "plugins", "skills", "rules", "hooks", "agents"} {
+		for _, name := range personal {
 			if !slices.Contains(p.Hidden, filepath.Join(h, name)) {
-				t.Errorf("%s: %s is not hidden: %v", goos, name, p.Hidden)
+				t.Errorf("%s: %s is not hidden", goos, name)
 			}
 		}
-		if slices.Contains(p.Hidden, filepath.Join(h, "memories_v2")) || slices.Contains(p.Write, filepath.Join(h, "plugins", "cache")) {
-			t.Errorf("%s: absent path hidden or plugin cache writable: %+v", goos, p)
+		for _, kept := range []string{"memories_v2", "memories_1.sqlite", "memories_1.sqlite-wal", "state_5.sqlite", "sessions"} {
+			if slices.Contains(p.Hidden, filepath.Join(h, kept)) {
+				t.Errorf("%s: %s is hidden", goos, kept)
+			}
+		}
+		if slices.Contains(p.Write, filepath.Join(h, "plugins", "cache")) {
+			t.Errorf("%s: plugin cache writable: %v", goos, p.Write)
 		}
 	}
 }

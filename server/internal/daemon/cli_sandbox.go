@@ -107,8 +107,10 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	}
 	p.Hidden = append(p.Hidden, private...)
 	if guest == "" && cli.ManagedSkills == "" {
-		// Coresearch projects the account's customizations itself.
+		// Coresearch projects the account's customizations itself. A hidden
+		// file stays hidden even where the CLI would otherwise write it.
 		p.Hidden = append(p.Hidden, cli.Hidden...)
+		p.WriteFiles = slices.DeleteFunc(slices.Clone(p.WriteFiles), func(path string) bool { return slices.Contains(cli.Hidden, path) })
 	}
 	if d.bases != nil {
 		roots = append(roots, d.bases.Dir)

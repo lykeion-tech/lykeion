@@ -34,6 +34,7 @@ var notInRunFolder = map[string]string{
 	".credentials.json": "inside .cli-home", ".lyk-usage.json": "inside .cli-home", ".lyk-bin": "inside .cli-home",
 	".system_generated":        "inside the CLI's session store",
 	".sqlite-maintenance.lock": "inside the account's Codex home, not the run folder",
+	".sqlite":                  "a file suffix inside the account's Codex home, not the run folder",
 	".scratch-retired-":        "beside the run folders, not in one",
 	".ack-":                    "acknowledged Coresearch receipt directory inside protected StateDir/coresearch-receipts, never a run folder",
 }

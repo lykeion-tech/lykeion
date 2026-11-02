@@ -43,7 +43,7 @@ read -r line || true
 				if strings.Contains(text, "--disable-slash-commands") || !strings.Contains(text, "--setting-sources\nproject\n") || !strings.Contains(text, "Skill") || !strings.Contains(text, "--strict-mcp-config") {
 					t.Fatalf("managed project skills unavailable: %s", text)
 				}
-			} else if !strings.Contains(text, "--ignore-user-config") || !strings.Contains(text, "--ignore-rules") {
+			} else if !strings.Contains(text, "--ignore-user-config") || !strings.Contains(text, "--ignore-rules") || !strings.Contains(text, "--disable\napps\n") || !strings.Contains(text, "--disable\nmemories\n") {
 				t.Fatalf("Codex config isolation missing: %s", text)
 			}
 			if h == "claude" {
