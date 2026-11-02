@@ -162,10 +162,16 @@ func parseCodex(model string) parser {
 				emit(Message{Type: "tool_use", Tool: "shell", Content: cp})
 			case "mcp_tool_call":
 				emit(Message{Type: "tool_use", Tool: ev.Item.Tool, Server: ev.Item.Server, Content: cp})
-			case "web_search":
-				emit(Message{Type: "tool_use", Tool: "web_search", Content: cp})
-			default:
+			case "todo_list", "error":
 				emit(Message{Type: "log", Content: cp})
+			default:
+				// Anything else is an action, file changes and web searches
+				// among them, so the fence judges every item it doesn't know.
+				tool := ev.Item.Tool
+				if tool == "" {
+					tool = ev.Item.Type
+				}
+				emit(Message{Type: "tool_use", Tool: tool, Content: cp})
 			}
 		case "turn.completed":
 			v := ev.Usage

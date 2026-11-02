@@ -49,6 +49,14 @@ func TestFenceTable(t *testing.T) {
 		{"codex file change", "codex", `{"type":"item.completed","item":{"id":"i","type":"file_change","changes":[]}}`, false},
 		{"codex reasoning", "codex", `{"type":"item.completed","item":{"id":"i","type":"reasoning","text":"hm"}}`, false},
 		{"codex todo list", "codex", `{"type":"item.completed","item":{"id":"i","type":"todo_list","items":[]}}`, false},
+		{"codex collab tool call", "codex", `{"type":"item.completed","item":{"id":"i","type":"collab_tool_call","tool":"spawn_agent"}}`, true},
+		{"codex unknown item", "codex", `{"type":"item.completed","item":{"id":"i","type":"made_up_thing"}}`, true},
+		{"codex error item", "codex", `{"type":"item.completed","item":{"id":"i","type":"error","message":"x"}}`, false},
+		{"codex mcp without server", "codex", `{"type":"item.completed","item":{"id":"i","type":"mcp_tool_call","tool":"shell"}}`, true},
+		{"codex apps call started", "codex", `{"type":"item.started","item":{"id":"i","type":"mcp_tool_call","server":"codex_apps","tool":"search_service.web_run"}}`, true},
+		{"codex web search started", "codex", `{"type":"item.started","item":{"id":"i","type":"web_search"}}`, true},
+		{"codex door call started", "codex", `{"type":"item.started","item":{"id":"i","type":"mcp_tool_call","server":"lyk_door","tool":"call_tool"}}`, false},
+		{"codex shell started", "codex", `{"type":"item.started","item":{"id":"i","type":"command_execution","command":"ls"}}`, false},
 		{"codex web search", "codex", `{"type":"item.completed","item":{"id":"i","type":"web_search","query":"x"}}`, true},
 		{"codex other mcp server", "codex", `{"type":"item.completed","item":{"id":"i","type":"mcp_tool_call","server":"github","tool":"call_tool"}}`, true},
 		{"claude WebFetch", "claude", use("WebFetch"), true},
@@ -59,6 +67,15 @@ func TestFenceTable(t *testing.T) {
 		{"claude Bash", "claude", use("Bash"), false},
 		{"claude Skill", "claude", use("Skill"), false},
 		{"claude ToolSearch", "claude", use("ToolSearch"), false},
+		{"claude BashOutput", "claude", use("BashOutput"), false},
+		{"claude TaskOutput", "claude", use("TaskOutput"), false},
+		{"claude KillShell", "claude", use("KillShell"), false},
+		{"claude KillBash", "claude", use("KillBash"), false},
+		{"claude TaskStop", "claude", use("TaskStop"), false},
+		{"claude ListMcpResourcesTool", "claude", use("ListMcpResourcesTool"), false},
+		{"claude ReadMcpResourceTool", "claude", use("ReadMcpResourceTool"), false},
+		{"claude ExitPlanMode", "claude", use("ExitPlanMode"), true},
+		{"claude AskUserQuestion", "claude", use("AskUserQuestion"), true},
 		{"claude text", "claude", `{"type":"assistant","message":{"content":[{"type":"text","text":"WebFetch"}]}}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,6 +94,13 @@ func TestFenceTable(t *testing.T) {
 				t.Fatalf("breach %v, want %v (%+v)", got, tc.breach, ms)
 			}
 		})
+	}
+}
+
+func TestCodexFileChangeIsAToolCall(t *testing.T) {
+	ms := parsed(t, parseCodex("m"), `{"type":"item.completed","item":{"id":"i","type":"file_change","changes":[]}}`)
+	if len(ms) != 1 || ms[0].Type != "tool_use" || ms[0].Tool != "file_change" {
+		t.Fatalf("%+v", ms)
 	}
 }
 

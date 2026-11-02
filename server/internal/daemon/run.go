@@ -374,6 +374,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if final.Err == nil && streamErr != nil {
 		final.Err = streamErr
 	}
+	// A breached session is never resumed as ready.
+	if final.Err == nil && breach != "" {
+		final.Err = errFenceBreach
+	}
 	if sinkErr != nil {
 		var oversized *oversizedMessageError
 		if !errors.As(sinkErr, &oversized) {

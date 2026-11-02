@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,5 +38,38 @@ echo '{"type":"result","is_error":false,"session_id":"s"}'
 	}
 	if _, err := os.Stat(filepath.Join(f.cfg.Home, ".caches", "npm", "survived")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the CLI kept running after the breach: %v", err)
+	}
+}
+
+func TestBreachedSessionIsNotSavedAsReady(t *testing.T) {
+	f := fixture(t)
+	f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+		return backendFunc(func(context.Context, string, agent.ExecOptions) (*agent.Session, error) {
+			msgs := make(chan agent.Message, 1)
+			msgs <- agent.Message{Type: "tool_use", Tool: "WebFetch", Content: json.RawMessage(`{}`)}
+			close(msgs)
+			done := make(chan agent.Result, 1)
+			done <- agent.Result{SessionID: "s", ClaudeSnapshot: []byte(`{}`)}
+			close(done)
+			return &agent.Session{Messages: msgs, Done: done}, nil
+		}), nil
+	}
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { s := f.status(t); return s == "failed" || s == "completed" })
+	stopDaemon(t, cancel, done)
+	var reason string
+	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT coalesce(failure_reason, '') FROM agent_run WHERE id=$1", f.id).Scan(&reason))
+	if reason != agent.ReasonFenceBreach {
+		t.Fatalf("reason %q", reason)
+	}
+	records, err := filepath.Glob(filepath.Join(sessionsDir(f.cfg.StateDir, f.ws), "*.json"))
+	must(t, err)
+	if len(records) != 1 {
+		t.Fatalf("session records %v", records)
+	}
+	rec, err := readRecord(records[0])
+	must(t, err)
+	if rec.State == sessionReady {
+		t.Fatal("a breached session was saved as ready to resume")
 	}
 }
