@@ -45,11 +45,9 @@ var ErrPackUnavailable = errors.New("the card's Team cannot be loaded")
 var errNoAgent = errors.New("no agent works this column")
 
 // OnSettlement is wired to service.AgentRuns' durable settlement: a settled
-// run may let its study move on. A member's run wakes its leader, and a
-// leader or single agent that stopped without finishing is nudged once. An
-// error leaves the settlement pending, so it is delivered again; a repeat
-// wake is dropped while the woken run waits to start. A card-less run moves
-// nothing.
+// run may let its study move on, by its lead's hand-in or failure (see
+// afterRun). An error leaves the settlement pending, so it is delivered
+// again. A card-less run moves nothing.
 func (e *Engine) OnSettlement(ctx context.Context, n service.Settlement) error {
 	t := n.AgentRun
 	if t.CardID == nil {

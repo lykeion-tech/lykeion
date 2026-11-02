@@ -146,6 +146,18 @@ VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'machi
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text;
 
+-- name: UpsertCouldNotDoDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'could_not_do')
+ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
+DO UPDATE SET text = EXCLUDED.text;
+
+-- name: ResolveCardDecision :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'needs_decision' AND cause = @cause::text
+  AND resolved_at IS NULL
+RETURNING id;
+
 -- name: ResolveMachineWaitsExcept :exec
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL

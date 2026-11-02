@@ -35,6 +35,13 @@ type teamRun struct {
 	lead                                  bool
 }
 
+// newValidationLab is newTeamLab on Validation, whose runs still name
+// members and declare the column done through lyk and wake their leader.
+func newValidationLab(t *testing.T) *teamLab {
+	t.Helper()
+	return newTeamLabWith(t, testutil.PackOpts{Name: "val", Stage: "validation", Members: 2})
+}
+
 func newTeamLab(t *testing.T, steps int) *teamLab {
 	t.Helper()
 	return newTeamLabWith(t, testutil.PackOpts{Name: "hyp", Stage: "hypotheses", Members: 2, Steps: steps})
@@ -242,7 +249,7 @@ func TestMembersCannotWriteServerKinds(t *testing.T) {
 }
 
 func TestAMemberRunSettlingWakesTheLeader(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	l.complete(t, leader) // the leader stops after naming a member
@@ -265,7 +272,7 @@ func TestAMemberRunSettlingWakesTheLeader(t *testing.T) {
 }
 
 func TestAFailedMemberWakesTheLeaderWithItsReason(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-2", "content": "two"})
 	l.complete(t, leader)
@@ -281,7 +288,7 @@ func TestAFailedMemberWakesTheLeaderWithItsReason(t *testing.T) {
 }
 
 func TestALeaderIdleTwiceEscalatesOnce(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	l.complete(t, l.claim(t)) // stops without naming a member or finishing
 	nudged := l.claim(t)
 	if nudged.role != "leader" || !strings.Contains(nudged.prompt, "You ended without naming a member (`lyk team step`) or declaring the column done (`lyk team done`).") {
@@ -322,7 +329,7 @@ func TestOnlyTheLeaderNamesMembers(t *testing.T) {
 }
 
 func TestACancelledMemberWakesTheLeader(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	_, out := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	l.complete(t, leader)
@@ -336,7 +343,7 @@ func TestACancelledMemberWakesTheLeader(t *testing.T) {
 }
 
 func TestADeclaredDoneColumnTakesNoMoreSteps(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	l.complete(t, l.claim(t)) // the member lands while the leader still runs, which queues a wake
@@ -360,7 +367,7 @@ func TestADeclaredDoneColumnTakesNoMoreSteps(t *testing.T) {
 }
 
 func TestAnIdleLeaderWaitsForItsMember(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	m := l.claim(t)
@@ -377,7 +384,7 @@ func TestAnIdleLeaderWaitsForItsMember(t *testing.T) {
 }
 
 func TestNoEscalationWhileTheLeaderIsQueued(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	l.complete(t, l.claim(t))
 	nudged := l.claim(t)
 	l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try GTEx."}, nil)
@@ -508,7 +515,13 @@ func TestNoToolText(t *testing.T) {
 
 // newAgentLab is a study worked by one agent in Grounding, with no Team, and
 // its owner's daemon registered to claim the study's runs.
-func newAgentLab(t *testing.T) *teamLab {
+func newAgentLab(t *testing.T) *teamLab { return newAgentLabOn(t, "grounding") }
+
+// newValidationAgentLab is newAgentLab on Validation, whose agent still
+// declares the column done through lyk and is woken when it does not.
+func newValidationAgentLab(t *testing.T) *teamLab { return newAgentLabOn(t, "validation") }
+
+func newAgentLabOn(t *testing.T, column string) *teamLab {
 	t.Helper()
 	s := newServer(t)
 	l := &teamLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
@@ -523,12 +536,12 @@ func newAgentLab(t *testing.T) *teamLab {
 		t.Fatalf("register %d %+v", c, rts)
 	}
 	l.rts = rts[0].ID
-	l.card = s.agentCard(t, l.jwt, l.ws, a.ID, "grounding", "grounding", "Why do cells age?")
+	l.card = s.agentCard(t, l.jwt, l.ws, a.ID, column, column, "Why do cells age?")
 	return l
 }
 
 func TestASingleAgentIdleTwiceEscalatesAndACommentWakesIt(t *testing.T) {
-	l := newAgentLab(t)
+	l := newValidationAgentLab(t)
 	first := l.claim(t)
 	if first.role != "agent" {
 		t.Fatalf("first run %+v", first)
@@ -560,7 +573,7 @@ func TestASingleAgentIdleTwiceEscalatesAndACommentWakesIt(t *testing.T) {
 }
 
 func TestAWakeThatFailsIsDeliveredAgain(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	l.complete(t, leader)
@@ -612,7 +625,7 @@ func (l *teamLab) failUntilSettled(t *testing.T, r teamRun) teamRun {
 }
 
 func TestAFailedLeaderIsToldItFailedAndEscalatesAsFailed(t *testing.T) {
-	l := newTeamLab(t, 0)
+	l := newValidationLab(t)
 	woken := l.failUntilSettled(t, l.claim(t))
 	if woken.role != "leader" || !strings.Contains(woken.prompt, "failed") || strings.Contains(woken.prompt, "You ended without") {
 		t.Fatalf("the wake after a failed run: %+v", woken)

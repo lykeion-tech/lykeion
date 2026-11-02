@@ -110,7 +110,7 @@ func TestConvertProblems(t *testing.T) {
 			{"text":"t2","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":"c","no_control":null,"cites":["10.8888/made-up"]},
 			{"text":"t3","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":"c","no_control":null,"cites":["10.9999/hosted"]}]}`,
 			[]string{"hypothesis 2: cite 10.8888/made-up is neither a Grounding paper or dataset nor a source recorded in this study",
-				"hypothesis 3: a hypothesis cites at least one record"}},
+				"hypothesis 3: cite a Grounding paper or dataset of this study, or a source you looked up through Lykeion's tools"}},
 		{"replies", Grounding, `{"status":"done","answer":"a","reason":null,"papers":[{"id":"10.1001/a","why":"w"}],"datasets":[],"no_qualifying":null,"replies":[
 			{"item":"doi:10.1001/b","action":"corrected","reason":"r"},
 			{"item":"doi:10.1001/a","action":"declined","reason":"r"},

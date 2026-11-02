@@ -72,6 +72,27 @@ func blockedText(number int32, column, weak string) string {
 	return fmt.Sprintf("Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", number, title(column), weak)
 }
 
+// runFailedText says why a column stopped when its lead's runs failed: the
+// failure's reason and the first line of what it reported.
+func runFailedText(number int32, column, reason, detail string) string {
+	why := "the agent's run failed"
+	switch reason {
+	case "hand_in_invalid":
+		why = "the agent's hand-in still had problems after two corrections"
+	case "context_exhausted":
+		why = "the agent ran out of context"
+	}
+	first, _, _ := strings.Cut(detail, "\n")
+	if r := []rune(first); len(r) > 300 {
+		first = string(r[:300]) + "…"
+	}
+	return fmt.Sprintf("Study #%d's %s column stopped: %s, twice (%s). Comment on the study to redo it.", number, title(column), why, first)
+}
+
+func couldNotDoText(number int32, reason string) string {
+	return fmt.Sprintf("Study #%d: the agent could not do this column: %s", number, reason)
+}
+
 func doneText(number int32, column string) string {
 	return fmt.Sprintf("Study #%d is done, in its %s column.", number, title(column))
 }
@@ -298,7 +319,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 				summary = &r
 			case r.Kind == "audit":
 				in.audit = string(r.Body)
-			case r.Kind != "call" && r.Kind != "run":
+			case !bookkeeping(r.Kind):
 				in.work = append(in.work, r)
 			}
 		}
@@ -699,11 +720,23 @@ func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string
 	return nil
 }
 
-// unblock restarts the column of a study blocked by a second low score when
-// its owner comments: the comment becomes the leader's (or agent's) note, and
-// the redo count stays.
+// bookkeeping says whether a record kind is the run's own bookkeeping rather
+// than its work: the calls and runs the daemon recorded, the raw hand-in, a
+// declined reply and a comment's delivery. None of it is Jev's to judge.
+func bookkeeping(kind string) bool {
+	switch kind {
+	case "call", "run", "hand_in", "declined", "comment_delivery":
+		return true
+	}
+	return false
+}
+
+// unblock restarts the column of a blocked study when its owner comments:
+// one blocked by a second low score or by its lead's failed runs (block kind
+// low_score or none), or held because its lead could not do the column. The
+// comment becomes the leader's (or agent's) note, and the redo count stays.
 func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
-	if c.State != "blocked" || c.BlockKind != "low_score" || c.Ending != "" || author != c.OwnerID {
+	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "") || c.Ending != "" || author != c.OwnerID {
 		return false, nil
 	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working,
@@ -712,6 +745,15 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 	}
 	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
 		return false, err
+	}
+	ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: "could_not_do"})
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+			return false, err
+		}
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
 }

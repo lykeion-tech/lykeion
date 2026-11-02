@@ -240,12 +240,106 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 	return c, err
 }
 
-// afterRun wakes the leader when a member's run settles, with what the
-// member wrote. A leader or single-agent run that ends or fails without
+// afterRun acts on a lead's settled run. A column finishes on its lead's
+// hand-in: a done hand-in already wrote the summary that hands the column to
+// its auditor, a could_not_do hand-in holds the study for its owner, and a
+// run that failed, or ended without a hand-in, redoes the column once and
+// then blocks it. A member's or the auditor's run wakes no one. Validation
+// columns, which take no hand-in, go through afterProtocolRun.
+func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
+	if t.BoardColumn == board.Validation {
+		return e.afterProtocolRun(ctx, t)
+	}
+	if accessInterrupted(t) || !leads(t.Role) || t.Status == "cancelled" {
+		return nil
+	}
+	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, *t.CardID)
+		if err != nil || !current(c, t.BoardColumn, t.Round) {
+			return err
+		}
+		recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &t.ID})
+		if err != nil {
+			return err
+		}
+		var h *handInBody
+		for _, r := range recs {
+			switch r.Kind {
+			case "summary":
+				return nil
+			case "hand_in":
+				b := records.Body[handInRecord](r).HandIn
+				h = &b
+			}
+		}
+		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
+			return askOwner(ctx, tx, c, ptrOr(h.Reason))
+		}
+		return runFailed(ctx, tx, c, t)
+	})
+}
+
+// handInRecord is the part of a hand_in record the engine reads.
+type handInRecord struct {
+	HandIn handInBody `json:"hand_in"`
+}
+
+type handInBody struct {
+	Status string  `json:"status"`
+	Reason *string `json:"reason"`
+}
+
+// askOwner holds a study whose lead could not do its column, as a block
+// holds it but with the redo count unchanged, and asks its owner once; the
+// owner's comment restarts the column through unblock.
+func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
+		Round: c.Round, Redos: c.Redos}); err != nil {
+		return err
+	}
+	if err := tx.Q.UpsertCouldNotDoDecision(ctx, db.UpsertCouldNotDoDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
+		Text: couldNotDoText(c.Number, reason)}); err != nil {
+		return err
+	}
+	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "blocked"})
+}
+
+// runFailed redoes a column whose lead's run failed, or ended without a
+// hand-in, telling the redo what went wrong; a column already redone once is
+// blocked instead, and its owner told why.
+func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) error {
+	detail := strings.TrimSpace(t.Error)
+	if detail == "" {
+		detail = "the run ended without a hand-in"
+	}
+	next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State, Round: c.Round, Redos: c.Redos}
+	if c.Redos == 0 {
+		next.Redos, next.Round = 1, c.Round+1
+		next.HandoffNote = "The last attempt at this column failed. Fix this first:\n" + detail
+	} else {
+		next.State = "blocked"
+	}
+	if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
+		return err
+	}
+	if next.State == "blocked" {
+		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "blocked",
+			Text: runFailedText(c.Number, c.BoardColumn, ptrOr(t.FailureReason), detail)}); err != nil {
+			return err
+		}
+	}
+	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State})
+}
+
+// afterProtocolRun wakes the leader when a member's run settles, with what
+// the member wrote. A leader or single-agent run that ends or fails without
 // naming a member or declaring the column done is woken once with a note
 // saying which; doing so again leaves the study working and escalates it to
 // its owner.
-func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
+func (e *Engine) afterProtocolRun(ctx context.Context, t db.AgentRun) error {
 	if accessInterrupted(t) || (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
 		return nil
 	}
@@ -300,11 +394,11 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	})
 }
 
-// OnComment wakes the leader of a column that has started, or the study's
-// single agent, when someone comments on the study, as a squad leader is
-// woken by a comment, and the comment answers any escalation. The owner's
-// comment on a study blocked by low scores restarts its column instead. Like
-// Kick it runs off the caller's request, after the comment commits.
+// OnComment restarts the column of a study blocked or held for its owner when
+// the owner comments. On a Validation column that has started it also wakes
+// the leader, or the study's single agent, as a squad leader is woken by a
+// comment, and the comment answers any escalation. Like Kick it runs off the
+// caller's request, after the comment commits.
 func (e *Engine) OnComment(ws, card, author uuid.UUID, body string) {
 	run := func() {
 		if err := e.wakeOnComment(context.Background(), ws, card, author, body); err != nil {
@@ -325,7 +419,7 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 		if err != nil {
 			return err
 		}
-		if restart, err = unblock(ctx, tx, c, author, body); err != nil || restart || !working(c) {
+		if restart, err = unblock(ctx, tx, c, author, body); err != nil || restart || !working(c) || c.BoardColumn != board.Validation {
 			return err
 		}
 		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})

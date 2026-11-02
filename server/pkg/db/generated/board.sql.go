@@ -437,6 +437,39 @@ func (q *Queries) MarkQueueOffline(ctx context.Context) error {
 	return err
 }
 
+const resolveCardDecision = `-- name: ResolveCardDecision :many
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'needs_decision' AND cause = $3::text
+  AND resolved_at IS NULL
+RETURNING id
+`
+
+type ResolveCardDecisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Cause       string    `json:"cause"`
+}
+
+func (q *Queries) ResolveCardDecision(ctx context.Context, arg ResolveCardDecisionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, resolveCardDecision, arg.WorkspaceID, arg.CardID, arg.Cause)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resolveMachineWaits = `-- name: ResolveMachineWaits :exec
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
@@ -807,6 +840,30 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	var ok bool
 	err := row.Scan(&ok)
 	return ok, err
+}
+
+const upsertCouldNotDoDecision = `-- name: UpsertCouldNotDoDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES ($1, $2::uuid, $3, 'needs_decision', $4, 'could_not_do')
+ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
+DO UPDATE SET text = EXCLUDED.text
+`
+
+type UpsertCouldNotDoDecisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Text        string    `json:"text"`
+}
+
+func (q *Queries) UpsertCouldNotDoDecision(ctx context.Context, arg UpsertCouldNotDoDecisionParams) error {
+	_, err := q.db.Exec(ctx, upsertCouldNotDoDecision,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.UserID,
+		arg.Text,
+	)
+	return err
 }
 
 const upsertMachineWait = `-- name: UpsertMachineWait :exec

@@ -186,6 +186,11 @@ func (c *converter) hypotheses(h HandIn) {
 			continue
 		}
 		c.declared[identity(x.Text)] = true
+		if len(cites) == 0 {
+			// Hosted search and fetch hits are no record a hypothesis can cite.
+			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, or a source you looked up through Lykeion's tools", i+1)
+			continue
+		}
 		c.item("hypothesis", i+1, review.KindHypothesis, x.Body(cites))
 	}
 }

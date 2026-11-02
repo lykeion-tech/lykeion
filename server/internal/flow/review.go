@@ -111,7 +111,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				}
 			case item && col == c.BoardColumn:
 				rv.items = append(rv.items, r)
-			case r.Kind != "call" && r.Kind != "run":
+			case !bookkeeping(r.Kind):
 				rv.work = append(rv.work, r)
 			}
 		}

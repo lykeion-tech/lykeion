@@ -488,4 +488,15 @@ describe('Grounding criteria and review blocks', () => {
       '#3 scored low twice and is waiting for you',
     );
   });
+  it("leaves a failed run's block in the server's words", () => {
+    expect(
+      studies.inboxText(
+        {
+          kind: 'blocked',
+          text: "Study #3's Hypotheses column stopped: the agent ran out of context, twice (context window full). Comment on the study to redo it.",
+        },
+        '#3',
+      ),
+    ).toBeNull();
+  });
 });

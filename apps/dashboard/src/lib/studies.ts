@@ -352,6 +352,8 @@ export function inboxText(
       return `${study} ${finished ? 'finished' : 'moved on'} with a middling score: ${criterion}`;
     }
     case 'blocked': {
+      // A column stopped by its agent's failed runs: the server's text names why.
+      if (item.text.includes(' column stopped: ')) return null;
       const column = /'s (\w+) column failed Jev's review (?:again|twice)/.exec(item.text)?.[1];
       return column
         ? `${study}'s ${columnName(column)} column failed Jev's review again and is waiting for you`
