@@ -35,6 +35,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // Policy names the folders a sandboxed process may use. Write folders are
@@ -435,9 +436,10 @@ func (p Policy) resolve() (resolved, error) {
 		fi, err := os.Lstat(c)
 		// A file or link where the lock folder belongs can only be a leftover
 		// a sandboxed run planted; removing it (never a link's target) keeps
-		// it from blocking every later launch.
+		// it from blocking every later launch. Unlink never removes a folder,
+		// so a lock taken since the look stays, and one gone since is fine.
 		if err == nil && !fi.IsDir() {
-			if err := os.Remove(c); err != nil {
+			if err := syscall.Unlink(c); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return resolved{}, fmt.Errorf("sandbox lock path %q: %w", raw, err)
 			}
 		} else if err == nil && h.inside(c) {

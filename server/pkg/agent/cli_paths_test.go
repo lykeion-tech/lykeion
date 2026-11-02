@@ -109,7 +109,8 @@ func TestCodexAgentsFolderStaysListableOnMacOS(t *testing.T) {
 		t.Fatalf("hidden %v", p.Hidden)
 	}
 
-	// A link to a folder is the folder: what it holds is hidden.
+	// A link to a folder is the folder: what it holds is hidden, spelled
+	// where it lies, as the sandbox refuses paths through links in the home.
 	linked := t.TempDir()
 	if err := os.Rename(filepath.Join(h, "agents"), filepath.Join(linked, "agents")); err != nil {
 		t.Fatal(err)
@@ -117,7 +118,11 @@ func TestCodexAgentsFolderStaysListableOnMacOS(t *testing.T) {
 	if err := os.Symlink(filepath.Join(linked, "agents"), filepath.Join(h, "agents")); err != nil {
 		t.Fatal(err)
 	}
-	if p, err = SandboxPaths("codex", h, "/r", "", "darwin"); err != nil || slices.Contains(p.Hidden, filepath.Join(h, "agents")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "role.toml")) {
+	real, err := filepath.EvalSymlinks(filepath.Join(linked, "agents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err = SandboxPaths("codex", h, "/r", "", "darwin"); err != nil || slices.Contains(p.Hidden, filepath.Join(h, "agents")) || slices.Contains(p.Hidden, filepath.Join(h, "agents", "role.toml")) || !slices.Contains(p.Hidden, filepath.Join(real, "role.toml")) {
 		t.Fatalf("linked agents: %v %v", p.Hidden, err)
 	}
 
@@ -224,6 +229,46 @@ func TestClaudeGetsRefreshLocks(t *testing.T) {
 		}
 		if _, err := os.Lstat(want[0]); !os.IsNotExist(err) {
 			t.Errorf("%s: lock pre-created", goos)
+		}
+	}
+}
+
+// Dotfiles setups link the person's instructions and skills into the CLI
+// home. The sandbox refuses links in the home, so what a link leads to is
+// hidden instead; a link that leads nowhere holds nothing to hide.
+func TestSandboxHidesWhatPersonalLinksLeadTo(t *testing.T) {
+	for _, tc := range []struct{ harness, instructions string }{{"codex", "AGENTS.md"}, {"claude", "CLAUDE.md"}} {
+		for _, goos := range []string{"darwin", "linux"} {
+			h, dotfiles := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dotfiles, "skills", "mine"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dotfiles, "instructions.md"), []byte("personal"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for link, target := range map[string]string{tc.instructions: "instructions.md", "skills": "skills", "rules": "gone"} {
+				if err := os.Symlink(filepath.Join(dotfiles, target), filepath.Join(h, link)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p, err := SandboxPaths(tc.harness, h, "/r", "", goos)
+			if err != nil {
+				t.Fatalf("%s %s: %v", tc.harness, goos, err)
+			}
+			real, err := filepath.EvalSymlinks(dotfiles)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{filepath.Join(real, "instructions.md"), filepath.Join(real, "skills")} {
+				if !slices.Contains(p.Hidden, want) {
+					t.Errorf("%s %s: %s is not hidden: %v", tc.harness, goos, want, p.Hidden)
+				}
+			}
+			for _, link := range []string{tc.instructions, "skills", "rules"} {
+				if slices.Contains(p.Hidden, filepath.Join(h, link)) {
+					t.Errorf("%s %s: the link %s is listed, which the sandbox refuses", tc.harness, goos, link)
+				}
+			}
 		}
 	}
 }

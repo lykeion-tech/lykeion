@@ -710,6 +710,63 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	}
 }
 
+// Dotfiles setups link the person's instructions and skills into the CLI
+// home. The run still starts, and what the links lead to stays unreadable,
+// through the link or directly. The targets lie in the home: temporary
+// folders elsewhere are hidden from every run anyway.
+func TestCLISandboxHidesLinkedPersonalFiles(t *testing.T) {
+	if err := sandbox.Check(context.Background()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	for _, tc := range []struct{ harness, config, instructions string }{{"codex", "config.toml", "AGENTS.md"}, {"claude", "settings.json", "CLAUDE.md"}} {
+		t.Run(tc.harness, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk-config.json"))
+			scratch := t.TempDir()
+			run := filepath.Join(scratch, "run")
+			cli := filepath.Join(home, "."+tc.harness)
+			dotfiles, outside := filepath.Join(home, "dotfiles"), filepath.Join(home, "elsewhere")
+			instructions, skill := filepath.Join(dotfiles, "instructions.md"), filepath.Join(outside, "skills", "mine", "SKILL.md")
+			for _, path := range []string{instructions, skill, filepath.Join(cli, tc.config)} {
+				must(t, os.MkdirAll(filepath.Dir(path), 0700))
+				must(t, os.WriteFile(path, []byte("personal"), 0600))
+			}
+			must(t, os.Symlink(instructions, filepath.Join(cli, tc.instructions)))
+			must(t, os.Symlink(filepath.Join(outside, "skills"), filepath.Join(cli, "skills")))
+			must(t, os.MkdirAll(run, 0700))
+			paths, err := agent.SandboxPaths(tc.harness, cli, run, "", runtime.GOOS)
+			must(t, err)
+			paths.Keychain = false
+			d := &daemon{cfg: Config{Home: scratch, StateDir: t.TempDir()}}
+			if runtime.GOOS == "linux" && tc.harness == "codex" {
+				// The run may write the whole Codex home on Linux, and a mount
+				// can't stop it replacing a link with its own instructions for
+				// the person's next session, so no run starts.
+				if _, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/true"); err == nil {
+					t.Fatal("a Codex run started with replaceable linked instructions")
+				}
+				return
+			}
+			must(t, os.WriteFile(filepath.Join(run, ".agent-process"), []byte("test-owned-process-marker"), 0600))
+			cat := func(path string) ([]byte, error) {
+				cmd, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/cat", path)
+				must(t, err)
+				cmd.Dir = run
+				return cmd.CombinedOutput()
+			}
+			if out, err := cat(filepath.Join(cli, tc.config)); err != nil {
+				t.Fatalf("the run did not start: %v %s", err, out)
+			}
+			for _, path := range []string{filepath.Join(cli, tc.instructions), instructions, filepath.Join(cli, "skills", "mine", "SKILL.md"), skill} {
+				if out, err := cat(path); err == nil || bytes.Contains(out, []byte("personal")) {
+					t.Errorf("study run read %s: %s", path, out)
+				}
+			}
+		})
+	}
+}
+
 func TestCLISandboxClaudeTakesRefreshLocks(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("lock folders are granted on macOS only")

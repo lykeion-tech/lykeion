@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -96,9 +97,7 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 		// stay unreadable; the sign-in stays. As for Codex, only existing
 		// entries are listed.
 		for _, name := range personalClaudeFiles {
-			if _, err := os.Lstat(filepath.Join(home, name)); err == nil {
-				p.Hidden = append(p.Hidden, filepath.Join(home, name))
-			} else if !os.IsNotExist(err) {
+			if err := p.hide(filepath.Join(home, name)); err != nil {
 				return p, err
 			}
 		}
@@ -139,18 +138,26 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 			// be listed they can't be hidden one by one either, and hiding
 			// the folder whole would stop Codex, so the run doesn't start.
 			if agents := filepath.Join(home, e.Name()); e.Name() == "agents" && goos == "darwin" {
+				if e.Type()&os.ModeSymlink != 0 {
+					// A link that can't be followed is left to hide below.
+					agents, _ = filepath.EvalSymlinks(agents)
+				}
 				if fi, err := os.Stat(agents); err == nil && fi.IsDir() {
 					inside, err := os.ReadDir(agents)
 					if err != nil {
 						return p, fmt.Errorf("cannot list the Codex agents folder to hide what is in it: %w", err)
 					}
 					for _, a := range inside {
-						p.Hidden = append(p.Hidden, filepath.Join(agents, a.Name()))
+						if err := p.hide(filepath.Join(agents, a.Name())); err != nil {
+							return p, err
+						}
 					}
 					continue
 				}
 			}
-			p.Hidden = append(p.Hidden, filepath.Join(home, e.Name()))
+			if err := p.hide(filepath.Join(home, e.Name())); err != nil {
+				return p, err
+			}
 		}
 	default:
 		return p, fmt.Errorf("unsupported CLI %q", harness)
@@ -161,6 +168,27 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 		}
 	}
 	return p, nil
+}
+
+// hide lists an existing personal entry as hidden. The sandbox refuses links
+// in the home, and a read through a link reaches what it leads to, so a link
+// is hidden by its target, wherever that lies. A link that leads nowhere
+// holds nothing to hide.
+func (p *CLIPaths) hide(path string) error {
+	fi, err := os.Lstat(path)
+	if err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		path, err = filepath.EvalSymlinks(path)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(p.Hidden, path) {
+		p.Hidden = append(p.Hidden, path)
+	}
+	return nil
 }
 
 // PlaceBlocked creates inert Linux bind targets without replacing existing data.
