@@ -24,6 +24,9 @@ const maxHandInReasks = 2
 // maxOutputBytes is the server's limit on one output; a larger file is never sent.
 const maxOutputBytes = 100 << 20
 
+// maxOutputProblems bounds the lines refused outputs add to a re-ask.
+const maxOutputProblems = 20
+
 // handIn saves the run's outputs, then posts its final answer as the hand-in.
 // While the server finds problems, the agent is asked up to twice, in the same
 // session, to correct them. It returns the last turn's result, with every
@@ -147,16 +150,34 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, saved 
 		return nil, err
 	}
 	var probs []string
+	more, refused := 0, false
+	problem := func(p string) {
+		if len(probs) < maxOutputProblems-1 {
+			probs = append(probs, p)
+		} else {
+			more++
+		}
+	}
 	err = fs.WalkDir(root.FS(), "outputs", func(name string, e fs.DirEntry, err error) error {
 		if err != nil || !e.Type().IsRegular() || saved[name] {
 			return err
+		}
+		// After one refusal the server's caps are reached; the rest are counted.
+		if refused {
+			more++
+			return nil
 		}
 		info, err := e.Info()
 		if err != nil {
 			return err
 		}
 		if info.Size() > maxOutputBytes {
-			probs = append(probs, name+" was not saved: an output can be at most 100 MB")
+			problem(name + " was not saved: an output can be at most 100 MB")
+			return nil
+		}
+		// A hard link can be a second name for a file outside the outputs folder.
+		if linkCount(info) > 1 {
+			problem(name + " was not saved: it is a hard link to another file")
 			return nil
 		}
 		f, err := root.Open(name)
@@ -166,12 +187,14 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, saved 
 		defer f.Close()
 		// The file opened must be the one the walk saw, not a link put in its place.
 		if now, err := f.Stat(); err != nil || !os.SameFile(now, info) {
-			return fmt.Errorf("%s changed while being saved", name)
+			problem(name + " was not saved: it changed while being saved")
+			return nil
 		}
 		err = role.Upload(ctx, "/api/role/outputs", map[string]string{"path": name}, "file", path.Base(name), f, nil)
-		var refused *apiclient.HTTPError
-		if errors.As(err, &refused) && (refused.Status == http.StatusBadRequest || refused.Status == http.StatusRequestEntityTooLarge) {
-			probs = append(probs, name+" was not saved: "+strings.TrimPrefix(refused.Msg, "POST /api/role/outputs: "))
+		var refusal *apiclient.HTTPError
+		if errors.As(err, &refusal) && (refusal.Status == http.StatusBadRequest || refusal.Status == http.StatusRequestEntityTooLarge) {
+			refused = true
+			problem(name + " was not saved: " + strings.TrimPrefix(refusal.Msg, "POST /api/role/outputs: "))
 			return nil
 		}
 		if err == nil {
@@ -179,6 +202,9 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, saved 
 		}
 		return err
 	})
+	if more > 0 {
+		probs = append(probs, fmt.Sprintf("and %d more files were not saved", more))
+	}
 	return probs, err
 }
 

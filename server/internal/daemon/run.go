@@ -373,7 +373,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The hand-in follows only a turn that ended cleanly inside the fence.
 	var handInProblems []string
 	var handInErr error
-	if c.OutputSchema != "" && res.Err == nil && streamErr == nil && breach == "" && runCtx.Err() == nil {
+	if c.OutputSchema != "" && res.Err == nil && streamErr == nil && sinkErr == nil && breach == "" && runCtx.Err() == nil {
 		// A resumed Claude turn counts its usage from the last turn's snapshot.
 		snapshot := res.ClaudeSnapshot
 		reask := func(p, resume string) agent.Result {
@@ -418,11 +418,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			localErr = streamErr
 		}
 	}
+	// The hand-in step's own failures are the machine's or the server's,
+	// never the agent's: the reason is set first so no text match relabels it.
 	if handInErr != nil {
+		r.FailureReason = agent.ReasonRuntimeOffline
 		fail(handInErr)
-		if retryableControlLoss(handInErr) {
-			r.FailureReason = agent.ReasonRuntimeOffline
-		}
 	}
 	if len(handInProblems) > 0 {
 		r.Kind, r.FailureReason, r.Error = "fail", agent.ReasonHandInInvalid, strings.Join(handInProblems, "\n")

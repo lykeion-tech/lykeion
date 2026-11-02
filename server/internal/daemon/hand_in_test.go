@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,24 +26,34 @@ import (
 type execCall struct{ prompt, resume, schema string }
 
 // handInRun runs the fixture's run on a fake backend whose every turn ends
-// with a hand-in, answering hand-in posts with reply(n) for the n-th post.
-// It returns the backend's calls and the paths the daemon requested, in order.
-func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), reply func(n int) string) ([]execCall, []string) {
+// with a hand-in, answering the n-th hand-in post with reply(n), a 200 unless
+// it names another status. It returns the backend's calls and the paths the
+// daemon requested, in order, and the body of the daemon's failure report.
+func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), reply func(n int) (int, string)) ([]execCall, []string, map[string]any) {
 	t.Helper()
 	var mu sync.Mutex
 	var calls []execCall
 	var paths []string
+	var failed map[string]any
 	posts := 0
 	hook := func(w http.ResponseWriter, r *http.Request) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		paths = append(paths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/fail") {
+			b, err := io.ReadAll(r.Body)
+			must(t, err)
+			_ = json.Unmarshal(b, &failed)
+			r.Body = io.NopCloser(strings.NewReader(string(b)))
+		}
 		if !strings.HasSuffix(r.URL.Path, "/hand-in") || reply == nil {
 			return false
 		}
 		posts++
+		code, body := reply(posts)
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, reply(posts))
+		w.WriteHeader(code)
+		io.WriteString(w, body)
 		return true
 	}
 	f.intercept.Store(&hook)
@@ -62,11 +74,11 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 		}), nil
 	}
 	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+	waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" || f.parked(t) })
 	stopDaemon(t, cancel, done)
 	mu.Lock()
 	defer mu.Unlock()
-	return slices.Clone(calls), slices.Clone(paths)
+	return slices.Clone(calls), slices.Clone(paths), failed
 }
 
 // reasks are the content of the run's re-ask status messages, in order.
@@ -96,7 +108,7 @@ const oneProblem = `{"accepted":false,"problems":["claim 1 cites no source"]}`
 
 func TestHandInReasksTwiceThenFails(t *testing.T) {
 	f := fixture(t)
-	calls, _ := handInRun(t, f, nil, func(int) string { return oneProblem })
+	calls, _, _ := handInRun(t, f, nil, func(int) (int, string) { return 200, oneProblem })
 	if len(calls) != 3 {
 		t.Fatalf("backend ran %d times, want 3: %+v", len(calls), calls)
 	}
@@ -139,11 +151,11 @@ func TestHandInReasksTwiceThenFails(t *testing.T) {
 
 func TestHandInAcceptedOnSecondTry(t *testing.T) {
 	f := fixture(t)
-	calls, _ := handInRun(t, f, nil, func(n int) string {
+	calls, _, _ := handInRun(t, f, nil, func(n int) (int, string) {
 		if n == 1 {
-			return oneProblem
+			return 200, oneProblem
 		}
-		return `{"accepted":true}`
+		return 200, `{"accepted":true}`
 	})
 	if len(calls) != 2 {
 		t.Fatalf("backend ran %d times, want 2", len(calls))
@@ -163,7 +175,7 @@ func TestOutputsSavedBeforeSubmit(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(o.Dir, "outputs", "a.csv"), []byte("x,y\n1,2\n"), 0600))
 		must(t, os.WriteFile(filepath.Join(o.Dir, "outputs", "sub", "b.png"), []byte("\x89PNG\r\n"), 0600))
 	}
-	_, paths := handInRun(t, f, write, func(int) string { return `{"accepted":true}` })
+	_, paths, _ := handInRun(t, f, write, func(int) (int, string) { return 200, `{"accepted":true}` })
 	submit := slices.IndexFunc(paths, func(p string) bool { return strings.HasSuffix(p, "/hand-in") })
 	uploads := 0
 	for i, p := range paths {
@@ -195,7 +207,7 @@ func TestRunWithoutSchemaUnchanged(t *testing.T) {
 	f := fixture(t)
 	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = 'validation' WHERE id = $1", f.id)
 	must(t, err)
-	calls, paths := handInRun(t, f, nil, func(int) string { return oneProblem })
+	calls, paths, _ := handInRun(t, f, nil, func(int) (int, string) { return 200, oneProblem })
 	if len(calls) != 1 || calls[0].schema != "" {
 		t.Fatalf("backend calls = %+v", calls)
 	}
@@ -287,5 +299,77 @@ func TestRefusedOutputIsAProblem(t *testing.T) {
 	must(t, err)
 	if !slices.Equal(probs, []string{"outputs/x.csv was not saved: A run can save at most 100 outputs"}) || handIns != 0 {
 		t.Fatalf("%d hand-ins, problems %q", handIns, probs)
+	}
+}
+
+// A hand-in the server answers with an error is the machine's failure, never
+// the agent's or its sign-in's: the run is parked as offline.
+func TestHandInServerErrorIsInfrastructure(t *testing.T) {
+	for _, code := range []int{400, 401} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			f := fixture(t)
+			_, _, failed := handInRun(t, f, nil, func(int) (int, string) {
+				return code, `{"error":"` + strconv.Itoa(code) + ` ` + http.StatusText(code) + `"}`
+			})
+			if failed["failure_reason"] != agent.ReasonRuntimeOffline {
+				t.Fatalf("failure report = %v", failed)
+			}
+		})
+	}
+}
+
+// Refused outputs give a bounded list: once the server refuses one, the rest
+// are counted, not sent; a hard-linked file is never sent.
+func TestRefusedOutputsAreBounded(t *testing.T) {
+	uploads := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/role/records":
+			io.WriteString(w, `[]`)
+		case "/api/role/outputs":
+			uploads++
+			w.WriteHeader(400)
+			io.WriteString(w, `{"error":"A run can save at most 100 outputs"}`)
+		}
+	}))
+	defer srv.Close()
+	role := &apiclient.Client{Server: srv.URL}
+	dir := t.TempDir()
+	out := filepath.Join(dir, "outputs")
+	must(t, os.MkdirAll(out, 0700))
+	for i := range 30 {
+		must(t, os.WriteFile(filepath.Join(out, fmt.Sprintf("f%02d.csv", i)), []byte("1"), 0600))
+	}
+	probs, err := sendOutputs(t.Context(), role, dir, map[string]bool{})
+	must(t, err)
+	want := []string{"outputs/f00.csv was not saved: A run can save at most 100 outputs", "and 29 more files were not saved"}
+	if uploads != 1 || !slices.Equal(probs, want) {
+		t.Fatalf("%d uploads, problems %q", uploads, probs)
+	}
+
+	uploads = 0
+	linked := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(linked, "outputs"), 0700))
+	must(t, os.WriteFile(filepath.Join(linked, "secret"), []byte("s"), 0600))
+	must(t, os.Link(filepath.Join(linked, "secret"), filepath.Join(linked, "outputs", "s.txt")))
+	probs, err = sendOutputs(t.Context(), role, linked, map[string]bool{})
+	must(t, err)
+	if uploads != 0 || !slices.Equal(probs, []string{"outputs/s.txt was not saved: it is a hard link to another file"}) {
+		t.Fatalf("%d uploads, problems %q", uploads, probs)
+	}
+
+	uploads = 0
+	big := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(big, "outputs"), 0700))
+	for i := range 25 {
+		f, err := os.Create(filepath.Join(big, "outputs", fmt.Sprintf("b%02d", i)))
+		must(t, err)
+		must(t, f.Truncate(maxOutputBytes+1))
+		f.Close()
+	}
+	probs, err = sendOutputs(t.Context(), role, big, map[string]bool{})
+	must(t, err)
+	if uploads != 0 || len(probs) != maxOutputProblems || probs[len(probs)-1] != "and 6 more files were not saved" {
+		t.Fatalf("%d uploads, %d problems, last %q", uploads, len(probs), probs[len(probs)-1])
 	}
 }

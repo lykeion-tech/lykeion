@@ -36,3 +36,11 @@ func ownState(dir string) (*os.File, error) {
 	}
 	return f, nil
 }
+
+// linkCount is how many names the file has.
+func linkCount(info os.FileInfo) uint64 {
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		return uint64(st.Nlink)
+	}
+	return 1
+}
