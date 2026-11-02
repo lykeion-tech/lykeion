@@ -105,6 +105,13 @@ export interface Comment {
   author_id: string;
   body: string;
   created_at: string;
+  // Which run's work the comment reached and how; null while it waits.
+  delivery: CommentDelivery | null;
+}
+
+export interface CommentDelivery {
+  how: 'running_turn' | 'member_result' | 'next_run';
+  role: string;
 }
 
 export interface LykEvent {

@@ -193,32 +193,39 @@ func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 // the protocol for its role is appended to them; note, when set, follows the
 // study in the prompt.
 func (e *Engine) enqueue(ctx context.Context, tx *store.Tx, c db.Card, role string, m *pack.Manifest, a db.Agent, note string) (db.AgentRun, error) {
-	p, err := e.runPrompt(ctx, tx, c, role, note)
+	p, comments, err := e.runPrompt(ctx, tx, c, role, note)
 	if err != nil {
 		return db.AgentRun{}, err
 	}
-	return e.enqueueWithInput(ctx, tx, c, role, m, a, p, assignment(c, note))
+	run, err := e.enqueueWithInput(ctx, tx, c, role, m, a, p, assignment(c, note))
+	if err != nil {
+		return run, err
+	}
+	_, err = service.DeliverComments(ctx, tx, run, service.DeliveredNextRun, comments)
+	return run, err
 }
 
-func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, note string) (string, error) {
+// runPrompt is a run's prompt, with the study's comments it includes; the
+// caller, which holds the card lock, gives the run those not yet delivered.
+func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, note string) (string, []db.Comment, error) {
 	comments, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	// Read at start, so a change to the research context reaches the next run.
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	files, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: tx.WS, CardID: &c.ID})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	p := prompt(c, role, comments, ws.ResearchContext, files)
 	if handsIn(c.BoardColumn) {
 		earlier, err := earlierWork(ctx, tx, c)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if earlier != "" {
 			p += "\n" + earlier
@@ -227,7 +234,7 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 	if note != "" {
 		p += "\n" + note + "\n"
 	}
-	return p, nil
+	return p, comments, nil
 }
 
 // enqueueWithInput accepts only research inputs from an interrupted run. Agent

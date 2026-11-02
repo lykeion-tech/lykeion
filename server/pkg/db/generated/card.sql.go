@@ -227,6 +227,36 @@ func (q *Queries) CardWorkflow(ctx context.Context, arg CardWorkflowParams) (*st
 	return workflow, err
 }
 
+const commentDeliveries = `-- name: CommentDeliveries :many
+SELECT body FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = 'comment_delivery'
+ORDER BY created_at, id
+`
+
+type CommentDeliveriesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) CommentDeliveries(ctx context.Context, arg CommentDeliveriesParams) ([]json.RawMessage, error) {
+	rows, err := q.db.Query(ctx, commentDeliveries, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []json.RawMessage
+	for rows.Next() {
+		var body json.RawMessage
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		items = append(items, body)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, machine, grounding_criteria, workflow, workflow_release)
@@ -844,4 +874,45 @@ func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error 
 		arg.PackID,
 	)
 	return err
+}
+
+const undeliveredComments = `-- name: UndeliveredComments :many
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3
+  AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
+    AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
+ORDER BY c.created_at, c.id
+`
+
+type UndeliveredCommentsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Since       time.Time `json:"since"`
+}
+
+// A study's comments posted after since that no run has been given yet.
+func (q *Queries) UndeliveredComments(ctx context.Context, arg UndeliveredCommentsParams) ([]Comment, error) {
+	rows, err := q.db.Query(ctx, undeliveredComments, arg.WorkspaceID, arg.CardID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Comment
+	for rows.Next() {
+		var i Comment
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.AuthorID,
+			&i.Body,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

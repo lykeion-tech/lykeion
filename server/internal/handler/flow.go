@@ -135,13 +135,23 @@ func (h *H) memberResult(w http.ResponseWriter, r *http.Request) {
 	}
 	var run db.AgentRun
 	var handIn json.RawMessage
+	var comments []service.SentComment
 	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
 		run, err = tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: role.WorkspaceID, ID: ticket})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && (run.CardID == nil || *run.CardID != role.CardID ||
 			run.BoardColumn != role.Column || run.Round != role.Round || !flow.IsMember(run.Role)) {
 			return errNoMemberRun
 		}
-		if err != nil || run.Status != "completed" {
+		if err != nil {
+			return err
+		}
+		// The leader is the one listening while its member works: comments
+		// posted since its turn started come back to it with the answer.
+		leader, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: role.WorkspaceID, ID: role.AgentRunID})
+		if err != nil {
+			return err
+		}
+		if comments, err = service.ClaimNewComments(r.Context(), tx, leader, service.DeliveredMemberResult); err != nil || run.Status != "completed" {
 			return err
 		}
 		recs, err := tx.Q.AgentRunRecords(r.Context(), db.AgentRunRecordsParams{WorkspaceID: role.WorkspaceID, AgentRunID: &run.ID})
@@ -164,7 +174,7 @@ func (h *H) memberResult(w http.ResponseWriter, r *http.Request) {
 	if run.CompletedAt != nil {
 		end = *run.CompletedAt
 	}
-	out := map[string]any{"status": "working", "elapsed_seconds": int(end.Sub(run.CreatedAt).Seconds()), "hand_in": nil, "reason": "", "comments": []any{}}
+	out := map[string]any{"status": "working", "elapsed_seconds": int(end.Sub(run.CreatedAt).Seconds()), "hand_in": nil, "reason": "", "comments": comments}
 	switch {
 	case run.Status == "completed" && handIn != nil:
 		out["status"], out["hand_in"] = "done", handIn

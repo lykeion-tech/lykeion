@@ -48,7 +48,7 @@ func (l *lab) runPrompt(t *testing.T, c db.Card, role string) string {
 	t.Helper()
 	var p string
 	l.in(t, func(tx *store.Tx) (err error) {
-		p, err = l.e.runPrompt(context.Background(), tx, c, role, "")
+		p, _, err = l.e.runPrompt(context.Background(), tx, c, role, "")
 		return err
 	})
 	return p

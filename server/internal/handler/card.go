@@ -718,28 +718,53 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, comment)
 }
 
+// listedComment is a comment with where it went: which run's work it
+// reached and how, or nil while it waits for the next step.
+type listedComment struct {
+	db.Comment
+	Delivery *commentDelivery `json:"delivery"`
+}
+
+type commentDelivery struct {
+	How  string `json:"how"`
+	Role string `json:"role"`
+}
+
 func (h *H) listComments(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
 		return
 	}
-	comments := []db.Comment{}
+	out := []listedComment{}
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
 			return err
 		}
-		var err error
-		comments, err = tx.Q.ListComments(r.Context(), db.ListCommentsParams{WorkspaceID: ws, CardID: id})
-		return err
+		comments, err := tx.Q.ListComments(r.Context(), db.ListCommentsParams{WorkspaceID: ws, CardID: id})
+		if err != nil {
+			return err
+		}
+		receipts, err := tx.Q.CommentDeliveries(r.Context(), db.CommentDeliveriesParams{WorkspaceID: ws, CardID: id})
+		if err != nil {
+			return err
+		}
+		went := map[uuid.UUID]*commentDelivery{}
+		for _, body := range receipts {
+			var d service.CommentDelivery
+			if json.Unmarshal(body, &d) == nil {
+				went[d.CommentID] = &commentDelivery{How: d.How, Role: d.Role}
+			}
+		}
+		for _, c := range comments {
+			out = append(out, listedComment{Comment: c, Delivery: went[c.ID]})
+		}
+		return nil
 	})
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	if comments == nil {
-		comments = []db.Comment{}
-	}
-	writeJSON(w, http.StatusOK, comments)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *H) cardEvents(w http.ResponseWriter, r *http.Request) {

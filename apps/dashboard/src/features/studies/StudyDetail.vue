@@ -54,6 +54,7 @@ import {
 import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
+import { deliveryLine } from './comment-delivery';
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -407,6 +408,12 @@ function pin() {
               </div>
               <p class="bubble" :class="{ mine: entry.comment.author_id === me.data.value?.id }">
                 {{ entry.comment.body }}
+              </p>
+              <p
+                class="delivery type-caption"
+                :class="{ mine: entry.comment.author_id === me.data.value?.id }"
+              >
+                {{ deliveryLine(entry.comment.delivery) }}
               </p>
             </template>
             <div v-else-if="entry.kind === 'event'" class="event-line">
@@ -1433,6 +1440,14 @@ function pin() {
   margin-left: auto;
   margin-right: 0;
   background: var(--fill-active);
+}
+.delivery {
+  color: var(--muted);
+  margin: -10px 0 14px 14px;
+}
+.delivery.mine {
+  text-align: right;
+  margin-left: 0;
 }
 .event-line {
   display: flex;

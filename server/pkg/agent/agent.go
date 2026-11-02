@@ -62,6 +62,9 @@ type ExecOptions struct {
 	OutputSchema string
 	// MaxTurns, when positive, caps Claude's agentic turns.
 	MaxTurns int
+	// Input, when set, carries messages for Claude's running turn: each one
+	// is sent as a further user message until the turn's result.
+	Input <-chan string
 	// OnMessage, when set, durably accepts each normalized message instead of
 	// publishing it to Session.Messages. An error stops the child and is reported.
 	OnMessage func(Message) error

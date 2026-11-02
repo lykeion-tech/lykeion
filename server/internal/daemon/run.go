@@ -334,9 +334,20 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
+	// A Claude turn that hands in takes comments while it runs. Codex can't
+	// take input mid-turn: its comments wait for the leader or the next run.
+	takesComments := c.AgentRun.Harness == "claude" && c.OutputSchema != "" && c.AgentRun.CardID != nil
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
-		sess, err := backend.Execute(runCtx, prompt, opts)
+		turnOpts := opts
+		if takesComments {
+			input := make(chan string, 16)
+			turnCtx, endTurn := context.WithCancel(runCtx)
+			defer endTurn()
+			turnOpts.Input = input
+			go d.relayComments(turnCtx, base, messageRef, input)
+		}
+		sess, err := backend.Execute(runCtx, prompt, turnOpts)
 		if err != nil {
 			return res, sandboxNote(err), err
 		}

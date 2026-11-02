@@ -850,7 +850,7 @@ func (d *Door) brokerRequest(ctx context.Context, path string, in, out any) (str
 
 const (
 	askMemberDescription    = "Start a member of your Team on a task. Answers a ticket to wait on with member_result, or busy with the ticket of the member already working: one member works at a time."
-	memberResultDescription = "Wait up to 10 minutes for the member's run a ticket names. Answers working, with the elapsed time, while it is still at work (call again), done with its hand-in, or failed with its reason."
+	memberResultDescription = "Wait up to 10 minutes for the member's run a ticket names. Answers working, with the elapsed time, while it is still at work (call again), done with its hand-in, or failed with its reason. A researcher's comment posted meanwhile comes with the answer."
 )
 
 type askMemberIn struct {
@@ -972,10 +972,15 @@ func (d *Door) memberResult(ctx context.Context, _ *mcp.CallToolRequest, in memb
 		case ctx.Err() != nil:
 			return nil, nil, ctx.Err()
 		case err == nil:
-			var s struct{ Status string }
+			var s struct {
+				Status   string
+				Comments []json.RawMessage
+			}
 			json.Unmarshal(out, &s)
-			if s.Status != "working" {
-				return cited("", string(out)), nil, nil
+			// Comments the server handed out are this leader's now: they
+			// come back at once rather than wait under a later reply.
+			if s.Status != "working" || len(s.Comments) > 0 {
+				return memberAnswer(out), nil, nil
 			}
 			last = out
 		}
@@ -983,9 +988,9 @@ func (d *Door) memberResult(ctx context.Context, _ *mcp.CallToolRequest, in memb
 		if left <= 0 {
 			if last == nil {
 				last, _ = json.Marshal(map[string]any{"status": "working", "elapsed_seconds": int(time.Since(start).Seconds()),
-					"hand_in": nil, "reason": "", "comments": []any{}})
+					"hand_in": nil, "reason": ""})
 			}
-			return cited("", string(last)), nil, nil
+			return memberAnswer(last), nil, nil
 		}
 		select {
 		case <-ctx.Done():

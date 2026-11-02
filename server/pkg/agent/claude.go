@@ -189,6 +189,22 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		case <-in.stop:
 		}
 	}()
+	if o.Input != nil {
+		go func() {
+			for {
+				select {
+				case <-in.stop:
+					return
+				case text, ok := <-o.Input:
+					if !ok {
+						return
+					}
+					// A message arriving as the turn ends has nowhere to go.
+					_ = in.send(claudeUserFrame(text))
+				}
+			}
+		}()
+	}
 	finish := func(res *Result, _ emitMessage) { in.close(); accounting.finish(res) }
 	sess, err := run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, in), finish, o.OnMessage)
 	// The child holds its own copy of the read end once started.

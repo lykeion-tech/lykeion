@@ -58,6 +58,17 @@ RETURNING *;
 -- name: ListComments :many
 SELECT * FROM comment WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY created_at;
 
+-- A study's comments posted after since that no run has been given yet.
+-- name: UndeliveredComments :many
+SELECT c.* FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at > @since
+  AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
+    AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
+ORDER BY c.created_at, c.id;
+
+-- name: CommentDeliveries :many
+SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'comment_delivery'
+ORDER BY created_at, id;
+
 -- name: ListInbox :many
 SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
 ORDER BY created_at DESC LIMIT 200;

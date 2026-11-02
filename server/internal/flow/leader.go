@@ -566,10 +566,11 @@ func (e *Engine) Resume(ctx context.Context, tx *store.Tx, c db.Card) error {
 			return err
 		}
 		p := r.Prompt
+		var comments []db.Comment
 		if p == "" {
 			// Legacy runs may lack a prompt snapshot. Rebuild card context and
 			// include any saved assignment without parsing human-facing text.
-			p, err = e.runPrompt(ctx, tx, c, r.Role, r.Assignment)
+			p, comments, err = e.runPrompt(ctx, tx, c, r.Role, r.Assignment)
 			if err != nil {
 				return err
 			}
@@ -579,7 +580,11 @@ func (e *Engine) Resume(ctx context.Context, tx *store.Tx, c db.Card) error {
 			runAssignment = assignment(c, "")
 		}
 		p += "\nResumed on another machine.\n"
-		if _, err := e.enqueueWithInput(ctx, tx, c, r.Role, m, a, p, runAssignment); err != nil {
+		run, err := e.enqueueWithInput(ctx, tx, c, r.Role, m, a, p, runAssignment)
+		if err != nil {
+			return err
+		}
+		if _, err := service.DeliverComments(ctx, tx, run, service.DeliveredNextRun, comments); err != nil {
 			return err
 		}
 	}

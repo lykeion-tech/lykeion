@@ -299,6 +299,21 @@ func (h *H) daemonStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": st})
 }
 
+// daemonComments hands a running turn the comments posted on its study
+// since it started, each once.
+func (h *H) daemonComments(w http.ResponseWriter, r *http.Request) {
+	id, in, ok := h.agentRunCall(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.AgentRuns.TakeComments(r.Context(), user(r), in.RuntimeRef, id)
+	if err != nil {
+		agentRunFail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
 // daemonService streams hidden code only to the runtime running this study.
 func (h *H) daemonService(w http.ResponseWriter, r *http.Request) {
 	ws, e1 := uuid.Parse(r.Header.Get("X-Workspace-ID"))
