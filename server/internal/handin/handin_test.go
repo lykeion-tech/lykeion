@@ -100,18 +100,28 @@ func TestKindFor(t *testing.T) {
 
 func TestHypothesisFlatFieldsRoundTrip(t *testing.T) {
 	raw := `{"status":"done","answer":"a","hypotheses":[
-	{"text":"t1","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":null,"no_control":true,"cites":["r1"]},
-	{"text":"t2","prediction_shape":"range","direction":null,"outcomes":[],"chosen":null,"low":1.5,"high":2.5,"uncertainty":"wide","control":"placebo","no_control":false,"cites":["r1"]}]}`
+	{"text":"t1","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,"control":null,"no_control":"a descriptive study","cites":["r1"]},
+	{"text":"t2","prediction_shape":"range","direction":null,"outcomes":[],"chosen":null,"low":1.5,"high":2.5,"uncertainty":"wide","control":"placebo","no_control":null,"cites":["r1"]}]}`
 	h, probs := Parse(Hypotheses, []byte(raw))
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
 	a := h.Hypotheses[0].Body([]string{"r1"})
-	if a.Prediction.Shape != "direction" || a.Prediction.Direction != "increase" || a.Control.None == "" || a.Control.Text != "" || a.Cites[0] != "r1" {
+	if a.Prediction.Shape != "direction" || a.Prediction.Direction != "increase" || a.Control.None != "a descriptive study" || a.Control.Text != "" || a.Cites[0] != "r1" {
 		t.Errorf("%+v", a)
 	}
 	b := h.Hypotheses[1].Body(nil)
 	if *b.Prediction.Low != 1.5 || *b.Prediction.High != 2.5 || b.Prediction.Uncertainty != "wide" || b.Control.Text != "placebo" || b.Control.None != "" {
 		t.Errorf("%+v", b)
+	}
+}
+
+func TestHypothesisNeedsExactlyOneOfControlAndReason(t *testing.T) {
+	for _, c := range []string{`"control":null,"no_control":null`, `"control":"x","no_control":"y"`} {
+		raw := `{"status":"done","answer":"a","hypotheses":[{"text":"t","prediction_shape":"direction","direction":"increase","outcomes":[],"chosen":null,"low":null,"high":null,"uncertainty":null,` + c + `,"cites":["r1"]}]}`
+		_, probs := Parse(Hypotheses, []byte(raw))
+		if !contains(probs, "hypotheses 1: give either a control or the reason there is none") {
+			t.Errorf("%s: %q", c, probs)
+		}
 	}
 }

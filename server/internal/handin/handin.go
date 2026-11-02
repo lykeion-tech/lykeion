@@ -70,7 +70,7 @@ type Hypothesis struct {
 	High            *float64 `json:"high"`
 	Uncertainty     *string  `json:"uncertainty"`
 	Control         *string  `json:"control"`
-	NoControl       bool     `json:"no_control"`
+	NoControl       *string  `json:"no_control"` // the reason there is no control
 	Cites           []string `json:"cites"`
 }
 type Value struct {
@@ -105,18 +105,14 @@ type HandIn struct {
 	NewStudies   []NewStudy    `json:"new_studies"`
 }
 
-// Body is the review item this hypothesis becomes, citing cites. A hypothesis
-// with no control carries a fixed reason, since the hand-in has no field for one.
+// Body is the review item this hypothesis becomes, citing cites.
 func (h Hypothesis) Body(cites []string) review.HypothesisBody {
 	p := review.Prediction{Shape: h.PredictionShape, Outcomes: h.Outcomes, Low: h.Low, High: h.High}
 	p.Direction, p.Chosen, p.Uncertainty = deref(h.Direction), deref(h.Chosen), deref(h.Uncertainty)
 	if len(p.Outcomes) == 0 {
 		p.Outcomes = nil
 	}
-	c := review.Control{Text: deref(h.Control)}
-	if c.Text == "" && h.NoControl {
-		c.None = "the agent declared no control"
-	}
+	c := review.Control{Text: deref(h.Control), None: deref(h.NoControl)}
 	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites}
 }
 
@@ -177,6 +173,10 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(within(n.Reason, 2000), "no_qualifying: reason must be 1 to 2000 characters")
 	}
 	for i, x := range h.Hypotheses {
+		if (deref(x.Control) != "") == (deref(x.NoControl) != "") {
+			probs = append(probs, fmt.Sprintf("hypotheses %d: give either a control or the reason there is none", i+1))
+			continue
+		}
 		b, _ := json.Marshal(x.Body(x.Cites))
 		if err := review.Validate(review.KindHypothesis, board.Hypotheses, b); err != nil {
 			probs = append(probs, fmt.Sprintf("hypotheses %d: %s", i+1, strings.TrimPrefix(err.Error(), "hypothesis: ")))

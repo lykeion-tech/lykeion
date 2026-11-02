@@ -53,7 +53,7 @@ var schemas = map[Kind]string{
 			"direction", obj{"type": []string{"string", "null"}, "enum": []any{"increase", "decrease", "no_change", nil}},
 			"outcomes", list(str()),
 			"chosen", nullStr(), "low", nullNum(), "high", nullNum(), "uncertainty", nullStr(),
-			"control", nullStr(), "no_control", obj{"type": "boolean"},
+			"control", nullStr(), "no_control", nullStr(),
 			"cites", list(str()))),
 		"replies", list(reply())),
 	Experimentation: build(
