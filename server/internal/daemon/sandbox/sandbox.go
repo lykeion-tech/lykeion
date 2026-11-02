@@ -411,7 +411,15 @@ func (p Policy) resolve() (resolved, error) {
 			return resolved{}, err
 		}
 		c := filepath.Join(parent, filepath.Base(raw))
-		if fi, err := os.Lstat(c); err == nil && (!fi.IsDir() || h.inside(c)) {
+		fi, err := os.Lstat(c)
+		// A file or link where the lock folder belongs can only be a leftover
+		// a sandboxed run planted; removing it (never a link's target) keeps
+		// it from blocking every later launch.
+		if err == nil && !fi.IsDir() {
+			if err := os.Remove(c); err != nil {
+				return resolved{}, fmt.Errorf("sandbox lock path %q: %w", raw, err)
+			}
+		} else if err == nil && h.inside(c) {
 			return resolved{}, fmt.Errorf("sandbox lock path %q is not a lock folder", raw)
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return resolved{}, err

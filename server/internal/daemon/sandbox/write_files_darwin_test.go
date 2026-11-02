@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,17 +59,36 @@ func TestLockDirCanBeCreatedRemovedAndRecreated(t *testing.T) {
 	}
 }
 
-func TestLockDirRejectsUnsafePaths(t *testing.T) {
+// An agent can leave a file or a link where a lock folder belongs; the next
+// launch clears it instead of refusing every later run.
+func TestPlantedLockPathIsClearedAtLaunch(t *testing.T) {
 	h := tempDir(t)
+	target := mkdir(t, filepath.Join(h, "target"))
 	link := filepath.Join(h, "link.lock")
-	if err := os.Symlink(mkdir(t, filepath.Join(h, "target")), link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(h, "file.lock")
-	if err := os.WriteFile(file, nil, 0600); err != nil {
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, lock := range []string{link, file, filepath.Join(h, "absent", "x.lock"), filepath.Join(h, "bad\nname.lock"), h} {
+	for _, lock := range []string{link, file} {
+		p := Policy{Home: h, HomeRead: true, LockDirs: []string{lock}}
+		if out, err := sandboxed(t, p, "mkdir "+shq(lock)+" && rmdir "+shq(lock)); err != nil {
+			t.Fatalf("planted %s blocked the lock: %v %s", lock, err, out)
+		}
+		if _, err := os.Lstat(lock); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("planted %s not cleared: %v", lock, err)
+		}
+	}
+	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
+		t.Fatal("link target removed", err)
+	}
+}
+
+func TestLockDirRejectsUnsafePaths(t *testing.T) {
+	h := tempDir(t)
+	for _, lock := range []string{filepath.Join(h, "absent", "x.lock"), filepath.Join(h, "bad\nname.lock"), h} {
 		p := Policy{Home: h, HomeRead: true, LockDirs: []string{lock}}
 		if _, err := p.seatbeltProfile(); err == nil {
 			t.Errorf("accepted unsafe lock %q", lock)
