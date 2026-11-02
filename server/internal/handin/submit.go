@@ -55,7 +55,16 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 			return service.ErrConflict
 		}
 		if k == Autoresearch {
+			// A kept hand-in replayed after the run settled was applied
+			// already when its report is written: accept it again.
 			if t.Status != "running" {
+				r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: t.ID})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if err == nil && r.Report != "" {
+					return nil
+				}
 				return service.ErrConflict
 			}
 			var err error

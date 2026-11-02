@@ -63,6 +63,17 @@ func TestAutoresearchHandIn(t *testing.T) {
 		t.Fatalf("a repeat applied again: cards %d reports %d", cards(), reports())
 	}
 
+	// A kept hand-in replayed after its run settled is accepted, not refused.
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status = 'completed' WHERE id = $1`, *run.AgentRunID); err != nil {
+		t.Fatal(err)
+	}
+	if out := send(attempt+1, ok); !out.Accepted || cards() != 1 || reports() != n {
+		t.Fatalf("a settled replay: %+v cards %d reports %d", out, cards(), reports())
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status = 'running' WHERE id = $1`, *run.AgentRunID); err != nil {
+		t.Fatal(err)
+	}
+
 	// A study whose agent is gone is skipped and named in the report.
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET attempt = 1 WHERE id = $1`, *run.AgentRunID); err != nil {
 		t.Fatal(err)
