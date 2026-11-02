@@ -11,12 +11,15 @@ import (
 )
 
 var (
-	unauthorized = regexp.MustCompile(`\b401\b`)
+	// A 401 counts only in the forms the CLIs and HTTP clients print it.
+	unauthorized = regexp.MustCompile(`(?i)\b401 unauthorized|\b(?:status|http|api error:?|error:?)\s*(?:code\s*)?401\b`)
+	// "Not logged in" counts only as a CLI's own message, at a line start.
+	notLoggedIn = regexp.MustCompile(`(?im)^\s*(?:error:\s*)?not logged in\b`)
 	// The sandbox package's launch and policy errors, which carry no type.
 	sandboxSignatures = []string{"sandbox failed to start", "install bubblewrap", "no sandbox on", "sandbox policy", "sandbox path", "sandbox carved", "sandbox read folder", "sandbox restricted", "sandbox grant", "sandbox started but", "bwrap:", "sandbox-exec:"}
 	signInSignatures  = map[string][]string{
-		"claude": {"please run /login", "oauth token has expired", "invalid api key", "not logged in"},
-		"codex":  {"not logged in", "refresh_token"},
+		"claude": {"please run /login", "oauth token has expired", "invalid api key"},
+		"codex":  {"refresh_token_reused", "refresh token was already used"},
 	}
 )
 
@@ -36,7 +39,7 @@ func classify(harness string, err error, stderr string, _ []agent.Message) strin
 	if errors.Is(err, sandbox.ErrLoopbackOnlyUnsupported) || containsAny(lower, sandboxSignatures) {
 		return agent.ReasonSandbox
 	}
-	if containsAny(lower, signInSignatures[harness]) || unauthorized.MatchString(text) {
+	if containsAny(lower, signInSignatures[harness]) || unauthorized.MatchString(text) || notLoggedIn.MatchString(text) {
 		return agent.ReasonSignIn
 	}
 	if strings.Contains(lower, "lyk_door") && containsAny(lower, []string{"failed to connect", "econnrefused", "connection refused"}) {
@@ -52,4 +55,13 @@ func containsAny(text string, needles []string) bool {
 		}
 	}
 	return false
+}
+
+// failReason is the reason after a failure: one already set to something
+// specific stays, and a generic one is replaced by the classified cause.
+func failReason(current, harness string, err error) string {
+	if current != "" && current != agent.ReasonAgentError {
+		return current
+	}
+	return classify(harness, err, "", nil)
 }

@@ -54,9 +54,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	fail := func(err error) {
 		r.Kind = "fail"
 		r.Error = err.Error()
-		if reason := classify(c.AgentRun.Harness, err, "", nil); reason != agent.ReasonAgentError || r.FailureReason == "" {
-			r.FailureReason = reason
-		}
+		r.FailureReason = failReason(r.FailureReason, c.AgentRun.Harness, err)
 	}
 	// Registered before the deferred report, so it runs after the finished
 	// marker: gc never finds the folder unheld with only an older marker.
@@ -392,10 +390,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	r.Usage, r.SessionID, r.Model = res.Usage, res.SessionID, res.Model
 	if res.Err != nil {
+		// The agent package's own reason is set first so the text match
+		// cannot override it.
+		r.FailureReason = res.Reason
 		fail(res.Err)
-		if r.FailureReason == agent.ReasonAgentError && res.Reason != "" {
-			r.FailureReason = res.Reason
-		}
 	}
 	if streamErr != nil {
 		fail(streamErr)
