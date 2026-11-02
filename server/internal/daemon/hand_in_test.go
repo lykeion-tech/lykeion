@@ -373,3 +373,32 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 		t.Fatalf("%d uploads, %d problems, last %q", uploads, len(probs), probs[len(probs)-1])
 	}
 }
+
+// An Autoresearch run has no study, so its token may not list or save
+// outputs: its hand-in is posted without either.
+func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
+	handIns := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/role/"):
+			w.WriteHeader(403)
+			io.WriteString(w, `{"error":"this agent run's token may not do that"}`)
+		case strings.HasSuffix(r.URL.Path, "/hand-in"):
+			handIns++
+			io.WriteString(w, `{"accepted":true}`)
+		}
+	}))
+	defer srv.Close()
+	d := &daemon{cfg: Config{Server: srv.URL, Home: t.TempDir()}, api: &apiclient.Client{Server: srv.URL}}
+	var c claimed
+	c.AgentRun.ID, c.AgentRun.Attempt, c.AgentRun.Kind = uuid.New(), 1, "autoresearch"
+	out := filepath.Join(d.cfg.Home, scratchName(c.AgentRun.ID, 1), "outputs")
+	must(t, os.MkdirAll(out, 0700))
+	must(t, os.WriteFile(filepath.Join(out, "x.csv"), []byte("1"), 0600))
+	_, probs, err := d.handIn(t.Context(), c, agent.Result{SessionID: "s1", Output: `{}`}, func(string, string) agent.Result {
+		return agent.Result{Err: errors.New("no re-ask expected")}
+	}, func(agent.Message) error { return nil })
+	if err != nil || probs != nil || handIns != 1 {
+		t.Fatalf("err %v, problems %q, %d hand-ins", err, probs, handIns)
+	}
+}

@@ -35,15 +35,24 @@ const maxOutputProblems = 20
 // is the daemon's own: a call to the server that did not get an answer.
 func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec func(prompt, resume string) agent.Result, say func(agent.Message) error) (agent.Result, []string, error) {
 	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
-	saved, err := savedOutputs(ctx, role, c.AgentRun.ID)
-	if err != nil {
-		return res, nil, err
+	// An Autoresearch run has no study to keep outputs in, and its token may
+	// not touch records: its hand-in goes alone.
+	outputs := c.AgentRun.Kind != "autoresearch"
+	var saved map[string]bool
+	if outputs {
+		var err error
+		if saved, err = savedOutputs(ctx, role, c.AgentRun.ID); err != nil {
+			return res, nil, err
+		}
 	}
 	dir := filepath.Join(d.cfg.Home, scratchName(c.AgentRun.ID, c.AgentRun.Attempt))
 	for asked := 0; ; asked++ {
-		probs, err := sendOutputs(ctx, role, dir, saved)
-		if err != nil {
-			return res, nil, err
+		var probs []string
+		var err error
+		if outputs {
+			if probs, err = sendOutputs(ctx, role, dir, saved); err != nil {
+				return res, nil, err
+			}
 		}
 		// A refused output is fixed before the hand-in, which is kept once accepted.
 		if len(probs) == 0 {
