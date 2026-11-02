@@ -2,6 +2,7 @@ package handin
 
 import (
 	"encoding/json"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -16,14 +17,30 @@ func NormID(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	for _, p := range []string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/"} {
 		if rest, ok := strings.CutPrefix(s, p); ok {
+			rest, _, _ = strings.Cut(rest, "?")
+			rest, _, _ = strings.Cut(rest, "#")
 			return "doi:" + rest
 		}
+	}
+	for _, p := range []string{"https://arxiv.org/abs/", "http://arxiv.org/abs/", "https://arxiv.org/pdf/", "http://arxiv.org/pdf/"} {
+		if rest, ok := strings.CutPrefix(s, p); ok {
+			rest, _, _ = strings.Cut(rest, "?")
+			rest, _, _ = strings.Cut(rest, "#")
+			s = "arxiv:" + strings.TrimSuffix(rest, ".pdf")
+			break
+		}
+	}
+	if strings.HasPrefix(s, "arxiv:") {
+		s = arxivVersion.ReplaceAllString(s, "")
 	}
 	if strings.HasPrefix(s, "10.") {
 		return "doi:" + s
 	}
 	return s
 }
+
+// arxivVersion is the vN a hand-in may add to an arXiv id.
+var arxivVersion = regexp.MustCompile(`v[0-9]+$`)
 
 // forms are the spellings one id answers to: its own, and for an arXiv id
 // the arXiv DOI, so a hand-in naming either finds a record holding the other.
@@ -104,7 +121,7 @@ func (e Evidence) add(id, ref string) {
 
 // tokens are the whole words of free text. A word ends at whitespace, quotes,
 // angle brackets, commas, square or curly brackets; trailing punctuation
-// (. ; : ) is also tried off its end, so a DOI closing a sentence is found
+// (. ; : ) ? ! is also tried off its end, so a DOI closing a sentence is found
 // while 10.1000/abc is never found inside 10.1000/abcd.
 func tokens(s string) []string {
 	words := strings.FieldsFunc(s, func(r rune) bool {
@@ -113,7 +130,7 @@ func tokens(s string) []string {
 	out := make([]string, 0, 2*len(words))
 	for _, w := range words {
 		out = append(out, w)
-		if t := strings.TrimLeft(strings.TrimRight(w, ".;:)"), "("); t != w && t != "" {
+		if t := strings.TrimLeft(strings.TrimRight(w, ".;:)?!"), "("); t != w && t != "" {
 			out = append(out, t)
 		}
 	}

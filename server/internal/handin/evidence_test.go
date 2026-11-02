@@ -67,3 +67,32 @@ func TestEvidenceIgnoresAgentWrittenText(t *testing.T) {
 		t.Errorf("grounding: %q %v", k, ok)
 	}
 }
+
+func TestEvidenceRealSpellings(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Grounding, "search", "", map[string]any{"results": []string{"doi:10.1/abc", "arxiv:2101.00001"}}),
+		rec(board.Grounding, "call", "c1", map[string]any{"answer": "is it 10.2/def? yes! also 10.3/ghi."}),
+	})
+	for _, id := range []string{"https://arxiv.org/abs/2101.00001", "https://arxiv.org/pdf/2101.00001v2.pdf", "arXiv:2101.00001v2",
+		"https://doi.org/10.1/abc?x=1", "https://doi.org/10.1/ABC#frag", "10.2/def", "10.3/ghi"} {
+		if len(e.Sources(id)) == 0 {
+			t.Errorf("%s not found", id)
+		}
+	}
+	if e.Sources("arxiv:2101.0000") != nil {
+		t.Error("arxiv prefix matched")
+	}
+}
+
+func TestEvidenceCountsEarlierColumn(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Grounding, "call", "c1", map[string]any{"answer": "doi:10.7/early"}),
+		rec(board.Hypotheses, "paper", "r2", map[string]any{"id": "doi:10.7/other"}),
+	})
+	if s := e.Sources("doi:10.7/early"); len(s) != 1 || s[0] != "call:c1" {
+		t.Errorf("earlier column: %v", s)
+	}
+	if _, ok := e.Grounding("doi:10.7/other"); ok {
+		t.Error("a Hypotheses paper is not Grounding")
+	}
+}
