@@ -44,6 +44,7 @@ import type { Card } from '../../api/types';
 import {
   actionLabel,
   blockedActions,
+  blockedMessage,
   type ComposerAction,
   columnName,
   endLabel,
@@ -192,6 +193,16 @@ const agentRuns = computed(() =>
     (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
   ),
 );
+// Who a comment's receipt names: the agent that worked the role.
+const roleNames = computed(
+  () =>
+    new Map(
+      agentRuns.value
+        .filter((r) => r.agent_name)
+        .map((r) => [r.role, agentDisplayName(r.agent_name!)]),
+    ),
+);
+const working = computed(() => !!c.value && !c.value.ending && c.value.state === 'working');
 const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const openRun = ref('');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
@@ -202,9 +213,10 @@ const error = ref('');
 const action = ref<ComposerAction>({ kind: 'comment' });
 const picker = ref<'' | 'main'>('');
 const placeholders: Record<ComposerAction['kind'], string> = {
-  comment: 'Leave a comment… the stage roles read it next round.',
+  comment: 'Leave a comment… it reaches the work in progress or the next step.',
   stop: 'Why the study stops.',
 };
+const blockedBar = computed(() => (c.value ? blockedMessage(c.value) : ''));
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
 const assignedTeams = computed(() => [
   ...new Set(Object.values(c.value?.teams ?? {}).map((t) => t.name)),
@@ -410,10 +422,21 @@ function pin() {
                 {{ entry.comment.body }}
               </p>
               <p
+                v-if="
+                  deliveryLine(entry.comment.delivery, {
+                    working,
+                    who: roleNames.get(entry.comment.delivery?.role ?? ''),
+                  })
+                "
                 class="delivery type-caption"
                 :class="{ mine: entry.comment.author_id === me.data.value?.id }"
               >
-                {{ deliveryLine(entry.comment.delivery) }}
+                {{
+                  deliveryLine(entry.comment.delivery, {
+                    working,
+                    who: roleNames.get(entry.comment.delivery?.role ?? ''),
+                  })
+                }}
               </p>
             </template>
             <div v-else-if="entry.kind === 'event'" class="event-line">
@@ -423,9 +446,7 @@ function pin() {
         </div>
       </div>
       <div v-if="c && !c.ending" class="pinned-composer" @keydown.esc="picker = ''">
-        <p v-if="blocked.length" class="block-bar">
-          Scored low twice. Tell the Team what to fix to redo this column.
-        </p>
+        <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
         <form class="study-comment" @submit.prevent="send">
           <textarea
             v-model="comment"
@@ -448,7 +469,7 @@ function pin() {
               </button>
               <div v-if="picker === 'main'" class="action-menu" role="menu" aria-label="Actions">
                 <button type="button" role="menuitem" @click="pick({ kind: 'comment' })">
-                  Comment<small>next round</small>
+                  Comment<small>reaches the work</small>
                 </button>
                 <button
                   v-if="!blocked.length"

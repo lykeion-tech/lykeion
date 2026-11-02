@@ -726,6 +726,7 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
     flag: '',
     ending: '',
     block_kind: '',
+    hold_text: '',
     scope_from: 'grounding',
     scope_to: 'validation',
     round: 1,

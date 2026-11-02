@@ -84,6 +84,8 @@ export interface Card {
   workflow?: string | null;
   workflow_release?: string | null;
   block_kind: BlockKind;
+  // Why a study held outside a low score waits for its owner; '' otherwise.
+  hold_text: string;
   scope_from: Exclude<Column, 'done'>;
   scope_to: Exclude<Column, 'done'>;
   // The Team working each column of the scope, keyed by column.
@@ -174,6 +176,8 @@ export interface AgentRun {
   assignment: string;
   // The latest text of the current attempt, at most 600 characters.
   latest_text: string;
+  // The answer of the run's latest hand-in, as Markdown; '' before one.
+  answer: string;
   // When the current attempt last recorded a message; null before its first.
   last_activity_at: string | null;
   // How each earlier attempt ended and on which machine. GET /api/cards/:id/runs only.
@@ -218,6 +222,8 @@ export interface InboxItem {
     | 'needs_decision'
     | 'done';
   text: string;
+  // What the item asks for, for a needs_decision; null on other kinds.
+  cause?: string | null;
   read_at: string | null;
   resolved_at: string | null;
   created_at: string;

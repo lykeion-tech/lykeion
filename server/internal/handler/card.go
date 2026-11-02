@@ -301,10 +301,12 @@ type cardTeamView struct {
 // is labelled for another stage.
 type studyView struct {
 	db.Card
-	MachineLabel  string                  `json:"machine_label"`
-	MachineNotice string                  `json:"machine_notice"`
-	Teams         map[string]cardTeamView `json:"teams"`
-	OffLabel      []string                `json:"off_label"`
+	MachineLabel  string `json:"machine_label"`
+	MachineNotice string `json:"machine_notice"`
+	// HoldText says why a study held outside a low score waits for its owner.
+	HoldText string                  `json:"hold_text"`
+	Teams    map[string]cardTeamView `json:"teams"`
+	OffLabel []string                `json:"off_label"`
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
@@ -348,6 +350,13 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 		if t, ok := v.Teams[col]; ok && t.Stage != "" && t.Stage != col {
 			v.OffLabel = append(v.OffLabel, col)
 		}
+	}
+	if c.State == "blocked" && c.BlockKind == "" && c.Ending == "" {
+		text, err := tx.Q.CardHoldText(r.Context(), db.CardHoldTextParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return v, err
+		}
+		v.HoldText = text
 	}
 	if err := machineView(r.Context(), tx, &v); err != nil {
 		return v, err

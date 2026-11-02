@@ -226,6 +226,7 @@ describe('Starting a study with a Workflow', () => {
       flag: '',
       ending: '',
       block_kind: '',
+      hold_text: '',
       scope_from: 'experimentation',
       scope_to: 'experimentation',
       round: 1,

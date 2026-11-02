@@ -12,6 +12,7 @@ type listedRun struct {
 	AgentName      *string `json:"agent_name"`
 	Assignment     string
 	LatestText     string  `json:"latest_text"`
+	Answer         string  `json:"answer"`
 	LastActivityAt *string `json:"last_activity_at"`
 }
 
@@ -132,5 +133,45 @@ func TestDaemonReportsItsPlatform(t *testing.T) {
 				t.Fatalf("an unreported platform was filled in: %+v", r)
 			}
 		}
+	}
+}
+
+// A run that handed in lists its latest hand-in's answer; one that has not
+// lists none.
+func TestRunsListCarriesAnswer(t *testing.T) {
+	l, leader := groundingLab(t)
+	if got := l.runs(t)[leader.id]; got.Answer != "" {
+		t.Fatalf("answer before hand-in %q", got.Answer)
+	}
+	l.record(t, leader, 0, "hand_in", "", map[string]any{"agent_run_id": leader.id, "attempt": 1, "hand_in": map[string]any{"answer": "Two papers fit."}}, &leader.id)
+	if got := l.runs(t)[leader.id].Answer; got != "Two papers fit." {
+		t.Fatalf("answer %q", got)
+	}
+}
+
+// A study held for its owner carries the text of the item asking for them.
+func TestHeldStudyCarriesHoldText(t *testing.T) {
+	l := newTeamLab(t, 0)
+	read := func() string {
+		var v struct {
+			HoldText string `json:"hold_text"`
+		}
+		if c := l.s.call(t, "GET", "/api/cards/"+l.card.ID, l.jwt, l.ws, nil, &v); c != 200 {
+			t.Fatalf("card %d", c)
+		}
+		return v.HoldText
+	}
+	if got := read(); got != "" {
+		t.Fatalf("working study hold %q", got)
+	}
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE card SET state = 'blocked', block_kind = '' WHERE id = $1`, l.card.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+		SELECT workspace_id, id, owner_id, 'needs_decision', 'Study #1: the agent could not do this column: no data', 'could_not_do' FROM card WHERE id = $1`, l.card.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got != "Study #1: the agent could not do this column: no data" {
+		t.Fatalf("hold %q", got)
 	}
 }

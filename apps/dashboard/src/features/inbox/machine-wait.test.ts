@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import MachineWait from './MachineWait.vue';
+import { isMachineWait } from '../../lib/studies';
 import type { InboxItem } from '../../api/types';
 
 const api = vi.fn();
@@ -53,10 +54,27 @@ it('offers no Resolve for a resolved wait or another kind', () => {
   expect(resolveButton(mount(item({ kind: 'blocked' })))).toBeUndefined();
 });
 
+it('offers no Resolve for a study whose agent could not do its column', () => {
+  const held = item({
+    kind: 'needs_decision',
+    cause: 'could_not_do',
+    card_id: 'c1',
+    text: 'Study #1: the agent could not do this column: no data',
+  });
+  expect(isMachineWait(held)).toBe(false);
+  expect(isMachineWait(item({ kind: 'needs_decision', cause: 'machine_failures' }))).toBe(true);
+  expect(resolveButton(mount(held))).toBeUndefined();
+});
+
 it('resolves a study held after its machines kept failing its run', async () => {
   api.mockResolvedValue(undefined);
   const root = mount(
-    item({ kind: 'needs_decision', card_id: 'c1', text: 'Study #1 has stopped trying.' }),
+    item({
+      kind: 'needs_decision',
+      cause: 'machine_failures',
+      card_id: 'c1',
+      text: 'Study #1 has stopped trying.',
+    }),
   );
   const button = resolveButton(root);
   expect(button).toBeDefined();

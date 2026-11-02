@@ -29,7 +29,7 @@ const marked = computed(() =>
     const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];
     const markedSteps = isActivityGroup(steps) ? steps : steps.slice(0, 1);
     const mark =
-      block.kind === 'text'
+      block.kind === 'text' || block.kind === 'reask'
         ? 'mark-message'
         : markedSteps.some((step) => step.error)
           ? 'mark-fail'
@@ -57,6 +57,12 @@ const marked = computed(() =>
       </li>
       <li class="turn-item" :class="block.mark">
         <slot v-if="block.kind === 'text'" name="text" :block="block" />
+        <details v-else-if="block.kind === 'reask'" class="reask type-caption">
+          <summary>{{ block.text }}</summary>
+          <ul>
+            <li v-for="problem in block.problems" :key="problem">{{ problem }}</li>
+          </ul>
+        </details>
         <RunActivity
           v-else
           :messages="block.messages"
@@ -79,6 +85,13 @@ const marked = computed(() =>
   </ol>
 </template>
 <style scoped>
+.reask {
+  color: var(--step-muted);
+}
+.reask ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
 .turn-timeline {
   position: relative;
   list-style: none;

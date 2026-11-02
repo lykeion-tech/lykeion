@@ -53,6 +53,7 @@ function seedClient() {
     flag: '',
     ending: '',
     block_kind: '',
+    hold_text: '',
     scope_from: 'grounding',
     scope_to: 'validation',
     round: 1,

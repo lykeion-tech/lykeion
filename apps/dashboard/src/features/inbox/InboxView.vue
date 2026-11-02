@@ -10,6 +10,7 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { useInbox } from '../../api/queries';
 import type { InboxItem } from '../../api/types';
+import { isMachineWait } from '../../lib/studies';
 
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
@@ -86,7 +87,7 @@ watch(
       <div class="conversation-content">
         <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
         <MachineWait
-          v-if="selected?.kind === 'waiting_for_machine' || selected?.kind === 'needs_decision'"
+          v-if="selected && isMachineWait(selected)"
           :key="selected.id"
           :item="selected"
         />

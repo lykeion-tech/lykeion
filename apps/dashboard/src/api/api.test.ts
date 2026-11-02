@@ -136,6 +136,7 @@ describe('run message pagination', () => {
     agent_name: null,
     assignment: '',
     latest_text: '',
+    answer: '',
     last_activity_at: null,
   });
   const messages = (count: number, attempt = 2): RunMessage[] =>

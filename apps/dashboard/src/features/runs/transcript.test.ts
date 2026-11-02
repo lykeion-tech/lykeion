@@ -43,6 +43,7 @@ const run = {
   agent_name: null,
   assignment: '',
   latest_text: '',
+  answer: '',
   last_activity_at: null,
 } satisfies AgentRun;
 function msg(seq: number, type: RunMessage['type'], content: unknown, tool = ''): RunMessage {
@@ -649,6 +650,32 @@ describe('run dialog views from recorded adapter shapes', () => {
       'Scoped the question.',
     ]);
     expect(transcriptBlocks(messages).map((b) => b.text)).toEqual(['Scoped', ' the question.']);
+  });
+});
+describe('hand-in answers and re-asks', () => {
+  it('previews the hand-in answer ahead of the latest text', async () => {
+    const html = await renderToString(
+      createSSRApp({
+        render: () =>
+          h(AgentRunCard, {
+            run: { ...run, latest_text: 'working on it', answer: 'Two papers fit.' },
+            study: 'Insulin evidence',
+            position: 1,
+          }),
+      }),
+    );
+    expect(html).toContain('Two papers fit.');
+    expect(html).not.toContain('working on it');
+  });
+  it('folds a re-ask into one line with its problems', async () => {
+    const reask = msg(2, 'status', {
+      handin_reask: 1,
+      problems: ['papers: id not found', 'status: bad'],
+    });
+    const html = await render([msg(1, 'text', 'Handing in.'), reask]);
+    expect(html).toContain('Lykeion asked for the hand-in to be corrected (2 problems)');
+    expect(html).toContain('papers: id not found');
+    expect(transcriptBlocks([reask]).map((b) => b.kind)).toEqual(['reask']);
   });
 });
 describe('live status line', () => {

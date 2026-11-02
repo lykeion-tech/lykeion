@@ -32,6 +32,7 @@ const run = (extra: Partial<AgentRun> = {}): AgentRun => ({
   agent_name: null,
   assignment: '',
   latest_text: '',
+  answer: '',
   last_activity_at: null,
   ...extra,
 });

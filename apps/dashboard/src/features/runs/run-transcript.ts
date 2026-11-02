@@ -3,9 +3,19 @@ import { toolStepTitle } from './tool-step-title';
 
 export interface TranscriptBlock {
   key: string;
-  kind: 'text' | 'activity';
+  kind: 'text' | 'activity' | 'reask';
   text: string;
   messages: RunMessage[];
+  // The problems Lykeion listed, for a 'reask' block.
+  problems?: string[];
+}
+
+// A status message recording that Lykeion sent a hand-in back for correction.
+function reaskProblems(message: RunMessage): string[] | null {
+  if (message.type !== 'status') return null;
+  const data = object(message.content);
+  if (typeof data.handin_reask !== 'number') return null;
+  return Array.isArray(data.problems) ? data.problems.map(String) : [];
 }
 
 // Text records are complete adapter messages.
@@ -34,6 +44,18 @@ export function transcriptBlocks(
   for (const message of sorted(messages)) {
     if (paired.has(message)) continue;
     if (isStepTitles(message)) continue;
+    const problems = reaskProblems(message);
+    if (problems) {
+      const n = problems.length;
+      blocks.push({
+        key: `${message.attempt}:${message.seq}`,
+        kind: 'reask',
+        text: `Lykeion asked for the hand-in to be corrected (${n} ${n === 1 ? 'problem' : 'problems'})`,
+        messages: [message],
+        problems,
+      });
+      continue;
+    }
     const kind =
       message.type === 'text' && typeof message.content === 'string' ? 'text' : 'activity';
     const previous = blocks.at(-1);
@@ -64,7 +86,10 @@ export function transcriptBlocks(
 // Keep tool-title metadata for real calls, but never render internal events as steps.
 export function visibleTranscriptMessages(messages: readonly RunMessage[]): RunMessage[] {
   return messages.filter((message) => {
-    if (message.type === 'log' || (message.type === 'status' && !isStepTitles(message)))
+    if (
+      message.type === 'log' ||
+      (message.type === 'status' && !isStepTitles(message) && !reaskProblems(message))
+    )
       return false;
     if (message.type === 'text' || message.type === 'thinking')
       return typeof message.content === 'string'

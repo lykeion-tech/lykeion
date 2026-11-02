@@ -19,10 +19,11 @@ const state = computed(
       cancelled: 'Cancelled',
     })[props.run.status],
 );
-// The latest thing the agent wrote, as plain text for a three-line preview.
-// The runs listing carries it, so a card never reads the run's messages.
+// The run's hand-in answer, else the latest thing the agent wrote, as plain
+// text for a three-line preview. The runs listing carries both, so a card
+// never reads the run's messages.
 const preview = computed(() => {
-  const text = props.run.latest_text;
+  const text = props.run.answer || props.run.latest_text;
   if (text)
     return text
       .replace(/```[\s\S]*?(```|$)/g, ' ')

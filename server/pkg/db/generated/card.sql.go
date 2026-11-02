@@ -21,7 +21,11 @@ SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t
       'machine', COALESCE(rc.result->>'machine_name', rt.custom_name, rt.device_name, '')) ORDER BY rc.attempt)
     FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
-  COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting
+  COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting,
+  COALESCE((SELECT r.body->'hand_in'->>'answer' FROM record r
+    WHERE r.workspace_id = t.workspace_id AND r.card_id = t.card_id AND r.agent_run_id = t.id
+      AND r.kind = 'hand_in' AND r.superseded_at IS NULL
+    ORDER BY (r.body->>'attempt')::int DESC, r.created_at DESC LIMIT 1), '')::text AS answer
 FROM agent_run t
 LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
@@ -88,12 +92,14 @@ type CardAgentRunsRow struct {
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
 	AttemptEnds           json.RawMessage `json:"attempt_ends"`
 	Waiting               string          `json:"waiting"`
+	Answer                string          `json:"answer"`
 }
 
 // A card's runs with what the study page shows about each: the name of the
 // agent it was started as, the latest text of its current attempt, when
 // that attempt last recorded anything, how each earlier attempt ended and on
-// which machine, and why the run waits on a machine (agent_run_waiting).
+// which machine, why the run waits on a machine (agent_run_waiting), and the
+// answer of its latest hand-in.
 func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]CardAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, cardAgentRuns, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -157,6 +163,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.LastActivityAt,
 			&i.AttemptEnds,
 			&i.Waiting,
+			&i.Answer,
 		); err != nil {
 			return nil, err
 		}
@@ -166,6 +173,26 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const cardHoldText = `-- name: CardHoldText :one
+SELECT text FROM inbox_item
+WHERE workspace_id = $1 AND card_id = $2 AND resolved_at IS NULL
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause = 'could_not_do')
+ORDER BY created_at DESC LIMIT 1
+`
+
+type CardHoldTextParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+}
+
+// What a held study waits on: the text of its open item for a person.
+func (q *Queries) CardHoldText(ctx context.Context, arg CardHoldTextParams) (string, error) {
+	row := q.db.QueryRow(ctx, cardHoldText, arg.WorkspaceID, arg.CardID)
+	var text string
+	err := row.Scan(&text)
+	return text, err
 }
 
 const cardTeams = `-- name: CardTeams :many

@@ -74,6 +74,7 @@ function card(extra: Partial<Card> = {}): Card {
     role: '',
     pack_id: null,
     block_kind: '',
+    hold_text: '',
     scope_from: 'grounding',
     scope_to: 'validation',
     teams: {},
@@ -265,7 +266,7 @@ describe('records and transcript', () => {
   });
 });
 
-import { actionLabel, blockedActions } from './studies';
+import { actionLabel, blockBadge, blockedActions, blockedMessage } from './studies';
 
 describe('composer actions', () => {
   it('labels the chosen action', () => {
@@ -498,5 +499,29 @@ describe('Grounding criteria and review blocks', () => {
         '#3',
       ),
     ).toBeNull();
+  });
+});
+
+describe('a held study', () => {
+  const held = card({
+    state: 'blocked',
+    block_kind: '',
+    hold_text: 'Study #3: the agent could not do this column: GEO has no aged mice',
+  });
+  it('names the reason its agent gave, not a low score', () => {
+    expect(blockedMessage(held)).toBe('The agent could not do this column: GEO has no aged mice');
+    expect(blockBadge(held)).toBe('could not do');
+    expect(blockedMessage(card({ state: 'blocked', block_kind: 'low_score' }))).toMatch(
+      /^Scored low twice/,
+    );
+  });
+  it('names a stopped column by its failure', () => {
+    const stopped = card({
+      state: 'blocked',
+      hold_text:
+        "Study #3's Hypotheses column stopped: the run failed, twice (x). Comment on the study to redo it.",
+    });
+    expect(blockedMessage(stopped)).toContain('Hypotheses column stopped');
+    expect(blockBadge(stopped)).toBe('run failed');
   });
 });

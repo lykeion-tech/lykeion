@@ -225,6 +225,26 @@ const blockLabels: Record<BlockKind, string> = {
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
+const couldNotDo = /the agent could not do this column: ([\s\S]+)$/;
+
+// Why a Blocked study waits for its owner, from its open item: the reason its
+// agent gave for not doing the column, or the failure that stopped it.
+export function blockedMessage(card: Card): string {
+  if (card.block_kind === 'low_score')
+    return 'Scored low twice. Tell the Team what to fix to redo this column.';
+  const reason = couldNotDo.exec(card.hold_text)?.[1];
+  if (reason) return `The agent could not do this column: ${reason}`;
+  return card.hold_text.replace(/^Study #\d+(?:'s)?:? ?/, '') || 'This study is waiting for you.';
+}
+
+// The board chip of a Blocked study: the kind of hold, never a bare "escalated".
+export function blockBadge(card: Card): string {
+  if (card.block_kind) return blockLabel(card.block_kind);
+  if (couldNotDo.test(card.hold_text)) return 'could not do';
+  if (card.hold_text.includes(' column stopped: ')) return 'run failed';
+  return 'escalated';
+}
+
 export type ComposerAction = { kind: 'comment' } | { kind: 'stop' };
 
 // A Blocked study's picker for its owner: Comment, which gives a low-scored
@@ -339,6 +359,12 @@ export function inboxTitle(item: { kind: InboxItem['kind'] }, study?: string): s
   if (item.kind === 'waiting_for_machine') return 'Waiting for machine';
   return 'Study';
 }
+
+// A machine's wait, or a study whose run its machines kept failing: the items
+// its owner resolves. Every other needs_decision opens its study.
+export const isMachineWait = (item: { kind: InboxItem['kind']; cause?: string | null }): boolean =>
+  item.kind === 'waiting_for_machine' ||
+  (item.kind === 'needs_decision' && item.cause === 'machine_failures');
 
 export function inboxText(
   item: { kind: InboxItem['kind']; text: string },
