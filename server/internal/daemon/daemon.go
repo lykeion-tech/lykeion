@@ -139,6 +139,7 @@ type daemon struct {
 	ownerOf           map[uuid.UUID]uuid.UUID
 	harnessOf         map[uuid.UUID]string // runtime → its CLI
 	rechecks          chan string          // CLIs a failed run asks to check again
+	selfClearing      map[string]bool      // CLIs whose last check failed for a cause that clears by itself
 	out, messages     *Outbox
 	wake              chan struct{}
 	failures          chan error

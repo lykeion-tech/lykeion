@@ -33,6 +33,12 @@ var (
 	// recheckGap is the least time between a CLI's last check and one a
 	// failed run asks for.
 	recheckGap = time.Minute
+	// transientRetry is how long a hello that failed for a passing cause
+	// waits before it is tried again.
+	transientRetry = time.Minute
+	// softRecheckEvery is how often a CLI is checked while its last check
+	// failed for a cause that clears without the owner.
+	softRecheckEvery = 2 * time.Minute
 )
 
 // schemaFlags is the help command each CLI lists its schema flag in, and
@@ -105,10 +111,8 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 	}
 	// The same isolation as a study run's CLI: its folder, sandbox, door
 	// and the adapter's own flags; no study, no run token.
-	var messages []agent.Message
 	opts := agent.ExecOptions{ScratchReservation: reservation, Dir: dir, OutputSchema: preflightSchema, CacheDir: d.runCacheDir(""),
-		OnMessage: func(m agent.Message) error { messages = append(messages, m); return nil },
-		Env:       []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
+		Env: []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
 	opts.Sandbox = d.cliSandbox(dir, nil, false)
 	// One turn is all the hello needs. Claude accepts --max-turns even where
 	// its help doesn't list it.
@@ -146,7 +150,10 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		err = turn.Err()
 	}
 	if err != nil {
-		reason := classify(harness, err, "", messages)
+		reason := failReason(res.Reason, harness, err)
+		if errors.Is(turn.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			reason = "timeout"
+		}
 		if reason == agent.ReasonAgentError {
 			reason = agent.ReasonCLIBroken
 		}
@@ -181,7 +188,28 @@ func (d *daemon) checkMachine(ctx context.Context, harness string, start bool) {
 		check = d.preflight
 	}
 	reason, detail := check(ctx, harness)
+	if transient[reason] && ctx.Err() == nil {
+		// A passing cause is tried once more before anything is reported.
+		slog.Info("preflight failed for a passing cause; trying again", "harness", harness, "reason", reason, "detail", detail)
+		select {
+		case <-ctx.Done():
+		case <-time.After(transientRetry):
+			reason, detail = check(ctx, harness)
+		}
+	}
 	if ctx.Err() != nil {
+		return
+	}
+	d.mu.Lock()
+	if d.selfClearing == nil {
+		d.selfClearing = map[string]bool{}
+	}
+	d.selfClearing[harness] = selfClearing[reason]
+	d.mu.Unlock()
+	if transient[reason] {
+		// Twice a passing cause: nothing the owner must fix, so the machine
+		// is not flagged; it is checked again soon.
+		slog.Warn("preflight failed twice for a passing cause; not flagged", "harness", harness, "reason", reason, "detail", detail)
 		return
 	}
 	if reason != "" {
@@ -210,27 +238,40 @@ func (d *daemon) preflightAll(ctx context.Context, start bool) {
 	}
 }
 
-// preflights checks every CLI every preflightEvery, and one CLI again when a
-// run on it failed for the machine's sake, at most once per recheckGap.
+// preflights checks every CLI every preflightEvery, or every
+// softRecheckEvery while one failed its last check for a cause that clears
+// by itself, and one CLI again when a run on it failed for the machine's
+// sake, at most once per recheckGap.
 func (d *daemon) preflights(ctx context.Context) {
-	t := time.NewTicker(preflightEvery)
-	defer t.Stop()
 	// Every CLI was just checked by the pass at start.
 	checked := map[string]time.Time{}
+	last := time.Now()
 	all := func() {
+		last = time.Now()
 		for h := range d.cfg.Harnesses {
-			checked[h] = time.Now()
+			checked[h] = last
 		}
 	}
 	all()
 	for {
+		every := preflightEvery
+		d.mu.Lock()
+		for _, soon := range d.selfClearing {
+			if soon {
+				every = softRecheckEvery
+			}
+		}
+		d.mu.Unlock()
+		t := time.NewTimer(time.Until(last.Add(every)))
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
 		case <-t.C:
 			all()
 			d.preflightAll(ctx, false)
 		case h := <-d.rechecks:
+			t.Stop()
 			if time.Since(checked[h]) >= recheckGap {
 				checked[h] = time.Now()
 				d.checkMachine(ctx, h, false)
@@ -238,6 +279,14 @@ func (d *daemon) preflights(ctx context.Context) {
 		}
 	}
 }
+
+// transient are the hello's failures that pass by themselves: they are tried
+// again and never flag a machine.
+var transient = map[string]bool{agent.ReasonProviderNetwork: true, "timeout": true, agent.ReasonContextExhausted: true, agent.ReasonRuntimeOffline: true}
+
+// selfClearing are the causes a machine may be flagged for that its owner
+// needn't fix, so its CLI is checked again soon.
+var selfClearing = map[string]bool{agent.ReasonRuntimeOffline: true, "timeout": true, agent.ReasonProviderNetwork: true, agent.ReasonDoor: true, agent.ReasonCLIBroken: true}
 
 // recheck asks for a CLI's preflight after a run failed with reason. A fence
 // breach asks for none: the hello can't see its cause, and only the owner or

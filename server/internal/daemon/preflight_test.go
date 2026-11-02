@@ -69,6 +69,7 @@ func TestPreflightOrder(t *testing.T) {
 		{"door", "claude", claudeProbes, false, true, agent.ReasonDoor},
 		{"signed out", "claude", claudeProbes + "IFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
 		{"says no", "claude", claudeProbes + isolatedHello + fmtAnswer(`{"ok":false}`), false, false, agent.ReasonCLIBroken},
+		{"provider unreachable", "claude", claudeProbes + "IFS= read -r first\necho 'API Error: Connection error (ECONNRESET)' >&2\nexit 1\n", false, false, agent.ReasonProviderNetwork},
 		{"no answer", "claude", claudeProbes + "IFS= read -r first\nexit 0\n", false, false, agent.ReasonCLIBroken},
 		// The hello is one turn even where Claude's help doesn't list the flag.
 		{"healthy", "claude", claudeProbes + `case "$*" in *"--max-turns 1"*) ;; *) exit 4;; esac
@@ -234,5 +235,87 @@ func TestPreflightStartPassAloneClearsAFenceBreach(t *testing.T) {
 	d.checkMachine(t.Context(), "claude", true)
 	if r, _ := f.machine(t); r != nil {
 		t.Fatalf("the start pass left %v", *r)
+	}
+}
+
+// A hello that runs out of time is a timeout, not a broken CLI.
+func TestPreflightHelloTimeout(t *testing.T) {
+	preflightHome(t)
+	turn := preflightTurn
+	t.Cleanup(func() { preflightTurn = turn })
+	preflightTurn = 2 * time.Second
+	bin := fakeCLI(t, "claude", claudeProbes+"IFS= read -r first\nsleep 30\n")
+	d := &daemon{cfg: Config{Home: t.TempDir(), StateDir: t.TempDir(), Harnesses: map[string]string{"claude": bin}, NewBackend: agent.New}}
+	if reason, detail := d.preflight(t.Context(), "claude"); reason != "timeout" {
+		t.Fatalf("reason %q (%s), want timeout", reason, detail)
+	}
+}
+
+// A transient failure of the hello is tried again once before anything is
+// reported; only a second failure the owner must fix flags the machine.
+func TestPreflightRetriesATransientFailure(t *testing.T) {
+	retry := transientRetry
+	t.Cleanup(func() { transientRetry = retry })
+	transientRetry = 0
+	for _, tc := range []struct {
+		name    string
+		results []string
+		want    string
+	}{
+		{"then passes", []string{agent.ReasonProviderNetwork, ""}, ""},
+		{"twice transient", []string{"timeout", agent.ReasonContextExhausted}, ""},
+		{"then broken", []string{agent.ReasonProviderNetwork, agent.ReasonSignIn}, agent.ReasonSignIn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fixture(t)
+			var calls atomic.Int32
+			f.cfg.Preflight = func(context.Context, string) (string, string) {
+				n := calls.Add(1)
+				return tc.results[min(int(n), len(tc.results))-1], "detail"
+			}
+			d := &daemon{cfg: f.cfg, api: &apiclient.Client{Server: f.cfg.Server, Token: f.cfg.Token, HTTP: http.DefaultClient}, id: "retry-daemon", knownWorkspaces: map[uuid.UUID]bool{}}
+			must(t, d.register(t.Context(), d.id))
+			d.checkMachine(t.Context(), "claude", false)
+			if n := calls.Load(); n != 2 {
+				t.Fatalf("%d checks, want 2", n)
+			}
+			r, _ := f.machine(t)
+			if got := ""; r != nil {
+				got = *r
+				if got != tc.want {
+					t.Fatalf("flagged %q, want %q", got, tc.want)
+				}
+			} else if tc.want != "" {
+				t.Fatalf("not flagged, want %q", tc.want)
+			}
+		})
+	}
+}
+
+// While a machine is flagged for a cause that clears by itself, its CLI is
+// checked every few minutes rather than every half hour.
+func TestPreflightRechecksSoonWhileASelfClearingCauseHolds(t *testing.T) {
+	soon := softRecheckEvery
+	t.Cleanup(func() { softRecheckEvery = soon })
+	softRecheckEvery = 50 * time.Millisecond
+	for _, tc := range []struct {
+		reason string
+		soon   bool
+	}{{agent.ReasonDoor, true}, {agent.ReasonCLIBroken, true}, {agent.ReasonSignIn, false}} {
+		t.Run(tc.reason, func(t *testing.T) {
+			var calls atomic.Int32
+			d := &daemon{rechecks: make(chan string, 4), cfg: Config{Harnesses: map[string]string{"claude": "claude"}, Preflight: func(context.Context, string) (string, string) {
+				calls.Add(1)
+				return tc.reason, ""
+			}}}
+			d.checkMachine(t.Context(), "claude", true)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			go d.preflights(ctx)
+			time.Sleep(400 * time.Millisecond)
+			if n := calls.Load(); tc.soon != (n >= 3) {
+				t.Fatalf("%d checks in 400ms", n)
+			}
+		})
 	}
 }

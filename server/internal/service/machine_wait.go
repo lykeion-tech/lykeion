@@ -78,7 +78,9 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 	if err := tx.Q.ParkAgentRun(ctx, db.ParkAgentRunParams{WorkspaceID: tx.WS, ID: run.ID, CostUsd: spent, Error: detail, FailureReason: &reason}); err != nil {
 		return err
 	}
-	if run.RuntimeID == nil {
+	// A machine that went offline already shows as offline, so a lost
+	// attempt neither counts toward its streak nor flags it.
+	if run.RuntimeID == nil || reason == agent.ReasonRuntimeOffline {
 		return nil
 	}
 	streak, err := tx.Q.BumpRuntimeStreak(ctx, db.BumpRuntimeStreakParams{WorkspaceID: tx.WS, ID: *run.RuntimeID})

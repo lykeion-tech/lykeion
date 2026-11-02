@@ -328,7 +328,9 @@ func TestSuccessResetsTheRuntimeStreak(t *testing.T) {
 	}
 }
 
-func TestSweepsThirdLostAttemptRaisesTheItem(t *testing.T) {
+// A machine that went offline already shows as offline: its lost attempts
+// raise no item and never flag it.
+func TestLostAttemptsDoNotFlagAnOfflineMachine(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	f.enqueue(t, 1, "claude")
@@ -346,9 +348,8 @@ func TestSweepsThirdLostAttemptRaisesTheItem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := "laptop is offline. Waiting studies continue once it is back online."
-	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 1 || w[0].Text != want {
-		t.Fatalf("items %+v", w)
+	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 0 || f.unhealthy(t, runtime.RuntimeID) != "" {
+		t.Fatalf("items %+v, unhealthy %q", w, f.unhealthy(t, runtime.RuntimeID))
 	}
 }
 
