@@ -33,7 +33,9 @@ async function resolve() {
     <p class="type-body">{{ item.text }}</p>
     <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
     <button
-      v-if="(item.kind === 'waiting_for_machine' || item.kind === 'needs_decision') && !item.resolved_at"
+      v-if="
+        (item.kind === 'waiting_for_machine' || item.kind === 'needs_decision') && !item.resolved_at
+      "
       class="button"
       :disabled="busy"
       @click="resolve"

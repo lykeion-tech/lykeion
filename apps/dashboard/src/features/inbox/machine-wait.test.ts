@@ -55,7 +55,9 @@ it('offers no Resolve for a resolved wait or another kind', () => {
 
 it('resolves a study held after its machines kept failing its run', async () => {
   api.mockResolvedValue(undefined);
-  const root = mount(item({ kind: 'needs_decision', card_id: 'c1', text: 'Study #1 has stopped trying.' }));
+  const root = mount(
+    item({ kind: 'needs_decision', card_id: 'c1', text: 'Study #1 has stopped trying.' }),
+  );
   const button = resolveButton(root);
   expect(button).toBeDefined();
   await (button!.props.onClick as () => Promise<void>)();
