@@ -124,8 +124,5 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		}
 		return nil
 	})
-	if errors.As(err, new(errNotApplied)) {
-		err = nil
-	}
 	return probs, err
 }

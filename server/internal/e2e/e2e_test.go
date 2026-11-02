@@ -270,15 +270,13 @@ func (l *lab) config(t *testing.T, token, script string) daemon.Config {
 	bin := filepath.Join(t.TempDir(), "claude")
 	// Like a real Claude Code, the fake reports its version and schema flag,
 	// answers the daemon's preflight hello, and, given a schema, ends with a
-	// structured answer: a scoper's Grounding hand-in. Only a run carries a
-	// token.
+	// structured answer: a scoper's Grounding hand-in.
 	prelude := `#!/bin/sh
 case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
 IFS= read -r prompt
 case "$prompt" in *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0;; esac
+case "$prompt" in *models-init*) exit 1;; esac
 case "$*" in *--json-schema*) handin=',"structured_output":{"status":"done","answer":"Scoped the question.","reason":null,"papers":[],"datasets":[],"no_qualifying":null,"replies":[]}';; esac
-case "$LYK_TOKEN" in ltk_*) ;; *) exit 41;; esac
-case "$LYK_CONFIG" in "$PWD"/*) ;; *) exit 42;; esac
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))
 	state := t.TempDir()
@@ -465,7 +463,8 @@ func (l *lab) useAttemptScratch(t *testing.T, id uuid.UUID) {
 func TestKilledDaemonsAgentRunIsRetriedAndKeepsWaiting(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
-	_, ids := l.queue(t, owner, 1)
+	// A Validation run still holds a role token; a hand-in run holds none.
+	_, ids := l.queueIn(t, owner, 1, "validation")
 	l.useAttemptScratch(t, ids[0])
 	id := ids[0]
 	api := &apiclient.Client{Server: l.url, Token: tok}
@@ -757,7 +756,7 @@ func TestCancellationRevokesRoleAndAcceptsLateUsageExactlyOnce(t *testing.T) {
 func TestSameStateImmediateRestartRecoversKilledAttempts(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "restart@lab.org")
-	_, ids := l.queue(t, owner, 1)
+	_, ids := l.queueIn(t, owner, 1, "validation")
 	l.useAttemptScratch(t, ids[0])
 	id := ids[0]
 	signin := t.TempDir()

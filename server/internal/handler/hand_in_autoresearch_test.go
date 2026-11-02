@@ -62,4 +62,25 @@ func TestAutoresearchHandIn(t *testing.T) {
 	if cards() != 1 || reports() != n {
 		t.Fatalf("a repeat applied again: cards %d reports %d", cards(), reports())
 	}
+
+	// A study whose agent is gone is skipped and named in the report.
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET attempt = 1 WHERE id = $1`, *run.AgentRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE autoresearch_run SET report = '' WHERE id = $1`, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if tag, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent SET archived_at = now() WHERE workspace_id = $1`, w.ID); err != nil || tag.RowsAffected() == 0 {
+		t.Fatal(tag, err)
+	}
+	if out := send(1, hand(map[string]string{"title": "No team", "question": "Does Q?"})); !out.Accepted {
+		t.Fatalf("%+v", out)
+	}
+	var report string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT report FROM autoresearch_run WHERE id = $1`, run.ID).Scan(&report); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(report, "Two new papers.") || !strings.Contains(report, `Could not open the study "No team": `) || cards() != 1 {
+		t.Fatalf("report %q, cards %d", report, cards())
+	}
 }

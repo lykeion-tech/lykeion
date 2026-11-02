@@ -36,7 +36,7 @@ func (o autoresearchOps) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, 
 	case errors.Is(err, autoresearch.ErrAlreadyActive):
 		return c, handin.ErrDuplicate
 	case errors.Is(err, autoresearch.ErrStartFailed), errors.As(err, &nb):
-		return c, handin.ErrCannotStart
+		return c, handin.CannotStart{Reason: err.Error()}
 	}
 	return c, err
 }

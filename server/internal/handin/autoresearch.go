@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 // What the Autoresearch operations answer that a hand-in treats specially.
@@ -18,21 +19,18 @@ var (
 	ErrReported = errors.New("the run already reported")
 	// ErrDuplicate: an active study already has the title.
 	ErrDuplicate = errors.New("an active study already has this title")
-	// ErrCannotStart: the study could not be opened.
-	ErrCannotStart = errors.New("the study cannot start")
 )
+
+// CannotStart is why a study could not be opened.
+type CannotStart struct{ Reason string }
+
+func (e CannotStart) Error() string { return e.Reason }
 
 const (
 	maxReport   = 64 << 10
 	maxTitle    = 200
 	maxQuestion = 4000
 )
-
-// errNotApplied rolls the transaction back when a study cannot be opened, so
-// a hand-in is applied whole or not at all.
-type errNotApplied struct{ problem string }
-
-func (e errNotApplied) Error() string { return e.problem }
 
 // text trims s and says what is wrong with it as stored text, or "".
 func text(s string, max int, what string) (string, string) {
@@ -82,21 +80,26 @@ func (s *HandIns) autoresearch(ctx context.Context, tx *store.Tx, run uuid.UUID,
 	if len(probs) > 0 {
 		return probs, nil
 	}
-	if err := s.Autoresearch.Report(ctx, tx, run, body); err != nil {
-		if errors.Is(err, ErrReported) {
-			return nil, nil
-		}
+	if r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: run}); err != nil {
 		return nil, err
+	} else if r.Report != "" {
+		return nil, nil
 	}
-	for i, st := range studies {
+	// A study that cannot start is not the agent's to fix, so it is skipped
+	// and named in the report.
+	for _, st := range studies {
 		_, err := s.Autoresearch.OpenCardForAgentRun(ctx, tx, run, st.title, st.question)
+		var cs CannotStart
 		switch {
 		case err == nil, errors.Is(err, ErrDuplicate):
-		case errors.Is(err, ErrCannotStart):
-			return []string{fmt.Sprintf("new_studies %d: the study cannot start: %v", i+1, err)}, errNotApplied{err.Error()}
+		case errors.As(err, &cs):
+			body += fmt.Sprintf("\n\nCould not open the study %q: %v", st.title, err)
 		default:
 			return nil, err
 		}
+	}
+	if err := s.Autoresearch.Report(ctx, tx, run, body); err != nil && !errors.Is(err, ErrReported) {
+		return nil, err
 	}
 	return nil, nil
 }
