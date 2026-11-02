@@ -83,8 +83,10 @@ type runtimeRef struct {
 	RuntimeID   uuid.UUID `json:"runtime_id"`
 }
 type claimed struct {
-	Coresearch    *service.ClaimedCoresearch `json:"coresearch,omitempty"`
-	PythonVersion string                     `json:"python_version"`
+	Coresearch *service.ClaimedCoresearch `json:"coresearch,omitempty"`
+	// Rerun is what a rerun replays; set on a run of kind "rerun" only.
+	Rerun         *service.ClaimedRerun `json:"rerun,omitempty"`
+	PythonVersion string                `json:"python_version"`
 	AgentRun      struct {
 		ID                uuid.UUID  `json:"id"`
 		WorkspaceID       uuid.UUID  `json:"workspace_id"`
@@ -102,8 +104,9 @@ type claimed struct {
 		// CardID is the run's study; nil for a run on no card.
 		CardID      *uuid.UUID `json:"card_id"`
 		BoardColumn string     `json:"board_column"`
-		// Kind is "role" (a study's), "autoresearch" or "coresearch"; the
-		// daemon branches only on "autoresearch", whose hand-in has no outputs.
+		// Kind is "role" (a study's), "autoresearch", "coresearch" or
+		// "rerun"; the daemon branches on "autoresearch", whose hand-in has
+		// no outputs, and on "rerun", which runs no agent CLI.
 		Kind string `json:"kind"`
 	} `json:"agent_run"`
 	Token string `json:"token"`
@@ -170,6 +173,11 @@ type daemon struct {
 	// sandboxErr is why the sandbox failed its check at start; analysis code
 	// runs nowhere while it is set.
 	sandboxErr error
+	// setUpConda rebuilds a rerun's conda environment; nil means
+	// (*envs.Study).SetUpConda.
+	setUpConda func(*envs.Study, context.Context, string, []string, string) (string, error)
+	// rerunDoor, when set, adjusts a rerun's door before it starts.
+	rerunDoor func(*Door)
 }
 
 func daemonID(dir, server string) (string, error) {
@@ -606,6 +614,10 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 			r.Kind, r.FailureReason = "fail", agent.ReasonRuntimeOffline
 			r.Error = "the hand-in kept while the server was unreachable had problems:\n" + strings.Join(probs, "\n")
 		}
+	}
+	if r.Kind == "rerun" {
+		return d.api.Do(ctx, "POST", "/api/daemon/reruns/"+r.AgentRunID.String()+"/result", map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt,
+			"steps": r.Rerun.Steps, "outputs": r.Rerun.Outputs, "failure": r.Rerun.Failure}, nil)
 	}
 	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil); err != nil {
 		return err

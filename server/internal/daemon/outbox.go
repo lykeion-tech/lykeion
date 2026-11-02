@@ -47,8 +47,11 @@ type Report struct {
 	Messages      []wireMsg     `json:"messages,omitempty"`
 	// HandIn is a completed attempt's final answer the server has not yet
 	// taken: it is posted as the hand-in before the report itself.
-	HandIn     json.RawMessage `json:"hand_in,omitempty"`
-	Rejections []time.Time     `json:"rejections,omitempty"`
+	HandIn json.RawMessage `json:"hand_in,omitempty"`
+	// Rerun is a rerun's result, posted in place of a completion: a report
+	// of kind "rerun" settles its run through the rerun's result route.
+	Rerun      *rerunResult `json:"rerun,omitempty"`
+	Rejections []time.Time  `json:"rejections,omitempty"`
 }
 type wireMsg struct {
 	Seq     int32           `json:"seq"`
@@ -146,7 +149,7 @@ func readReport(path string) (Report, error) {
 		return r, err
 	}
 	err = json.Unmarshal(b, &r)
-	if err == nil && (r.AgentRunID == uuid.Nil || r.Attempt <= 0 || (r.Kind != "complete" && r.Kind != "fail" && r.Kind != "messages")) {
+	if err == nil && (r.AgentRunID == uuid.Nil || r.Attempt <= 0 || (r.Kind != "complete" && r.Kind != "fail" && r.Kind != "messages" && (r.Kind != "rerun" || r.Rerun == nil))) {
 		err = errors.New("invalid queue record")
 	}
 	return r, err

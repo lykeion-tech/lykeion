@@ -224,9 +224,14 @@ func (d *Door) command(ctx context.Context, name string, args ...string) (*exec.
 	return cmd, nil
 }
 
-func unsandboxed(err error) error {
-	return fmt.Errorf("analysis code can't run on this machine: the sandbox isn't available (%v)", err)
+// unsandboxedError is why code can't run: the sandbox isn't available.
+type unsandboxedError struct{ err error }
+
+func (e unsandboxedError) Error() string {
+	return fmt.Sprintf("analysis code can't run on this machine: the sandbox isn't available (%v)", e.err)
 }
+
+func unsandboxed(err error) error { return unsandboxedError{err} }
 
 // runSandboxed runs a step in the study's folders in the sandbox and
 // answers its stdout. Its environment is the person's, as personEnv leaves
@@ -435,13 +440,11 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	if !ok {
 		return nil, nil, fmt.Errorf("%q is not a script run_script runs: it runs .py, .R and .jl files", in.Path)
 	}
-	dir := d.Child().Dir
-	script, contents, err := readScript(dir, in.Path)
+	_, contents, err := readScript(d.Child().Dir, in.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	name, args, err := d.interpreter(lang)
-	if err != nil {
+	if _, _, err := d.interpreter(lang); err != nil {
 		return nil, nil, err
 	}
 	if err := d.sandboxReady(); err != nil {
@@ -453,6 +456,37 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the study's package list: %w", err)
 	}
+	output, errText, status, err := d.execScript(ctx, d.Study, in.Path, lang, string(contents))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := d.Study.CheckDefaultPython(ctx); err != nil {
+		return nil, nil, err
+	}
+	body := map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
+		"output": output, "error": errText, "exit_status": status, "packages": packages}
+	return d.answerRun(ctx, body)
+}
+
+// execScript runs the script at path, relative to the run folder, from start
+// to finish in a fresh process of language's interpreter in study, in the
+// sandbox, and answers its output, its errors and its exit status, -1 when it
+// ran past its time limit. script is what the file held before it ran: errors
+// say so if the file changed meanwhile.
+func (d *Door) execScript(ctx context.Context, study *envs.Study, path, language, script string) (output, errText string, exit int, err error) {
+	dir := d.Child().Dir
+	full, err := insideDir(dir, path)
+	if err != nil {
+		return "", "", 0, err
+	}
+	interpreter := study.Interpreter
+	if d.interp != nil {
+		interpreter = d.interp
+	}
+	name, args, err := interpreter(language)
+	if err != nil {
+		return "", "", 0, err
+	}
 	limit := d.ScriptTimeout
 	if limit == 0 {
 		limit = agent.ScriptLimit
@@ -460,14 +494,14 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	runCtx, stop := context.WithTimeout(ctx, limit)
 	defer stop()
 	var stdout, stderr capped
-	cmd, err := d.command(runCtx, name, append(args, script)...)
+	cmd, err := d.command(runCtx, name, append(args, full)...)
 	if err != nil {
-		return nil, nil, err
+		return "", "", 0, err
 	}
 	cmd.Dir = dir
 	cmd.Env, err = d.runEnv(runCtx)
 	if err != nil {
-		return nil, nil, err
+		return "", "", 0, err
 	}
 	// pipes, not files: the sandbox loses some interpreters' buffered output to a file
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -476,19 +510,19 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	// what the script left running may hold its output open
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
-		return nil, nil, err
+		return "", "", 0, err
 	}
 	cmd.Wait()
 	status, errText := cmd.ProcessState.ExitCode(), stderr.String()
 	if ctx.Err() != nil {
-		return nil, nil, errors.New("the run has ended")
+		return "", "", 0, errors.New("the run has ended")
 	}
 	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() && runCtx.Err() == nil {
 		errText += fmt.Sprintf("\nthe script was stopped by a signal: %s\n", ws.Signal())
 	}
 	// The script runs from its own path, so paths relative to it work; the
 	// record keeps the bytes read before, and says so if they changed.
-	if _, after, err := readScript(dir, in.Path); err != nil || sha256.Sum256(after) != sha256.Sum256(contents) {
+	if _, after, err := readScript(dir, path); err != nil || sha256.Sum256(after) != sha256.Sum256([]byte(script)) {
 		errText += "\n" + scriptChanged + "\n"
 	}
 	if runCtx.Err() != nil {
@@ -496,12 +530,7 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 		// first, so a cut to fit the record keeps it
 		errText = fmt.Sprintf("the script ran past its time limit of %s and was stopped\n", limitText(limit)) + errText
 	}
-	if err := d.Study.CheckDefaultPython(ctx); err != nil {
-		return nil, nil, err
-	}
-	body := map[string]any{"tool": "run_script", "language": lang, "path": in.Path, "script": string(contents),
-		"output": stdout.String(), "error": errText, "exit_status": status, "packages": packages}
-	return d.answerRun(ctx, body)
+	return stdout.String(), errText, status, nil
 }
 
 // insideDir resolves a relative path in dir, refusing one that leaves dir
@@ -572,7 +601,7 @@ func limitText(d time.Duration) string {
 // Output is kept as the script wrote it; JSON encoding writes any bytes that
 // are not UTF-8 as U+FFFD, both in the record and in the answer.
 func (d *Door) answerRun(ctx context.Context, body map[string]any) (*mcp.CallToolResult, any, error) {
-	fitBody(body)
+	fitBody(body, maxRunBody)
 	key, err := d.recordRun(ctx, body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the run could not be recorded, so its output is withheld: %w", err)
@@ -588,12 +617,12 @@ func (d *Door) answerRun(ctx context.Context, body map[string]any) (*mcp.CallToo
 }
 
 // fitBody cuts the error, then the output, until the encoded body fits
-// maxRunBody.
-func fitBody(body map[string]any) {
+// limit bytes.
+func fitBody(body map[string]any, limit int) {
 	for _, field := range []string{"error", "output"} {
 		for {
 			b, _ := json.Marshal(body)
-			over := len(b) - maxRunBody
+			over := len(b) - limit
 			if over <= 0 {
 				return
 			}

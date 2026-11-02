@@ -59,7 +59,7 @@ func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec f
 		var probs []string
 		var err error
 		if outputs {
-			if probs, err = sendOutputs(ctx, role, dir, listSaved); err != nil {
+			if probs, err = sendOutputs(ctx, role, dir, listSaved, nil); err != nil {
 				return res, nil, err
 			}
 		}
@@ -174,8 +174,9 @@ func savedOutputs(ctx context.Context, role *apiclient.Client, run uuid.UUID) (m
 // sendOutputs saves each regular file under the run folder's outputs folder
 // not yet among the saved ones, which listSaved gives when first needed,
 // under its path in the run folder. Links are never followed. A file the
-// server's limits refuse is a problem for the agent.
-func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, listSaved func() (map[string]bool, error)) ([]string, error) {
+// server's limits refuse is a problem for the agent. sums, when set, gets
+// each saved file's sha256 as the server took it, by name.
+func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, listSaved func() (map[string]bool, error), sums map[string]string) ([]string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
@@ -233,7 +234,8 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, listSa
 			problem(name + " was not saved: it changed while being saved")
 			return nil
 		}
-		err = role.Upload(ctx, "/api/role/outputs", map[string]string{"path": name}, "file", path.Base(name), f, nil)
+		var took struct{ Sha256 string }
+		err = role.Upload(ctx, "/api/role/outputs", map[string]string{"path": name}, "file", path.Base(name), f, &took)
 		var refusal *apiclient.HTTPError
 		if errors.As(err, &refusal) && (refusal.Status == http.StatusBadRequest || refusal.Status == http.StatusRequestEntityTooLarge) {
 			refused = true
@@ -242,6 +244,9 @@ func sendOutputs(ctx context.Context, role *apiclient.Client, dir string, listSa
 		}
 		if err == nil {
 			saved[name] = true
+			if sums != nil {
+				sums[name] = took.Sha256
+			}
 		}
 		return err
 	})
