@@ -194,7 +194,7 @@ func TestBackoffSchedule(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref, id := f.claimStart(t, runtime)
-	if got, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil || got.Status != "completed" || got.InfraFailures != 0 {
+	if got, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil || got.Status != "completed" {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
@@ -221,8 +221,152 @@ func TestSecondFenceBreachRaisesTheItem(t *testing.T) {
 	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 1 || w[0].Cause != "fence_breach" || w[0].Text != want {
 		t.Fatalf("items %+v", w)
 	}
+	if r := f.unhealthy(t, runtime.RuntimeID); r != "fence_breach" {
+		t.Fatalf("unhealthy %q", r)
+	}
 	if f.settledCount() != 0 {
 		t.Fatal("a breached run settled")
+	}
+	// The run is held: not even another healthy machine takes it.
+	other := f.runtime(t, f.Owner, "d2", "claude")
+	if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{other}, 1); err != nil || len(got) != 0 {
+		t.Fatalf("a held run was claimed: %d %v", len(got), err)
+	}
+	if err := f.T.MarkHealthy(ctx, f.Owner, runtime); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := f.claimStart(t, runtime); again.Attempt != 3 {
+		t.Fatalf("released run claimed as attempt %d", again.Attempt)
+	}
+}
+
+func TestInterveningFailureResetsBreachDetection(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	breach := Report{FailureReason: "fence_breach", Error: "used WebFetch, which is outside Lykeion's sources"}
+	for _, r := range []Report{breach, {FailureReason: "provider_network"}, breach} {
+		ref, id := f.claimStart(t, runtime)
+		if _, err := f.T.Fail(ctx, f.Owner, ref, id, r); err != nil {
+			t.Fatal(err)
+		}
+		f.clearBackoff(t)
+	}
+	if len(f.openWaits(t, runtime.RuntimeID)) != 0 || f.unhealthy(t, runtime.RuntimeID) != "" {
+		t.Fatal("breaches with a different failure between them raised the machine")
+	}
+}
+
+// failOnce claims the oldest claimable run on ref and fails it with reason.
+func (f *fixture) failOnce(t *testing.T, ref RuntimeRef, reason string) {
+	t.Helper()
+	ref, id := f.claimStart(t, ref)
+	if got, err := f.T.Fail(context.Background(), f.Owner, ref, id, Report{FailureReason: reason}); err != nil || got.Status != "queued" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestThreeRunsFailingOnceFlagTheRuntime(t *testing.T) {
+	f := setup(t)
+	f.enqueue(t, 3, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	for n := range 3 {
+		if f.unhealthy(t, runtime.RuntimeID) != "" {
+			t.Fatalf("flagged after %d failures", n)
+		}
+		f.failOnce(t, runtime, "timeout")
+	}
+	want := "laptop keeps failing to run Claude Code (timeout). Waiting studies continue once it recovers."
+	if w := f.openWaits(t, runtime.RuntimeID); f.unhealthy(t, runtime.RuntimeID) != "timeout" || len(w) != 1 || w[0].Text != want {
+		t.Fatalf("items %+v", w)
+	}
+}
+
+func TestTheStreakBelongsToTheRuntime(t *testing.T) {
+	f := setup(t)
+	f.enqueue(t, 1, "claude")
+	a, b := f.runtime(t, f.Owner, "a", "claude"), f.runtime(t, f.Owner, "b", "claude")
+	// Only one runtime is online at a time, so each claim lands where intended.
+	for _, ref := range []RuntimeRef{a, a, b} {
+		other := b
+		if ref == b {
+			other = a
+		}
+		if _, err := f.Env.Owner.Exec(context.Background(), "UPDATE runtime SET status = CASE WHEN id = $1 THEN 'online' ELSE 'offline' END WHERE id IN ($1, $2)", ref.RuntimeID, other.RuntimeID); err != nil {
+			t.Fatal(err)
+		}
+		f.failOnce(t, ref, "provider_network")
+		f.clearBackoff(t)
+	}
+	if f.unhealthy(t, a.RuntimeID) != "" || f.unhealthy(t, b.RuntimeID) != "" || len(f.openWaits(t, b.RuntimeID)) != 0 {
+		t.Fatal("a run's failures on another machine flagged this one")
+	}
+}
+
+func TestSuccessResetsTheRuntimeStreak(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	f.failOnce(t, runtime, "provider_network")
+	f.clearBackoff(t)
+	f.failOnce(t, runtime, "provider_network")
+	f.clearBackoff(t)
+	ref, id := f.claimStart(t, runtime)
+	if _, err := f.T.Complete(ctx, f.Owner, ref, id, Report{}); err != nil {
+		t.Fatal(err)
+	}
+	f.enqueue(t, 1, "claude")
+	f.failOnce(t, runtime, "provider_network")
+	var streak int
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT infra_streak FROM runtime WHERE id = $1", runtime.RuntimeID).Scan(&streak); err != nil {
+		t.Fatal(err)
+	}
+	if streak != 1 || f.unhealthy(t, runtime.RuntimeID) != "" {
+		t.Fatalf("streak %d after a success and one failure", streak)
+	}
+}
+
+func TestSweepsThirdLostAttemptRaisesTheItem(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	for range 3 {
+		if _, err := f.T.Heartbeat(ctx, f.Owner, []RuntimeRef{runtime}, nil); err != nil {
+			t.Fatal(err)
+		}
+		f.clearBackoff(t)
+		f.claimStart(t, runtime)
+		if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET last_seen_at = now() - interval '5 minutes' WHERE id = $1", runtime.RuntimeID); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.T.Sweep(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "laptop keeps failing to run Claude Code (runtime_offline). Waiting studies continue once it recovers."
+	if w := f.openWaits(t, runtime.RuntimeID); len(w) != 1 || w[0].Text != want {
+		t.Fatalf("items %+v", w)
+	}
+}
+
+func TestARunWithNoStudyRetriesThenFails(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	run := f.enqueueAutoresearch(t, f.Owner, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	for n, want := range []string{"queued", "failed"} {
+		// No backoff stands between the retries.
+		ref, id := f.claimStart(t, runtime)
+		got, err := f.T.Fail(ctx, f.Owner, ref, id, Report{FailureReason: "sign_in"})
+		if err != nil || id != run.ID || got.Status != want || got.RetryAfter != nil || got.InfraFailures != 0 {
+			t.Fatalf("attempt %d: %+v %v", n+1, got, err)
+		}
+	}
+	if f.settledCount() != 1 || f.unhealthy(t, runtime.RuntimeID) != "" || len(f.openWaits(t, runtime.RuntimeID)) != 0 {
+		t.Fatal("a run with no study touched the machine or did not settle")
 	}
 }
 

@@ -47,7 +47,7 @@ func TestReliableRunsMigration(t *testing.T) {
 	exec(insertInbox, ws, u, "waiting_for_machine", runtime, "sign_in")
 
 	exec(`UPDATE agent_run SET retry_after=now(), infra_failures=1`)
-	exec(`UPDATE runtime SET unhealthy_reason='sign_in'`)
+	exec(`UPDATE runtime SET unhealthy_reason='sign_in', infra_streak=3`)
 	exec(`UPDATE agent_run_usage SET estimated=true`)
 
 	b, err := fs.ReadFile(migrations.FS, "0041_reliable_agent_runs.down.sql")
@@ -58,7 +58,7 @@ func TestReliableRunsMigration(t *testing.T) {
 	refuse(insertRun, "23514", ws, card, u, "fence_breach")
 	var n int
 	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE (table_name='inbox_item' AND column_name IN ('runtime_id','cause'))
-		OR (table_name='agent_run' AND column_name IN ('retry_after','infra_failures')) OR (table_name='runtime' AND column_name='unhealthy_reason')
+		OR (table_name='agent_run' AND column_name IN ('retry_after','infra_failures')) OR (table_name='runtime' AND column_name IN ('unhealthy_reason','infra_streak'))
 		OR (table_name='agent_run_usage' AND column_name='estimated')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("columns left=%d (%v), want 0", n, err)
 	}

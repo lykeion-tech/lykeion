@@ -137,6 +137,22 @@ func (q *Queries) AgentRunMessagesAfter(ctx context.Context, arg AgentRunMessage
 	return items, nil
 }
 
+const bumpRuntimeStreak = `-- name: BumpRuntimeStreak :one
+UPDATE runtime SET infra_streak = infra_streak + 1 WHERE id = $1 AND workspace_id = $2 RETURNING infra_streak
+`
+
+type BumpRuntimeStreakParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) BumpRuntimeStreak(ctx context.Context, arg BumpRuntimeStreakParams) (int32, error) {
+	row := q.db.QueryRow(ctx, bumpRuntimeStreak, arg.ID, arg.WorkspaceID)
+	var infra_streak int32
+	err := row.Scan(&infra_streak)
+	return infra_streak, err
+}
+
 const cancelAgentRun = `-- name: CancelAgentRun :execrows
 UPDATE agent_run SET status = 'cancelled', completed_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status IN ('queued', 'dispatched', 'running')
@@ -569,9 +585,7 @@ func (q *Queries) ExtendLease(ctx context.Context, arg ExtendLeaseParams) (int64
 
 const finishAgentRun = `-- name: FinishAgentRun :exec
 UPDATE agent_run SET status = $1, completed_at = now(), cost_usd = cost_usd + $2,
-  session_id = $3, error = $4, failure_reason = $5,
-  -- a success ends the run's streak of machine failures
-  infra_failures = CASE WHEN $1 = 'completed' THEN 0 ELSE infra_failures END
+  session_id = $3, error = $4, failure_reason = $5
 WHERE id = $6 AND workspace_id = $7
 `
 
@@ -664,7 +678,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason, infra_streak FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -697,8 +711,25 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.Models,
 		&i.Metrics,
 		&i.UnhealthyReason,
+		&i.InfraStreak,
 	)
 	return i, err
+}
+
+const holdAgentRun = `-- name: HoldAgentRun :exec
+UPDATE agent_run SET retry_after = '9999-12-31 00:00:00+00' WHERE id = $1 AND workspace_id = $2
+`
+
+type HoldAgentRunParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// HoldAgentRun keeps a parked run from being claimed until its machine is
+// marked healthy. The far date stands for "never", which Go can read.
+func (q *Queries) HoldAgentRun(ctx context.Context, arg HoldAgentRunParams) error {
+	_, err := q.db.Exec(ctx, holdAgentRun, arg.ID, arg.WorkspaceID)
+	return err
 }
 
 const insertAgentRunMessage = `-- name: InsertAgentRunMessage :exec
@@ -891,7 +922,7 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, r.models, r.metrics, r.unhealthy_reason, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, r.models, r.metrics, r.unhealthy_reason, r.infra_streak, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
   AND t.status IN ('dispatched', 'running'))::int AS active_runs,
   COALESCE((SELECT array_agg(s.user_id ORDER BY s.user_id) FROM runtime_share s
     WHERE s.runtime_id = r.id AND s.workspace_id = r.workspace_id), '{}'::uuid[])::uuid[] AS shared_with
@@ -920,6 +951,7 @@ type ListRuntimesRow struct {
 	Models          json.RawMessage `json:"models"`
 	Metrics         json.RawMessage `json:"metrics"`
 	UnhealthyReason *string         `json:"unhealthy_reason"`
+	InfraStreak     int32           `json:"infra_streak"`
 	ActiveRuns      int32           `json:"active_runs"`
 	SharedWith      []uuid.UUID     `json:"shared_with"`
 }
@@ -956,6 +988,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.Models,
 			&i.Metrics,
 			&i.UnhealthyReason,
+			&i.InfraStreak,
 			&i.ActiveRuns,
 			&i.SharedWith,
 		); err != nil {
@@ -1194,7 +1227,7 @@ func (q *Queries) LookupAgentRunToken(ctx context.Context, tokenHash string) (Lo
 }
 
 const markRuntimeHealthy = `-- name: MarkRuntimeHealthy :execrows
-UPDATE runtime SET unhealthy_reason = NULL WHERE id = $1 AND workspace_id = $2 AND owner_id = $3
+UPDATE runtime SET unhealthy_reason = NULL, infra_streak = 0 WHERE id = $1 AND workspace_id = $2 AND owner_id = $3
 `
 
 type MarkRuntimeHealthyParams struct {
@@ -1292,6 +1325,24 @@ func (q *Queries) RecordLateUsage(ctx context.Context, arg RecordLateUsageParams
 	return err
 }
 
+const releaseHeldAgentRuns = `-- name: ReleaseHeldAgentRuns :exec
+UPDATE agent_run t SET retry_after = NULL
+WHERE t.workspace_id = $1 AND t.status = 'queued' AND t.retry_after = '9999-12-31 00:00:00+00'
+  AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
+    AND r.attempt = t.attempt AND r.runtime_id = $2)
+`
+
+type ReleaseHeldAgentRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+}
+
+// Held runs whose last attempt ran on the runtime become claimable again.
+func (q *Queries) ReleaseHeldAgentRuns(ctx context.Context, arg ReleaseHeldAgentRunsParams) error {
+	_, err := q.db.Exec(ctx, releaseHeldAgentRuns, arg.WorkspaceID, arg.RuntimeID)
+	return err
+}
+
 const replaceRuntimeShares = `-- name: ReplaceRuntimeShares :exec
 WITH removed AS (
  DELETE FROM runtime_share WHERE runtime_id = $2 AND workspace_id = $1 RETURNING user_id
@@ -1334,6 +1385,20 @@ func (q *Queries) RequeueAgentRun(ctx context.Context, arg RequeueAgentRunParams
 		arg.ID,
 		arg.WorkspaceID,
 	)
+	return err
+}
+
+const resetRuntimeStreak = `-- name: ResetRuntimeStreak :exec
+UPDATE runtime SET infra_streak = 0 WHERE id = $1 AND workspace_id = $2 AND infra_streak <> 0
+`
+
+type ResetRuntimeStreakParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) ResetRuntimeStreak(ctx context.Context, arg ResetRuntimeStreakParams) error {
+	_, err := q.db.Exec(ctx, resetRuntimeStreak, arg.ID, arg.WorkspaceID)
 	return err
 }
 
@@ -1902,7 +1967,7 @@ ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
     kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason, infra_streak
 `
 
 type UpsertRuntimeParams struct {
@@ -1954,6 +2019,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.Models,
 		&i.Metrics,
 		&i.UnhealthyReason,
+		&i.InfraStreak,
 	)
 	return i, err
 }

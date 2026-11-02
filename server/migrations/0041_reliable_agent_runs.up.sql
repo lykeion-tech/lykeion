@@ -13,5 +13,6 @@ CREATE UNIQUE INDEX inbox_item_open_machine_wait ON inbox_item (workspace_id, ru
   WHERE kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
 ALTER TABLE agent_run ADD COLUMN retry_after timestamptz, ADD COLUMN infra_failures int NOT NULL DEFAULT 0;
-ALTER TABLE runtime ADD COLUMN unhealthy_reason text;
+-- infra_streak counts the runtime's machine failures since its last success.
+ALTER TABLE runtime ADD COLUMN unhealthy_reason text, ADD COLUMN infra_streak int NOT NULL DEFAULT 0;
 ALTER TABLE agent_run_usage ADD COLUMN estimated boolean NOT NULL DEFAULT false;

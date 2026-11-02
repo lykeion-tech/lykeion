@@ -714,6 +714,7 @@ type Runtime struct {
 	Models          json.RawMessage `json:"models"`
 	Metrics         json.RawMessage `json:"metrics"`
 	UnhealthyReason *string         `json:"unhealthy_reason"`
+	InfraStreak     int32           `json:"infra_streak"`
 }
 
 type RuntimeShare struct {

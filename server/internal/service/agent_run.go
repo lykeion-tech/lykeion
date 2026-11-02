@@ -95,15 +95,11 @@ var (
 	ErrBadReport = errors.New("usage must be non-negative and failure_reason a known reason")
 )
 
-// FailureReasons are how an attempt can end badly. The first three are the
-// machine's or the network's fault, so another attempt may succeed; the other
-// reasons do not retry. Runtime access denial is recorded only by the server.
+// FailureReasons are how an attempt can end badly. Infra tells the machine's
+// and the network's fault from the agent's. Runtime access denial is recorded
+// only by the server.
 var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked",
 	agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid}
-
-func Retryable(reason string) bool {
-	return reason == "runtime_offline" || reason == "timeout" || reason == "provider_network"
-}
 
 // Infra reports whether a reason is the machine's or its tooling's fault
 // rather than the agent's, so the run is not held against the agent.
@@ -1181,9 +1177,15 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		}
 		switch {
 		case ok:
-			err = tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run, Status: "completed", CostUsd: spent, SessionID: r.SessionID})
-		case Infra(r.FailureReason):
+			if err = tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run, Status: "completed", CostUsd: spent, SessionID: r.SessionID}); err == nil {
+				err = tx.Q.ResetRuntimeStreak(ctx, db.ResetRuntimeStreakParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+			}
+		case Infra(r.FailureReason) && t.CardID != nil:
 			err = s.parkInfra(ctx, tx, t, r.FailureReason, r.Error, spent)
+		case Infra(r.FailureReason) && t.Attempt < t.MaxAttempts:
+			// A run with no study retries a bounded number of times, then
+			// fails where its requester sees it.
+			err = tx.Q.RequeueAgentRun(ctx, db.RequeueAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run, CostUsd: spent, Error: r.Error, FailureReason: &r.FailureReason})
 		default:
 			err = tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run, Status: "failed", CostUsd: spent, SessionID: r.SessionID, Error: r.Error, FailureReason: &r.FailureReason})
 		}
@@ -1342,8 +1344,8 @@ func CancelCardRuns(ctx context.Context, tx *store.Tx, user, card uuid.UUID) err
 	return nil
 }
 
-// Sweep commits runtime status, parked lost attempts, receipts and events
-// together. Any failure rolls the entire maintenance pass back.
+// Sweep commits runtime status, lost attempts, receipts, events and settlement
+// notifications together. Any failure rolls the entire maintenance pass back.
 func (s *AgentRuns) Sweep(ctx context.Context) error {
 	stale := s.Stale
 	if stale <= 0 {
@@ -1451,7 +1453,15 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if reason == "" {
 				continue
 			}
-			if err = s.parkInfra(ctx, tx, t, reason, t.Error, 0); err != nil {
+			switch {
+			case t.CardID != nil:
+				err = s.parkInfra(ctx, tx, t, reason, t.Error, 0)
+			case t.Attempt < t.MaxAttempts:
+				err = tx.Q.RequeueAgentRun(ctx, db.RequeueAgentRunParams{WorkspaceID: tx.WS, ID: t.ID, Error: t.Error, FailureReason: &reason})
+			default:
+				err = tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: tx.WS, ID: t.ID, Status: "failed", Error: "lost: the lease expired or the runtime went offline", FailureReason: &reason})
+			}
+			if err != nil {
 				return err
 			}
 			if err = tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: tx.WS, AgentRunID: t.ID}); err != nil {
@@ -1464,6 +1474,11 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if err = saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
 				return err
 			}
+			if out.Status == "failed" {
+				if err = saveSettlement(ctx, tx, out); err != nil {
+					return err
+				}
+			}
 			changed = append(changed, out)
 			ended = append(ended, t)
 		}
@@ -1472,7 +1487,11 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if err := tx.Workspace(ctx, out.WorkspaceID); err != nil {
 				return err
 			}
-			if err := tx.Emit(ctx, "agent_run.requeued", out.CardID, store.System, agentRunEvent(out)); err != nil {
+			event := "agent_run.requeued"
+			if out.Status == "failed" {
+				event = "agent_run.failed"
+			}
+			if err := tx.Emit(ctx, event, out.CardID, store.System, agentRunEvent(out)); err != nil {
 				return err
 			}
 		}

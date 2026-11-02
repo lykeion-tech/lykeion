@@ -53,13 +53,23 @@ func breachedTool(detail string) string {
 	return "a tool"
 }
 
-// parkInfra requeues a run whose machine failed it, behind a backoff and
-// without spending an attempt, so the agent and its Team never see the
+// parkInfra requeues a study's run whose machine failed it, behind a backoff
+// and without spending an attempt, so the agent and its Team never see the
 // failure. run is the locked row as it was before this failure. A machine
-// that keeps failing, or fails in a way only its owner can fix, stops
+// that fails three times running, or in a way only its owner can fix, stops
 // claiming and its owner is told once per cause.
 func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, detail string, spent float64) error {
 	if err := tx.Q.ParkAgentRun(ctx, db.ParkAgentRunParams{WorkspaceID: tx.WS, ID: run.ID, CostUsd: spent, Error: detail, FailureReason: &reason}); err != nil {
+		return err
+	}
+	if run.RuntimeID == nil {
+		return nil
+	}
+	streak, err := tx.Q.BumpRuntimeStreak(ctx, db.BumpRuntimeStreakParams{WorkspaceID: tx.WS, ID: *run.RuntimeID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	var raise bool
@@ -67,18 +77,20 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 	case agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonSandbox:
 		raise = true
 	case agent.ReasonFenceBreach:
-		// The first breach is retried; a second one on the same run is the machine's.
-		raise = run.FailureReason != nil && *run.FailureReason == agent.ReasonFenceBreach
+		// The first breach is retried. A second one in a row on the same run
+		// holds it, so it spends nothing more until the machine is fixed.
+		if raise = run.FailureReason != nil && *run.FailureReason == agent.ReasonFenceBreach; raise {
+			if err := tx.Q.HoldAgentRun(ctx, db.HoldAgentRunParams{WorkspaceID: tx.WS, ID: run.ID}); err != nil {
+				return err
+			}
+		}
 	default:
-		raise = run.InfraFailures+1 >= 3
+		raise = streak >= 3
 	}
-	if !raise || run.RuntimeID == nil {
+	if !raise {
 		return nil
 	}
 	rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *run.RuntimeID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
 	if err != nil {
 		return err
 	}
@@ -94,7 +106,8 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 		Text: machineWaitText(machine, rt.Harness, reason, breachedTool(detail))})
 }
 
-// MarkHealthy lets the owner's machine claim again and resolves its waits.
+// MarkHealthy lets the owner's machine claim again, releases the runs it
+// held, and resolves its waits.
 func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref RuntimeRef) error {
 	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
 		n, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID, OwnerID: user})
@@ -103,6 +116,9 @@ func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref Runtime
 		}
 		if n == 0 {
 			return ErrNotYours
+		}
+		if err := tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID}); err != nil {
+			return err
 		}
 		return tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
 	})

@@ -116,9 +116,7 @@ ORDER BY seq LIMIT 500;
 
 -- name: FinishAgentRun :exec
 UPDATE agent_run SET status = @status, completed_at = now(), cost_usd = cost_usd + @cost_usd,
-  session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason),
-  -- a success ends the run's streak of machine failures
-  infra_failures = CASE WHEN @status = 'completed' THEN 0 ELSE infra_failures END
+  session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason)
 WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: RecordAgentRunProfile :exec
@@ -283,4 +281,22 @@ WHERE id = @id AND workspace_id = @workspace_id;
 UPDATE runtime SET unhealthy_reason = @reason WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: MarkRuntimeHealthy :execrows
-UPDATE runtime SET unhealthy_reason = NULL WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
+UPDATE runtime SET unhealthy_reason = NULL, infra_streak = 0 WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
+
+-- name: BumpRuntimeStreak :one
+UPDATE runtime SET infra_streak = infra_streak + 1 WHERE id = @id AND workspace_id = @workspace_id RETURNING infra_streak;
+
+-- name: ResetRuntimeStreak :exec
+UPDATE runtime SET infra_streak = 0 WHERE id = @id AND workspace_id = @workspace_id AND infra_streak <> 0;
+
+-- HoldAgentRun keeps a parked run from being claimed until its machine is
+-- marked healthy. The far date stands for "never", which Go can read.
+-- name: HoldAgentRun :exec
+UPDATE agent_run SET retry_after = '9999-12-31 00:00:00+00' WHERE id = @id AND workspace_id = @workspace_id;
+
+-- Held runs whose last attempt ran on the runtime become claimable again.
+-- name: ReleaseHeldAgentRuns :exec
+UPDATE agent_run t SET retry_after = NULL
+WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after = '9999-12-31 00:00:00+00'
+  AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
+    AND r.attempt = t.attempt AND r.runtime_id = @runtime_id);

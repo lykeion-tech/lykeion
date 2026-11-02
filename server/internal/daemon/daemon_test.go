@@ -216,6 +216,7 @@ func (f *daemonFixture) status(t *testing.T) string {
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT status FROM agent_run WHERE id=$1", f.id).Scan(&s))
 	return s
 }
+
 // parked reports whether the server put the run back to wait for the machine.
 func (f *daemonFixture) parked(t *testing.T) bool {
 	t.Helper()
