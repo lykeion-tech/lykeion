@@ -490,8 +490,9 @@ exec sleep 300
 			if r.Status == "failed" {
 				t.Fatalf("helper run failed: %+v", r)
 			}
-			_, err := os.Stat(pidFile)
-			return r.Status == "running" && r.Attempt == attempt && err == nil
+			// The shell creates the pid file before it writes the pid into it.
+			b, err := os.ReadFile(pidFile)
+			return r.Status == "running" && r.Attempt == attempt && err == nil && strings.HasSuffix(string(b), "\n")
 		})
 		b, err := os.ReadFile(pidFile)
 		must(t, err)
@@ -769,10 +770,11 @@ exec sleep 300
 	cmd := startProcess(t, cfg)
 	for attempt := int32(1); attempt <= 2; attempt++ {
 		dir := filepath.Join(cfg.Home, fmt.Sprintf("%s-%d", id, attempt))
+		// The shell creates child.pid before it writes the pid into it.
 		waitFor(t, "same-store attempt running", func() bool {
 			r := l.run(t, id)
-			_, e := os.Stat(filepath.Join(dir, "child.pid"))
-			return r.Status == "running" && r.Attempt == attempt && e == nil
+			b, e := os.ReadFile(filepath.Join(dir, "child.pid"))
+			return r.Status == "running" && r.Attempt == attempt && e == nil && strings.HasSuffix(string(b), "\n")
 		})
 		b, err := os.ReadFile(filepath.Join(dir, "child.pid"))
 		must(t, err)
