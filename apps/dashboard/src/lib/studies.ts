@@ -232,16 +232,18 @@ const couldNotDo = /the agent could not do this column: ([\s\S]+)$/;
 export function blockedMessage(card: Card): string {
   if (card.block_kind === 'low_score')
     return 'Scored low twice. Tell the Team what to fix to redo this column.';
-  const reason = couldNotDo.exec(card.hold_text)?.[1];
+  const hold = card.hold_text ?? '';
+  const reason = couldNotDo.exec(hold)?.[1];
   if (reason) return `The agent could not do this column: ${reason}`;
-  return card.hold_text.replace(/^Study #\d+(?:'s)?:? ?/, '') || 'This study is waiting for you.';
+  return hold.replace(/^Study #\d+(?:'s)?:? ?/, '') || 'This study is waiting for you.';
 }
 
 // The board chip of a Blocked study: the kind of hold, never a bare "escalated".
 export function blockBadge(card: Card): string {
   if (card.block_kind) return blockLabel(card.block_kind);
-  if (couldNotDo.test(card.hold_text)) return 'could not do';
-  if (card.hold_text.includes(' column stopped: ')) return 'run failed';
+  const hold = card.hold_text ?? '';
+  if (couldNotDo.test(hold)) return 'could not do';
+  if (hold.includes(' column stopped: ')) return 'run failed';
   return 'escalated';
 }
 

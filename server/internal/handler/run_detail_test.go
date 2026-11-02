@@ -174,4 +174,14 @@ func TestHeldStudyCarriesHoldText(t *testing.T) {
 	if got := read(); got != "Study #1: the agent could not do this column: no data" {
 		t.Fatalf("hold %q", got)
 	}
+	var list []struct {
+		ID       string `json:"id"`
+		HoldText string `json:"hold_text"`
+	}
+	if c := l.s.call(t, "GET", "/api/cards", l.jwt, l.ws, nil, &list); c != 200 {
+		t.Fatalf("list %d", c)
+	}
+	if len(list) != 1 || list[0].ID != l.card.ID || list[0].HoldText != "Study #1: the agent could not do this column: no data" {
+		t.Fatalf("listed hold %+v", list)
+	}
 }

@@ -85,8 +85,8 @@ export interface Card {
   workflow?: string | null;
   workflow_release?: string | null;
   block_kind: BlockKind;
-  // Why a study held outside a low score waits for its owner; '' otherwise.
-  hold_text: string;
+  // Why a study held outside a low score waits for its owner; empty or absent otherwise.
+  hold_text?: string;
   scope_from: Exclude<Column, 'done'>;
   scope_to: Exclude<Column, 'done'>;
   // The Team working each column of the scope, keyed by column.

@@ -584,6 +584,7 @@ type cardListView struct {
 	db.ListCardsRow
 	Teams     map[string]cardTeamView `json:"teams"`
 	StartDate *time.Time              `json:"start_date"`
+	HoldText  string                  `json:"hold_text"`
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
@@ -617,7 +618,14 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 			if date, ok := starts[card.ID]; ok {
 				start = &date
 			}
-			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams, StartDate: start})
+			var hold string
+			if card.State == "blocked" && card.BlockKind == "" && card.Ending == "" {
+				hold, err = tx.Q.CardHoldText(r.Context(), db.CardHoldTextParams{WorkspaceID: ws, CardID: &card.ID})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+			}
+			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams, StartDate: start, HoldText: hold})
 		}
 		return nil
 	})

@@ -523,4 +523,10 @@ describe('a held study', () => {
     expect(blockedMessage(stopped)).toContain('Hypotheses column stopped');
     expect(blockBadge(stopped)).toBe('run failed');
   });
+  it('renders a held card that came without its hold text', () => {
+    const listed = card({ state: 'blocked', block_kind: '' });
+    delete (listed as Partial<Card>).hold_text;
+    expect(blockBadge(listed)).toBe('escalated');
+    expect(blockedMessage(listed)).toBe('This study is waiting for you.');
+  });
 });
