@@ -180,11 +180,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	watched := make(chan struct{})
 	go func(ref Report) { defer close(watched); d.watchCancel(runCtx, cancel, base, ref) }(r)
 	defer func() { cancel(); <-watched }()
-	self, err := os.Executable()
-	if err != nil {
-		fail(err)
-		return nil
-	}
 	var sinkErr error
 	var sequence int32
 	var sequenceMu sync.Mutex
@@ -217,7 +212,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
-	path := filepath.Dir(self) + string(os.PathListSeparator)
 	// The study's add-on folders are the door's alone: code runs only
 	// through it, in the sandbox, so the CLI's environment holds none of the
 	// study's interpreters or folders, which the study's code may have planted.
@@ -242,6 +236,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		study = envs.ForStudy(d.bases, studyDir)
 		study.PythonVersion = c.PythonVersion
 	}
+	path, err := runPath()
+	if err != nil {
+		fail(err)
+		return nil
+	}
 	services, err := d.startServices(runCtx, c, study, guest != "")
 	if err != nil {
 		fail(err)
@@ -249,7 +248,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	defer services.Stop()
 	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, MCPToken: c.Token, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, Env: []string{
-		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path + os.Getenv("PATH"),
+		"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(dir, ".lyk-config.json"), "PATH=" + path,
 	}}
 	opts.Env = append(opts.Env, services.Env()...)
 	opts.CacheDir = d.runCacheDir(guest)

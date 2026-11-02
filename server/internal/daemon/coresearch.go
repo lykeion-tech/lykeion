@@ -728,8 +728,8 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	if c.Coresearch.Aristotle {
 		opts.Model = c.AgentRun.RequestedModel
 	}
-	if exe, e := os.Executable(); e == nil {
-		opts.Env = append(opts.Env, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if lyk, e := lykDir(); e == nil {
+		opts.Env = append(opts.Env, "PATH="+lyk+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 	if study != nil {
 		opts.ReadDirs = append([]string{study.Dir}, study.Bases.Folders()...)
