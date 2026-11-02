@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
@@ -948,5 +949,43 @@ func TestPassedWithOpenDoubts(t *testing.T) {
 	prefix := fmt.Sprintf("Study #%d passed Grounding with open doubts: %s (", c.Number, paperA)
 	if !strings.HasPrefix(items[0], prefix) || !strings.Contains(items[0], "52%") || !strings.Contains(items[0], "; "+paperB+" (") {
 		t.Fatalf("open_doubts text: %q", items[0])
+	}
+}
+
+// searchSources finds hits on every recall search.
+type searchSources struct {
+	stubSources
+	hits []sources.Hit
+}
+
+func (s searchSources) Search(context.Context, string) ([]sources.Hit, error) { return s.hits, nil }
+
+func TestDeclinedMissedPaperReachesTheReview(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = searchSources{hits: []sources.Hit{{ID: "openalex:W9", DOI: "10.1000/abc", Title: "Declined candidate", Abstract: "An abstract."}}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	// Written as the hand-in writes it: the id in the form the agent gave.
+	l.item(t, c.ID, "declined", map[string]string{"item": handin.NormID("https://doi.org/10.1000/ABC"), "reason": "It studies yeast."})
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.CreateComment(context.Background(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: "Mammalian cells only."})
+		return err
+	})
+	l.done(t, c.ID)
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 1 || len(rs[0].Missed) != 0 {
+		t.Fatalf("the declined paper stayed missed: %+v", rs)
+	}
+	var state string
+	for _, call := range nouls(stub.calls()) {
+		for _, q := range call.Questions {
+			if strings.Contains(q.Instructions, "outside the study's scope") {
+				state = call.State
+			}
+		}
+	}
+	if state == "" || !strings.Contains(state, "Mammalian cells only.") || !strings.Contains(state, "It studies yeast.") {
+		t.Fatalf("the out_of_scope state lacks the comment or reason:\n%s", state)
 	}
 }
