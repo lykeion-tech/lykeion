@@ -111,7 +111,8 @@ func (e *unsentHandIn) Unwrap() error { return e.err }
 
 // waitsForServer reports whether a failed post is one Multica's daemon
 // retries a terminal report for: no answer from the server, a 5xx, 408 or
-// 429. A stopping daemon counts: its post got no answer either.
+// 429. A post the daemon itself stopped counts too; the caller tells a
+// stopping daemon, whose answer is kept, from a cancelled run, whose is not.
 func waitsForServer(err error) bool {
 	var e *apiclient.HTTPError
 	if !errors.As(err, &e) {

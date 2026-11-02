@@ -587,7 +587,14 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 	}
 	if r.Kind == "complete" && r.HandIn != nil {
 		probs, err := d.postHandIn(ctx, r, r.HandIn)
-		if err != nil {
+		var refused *apiclient.HTTPError
+		switch {
+		case errors.As(err, &refused) && !waitsForServer(err):
+			// The attempt is no longer one that takes a hand-in (swept, or
+			// cancelled): its report still settles it, as a machine failure.
+			r.HandIn = nil
+			r.Kind, r.FailureReason, r.Error = "fail", agent.ReasonRuntimeOffline, err.Error()
+		case err != nil:
 			return err
 		}
 		// The session that could correct the answer is gone: the run is

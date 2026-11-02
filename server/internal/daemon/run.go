@@ -423,10 +423,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// never the agent's: the reason is set first so no text match relabels it.
 	// A hand-in the server could not take for now waits with the report in
 	// the outbox, which posts it until the server answers; any other failure
-	// of the step parks the run.
+	// of the step parks the run. A run cancelled meanwhile keeps nothing.
 	var unsent *unsentHandIn
 	switch {
-	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "":
+	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "" && (runCtx.Err() == nil || ctx.Err() != nil):
 		r.HandIn = handInJSON(res.Output)
 		slog.Warn("hand-in kept until the server answers", "run", r.AgentRunID, "attempt", r.Attempt, "err", handInErr)
 	case handInErr != nil:

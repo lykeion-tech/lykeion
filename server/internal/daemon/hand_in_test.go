@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -38,7 +39,6 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 	posts := 0
 	hook := func(w http.ResponseWriter, r *http.Request) bool {
 		mu.Lock()
-		defer mu.Unlock()
 		paths = append(paths, r.URL.Path)
 		if strings.HasSuffix(r.URL.Path, "/fail") {
 			b, err := io.ReadAll(r.Body)
@@ -47,10 +47,14 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 			r.Body = io.NopCloser(strings.NewReader(string(b)))
 		}
 		if !strings.HasSuffix(r.URL.Path, "/hand-in") || reply == nil {
+			mu.Unlock()
 			return false
 		}
 		posts++
-		code, body := reply(posts)
+		n := posts
+		mu.Unlock()
+		// Other requests go on while a reply takes its time.
+		code, body := reply(n)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
 		io.WriteString(w, body)
@@ -74,7 +78,10 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 		}), nil
 	}
 	cancel, done := startDaemon(t, f.cfg)
-	waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" || f.parked(t) })
+	waitFor(t, func() bool {
+		s := f.status(t)
+		return s == "completed" || s == "failed" || f.parked(t) || s == "cancelled" && f.lateUsage(t)
+	})
 	stopDaemon(t, cancel, done)
 	mu.Lock()
 	defer mu.Unlock()
@@ -456,3 +463,58 @@ func TestKeptHandInWithProblemsIsTriedAgain(t *testing.T) {
 }
 
 func noneSaved() (map[string]bool, error) { return map[string]bool{}, nil }
+
+func (f *daemonFixture) lateUsage(t *testing.T) bool {
+	t.Helper()
+	var ok bool
+	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT late_usage_at IS NOT NULL FROM agent_run WHERE id=$1", f.id).Scan(&ok))
+	return ok
+}
+
+// A kept hand-in the server then refuses for good (the attempt was swept or
+// is no longer running) is dropped: the report goes as a machine failure, so
+// the outbox delivers it instead of quarantining it.
+func TestKeptHandInRefusedLaterStillReports(t *testing.T) {
+	f := fixture(t)
+	calls, paths, failed := handInRun(t, f, nil, func(n int) (int, string) {
+		if n == 1 {
+			return 503, `{"error":"unavailable"}`
+		}
+		return 409, `{"error":"the agent run is not in a state that allows this"}`
+	})
+	if len(calls) != 1 || handInPosts(paths) != 2 {
+		t.Fatalf("backend ran %d times, %d hand-in posts", len(calls), handInPosts(paths))
+	}
+	if failed["failure_reason"] != agent.ReasonRuntimeOffline {
+		t.Fatalf("failure report = %v", failed)
+	}
+	left, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "*.json"))
+	must(t, err)
+	quarantined, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "quarantine", "*.json"))
+	must(t, err)
+	if len(left)+len(quarantined) != 0 {
+		t.Fatalf("outbox still holds %q, quarantine %q", left, quarantined)
+	}
+}
+
+// A run cancelled while its hand-in is being posted keeps no hand-in: its
+// report is the cancelled attempt's, with its usage.
+func TestCancelledRunKeepsNoHandIn(t *testing.T) {
+	f := fixture(t)
+	_, paths, _ := handInRun(t, f, nil, func(n int) (int, string) {
+		if n > 1 {
+			return 409, `{"error":"the agent run is not in a state that allows this"}`
+		}
+		must(t, f.runs.Cancel(context.Background(), f.ws, f.user, f.id))
+		// Long enough for the daemon to see the cancellation and stop the
+		// run while this post is still unanswered.
+		time.Sleep(6 * time.Second)
+		return 503, `{"error":"unavailable"}`
+	})
+	if n := handInPosts(paths); n != 1 {
+		t.Fatalf("%d hand-in posts, want 1", n)
+	}
+	if status, _, _, input := f.outcome(t); status != "cancelled" || input != 10 {
+		t.Fatalf("outcome = %s, %d input tokens", status, input)
+	}
+}
