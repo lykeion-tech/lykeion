@@ -46,7 +46,14 @@ func must(t *testing.T, err error) {
 }
 func waitFor(t *testing.T, what string, fn func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	waitWithin(t, 15*time.Second, what, fn)
+}
+
+// waitWithin is waitFor with its own deadline, for a wait that spans many
+// runs one after another and so stretches with the machine's load.
+func waitWithin(t *testing.T, limit time.Duration, what string, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(limit)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return
@@ -349,7 +356,9 @@ func TestTwoDaemonsOfOneOwnerRunEachAgentRunOnce(t *testing.T) {
 		return l.count(t, "SELECT count(DISTINCT runtime_id) FROM agent_run WHERE card_id=$1 AND status='running'", card) == 2
 	})
 	must(t, os.WriteFile(flag, nil, 0600))
-	waitFor(t, "all twelve completed", func() bool {
+	// Twelve runs on two runtimes run in about six waves; on a loaded machine
+	// each takes seconds, so the wait scales with them rather than one run.
+	waitWithin(t, time.Minute, "all twelve completed", func() bool {
 		return l.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND status='completed' AND attempt=1", card) == len(ids)
 	})
 	l.settled(t, ids)
