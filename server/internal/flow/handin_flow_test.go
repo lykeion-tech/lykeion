@@ -152,6 +152,32 @@ func TestLeadHandInInvalidRedoesThenBlocks(t *testing.T) {
 	}
 }
 
+// A lead that completes with no summary and no could_not_do hand-in counts
+// as a failed run: its column is redone once, then held for its owner, so
+// the study never waits on a run that will not come.
+func TestLeadCompletedWithoutHandInCountsAsFailed(t *testing.T) {
+	l := newLab(t)
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	l.settle(t, l.latestRun(t, c.ID, "leader"), "completed", "", "")
+	got := l.card(t, c.ID)
+	if got.State != "working" || got.Redos != 1 || got.Round != c.Round+1 {
+		t.Fatalf("after the first run: %s redos %d round %d", got.State, got.Redos, got.Round)
+	}
+	q := l.runs(t, c.ID)
+	if len(q) != 1 || q[0].Role != "leader" || !strings.Contains(q[0].Prompt, "the run ended without a hand-in") {
+		t.Fatalf("the redo's run: %+v", q)
+	}
+	l.settle(t, l.latestRun(t, c.ID, "leader"), "completed", "", "")
+	if got = l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "" {
+		t.Fatalf("after the second run: %s %q", got.State, got.BlockKind)
+	}
+	items := l.inbox(t, c.ID, "blocked")
+	if len(items) != 1 || !strings.HasPrefix(items[0], "Study #1's Hypotheses column stopped: ") || !strings.Contains(items[0], "the run ended without a hand-in") {
+		t.Fatalf("blocked items: %q", items)
+	}
+}
+
 func TestAWorkingStudysCommentQueuesNoRun(t *testing.T) {
 	l := newLab(t)
 	c := l.study(t, "hypotheses", true, nil)
