@@ -28,9 +28,15 @@ func TestClaudePathsGrantSessionFolderAndResumedOne(t *testing.T) {
 		if !slices.Equal(p.Write, []string{filepath.Join(h, "projects", "-r-new"), old}) || len(p.Blocked) != 0 || p.Keychain != (platform == "darwin") {
 			t.Fatal(p)
 		}
-		if platform == "linux" && !slices.Equal(p.WriteData, []string{filepath.Join(h, ".credentials.json")}) {
-			t.Fatal(p)
+		// Signed out, there is no sign-in file to write: the sandbox would
+		// refuse the absent grant, and the CLI must run to say it's signed out.
+		if len(p.WriteData) != 0 {
+			t.Fatal(platform, p.WriteData)
 		}
+	}
+	os.WriteFile(filepath.Join(h, ".credentials.json"), nil, 0600)
+	if p, err := SandboxPaths("claude", h, "/r/new", "", "linux"); err != nil || !slices.Equal(p.WriteData, []string{filepath.Join(h, ".credentials.json")}) {
+		t.Fatal(p, err)
 	}
 }
 func TestCodexPaths(t *testing.T) {

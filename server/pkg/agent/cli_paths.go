@@ -86,8 +86,14 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 				p.Write = append(p.Write, old)
 			}
 		}
-		if goos == "linux" {
-			p.WriteData = []string{filepath.Join(home, ".credentials.json")}
+		// A signed-out person has no sign-in file. The sandbox can't grant an
+		// absent one, and the CLI must still run to report the sign-out.
+		if credentials := filepath.Join(home, ".credentials.json"); goos == "linux" {
+			if _, err := os.Lstat(credentials); err == nil {
+				p.WriteData = []string{credentials}
+			} else if !os.IsNotExist(err) {
+				return p, err
+			}
 		}
 		// Claude takes these lock folders before refreshing its sign-in, and
 		// without them it keeps the expired token. The second is the legacy
