@@ -90,7 +90,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			}
 		}
 	} else if !o.Coresearch {
-		if override, err := codexMCPCacheOverride(personal, o.CacheDir); err != nil {
+		if override, err := codexPersonalMCPOff(personal); err != nil {
 			cleanup(true)
 			return nil, err
 		} else if override != "" {

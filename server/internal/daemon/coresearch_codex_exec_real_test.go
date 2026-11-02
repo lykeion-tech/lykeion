@@ -184,7 +184,7 @@ func TestRealCoresearchCodexIgnoresUninitializedOrStaleBundledSkills(t *testing.
 	}
 }
 
-func TestRealCodexStudyRunResumesWithIsolationFlags(t *testing.T) {
+func TestRealCodexStudyRunResumesWithoutPersonalContext(t *testing.T) {
 	if os.Getenv("LYK_TEST_SKILLS_REAL") != "1" {
 		t.Skip("opt-in installed CLI offline transport")
 	}
@@ -197,6 +197,8 @@ func TestRealCodexStudyRunResumesWithIsolationFlags(t *testing.T) {
 	must(t, os.MkdirAll(account, 0700))
 	t.Setenv("CODEX_HOME", account)
 	must(t, os.WriteFile(filepath.Join(account, "AGENTS.md"), []byte("USER-CUSTOM-INSTRUCTIONS"), 0600))
+	marker := filepath.Join(run, "personal-mcp-started")
+	must(t, os.WriteFile(filepath.Join(account, "config.toml"), []byte("[mcp_servers.personal]\ncommand=\"/usr/bin/touch\"\nargs=[\""+marker+"\"]\n"), 0600))
 	requests := make(chan []byte, 4)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
@@ -234,7 +236,10 @@ func TestRealCodexStudyRunResumesWithIsolationFlags(t *testing.T) {
 		result := <-sess.Done
 		select {
 		case raw := <-requests:
-			t.Logf("turn %d: offline request; account AGENTS.md seen=%v; resume=%v", turn, strings.Contains(string(raw), "USER-CUSTOM-INSTRUCTIONS"), resume != "")
+			if strings.Contains(string(raw), "USER-CUSTOM-INSTRUCTIONS") {
+				t.Fatalf("turn %d: the account's AGENTS.md reached the model", turn)
+			}
+			t.Logf("turn %d: offline request without the account's AGENTS.md; resume=%v", turn, resume != "")
 		default:
 			t.Fatalf("turn %d never reached offline fixture: result=%+v logs=%s", turn, result, logs.String())
 		}
@@ -243,5 +248,8 @@ func TestRealCodexStudyRunResumesWithIsolationFlags(t *testing.T) {
 		}
 		resume = result.SessionID
 		cancel()
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("turn %d: a personal MCP server started", turn)
+		}
 	}
 }

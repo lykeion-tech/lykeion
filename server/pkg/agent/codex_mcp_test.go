@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -212,81 +213,50 @@ func mcpCacheFixture(t *testing.T, names []string, explicit bool) (root, cache, 
 	return
 }
 
-func assertMCPCacheProbe(t *testing.T, path, cache string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
+func TestCodexStudyRunStartsNoPersonalMCP(t *testing.T) {
+	names := []string{"ordinary", "dots.and spaces \"quote\" = \\ λ"}
+	_, cache, path, probes := mcpCacheFixture(t, names, false)
+	before, _ := os.ReadFile(path)
+	var argv []string
+	opts := ExecOptions{Dir: t.TempDir(), CacheDir: cache, Model: "fixture", DoorURL: "http://127.0.0.1:1/mcp", Sandbox: func(ctx context.Context, _ CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
+		argv = slices.Clone(args)
+		return exec.CommandContext(ctx, os.Args[0], append([]string{"--codex-mcp-fixture", "cli"}, args...)...), nil
+	}}
+	s, err := (Codex{Bin: os.Args[0]}).Execute(context.Background(), "probe", opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var seen map[string]string
-	if err := json.Unmarshal(data, &seen); err != nil {
-		t.Fatal(err)
+	if _, result := collectWithin(t, s, 10*time.Second); result.Err != nil {
+		t.Fatal(result.Err)
 	}
-	for key, sub := range mcpCacheTestKeys {
-		want := filepath.Join(cache, sub)
-		if seen[key] != want {
-			t.Errorf("MCP child %s=%q, want %q", key, seen[key], want)
-		}
-		if _, err := os.Stat(filepath.Join(want, "mcp-child-probe")); err != nil {
-			t.Errorf("MCP child did not write private %s cache: %v", key, err)
+	for _, probe := range probes {
+		if _, err := os.Stat(probe); !os.IsNotExist(err) {
+			t.Error("a personal MCP server was started")
 		}
 	}
-	if seen["PERSONAL_STATIC"] != "private-sentinel" || seen["PERSONAL_FORWARDED"] != "forwarded-sentinel" {
-		t.Error("personal MCP environment was not preserved")
+	for _, secret := range []string{"private-sentinel", "private-header", "forwarded-sentinel"} {
+		if strings.Contains(strings.Join(argv, "\n"), secret) {
+			t.Error("personal secret copied into argv")
+		}
 	}
-}
-
-func TestCodexAccountMCPCacheEnvironment(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		t.Run(fmt.Sprintf("explicit=%v", explicit), func(t *testing.T) {
-			root, cache, path, probes := mcpCacheFixture(t, []string{"ordinary", "dots.and spaces \"quote\" = \\ λ"}, explicit)
-			before, _ := os.ReadFile(path)
-			stat, _ := os.Stat(path)
-			var argv []string
-			opts := ExecOptions{Dir: t.TempDir(), CacheDir: cache, Model: "fixture", DoorURL: "http://127.0.0.1:1/mcp", Sandbox: func(ctx context.Context, _ CLIPaths, bin string, args ...string) (*exec.Cmd, error) {
-				argv = slices.Clone(args)
-				return exec.CommandContext(ctx, os.Args[0], append([]string{"--codex-mcp-fixture", "cli"}, args...)...), nil
-			}}
-			s, err := (Codex{Bin: os.Args[0]}).Execute(context.Background(), "probe", opts)
-			if err != nil {
+	if after, _ := os.ReadFile(path); !reflect.DeepEqual(before, after) {
+		t.Error("personal config changed")
+	}
+	var overlay map[string]map[string]map[string]any
+	for i, arg := range argv {
+		if arg == "-c" && strings.TrimSpace(strings.SplitN(argv[i+1], "=", 2)[0]) == "mcp_servers" {
+			if err := toml.Unmarshal([]byte(argv[i+1]), &overlay); err != nil {
 				t.Fatal(err)
 			}
-			if _, result := collectWithin(t, s, 10*time.Second); result.Err != nil {
-				t.Fatal(result.Err)
-			}
-			for _, probe := range probes {
-				assertMCPCacheProbe(t, probe, cache)
-			}
-			if _, err := os.Stat(filepath.Join(root, "shared")); !os.IsNotExist(err) {
-				t.Error("MCP child wrote a shared cache")
-			}
-			for _, secret := range []string{"private-sentinel", "private-header", "forwarded-sentinel"} {
-				if strings.Contains(strings.Join(argv, "\n"), secret) {
-					t.Error("personal secret copied into argv")
-				}
-			}
-			after, _ := os.ReadFile(path)
-			afterStat, _ := os.Stat(path)
-			if !reflect.DeepEqual(before, after) || !stat.ModTime().Equal(afterStat.ModTime()) {
-				t.Error("personal config changed")
-			}
-			for i, arg := range argv {
-				if arg == "-c" && strings.TrimSpace(strings.SplitN(argv[i+1], "=", 2)[0]) == "mcp_servers" {
-					var overlay map[string]map[string]map[string]any
-					if err := toml.Unmarshal([]byte(argv[i+1]), &overlay); err != nil {
-						t.Fatal(err)
-					}
-					if len(overlay["mcp_servers"]) != 2 {
-						t.Error("cache overlay changed HTTP server or literal IDs")
-					}
-					for _, server := range overlay["mcp_servers"] {
-						if len(server) != 1 || server["env"] == nil {
-							t.Error("overlay copied personal server fields")
-						}
-					}
-				}
-			}
-		})
+		}
+	}
+	if len(overlay["mcp_servers"]) != len(names)+1 {
+		t.Fatalf("overlay does not cover every personal server: %v", overlay)
+	}
+	for name, server := range overlay["mcp_servers"] {
+		if len(server) != 1 || server["enabled"] != false {
+			t.Errorf("overlay for %q is not just enabled=false: %v", name, server)
+		}
 	}
 }
 
@@ -321,8 +291,8 @@ func TestCodexAccountMCPCacheClash(t *testing.T) {
 
 // Opt in with an installed native Codex binary. This runs its actual config
 // merge and MCP launcher inside the OS sandbox with a disposable account home,
-// no credentials, and a local provider. It cancels after the MCP child probe.
-func TestCodexAccountMCPCacheRealProvider(t *testing.T) {
+// no credentials, and a local provider. The personal server must never start.
+func TestCodexPersonalMCPOffRealProvider(t *testing.T) {
 	bin := os.Getenv("LYK_TEST_CODEX_BIN")
 	if bin == "" {
 		t.Skip("set LYK_TEST_CODEX_BIN to test the installed Codex MCP launcher")
@@ -338,7 +308,9 @@ func TestCodexAccountMCPCacheRealProvider(t *testing.T) {
 	root, cache, _, probes := mcpCacheFixture(t, []string{"cache_probe"}, true)
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("CODEX_API_KEY", "")
+	var requests atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		http.Error(w, "local fixture; no model call", http.StatusServiceUnavailable)
 	}))
 	defer provider.Close()
@@ -353,26 +325,11 @@ func TestCodexAccountMCPCacheRealProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case result := <-s.Done:
-			if _, err := os.Stat(probes[0]); err != nil {
-				t.Fatalf("Codex exited before MCP probe: %v", result.Err)
-			}
-			assertMCPCacheProbe(t, probes[0], cache)
-			return
-		case <-ticker.C:
-			if _, err := os.Stat(probes[0]); err == nil {
-				cancel()
-				<-s.Done
-				assertMCPCacheProbe(t, probes[0], cache)
-				return
-			}
-		case <-ctx.Done():
-			<-s.Done
-			t.Fatal("Codex did not start MCP probe before timeout")
-		}
+	msgs, result := collectWithin(t, s, 30*time.Second)
+	if requests.Load() == 0 {
+		t.Fatalf("Codex never reached the provider, so MCP startup was not exercised: %v %d messages", result.Err, len(msgs))
+	}
+	if _, err := os.Stat(probes[0]); !os.IsNotExist(err) {
+		t.Fatal("Codex started the personal MCP server")
 	}
 }
