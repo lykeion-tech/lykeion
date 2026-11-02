@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,11 @@ import (
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
+
+// HeldUntil is the retry_after of a run held for its machine: a date no
+// claim ever reaches, standing for "until the machine is marked healthy or
+// deleted". It is a real date because Go cannot read Postgres infinity.
+var HeldUntil = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
 // machineWaitText is the owner's Inbox text for a machine that cannot run
 // studies. For fence_breach, tool names the tool the run used.
@@ -80,7 +86,7 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 		// The first breach is retried. A second one in a row on the same run
 		// holds it, so it spends nothing more until the machine is fixed.
 		if raise = run.FailureReason != nil && *run.FailureReason == agent.ReasonFenceBreach; raise {
-			if err := tx.Q.HoldAgentRun(ctx, db.HoldAgentRunParams{WorkspaceID: tx.WS, ID: run.ID}); err != nil {
+			if err := tx.Q.HoldAgentRun(ctx, db.HoldAgentRunParams{WorkspaceID: tx.WS, ID: run.ID, HeldUntil: &HeldUntil}); err != nil {
 				return err
 			}
 		}
@@ -106,6 +112,12 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 		Text: machineWaitText(machine, rt.Harness, reason, breachedTool(detail))})
 }
 
+// ReleaseHeldRuns makes the runs held for a runtime claimable again, when the
+// runtime is marked healthy or deleted.
+func ReleaseHeldRuns(ctx context.Context, tx *store.Tx, runtime uuid.UUID) error {
+	return tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: tx.WS, RuntimeID: &runtime, HeldUntil: &HeldUntil})
+}
+
 // MarkHealthy lets the owner's machine claim again, releases the runs it
 // held, and resolves its waits.
 func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref RuntimeRef) error {
@@ -117,7 +129,7 @@ func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref Runtime
 		if n == 0 {
 			return ErrNotYours
 		}
-		if err := tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID}); err != nil {
+		if err := ReleaseHeldRuns(ctx, tx, ref.RuntimeID); err != nil {
 			return err
 		}
 		return tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})

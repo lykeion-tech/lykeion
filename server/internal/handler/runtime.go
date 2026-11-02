@@ -153,6 +153,10 @@ func (h *H) deleteRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, u uuid.UUID) error {
+		// Runs held for this machine would otherwise wait forever.
+		if err := service.ReleaseHeldRuns(r.Context(), tx, id); err != nil {
+			return err
+		}
 		n, err := tx.Q.DeleteRuntime(r.Context(), db.DeleteRuntimeParams{ID: id, WorkspaceID: ws, OwnerID: u})
 		if err != nil {
 			return err
@@ -187,7 +191,15 @@ func (h *H) getAgentRun(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, 200, t)
+	// A held run shows as held rather than as waiting until the year 9999.
+	held := t.RetryAfter != nil && t.RetryAfter.Equal(service.HeldUntil)
+	if held {
+		t.RetryAfter = nil
+	}
+	writeJSON(w, 200, struct {
+		db.AgentRun
+		Held bool `json:"held"`
+	}{t, held})
 }
 
 func (h *H) agentRunMessages(w http.ResponseWriter, r *http.Request) {

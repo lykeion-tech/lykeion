@@ -717,18 +717,19 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 }
 
 const holdAgentRun = `-- name: HoldAgentRun :exec
-UPDATE agent_run SET retry_after = '9999-12-31 00:00:00+00' WHERE id = $1 AND workspace_id = $2
+UPDATE agent_run SET retry_after = $1 WHERE id = $2 AND workspace_id = $3
 `
 
 type HoldAgentRunParams struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
+	HeldUntil   *time.Time `json:"held_until"`
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
 }
 
 // HoldAgentRun keeps a parked run from being claimed until its machine is
-// marked healthy. The far date stands for "never", which Go can read.
+// marked healthy or deleted; @held_until is service.HeldUntil.
 func (q *Queries) HoldAgentRun(ctx context.Context, arg HoldAgentRunParams) error {
-	_, err := q.db.Exec(ctx, holdAgentRun, arg.ID, arg.WorkspaceID)
+	_, err := q.db.Exec(ctx, holdAgentRun, arg.HeldUntil, arg.ID, arg.WorkspaceID)
 	return err
 }
 
@@ -1327,19 +1328,20 @@ func (q *Queries) RecordLateUsage(ctx context.Context, arg RecordLateUsageParams
 
 const releaseHeldAgentRuns = `-- name: ReleaseHeldAgentRuns :exec
 UPDATE agent_run t SET retry_after = NULL
-WHERE t.workspace_id = $1 AND t.status = 'queued' AND t.retry_after = '9999-12-31 00:00:00+00'
+WHERE t.workspace_id = $1 AND t.status = 'queued' AND t.retry_after = $2
   AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
-    AND r.attempt = t.attempt AND r.runtime_id = $2)
+    AND r.attempt = t.attempt AND r.runtime_id = $3)
 `
 
 type ReleaseHeldAgentRunsParams struct {
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	HeldUntil   *time.Time `json:"held_until"`
 	RuntimeID   *uuid.UUID `json:"runtime_id"`
 }
 
 // Held runs whose last attempt ran on the runtime become claimable again.
 func (q *Queries) ReleaseHeldAgentRuns(ctx context.Context, arg ReleaseHeldAgentRunsParams) error {
-	_, err := q.db.Exec(ctx, releaseHeldAgentRuns, arg.WorkspaceID, arg.RuntimeID)
+	_, err := q.db.Exec(ctx, releaseHeldAgentRuns, arg.WorkspaceID, arg.HeldUntil, arg.RuntimeID)
 	return err
 }
 

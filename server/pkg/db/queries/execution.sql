@@ -290,13 +290,13 @@ UPDATE runtime SET infra_streak = infra_streak + 1 WHERE id = @id AND workspace_
 UPDATE runtime SET infra_streak = 0 WHERE id = @id AND workspace_id = @workspace_id AND infra_streak <> 0;
 
 -- HoldAgentRun keeps a parked run from being claimed until its machine is
--- marked healthy. The far date stands for "never", which Go can read.
+-- marked healthy or deleted; @held_until is service.HeldUntil.
 -- name: HoldAgentRun :exec
-UPDATE agent_run SET retry_after = '9999-12-31 00:00:00+00' WHERE id = @id AND workspace_id = @workspace_id;
+UPDATE agent_run SET retry_after = @held_until WHERE id = @id AND workspace_id = @workspace_id;
 
 -- Held runs whose last attempt ran on the runtime become claimable again.
 -- name: ReleaseHeldAgentRuns :exec
 UPDATE agent_run t SET retry_after = NULL
-WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after = '9999-12-31 00:00:00+00'
+WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after = @held_until
   AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
     AND r.attempt = t.attempt AND r.runtime_id = @runtime_id);
