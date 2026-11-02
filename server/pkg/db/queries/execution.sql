@@ -57,7 +57,8 @@ WHERE id = (
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
  AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch')))
-    AND t.harness = r.harness AND r.status = 'online'
+    AND t.harness = r.harness AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes

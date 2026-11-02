@@ -14,7 +14,7 @@ import (
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at
 FROM agent_run t
@@ -76,6 +76,8 @@ type CardAgentRunsRow struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter            *time.Time      `json:"retry_after"`
+	InfraFailures         int32           `json:"infra_failures"`
 	AgentName             *string         `json:"agent_name"`
 	LatestText            string          `json:"latest_text"`
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
@@ -140,6 +142,8 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.MachineOwnerID,
 			&i.CoresearchChatID,
 			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
@@ -470,7 +474,7 @@ func (q *Queries) ListAllRecords(ctx context.Context, arg ListAllRecordsParams) 
 }
 
 const listArchivedInbox = `-- name: ListArchivedInbox :many
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NOT NULL
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NOT NULL
 ORDER BY created_at DESC, id DESC LIMIT 200
 `
 
@@ -499,6 +503,8 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 			&i.CreatedAt,
 			&i.ResolvedAt,
 			&i.AutoresearchRunID,
+			&i.RuntimeID,
+			&i.Cause,
 		); err != nil {
 			return nil, err
 		}
@@ -660,7 +666,7 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]C
 }
 
 const listInbox = `-- name: ListInbox :many
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NULL
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NULL
 ORDER BY created_at DESC LIMIT 200
 `
 
@@ -689,6 +695,8 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]InboxIt
 			&i.CreatedAt,
 			&i.ResolvedAt,
 			&i.AutoresearchRunID,
+			&i.RuntimeID,
+			&i.Cause,
 		); err != nil {
 			return nil, err
 		}
@@ -705,7 +713,7 @@ UPDATE inbox_item SET read_at = COALESCE(read_at, now()),
   resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3
   AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause
 `
 
 type MarkInboxReadParams struct {
@@ -729,6 +737,8 @@ func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (I
 		&i.CreatedAt,
 		&i.ResolvedAt,
 		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
 	)
 	return i, err
 }

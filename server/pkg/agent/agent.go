@@ -65,6 +65,14 @@ const (
 	ReasonProviderNetwork  = "provider_network"
 	ReasonContextExhausted = "context_exhausted"
 	ReasonAgentError       = "agent_error"
+	ReasonSignIn           = "sign_in"
+	ReasonCLIMissing       = "cli_missing"
+	ReasonCLITooOld        = "cli_too_old"
+	ReasonDoor             = "door"
+	ReasonCLIBroken        = "cli_broken"
+	ReasonSandbox          = "sandbox"
+	ReasonFenceBreach      = "fence_breach"
+	ReasonHandInInvalid    = "hand_in_invalid"
 )
 
 type Result struct {

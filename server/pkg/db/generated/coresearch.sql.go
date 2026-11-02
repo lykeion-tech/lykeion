@@ -381,7 +381,7 @@ func (q *Queries) DeleteCoresearchMember(ctx context.Context, arg DeleteCoresear
 
 const enqueueCoresearchAgentRun = `-- name: EnqueueCoresearchAgentRun :one
 INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,board_column,round,role,harness,prompt,skill,max_attempts,requested_model,continuity_scope,coresearch_chat_id)
-VALUES($1,'coresearch',$2::uuid,$2::uuid,'',0,'coresearch',$3,$4,'',2,'',$5,$6) RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
+VALUES($1,'coresearch',$2::uuid,$2::uuid,'',0,'coresearch',$3,$4,'',2,'',$5,$6) RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures
 `
 
 type EnqueueCoresearchAgentRunParams struct {
@@ -450,6 +450,8 @@ func (q *Queries) EnqueueCoresearchAgentRun(ctx context.Context, arg EnqueueCore
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }
@@ -1117,7 +1119,7 @@ func (q *Queries) SetCoresearchProjectMode(ctx context.Context, arg SetCoresearc
 }
 
 const setCoresearchRunAgent = `-- name: SetCoresearchRunAgent :one
-UPDATE agent_run SET agent_id = $1 WHERE workspace_id = $2 AND id = $3 AND kind = 'coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
+UPDATE agent_run SET agent_id = $1 WHERE workspace_id = $2 AND id = $3 AND kind = 'coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures
 `
 
 type SetCoresearchRunAgentParams struct {
@@ -1176,6 +1178,8 @@ func (q *Queries) SetCoresearchRunAgent(ctx context.Context, arg SetCoresearchRu
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }

@@ -61,7 +61,7 @@ func (q *Queries) AnalyticsEvents(ctx context.Context, arg AnalyticsEventsParams
 }
 
 const analyticsRuns = `-- name: AnalyticsRuns :many
-SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, COALESCE(a.name, '')::text AS agent_name
+SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, COALESCE(a.name, '')::text AS agent_name
 FROM agent_run r
 JOIN card c ON c.id = r.card_id AND c.workspace_id = r.workspace_id
 LEFT JOIN agent a ON a.id = r.agent_id AND a.workspace_id = r.workspace_id
@@ -125,6 +125,8 @@ type AnalyticsRunsRow struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter            *time.Time      `json:"retry_after"`
+	InfraFailures         int32           `json:"infra_failures"`
 	AgentName             string          `json:"agent_name"`
 }
 
@@ -184,6 +186,8 @@ func (q *Queries) AnalyticsRuns(ctx context.Context, arg AnalyticsRunsParams) ([
 			&i.MachineOwnerID,
 			&i.CoresearchChatID,
 			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
 			&i.AgentName,
 		); err != nil {
 			return nil, err
@@ -197,7 +201,7 @@ func (q *Queries) AnalyticsRuns(ctx context.Context, arg AnalyticsRunsParams) ([
 }
 
 const analyticsUsage = `-- name: AnalyticsUsage :many
-SELECT u.id, u.workspace_id, u.agent_run_id, u.attempt, u.model, u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens, u.cost_usd, u.cost_reported, u.created_at FROM agent_run_usage u
+SELECT u.id, u.workspace_id, u.agent_run_id, u.attempt, u.model, u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens, u.cost_usd, u.cost_reported, u.created_at, u.estimated FROM agent_run_usage u
 JOIN agent_run r ON r.id = u.agent_run_id AND r.workspace_id = u.workspace_id
 JOIN card c ON c.id = r.card_id AND c.workspace_id = r.workspace_id
 WHERE u.workspace_id = $1
@@ -235,6 +239,7 @@ func (q *Queries) AnalyticsUsage(ctx context.Context, arg AnalyticsUsageParams) 
 			&i.CostUsd,
 			&i.CostReported,
 			&i.CreatedAt,
+			&i.Estimated,
 		); err != nil {
 			return nil, err
 		}

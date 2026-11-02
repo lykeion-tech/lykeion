@@ -166,7 +166,8 @@ WHERE id = (
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = $2 AND t.status = 'queued'
  AND (($3::boolean AND t.kind='coresearch') OR (NOT $3::boolean AND t.kind IN ('role','autoresearch')))
-    AND t.harness = r.harness AND r.status = 'online'
+    AND t.harness = r.harness AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR ($4::boolean AND r.os = 'linux'))
     AND (
       -- role runs use the chosen machine with consent, or the card owner's runtimes
@@ -192,7 +193,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine
 `
 
 type ClaimAgentRunParams struct {
@@ -249,6 +250,8 @@ type ClaimAgentRunRow struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter            *time.Time      `json:"retry_after"`
+	InfraFailures         int32           `json:"infra_failures"`
 	ClaimedMachine        *string         `json:"claimed_machine"`
 }
 
@@ -307,6 +310,8 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (C
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 		&i.ClaimedMachine,
 	)
 	return i, err
@@ -361,7 +366,7 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 }
 
 const departingMemberSharedRuns = `-- name: DepartingMemberSharedRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id FROM agent_run t
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued', 'dispatched', 'running')
 AND t.kind <> 'coresearch'
@@ -436,6 +441,8 @@ func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMe
 			&i.MachineOwnerID,
 			&i.CoresearchChatID,
 			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
 		); err != nil {
 			return nil, err
 		}
@@ -450,7 +457,7 @@ func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMe
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
 INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures
 `
 
 type EnqueueAgentRunParams struct {
@@ -535,6 +542,8 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }
@@ -588,7 +597,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -646,12 +655,14 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }
 
 const getRuntime = `-- name: GetRuntime :one
-SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics FROM runtime WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason FROM runtime WHERE id = $1 AND workspace_id = $2
 `
 
 type GetRuntimeParams struct {
@@ -683,6 +694,7 @@ func (q *Queries) GetRuntime(ctx context.Context, arg GetRuntimeParams) (Runtime
 		&i.Visibility,
 		&i.Models,
 		&i.Metrics,
+		&i.UnhealthyReason,
 	)
 	return i, err
 }
@@ -877,7 +889,7 @@ func (q *Queries) ListRecords(ctx context.Context, arg ListRecordsParams) ([]Rec
 }
 
 const listRuntimes = `-- name: ListRuntimes :many
-SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, r.models, r.metrics, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
+SELECT r.id, r.workspace_id, r.owner_id, r.daemon_id, r.harness, r.device_name, r.custom_name, r.status, r.last_seen_at, r.max_concurrent, r.created_at, r.cli_version, r.os, r.arch, r.kernel, r.language, r.bases, r.visibility, r.models, r.metrics, r.unhealthy_reason, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace_id AND t.runtime_id = r.id
   AND t.status IN ('dispatched', 'running'))::int AS active_runs,
   COALESCE((SELECT array_agg(s.user_id ORDER BY s.user_id) FROM runtime_share s
     WHERE s.runtime_id = r.id AND s.workspace_id = r.workspace_id), '{}'::uuid[])::uuid[] AS shared_with
@@ -885,28 +897,29 @@ FROM runtime r WHERE r.workspace_id = $1 ORDER BY r.created_at
 `
 
 type ListRuntimesRow struct {
-	ID            uuid.UUID       `json:"id"`
-	WorkspaceID   uuid.UUID       `json:"workspace_id"`
-	OwnerID       uuid.UUID       `json:"owner_id"`
-	DaemonID      string          `json:"daemon_id"`
-	Harness       string          `json:"harness"`
-	DeviceName    string          `json:"device_name"`
-	CustomName    *string         `json:"custom_name"`
-	Status        string          `json:"status"`
-	LastSeenAt    time.Time       `json:"last_seen_at"`
-	MaxConcurrent int32           `json:"max_concurrent"`
-	CreatedAt     time.Time       `json:"created_at"`
-	CliVersion    string          `json:"cli_version"`
-	Os            string          `json:"os"`
-	Arch          string          `json:"arch"`
-	Kernel        string          `json:"kernel"`
-	Language      string          `json:"language"`
-	Bases         json.RawMessage `json:"bases"`
-	Visibility    string          `json:"visibility"`
-	Models        json.RawMessage `json:"models"`
-	Metrics       json.RawMessage `json:"metrics"`
-	ActiveRuns    int32           `json:"active_runs"`
-	SharedWith    []uuid.UUID     `json:"shared_with"`
+	ID              uuid.UUID       `json:"id"`
+	WorkspaceID     uuid.UUID       `json:"workspace_id"`
+	OwnerID         uuid.UUID       `json:"owner_id"`
+	DaemonID        string          `json:"daemon_id"`
+	Harness         string          `json:"harness"`
+	DeviceName      string          `json:"device_name"`
+	CustomName      *string         `json:"custom_name"`
+	Status          string          `json:"status"`
+	LastSeenAt      time.Time       `json:"last_seen_at"`
+	MaxConcurrent   int32           `json:"max_concurrent"`
+	CreatedAt       time.Time       `json:"created_at"`
+	CliVersion      string          `json:"cli_version"`
+	Os              string          `json:"os"`
+	Arch            string          `json:"arch"`
+	Kernel          string          `json:"kernel"`
+	Language        string          `json:"language"`
+	Bases           json.RawMessage `json:"bases"`
+	Visibility      string          `json:"visibility"`
+	Models          json.RawMessage `json:"models"`
+	Metrics         json.RawMessage `json:"metrics"`
+	UnhealthyReason *string         `json:"unhealthy_reason"`
+	ActiveRuns      int32           `json:"active_runs"`
+	SharedWith      []uuid.UUID     `json:"shared_with"`
 }
 
 // active_runs: the runtime's agent runs that are dispatched or running.
@@ -940,6 +953,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 			&i.Visibility,
 			&i.Models,
 			&i.Metrics,
+			&i.UnhealthyReason,
 			&i.ActiveRuns,
 			&i.SharedWith,
 		); err != nil {
@@ -954,7 +968,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -1012,6 +1026,8 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }
@@ -1046,7 +1062,7 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 }
 
 const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id FROM agent_run t
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
  AND (($2::boolean AND t.kind='coresearch') OR (NOT $2::boolean AND t.kind IN ('role','autoresearch')))
@@ -1118,6 +1134,8 @@ func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHa
 			&i.MachineOwnerID,
 			&i.CoresearchChatID,
 			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
 		); err != nil {
 			return nil, err
 		}
@@ -1293,7 +1311,7 @@ func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) 
 }
 
 const runtimeDependentRuns = `-- name: RuntimeDependentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, c.title AS study_title, u.name AS colleague
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, c.title AS study_title, u.name AS colleague
 FROM agent_run t
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
@@ -1358,6 +1376,8 @@ type RuntimeDependentRunsRow struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter            *time.Time      `json:"retry_after"`
+	InfraFailures         int32           `json:"infra_failures"`
 	StudyTitle            string          `json:"study_title"`
 	Colleague             string          `json:"colleague"`
 }
@@ -1424,6 +1444,8 @@ func (q *Queries) RuntimeDependentRuns(ctx context.Context, arg RuntimeDependent
 			&i.MachineOwnerID,
 			&i.CoresearchChatID,
 			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
 			&i.StudyTitle,
 			&i.Colleague,
 		); err != nil {
@@ -1469,7 +1491,7 @@ func (q *Queries) RuntimeShares(ctx context.Context, arg RuntimeSharesParams) ([
 const setRunMachine = `-- name: SetRunMachine :one
 UPDATE agent_run SET machine_name = COALESCE(r.custom_name, r.device_name), machine_owner_id = r.owner_id
 FROM runtime r WHERE agent_run.id = $1 AND agent_run.workspace_id = $2 AND r.id = agent_run.runtime_id
-RETURNING agent_run.id, agent_run.workspace_id, agent_run.card_id, agent_run.responsible_user_id, agent_run.board_column, agent_run.round, agent_run.role, agent_run.harness, agent_run.prompt, agent_run.skill, agent_run.status, agent_run.queue_reason, agent_run.runtime_id, agent_run.prepare_lease_expires_at, agent_run.dispatched_at, agent_run.started_at, agent_run.completed_at, agent_run.attempt, agent_run.max_attempts, agent_run.session_id, agent_run.continuity_scope, agent_run.profile_mode, agent_run.policy_digest, agent_run.model, agent_run.error, agent_run.failure_reason, agent_run.cost_usd, agent_run.late_usage_at, agent_run.created_at, agent_run.handoff_note, agent_run.input_lease_expires_at, agent_run.input_fetch_expires_at, agent_run.input_fetch_id, agent_run.input_outcomes, agent_run.addon_hash, agent_run.addon_mcp, agent_run.kind, agent_run.requester_id, agent_run.requested_model, agent_run.agent_id, agent_run.assignment, agent_run.cancel_reason, agent_run.machine_name, agent_run.machine_owner_id, agent_run.coresearch_chat_id, agent_run.coresearch_build_id
+RETURNING agent_run.id, agent_run.workspace_id, agent_run.card_id, agent_run.responsible_user_id, agent_run.board_column, agent_run.round, agent_run.role, agent_run.harness, agent_run.prompt, agent_run.skill, agent_run.status, agent_run.queue_reason, agent_run.runtime_id, agent_run.prepare_lease_expires_at, agent_run.dispatched_at, agent_run.started_at, agent_run.completed_at, agent_run.attempt, agent_run.max_attempts, agent_run.session_id, agent_run.continuity_scope, agent_run.profile_mode, agent_run.policy_digest, agent_run.model, agent_run.error, agent_run.failure_reason, agent_run.cost_usd, agent_run.late_usage_at, agent_run.created_at, agent_run.handoff_note, agent_run.input_lease_expires_at, agent_run.input_fetch_expires_at, agent_run.input_fetch_id, agent_run.input_outcomes, agent_run.addon_hash, agent_run.addon_mcp, agent_run.kind, agent_run.requester_id, agent_run.requested_model, agent_run.agent_id, agent_run.assignment, agent_run.cancel_reason, agent_run.machine_name, agent_run.machine_owner_id, agent_run.coresearch_chat_id, agent_run.coresearch_build_id, agent_run.retry_after, agent_run.infra_failures
 `
 
 type SetRunMachineParams struct {
@@ -1527,6 +1549,8 @@ func (q *Queries) SetRunMachine(ctx context.Context, arg SetRunMachineParams) (A
 		&i.MachineOwnerID,
 		&i.CoresearchChatID,
 		&i.CoresearchBuildID,
+		&i.RetryAfter,
+		&i.InfraFailures,
 	)
 	return i, err
 }
@@ -1816,7 +1840,7 @@ ON CONFLICT (workspace_id, daemon_id, harness) DO UPDATE
   SET device_name = EXCLUDED.device_name, cli_version = EXCLUDED.cli_version, os = EXCLUDED.os, arch = EXCLUDED.arch,
     kernel = EXCLUDED.kernel, language = EXCLUDED.language, status = 'online', last_seen_at = now()
   WHERE runtime.owner_id = EXCLUDED.owner_id
-RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics
+RETURNING id, workspace_id, owner_id, daemon_id, harness, device_name, custom_name, status, last_seen_at, max_concurrent, created_at, cli_version, os, arch, kernel, language, bases, visibility, models, metrics, unhealthy_reason
 `
 
 type UpsertRuntimeParams struct {
@@ -1867,6 +1891,7 @@ func (q *Queries) UpsertRuntime(ctx context.Context, arg UpsertRuntimeParams) (R
 		&i.Visibility,
 		&i.Models,
 		&i.Metrics,
+		&i.UnhealthyReason,
 	)
 	return i, err
 }

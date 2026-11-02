@@ -85,6 +85,8 @@ type AgentRun struct {
 	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
 	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter            *time.Time      `json:"retry_after"`
+	InfraFailures         int32           `json:"infra_failures"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -152,6 +154,7 @@ type AgentRunUsage struct {
 	CostUsd          float64   `json:"cost_usd"`
 	CostReported     bool      `json:"cost_reported"`
 	CreatedAt        time.Time `json:"created_at"`
+	Estimated        bool      `json:"estimated"`
 }
 
 type Attachment struct {
@@ -637,6 +640,8 @@ type InboxItem struct {
 	CreatedAt         time.Time  `json:"created_at"`
 	ResolvedAt        *time.Time `json:"resolved_at"`
 	AutoresearchRunID *uuid.UUID `json:"autoresearch_run_id"`
+	RuntimeID         *uuid.UUID `json:"runtime_id"`
+	Cause             *string    `json:"cause"`
 }
 
 type Member struct {
@@ -688,26 +693,27 @@ type Research struct {
 }
 
 type Runtime struct {
-	ID            uuid.UUID       `json:"id"`
-	WorkspaceID   uuid.UUID       `json:"workspace_id"`
-	OwnerID       uuid.UUID       `json:"owner_id"`
-	DaemonID      string          `json:"daemon_id"`
-	Harness       string          `json:"harness"`
-	DeviceName    string          `json:"device_name"`
-	CustomName    *string         `json:"custom_name"`
-	Status        string          `json:"status"`
-	LastSeenAt    time.Time       `json:"last_seen_at"`
-	MaxConcurrent int32           `json:"max_concurrent"`
-	CreatedAt     time.Time       `json:"created_at"`
-	CliVersion    string          `json:"cli_version"`
-	Os            string          `json:"os"`
-	Arch          string          `json:"arch"`
-	Kernel        string          `json:"kernel"`
-	Language      string          `json:"language"`
-	Bases         json.RawMessage `json:"bases"`
-	Visibility    string          `json:"visibility"`
-	Models        json.RawMessage `json:"models"`
-	Metrics       json.RawMessage `json:"metrics"`
+	ID              uuid.UUID       `json:"id"`
+	WorkspaceID     uuid.UUID       `json:"workspace_id"`
+	OwnerID         uuid.UUID       `json:"owner_id"`
+	DaemonID        string          `json:"daemon_id"`
+	Harness         string          `json:"harness"`
+	DeviceName      string          `json:"device_name"`
+	CustomName      *string         `json:"custom_name"`
+	Status          string          `json:"status"`
+	LastSeenAt      time.Time       `json:"last_seen_at"`
+	MaxConcurrent   int32           `json:"max_concurrent"`
+	CreatedAt       time.Time       `json:"created_at"`
+	CliVersion      string          `json:"cli_version"`
+	Os              string          `json:"os"`
+	Arch            string          `json:"arch"`
+	Kernel          string          `json:"kernel"`
+	Language        string          `json:"language"`
+	Bases           json.RawMessage `json:"bases"`
+	Visibility      string          `json:"visibility"`
+	Models          json.RawMessage `json:"models"`
+	Metrics         json.RawMessage `json:"metrics"`
+	UnhealthyReason *string         `json:"unhealthy_reason"`
 }
 
 type RuntimeShare struct {

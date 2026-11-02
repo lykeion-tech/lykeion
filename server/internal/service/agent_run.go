@@ -98,10 +98,22 @@ var (
 // FailureReasons are how an attempt can end badly. The first three are the
 // machine's or the network's fault, so another attempt may succeed; the other
 // reasons do not retry. Runtime access denial is recorded only by the server.
-var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked"}
+var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked",
+	agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid}
 
 func Retryable(reason string) bool {
 	return reason == "runtime_offline" || reason == "timeout" || reason == "provider_network"
+}
+
+// Infra reports whether a reason is the machine's or its tooling's fault
+// rather than the agent's, so the run is not held against the agent.
+func Infra(reason string) bool {
+	switch reason {
+	case "runtime_offline", "timeout", "provider_network", agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld,
+		agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach:
+		return true
+	}
+	return false
 }
 
 type RuntimeRef struct {
