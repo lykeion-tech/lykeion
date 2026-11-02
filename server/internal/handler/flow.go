@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
@@ -34,7 +37,7 @@ func flowError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &inv), errors.Is(err, flow.ErrUndeclaredMember):
 		writeErr(w, 400, err.Error())
-	case errors.Is(err, flow.ErrStepCap), errors.Is(err, flow.ErrInFlight), errors.Is(err, flow.ErrMovedOn), errors.Is(err, flow.ErrDeclaredDone):
+	case errors.Is(err, flow.ErrStepCap), errors.Is(err, flow.ErrBusy), errors.Is(err, flow.ErrInFlight), errors.Is(err, flow.ErrMovedOn), errors.Is(err, flow.ErrDeclaredDone):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, flow.ErrPackUnavailable):
 		slog.Error("load Team for a step", "card", middleware.RoleFrom(r.Context()).CardID, "err", err)
@@ -65,7 +68,7 @@ func (h *H) postStep(w http.ResponseWriter, r *http.Request) {
 		if in.Self {
 			rec, err = h.Engine.SelfStep(r.Context(), tx, writer(role), in.Content)
 		} else {
-			rec, err = h.Engine.Delegate(r.Context(), tx, writer(role), in.Member, in.Content)
+			rec, _, err = h.Engine.Delegate(r.Context(), tx, writer(role), in.Member, in.Content)
 		}
 		return err
 	})
@@ -83,6 +86,102 @@ func (h *H) postStep(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 201, out)
 }
+
+// askMember is the leader starting a member's run on a task; its ticket is
+// the member's run. While another member works the column it answers busy
+// with that member's ticket.
+func (h *H) askMember(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Member string `json:"member"`
+		Task   string `json:"task"`
+	}
+	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Task) == "" {
+		writeErr(w, 400, "member and task required")
+		return
+	}
+	if middleware.RoleFrom(r.Context()).Role != "leader" {
+		writeErr(w, 403, "only the leader asks members")
+		return
+	}
+	var ticket uuid.UUID
+	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
+		_, ticket, err = h.Engine.Delegate(r.Context(), tx, writer(role), in.Member, in.Task)
+		return err
+	})
+	if errors.Is(err, flow.ErrBusy) {
+		writeJSON(w, 409, map[string]any{"busy": true, "ticket": ticket, "error": err.Error()})
+		return
+	}
+	if err != nil {
+		flowError(w, r, err)
+		return
+	}
+	writeJSON(w, 201, map[string]any{"ticket": ticket})
+}
+
+// memberResult answers where a member's run the leader asked for stands:
+// working while it has not ended, including while it waits to be retried
+// after a machine fault, which the leader is never told about; done with its
+// hand-in; or failed with its reason.
+func (h *H) memberResult(w http.ResponseWriter, r *http.Request) {
+	if middleware.RoleFrom(r.Context()).Role != "leader" {
+		writeErr(w, 403, "only the leader asks members")
+		return
+	}
+	ticket, err := uuid.Parse(chi.URLParam(r, "ticket"))
+	if err != nil {
+		writeErr(w, 404, "no such member run")
+		return
+	}
+	var run db.AgentRun
+	var handIn json.RawMessage
+	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
+		run, err = tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: role.WorkspaceID, ID: ticket})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (run.CardID == nil || *run.CardID != role.CardID || !flow.IsMember(run.Role)) {
+			return errNoMemberRun
+		}
+		if err != nil || run.Status != "completed" {
+			return err
+		}
+		recs, err := tx.Q.AgentRunRecords(r.Context(), db.AgentRunRecordsParams{WorkspaceID: role.WorkspaceID, AgentRunID: &run.ID})
+		for _, rec := range recs {
+			if rec.Kind == "hand_in" && rec.SupersededAt == nil {
+				handIn = rec.Body
+			}
+		}
+		return err
+	})
+	if errors.Is(err, errNoMemberRun) {
+		writeErr(w, 404, err.Error())
+		return
+	}
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	end := time.Now()
+	if run.CompletedAt != nil {
+		end = *run.CompletedAt
+	}
+	out := map[string]any{"status": "working", "elapsed_seconds": int(end.Sub(run.CreatedAt).Seconds()), "hand_in": nil, "reason": "", "comments": []any{}}
+	switch {
+	case run.Status == "completed" && handIn != nil:
+		out["status"], out["hand_in"] = "done", handIn
+	case run.Status == "completed":
+		out["status"], out["reason"] = "failed", "the member's run ended without a hand-in"
+	case run.Status == "cancelled":
+		out["status"], out["reason"] = "failed", "the member's run was cancelled"
+	case run.Status == "failed":
+		reason := strings.TrimSpace(run.Error)
+		if reason == "" && run.FailureReason != nil {
+			reason = *run.FailureReason
+		}
+		out["status"], out["reason"] = "failed", reason
+	}
+	writeJSON(w, 200, out)
+}
+
+var errNoMemberRun = errors.New("no such member run")
 
 // postDone is the leader, or a study's single agent, declaring its column
 // done; the column then goes to the auditor.

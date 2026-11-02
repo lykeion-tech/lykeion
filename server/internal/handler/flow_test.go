@@ -33,6 +33,7 @@ type teamRun struct {
 	callToken                             string // the door's, which alone records calls
 	outputSchema                          string
 	lead                                  bool
+	leader                                bool // offered the member tools
 }
 
 // newValidationLab is newTeamLab on Validation, whose runs still name
@@ -87,6 +88,7 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 			CallToken    string `json:"call_token"`
 			OutputSchema string `json:"output_schema"`
 			Lead         bool
+			Leader       bool
 		}
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); c != 200 {
 			t.Fatalf("claim %d", c)
@@ -99,7 +101,7 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+a.ID+"/start", l.personal, "", ref, nil); c != 204 {
 			t.Fatalf("start %d", c)
 		}
-		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref, claims[0].CallToken, claims[0].OutputSchema, claims[0].Lead}
+		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref, claims[0].CallToken, claims[0].OutputSchema, claims[0].Lead, claims[0].Leader}
 	}
 	t.Fatal("no run was queued")
 	return teamRun{}

@@ -72,6 +72,13 @@ type Door struct {
 	// SandboxErr is why the machine's sandbox failed its check; while it is
 	// set, run_code and run_script run nothing.
 	SandboxErr error
+	// Leader offers ask_member and member_result: the run is a Team
+	// leader's, which delegates to its members.
+	Leader bool
+	// MemberWait is how long one member_result call waits for the member,
+	// and MemberPoll how often it asks the server; 0 means 10 minutes and
+	// 5 seconds.
+	MemberWait, MemberPoll time.Duration
 
 	// URL and Token are set by Start: the CLI's MCP entry and its bearer.
 	URL, Token string
@@ -167,6 +174,10 @@ func (d *Door) Start() error {
 		mcp.AddTool(srv, &mcp.Tool{Name: "run_code", Description: runCodeDescription}, d.runCode)
 		mcp.AddTool(srv, &mcp.Tool{Name: "run_script", Description: runScriptDescription}, d.runScript)
 		mcp.AddTool(srv, &mcp.Tool{Name: "set_up_environment", Description: setupDescription}, d.setUp)
+		if d.Leader {
+			mcp.AddTool(srv, &mcp.Tool{Name: "ask_member", Description: askMemberDescription}, d.askMember)
+			mcp.AddTool(srv, &mcp.Tool{Name: "member_result", Description: memberResultDescription}, d.memberResult)
+		}
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{Stateless: true}))
@@ -734,4 +745,97 @@ func (d *Door) brokerRequest(ctx context.Context, path string, in, out any) (str
 	api := &apiclient.Client{Server: d.Server, Token: d.CallToken, HTTP: &http.Client{Timeout: callTimeout, Transport: receiptTransport{&ticket}}}
 	err := api.Do(ctx, "POST", path, in, out)
 	return ticket, err
+}
+
+const (
+	askMemberDescription    = "Start a member of your Team on a task. Answers a ticket to wait on with member_result, or busy with the ticket of the member already working: one member works at a time."
+	memberResultDescription = "Wait up to 10 minutes for the member's run a ticket names. Answers working, with the elapsed time, while it is still at work (call again), done with its hand-in, or failed with its reason."
+)
+
+type askMemberIn struct {
+	Member string `json:"member" jsonschema:"the member's name, as your Team declares it"`
+	Task   string `json:"task" jsonschema:"what the member is to do, in full: it sees this and the study, not your conversation"`
+}
+
+type memberResultIn struct {
+	Ticket string `json:"ticket" jsonschema:"the ticket ask_member answered"`
+}
+
+func (d *Door) memberTiming() (wait, poll time.Duration) {
+	wait, poll = d.MemberWait, d.MemberPoll
+	if wait == 0 {
+		wait = 10 * time.Minute
+	}
+	if poll == 0 {
+		poll = 5 * time.Second
+	}
+	return wait, poll
+}
+
+// askMember starts the member's run through the server. A busy answer, a
+// 409 the API client would turn into a bare error, carries the working
+// member's ticket, so the door reads the reply itself.
+func (d *Door) askMember(ctx context.Context, _ *mcp.CallToolRequest, in askMemberIn) (*mcp.CallToolResult, any, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(d.Server, "/")+"/api/role/members", bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+d.RunToken)
+	resp, err := (&http.Client{Timeout: callTimeout}).Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Busy   bool   `json:"busy,omitempty"`
+		Ticket string `json:"ticket"`
+		Error  string `json:"error,omitempty"`
+	}
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out)
+	switch {
+	case resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusConflict && out.Busy:
+		out.Error = ""
+		text, err := json.Marshal(out)
+		return cited("", string(text)), nil, err
+	case out.Error != "":
+		return nil, nil, errors.New(out.Error)
+	}
+	return nil, nil, errors.New(resp.Status)
+}
+
+// memberResult polls the member's run until it is no longer working or the
+// wait is over, and answers the server's last reply.
+func (d *Door) memberResult(ctx context.Context, _ *mcp.CallToolRequest, in memberResultIn) (*mcp.CallToolResult, any, error) {
+	wait, poll := d.memberTiming()
+	ctx, cancel := d.runContext(ctx)
+	defer cancel()
+	api := &apiclient.Client{Server: d.Server, Token: d.RunToken, HTTP: &http.Client{Timeout: callTimeout}}
+	deadline := time.Now().Add(wait)
+	for {
+		var out json.RawMessage
+		err := api.Do(ctx, "GET", "/api/role/members/"+url.PathEscape(in.Ticket), nil, &out)
+		var he *apiclient.HTTPError
+		if errors.As(err, &he) && he.Status == http.StatusNotFound {
+			return nil, nil, errors.New("no such member run")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		var s struct{ Status string }
+		json.Unmarshal(out, &s)
+		left := time.Until(deadline)
+		if s.Status != "working" || left <= 0 {
+			return cited("", string(out)), nil, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(min(poll, left)):
+		}
+	}
 }

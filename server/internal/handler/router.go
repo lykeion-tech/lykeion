@@ -79,6 +79,8 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/records", h.createRecord)
 			r.Get("/records", h.listRecords)
 			r.Post("/steps", h.postStep)
+			r.Post("/members", h.askMember)
+			r.Get("/members/{ticket}", h.memberResult)
 			r.Post("/done", h.postDone)
 			r.Get("/calls", h.listCalls)
 			r.Get("/runs", h.listRuns)

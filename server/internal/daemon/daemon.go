@@ -124,6 +124,9 @@ type claimed struct {
 	// column through.
 	OutputSchema string `json:"output_schema"`
 	Lead         bool   `json:"lead"`
+	// Leader marks a Team leader's lead run, whose door offers ask_member
+	// and member_result.
+	Leader bool `json:"leader"`
 }
 type daemon struct {
 	modelProbeMu       sync.Mutex

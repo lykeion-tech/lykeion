@@ -1,8 +1,10 @@
 -- name: LockRuntime :one
 SELECT * FROM runtime WHERE id = @id AND workspace_id = @workspace_id FOR UPDATE;
 
--- name: CountRuntimeActive :one
-SELECT count(*) FROM agent_run WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id
+-- The runs holding a runtime's slots. A leader among them gives its slot up
+-- while its member works; the claim checks that with InFlightMemberRun.
+-- name: RuntimeActiveRuns :many
+SELECT card_id, board_column, round, role FROM agent_run WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id
  AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch');
 
 -- name: GetAttemptReceipt :one

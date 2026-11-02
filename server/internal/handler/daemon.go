@@ -186,6 +186,7 @@ func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 	for i, c := range got {
 		if k, ok := handin.KindFor(c.AgentRun.Kind, c.AgentRun.Role, c.AgentRun.BoardColumn); ok {
 			got[i].OutputSchema, got[i].Lead = handin.Schema(k), handin.Leads(c.AgentRun.Role)
+			got[i].Leader = c.AgentRun.Role == "leader"
 		}
 	}
 	writeJSON(w, 200, got)

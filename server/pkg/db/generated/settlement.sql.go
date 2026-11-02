@@ -67,23 +67,6 @@ func (q *Queries) ClaimSettlement(ctx context.Context, arg ClaimSettlementParams
 	return i, err
 }
 
-const countRuntimeActive = `-- name: CountRuntimeActive :one
-SELECT count(*) FROM agent_run WHERE workspace_id = $1 AND runtime_id = $2
- AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch')
-`
-
-type CountRuntimeActiveParams struct {
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	RuntimeID   *uuid.UUID `json:"runtime_id"`
-}
-
-func (q *Queries) CountRuntimeActive(ctx context.Context, arg CountRuntimeActiveParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countRuntimeActive, arg.WorkspaceID, arg.RuntimeID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const getAttemptReceipt = `-- name: GetAttemptReceipt :one
 SELECT workspace_id, agent_run_id, attempt, runtime_id, result FROM agent_run_receipt WHERE workspace_id = $1 AND agent_run_id = $2 AND attempt = $3
 `
@@ -233,6 +216,50 @@ func (q *Queries) ReleaseSettlement(ctx context.Context, arg ReleaseSettlementPa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const runtimeActiveRuns = `-- name: RuntimeActiveRuns :many
+SELECT card_id, board_column, round, role FROM agent_run WHERE workspace_id = $1 AND runtime_id = $2
+ AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch')
+`
+
+type RuntimeActiveRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+}
+
+type RuntimeActiveRunsRow struct {
+	CardID      *uuid.UUID `json:"card_id"`
+	BoardColumn string     `json:"board_column"`
+	Round       int32      `json:"round"`
+	Role        string     `json:"role"`
+}
+
+// The runs holding a runtime's slots. A leader among them gives its slot up
+// while its member works; the claim checks that with InFlightMemberRun.
+func (q *Queries) RuntimeActiveRuns(ctx context.Context, arg RuntimeActiveRunsParams) ([]RuntimeActiveRunsRow, error) {
+	rows, err := q.db.Query(ctx, runtimeActiveRuns, arg.WorkspaceID, arg.RuntimeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RuntimeActiveRunsRow
+	for rows.Next() {
+		var i RuntimeActiveRunsRow
+		if err := rows.Scan(
+			&i.CardID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const sweepCandidates = `-- name: SweepCandidates :many

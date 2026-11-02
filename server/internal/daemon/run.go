@@ -279,7 +279,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Guest: guest != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{Guest: guest != "", Leader: c.Leader, Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)

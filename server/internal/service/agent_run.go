@@ -9,10 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/availability"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
@@ -176,6 +179,9 @@ type Claimed struct {
 	// works its column through: a Team's leader or a study's single agent.
 	OutputSchema string `json:"output_schema,omitempty"`
 	Lead         bool   `json:"lead,omitempty"`
+	// Leader is set for a Team leader's lead run, which alone delegates to
+	// members through its door.
+	Leader bool `json:"leader,omitempty"`
 }
 
 type ClaimedService struct {
@@ -532,6 +538,71 @@ func owned(ctx context.Context, tx *store.Tx, user uuid.UUID, ref RuntimeRef) er
 	return nil
 }
 
+// activeSlots counts the runs holding a runtime's slots. A leader whose
+// member's run of the same column and round has not ended holds none: it
+// only waits, and its member must be able to start on a one-slot runtime.
+func activeSlots(ctx context.Context, tx *store.Tx, ref RuntimeRef) (int, error) {
+	runs, err := tx.Q.RuntimeActiveRuns(ctx, db.RuntimeActiveRunsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range runs {
+		if r.Role == "leader" && r.CardID != nil {
+			_, err := tx.Q.InFlightMemberRun(ctx, db.InFlightMemberRunParams{WorkspaceID: ref.WorkspaceID, CardID: *r.CardID, BoardColumn: r.BoardColumn, Round: r.Round})
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return 0, err
+			}
+		}
+		n++
+	}
+	return n, nil
+}
+
+// withMemberWork is a re-claimed leader run's prompt with what its members
+// already handed in on its column and round, and the member still working,
+// so a leader whose session could not be resumed redoes no member's work.
+// Validation leaders, which take no hand-ins, keep their prompt.
+func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, error) {
+	if t.BoardColumn == board.Validation {
+		return t.Prompt, nil
+	}
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, r := range recs {
+		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent"}, r.Role) {
+			continue
+		}
+		var body struct {
+			AgentRunID uuid.UUID `json:"agent_run_id"`
+			HandIn     struct {
+				Answer string `json:"answer"`
+			} `json:"hand_in"`
+		}
+		if json.Unmarshal(r.Body, &body) != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s (ticket %s) handed in: %s\n", r.Role, body.AgentRunID, body.HandIn.Answer)
+	}
+	working, err := tx.Q.InFlightMemberRun(ctx, db.InFlightMemberRunParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn, Round: t.Round})
+	switch {
+	case err == nil:
+		fmt.Fprintf(&b, "- A member is still working on ticket %s; wait for it with member_result.\n", working)
+	case !errors.Is(err, pgx.ErrNoRows):
+		return "", err
+	}
+	if b.Len() == 0 {
+		return t.Prompt, nil
+	}
+	return t.Prompt + "\n\nYour earlier run on this column stopped before it finished. Your members' work so far is below; use it and do not ask them for it again.\n" + b.String(), nil
+}
+
 type ClaimOptions struct {
 	CoresearchOnly bool
 
@@ -601,11 +672,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
-					active, err := tx.Q.CountRuntimeActive(ctx, db.CountRuntimeActiveParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
+					active, err := activeSlots(ctx, tx, ref)
 					if err != nil {
 						return err
 					}
-					if !coresearchOnly && active >= int64(runtime.MaxConcurrent) {
+					if !coresearchOnly && active >= int(runtime.MaxConcurrent) {
 						return nil
 					}
 					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation, CoresearchOnly: coresearchOnly})
@@ -843,6 +914,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
 						// No CLI offers the frozen model any longer: run on the CLI's default.
 						t.RequestedModel = ""
+					}
+					if t.Role == "leader" && t.Attempt > 1 && t.CardID != nil {
+						if t.Prompt, err = withMemberWork(ctx, tx, t); err != nil {
+							return err
+						}
 					}
 					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))

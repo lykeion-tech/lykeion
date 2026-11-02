@@ -26,6 +26,7 @@ var (
 	ErrInFlight         = errors.New("a member's run is still in flight: wait until its work lands")
 	ErrMovedOn          = errors.New("the study is no longer working this run's column")
 	ErrDeclaredDone     = errors.New("this column was already declared done")
+	ErrBusy             = errors.New("a member is still working on this column: wait for its result first")
 )
 
 // idleNote wakes a leader that stopped without naming a member or finishing,
@@ -70,9 +71,9 @@ func current(c db.Card, column string, round int32) bool {
 // leader, or a study's single agent on a column no Team works.
 func leads(role string) bool { return role == "leader" || role == "agent" }
 
-// isMember says whether a run's role is a Team member's name rather than the
+// IsMember says whether a run's role is a Team member's name rather than the
 // leader, the auditor or a study's single agent.
-func isMember(role string) bool {
+func IsMember(role string) bool {
 	return role != "" && role != "leader" && role != "auditor" && role != "agent"
 }
 
@@ -110,44 +111,56 @@ func (e *Engine) SelfStep(ctx context.Context, tx *store.Tx, w service.Writer, s
 }
 
 // Delegate starts the run of the column Team's member for one step the
-// leader names and records the delegation. w is the leader's run, whose card
-// lock the caller holds.
-func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, member, step string) (db.Record, error) {
+// leader names and records the delegation, and returns the member's run. w
+// is the leader's run, whose card lock the caller holds. Outside Validation
+// one member works a column at a time: while one has not ended, Delegate
+// returns ErrBusy with that member's run.
+func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, member, step string) (db.Record, uuid.UUID, error) {
 	c, err := openColumn(ctx, tx, w)
 	if err != nil {
-		return db.Record{}, err
+		return db.Record{}, uuid.Nil, err
 	}
 	packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return db.Record{}, ErrUndeclaredMember
+		return db.Record{}, uuid.Nil, ErrUndeclaredMember
 	}
 	if err != nil {
-		return db.Record{}, err
+		return db.Record{}, uuid.Nil, err
 	}
 	if !slices.ContainsFunc(m.Members, func(x pack.Member) bool { return x.Name == member }) {
-		return db.Record{}, ErrUndeclaredMember
+		return db.Record{}, uuid.Nil, ErrUndeclaredMember
 	}
 	n, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
 		BoardColumn: c.BoardColumn, Round: c.Round, Kind: "delegation"})
 	if err != nil {
-		return db.Record{}, err
+		return db.Record{}, uuid.Nil, err
 	}
 	steps := m.Steps
 	if steps == 0 {
 		steps = pack.DefaultSteps
 	}
 	if n >= int64(steps) {
-		return db.Record{}, ErrStepCap
+		return db.Record{}, uuid.Nil, ErrStepCap
+	}
+	if c.BoardColumn != board.Validation {
+		working, err := tx.Q.InFlightMemberRun(ctx, db.InFlightMemberRunParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+		if err == nil {
+			return db.Record{}, working, ErrBusy
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return db.Record{}, uuid.Nil, err
+		}
 	}
 	a, err := teamAgent(ctx, tx, packID, c.OwnerID, member)
 	if err != nil {
-		return db.Record{}, err
+		return db.Record{}, uuid.Nil, err
 	}
 	run, err := e.enqueue(ctx, tx, c, member, m, a, leaderStep+step)
 	if err != nil {
-		return db.Record{}, err
+		return db.Record{}, uuid.Nil, err
 	}
-	return records.WriteAs(ctx, tx, w, "delegation", map[string]any{"member": member, "step": step, "agent_run_id": run.ID})
+	rec, err := records.WriteAs(ctx, tx, w, "delegation", map[string]any{"member": member, "step": step, "agent_run_id": run.ID})
+	return rec, run.ID, err
 }
 
 // Finish stores the summary with which the leader, or a study's single
@@ -163,7 +176,7 @@ func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, sum
 		return db.Record{}, err
 	}
 	for _, r := range runs {
-		if isMember(r.Role) && inFlight(r.Status) {
+		if IsMember(r.Role) && inFlight(r.Status) {
 			return db.Record{}, ErrInFlight
 		}
 	}
@@ -340,7 +353,7 @@ func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) erro
 // saying which; doing so again leaves the study working and escalates it to
 // its owner.
 func (e *Engine) afterProtocolRun(ctx context.Context, t db.AgentRun) error {
-	if accessInterrupted(t) || (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !isMember(t.Role)) {
+	if accessInterrupted(t) || (leads(t.Role) && t.Status == "cancelled") || (!leads(t.Role) && !IsMember(t.Role)) {
 		return nil
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
@@ -352,7 +365,7 @@ func (e *Engine) afterProtocolRun(ctx context.Context, t db.AgentRun) error {
 		if err != nil {
 			return err
 		}
-		if isMember(t.Role) {
+		if IsMember(t.Role) {
 			return e.wake(ctx, tx, c, memberReport(t, recs))
 		}
 		for _, r := range recs {
@@ -367,7 +380,7 @@ func (e *Engine) afterProtocolRun(ctx context.Context, t db.AgentRun) error {
 			return err
 		}
 		for _, r := range runs {
-			if (isMember(r.Role) && inFlight(r.Status)) || (r.Role == t.Role && waitingToStart(r.Status)) {
+			if (IsMember(r.Role) && inFlight(r.Status)) || (r.Role == t.Role && waitingToStart(r.Status)) {
 				return nil
 			}
 		}
