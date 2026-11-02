@@ -31,6 +31,8 @@ type teamRun struct {
 	token, id, role, prompt, skill, scope string
 	ref                                   map[string]any
 	callToken                             string // the door's, which alone records calls
+	outputSchema                          string
+	lead                                  bool
 }
 
 func newTeamLab(t *testing.T, steps int) *teamLab {
@@ -38,7 +40,7 @@ func newTeamLab(t *testing.T, steps int) *teamLab {
 	return newTeamLabWith(t, testutil.PackOpts{Name: "hyp", Stage: "hypotheses", Members: 2, Steps: steps})
 }
 
-// newTeamLabWith is newTeamLab on a Team built from o, working Hypotheses.
+// newTeamLabWith is newTeamLab on a Team built from o, working o.Stage.
 func newTeamLabWith(t *testing.T, o testutil.PackOpts) *teamLab {
 	t.Helper()
 	s := newServer(t)
@@ -57,7 +59,7 @@ func newTeamLabWith(t *testing.T, o testutil.PackOpts) *teamLab {
 	}
 	l.rts = rts[0].ID
 	if c := s.call(t, "POST", "/api/cards", l.jwt, l.ws, map[string]any{"question": "Why do cells age?",
-		"assignee": teamAssignee(map[string]string{"hypotheses": up.ID})}, &l.card); c != 201 {
+		"assignee": teamAssignee(map[string]string{o.Stage: up.ID})}, &l.card); c != 201 {
 		t.Fatalf("card: %d", c)
 	}
 	return l
@@ -74,8 +76,10 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 				Attempt                 int32
 				ContinuityScope         string `json:"continuity_scope"`
 			} `json:"agent_run"`
-			Token     string
-			CallToken string `json:"call_token"`
+			Token        string
+			CallToken    string `json:"call_token"`
+			OutputSchema string `json:"output_schema"`
+			Lead         bool
 		}
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); c != 200 {
 			t.Fatalf("claim %d", c)
@@ -88,7 +92,7 @@ func (l *teamLab) claim(t *testing.T) teamRun {
 		if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+a.ID+"/start", l.personal, "", ref, nil); c != 204 {
 			t.Fatalf("start %d", c)
 		}
-		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref, claims[0].CallToken}
+		return teamRun{claims[0].Token, a.ID, a.Role, a.Prompt, a.Skill, a.ContinuityScope, ref, claims[0].CallToken, claims[0].OutputSchema, claims[0].Lead}
 	}
 	t.Fatal("no run was queued")
 	return teamRun{}

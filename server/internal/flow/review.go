@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
@@ -91,13 +92,12 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if err != nil {
 			return err
 		}
-		var last, declared *db.Record
+		var declared *db.Record
 		var withdrawn []db.Record
 		for _, r := range recs {
 			col, item := review.ColumnOf(r.Kind)
 			switch {
-			case r.Kind == "review" && r.Round == c.Round-1:
-				last = &r
+			case r.Kind == "review" && r.Round == c.Round-1: // read by lastReview
 			case r.Kind == review.KindWithdrawn:
 				if r.Round == c.Round {
 					withdrawn = append(withdrawn, r)
@@ -122,15 +122,13 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		}
 		// The previous attempt's passed and unclear items stand. Outputs are
 		// checked afresh each attempt.
-		var prev review.Result
-		if last != nil {
-			if err := json.Unmarshal(last.Body, &prev); err != nil {
-				return fmt.Errorf("review %s: %w", last.Key, err)
-			}
-			for _, it := range prev.Items {
-				if (it.Status == review.Pass || it.Status == review.Unclear) && it.Kind != review.KindOutputs {
-					rv.carried = append(rv.carried, it)
-				}
+		prev, err := lastReview(recs, c.Round)
+		if err != nil {
+			return err
+		}
+		for _, it := range prev.Items {
+			if (it.Status == review.Pass || it.Status == review.Unclear) && it.Kind != review.KindOutputs {
+				rv.carried = append(rv.carried, it)
 			}
 		}
 		// An item declared again keeps its earlier standing: it is not asked again.
@@ -202,6 +200,50 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		return nil
 	})
 	return rv, err
+}
+
+// lastReview is the review that ended the round before round, among a
+// column's records; the zero Result when there is none.
+func lastReview(recs []db.Record, round int32) (review.Result, error) {
+	var prev review.Result
+	for _, r := range slices.Backward(recs) {
+		if r.Kind == "review" && r.Round == round-1 {
+			if err := json.Unmarshal(r.Body, &prev); err != nil {
+				return prev, fmt.Errorf("review %s: %w", r.Key, err)
+			}
+			break
+		}
+	}
+	return prev, nil
+}
+
+// SentBack is what the review before the study's round sent back in its
+// column: the failed items a reply may answer, by identity, and the papers
+// it found missing. Outputs are checked afresh each attempt, so they are
+// never sent back to answer.
+func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.Review, error) {
+	out := handin.Review{Failed: map[string]string{}}
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return out, err
+	}
+	prev, err := lastReview(recs, c.Round)
+	if err != nil {
+		return out, err
+	}
+	for _, it := range prev.Items {
+		if it.Status == review.Fail && it.Kind != review.KindOutputs {
+			id := it.Identity
+			if id == "" {
+				id = it.Label // reviews written before items carried their identity
+			}
+			out.Failed[id] = it.Key
+		}
+	}
+	for _, it := range prev.Missed {
+		out.Missed = append(out.Missed, it.Label)
+	}
+	return out, nil
 }
 
 // withdrawal is the reason given by the last of withdrawn naming the item,

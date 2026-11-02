@@ -260,6 +260,35 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 	return i, err
 }
 
+const inFlightMemberRun = `-- name: InFlightMemberRun :one
+SELECT id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND board_column = $3 AND round = $4
+  AND role NOT IN ('', 'leader', 'auditor', 'agent') AND status IN ('queued', 'dispatched', 'running')
+ORDER BY created_at LIMIT 1
+`
+
+type InFlightMemberRunParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	Round       int32     `json:"round"`
+}
+
+// A member's run of a column's round that has not ended: queued, dispatched
+// or running. Members are every role but the leader, the auditor and a
+// study's single agent.
+func (q *Queries) InFlightMemberRun(ctx context.Context, arg InFlightMemberRunParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, inFlightMemberRun,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.Round,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertInboxItem = `-- name: InsertInboxItem :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 VALUES ($1, $2::uuid, $3, $4, $5)

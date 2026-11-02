@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	db "lykeion/server/pkg/db/generated"
@@ -211,14 +212,20 @@ func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
 
 // MatchValuesIn is MatchValues where a value no cited run printed may also be
 // found, by the same rounding rule, in the text of a file saved by the agent
-// run that made a cited script run that exited with status 0. files holds the
-// text of output records by key; only the output records in recs whose text
-// is in files are read.
+// run that made a cited script run that exited with status 0, or in the file
+// a `file` field beside the value names, whichever of the study's runs saved
+// it. files holds the text of output records by key; only the output records
+// in recs whose text is in files are read.
 func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]string) []ValueMatch {
 	saved := map[uuid.UUID][]string{}
+	named := map[string][]string{}
 	for _, rec := range recs {
-		if _, ok := files[rec.Key]; ok && rec.Kind == "output" && rec.AgentRunID != nil {
-			saved[*rec.AgentRunID] = append(saved[*rec.AgentRunID], rec.Key)
+		if _, ok := files[rec.Key]; ok && rec.Kind == "output" {
+			if rec.AgentRunID != nil {
+				saved[*rec.AgentRunID] = append(saved[*rec.AgentRunID], rec.Key)
+			}
+			name := records.Body[struct{ Name string }](rec).Name
+			named[name] = append(named[name], rec.Key)
 		}
 	}
 	for _, ks := range saved {
@@ -277,7 +284,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 		if d.Decode(&body) != nil {
 			continue
 		}
-		walkValues(body, nil, false, func(v string, cites []string, calls bool) {
+		walkValues(body, nil, false, func(v string, cites []string, calls bool, file string) {
 			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0 && !calls, CallsOnly: len(cites) == 0 && calls}
 			n, ok := parseNumber(v)
 			// Only a script run that exited with status 0 counts; a timeout's
@@ -320,6 +327,14 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 					}
 				}
 			}
+			for _, f := range named[file] {
+				if m.Matched || !ok {
+					break
+				}
+				if in(true, f, n) {
+					m.Matched, m.File = true, f
+				}
+			}
 			// Only an unreadable run that counts may hide the match, so it
 			// outranks what other runs printed; any other unreadable run
 			// leaves the value not found.
@@ -343,8 +358,8 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 
 // walkValues finds each value as walkQuotes finds quotes, keeping only the
 // `run:` entries of a `cites` list; calls is set when that list also names a
-// `call:` entry.
-func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool)) {
+// `call:` entry. file is the `file` field of the object holding the value.
+func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool, file string)) {
 	text := func(e any) (string, bool) {
 		switch e := e.(type) {
 		case json.Number:
@@ -372,18 +387,19 @@ func walkValues(v any, cites []string, calls bool, found func(value string, cite
 				}
 			}
 		}
+		file, _ := v["file"].(string)
 		for name, e := range v {
 			switch name {
 			case "value":
 				if s, ok := text(e); ok {
-					found(s, cites, calls)
+					found(s, cites, calls, file)
 					continue
 				}
 			case "values":
 				if list, ok := e.([]any); ok {
 					for _, x := range list {
 						if s, ok := text(x); ok {
-							found(s, cites, calls)
+							found(s, cites, calls, file)
 						} else {
 							walkValues(x, cites, calls, found)
 						}

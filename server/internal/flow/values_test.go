@@ -340,3 +340,23 @@ func TestValueFoundInSavedFile(t *testing.T) {
 		t.Fatalf("LoadRuns keeps the agent run: %+v, %v", loaded, err)
 	}
 }
+
+func TestAValueNamingAFileMatchesThatOutputFromAnyRun(t *testing.T) {
+	member, leader := uuid.New(), uuid.New()
+	withRun := func(r db.Record, id uuid.UUID) db.Record { r.AgentRunID = &id; return r }
+	work := []db.Record{
+		withRun(valueRec("o1", "output", map[string]any{"name": "fit.txt"}), member),
+		withRun(valueRec("o2", "output", map[string]any{"name": "other.txt"}), member),
+		withRun(valueRec("r1", "value", map[string]any{"name": "slope", "value": "0.42", "file": "fit.txt", "cites": []string{}}), leader),
+	}
+	files := map[string]string{"o1": "slope 0.4213\n", "o2": "slope 0.77\n"}
+	got := MatchValuesIn(work, nil, files)
+	if len(got) != 1 || !got[0].Matched || got[0].File != "o1" {
+		t.Fatalf("value in the named output: %+v", got)
+	}
+	// Another output holding the number is not the named file.
+	work[2] = withRun(valueRec("r1", "value", map[string]any{"name": "slope", "value": "0.77", "file": "fit.txt", "cites": []string{}}), leader)
+	if got := MatchValuesIn(work, nil, files); got[0].Matched {
+		t.Fatalf("value only in another file: %+v", got)
+	}
+}

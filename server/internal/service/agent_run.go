@@ -171,6 +171,11 @@ type Claimed struct {
 	// Skills are a Team member's own skills, which the daemon places where
 	// the CLI reads skills before it starts.
 	Skills []toolroute.RoutedSkill `json:"skills,omitempty"`
+	// OutputSchema is the JSON schema the run's final answer, its hand-in,
+	// must fit; empty for a run that owes none. Lead is set for the run that
+	// works its column through: a Team's leader or a study's single agent.
+	OutputSchema string `json:"output_schema,omitempty"`
+	Lead         bool   `json:"lead,omitempty"`
 }
 
 type ClaimedService struct {
@@ -1041,6 +1046,28 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 			return err
 		}
 		return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))
+	})
+}
+
+// OnAttempt runs fn on run's attempt ref, with the run locked, in the
+// transaction and under the checks every daemon run operation passes: ref's
+// runtime is the caller's and holds that attempt. The run's study, if it has
+// one, is locked before the run, as role commands lock them.
+func (s *AgentRuns) OnAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, fn func(*store.Tx, db.AgentRun) error) error {
+	return s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
+		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run})
+		if err != nil {
+			return err
+		}
+		if t.CardID != nil {
+			if _, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: *t.CardID, WorkspaceID: ref.WorkspaceID}); err != nil {
+				return err
+			}
+		}
+		if t, err = lockAttempt(ctx, tx, ref, run); err != nil {
+			return err
+		}
+		return fn(tx, t)
 	})
 }
 

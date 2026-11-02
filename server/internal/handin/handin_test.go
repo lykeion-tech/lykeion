@@ -87,6 +87,7 @@ func TestKindFor(t *testing.T) {
 		{"role", "leader", "validation", "", false},
 		{"role", "searcher", "grounding", Grounding, true},
 		{"role", "auditor", "hypotheses", Auditor, true},
+		{"role", "auditor", "validation", "", false},
 		{"autoresearch", "", "", Autoresearch, true},
 		{"coresearch", "", "", "", false},
 	}

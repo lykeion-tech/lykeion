@@ -27,6 +27,15 @@ WHERE id = @id AND workspace_id = @workspace_id;
 SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND board_column = @board_column AND round = @round ORDER BY created_at;
 
+-- A member's run of a column's round that has not ended: queued, dispatched
+-- or running. Members are every role but the leader, the auditor and a
+-- study's single agent.
+-- name: InFlightMemberRun :one
+SELECT id FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND board_column = @board_column AND round = @round
+  AND role NOT IN ('', 'leader', 'auditor', 'agent') AND status IN ('queued', 'dispatched', 'running')
+ORDER BY created_at LIMIT 1;
+
 -- The live records each agent run of a round wrote itself, so the engine can tell
 -- whether a role left a result.
 -- name: RoundAgentRunRecords :many

@@ -1,0 +1,256 @@
+package handin
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/review"
+)
+
+// Review is what the column's last review sent back: each failed item's
+// identity with the key of the record that declared it, and the ids of the
+// papers it found missing.
+type Review struct {
+	Failed map[string]string
+	Missed []string
+}
+
+// NewRecord is one record a hand-in becomes, written on the run's behalf.
+type NewRecord struct {
+	Kind string
+	Body any
+}
+
+// valueBody is the record a reported value becomes: the file that shows it, and
+// the script runs of that file, if it is a script.
+type valueBody struct {
+	Name  string   `json:"name"`
+	Value string   `json:"value"`
+	File  string   `json:"file"`
+	Cites []string `json:"cites"`
+}
+
+type declinedBody struct {
+	Item   string `json:"item"` // the missed paper's id
+	Reason string `json:"reason"`
+}
+
+type summaryBody struct {
+	Text  string   `json:"text"`
+	Cites []string `json:"cites"`
+}
+
+type auditBody struct {
+	Text     string   `json:"text"`
+	Findings []string `json:"findings"`
+}
+
+var columnOf = map[Kind]string{Grounding: board.Grounding, Hypotheses: board.Hypotheses, Experimentation: board.Experimentation}
+
+// identity is how a reply, a sent-back item and a declared item are compared:
+// an id in its one spelling, text without case and with its spacing collapsed.
+func identity(s string) string { return strings.Join(strings.Fields(NormID(s)), " ") }
+
+// Convert turns a lead's or auditor's done hand-in, already parsed, into the
+// records the review reads, or says what stops it, one plain line per
+// problem. A member's hand-in and one that could not be done become no
+// records: what counts is in the lead's.
+func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord, []string) {
+	if k == Autoresearch {
+		return nil, []string{"not yet supported"}
+	}
+	if h.Status != "done" {
+		return nil, nil
+	}
+	if k == Auditor {
+		a := auditBody{Text: h.Answer, Findings: []string{}}
+		for _, c := range h.Concerns {
+			a.Findings = append(a.Findings, c.Item+": "+c.Concern)
+		}
+		return []NewRecord{{Kind: "audit", Body: a}}, nil
+	}
+	if !lead {
+		return nil, nil
+	}
+	c := converter{column: columnOf[k], ev: ev, declared: map[string]bool{}}
+	switch k {
+	case Grounding:
+		c.grounding(h)
+	case Hypotheses:
+		c.hypotheses(h)
+	case Experimentation:
+		c.experimentation(h)
+	}
+	c.replies(h.Replies, prev)
+	if len(c.probs) > 0 {
+		return nil, c.probs
+	}
+	return append(c.recs, NewRecord{Kind: "summary", Body: summaryBody{Text: h.Answer, Cites: []string{}}}), nil
+}
+
+type converter struct {
+	column   string
+	ev       Evidence
+	declared map[string]bool // identities of the items this hand-in declares
+	recs     []NewRecord
+	probs    []string
+}
+
+func (c *converter) problem(format string, a ...any) {
+	c.probs = append(c.probs, fmt.Sprintf(format, a...))
+}
+
+// item adds an item record after the review's own rules for its kind; a
+// broken rule is reported as label n's problem.
+func (c *converter) item(label string, n int, kind string, body any) {
+	b, err := json.Marshal(body)
+	if err == nil {
+		err = review.Validate(kind, c.column, b)
+	}
+	if err != nil {
+		c.problem("%s %d: %s", label, n, strings.TrimPrefix(err.Error(), kind+": "))
+		return
+	}
+	c.recs = append(c.recs, NewRecord{Kind: kind, Body: body})
+}
+
+// calls are the citable records among an id's sources: the calls that
+// returned it. Found reports whether any recorded source returned it.
+func (c *converter) calls(id string) (cites []string, found bool) {
+	srcs := c.ev.Sources(id)
+	cites = []string{}
+	for _, s := range srcs {
+		if strings.HasPrefix(s, "call:") {
+			cites = append(cites, s)
+		}
+	}
+	return cites, srcs != nil
+}
+
+func (c *converter) grounding(h HandIn) {
+	if len(h.Papers) == 0 && len(h.Datasets) == 0 && h.NoQualifying == nil {
+		c.problem("a done Grounding hand-in needs at least one paper, dataset or no_qualifying")
+	}
+	for i, p := range h.Papers {
+		cites, ok := c.calls(p.ID)
+		if !ok {
+			c.problem("paper %d: %s was not found through Lykeion's sources", i+1, p.ID)
+			continue
+		}
+		id := NormID(p.ID)
+		c.declared[identity(id)] = true
+		c.item("paper", i+1, review.KindPaper, review.PaperBody{ID: id, Text: p.Why, Cites: cites})
+	}
+	for i, d := range h.Datasets {
+		cites, ok := c.calls(d.Accession)
+		if !ok {
+			c.problem("dataset %d: %s was not found through Lykeion's sources", i+1, d.Accession)
+			continue
+		}
+		acc := strings.TrimSpace(d.Accession)
+		c.declared[identity(acc)] = true
+		c.item("dataset", i+1, review.KindDataset, review.DatasetBody{Accession: acc, Text: d.Why, Cites: cites})
+	}
+	if n := h.NoQualifying; n != nil {
+		c.declared[identity(n.Reason)] = true
+		c.item("no_qualifying", 1, review.KindNoQualifying, review.NoQualifyingBody{Text: n.Reason})
+	}
+}
+
+// hypotheses cite the study's Grounding items by their record key and other
+// recorded sources by the calls that returned them.
+func (c *converter) hypotheses(h HandIn) {
+	for i, x := range h.Hypotheses {
+		cites, ok := []string{}, true
+		for _, id := range x.Cites {
+			if key, g := c.ev.Grounding(id); g {
+				cites = append(cites, key)
+				continue
+			}
+			calls, found := c.calls(id)
+			if !found {
+				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset nor a source recorded in this study", i+1, id)
+				ok = false
+				continue
+			}
+			for _, k := range calls {
+				if !slices.Contains(cites, k) {
+					cites = append(cites, k)
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		c.declared[identity(x.Text)] = true
+		c.item("hypothesis", i+1, review.KindHypothesis, x.Body(cites))
+	}
+}
+
+func (c *converter) experimentation(h HandIn) {
+	if len(h.Values) == 0 && len(h.Outputs) == 0 {
+		c.problem("a done Experimentation hand-in needs at least one value or output")
+	}
+	for i, o := range h.Outputs {
+		if !c.ev.Saved(o) {
+			c.problem("output %d: %s was not saved in this study", i+1, o)
+		}
+	}
+	if len(h.Outputs) > 0 {
+		c.declared[review.KindOutputs] = true
+		c.item("outputs", 1, review.KindOutputs, review.OutputsBody{Files: h.Outputs})
+	}
+	for i, v := range h.Values {
+		runs := c.ev.Scripts(v.File)
+		switch {
+		case v.File == "":
+			c.problem("value %d: name the saved output or script run that shows the value", i+1)
+		case !c.ev.Saved(v.File) && runs == nil:
+			c.problem("value %d: file %s names neither a saved output nor a script run recorded in this study", i+1, v.File)
+		default:
+			if runs == nil {
+				runs = []string{}
+			}
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: v.File, Cites: runs}})
+		}
+	}
+}
+
+// replies answer the items the last review sent back: a withdrawn item is
+// named by its record's key, a declined missed paper by its id, and a
+// corrected item must be declared again in this hand-in.
+func (c *converter) replies(rs []Reply, prev Review) {
+	failed := map[string]string{}
+	for id, key := range prev.Failed {
+		failed[identity(id)] = key
+	}
+	missed := map[string]bool{}
+	for _, id := range prev.Missed {
+		missed[identity(id)] = true
+	}
+	for i, r := range rs {
+		id := identity(r.Item)
+		switch r.Action {
+		case "corrected":
+			if !c.declared[id] {
+				c.problem("reply %d: corrected, but no item %s is in this hand-in", i+1, r.Item)
+			}
+		case "declined":
+			if !missed[id] {
+				c.problem("reply %d: only a missed paper the review sent back can be declined", i+1)
+				continue
+			}
+			c.recs = append(c.recs, NewRecord{Kind: "declined", Body: declinedBody{Item: NormID(r.Item), Reason: r.Reason}})
+		case "withdrawn":
+			key, ok := failed[id]
+			if !ok {
+				c.problem("reply %d: %s was not sent back by the last review, so it cannot be withdrawn", i+1, r.Item)
+				continue
+			}
+			c.item("reply", i+1, review.KindWithdrawn, review.WithdrawnBody{Item: key, Reason: r.Reason})
+		}
+	}
+}

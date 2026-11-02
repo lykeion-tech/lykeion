@@ -61,12 +61,14 @@ func forms(id string) []string {
 type Evidence struct {
 	found     map[string][]string
 	grounding map[string]string
+	saved     map[string]bool     // names of the study's output files
+	scripts   map[string][]string // a script's path → its run_script runs, run:KEY
 }
 
 // NewEvidence indexes the live records among recs, from every column.
 // A call's answer is searched as stored, which is cut at records.MaxCallAnswer.
 func NewEvidence(recs []db.Record) Evidence {
-	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}}
+	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{}, scripts: map[string][]string{}}
 	for _, r := range recs {
 		if r.SupersededAt != nil {
 			continue
@@ -86,6 +88,9 @@ func NewEvidence(recs []db.Record) Evidence {
 			SourceID  string   `json:"source_id"`
 			DOI       string   `json:"doi"`
 			Accession string   `json:"accession"`
+			Name      string   `json:"name"`
+			Tool      string   `json:"tool"`
+			Path      string   `json:"path"`
 		}
 		_ = json.Unmarshal(r.Body, &b)
 		switch r.Kind {
@@ -103,6 +108,12 @@ func NewEvidence(recs []db.Record) Evidence {
 			e.add(b.DOI, "fetch:"+r.Key)
 		case "open_dataset":
 			e.add(b.Accession, "open_dataset:"+r.Key)
+		case "output":
+			e.saved[b.Name] = true
+		case "run":
+			if b.Tool == "run_script" {
+				e.scripts[b.Path] = append(e.scripts[b.Path], "run:"+r.Key)
+			}
 		}
 	}
 	return e
@@ -163,3 +174,11 @@ func (e Evidence) Grounding(id string) (key string, ok bool) {
 	}
 	return "", false
 }
+
+// Saved says whether an output file named name was saved in the study, by
+// any of its runs.
+func (e Evidence) Saved(name string) bool { return e.saved[name] }
+
+// Scripts are the recorded run_script runs of the script at path, written
+// run:KEY as a value cites them; nil when none was recorded.
+func (e Evidence) Scripts(path string) []string { return e.scripts[path] }

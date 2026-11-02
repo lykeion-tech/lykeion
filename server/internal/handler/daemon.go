@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/compute"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -181,6 +182,11 @@ func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	if got == nil {
 		got = []service.Claimed{}
+	}
+	for i, c := range got {
+		if k, ok := handin.KindFor(c.AgentRun.Kind, c.AgentRun.Role, c.AgentRun.BoardColumn); ok {
+			got[i].OutputSchema, got[i].Lead = handin.Schema(k), handin.Leads(c.AgentRun.Role)
+		}
 	}
 	writeJSON(w, 200, got)
 }

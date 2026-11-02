@@ -30,7 +30,7 @@ func KindFor(runKind, role, column string) (Kind, bool) {
 	switch {
 	case runKind == "autoresearch":
 		return Autoresearch, true
-	case role == "auditor":
+	case role == "auditor" && column != board.Validation:
 		return Auditor, true
 	}
 	switch column {
@@ -43,6 +43,10 @@ func KindFor(runKind, role, column string) (Kind, bool) {
 	}
 	return "", false
 }
+
+// Leads says whether a run's role works its column through to done: a
+// Team's leader, or a study's single agent. Only its hand-in becomes items.
+func Leads(role string) bool { return role == "leader" || role == "agent" }
 
 type Reply struct {
 	Item   string `json:"item"`
