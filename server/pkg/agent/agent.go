@@ -14,8 +14,10 @@ import (
 )
 
 type Message struct {
-	Type    string          `json:"type"`
-	Tool    string          `json:"tool,omitempty"`
+	Type string `json:"type"`
+	Tool string `json:"tool,omitempty"`
+	// Server names the MCP server a tool call went to.
+	Server  string          `json:"server,omitempty"`
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {

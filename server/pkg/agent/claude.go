@@ -304,7 +304,12 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 					emit(Message{Type: "thinking", Content: raw(item.Thinking)})
 				case "tool_use":
 					// The whole block, so its id pairs it with its tool_result.
-					emit(Message{Type: "tool_use", Tool: item.Name, Content: c})
+					// An MCP tool keeps its whole mcp__<server>__<tool> name.
+					m := Message{Type: "tool_use", Tool: item.Name, Content: c}
+					if rest, ok := strings.CutPrefix(item.Name, "mcp__"); ok {
+						m.Server, _, _ = strings.Cut(rest, "__")
+					}
+					emit(m)
 				case "tool_result":
 					emit(Message{Type: "tool_result", Content: c})
 				}

@@ -136,7 +136,7 @@ func parseCodex(model string) parser {
 			Error    struct {
 				Message string `json:"message"`
 			} `json:"error"`
-			Item  struct{ Type, Text, Tool string } `json:"item"`
+			Item  struct{ Type, Text, Tool, Server string } `json:"item"`
 			Usage struct {
 				Input      int64 `json:"input_tokens"`
 				Cached     int64 `json:"cached_input_tokens"`
@@ -161,7 +161,9 @@ func parseCodex(model string) parser {
 			case "command_execution":
 				emit(Message{Type: "tool_use", Tool: "shell", Content: cp})
 			case "mcp_tool_call":
-				emit(Message{Type: "tool_use", Tool: ev.Item.Tool, Content: cp})
+				emit(Message{Type: "tool_use", Tool: ev.Item.Tool, Server: ev.Item.Server, Content: cp})
+			case "web_search":
+				emit(Message{Type: "tool_use", Tool: "web_search", Content: cp})
 			default:
 				emit(Message{Type: "log", Content: cp})
 			}

@@ -35,6 +35,8 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
+var errFenceBreach = errors.New("tool call outside the fence")
+
 func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if c.Coresearch != nil {
 		return d.runCoresearchTurn(ctx, c)
@@ -197,6 +199,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		sequence++
 		return sequence, d.persistMessage(messageRef, sequence, m)
 	}
+	// breach names the first tool call outside the fence. The call is kept
+	// for the person, and the error stops the CLI before its work goes on.
+	var breach string
 	sink := func(m agent.Message) error {
 		seq, err := appendMessage(m)
 		if err != nil {
@@ -205,6 +210,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		if namer != nil {
 			namer.saw(seq, m)
+		}
+		if fenced, what := agent.Fenced(c.AgentRun.Harness, m); fenced {
+			breach = what
+			return errFenceBreach
 		}
 		return nil
 	}
@@ -332,7 +341,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		for message := range sess.Messages {
 			if err := sink(message); err != nil {
-				streamErr = errors.Join(streamErr, err)
+				if !errors.Is(err, errFenceBreach) {
+					streamErr = errors.Join(streamErr, err)
+				}
 				cancel()
 			}
 		}
@@ -383,6 +394,12 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if !errors.As(streamErr, &oversized) {
 			localErr = streamErr
 		}
+	}
+	// A breach outranks whatever the stopped CLI reported; the text is for
+	// the person and never reaches the agent.
+	if breach != "" {
+		fail(fmt.Errorf("used %s, which is outside Lykeion's sources", breach))
+		r.FailureReason = agent.ReasonFenceBreach
 	}
 	if runCtx.Err() != nil && ctx.Err() == nil {
 		// The ACK is informational; durable replay carries final usage.
