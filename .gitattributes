@@ -7,7 +7,10 @@ server/internal/science/bundle/** linguist-vendored
 # Embedded bytes must match the sizes in index.json.
 server/internal/workflow/bundle/** -text
 
-# Python and Lean files are workflow material and helper scripts, not the
+# Python, R and Lean files are workflow material and helper scripts, not the
 # languages Lykeion is written in; keep them out of GitHub's language stats.
 *.py linguist-detectable=false
 *.lean linguist-detectable=false
+*.R linguist-detectable=false
+*.r linguist-detectable=false
+*.Rmd linguist-detectable=false
