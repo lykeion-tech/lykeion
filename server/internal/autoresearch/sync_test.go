@@ -102,3 +102,26 @@ func TestConcurrentSyncEmitsOneStatusChange(t *testing.T) {
 		t.Fatalf("blocked events: %d", n)
 	}
 }
+
+func TestUnfinishedStudyDraftNotifiesOnAgentCompletion(t *testing.T) {
+	f := setup(t)
+	f.online(t, f.owner, "claude")
+	ap := f.autoresearch(t, "run_only", "Study draft", "Draft", "")
+	f.exec(t, `INSERT INTO study_draft_request(workspace_id,autoresearch_id) VALUES ($1,$2)`, f.ws, ap)
+	run := f.fire(t, ap, Admission{})
+	if run.AgentRunID == nil {
+		t.Fatal("agent run was not queued")
+	}
+	f.exec(t, `UPDATE agent_run SET status='completed' WHERE id=$1`, *run.AgentRunID)
+	for range 2 {
+		if err := f.s.Sync(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := reason(f.run(t, run.ID)); got != "failed/study_not_created" {
+		t.Fatalf("status: %s", got)
+	}
+	if n := f.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1 AND kind='autoresearch_report'`, run.ID); n != 1 {
+		t.Fatalf("failure notifications: %d", n)
+	}
+}

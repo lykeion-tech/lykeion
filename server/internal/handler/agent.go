@@ -231,6 +231,15 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if err := agentInUse(r, tx, id); err != nil {
 			return err
 		}
+		if in.Harness != nil || in.Model != nil {
+			live, err := tx.Q.TeamAgentHasLiveRuns(r.Context(), db.TeamAgentHasLiveRunsParams{WorkspaceID: ws, AgentID: &id})
+			if err != nil {
+				return err
+			}
+			if live {
+				return conflict("This agent has a queued or running task. Change its CLI after the task finishes.")
+			}
+		}
 		if a.BuiltInKey != "" && in.Visibility != nil && *in.Visibility != "private" {
 			return cardInputError("built-in agents remain private")
 		}

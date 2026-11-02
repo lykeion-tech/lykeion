@@ -156,8 +156,10 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if err != nil {
 		return false, err
 	}
-	if clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a); err != nil || clash != "" {
-		return clash != "", err
+	if c.StudyCli == nil || c.AuditorCli == nil {
+		if clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a); err != nil || clash != "" {
+			return clash != "", err
+		}
 	}
 	note, err := auditNote(ctx, tx, c, summary)
 	if err != nil {

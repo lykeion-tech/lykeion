@@ -624,7 +624,7 @@ onUnmounted(() => {
       </div>
       <template v-else>
         <p
-          v-if="aristotle.bootstrap.error.value && !aristotleShell"
+          v-if="aristotle.bootstrap.error.value && !aristotleShell && !['studies', 'my-studies'].includes(current ?? '')"
           class="bootstrap-error"
           role="alert"
         >

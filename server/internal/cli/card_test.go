@@ -341,23 +341,13 @@ func TestCardNewHasNoFollowsFromFlag(t *testing.T) {
 	}
 }
 
-func TestCardNewCriterionFlag(t *testing.T) {
-	var raw []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ = io.ReadAll(r.Body)
-		w.Write([]byte(`{"id":"x","number":1,"title":"q"}`))
-	}))
-	defer srv.Close()
-	e := &env{cfg: Config{Server: srv.URL, Token: "ltk_run", Workspace: "w"}, out: &bytes.Buffer{}}
-	cmd := cardCmd(e)
-	cmd.SetArgs([]string{"new", "--criterion", "a", "--criterion", "b", "q"})
-	if err := cmd.Execute(); err != nil {
+func TestCardNewHasNoCriterionFlag(t *testing.T) {
+	cmd := cardCmd(&env{})
+	child, _, err := cmd.Find([]string{"new"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	var posted struct {
-		Criteria []string `json:"grounding_criteria"`
-	}
-	if err := json.Unmarshal(raw, &posted); err != nil || !reflect.DeepEqual(posted.Criteria, []string{"a", "b"}) {
-		t.Fatalf("%s %v", raw, err)
+	if child.Flags().Lookup("criterion") != nil {
+		t.Fatal("removed criterion flag is still available")
 	}
 }

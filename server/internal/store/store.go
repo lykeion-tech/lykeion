@@ -29,11 +29,12 @@ type Store struct {
 }
 
 type Tx struct {
-	raw    pgx.Tx
-	Q      *db.Queries
-	WS     uuid.UUID
-	events []db.Event
-	after  []func()
+	raw          pgx.Tx
+	Q            *db.Queries
+	WS           uuid.UUID
+	events       []db.Event
+	after        []func()
+	afterPublish []func()
 }
 
 type AgentCapabilities struct {
@@ -136,6 +137,9 @@ func (t *Tx) CardTeamAssignments(ctx context.Context) ([]CardTeamAssignment, err
 // belong here.
 func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
 
+// AfterPublish runs after this transaction's events have been published.
+func (t *Tx) AfterPublish(fn func()) { t.afterPublish = append(t.afterPublish, fn) }
+
 // Savepoint runs fn inside a savepoint of t: an error from fn undoes only
 // what fn wrote and leaves t usable. Events fn emits are published with t's
 // when fn succeeds; what fn leaves to AfterCommit runs once t commits, unless
@@ -155,6 +159,7 @@ func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 	}
 	t.after = append(t.after, inner.after...)
 	t.events = append(t.events, inner.events...)
+	t.afterPublish = append(t.afterPublish, inner.afterPublish...)
 	return nil
 }
 
@@ -222,6 +227,9 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 	}
 	if s.Publish != nil && len(t.events) > 0 {
 		s.Publish(ctx, t.events)
+	}
+	for _, fn := range t.afterPublish {
+		fn()
 	}
 	return nil
 }

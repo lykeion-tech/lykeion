@@ -82,7 +82,6 @@ function card(extra: Partial<Card> = {}): Card {
     off_label: [],
     attachments: [],
     services: [],
-    grounding_criteria: [],
     ...extra,
   };
 }

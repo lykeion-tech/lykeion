@@ -5,7 +5,8 @@ import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../../lib/te
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import { workspaceId } from '../../api/session';
-import { useTeams } from '../../api/queries';
+import { useMe, useRuntimes, useTeams } from '../../api/queries';
+import type { StoreTeam } from '../../api/types';
 import { matchesQuery } from '../../lib/search';
 
 const search = ref('');
@@ -36,6 +37,16 @@ onMounted(() => document.addEventListener('pointerdown', outsideFilter));
 onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const everything = useTeams('', '');
+const me = useMe();
+const runtimes = useRuntimes();
+function teamOnline(team: StoreTeam) {
+  return !!team.agent_clis?.length && team.agent_clis.every((cli) =>
+    (runtimes.data.value ?? []).some((runtime) =>
+      runtime.owner_id === me.data.value?.id && runtime.harness === cli &&
+      runtime.status === 'online' && !runtime.unhealthy_reason,
+    ),
+  );
+}
 const teams = useTeams(() => (domain.value === generalPurposeDomain ? '' : domain.value), stage);
 const rows = computed(() =>
   (teams.data.value ?? [])
@@ -151,7 +162,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                   ><AvatarDisplay
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
-                    :size="18" /><Icon v-else name="network" :size="18" /></span
+                    :size="18" /><Icon v-else name="network" :size="18" />
+                    <span v-if="teamOnline(t)" class="availability-dot" role="img" aria-label="Team CLIs online" title="Team CLIs online"></span></span
                 ><span class="team-label"
                   ><span>{{ teamDisplayParts(t.name).label }}</span
                   ><small v-if="t.manifest.description">{{ t.manifest.description }}</small></span
@@ -293,12 +305,25 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   font-weight: 400;
 }
 .team-icon {
+  position: relative;
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
   flex: none;
   color: var(--muted);
+}
+.team-name > .team-icon {
+  overflow: visible;
+}
+.team-icon .availability-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39a35a;
 }
 .team-table td {
   display: flex;

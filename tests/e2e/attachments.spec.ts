@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { labWorkspace, groundingCriterion } from './lab';
+import { labWorkspace } from './lab';
 
 const question = `Does ALDH1A3 track with insulin loss? ${Date.now()}`;
 
@@ -23,7 +23,7 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New study' });
   await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-  await groundingCriterion(dialog);
+
   await dialog.getByLabel('Attach files').setInputFiles({
     name: 'expression.csv',
     mimeType: 'text/csv',

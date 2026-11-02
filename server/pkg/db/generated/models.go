@@ -285,8 +285,10 @@ type Card struct {
 	Machine           *string         `json:"machine"`
 	Workflow          *string         `json:"workflow"`
 	WorkflowRelease   *string         `json:"workflow_release"`
-	GroundingCriteria json.RawMessage `json:"grounding_criteria"`
+	GroundingCriteria json.RawMessage `json:"-"`
 	LegacyColumn      string          `json:"legacy_column"`
+	StudyCli          *string         `json:"study_cli"`
+	AuditorCli        *string         `json:"auditor_cli"`
 }
 
 type CardTeam struct {

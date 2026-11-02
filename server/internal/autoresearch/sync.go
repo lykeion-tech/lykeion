@@ -64,6 +64,15 @@ func (s *Service) Sync(ctx context.Context) error {
 					status, reason = "failed", "cancelled"
 				}
 			}
+			if status == "completed" || status == "failed" {
+				draft, err := tx.LockStudyDraft(ctx, r.AutoresearchID)
+				if err != nil {
+					return err
+				}
+				if draft != nil && !draft.Completed && status == "completed" {
+					status, reason = "failed", "study_not_created"
+				}
+			}
 			if status == r.Status && reason == r.Reason {
 				return nil
 			}
@@ -72,6 +81,21 @@ func (s *Service) Sync(ctx context.Context) error {
 				return err
 			}
 			r.Status, r.Reason = status, reason
+			if status == "failed" {
+				draft, err := tx.LockStudyDraft(ctx, r.AutoresearchID)
+				if err != nil {
+					return err
+				}
+				if draft != nil && !draft.Completed {
+					ap, err := tx.Q.GetAutoresearch(ctx, db.GetAutoresearchParams{WorkspaceID: d.WorkspaceID, ID: r.AutoresearchID})
+					if err != nil {
+						return err
+					}
+					if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not create the study. Check its run for details."); err != nil {
+						return err
+					}
+				}
+			}
 			return tx.Emit(ctx, "autoresearch_run."+status, nil, store.System, runEvent(r))
 		})
 		if err != nil {

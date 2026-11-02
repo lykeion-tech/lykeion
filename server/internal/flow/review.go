@@ -51,13 +51,12 @@ func usesReview(c db.Card) bool {
 // transaction open. The auditor's findings are never part of it: Jev reviews
 // the items and their evidence alone.
 type reviewing struct {
-	criteria []string
-	items    []db.Record          // this round's item records
-	carried  []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
-	cited    map[string]db.Record // what the hypotheses cite, by the cite as written
-	saved    []string             // names of the files saved in this column
-	work     []db.Record          // this round's records that may report values, and the column's outputs
-	runs     []db.Record          // the run records the work cites
+	items   []db.Record          // this round's item records
+	carried []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
+	cited   map[string]db.Record // what the hypotheses cite, by the cite as written
+	saved   []string             // names of the files saved in this column
+	work    []db.Record          // this round's records that may report values, and the column's outputs
+	runs    []db.Record          // the run records the work cites
 }
 
 // reviewColumn reviews the study's current column item by item, writes the
@@ -85,9 +84,6 @@ func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) err
 
 func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (reviewing, error) {
 	var rv reviewing
-	if err := json.Unmarshal(c.GroundingCriteria, &rv.criteria); err != nil {
-		return rv, fmt.Errorf("grounding criteria: %w", err)
-	}
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 		if err != nil {
@@ -344,7 +340,7 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 		if e.Sources == nil {
 			return review.Result{}, errNoSources
 		}
-		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card), Criteria: rv.criteria,
+		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card),
 			Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 	case board.Hypotheses:
 		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,

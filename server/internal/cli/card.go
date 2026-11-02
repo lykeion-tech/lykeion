@@ -60,7 +60,6 @@ func agentID(cmd *cobra.Command, e *env, ref string) (string, error) {
 func cardCmd(e *env) *cobra.Command {
 	c := &cobra.Command{Use: "card", Short: "Research cards"}
 	var title, machine, agent string
-	var criteria []string
 	var uploads cardUploadFlags
 	newCmd := &cobra.Command{Use: "new QUESTION", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, a []string) error {
 		if err := e.inWorkspace(); err != nil {
@@ -73,9 +72,6 @@ func cardCmd(e *env) *cobra.Command {
 		}
 		if title != "" {
 			in["title"] = title
-		}
-		if len(criteria) > 0 {
-			in["grounding_criteria"] = criteria
 		}
 		if agent != "" {
 			id, err := agentID(cmd, e, agent)
@@ -97,7 +93,6 @@ func cardCmd(e *env) *cobra.Command {
 	newCmd.Flags().StringArrayVar(&uploads.services, "service", nil, "hidden service NAME=DIR (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.starts, "service-start", nil, "hidden service NAME=COMMAND (repeatable)")
 	newCmd.Flags().StringArrayVar(&uploads.clients, "service-client", nil, "public client NAME=RELPATH (repeatable)")
-	newCmd.Flags().StringArrayVar(&criteria, "criterion", nil, "Grounding criterion (repeatable)")
 	newCmd.Flags().StringVar(&machine, "machine", "", "machine name or daemon id (default: mine)")
 	newCmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
 	newCmd.Flags().StringVar(&agent, "agent", "", "agent NAME|ID that works the whole study (default: Teams)")

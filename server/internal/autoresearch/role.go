@@ -51,6 +51,9 @@ func (s *Service) Report(ctx context.Context, tx *store.Tx, ar uuid.UUID, text s
 // run works as works the study; a run with no assigned agent leaves the study
 // to the built-in Teams.
 func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid.UUID, title, question string) (db.Card, error) {
+	if err := lockWorkspace(ctx, tx); err != nil {
+		return db.Card{}, err
+	}
 	r, err := tx.Q.RunByAgentRun(ctx, db.RunByAgentRunParams{WorkspaceID: tx.WS, AgentRunID: ar})
 	if err != nil {
 		return db.Card{}, err
@@ -58,6 +61,16 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 	ap, err := tx.Q.GetAutoresearch(ctx, db.GetAutoresearchParams{WorkspaceID: tx.WS, ID: r.AutoresearchID})
 	if err != nil {
 		return db.Card{}, err
+	}
+	draft, err := tx.LockStudyDraft(ctx, ap.ID)
+	if err != nil {
+		return db.Card{}, err
+	}
+	if draft != nil && draft.Completed {
+		if draft.CardID != nil {
+			return db.Card{ID: *draft.CardID}, ErrAlreadyActive
+		}
+		return db.Card{}, ErrAlreadyActive
 	}
 	var agent *uuid.UUID
 	if ap.AssigneeType != nil {
@@ -70,5 +83,21 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 		}
 		agent = &a.ID
 	}
-	return s.openCard(ctx, tx, ap, r, title, question, nil, agent, nil)
+	card, err := s.openCard(ctx, tx, ap, r, title, question, nil, agent, nil)
+	if err != nil {
+		return card, err
+	}
+	if draft != nil {
+		if err := tx.CompleteStudyDraft(ctx, ap.ID, card.ID, *draft); err != nil {
+			return db.Card{}, err
+		}
+		card.ResearchID = draft.ResearchID
+		card.Deadline = draft.Deadline
+		if draft.ResearchID != nil {
+			if err := tx.Emit(ctx, "card.properties_updated", &card.ID, store.System, map[string]any{"research_id": *draft.ResearchID}); err != nil {
+				return db.Card{}, err
+			}
+		}
+	}
+	return card, nil
 }

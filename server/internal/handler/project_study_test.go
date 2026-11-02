@@ -2,13 +2,15 @@ package handler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type projectStudy struct {
-	ID         string  `json:"id"`
-	ResearchID *string `json:"research_id"`
+	ID         string     `json:"id"`
+	ResearchID *string    `json:"research_id"`
+	StartDate  *time.Time `json:"start_date"`
 }
 
 func TestCreateStudyInProject(t *testing.T) {
@@ -23,15 +25,25 @@ func TestCreateStudyInProject(t *testing.T) {
 		t.Fatalf("create project: %d", code)
 	}
 	var created projectStudy
-	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"question": "What evidence belongs in this project?", "research_id": project.ID}, &created); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", token, workspace.ID, map[string]any{"question": "What evidence belongs in this project?", "research_id": project.ID, "start_date": "2026-11-03T00:00:00Z"}, &created); code != 201 {
 		t.Fatalf("create project study: %d", code)
 	}
 	if created.ResearchID == nil || *created.ResearchID != project.ID {
 		t.Fatalf("create returned an unlinked study: %+v", created)
 	}
+	if created.StartDate == nil || created.StartDate.Format("2006-01-02") != "2026-11-03" {
+		t.Fatalf("create returned wrong start date: %+v", created.StartDate)
+	}
 	var stored projectStudy
 	if code := s.call(t, "GET", "/api/cards/"+created.ID, token, workspace.ID, nil, &stored); code != 200 || stored.ResearchID == nil || *stored.ResearchID != project.ID {
 		t.Fatalf("stored link: %d %+v", code, stored)
+	}
+	if stored.StartDate == nil || stored.StartDate.Format("2006-01-02") != "2026-11-03" {
+		t.Fatalf("stored start date: %+v", stored.StartDate)
+	}
+	var listed []projectStudy
+	if code := s.call(t, "GET", "/api/cards", token, workspace.ID, nil, &listed); code != 200 || len(listed) != 1 || listed[0].StartDate == nil || listed[0].StartDate.Format("2006-01-02") != "2026-11-03" {
+		t.Fatalf("listed start date: %d %+v", code, listed)
 	}
 	var detail struct {
 		Studies []projectStudy `json:"studies"`

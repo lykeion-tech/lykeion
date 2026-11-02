@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { chooseCompact, labPack, labTeam, labWorkspace, groundingCriterion } from './lab';
+import { chooseCompact, labPack, labTeam, labWorkspace } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-14-artifacts';
 const shots = 'test-results/teams-scoring';
@@ -24,7 +24,7 @@ test.describe('new study', () => {
     await page.goto('/#/studies');
     await page.getByRole('button', { name: 'New', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'New study' });
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+    await dialog.getByRole('button', { name: 'Assignees' }).click();
     await dialog.getByRole('menuitem', { name: 'New set…' }).click();
     const control = dialog.getByRole('combobox', { name: 'Grounding Team' });
     await control.click();
@@ -62,7 +62,7 @@ test.describe('new study', () => {
         color,
       );
       await dialog.getByRole('button', { name: 'Machines', exact: true }).click();
-      await dialog.getByRole('button', { name: 'Assignee: Built-in Teams' }).click();
+      await dialog.getByRole('button', { name: 'Assignees' }).click();
       const assignees = dialog.getByRole('menu');
       expect(await assignees.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
         color,
@@ -97,7 +97,7 @@ test.describe('new study', () => {
       .getByRole('textbox', { name: 'Study title' })
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await groundingCriterion(dialog);
+
     await dialog.getByRole('button', { name: 'No deadline' }).click();
     const chosen = page.locator('.composer-calendar [aria-current="date"]');
     const day = await chosen.getAttribute('data-date');
@@ -116,7 +116,7 @@ test.describe('new study', () => {
 
     await page.getByRole('button', { name: 'New', exact: true }).click();
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await groundingCriterion(dialog);
+
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog.getByRole('status')).toContainText('An active study already asks this');
     await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
@@ -128,22 +128,32 @@ test.describe('new study', () => {
     expect(found).toHaveLength(1);
   });
 
-  test('"Create another" keeps the modal open and empties it', async ({ page }) => {
+  test('switching modes preserves each draft', async ({ page }) => {
+    const agent = await soloAgent(page);
     await page.goto('/#/studies');
     await page.keyboard.press('c');
     const dialog = page.getByRole('dialog', { name: 'New study' });
-    await dialog.getByRole('switch', { name: 'Create another' }).check();
-    const question = `Lithium and telomere length ${Date.now()}?`;
-    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await groundingCriterion(dialog);
-    await dialog.getByRole('button', { name: /Create study/ }).click();
-    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue('');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue('');
-    const found = await cardsNamed(page, question);
-    expect(found).toHaveLength(1);
-    expect(found[0]!.title).toBe(question);
-    await page.screenshot({ path: `${artifacts}/create-another.png`, fullPage: true });
+    await dialog.getByRole('textbox', { name: 'Study title' }).fill('Manual title');
+    await dialog.getByRole('textbox', { name: 'Describe your study' }).fill('Manual question');
+    await expect(dialog.getByRole('button', { name: 'Switch to Agent' })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Assignees' }).click();
+    await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
+    await dialog.getByRole('button', { name: 'Switch to Agent' }).click();
+    await expect(dialog.getByText('Create with agent')).toBeVisible();
+    await expect(dialog.getByLabel(`Created by agent: ${agent.name}`)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Created by agent' })).toHaveCount(0);
+    await dialog
+      .getByRole('textbox', { name: 'Describe the study for the agent' })
+      .fill('Agent request');
+    await dialog.getByRole('button', { name: 'Switch to Manual' }).click();
+    await expect(dialog.getByRole('textbox', { name: 'Study title' })).toHaveValue('Manual title');
+    await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveValue(
+      'Manual question',
+    );
+    await dialog.getByRole('button', { name: 'Switch to Agent' }).click();
+    await expect(
+      dialog.getByRole('textbox', { name: 'Describe the study for the agent' }),
+    ).toHaveValue('Agent request');
   });
 
   // Adds a demo Team built for a stage to the lab person and returns its id.
@@ -180,7 +190,7 @@ test.describe('new study', () => {
     const question = `One Team, one stage ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /^ui-hyp Built for/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: ui-hyp' })).toBeVisible();
     const stages = dialog.getByRole('button', { name: 'Stages: Hypotheses' });
@@ -203,15 +213,14 @@ test.describe('new study', () => {
         question: `The earlier set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'validation' },
-        grounding_criteria: ['Peer-reviewed source'],
       },
     });
     expect(earlier.status()).toBe(201);
     const question = `The set again ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await groundingCriterion(dialog);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: Your Team set' })).toBeVisible();
     await expect(
@@ -236,7 +245,7 @@ test.describe('new study', () => {
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Hypotheses' }),
     ).toBeVisible();
-    await groundingCriterion(dialog);
+
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = (await studyOf(page, question)) as Awaited<ReturnType<typeof studyOf>> & {
@@ -255,7 +264,7 @@ test.describe('new study', () => {
     const question = `A Team with no label ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     const item = dialog.getByRole('menuitem', { name: /^ui-nostage/ });
     await expect(item).not.toContainText('Built for');
     await item.click();
@@ -282,7 +291,6 @@ test.describe('new study', () => {
         question: `A set study ${Date.now()}`,
         assignee: { type: 'team', teams: { grounding: ground, hypotheses: hyp } },
         scope: { from: 'grounding', to: 'validation' },
-        grounding_criteria: ['Peer-reviewed source'],
       },
     });
     expect(made.status()).toBe(201);
@@ -290,8 +298,8 @@ test.describe('new study', () => {
     await dialog
       .getByRole('textbox', { name: 'Describe your study' })
       .fill(`Refused set ${Date.now()}`);
-    await groundingCriterion(dialog);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await page.route('**/api/cards', (route) =>
       route.request().method() === 'POST'
@@ -310,7 +318,7 @@ test.describe('new study', () => {
 
   test('with no Team picked the built-in Teams start the study', async ({ page }) => {
     const dialog = await composer(page);
-    await expect(dialog.getByRole('button', { name: 'Assignee: Built-in Teams' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Assignees' })).toBeVisible();
     await expect(dialog.getByRole('textbox', { name: 'Describe your study' })).toHaveAttribute(
       'placeholder',
       'Describe what you want to do, in your own words',
@@ -324,7 +332,7 @@ test.describe('new study', () => {
     await labTeam(page.request, await labWorkspace(page.request));
     await stageTeam(page, 'ui-hyp', 'hypotheses');
     const dialog = await composer(page);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('Custom Teams', { exact: true })).toBeVisible();
     await expect(
@@ -351,8 +359,8 @@ test.describe('new study', () => {
     const question = `A set of one ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await groundingCriterion(dialog);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: 'New set…' }).click();
     await chooseCompact(page, 'Hypotheses Team', 'ui-hyp');
     await dialog.getByRole('button', { name: 'Use this set' }).click();
@@ -394,7 +402,7 @@ test.describe('new study', () => {
     const question = `One agent, every stage ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Manage agents' })).toHaveAttribute(
@@ -406,7 +414,7 @@ test.describe('new study', () => {
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
     ).toBeEnabled();
-    await groundingCriterion(dialog);
+
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
@@ -439,7 +447,7 @@ test.describe('new study', () => {
       await page.reload();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       dialog = await composer(page);
-      await dialog.getByRole('button', { name: 'Assignee: Built-in Teams', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
       await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
       await dialog.getByRole('textbox', { name: 'Study title' }).fill('Sleep and memory');
       await expect(dialog.locator('.assignee-note')).toHaveCount(0);
@@ -447,11 +455,11 @@ test.describe('new study', () => {
       for (const name of [
         `Assignee: ${agent.name}`,
         'Stages: Grounding → Validation',
-        'Grounding criteria · 0',
-        'No deadline',
+        'Start date',
+        'Due date',
+        'No project',
       ])
         await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
-      await expect(row.getByRole('button', { name: 'Machines' })).toBeVisible();
       await expect(row.getByRole('button', { name: 'More properties' })).toHaveCount(0);
       const tops = await row.evaluate((el) =>
         [...el.querySelectorAll('.property-pill, .machine-trigger')].map((c) =>
@@ -465,41 +473,16 @@ test.describe('new study', () => {
       await testInfo.attach(`new-study-${theme}`, { path, contentType: 'image/png' });
     }
 
-    // Narrowing the window folds the due date first, then the machine.
-    const row = dialog.getByRole('group', { name: 'Study properties' });
-    const more = row.getByRole('button', { name: 'More properties' });
-    const due = row.getByRole('button', { name: 'No deadline' });
-    const machine = row.getByRole('button', { name: 'Machines' });
-    let width = 1280;
-    while ((await more.count()) === 0 && width > 600) {
-      width -= 20;
-      await page.setViewportSize({ width, height: 800 });
-    }
-    expect(width).toBeGreaterThan(600);
-    await expect(due).toHaveCount(0);
-    await expect(machine).toBeVisible();
+    // The date and project controls remain reachable on narrow screens.
     await page.setViewportSize({ width: 600, height: 800 });
-    await expect(more).toBeVisible();
-    await expect(due).toHaveCount(0);
-    await expect(machine).toHaveCount(0);
+    const row = dialog.getByRole('group', { name: 'Study properties' });
+    await expect(row.getByRole('button', { name: 'Start date' })).toBeVisible();
+    await expect(row.getByRole('button', { name: 'Due date' })).toBeVisible();
+    await expect(row.getByRole('button', { name: 'No project' })).toBeVisible();
     await noScroll();
-    await more.click();
-    await expect(due).toBeVisible();
-    await expect(machine).toBeVisible();
-    await machine.click();
-    const foldedMachines = dialog.getByRole('menu', { name: 'Choose machine' });
-    await expect(foldedMachines.getByRole('menuitemradio', { name: 'My machines' })).toBeVisible();
+    await row.getByRole('button', { name: 'Due date' }).click();
+    await expect(page.locator('.composer-calendar')).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(foldedMachines).toHaveCount(0);
-
-    // The folded calendar stays open through a resize, and ⋯ closes it.
-    await due.click();
-    const calendar = page.locator('.composer-calendar');
-    await expect(calendar).toBeVisible();
-    await page.setViewportSize({ width: 620, height: 800 });
-    await expect(calendar).toBeVisible();
-    await more.click();
-    await expect(calendar).toHaveCount(0);
-    await expect(due).toHaveCount(0);
+    await expect(page.locator('.composer-calendar')).toHaveCount(0);
   });
 });

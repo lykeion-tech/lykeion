@@ -114,16 +114,12 @@ func TestItemsPromptPerColumn(t *testing.T) {
 		t.Errorf("Validation declares no items yet, got %q", p)
 	}
 
-	crit := []string{"Prospective cohort", "Adult ICU patients"}
-	raw, _ := json.Marshal(crit)
-	c := db.Card{Number: 1, BoardColumn: board.Grounding, Question: "q?", GroundingCriteria: raw}
-	want := "Grounding criteria (every source must meet each):\n- Prospective cohort\n- Adult ICU patients\n"
-	if p := prompt(c, "agent", nil, "", nil); !strings.Contains(p, want) {
-		t.Errorf("the Grounding prompt does not list the criteria verbatim:\n%s", p)
+	c := db.Card{Number: 1, BoardColumn: board.Grounding, Question: "q?", GroundingCriteria: []byte(`["historical"]`)}
+	if p := prompt(c, "agent", nil, "", nil); strings.Contains(p, "historical") || strings.Contains(p, "Grounding criteria") {
+		t.Errorf("removed criteria leaked into prompt: %s", p)
 	}
-	c.BoardColumn = board.Hypotheses
-	if p := prompt(c, "agent", nil, "", nil); strings.Contains(p, "Grounding criteria") {
-		t.Errorf("a Hypotheses prompt lists the Grounding criteria:\n%s", p)
+	if strings.Contains(itemsPrompt(board.Grounding), "criteri") {
+		t.Errorf("the Grounding hand-in still cites removed criteria")
 	}
 }
 

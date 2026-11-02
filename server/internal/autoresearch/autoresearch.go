@@ -187,6 +187,32 @@ func (s *Service) RunNow(ctx context.Context, ws, autoresearch, actor uuid.UUID)
 	return r, err
 }
 
+// FailStudyDraft records a failed background dispatch and tells the requester.
+func (s *Service) FailStudyDraft(ctx context.Context, ws, id uuid.UUID) error {
+	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		if err := lockWorkspace(ctx, tx); err != nil {
+			return err
+		}
+		r, err := tx.Q.LockRun(ctx, db.LockRunParams{WorkspaceID: ws, ID: id})
+		if err != nil || r.Status != "queued" {
+			return err
+		}
+		draft, err := tx.LockStudyDraft(ctx, r.AutoresearchID)
+		if err != nil || draft == nil {
+			return err
+		}
+		ap, err := tx.Q.GetAutoresearch(ctx, db.GetAutoresearchParams{WorkspaceID: ws, ID: r.AutoresearchID})
+		if err != nil {
+			return err
+		}
+		r.Status, r.Reason = "failed", "dispatch_failed"
+		if err := s.setRun(ctx, tx, r); err != nil {
+			return err
+		}
+		return s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not start creating the study. Please try again.")
+	})
+}
+
 // notify gives the Autoresearch's owner and subscribers, those still members, an
 // Inbox item about a run.
 func (s *Service) notify(ctx context.Context, tx *store.Tx, ap db.Autoresearch, card *uuid.UUID, run uuid.UUID, kind, text string) error {

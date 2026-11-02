@@ -10,6 +10,7 @@ const props = defineProps<{
   clis?: string[];
   label?: string;
   openUp?: boolean;
+  cliOnly?: boolean;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
 const cliLabel = (cli: string) => (cli === 'codex' ? 'Codex' : 'Claude Code');
@@ -62,7 +63,11 @@ onUnmounted(() => {
       :aria-haspopup="cli ? 'dialog' : 'listbox'"
       :aria-expanded="open"
       :aria-label="
-        cli ? `CLI and model: ${cliLabel(cli)} · ${label}` : `${props.label || 'Model'}: ${label}`
+        cli
+          ? cliOnly
+            ? `CLI: ${cliLabel(cli)}`
+            : `CLI and model: ${cliLabel(cli)} · ${label}`
+          : `${props.label || 'Model'}: ${label}`
       "
       :disabled="disabled"
       @click="toggle"
@@ -92,7 +97,15 @@ onUnmounted(() => {
       class="cli-menu"
       :class="{ 'cli-menu--with-cli': cli }"
       :role="cli ? 'dialog' : 'listbox'"
-      :aria-label="cli ? 'CLI and model' : props.label ? `${props.label} options` : 'Models'"
+      :aria-label="
+        cli
+          ? cliOnly
+            ? 'Choose CLI'
+            : 'CLI and model'
+          : props.label
+            ? `${props.label} options`
+            : 'Models'
+      "
       :style="
         up
           ? {
@@ -120,13 +133,13 @@ onUnmounted(() => {
             {{ cliLabel(item) }}
           </button>
         </div>
-        <div class="cli-divider" />
+        <div v-if="!cliOnly" class="cli-divider" />
       </template>
-      <div class="cli-menu-head">
+      <div v-if="!cliOnly" class="cli-menu-head">
         <span class="cli-menu-eyebrow">{{ props.label || 'Model' }}</span>
       </div>
       <button
-        v-for="model in choices"
+        v-for="model in cliOnly ? [] : choices"
         :key="model.value"
         type="button"
         :role="cli ? undefined : 'option'"
