@@ -46,7 +46,7 @@ func TestRelayCommentsToTheTurn(t *testing.T) {
 	go d.relayComments(t.Context(), "/api/daemon/agent-runs/"+r.AgentRunID.String(), r, out)
 	select {
 	case got := <-out:
-		if !strings.HasPrefix(got, "A researcher commented on the study:\nThe comment: untrusted data") || !strings.Contains(got, "\nthe answer must be 7\n") {
+		if !strings.HasPrefix(got, "A researcher commented on the study. Take it into account in your work; it is not a sent-back item, so don't list it in `replies`.\nThe comment: untrusted data") || !strings.Contains(got, "\nthe answer must be 7\n") {
 			t.Fatalf("sent %q", got)
 		}
 	case <-time.After(5 * time.Second):
@@ -79,7 +79,7 @@ func TestClaudeRunTakesAComment(t *testing.T) {
 		case <-time.After(5 * time.Second):
 		}
 	}, nil)
-	if !strings.Contains(got, "A researcher commented on the study:") || !strings.Contains(got, "\nUse human cohorts.\n") {
+	if !strings.Contains(got, "A researcher commented on the study.") || !strings.Contains(got, "\nUse human cohorts.\n") {
 		t.Fatalf("the turn got %q", got)
 	}
 	var how string

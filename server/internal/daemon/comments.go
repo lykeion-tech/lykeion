@@ -16,9 +16,11 @@ import (
 var commentPoll = 5 * time.Second
 
 // commentText is a researcher's comment as the agent reads it: their words
-// fenced as data, under a plain lead-in.
+// fenced as data, under a lead-in saying it is guidance for the work rather
+// than an item sent back, which a hand-in answers in replies.
 func commentText(body string) string {
-	return "A researcher commented on the study:\n" + fence.Untrusted("The comment", body)
+	return "A researcher commented on the study. Take it into account in your work; it is not a sent-back item, so don't list it in `replies`.\n" +
+		fence.Untrusted("The comment", body)
 }
 
 // relayComments asks the server every commentPoll for the comments posted on
