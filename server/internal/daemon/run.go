@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -199,7 +200,14 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// breach names the first tool call outside the fence. The call is kept
 	// for the person, and the error stops the CLI before its work goes on.
 	var breach string
+	// doorToken is blanked out of every message before it is kept: the agent's
+	// shell can read it from its MCP config or environment, and a transcript
+	// is read by the whole workspace.
+	var doorToken []byte
 	sink := func(m agent.Message) error {
+		if len(doorToken) > 0 {
+			m.Content = bytes.ReplaceAll(m.Content, doorToken, []byte("[door token]"))
+		}
 		seq, err := appendMessage(m)
 		if err != nil {
 			sinkErr = errors.Join(sinkErr, err)
@@ -291,6 +299,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer door.Close()
+	doorToken = []byte(door.Token)
 	opts.DoorURL, opts.DoorToken = door.URL, door.Token
 	opts.Env = append(opts.Env, doorEnv(c.OutputSchema != "", c.AgentRun.Harness, door)...)
 	if cont, err = d.beginContinuity(c, pol); err != nil {
