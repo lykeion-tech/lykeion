@@ -253,7 +253,7 @@ func TestTheRedoNoteNamesAHypothesisAsWritten(t *testing.T) {
 		note, err = redoNote(context.Background(), tx, c, res)
 		return err
 	})
-	if !strings.Contains(note, "- Senescent cells accumulate with age.:\n") {
+	if !strings.Contains(note, "- Senescent cells accumulate with age.: ") {
 		t.Fatalf("note:\n%s", note)
 	}
 }

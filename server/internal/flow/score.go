@@ -69,6 +69,9 @@ func middleScoreText(number int32, column, weak string, finished bool) string {
 }
 
 func blockedText(number int32, column, weak string) string {
+	if weak == "" {
+		return fmt.Sprintf("Study #%d's %s column: Jev scored the column low twice. Comment on the study to tell the Team what to fix.", number, title(column))
+	}
 	return fmt.Sprintf("Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", number, title(column), weak)
 }
 
@@ -83,6 +86,9 @@ func runFailedText(number int32, column, reason, detail string) string {
 		why = "the agent ran out of context"
 	}
 	first, _, _ := strings.Cut(detail, "\n")
+	if first == "" {
+		first = "no detail was recorded"
+	}
 	if r := []rune(first); len(r) > 300 {
 		first = string(r[:300]) + "…"
 	}

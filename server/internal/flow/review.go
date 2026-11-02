@@ -35,9 +35,12 @@ var errNoSources = errors.New("the server has no sources lookup")
 const maxOutputText = 8 << 20
 
 // reviewBlockedText is the Inbox item for a column that failed its review
-// after its one redo; failed lists the labels of the items that failed.
-func reviewBlockedText(number int32, column, failed string) string {
-	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing: %s. Comment on the study to tell the Team what to fix.", number, title(column), failed)
+// again after its redo; reasons are the lines review.Reasons gave.
+func reviewBlockedText(number int32, column string, reasons []string) string {
+	if len(reasons) == 0 {
+		reasons = []string{"Jev's review found problems with this column."}
+	}
+	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing:\n- %s\nComment on the study to tell the Team what to fix.", number, title(column), strings.Join(reasons, "\n- "))
 }
 
 // usesReview says whether the study's current column is reviewed item by item:
@@ -600,7 +603,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		case review.DecideBlock:
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, failedLabels(res))})
+			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res))})
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
@@ -625,16 +628,4 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": res.Decision})
 	})
 	return moved, err
-}
-
-// failedLabels lists the labels of the items that failed, missed papers
-// among them.
-func failedLabels(r review.Result) string {
-	var out []string
-	for _, it := range append(append([]review.Item{}, r.Items...), r.Missed...) {
-		if it.Status == review.Fail {
-			out = append(out, it.Label)
-		}
-	}
-	return strings.Join(out, ", ")
 }

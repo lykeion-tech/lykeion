@@ -104,12 +104,12 @@ func Validate(kind, column string, body []byte) error {
 	case KindPaper:
 		var b PaperBody
 		if msg = decode(dec, &b); msg == "" {
-			msg = first(check(paperID.MatchString(b.ID), "id must be arxiv:…, doi:10.… or pmid:…"), text(b.Text))
+			msg = all(check(paperID.MatchString(b.ID), "id must be arxiv:…, doi:10.… or pmid:…"), text(b.Text))
 		}
 	case KindDataset:
 		var b DatasetBody
 		if msg = decode(dec, &b); msg == "" {
-			msg = first(check(b.Accession != "" && utf8.RuneCountInString(b.Accession) <= 200, "accession must be 1 to 200 characters"), text(b.Text))
+			msg = all(check(b.Accession != "" && utf8.RuneCountInString(b.Accession) <= 200, "accession must be 1 to 200 characters"), text(b.Text))
 		}
 	case KindNoQualifying:
 		var b NoQualifyingBody
@@ -119,7 +119,7 @@ func Validate(kind, column string, body []byte) error {
 	case KindHypothesis:
 		var b HypothesisBody
 		if msg = decode(dec, &b); msg == "" {
-			msg = first(text(b.Text), prediction(b.Prediction), control(b.Control), check(len(b.Cites) >= 1, "a hypothesis cites at least one record"))
+			msg = all(text(b.Text), prediction(b.Prediction), control(b.Control), check(len(b.Cites) >= 1, "a hypothesis cites at least one record"))
 		}
 	case KindOutputs:
 		var b OutputsBody
@@ -130,7 +130,7 @@ func Validate(kind, column string, body []byte) error {
 		var b WithdrawnBody
 		if msg = decode(dec, &b); msg == "" {
 			n := utf8.RuneCountInString(b.Reason)
-			msg = first(check(itemKey.MatchString(b.Item), "item must be the key of the item record withdrawn, such as r3"),
+			msg = all(check(itemKey.MatchString(b.Item), "item must be the key of the item record withdrawn, such as r3"),
 				check(n >= 1 && n <= 2000, "reason must be 1 to 2000 characters"))
 		}
 	}
@@ -154,13 +154,15 @@ func check(ok bool, msg string) string {
 	return msg
 }
 
-func first(msgs ...string) string {
+// all joins every problem found, so one refusal names them all.
+func all(msgs ...string) string {
+	var out []string
 	for _, m := range msgs {
 		if m != "" {
-			return m
+			out = append(out, m)
 		}
 	}
-	return ""
+	return strings.Join(out, "; ")
 }
 
 func text(s string) string {
@@ -175,7 +177,7 @@ func prediction(p Prediction) string {
 	case "outcomes":
 		return check(len(p.Outcomes) >= 2 && slices.Contains(p.Outcomes, p.Chosen), "an outcomes prediction needs 2 or more outcomes and a chosen one among them")
 	case "range":
-		return first(check(p.Low != nil && p.High != nil && *p.Low < *p.High, "a range prediction needs low < high"), check(p.Uncertainty != "", "a range prediction needs an uncertainty"))
+		return all(check(p.Low != nil && p.High != nil && *p.Low < *p.High, "a range prediction needs low < high"), check(p.Uncertainty != "", "a range prediction needs an uncertainty"))
 	}
 	return "prediction shape must be direction, outcomes or range"
 }
