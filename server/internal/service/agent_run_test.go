@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sync"
 	"testing"
@@ -556,8 +557,10 @@ func TestAttemptReplayCannotChargeOrSettleReclaimedRun(t *testing.T) {
 			t.Fatalf("old receipt: %+v %v", got, err)
 		}
 	}
-	if err := f.T.Messages(ctx, f.Owner, old, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"stale"`)}}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("stale messages: %v", err)
+	// The earlier attempt's last messages, resent late by the machine that
+	// ran it, still belong to that attempt.
+	if err := f.T.Messages(ctx, f.Owner, old, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"stale"`)}}); err != nil {
+		t.Fatalf("late messages of the earlier attempt: %v", err)
 	}
 	if err := f.T.PrepareLease(ctx, f.Owner, old, id); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale lease: %v", err)
@@ -1619,5 +1622,66 @@ func TestGuestAutoresearchRequiresRequesterIdentity(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatal("autoresearch ran as a different responsible user")
+	}
+}
+
+func (f *fixture) messageAttempts(t *testing.T, run uuid.UUID) map[string]int32 {
+	t.Helper()
+	rows, err := f.Env.Owner.Query(context.Background(), "SELECT content::text, attempt FROM agent_run_message WHERE agent_run_id = $1", run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]int32{}
+	for rows.Next() {
+		var content string
+		var attempt int32
+		if err := rows.Scan(&content, &attempt); err != nil {
+			t.Fatal(err)
+		}
+		out[content] = attempt
+	}
+	return out
+}
+
+// A killed attempt's last messages reach the server only after the daemon
+// restarts and reported the attempt ended. They join that attempt, whether
+// the run waits or another attempt runs, but only from the machine that ran
+// it; the running attempt never gets them.
+func TestLateMessagesJoinTheirEndedAttempt(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	ref := f.runtime(t, f.Owner, "d1", "claude")
+	other := f.runtime(t, f.Owner, "d2", "claude")
+	first, id := f.claimStart(t, ref)
+	if got, err := f.T.Fail(ctx, f.Owner, first, id, Report{FailureReason: "runtime_offline"}); err != nil || got.Status != "queued" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if err := f.T.Messages(ctx, f.Owner, first, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"parked tail"`)}}); err != nil {
+		t.Fatalf("tail of a parked attempt: %v", err)
+	}
+	foreign := first
+	foreign.RuntimeID = other.RuntimeID
+	if err := f.T.Messages(ctx, f.Owner, foreign, id, []Message{{Seq: 2, Type: "text", Content: []byte(`"foreign"`)}}); err == nil {
+		t.Fatal("another machine wrote to the attempt")
+	}
+	f.clearBackoff(t)
+	second, _ := f.claimStart(t, other)
+	if err := f.T.Messages(ctx, f.Owner, first, id, []Message{{Seq: 3, Type: "text", Content: []byte(`"late tail"`)}}); err != nil {
+		t.Fatalf("tail of an earlier attempt: %v", err)
+	}
+	if err := f.T.Messages(ctx, f.Owner, second, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"current"`)}}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int32{`"parked tail"`: 1, `"late tail"`: 1, `"current"`: 2}
+	if got := f.messageAttempts(t, id); !maps.Equal(got, want) {
+		t.Fatalf("messages %v, want %v", got, want)
+	}
+	// An attempt that never ran has no messages to send late.
+	future := second
+	future.Attempt = 3
+	if err := f.T.Messages(ctx, f.Owner, future, id, []Message{{Seq: 1, Type: "text", Content: []byte(`"x"`)}}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("future attempt: %v", err)
 	}
 }

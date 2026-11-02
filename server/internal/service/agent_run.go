@@ -1051,11 +1051,17 @@ func runningOn(t db.AgentRun, ref RuntimeRef) bool {
 func (s *AgentRuns) Messages(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, ms []Message) error {
 	return s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
 		t, err := lockAttempt(ctx, tx, ref, run)
+		ended := false
+		if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotYours) {
+			if ended, err = endedAttemptOf(ctx, tx, t, ref); err == nil && !ended {
+				err = ErrConflict
+			}
+		}
 		if err != nil {
 			return err
 		}
 		// A person may cancel before the daemon drains the final output.
-		if !runningOn(t, ref) && !(t.Status == "cancelled" && t.StartedAt != nil && t.LateUsageAt == nil) {
+		if !ended && !runningOn(t, ref) && !(t.Status == "cancelled" && t.StartedAt != nil && t.LateUsageAt == nil) {
 			return ErrConflict
 		}
 		for _, m := range ms {
@@ -1244,6 +1250,24 @@ func lockAttempt(ctx context.Context, tx *store.Tx, ref RuntimeRef, run uuid.UUI
 		return t, ErrNotYours
 	}
 	return t, nil
+}
+
+// endedAttemptOf reports whether ref names an attempt of t that ended on
+// ref's runtime and is no longer the run's live one: an earlier attempt, or
+// the last one while the run waits to be claimed again. A daemon that
+// restarted resends such an attempt's last messages after reporting its end.
+func endedAttemptOf(ctx context.Context, tx *store.Tx, t db.AgentRun, ref RuntimeRef) (bool, error) {
+	if ref.Attempt <= 0 || ref.Attempt > t.Attempt || ref.Attempt == t.Attempt && t.Status != "queued" {
+		return false, nil
+	}
+	rc, err := tx.Q.GetAttemptReceipt(ctx, db.GetAttemptReceiptParams{WorkspaceID: ref.WorkspaceID, AgentRunID: t.ID, Attempt: ref.Attempt})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return rc.RuntimeID != nil && *rc.RuntimeID == ref.RuntimeID, nil
 }
 
 func saveReceipt(ctx context.Context, tx *store.Tx, t db.AgentRun, runtime *uuid.UUID) error {
