@@ -167,7 +167,8 @@ func cliOutput(ctx context.Context, bin string, args ...string) (string, error) 
 
 // checkMachine runs one CLI's preflight and reports it for every runtime of
 // that CLI: a pass clears the runtime and its waits, a failure flags it.
-func (d *daemon) checkMachine(ctx context.Context, harness string) {
+// Only the pass at start clears a fence breach.
+func (d *daemon) checkMachine(ctx context.Context, harness string, start bool) {
 	check := d.cfg.Preflight
 	if check == nil {
 		check = d.preflight
@@ -189,16 +190,16 @@ func (d *daemon) checkMachine(ctx context.Context, harness string) {
 		if h != harness {
 			continue
 		}
-		body := map[string]any{"workspace_id": ref.WorkspaceID, "ok": reason == "", "reason": reason, "detail": detail}
+		body := map[string]any{"workspace_id": ref.WorkspaceID, "ok": reason == "", "start": start, "reason": reason, "detail": detail}
 		if err := d.api.Do(ctx, "POST", "/api/daemon/runtimes/"+ref.RuntimeID.String()+"/health", body, nil); err != nil {
 			slog.Warn("preflight report failed", "harness", harness, "err", err)
 		}
 	}
 }
 
-func (d *daemon) preflightAll(ctx context.Context) {
+func (d *daemon) preflightAll(ctx context.Context, start bool) {
 	for h := range d.cfg.Harnesses {
-		d.checkMachine(ctx, h)
+		d.checkMachine(ctx, h, start)
 	}
 }
 
@@ -213,19 +214,19 @@ func (d *daemon) preflights(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			d.preflightAll(ctx)
+			d.preflightAll(ctx, false)
 		case h := <-d.rechecks:
 			if time.Since(asked[h]) >= recheckGap {
 				asked[h] = time.Now()
-				d.checkMachine(ctx, h)
+				d.checkMachine(ctx, h, false)
 			}
 		}
 	}
 }
 
 // recheck asks for a CLI's preflight after a run failed with reason. A fence
-// breach is left alone: the hello can't see its cause, and a pass would
-// release the runs it held.
+// breach asks for none: the hello can't see its cause, and only the owner or
+// a restart clears it.
 func (d *daemon) recheck(harness, reason string) {
 	if harness == "" || !service.Infra(reason) || reason == agent.ReasonFenceBreach || reason == agent.ReasonRuntimeOffline {
 		return

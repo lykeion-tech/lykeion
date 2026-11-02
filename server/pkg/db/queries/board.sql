@@ -122,3 +122,8 @@ ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine'
 -- name: ResolveMachineWaits :exec
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
+
+-- name: ResolveMachineWaitsExcept :exec
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+  AND cause IS DISTINCT FROM @keep::text;

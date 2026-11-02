@@ -423,6 +423,23 @@ func (q *Queries) ResolveMachineWaits(ctx context.Context, arg ResolveMachineWai
 	return err
 }
 
+const resolveMachineWaitsExcept = `-- name: ResolveMachineWaitsExcept :exec
+UPDATE inbox_item SET resolved_at = now()
+WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+  AND cause IS DISTINCT FROM $3::text
+`
+
+type ResolveMachineWaitsExceptParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+	Keep        string     `json:"keep"`
+}
+
+func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMachineWaitsExceptParams) error {
+	_, err := q.db.Exec(ctx, resolveMachineWaitsExcept, arg.WorkspaceID, arg.RuntimeID, arg.Keep)
+	return err
+}
+
 const roundAgentRunRecords = `-- name: RoundAgentRunRecords :many
 SELECT agent_run_id::uuid AS agent_run_id, kind, body FROM record
 WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3

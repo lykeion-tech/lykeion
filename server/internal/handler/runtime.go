@@ -374,8 +374,11 @@ func (h *H) daemonRuntimeHealth(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		WorkspaceID uuid.UUID `json:"workspace_id"`
 		OK          bool      `json:"ok"`
-		Reason      string    `json:"reason"`
-		Detail      string    `json:"detail"`
+		// Start marks the pass the daemon makes when it starts, which may
+		// clear a fence breach; later passes may not.
+		Start  bool   `json:"start"`
+		Reason string `json:"reason"`
+		Detail string `json:"detail"`
 	}
 	if err := readJSON(r, &in); err != nil || in.WorkspaceID == uuid.Nil || !in.OK && !preflightReasons[in.Reason] {
 		writeErr(w, 400, "workspace_id and, for a failure, a preflight reason required")
@@ -383,9 +386,12 @@ func (h *H) daemonRuntimeHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	ref := service.RuntimeRef{WorkspaceID: in.WorkspaceID, RuntimeID: id}
 	var err error
-	if in.OK {
+	switch {
+	case in.OK && in.Start:
 		err = h.AgentRuns.MarkHealthy(r.Context(), user(r), ref)
-	} else {
+	case in.OK:
+		err = h.AgentRuns.MarkPassed(r.Context(), user(r), ref)
+	default:
 		err = h.AgentRuns.MarkUnhealthy(r.Context(), user(r), ref, in.Reason)
 	}
 	if err != nil {

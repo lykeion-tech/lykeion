@@ -268,8 +268,9 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.storageLoop(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
 	// Before the first claim: a machine fixed while the daemon was down is
-	// cleared, and one that broke is flagged.
-	d.preflightAll(ctx)
+	// cleared, and one that broke is flagged. A restart is also how an owner
+	// who fixed a fence breach clears it.
+	d.preflightAll(ctx, true)
 	background(func() { d.preflights(ctx) })
 	if d.bases != nil {
 		// Bases build in the background; a run started before one is ready

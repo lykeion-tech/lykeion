@@ -21,6 +21,7 @@ import (
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	"lykeion/server/internal/workflow"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -818,7 +819,18 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
 		}
-		if !slices.Contains(readResolves, item.Kind) {
+		// The owner dismissing a fence breach's wait is what lets the
+		// machine claim again: no preflight can tell the breach is fixed.
+		fence := item.Kind == "waiting_for_machine" && item.Cause != nil && *item.Cause == agent.ReasonFenceBreach && item.RuntimeID != nil
+		if fence {
+			err := service.ClearRuntime(r.Context(), tx, user, *item.RuntimeID)
+			if errors.Is(err, service.ErrNotYours) {
+				fence = false // the machine is no longer theirs to clear
+			} else if err != nil {
+				return err
+			}
+		}
+		if !fence && !slices.Contains(readResolves, item.Kind) {
 			return nil
 		}
 		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})

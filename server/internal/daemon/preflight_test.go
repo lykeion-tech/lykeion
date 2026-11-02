@@ -3,13 +3,17 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"lykeion/server/internal/apiclient"
 
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/pkg/agent"
@@ -196,4 +200,22 @@ func TestPreflightAfterInfraFailure(t *testing.T) {
 	waitFor(t, func() bool { return calls.Load() == 2 })
 	waitFor(t, func() bool { r, open := f.machine(t); return r == nil && open == 0 })
 	stopDaemon(t, cancel, done)
+}
+
+// The daemon's later passes leave a fence breach flagged; its pass at start
+// clears it.
+func TestPreflightStartPassAloneClearsAFenceBreach(t *testing.T) {
+	f := fixture(t)
+	d := &daemon{cfg: f.cfg, api: &apiclient.Client{Server: f.cfg.Server, Token: f.cfg.Token, HTTP: http.DefaultClient}, id: "fence-daemon", knownWorkspaces: map[uuid.UUID]bool{}}
+	must(t, d.register(t.Context(), d.id))
+	_, err := f.env.Owner.Exec(t.Context(), `UPDATE runtime SET unhealthy_reason = 'fence_breach' WHERE workspace_id = $1`, f.ws)
+	must(t, err)
+	d.checkMachine(t.Context(), "claude", false)
+	if r, _ := f.machine(t); r == nil || *r != agent.ReasonFenceBreach {
+		t.Fatalf("a later pass cleared a fence breach: %v", r)
+	}
+	d.checkMachine(t.Context(), "claude", true)
+	if r, _ := f.machine(t); r != nil {
+		t.Fatalf("the start pass left %v", *r)
+	}
 }

@@ -139,19 +139,47 @@ func (s *AgentRuns) MarkUnhealthy(ctx context.Context, user uuid.UUID, ref Runti
 }
 
 // MarkHealthy lets the owner's machine claim again, releases the runs it
-// held, and resolves its waits.
+// held, and resolves its waits, a fence breach's among them.
 func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref RuntimeRef) error {
 	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
-		n, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID, OwnerID: user})
+		return ClearRuntime(ctx, tx, user, ref.RuntimeID)
+	})
+}
+
+// ClearRuntime is MarkHealthy inside the caller's transaction.
+func ClearRuntime(ctx context.Context, tx *store.Tx, user, runtime uuid.UUID) error {
+	n, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: tx.WS, ID: runtime, OwnerID: user})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotYours
+	}
+	if err := ReleaseHeldRuns(ctx, tx, runtime); err != nil {
+		return err
+	}
+	return tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: tx.WS, RuntimeID: &runtime})
+}
+
+// MarkPassed takes a preflight pass while the daemon runs. It clears the
+// machine as MarkHealthy does, except for a fence breach: the hello can't
+// see what the run reached for, so a breach stays flagged, its runs held and
+// its wait open until the owner resolves the wait or the daemon restarts.
+func (s *AgentRuns) MarkPassed(ctx context.Context, user uuid.UUID, ref RuntimeRef) error {
+	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && rt.OwnerID != user {
+			return ErrNotYours
+		}
 		if err != nil {
 			return err
 		}
-		if n == 0 {
-			return ErrNotYours
+		if rt.UnhealthyReason != nil && *rt.UnhealthyReason == agent.ReasonFenceBreach {
+			return nil
 		}
-		if err := ReleaseHeldRuns(ctx, tx, ref.RuntimeID); err != nil {
+		if _, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID, OwnerID: user}); err != nil {
 			return err
 		}
-		return tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})
+		return tx.Q.ResolveMachineWaitsExcept(ctx, db.ResolveMachineWaitsExceptParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID, Keep: agent.ReasonFenceBreach})
 	})
 }
