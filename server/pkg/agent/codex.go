@@ -106,6 +106,22 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_door.url=%s", raw(o.DoorURL)), "-c", `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`,
 			"-c", fmt.Sprintf("mcp_servers.lyk_door.tool_timeout_sec=%d", int(doorCallTimeout.Seconds())))
 	}
+	if o.OutputSchema != "" {
+		// Replace only the adapter's prior file; never follow a planted link.
+		schema := filepath.Join(o.Dir, ".lyk-output-schema.json")
+		exists, err := claudeMCPExists(schema)
+		if err == nil && exists {
+			err = os.Remove(schema)
+		}
+		if err == nil {
+			err = privateFile(schema, []byte(o.OutputSchema))
+		}
+		if err != nil {
+			cleanup(true)
+			return nil, err
+		}
+		args = append(args, "--output-schema", schema)
+	}
 	args = append(args, "--cd", o.Dir)
 	if o.Resume != "" {
 		args = append(args, "resume", o.Resume)
@@ -155,6 +171,7 @@ func parseCodex(model string) parser {
 		case "item.completed":
 			switch ev.Item.Type {
 			case "agent_message":
+				res.Output = ev.Item.Text
 				emit(Message{Type: "text", Content: raw(ev.Item.Text)})
 			case "reasoning":
 				emit(Message{Type: "thinking", Content: raw(ev.Item.Text)})

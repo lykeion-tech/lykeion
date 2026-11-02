@@ -132,7 +132,8 @@ func fixture(t *testing.T) *daemonFixture {
 	must(t, err)
 	var token struct{ Token string }
 	must(t, (&apiclient.Client{Server: srv.URL, Token: jwt}).Do(ctx, "POST", "/api/tokens", map[string]string{"name": "daemon"}, &token))
-	f.cfg = Config{Server: srv.URL, Token: token.Token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test", Slots: 2, Poll: 40 * time.Millisecond, Heartbeat: 100 * time.Millisecond, Flush: 50 * time.Millisecond, Harnesses: map[string]string{"claude": fakeClaude(t)}}
+	f.cfg = Config{Server: srv.URL, Token: token.Token, StateDir: t.TempDir(), Home: t.TempDir(), Device: "test", Slots: 2, Poll: 40 * time.Millisecond, Heartbeat: 100 * time.Millisecond, Flush: 50 * time.Millisecond, Harnesses: map[string]string{"claude": fakeClaude(t)},
+		Preflight: func(context.Context, string) (string, string) { return "", "" }}
 	t.Cleanup(func() { _ = agent.RemoveTree(f.cfg.StateDir) })
 	f.enqueue(t)
 	return f

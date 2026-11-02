@@ -42,6 +42,7 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 			var rs []struct {
 				ID      uuid.UUID `json:"id"`
 				OwnerID uuid.UUID `json:"owner_id"`
+				Harness string    `json:"harness"`
 			}
 			var harnesses []string
 			for h := range d.cfg.Harnesses {
@@ -58,6 +59,7 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 			}
 			for _, r := range rs {
 				d.ownerOf[r.ID] = r.OwnerID
+				d.setHarness(r.ID, r.Harness)
 			}
 			d.knownWorkspaces[ws.ID] = true
 			d.mu.Unlock()
@@ -94,6 +96,7 @@ func (d *daemon) refreshReferences(ctx context.Context) error {
 					d.ownerOf = make(map[uuid.UUID]uuid.UUID)
 				}
 				d.ownerOf[r.ID] = r.OwnerID
+				d.setHarness(r.ID, r.Harness)
 				d.mu.Unlock()
 			}
 		}

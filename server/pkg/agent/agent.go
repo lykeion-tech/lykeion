@@ -57,6 +57,9 @@ type ExecOptions struct {
 	// ClaudeBaseline is the opaque usage snapshot a prior Lykeion attempt
 	// returned for Resume. It is consumed before launch.
 	ClaudeBaseline []byte
+	// OutputSchema, when set, is a JSON Schema the CLI holds its final
+	// answer to; Result.Output carries that answer.
+	OutputSchema string
 	// OnMessage, when set, durably accepts each normalized message instead of
 	// publishing it to Session.Messages. An error stops the child and is reported.
 	OnMessage func(Message) error
@@ -87,6 +90,9 @@ type Result struct {
 	ResumeRefused bool
 	// Model is the model the attempt ran on, as chosen or reported.
 	Model string
+	// Output is the run's final answer: Claude's structured output, or its
+	// result text when it has none; Codex's last message.
+	Output string
 	// ClaudeSnapshot is the cumulative usage baseline for resuming SessionID,
 	// present only after a clean terminal result.
 	ClaudeSnapshot []byte

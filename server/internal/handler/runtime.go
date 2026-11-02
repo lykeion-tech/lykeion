@@ -15,6 +15,7 @@ import (
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -357,4 +358,39 @@ func (h *H) setRuntimeSharing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, rt)
+}
+
+// preflightReasons are the failures a daemon's preflight reports.
+var preflightReasons = map[string]bool{agent.ReasonCLIMissing: true, agent.ReasonCLITooOld: true, agent.ReasonSandbox: true, agent.ReasonDoor: true, agent.ReasonSignIn: true, agent.ReasonCLIBroken: true}
+
+// daemonRuntimeHealth takes a preflight's result for one of the caller's
+// runtimes: a pass lets it claim again and resolves its waits, a failure
+// flags it. The detail stays in the daemon's log; the server keeps the reason.
+func (h *H) daemonRuntimeHealth(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		WorkspaceID uuid.UUID `json:"workspace_id"`
+		OK          bool      `json:"ok"`
+		Reason      string    `json:"reason"`
+		Detail      string    `json:"detail"`
+	}
+	if err := readJSON(r, &in); err != nil || in.WorkspaceID == uuid.Nil || !in.OK && !preflightReasons[in.Reason] {
+		writeErr(w, 400, "workspace_id and, for a failure, a preflight reason required")
+		return
+	}
+	ref := service.RuntimeRef{WorkspaceID: in.WorkspaceID, RuntimeID: id}
+	var err error
+	if in.OK {
+		err = h.AgentRuns.MarkHealthy(r.Context(), user(r), ref)
+	} else {
+		err = h.AgentRuns.MarkUnhealthy(r.Context(), user(r), ref, in.Reason)
+	}
+	if err != nil {
+		agentRunFail(w, r, err)
+		return
+	}
+	w.WriteHeader(204)
 }

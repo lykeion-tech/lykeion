@@ -34,7 +34,7 @@ type RunFolderPath struct {
 var RunFolderConfig = []RunFolderPath{
 	{Name: ".claude", Folder: true}, {Name: ".codex", Folder: true}, {Name: ".agents", Folder: true},
 	{Name: ".cli-home", Folder: true, Hidden: true}, {Name: ".home", Folder: true, Hidden: true},
-	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true},
+	{Name: ".claude.json"}, {Name: ".mcp.json"}, {Name: ".lyk-mcp.json", Hidden: true}, {Name: ".lyk-config.json", Hidden: true}, {Name: ".lyk-output-schema.json"},
 	{Name: "AGENTS.md"}, {Name: "AGENTS.override.md"}, {Name: "CLAUDE.md"}, {Name: "CLAUDE.local.md"}, {Name: "SKILL.md"},
 	{Name: ".agent-owned", Marker: true}, {Name: ".agent-lock", Marker: true}, {Name: ".agent-process", Marker: true},
 	// The supervisor writes its exit marker from outside the sandbox, and

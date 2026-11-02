@@ -151,6 +151,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.Resume != "" {
 		args = append(args, "--resume", o.Resume)
 	}
+	if o.OutputSchema != "" {
+		args = append(args, "--json-schema", o.OutputSchema)
+	}
 	bin := c.Bin
 	if bin == "" {
 		bin = "claude"
@@ -236,16 +239,17 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 	sawWork := false
 	return func(line []byte, emit emitMessage, res *Result) (bool, error) {
 		var ev struct {
-			Type           string   `json:"type"`
-			Session        string   `json:"session_id"`
-			Model          string   `json:"model"`
-			IsError        bool     `json:"is_error"`
-			Cost           *float64 `json:"total_cost_usd"`
-			Result         string   `json:"result"`
-			Subtype        string   `json:"subtype"`
-			Errors         []string `json:"errors"`
-			TerminalReason string   `json:"terminal_reason"`
-			NumTurns       int      `json:"num_turns"`
+			Type           string          `json:"type"`
+			Session        string          `json:"session_id"`
+			Model          string          `json:"model"`
+			IsError        bool            `json:"is_error"`
+			Cost           *float64        `json:"total_cost_usd"`
+			Result         string          `json:"result"`
+			Structured     json.RawMessage `json:"structured_output"`
+			Subtype        string          `json:"subtype"`
+			Errors         []string        `json:"errors"`
+			TerminalReason string          `json:"terminal_reason"`
+			NumTurns       int             `json:"num_turns"`
 			Usage          *struct {
 				Input      int64 `json:"input_tokens"`
 				Output     int64 `json:"output_tokens"`
@@ -323,6 +327,10 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 			}
 			// Result usage is authoritative and already excludes Claude's caches from
 			// input tokens. Repeated terminal snapshots replace rather than add totals.
+			res.Output = ev.Result
+			if len(ev.Structured) > 0 && string(ev.Structured) != "null" {
+				res.Output = string(ev.Structured)
+			}
 			res.Usage = nil
 			for _, model := range slices.Sorted(maps.Keys(ev.ModelUsage)) {
 				u := ev.ModelUsage[model]

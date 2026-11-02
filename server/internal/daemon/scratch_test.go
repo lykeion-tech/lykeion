@@ -26,6 +26,8 @@ func TestScopeSharedHomeDaemonHelper(t *testing.T) {
 	}
 	var cfg Config
 	must(t, json.Unmarshal([]byte(raw), &cfg))
+	// As the fixture's daemon: these fakes answer runs, not the preflight.
+	cfg.Preflight = func(context.Context, string) (string, string) { return "", "" }
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)

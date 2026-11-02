@@ -43,6 +43,9 @@ type Config struct {
 	EnvDir string
 	// Bases, when non-nil, replaces the bases the daemon builds at EnvDir.
 	Bases *envs.Bases
+	// Preflight, when non-nil, replaces the daemon's check of a CLI; an
+	// empty reason means healthy.
+	Preflight func(ctx context.Context, harness string) (reason, detail string)
 }
 
 func (c *Config) defaults() {
@@ -134,6 +137,8 @@ type daemon struct {
 	api               *apiclient.Client
 	refs              []runtimeRef
 	ownerOf           map[uuid.UUID]uuid.UUID
+	harnessOf         map[uuid.UUID]string // runtime → its CLI
+	rechecks          chan string          // CLIs a failed run asks to check again
 	out, messages     *Outbox
 	wake              chan struct{}
 	failures          chan error
@@ -206,7 +211,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
+	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), rechecks: make(chan string, 4), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
 	if err = d.recoverCoresearch(); err != nil {
@@ -262,6 +267,10 @@ func Run(ctx context.Context, cfg Config) error {
 	background(func() { d.every(ctx, 5*time.Second, d.sampleKernels) })
 	background(func() { d.storageLoop(ctx) })
 	background(func() { d.runtimeSkills(ctx); d.every(ctx, cfg.Poll, d.runtimeSkills) })
+	// Before the first claim: a machine fixed while the daemon was down is
+	// cleared, and one that broke is flagged.
+	d.preflightAll(ctx)
+	background(func() { d.preflights(ctx) })
 	if d.bases != nil {
 		// Bases build in the background; a run started before one is ready
 		// gets only the ones that are.
@@ -305,6 +314,14 @@ loop:
 	default:
 	}
 	return runErr
+}
+
+// setHarness records a runtime's CLI; the caller holds d.mu.
+func (d *daemon) setHarness(runtime uuid.UUID, harness string) {
+	if d.harnessOf == nil {
+		d.harnessOf = map[uuid.UUID]string{}
+	}
+	d.harnessOf[runtime] = harness
 }
 func (d *daemon) fatal(err error) {
 	if err != nil {
@@ -351,6 +368,7 @@ func (d *daemon) register(ctx context.Context, id string) error {
 		var runtimes []struct {
 			ID      uuid.UUID `json:"id"`
 			OwnerID uuid.UUID `json:"owner_id"`
+			Harness string    `json:"harness"`
 		}
 		if err := d.api.Do(ctx, "POST", "/api/daemon/register", map[string]any{"workspace_id": ws.ID, "daemon_id": id, "device_name": d.cfg.Device, "harnesses": harnesses, "versions": d.versions, "platform": d.platform}, &runtimes); err != nil {
 			return err
@@ -362,6 +380,7 @@ func (d *daemon) register(ctx context.Context, id string) error {
 		d.knownWorkspaces[ws.ID] = true
 		for _, r := range runtimes {
 			d.ownerOf[r.ID] = r.OwnerID
+			d.setHarness(r.ID, r.Harness)
 			d.refs = append(d.refs, runtimeRef{WorkspaceID: ws.ID, RuntimeID: r.ID})
 		}
 		d.mu.Unlock()
@@ -554,7 +573,18 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 	if pending {
 		return errMessagesPending
 	}
-	return d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil)
+	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil); err != nil {
+		return err
+	}
+	// Only once the server holds the failure: a pass reported before it
+	// would leave the machine flagged.
+	if r.Kind == "fail" {
+		d.mu.Lock()
+		harness := d.harnessOf[r.RuntimeID]
+		d.mu.Unlock()
+		d.recheck(harness, r.FailureReason)
+	}
+	return nil
 }
 func reportBody(r Report) map[string]any {
 	return map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt, "usage": r.Usage, "naming_usage": r.NamingUsage, "session_id": r.SessionID, "error": r.Error, "failure_reason": r.FailureReason, "mode": r.Mode, "policy_digest": r.PolicyDigest, "model": r.Model}

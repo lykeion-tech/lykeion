@@ -100,6 +100,11 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 	if err != nil {
 		return err
 	}
+	return flagRuntime(ctx, tx, rt, reason, detail)
+}
+
+// flagRuntime stops a runtime claiming and tells its owner, once per cause.
+func flagRuntime(ctx context.Context, tx *store.Tx, rt db.Runtime, reason, detail string) error {
 	if err := tx.Q.SetRuntimeUnhealthy(ctx, db.SetRuntimeUnhealthyParams{WorkspaceID: tx.WS, ID: rt.ID, Reason: &reason}); err != nil {
 		return err
 	}
@@ -116,6 +121,21 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 // runtime is marked healthy or deleted.
 func ReleaseHeldRuns(ctx context.Context, tx *store.Tx, runtime uuid.UUID) error {
 	return tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: tx.WS, RuntimeID: &runtime, HeldUntil: &HeldUntil})
+}
+
+// MarkUnhealthy flags the owner's runtime after a failed preflight: it stops
+// claiming, and its owner is told once per cause.
+func (s *AgentRuns) MarkUnhealthy(ctx context.Context, user uuid.UUID, ref RuntimeRef, reason string) error {
+	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && rt.OwnerID != user {
+			return ErrNotYours
+		}
+		if err != nil {
+			return err
+		}
+		return flagRuntime(ctx, tx, rt, reason, "")
+	})
 }
 
 // MarkHealthy lets the owner's machine claim again, releases the runs it

@@ -128,6 +128,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/coresearch/{kind}/{id}/heartbeat", h.daemonCoresearchStatus)
 			r.Post("/register", h.daemonRegister)
 			r.Post("/heartbeat", h.daemonHeartbeat)
+			r.Post("/runtimes/{id}/health", h.daemonRuntimeHealth)
 			r.Post("/runtimes/{id}/local-skills", h.claimRuntimeSkills("list"))
 			r.Post("/runtimes/{id}/local-skills/import", h.claimRuntimeSkills("import"))
 			r.Post("/runtimes/{id}/local-skills/{requestId}/result", h.reportRuntimeSkills("list"))
