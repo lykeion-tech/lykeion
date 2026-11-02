@@ -156,7 +156,12 @@ func (h *H) memberResult(w http.ResponseWriter, r *http.Request) {
 		}
 		recs, err := tx.Q.AgentRunRecords(r.Context(), db.AgentRunRecordsParams{WorkspaceID: role.WorkspaceID, AgentRunID: &run.ID})
 		for _, rec := range recs {
-			if rec.Kind == "hand_in" && rec.SupersededAt == nil {
+			var b struct {
+				Attempt int32 `json:"attempt"`
+			}
+			// Only this attempt's hand-in answers: an earlier attempt's was
+			// kept with the run but is not what this attempt found.
+			if rec.Kind == "hand_in" && rec.SupersededAt == nil && json.Unmarshal(rec.Body, &b) == nil && b.Attempt == run.Attempt {
 				handIn = rec.Body
 			}
 		}

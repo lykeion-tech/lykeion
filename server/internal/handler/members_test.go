@@ -254,3 +254,17 @@ func TestMemberResultKeepsToItsColumn(t *testing.T) {
 		t.Fatalf("another column's run: %d", c)
 	}
 }
+
+// A member's hand-in from an earlier attempt of its run is not its answer:
+// an attempt that ends without one reports that.
+func TestMemberResultIgnoresAnEarlierAttemptsHandIn(t *testing.T) {
+	l, leader := groundingLab(t)
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	m := l.claim(t)
+	l.record(t, m, 0, "hand_in", "", map[string]any{"agent_run_id": m.id, "attempt": 0, "hand_in": map[string]any{"status": "done", "answer": "stale"}}, &m.id)
+	l.complete(t, m)
+	c, out := l.result(t, leader.token, ask.Ticket)
+	if c != 200 || out.Status != "failed" || out.Reason != "the member's run ended without a hand-in" {
+		t.Fatalf("result %d %+v", c, out)
+	}
+}
