@@ -297,10 +297,33 @@ describe('Starting a study with a Workflow', () => {
       await (form!.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
       await nextTick();
     };
+    // Picks one file; the upload endpoint is stubbed to accept it.
+    const attach = async () => {
+      vi.stubGlobal(
+        'XMLHttpRequest',
+        class {
+          upload = {};
+          status = 201;
+          responseText = '{"id":"f1","name":"data.csv","size_bytes":3}';
+          onload: () => void = () => {};
+          open() {}
+          setRequestHeader() {}
+          send() {
+            this.onload();
+          }
+        },
+      );
+      const input = all(root).find((n) => n.tag === 'input' && n.props.type === 'file');
+      expect(input).toBeTruthy();
+      const target = { files: [new File(['a'], 'data.csv')], value: 'x' };
+      await (input!.props.onChange as (e: unknown) => Promise<void>)({ target });
+      await nextTick();
+    };
     return {
       text: () => textOf(root),
       click,
       fill,
+      attach,
       submit,
       unmount: () => {
         app.unmount();
@@ -328,10 +351,12 @@ describe('Starting a study with a Workflow', () => {
       await t.click(/^Assignees$/);
       await t.click(/Solo agent/);
       await t.fill('Describe your study', 'Question');
+      await t.attach();
       await t.submit();
       const posted = fetchMock.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.workflow).toBe('b');
+      expect(body.attachment_ids).toEqual(['f1']);
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
       expect(body.scope).toEqual({ from: 'experimentation', to: 'experimentation' });
       expect(body).not.toHaveProperty('grounding_criteria');

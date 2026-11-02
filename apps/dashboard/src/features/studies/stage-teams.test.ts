@@ -1288,3 +1288,27 @@ it('lists each saved study output separately with its stage and run provenance',
     t.unmount();
   }
 });
+
+describe('a Workflow study', () => {
+  it('cannot be created without an attached file', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('[]', { status: 200 })),
+    );
+    const t = await mount(
+      CreateStudy,
+      () => ({ workflow: 'mendota-ice-phenology', assignee: { type: 'agent', id: 'a1' } }),
+      '/',
+      seedStudy,
+    );
+    try {
+      await t.fill('Describe your study', 'Question');
+      expect(t.button(/^Create study/)?.props.disabled).toBe(true);
+      expect(t.text()).toContain(
+        'A Workflow runs its method on your data: attach at least one file.',
+      );
+    } finally {
+      t.unmount();
+    }
+  });
+});

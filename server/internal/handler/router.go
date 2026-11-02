@@ -99,7 +99,6 @@ func NewRouter(h *H) http.Handler {
 		r.With(middleware.RequireScope(service.ScopeCall, service.ScopeCoresearchConnector)).Post("/mcp-servers/{id}/call", h.workspaceMCPCall)
 		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
-		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
 
 	})
 
