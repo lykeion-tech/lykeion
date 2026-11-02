@@ -42,14 +42,14 @@ func TestCoresearchMigration(t *testing.T) {
 	// fail against real PostgreSQL rather than a textual schema snapshot.
 	exec(`INSERT INTO coresearch_project (workspace_id,name,created_by) VALUES ($1,'probe',$2)`, ws, u)
 	exec(`DELETE FROM coresearch_project`)
-	original := kindCheck()
-	for _, name := range []string{"0028_cowrite.down.sql", "0027_aristotle_turns.down.sql"} {
+	for _, name := range []string{"0045_validation.down.sql", "0028_cowrite.down.sql", "0027_aristotle_turns.down.sql"} {
 		b, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		exec(string(b))
 	}
+	original := kindCheck()
 	aristotleDown, err := fs.ReadFile(migrations.FS, "0026_aristotle.down.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestCoresearchMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	exec(string(aristotleUp))
-	for _, name := range []string{"0027_aristotle_turns.up.sql", "0028_cowrite.up.sql"} {
+	for _, name := range []string{"0027_aristotle_turns.up.sql", "0028_cowrite.up.sql", "0045_validation.up.sql"} {
 		b, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)
