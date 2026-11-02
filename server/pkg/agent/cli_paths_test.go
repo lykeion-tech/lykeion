@@ -69,6 +69,9 @@ func TestCodexSandboxHidesPersonalFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, name := range personal {
+			if name == "agents" && goos == "darwin" {
+				continue // its contents are hidden instead
+			}
 			if !slices.Contains(p.Hidden, filepath.Join(h, name)) {
 				t.Errorf("%s: %s is not hidden", goos, name)
 			}
@@ -81,6 +84,28 @@ func TestCodexSandboxHidesPersonalFiles(t *testing.T) {
 		if slices.Contains(p.Write, filepath.Join(h, "plugins", "cache")) {
 			t.Errorf("%s: plugin cache writable: %v", goos, p.Write)
 		}
+	}
+}
+
+// Codex exits with "Operation not permitted" when Seatbelt refuses to list
+// ~/.codex/agents, so on macOS the person's agent roles are hidden one by
+// one and the folder stays listable.
+func TestCodexAgentsFolderStaysListableOnMacOS(t *testing.T) {
+	h := t.TempDir()
+	for _, path := range []string{"agents/role.toml", "agents/nested/deep.toml"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(h, path)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(h, path), []byte("personal"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := SandboxPaths("codex", h, "/r", "", "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(p.Hidden, filepath.Join(h, "agents")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "role.toml")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "nested")) {
+		t.Fatalf("hidden %v", p.Hidden)
 	}
 }
 func TestPlaceBlockedNeverOverwrites(t *testing.T) {

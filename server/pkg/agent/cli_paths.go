@@ -129,9 +129,23 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 			// Codex opens its memories databases even with memories off, and
 			// cannot resume a session without them, so they stay readable.
 			memories := strings.HasPrefix(e.Name(), "memories") && !strings.Contains(e.Name(), ".sqlite")
-			if memories || slices.Contains(personalCodexFiles, e.Name()) {
-				p.Hidden = append(p.Hidden, filepath.Join(home, e.Name()))
+			if !memories && !slices.Contains(personalCodexFiles, e.Name()) {
+				continue
 			}
+			// Codex will not start when Seatbelt refuses to list its agents
+			// folder, so on macOS the folder stays listable and what is in it
+			// is hidden.
+			if e.Name() == "agents" && e.IsDir() && goos == "darwin" {
+				inside, err := os.ReadDir(filepath.Join(home, e.Name()))
+				if err != nil {
+					return p, err
+				}
+				for _, a := range inside {
+					p.Hidden = append(p.Hidden, filepath.Join(home, e.Name(), a.Name()))
+				}
+				continue
+			}
+			p.Hidden = append(p.Hidden, filepath.Join(home, e.Name()))
 		}
 	default:
 		return p, fmt.Errorf("unsupported CLI %q", harness)

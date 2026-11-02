@@ -654,7 +654,7 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	scratch := t.TempDir()
 	run := filepath.Join(scratch, "run")
 	codex := filepath.Join(home, ".codex")
-	personal := []string{filepath.Join(codex, "memories", "MEMORY.md"), filepath.Join(codex, "AGENTS.md"), filepath.Join(codex, "plugins", "cache", "p"), filepath.Join(codex, "skills", "mine", "SKILL.md"), filepath.Join(codex, "memories.lock"), filepath.Join(codex, "history.jsonl")}
+	personal := []string{filepath.Join(codex, "memories", "MEMORY.md"), filepath.Join(codex, "AGENTS.md"), filepath.Join(codex, "plugins", "cache", "p"), filepath.Join(codex, "skills", "mine", "SKILL.md"), filepath.Join(codex, "memories.lock"), filepath.Join(codex, "history.jsonl"), filepath.Join(codex, "agents", "role.toml")}
 	for _, path := range append(personal, filepath.Join(codex, "config.toml")) {
 		must(t, os.MkdirAll(filepath.Dir(path), 0700))
 		must(t, os.WriteFile(path, []byte("personal"), 0600))
@@ -698,6 +698,15 @@ func TestCLISandboxHidesPersonalCodexFiles(t *testing.T) {
 	}
 	if err := probe(filepath.Join(codex, "config.toml")); err != nil {
 		t.Errorf("study run cannot read the account's config.toml: %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		// Codex won't start unless it can list its agents folder.
+		cmd, err := d.cliSandbox(run, nil, false)(t.Context(), paths, "/bin/ls", filepath.Join(codex, "agents"))
+		must(t, err)
+		cmd.Dir = run
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("study run cannot list the agents folder: %v %s", err, out)
+		}
 	}
 }
 

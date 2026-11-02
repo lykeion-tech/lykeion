@@ -199,10 +199,10 @@ func TestRealCodexStudyRunResumesWithoutPersonalContext(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(account, "AGENTS.md"), []byte("USER-CUSTOM-INSTRUCTIONS"), 0600))
 	// The account's personal entries exist, so the run starts and resumes with
 	// all of them hidden.
-	for _, dir := range []string{"skills/mine", "plugins/cache/x", "memories", "memories_v2", "archived_sessions", "prompts"} {
+	for _, dir := range []string{"skills/mine", "plugins/cache/x", "memories", "memories_v2", "archived_sessions", "prompts", "agents"} {
 		must(t, os.MkdirAll(filepath.Join(account, dir), 0700))
 	}
-	for _, file := range []string{"skills/mine/SKILL.md", "memories/MEMORY.md", "memories/memory_summary.md", "memories_v2/memory_summary.md", "prompts/mine.md", "memories.lock", "memories_v2.lock", "history.jsonl", "transcription-history.jsonl"} {
+	for _, file := range []string{"skills/mine/SKILL.md", "memories/MEMORY.md", "memories/memory_summary.md", "memories_v2/memory_summary.md", "prompts/mine.md", "agents/mine.toml", "memories.lock", "memories_v2.lock", "history.jsonl", "transcription-history.jsonl"} {
 		must(t, os.WriteFile(filepath.Join(account, file), []byte("USER-PERSONAL-CONTEXT"), 0600))
 	}
 	for _, db := range []string{"memories_1.sqlite", "memories_v2_1.sqlite"} {
