@@ -595,11 +595,18 @@ func TestNothingLeftIsNeverAPass(t *testing.T) {
 	l.withdraw(t, c.ID, keyB) // the redo withdraws its only item
 	l.done(t, c.ID)
 	rs := l.reviews(t, c.ID, "grounding")
-	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 1 || rs[1].Items[0].Status != review.Withdrawn {
+	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideAsk || len(rs[1].Items) != 1 || rs[1].Items[0].Status != review.Withdrawn {
 		t.Fatalf("review records: %+v", rs)
 	}
-	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
-		t.Fatalf("after an empty redo: %s %s", got.State, got.BlockKind)
+	got := l.card(t, c.ID)
+	if got.State != "blocked" || got.BlockKind != "" || got.BoardColumn != "grounding" || got.Redos != 1 {
+		t.Fatalf("after an empty redo: %s %q %s redos %d", got.State, got.BlockKind, got.BoardColumn, got.Redos)
+	}
+	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 || !strings.HasPrefix(items[0], "The Team withdrew all 1 item: It does not resolve. Nothing is left to review.") {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 1 {
+		t.Fatalf("%d open all_withdrawn items", n)
 	}
 }
 
@@ -876,14 +883,13 @@ func TestAllWithdrawnAsksTheOwner(t *testing.T) {
 	})
 	c := l.study(t, "hypotheses", true, nil)
 	l.e.Kick(l.ws, c.ID)
-	ground := l.groundingPaper(t, c.ID, paperA)
+	l.groundingPaper(t, c.ID, paperA)
 	prose := l.item(t, c.ID, "explanation", map[string]any{"text": "Our own prose."})
 	var keys []string
 	for _, text := range []string{"First idea.", "Second idea.", "Third idea."} {
 		keys = append(keys, l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: text,
 			Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "Young cells"}, Cites: []string{prose}}))
 	}
-	_ = ground
 	l.done(t, c.ID)
 	l.settleAuditor(t, c.ID)
 	if got := l.card(t, c.ID); got.Round != c.Round+1 || got.Redos != 1 || got.State != "working" {
@@ -894,6 +900,12 @@ func TestAllWithdrawnAsksTheOwner(t *testing.T) {
 	}
 	l.done(t, c.ID)
 	l.settleAuditor(t, c.ID)
+	if rs := l.reviews(t, c.ID, "hypotheses"); len(rs) != 2 || rs[1].Decision != review.DecideAsk {
+		t.Fatalf("review records: %+v", rs)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'outcome' AND body->>'verdict' = 'ask'", c.ID); n != 1 {
+		t.Fatalf("%d ask outcomes", n)
+	}
 	got := l.card(t, c.ID)
 	if got.State != "blocked" || got.BlockKind != "" || got.Redos != 1 || got.BoardColumn != "hypotheses" {
 		t.Fatalf("held study: %s %q redos %d column %s", got.State, got.BlockKind, got.Redos, got.BoardColumn)

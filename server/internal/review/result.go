@@ -20,6 +20,8 @@ const (
 	DecideCarry = "carry"
 	DecideRedo  = "redo"
 	DecideBlock = "block"
+	// DecideAsk holds the study for its owner: every item was withdrawn.
+	DecideAsk = "ask"
 )
 
 type Check struct {

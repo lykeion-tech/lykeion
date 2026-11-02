@@ -60,10 +60,11 @@ func reason(c Check) string {
 	return c.ID + " check failed"
 }
 
-// AllWithdrawn says whether the Team withdrew every hypothesis it had, so
-// nothing is left to test; the owner decides what happens next.
+// AllWithdrawn says whether the Team withdrew every item it had in a column
+// reviewed item by item, so nothing is left to review; the owner decides
+// what happens next.
 func AllWithdrawn(r Result) bool {
-	if r.Column != "hypotheses" || len(r.Items) == 0 {
+	if r.Column != "grounding" && r.Column != "hypotheses" && r.Column != "experimentation" || len(r.Items) == 0 {
 		return false
 	}
 	for _, it := range r.Items {
@@ -74,15 +75,21 @@ func AllWithdrawn(r Result) bool {
 	return true
 }
 
-// WithdrawalReasons are the reasons the Team gave for withdrawing its items.
+// WithdrawalReasons gives one reason per withdrawn item, as the Team gave
+// it, or "no reason given" when it gave none.
 func WithdrawalReasons(r Result) []string {
-	var out []string
+	out := make([]string, 0, len(r.Items))
 	for _, it := range r.Items {
+		reason := ""
 		for _, c := range it.Checks {
 			if c.ID == "withdrawn" {
-				out = append(out, c.Detail)
+				reason = strings.TrimSpace(c.Detail)
 			}
 		}
+		if reason == "" {
+			reason = "no reason given"
+		}
+		out = append(out, reason)
 	}
 	return out
 }
@@ -95,7 +102,11 @@ func OpenDoubts(r Result) []string {
 		var qs []string
 		for _, c := range it.Checks {
 			if c.Status == Unclear && !c.Warning && c.Question != "" && c.P != nil {
-				qs = append(qs, fmt.Sprintf("%s, %.0f%%", c.Question, *c.P*100))
+				p := *c.P
+				if c.Inverted {
+					p = 1 - p
+				}
+				qs = append(qs, fmt.Sprintf("%s, %.0f%%", c.Question, p*100))
 			}
 		}
 		if len(qs) > 0 {

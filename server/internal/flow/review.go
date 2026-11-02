@@ -585,6 +585,9 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			return err
 		}
 		res.Decision = review.Decide(res, c.Redos)
+		if review.AllWithdrawn(res) {
+			res.Decision = review.DecideAsk
+		}
 		if err := writeServer(ctx, tx, c, "review", res); err != nil {
 			return err
 		}
@@ -595,12 +598,12 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
 		switch {
-		case review.AllWithdrawn(res):
+		case res.Decision == review.DecideAsk:
 			// Nothing is left to review or redo: the owner decides, and the
 			// redo count stays.
 			next.State = "blocked"
 			if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
-				Cause: "all_withdrawn", Text: allWithdrawnText(review.WithdrawalReasons(res))}); err != nil {
+				Cause: "all_withdrawn", Text: allWithdrawnText(c.BoardColumn, review.WithdrawalReasons(res))}); err != nil {
 				return err
 			}
 			if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {

@@ -99,8 +99,15 @@ func couldNotDoText(number int32, reason string) string {
 	return fmt.Sprintf("Study #%d: the agent could not do this column: %s", number, reason)
 }
 
-func allWithdrawnText(reasons []string) string {
-	return fmt.Sprintf("The Team withdrew all %d hypotheses: %s. Nothing is left to test. Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), strings.Join(reasons, "; "))
+func allWithdrawnText(column string, reasons []string) string {
+	noun, left := "items", "Nothing is left to review."
+	if column == "hypotheses" {
+		noun, left = "hypotheses", "Nothing is left to test."
+	}
+	if len(reasons) == 1 {
+		noun = map[string]string{"items": "item", "hypotheses": "hypothesis"}[noun]
+	}
+	return fmt.Sprintf("The Team withdrew all %d %s: %s. %s Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), noun, strings.TrimRight(strings.Join(reasons, "; "), "."), left)
 }
 
 func openDoubtsText(number int32, column string, doubts []string) string {

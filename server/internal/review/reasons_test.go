@@ -55,3 +55,28 @@ func TestReasonsNeverEmpty(t *testing.T) {
 		t.Errorf("a passing review has reasons: %q", got)
 	}
 }
+
+func TestWithdrawalReasonsNeverBlank(t *testing.T) {
+	w := func(detail string) Item {
+		return Item{Status: Withdrawn, Checks: []Check{{ID: "withdrawn", Detail: detail, Status: Withdrawn}}}
+	}
+	r := Result{Column: board.Hypotheses, Items: []Item{w("too weak"), w("  "), {Status: Withdrawn}}}
+	if !AllWithdrawn(r) {
+		t.Fatal("not all withdrawn")
+	}
+	got := strings.Join(WithdrawalReasons(r), "|")
+	if got != "too weak|no reason given|no reason given" {
+		t.Fatal(got)
+	}
+	if AllWithdrawn(Result{Column: board.Validation, Items: r.Items}) {
+		t.Fatal("validation has no item review")
+	}
+}
+
+func TestOpenDoubtsShowAnInvertedCheckAsYes(t *testing.T) {
+	p := 0.48
+	r := Result{Items: []Item{{Label: "h1", Status: Unclear, Checks: []Check{{ID: "q", Question: "Is it known?", Inverted: true, P: &p, Status: Unclear}}}}}
+	if got := OpenDoubts(r); len(got) != 1 || got[0] != "h1 (Is it known?, 52%)" {
+		t.Fatal(got)
+	}
+}
