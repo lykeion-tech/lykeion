@@ -127,11 +127,11 @@ func (d *Door) sandboxPolicy() error {
 	dir := d.Child().Dir
 	d.policy = codePolicy(home, dir, d.Study, tmp, d.PrivatePaths, nil)
 	d.policy.StrictRead = d.Guest
-	if d.Guest {
-		for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
-			if path != "" && !slices.Contains(d.policy.Hidden, path) {
-				d.policy.Hidden = append(d.policy.Hidden, path)
-			}
+	// Scripts never need the CLIs' homes, which hold the person's sign-ins
+	// and config, wherever those homes live.
+	for _, path := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, ".codex"), agent.AccountHome("claude"), agent.AccountHome("codex")} {
+		if path != "" && !slices.Contains(d.policy.Hidden, path) {
+			d.policy.Hidden = append(d.policy.Hidden, path)
 		}
 	}
 	for _, root := range append(slices.Clone(d.PrivateRoots), d.Study.Bases.Dir) {

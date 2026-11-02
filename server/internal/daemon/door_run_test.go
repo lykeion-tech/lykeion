@@ -656,6 +656,35 @@ func TestCodeRunsInTheSandbox(t *testing.T) {
 	}
 }
 
+// Scripts never need the person's CLI homes, wherever those homes are, so
+// every run's code is denied them, not only a guest's.
+func TestCodeCannotReadTheCLIHomes(t *testing.T) {
+	codex, claude := filepath.Join(t.TempDir(), "codex"), filepath.Join(t.TempDir(), "claude")
+	t.Setenv("CODEX_HOME", codex)
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+	l := newLykeion(t)
+	dir := t.TempDir()
+	s := &sandboxed{}
+	d := newRunDoor(t, l, dir, func(d *Door) { d.wrap = stubSandbox(s) }, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo hi\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := user.Current()
+	must(t, err)
+	_, policies := s.seen()
+	if len(policies) == 0 {
+		t.Fatal("no script ran")
+	}
+	for _, home := range []string{filepath.Join(u.HomeDir, ".claude"), filepath.Join(u.HomeDir, ".claude.json"), filepath.Join(u.HomeDir, ".codex"), codex, claude} {
+		for _, p := range policies {
+			if !slices.Contains(p.Hidden, home) {
+				t.Fatalf("code may read %s: hidden %q", home, p.Hidden)
+			}
+		}
+	}
+}
+
 // With no sandbox, code tools answer why, start nothing and record nothing.
 func TestCodeRunsNowhereWithoutTheSandbox(t *testing.T) {
 	t.Setenv("LYK_KERNEL_STUB", "1")
