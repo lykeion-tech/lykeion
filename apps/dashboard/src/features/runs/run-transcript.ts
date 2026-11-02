@@ -1,4 +1,4 @@
-import type { RunMessage } from '../../api/types';
+import type { AttemptEnd, RunMessage } from '../../api/types';
 import { toolStepTitle } from './tool-step-title';
 
 export interface TranscriptBlock {
@@ -557,4 +557,22 @@ export function notebookJson(cells: readonly ExecutionCell[]): string {
     null,
     1,
   );
+}
+
+// The divider above a retried run's next attempt: how the earlier one ended.
+export function attemptDivider(attempt: number, end: AttemptEnd | undefined): string {
+  const on = end?.machine || 'the machine';
+  const why: Record<string, string> = {
+    runtime_offline: `${on} went offline`,
+    timeout: `${on} did not start it in time`,
+    provider_network: 'the model provider could not be reached',
+    sign_in: `the agent CLI on ${on} was signed out`,
+    cli_missing: `the agent CLI was missing on ${on}`,
+    cli_too_old: `the agent CLI on ${on} was too old`,
+    cli_broken: `the agent CLI on ${on} stopped working`,
+    door: `${on} lost its connection to Lykeion`,
+    sandbox: `the sandbox on ${on} did not start`,
+    fence_breach: "it used a tool outside Lykeion's sources, so its work was discarded",
+  };
+  return `Attempt ${attempt} — ${why[end?.failure_reason ?? ''] ?? 'it stopped'}; continued below`;
 }

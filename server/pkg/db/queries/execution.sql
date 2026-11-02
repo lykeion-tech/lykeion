@@ -114,6 +114,12 @@ ON CONFLICT (agent_run_id, attempt, seq) DO NOTHING;
 SELECT * FROM agent_run_message WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt = @attempt AND seq > @after
 ORDER BY seq LIMIT 500;
 
+-- Every attempt's messages after the cursor (@after_attempt, @after), in order.
+-- name: AgentRunMessagesAll :many
+SELECT * FROM agent_run_message WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id
+  AND (attempt, seq) > (@after_attempt::int, @after::int)
+ORDER BY attempt, seq LIMIT 500;
+
 -- name: FinishAgentRun :exec
 UPDATE agent_run SET status = @status, completed_at = now(), cost_usd = cost_usd + @cost_usd,
   session_id = @session_id, error = @error, failure_reason = sqlc.narg(failure_reason)

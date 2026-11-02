@@ -16,7 +16,17 @@ import (
 const cardAgentRuns = `-- name: CardAgentRuns :many
 SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
-  m.created_at AS last_activity_at
+  m.created_at AS last_activity_at,
+  COALESCE((SELECT jsonb_agg(jsonb_build_object('attempt', rc.attempt, 'failure_reason', COALESCE(rc.result->>'failure_reason', ''),
+      'machine', COALESCE(rc.result->>'machine_name', rt.custom_name, rt.device_name, '')) ORDER BY rc.attempt)
+    FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
+    WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
+  COALESCE((SELECT 'Waiting for ' || COALESCE(rt.custom_name, rt.device_name) || ': ' || i.text
+    FROM agent_run_receipt rc
+    JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
+    JOIN inbox_item i ON i.workspace_id = rt.workspace_id AND i.runtime_id = rt.id AND i.kind = 'waiting_for_machine' AND i.resolved_at IS NULL
+    WHERE t.status = 'queued' AND rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt = t.attempt
+    ORDER BY i.created_at LIMIT 1), '')::text AS waiting
 FROM agent_run t
 LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
@@ -81,11 +91,14 @@ type CardAgentRunsRow struct {
 	AgentName             *string         `json:"agent_name"`
 	LatestText            string          `json:"latest_text"`
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
+	AttemptEnds           json.RawMessage `json:"attempt_ends"`
+	Waiting               string          `json:"waiting"`
 }
 
 // A card's runs with what the study page shows about each: the name of the
-// agent it was started as, the latest text of its current attempt and when
-// that attempt last recorded anything.
+// agent it was started as, the latest text of its current attempt, when
+// that attempt last recorded anything, how each earlier attempt ended and on
+// which machine, and why the run waits on a machine, as ListCards says.
 func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]CardAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, cardAgentRuns, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -147,6 +160,8 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
+			&i.AttemptEnds,
+			&i.Waiting,
 		); err != nil {
 			return nil, err
 		}
@@ -518,6 +533,13 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 
 const listCards = `-- name: ListCards :many
 SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column,
+  COALESCE((SELECT 'Waiting for ' || COALESCE(rt.custom_name, rt.device_name) || ': ' || i.text
+    FROM agent_run t
+    JOIN agent_run_receipt rc ON rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt = t.attempt
+    JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
+    JOIN inbox_item i ON i.workspace_id = rt.workspace_id AND i.runtime_id = rt.id AND i.kind = 'waiting_for_machine' AND i.resolved_at IS NULL
+    WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued'
+    ORDER BY t.created_at, i.created_at LIMIT 1), '')::text AS waiting,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -562,6 +584,7 @@ type ListCardsRow struct {
 	WorkflowRelease   *string         `json:"workflow_release"`
 	GroundingCriteria json.RawMessage `json:"grounding_criteria"`
 	LegacyColumn      string          `json:"legacy_column"`
+	Waiting           string          `json:"waiting"`
 	Queued            bool            `json:"queued"`
 	Role              string          `json:"role"`
 	UpdatedAt         time.Time       `json:"updated_at"`
@@ -570,7 +593,9 @@ type ListCardsRow struct {
 // The board's cards. queued: an agent run of the card waits with a reason
 // (budget or runtime_offline). role: the role of its latest queued,
 // dispatched or running agent run, empty when it has none. updated_at: the
-// card's newest event, or its creation when it has none.
+// card's newest event, or its creation when it has none. waiting: why a
+// queued run of the card waits on the machine its last attempt ran on, when
+// that machine's owner has an open wait to fix; empty otherwise.
 func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListCardsRow, error) {
 	rows, err := q.db.Query(ctx, listCards, workspaceID)
 	if err != nil {
@@ -615,6 +640,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.WorkflowRelease,
 			&i.GroundingCriteria,
 			&i.LegacyColumn,
+			&i.Waiting,
 			&i.Queued,
 			&i.Role,
 			&i.UpdatedAt,

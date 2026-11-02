@@ -227,16 +227,27 @@ func (h *H) agentRunMessages(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 		}
-		attempt := run.Attempt
 		if raw := q.Get("attempt"); raw != "" {
 			n, e := strconv.ParseInt(raw, 10, 32)
 			if e != nil || n < 1 || n > int64(run.Attempt) {
 				badQuery = true
 				return nil
 			}
-			attempt = int32(n)
+			out, err = tx.Q.AgentRunMessagesAfter(r.Context(), db.AgentRunMessagesAfterParams{WorkspaceID: ws, AgentRunID: id, Attempt: int32(n), After: int32(after)})
+			return err
 		}
-		out, err = tx.Q.AgentRunMessagesAfter(r.Context(), db.AgentRunMessagesAfterParams{WorkspaceID: ws, AgentRunID: id, Attempt: attempt, After: int32(after)})
+		// Without an attempt, every attempt's messages in order, so an earlier
+		// attempt stays readable after a retry. The cursor is the last
+		// message's (after_attempt, after).
+		afterAttempt := int64(0)
+		if raw := q.Get("after_attempt"); raw != "" {
+			afterAttempt, err = strconv.ParseInt(raw, 10, 32)
+			if err != nil || afterAttempt < 0 {
+				badQuery = true
+				return nil
+			}
+		}
+		out, err = tx.Q.AgentRunMessagesAll(r.Context(), db.AgentRunMessagesAllParams{WorkspaceID: ws, AgentRunID: id, AfterAttempt: int32(afterAttempt), After: int32(after)})
 		return err
 	})
 	if err != nil {

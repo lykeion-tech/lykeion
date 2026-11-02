@@ -145,8 +145,10 @@ export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
   });
 
-// A run's messages for one attempt. No event announces a message, so while the
-// run is live the query polls; a settled run's messages never change.
+// A run's messages, every attempt's in order, so an earlier attempt stays
+// readable after a retry. The cache is keyed by the current attempt so a retry
+// reads afresh. No event announces a message, so while the run is live the
+// query polls; a settled run's messages never change.
 export const useRunMessages = (
   run: MaybeRefOrGetter<AgentRun | undefined>,
   open: MaybeRefOrGetter<boolean>,
@@ -157,17 +159,17 @@ export const useRunMessages = (
       keys.runMessages(ws.value, toValue(run)?.id ?? '', toValue(run)?.attempt ?? 0),
     ),
     queryFn: async () => {
-      const { id, attempt } = toValue(run)!;
+      const { id } = toValue(run)!;
       const messages: RunMessage[] = [];
-      let after = 0;
+      let last = { attempt: 0, seq: 0 };
       while (true) {
         const page = await api<RunMessage[]>(
           'GET',
-          `/api/agent-runs/${id}/messages?attempt=${attempt}&after=${after}`,
+          `/api/agent-runs/${id}/messages?after_attempt=${last.attempt}&after=${last.seq}`,
         );
         messages.push(...page);
         if (page.length < 500) return messages;
-        after = page[page.length - 1]!.seq;
+        last = page[page.length - 1]!;
       }
     },
     enabled: computed(() => {

@@ -191,6 +191,7 @@ const agentRuns = computed(() =>
     (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
   ),
 );
+const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const openRun = ref('');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
@@ -353,6 +354,7 @@ function pin() {
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ studyDisplayTitle(c.title) }}</h1>
+          <p v-if="waiting" class="study-waiting" role="status">{{ waiting }}</p>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
           </section>
@@ -1302,6 +1304,12 @@ function pin() {
   line-height: 32px;
   font-weight: 600;
   margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+.study-waiting {
+  margin: -12px 0 20px;
+  font-size: 13px;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .study-description {

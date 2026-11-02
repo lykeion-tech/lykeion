@@ -9,6 +9,8 @@ const props = defineProps<{
   attempt?: number;
   ending?: { mark: string; text: string };
   queued?: boolean;
+  // The line drawn where one attempt's blocks end and the next attempt's begin.
+  divider?: (endedAttempt: number) => string;
 }>();
 const marked = computed(() =>
   props.blocks.map((block, index) => {
@@ -27,20 +29,29 @@ const marked = computed(() =>
                 markedSteps.some((step) => step.running)
               ? 'mark-run'
               : 'mark-ok';
-    return { ...block, mark };
+    const attempt = block.messages[0]?.attempt;
+    const before = props.blocks[index - 1]?.messages[0]?.attempt;
+    const divider =
+      props.divider && before !== undefined && attempt !== before ? props.divider(before) : '';
+    return { ...block, mark, divider };
   }),
 );
 </script>
 <template>
   <ol class="turn-timeline" aria-label="Transcript">
-    <li v-for="block in marked" :key="block.key" class="turn-item" :class="block.mark">
-      <slot v-if="block.kind === 'text'" name="text" :block="block" />
-      <RunActivity
-        v-else
-        :messages="block.messages"
-        :active="active && (attempt === undefined || block.messages[0]?.attempt === attempt)"
-      />
-    </li>
+    <template v-for="block in marked" :key="block.key">
+      <li v-if="block.divider" class="turn-item attempt-divider mark-queued">
+        {{ block.divider }}
+      </li>
+      <li class="turn-item" :class="block.mark">
+        <slot v-if="block.kind === 'text'" name="text" :block="block" />
+        <RunActivity
+          v-else
+          :messages="block.messages"
+          :active="active && (attempt === undefined || block.messages[0]?.attempt === attempt)"
+        />
+      </li>
+    </template>
     <li v-if="ending" class="turn-item turn-ending" :class="ending.mark">
       <div :role="active || queued ? 'status' : undefined">
         <RunStatus :text="ending.text" :working="active" />
@@ -121,7 +132,8 @@ const marked = computed(() =>
     linear-gradient(-45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
     var(--step-canvas);
 }
-.turn-ending {
+.turn-ending,
+.attempt-divider {
   font-size: 12.5px;
   color: var(--muted);
 }

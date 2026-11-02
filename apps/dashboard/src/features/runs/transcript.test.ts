@@ -67,6 +67,31 @@ async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {})
 afterEach(() => {
   workspaceId.value = '';
 });
+describe('a retried run', () => {
+  it('keeps the earlier attempt above a divider that says why it ended', async () => {
+    const html = await render(
+      [
+        { ...msg(1, 'text', 'First attempt writing.'), attempt: 1 },
+        msg(1, 'text', 'Second attempt writing.'),
+      ],
+      { attempt_ends: [{ attempt: 1, failure_reason: 'runtime_offline', machine: 'laptop' }] },
+    );
+    expect(html).toContain('First attempt writing.');
+    expect(html).toContain('Attempt 1 — laptop went offline; continued below');
+    expect(html.indexOf('First attempt writing.')).toBeLessThan(html.indexOf('Attempt 1 —'));
+    expect(html.indexOf('Attempt 1 —')).toBeLessThan(html.indexOf('Second attempt writing.'));
+  });
+  it('says plainly when an earlier attempt ended for another reason', async () => {
+    const html = await render([{ ...msg(1, 'text', 'One.'), attempt: 1 }, msg(1, 'text', 'Two.')], {
+      attempt_ends: [{ attempt: 1, failure_reason: 'sign_in', machine: 'laptop' }],
+    });
+    expect(html).toContain('Attempt 1 — the agent CLI on laptop was signed out; continued below');
+  });
+  it('draws no divider for a single attempt', async () => {
+    const html = await render([msg(1, 'text', 'Only.')]);
+    expect(html).not.toContain('continued below');
+  });
+});
 describe('reading-first recorded run', () => {
   it('renders all writing in sequence around compact activity and never repeats the final text', async () => {
     const fullOutput =

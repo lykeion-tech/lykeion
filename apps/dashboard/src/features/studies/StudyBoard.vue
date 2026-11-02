@@ -461,6 +461,7 @@ onUnmounted(() => {
                 columnName(card.board_column)
               }}</span></small
             ><span>{{ studyDisplayTitle(card.title) }}</span>
+            <span v-if="card.waiting" class="card-waiting">{{ card.waiting }}</span>
             <div class="card-metadata">
               <span v-if="display.properties.includes('Role')"
                 ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
@@ -786,6 +787,17 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* Why the study waits, from the machine's open wait: two lines at most. */
+.card-waiting {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   margin-top: 5px;
   font-size: 11px;
   color: var(--muted);

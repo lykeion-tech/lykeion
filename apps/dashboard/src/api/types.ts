@@ -79,6 +79,7 @@ export interface Card {
   position: number;
   queued: boolean; // GET /api/cards only
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
+  waiting?: string; // GET /api/cards only; as AgentRun.waiting for the card's waiting run
   pack_id: string | null;
   workflow?: string | null;
   workflow_release?: string | null;
@@ -168,6 +169,17 @@ export interface AgentRun {
   latest_text: string;
   // When the current attempt last recorded a message; null before its first.
   last_activity_at: string | null;
+  // How each earlier attempt ended and on which machine. GET /api/cards/:id/runs only.
+  attempt_ends?: AttemptEnd[];
+  // "Waiting for <machine>: <why>" while the run waits on a machine its owner
+  // must fix; '' otherwise. GET /api/cards/:id/runs only.
+  waiting?: string;
+}
+
+export interface AttemptEnd {
+  attempt: number;
+  failure_reason: string;
+  machine: string;
 }
 
 export interface RunMessage {

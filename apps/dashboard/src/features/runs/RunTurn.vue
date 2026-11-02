@@ -2,7 +2,12 @@
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
 import CopyButton from '../coresearch/CopyButton.vue';
-import { liveStatus, transcriptBlocks, visibleTranscriptMessages } from './run-transcript';
+import {
+  attemptDivider,
+  liveStatus,
+  transcriptBlocks,
+  visibleTranscriptMessages,
+} from './run-transcript';
 import { useRunMessages } from '../../api/queries';
 import type { AgentRun } from '../../api/types';
 import { readableAssignment } from '../../lib/studies';
@@ -36,6 +41,11 @@ const blocks = computed(() =>
     { joinText: false },
   ),
 );
+const divider = (attempt: number) =>
+  attemptDivider(
+    attempt,
+    props.run.attempt_ends?.find((end) => end.attempt === attempt),
+  );
 const ending = computed(() => {
   const r = props.run;
   const took =
@@ -79,6 +89,7 @@ const ending = computed(() => {
       :blocks="blocks"
       :active="active"
       :attempt="run.attempt"
+      :divider="divider"
       :ending="ending"
       :queued="run.status === 'queued'"
     >

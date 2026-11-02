@@ -172,31 +172,38 @@ describe('run message pagination', () => {
       await vi.waitFor(() => expect(query.isSuccess.value).toBe(true));
       expect(query.data.value).toEqual(all);
       expect(fetch.mock.calls.map(([path]) => path)).toEqual(
-        cursors.map((after) => `/api/agent-runs/r1/messages?attempt=2&after=${after}`),
+        cursors.map(
+          (after) => `/api/agent-runs/r1/messages?after_attempt=${after ? 2 : 0}&after=${after}`,
+        ),
       );
     },
   );
 
-  it('keeps attempts in separate caches and restarts their sequence cursors', async () => {
+  it('reads every attempt in order, its cursor crossing from one attempt to the next', async () => {
     const first = messages(500, 1);
     const second = messages(1, 2);
+    let recorded = first;
     const fetch = vi.fn(async (path: string) => {
       const params = new URL(path, 'http://localhost').searchParams;
-      const all = params.get('attempt') === '1' ? first : second;
-      return Response.json(all.filter((m) => m.seq > Number(params.get('after'))).slice(0, 500));
+      const from = [Number(params.get('after_attempt')), Number(params.get('after'))] as const;
+      const after = (m: RunMessage) =>
+        m.attempt > from[0] || (m.attempt === from[0] && m.seq > from[1]);
+      return Response.json(recorded.filter(after).slice(0, 500));
     });
     vi.stubGlobal('fetch', fetch);
     const current = ref(run(1));
     const query = observe(current);
     await vi.waitFor(() => expect(query.isSuccess.value).toBe(true));
     expect(query.data.value).toEqual(first);
+    recorded = [...first, ...second];
     current.value = run(2);
-    await vi.waitFor(() => expect(query.data.value).toEqual(second));
+    await vi.waitFor(() => expect(query.data.value).toEqual(recorded));
     expect(client.getQueryData(keys.runMessages('w1', 'r1', 1))).toEqual(first);
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
-      '/api/agent-runs/r1/messages?attempt=1&after=0',
-      '/api/agent-runs/r1/messages?attempt=1&after=1000',
-      '/api/agent-runs/r1/messages?attempt=2&after=0',
+      '/api/agent-runs/r1/messages?after_attempt=0&after=0',
+      '/api/agent-runs/r1/messages?after_attempt=1&after=1000',
+      '/api/agent-runs/r1/messages?after_attempt=0&after=0',
+      '/api/agent-runs/r1/messages?after_attempt=1&after=1000',
     ]);
   });
 

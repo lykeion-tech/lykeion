@@ -137,6 +137,54 @@ func (q *Queries) AgentRunMessagesAfter(ctx context.Context, arg AgentRunMessage
 	return items, nil
 }
 
+const agentRunMessagesAll = `-- name: AgentRunMessagesAll :many
+SELECT workspace_id, agent_run_id, attempt, seq, type, tool, content, created_at FROM agent_run_message WHERE workspace_id = $1 AND agent_run_id = $2
+  AND (attempt, seq) > ($3::int, $4::int)
+ORDER BY attempt, seq LIMIT 500
+`
+
+type AgentRunMessagesAllParams struct {
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+	AgentRunID   uuid.UUID `json:"agent_run_id"`
+	AfterAttempt int32     `json:"after_attempt"`
+	After        int32     `json:"after"`
+}
+
+// Every attempt's messages after the cursor (@after_attempt, @after), in order.
+func (q *Queries) AgentRunMessagesAll(ctx context.Context, arg AgentRunMessagesAllParams) ([]AgentRunMessage, error) {
+	rows, err := q.db.Query(ctx, agentRunMessagesAll,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.AfterAttempt,
+		arg.After,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRunMessage
+	for rows.Next() {
+		var i AgentRunMessage
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.AgentRunID,
+			&i.Attempt,
+			&i.Seq,
+			&i.Type,
+			&i.Tool,
+			&i.Content,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const bumpRuntimeStreak = `-- name: BumpRuntimeStreak :one
 UPDATE runtime SET infra_streak = infra_streak + 1 WHERE id = $1 AND workspace_id = $2 RETURNING infra_streak
 `
