@@ -103,7 +103,9 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'inbox':
       return [keys.inboxAll(ws)];
     case 'runtime':
-      return [keys.runtimes(ws), keys.storage(ws)];
+      // A machine going offline or being flagged changes which studies wait
+      // on it; any study's runs may name it.
+      return [keys.runtimes(ws), keys.storage(ws), keys.cards(ws), ['ws', ws, 'card']];
     case 'member':
       return [
         keys.coresearchProjects(ws),

@@ -48,12 +48,12 @@ const run = {
 function msg(seq: number, type: RunMessage['type'], content: unknown, tool = ''): RunMessage {
   return { agent_run_id: 'r', attempt: 2, seq, type, content, tool, created_at: run.created_at };
 }
-async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {}) {
+async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {}, attempt = 2) {
   workspaceId.value = 'w';
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
   });
-  client.setQueryData(keys.runMessages('w', 'r', 2), messages);
+  client.setQueryData(keys.runMessages('w', 'r', attempt), messages);
   const app = createSSRApp({
     render: () => h(RunTurn, { run: { ...run, ...overrides } }),
   });
@@ -86,6 +86,34 @@ describe('a retried run', () => {
       attempt_ends: [{ attempt: 1, failure_reason: 'sign_in', machine: 'laptop' }],
     });
     expect(html).toContain('Attempt 1 — the agent CLI on laptop was signed out; continued below');
+  });
+  it('keeps the cause of an attempt that recorded nothing', async () => {
+    const html = await render(
+      [
+        { ...msg(1, 'text', 'One.'), attempt: 1 },
+        { ...msg(1, 'text', 'Three.'), attempt: 3 },
+      ],
+      {
+        attempt: 3,
+        attempt_ends: [
+          { attempt: 1, failure_reason: 'runtime_offline', machine: 'laptop' },
+          { attempt: 2, failure_reason: 'sandbox', machine: 'desk' },
+        ],
+      },
+      3,
+    );
+    const first = html.indexOf('Attempt 1 — laptop went offline');
+    const second = html.indexOf('Attempt 2 — the sandbox on desk did not start');
+    expect(first).toBeGreaterThan(html.indexOf('One.'));
+    expect(second).toBeGreaterThan(first);
+    expect(html.indexOf('Three.')).toBeGreaterThan(second);
+  });
+  it('draws a divider before the next attempt has written anything', async () => {
+    const html = await render([{ ...msg(1, 'text', 'One.'), attempt: 1 }], {
+      status: 'running',
+      attempt_ends: [{ attempt: 1, failure_reason: 'runtime_offline', machine: 'laptop' }],
+    });
+    expect(html.indexOf('Attempt 1 — laptop went offline')).toBeGreaterThan(html.indexOf('One.'));
   });
   it('draws no divider for a single attempt', async () => {
     const html = await render([msg(1, 'text', 'Only.')]);

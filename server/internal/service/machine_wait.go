@@ -113,8 +113,17 @@ func flagRuntime(ctx context.Context, tx *store.Tx, rt db.Runtime, reason, detai
 		machine = *rt.CustomName
 	}
 	// The machine's owner fixes it, whoever's study was waiting on it.
-	return tx.Q.UpsertMachineWait(ctx, db.UpsertMachineWaitParams{WorkspaceID: tx.WS, UserID: rt.OwnerID, RuntimeID: &rt.ID, Cause: &reason,
-		Text: machineWaitText(machine, rt.Harness, reason, breachedTool(detail))})
+	if err := tx.Q.UpsertMachineWait(ctx, db.UpsertMachineWaitParams{WorkspaceID: tx.WS, UserID: rt.OwnerID, RuntimeID: &rt.ID, Cause: &reason,
+		Text: machineWaitText(machine, rt.Harness, reason, breachedTool(detail))}); err != nil {
+		return err
+	}
+	return runtimeHealthChanged(ctx, tx, rt.ID)
+}
+
+// runtimeHealthChanged tells open pages that a machine started or stopped
+// taking studies, so the studies waiting on it say so.
+func runtimeHealthChanged(ctx context.Context, tx *store.Tx, runtime uuid.UUID) error {
+	return tx.Emit(ctx, "runtime.updated", nil, store.System, map[string]any{"runtime_id": runtime, "action": "health"})
 }
 
 // ReleaseHeldRuns makes the runs held for a runtime claimable again, when the
@@ -161,7 +170,10 @@ func ClearRuntime(ctx context.Context, tx *store.Tx, user, runtime uuid.UUID) er
 	if err := ReleaseHeldRuns(ctx, tx, runtime); err != nil {
 		return err
 	}
-	return tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: tx.WS, RuntimeID: &runtime})
+	if err := tx.Q.ResolveMachineWaits(ctx, db.ResolveMachineWaitsParams{WorkspaceID: tx.WS, RuntimeID: &runtime}); err != nil {
+		return err
+	}
+	return runtimeHealthChanged(ctx, tx, runtime)
 }
 
 // MarkPassed takes a preflight pass while the daemon runs. It clears the
@@ -183,6 +195,13 @@ func (s *AgentRuns) MarkPassed(ctx context.Context, user uuid.UUID, ref RuntimeR
 		if _, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID, OwnerID: user}); err != nil {
 			return err
 		}
-		return tx.Q.ResolveMachineWaitsExcept(ctx, db.ResolveMachineWaitsExceptParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID, Keep: agent.ReasonFenceBreach})
+		if err := tx.Q.ResolveMachineWaitsExcept(ctx, db.ResolveMachineWaitsExceptParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID, Keep: agent.ReasonFenceBreach}); err != nil {
+			return err
+		}
+		// Every hello passes; only one that clears a flag changes anything.
+		if rt.UnhealthyReason == nil {
+			return nil
+		}
+		return runtimeHealthChanged(ctx, tx, ref.RuntimeID)
 	})
 }

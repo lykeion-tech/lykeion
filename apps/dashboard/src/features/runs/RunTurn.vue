@@ -41,11 +41,23 @@ const blocks = computed(() =>
     { joinText: false },
   ),
 );
-const divider = (attempt: number) =>
-  attemptDivider(
-    attempt,
-    props.run.attempt_ends?.find((end) => end.attempt === attempt),
-  );
+// One divider per earlier attempt: each recorded ending, and any earlier
+// attempt with messages but no recorded ending.
+const dividers = computed(() => {
+  const ends = props.run.attempt_ends ?? [];
+  const attempts = new Set(ends.map((end) => end.attempt));
+  for (const m of messages.data.value ?? [])
+    if (m.attempt < props.run.attempt) attempts.add(m.attempt);
+  return [...attempts]
+    .sort((a, b) => a - b)
+    .map((attempt) => ({
+      attempt,
+      text: attemptDivider(
+        attempt,
+        ends.find((end) => end.attempt === attempt),
+      ),
+    }));
+});
 const ending = computed(() => {
   const r = props.run;
   const took =
@@ -89,7 +101,7 @@ const ending = computed(() => {
       :blocks="blocks"
       :active="active"
       :attempt="run.attempt"
-      :divider="divider"
+      :dividers="dividers"
       :ending="ending"
       :queued="run.status === 'queued'"
     >

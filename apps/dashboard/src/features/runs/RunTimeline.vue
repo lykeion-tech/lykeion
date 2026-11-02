@@ -9,9 +9,21 @@ const props = defineProps<{
   attempt?: number;
   ending?: { mark: string; text: string };
   queued?: boolean;
-  // The line drawn where one attempt's blocks end and the next attempt's begin.
-  divider?: (endedAttempt: number) => string;
+  // A line for each earlier attempt of a retried run, in attempt order, drawn
+  // before the first block of a later attempt, or last when none follows.
+  dividers?: { attempt: number; text: string }[];
 }>();
+const placed = computed(() => {
+  const dividers = props.dividers ?? [];
+  let next = 0;
+  const before = props.blocks.map((block) => {
+    const attempt = block.messages[0]?.attempt ?? 0;
+    const start = next;
+    while (next < dividers.length && dividers[next]!.attempt < attempt) next++;
+    return dividers.slice(start, next);
+  });
+  return { before, after: dividers.slice(next) };
+});
 const marked = computed(() =>
   props.blocks.map((block, index) => {
     const steps = block.kind === 'activity' ? activitySteps(block.messages) : [];
@@ -29,19 +41,19 @@ const marked = computed(() =>
                 markedSteps.some((step) => step.running)
               ? 'mark-run'
               : 'mark-ok';
-    const attempt = block.messages[0]?.attempt;
-    const before = props.blocks[index - 1]?.messages[0]?.attempt;
-    const divider =
-      props.divider && before !== undefined && attempt !== before ? props.divider(before) : '';
-    return { ...block, mark, divider };
+    return { ...block, mark, dividers: placed.value.before[index]! };
   }),
 );
 </script>
 <template>
   <ol class="turn-timeline" aria-label="Transcript">
     <template v-for="block in marked" :key="block.key">
-      <li v-if="block.divider" class="turn-item attempt-divider mark-queued">
-        {{ block.divider }}
+      <li
+        v-for="d in block.dividers"
+        :key="`divider-${d.attempt}`"
+        class="turn-item attempt-divider mark-queued"
+      >
+        {{ d.text }}
       </li>
       <li class="turn-item" :class="block.mark">
         <slot v-if="block.kind === 'text'" name="text" :block="block" />
@@ -52,6 +64,13 @@ const marked = computed(() =>
         />
       </li>
     </template>
+    <li
+      v-for="d in placed.after"
+      :key="`divider-${d.attempt}`"
+      class="turn-item attempt-divider mark-queued"
+    >
+      {{ d.text }}
+    </li>
     <li v-if="ending" class="turn-item turn-ending" :class="ending.mark">
       <div :role="active || queued ? 'status' : undefined">
         <RunStatus :text="ending.text" :working="active" />

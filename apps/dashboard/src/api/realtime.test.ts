@@ -92,6 +92,17 @@ describe('event to query map', () => {
     has('runtime.online', keys.storage('w1'), null);
     has('runtime.updated', keys.storage('w1'), null);
   });
+  it('runtime events refresh every study waiting on a machine, only in their workspace', () => {
+    const client = new QueryClient();
+    const own = [keys.cards('w1'), keys.runs('w1', 'c1'), keys.runs('w1', 'c2')];
+    const foreign = keys.runs('w2', 'c1');
+    for (const key of [...own, foreign]) client.setQueryData(key, []);
+    for (const queryKey of invalidationsFor('w1', ev('runtime.updated')))
+      void client.invalidateQueries({ queryKey });
+    for (const key of own) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
+    client.clear();
+  });
   it('member events refresh the members and the workspace list', () => {
     has('member.role_changed', keys.members('w1'), null);
     has('member.removed', keys.workspaces, null);

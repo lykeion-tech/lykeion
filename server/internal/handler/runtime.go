@@ -255,7 +255,7 @@ func (h *H) agentRunMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if badQuery {
-		writeErr(w, 400, "valid after and attempt required")
+		writeErr(w, 400, "valid after, after_attempt and attempt required")
 		return
 	}
 	if out == nil {

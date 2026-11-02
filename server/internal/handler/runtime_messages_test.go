@@ -74,18 +74,16 @@ func TestRunMessagesKeepEarlierAttempts(t *testing.T) {
 	}
 }
 
-// A study whose run waits on a machine its owner must fix says so, to every
-// member who can see the study: the wait names the machine, nothing secret.
+// A study whose run waits on a machine says so, to every member who can see
+// the study: the wait names the machine, nothing secret. The machine is the
+// one the run's last attempt ran on.
 func TestWaitingStudyNamesTheMachine(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	tok := s.personalToken(t, a)
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	var rts []struct{ ID string }
-	if code := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": w.ID, "daemon_id": "d1", "device_name": "laptop", "harnesses": []string{"claude"}}, &rts); code != 200 || len(rts) != 1 {
-		t.Fatalf("register: %d %+v", code, rts)
-	}
+	rt := s.laptop(t, tok, w.ID)
 	c := s.idleCard(t, a, w.ID, "Why?")
 	var run string
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt, failure_reason, retry_after)
@@ -93,33 +91,113 @@ func TestWaitingStudyNamesTheMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mustUpdate(t, `INSERT INTO agent_run_receipt (workspace_id, agent_run_id, attempt, runtime_id, result)
-		VALUES ((SELECT workspace_id FROM agent_run WHERE id = $1), $1, 1, $2, '{"failure_reason":"sign_in"}')`, run, rts[0].ID)
+		VALUES ((SELECT workspace_id FROM agent_run WHERE id = $1), $1, 1, $2, '{"failure_reason":"sign_in"}')`, run, rt)
 
-	waiting := func(tok string) (card, study string) {
-		t.Helper()
-		var cards []struct{ ID, Waiting string }
-		if code := s.call(t, "GET", "/api/cards", tok, w.ID, nil, &cards); code != 200 || len(cards) != 1 {
-			t.Fatalf("cards: %d %+v", code, cards)
-		}
-		var runs []struct{ Waiting string }
-		if code := s.call(t, "GET", "/api/cards/"+c.ID+"/runs", tok, w.ID, nil, &runs); code != 200 || len(runs) != 1 {
-			t.Fatalf("runs: %d %+v", code, runs)
-		}
-		return cards[0].Waiting, runs[0].Waiting
-	}
-	if card, study := waiting(a); card != "" || study != "" {
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "" || study != "" {
 		t.Fatalf("waiting before the machine was flagged: %q %q", card, study)
 	}
+	s.mustUpdate(t, `UPDATE runtime SET unhealthy_reason = 'sign_in' WHERE id = $1`, rt)
 	s.mustUpdate(t, `INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
-		SELECT workspace_id, owner_id, 'waiting_for_machine', 'Claude Code on laptop is signed out.', id, 'sign_in' FROM runtime WHERE id = $1`, rts[0].ID)
+		SELECT workspace_id, owner_id, 'waiting_for_machine', 'Claude Code on laptop is signed out.', id, 'sign_in' FROM runtime WHERE id = $1`, rt)
 	want := "Waiting for laptop: Claude Code on laptop is signed out."
 	for _, who := range []string{a, b} {
-		if card, study := waiting(who); card != want || study != want {
+		if card, study := s.waiting(t, who, w.ID, c.ID); card != want || study != want {
 			t.Fatalf("waiting: %q %q", card, study)
 		}
 	}
-	s.mustUpdate(t, `UPDATE inbox_item SET resolved_at = now() WHERE runtime_id = $1`, rts[0].ID)
-	if card, study := waiting(a); card != "" || study != "" {
+	s.mustUpdate(t, `UPDATE inbox_item SET resolved_at = now() WHERE runtime_id = $1`, rt)
+	s.mustUpdate(t, `UPDATE runtime SET unhealthy_reason = NULL WHERE id = $1`, rt)
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "" || study != "" {
 		t.Fatalf("waiting after the wait resolved: %q %q", card, study)
 	}
+	// A machine that went offline needs no Inbox item to be waited on.
+	s.mustUpdate(t, `UPDATE runtime SET status = 'offline' WHERE id = $1`, rt)
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "Waiting for laptop: it is offline." || study != card {
+		t.Fatalf("waiting on an offline machine: %q %q", card, study)
+	}
+}
+
+// A run no machine has claimed yet waits on every machine that could claim
+// it: it says so when none of them can, and the page hears when one stops or
+// starts taking studies.
+func TestWaitingUnclaimedRun(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	tok := s.personalToken(t, a)
+	rt := s.laptop(t, tok, w.ID)
+	c := s.idleCard(t, a, w.ID, "Why?")
+	s.mustUpdate(t, `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt)
+		VALUES ($1, $2, $3, 'grounding', 1, 'scoper', 'claude', 'p')`, w.ID, c.ID, c.OwnerID)
+	events := func() (n int) {
+		t.Helper()
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE workspace_id = $1 AND type = 'runtime.updated'`, w.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "" || study != "" {
+		t.Fatalf("waiting with a healthy machine: %q %q", card, study)
+	}
+	health := "/api/daemon/runtimes/" + rt + "/health"
+	before := events()
+	if code := s.call(t, "POST", health, tok, "", map[string]any{"workspace_id": w.ID, "ok": false, "reason": "cli_broken"}, nil); code != 204 {
+		t.Fatalf("unhealthy report: %d", code)
+	}
+	if events() != before+1 {
+		t.Fatalf("flagging the machine told no page")
+	}
+	want := "Waiting for laptop: laptop keeps failing to run Claude Code (cli_broken). Waiting studies continue once it recovers."
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != want || study != want {
+		t.Fatalf("waiting on a flagged machine: %q %q", card, study)
+	}
+	before = events()
+	if code := s.call(t, "POST", health, tok, "", map[string]any{"workspace_id": w.ID, "ok": true}, nil); code != 204 {
+		t.Fatalf("healthy report: %d", code)
+	}
+	if events() != before+1 {
+		t.Fatalf("clearing the machine told no page")
+	}
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "" || study != "" {
+		t.Fatalf("waiting after the machine recovered: %q %q", card, study)
+	}
+	// A pass that changes nothing tells no one.
+	before = events()
+	s.call(t, "POST", health, tok, "", map[string]any{"workspace_id": w.ID, "ok": true}, nil)
+	if events() != before {
+		t.Fatalf("a pass with nothing to clear emitted an event")
+	}
+	s.mustUpdate(t, `UPDATE runtime SET status = 'offline' WHERE id = $1`, rt)
+	if card, study := s.waiting(t, a, w.ID, c.ID); card != "Waiting for laptop: it is offline." || study != card {
+		t.Fatalf("waiting on an offline machine: %q %q", card, study)
+	}
+}
+
+// laptop registers the user's daemon "laptop" with a Claude runtime.
+func (s *server) laptop(t *testing.T, tok, wsID string) string {
+	t.Helper()
+	var rts []struct{ ID string }
+	if code := s.call(t, "POST", "/api/daemon/register", tok, "", map[string]any{"workspace_id": wsID, "daemon_id": "d1", "device_name": "laptop", "harnesses": []string{"claude"}}, &rts); code != 200 || len(rts) != 1 {
+		t.Fatalf("register: %d %+v", code, rts)
+	}
+	return rts[0].ID
+}
+
+// waiting reads a study's waiting text from the board and from its runs.
+func (s *server) waiting(t *testing.T, tok, wsID, cardID string) (card, study string) {
+	t.Helper()
+	var cards []struct{ ID, Waiting string }
+	if code := s.call(t, "GET", "/api/cards", tok, wsID, nil, &cards); code != 200 {
+		t.Fatalf("cards: %d", code)
+	}
+	for _, c := range cards {
+		if c.ID == cardID {
+			card = c.Waiting
+		}
+	}
+	var runs []struct{ Waiting string }
+	if code := s.call(t, "GET", "/api/cards/"+cardID+"/runs", tok, wsID, nil, &runs); code != 200 || len(runs) != 1 {
+		t.Fatalf("runs: %d %+v", code, runs)
+	}
+	return card, runs[0].Waiting
 }

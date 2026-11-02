@@ -21,12 +21,7 @@ SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t
       'machine', COALESCE(rc.result->>'machine_name', rt.custom_name, rt.device_name, '')) ORDER BY rc.attempt)
     FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
-  COALESCE((SELECT 'Waiting for ' || COALESCE(rt.custom_name, rt.device_name) || ': ' || i.text
-    FROM agent_run_receipt rc
-    JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
-    JOIN inbox_item i ON i.workspace_id = rt.workspace_id AND i.runtime_id = rt.id AND i.kind = 'waiting_for_machine' AND i.resolved_at IS NULL
-    WHERE t.status = 'queued' AND rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt = t.attempt
-    ORDER BY i.created_at LIMIT 1), '')::text AS waiting
+  COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting
 FROM agent_run t
 LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
@@ -98,7 +93,7 @@ type CardAgentRunsRow struct {
 // A card's runs with what the study page shows about each: the name of the
 // agent it was started as, the latest text of its current attempt, when
 // that attempt last recorded anything, how each earlier attempt ended and on
-// which machine, and why the run waits on a machine, as ListCards says.
+// which machine, and why the run waits on a machine (agent_run_waiting).
 func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([]CardAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, cardAgentRuns, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -533,13 +528,9 @@ func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxPa
 
 const listCards = `-- name: ListCards :many
 SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column,
-  COALESCE((SELECT 'Waiting for ' || COALESCE(rt.custom_name, rt.device_name) || ': ' || i.text
-    FROM agent_run t
-    JOIN agent_run_receipt rc ON rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt = t.attempt
-    JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
-    JOIN inbox_item i ON i.workspace_id = rt.workspace_id AND i.runtime_id = rt.id AND i.kind = 'waiting_for_machine' AND i.resolved_at IS NULL
-    WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued'
-    ORDER BY t.created_at, i.created_at LIMIT 1), '')::text AS waiting,
+  COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
+    WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND w IS NOT NULL
+    ORDER BY t.created_at, t.id LIMIT 1), '')::text AS waiting,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
@@ -593,9 +584,9 @@ type ListCardsRow struct {
 // The board's cards. queued: an agent run of the card waits with a reason
 // (budget or runtime_offline). role: the role of its latest queued,
 // dispatched or running agent run, empty when it has none. updated_at: the
-// card's newest event, or its creation when it has none. waiting: why a
-// queued run of the card waits on the machine its last attempt ran on, when
-// that machine's owner has an open wait to fix; empty otherwise.
+// card's newest event, or its creation when it has none. waiting: why the
+// card's first waiting run waits on a machine (agent_run_waiting); empty
+// otherwise.
 func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListCardsRow, error) {
 	rows, err := q.db.Query(ctx, listCards, workspaceID)
 	if err != nil {

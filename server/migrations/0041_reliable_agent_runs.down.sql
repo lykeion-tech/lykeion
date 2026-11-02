@@ -1,3 +1,4 @@
+DROP FUNCTION agent_run_waiting(uuid, uuid);
 ALTER TABLE agent_run_usage DROP COLUMN estimated;
 ALTER TABLE runtime DROP COLUMN unhealthy_reason, DROP COLUMN infra_streak;
 ALTER TABLE agent_run DROP COLUMN retry_after, DROP COLUMN infra_failures;
