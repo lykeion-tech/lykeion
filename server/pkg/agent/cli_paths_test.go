@@ -127,10 +127,10 @@ func TestCLIPathsRejectRedirectedState(t *testing.T) {
 		t.Fatal("created directory through a link")
 	}
 }
-func TestClaudeSandboxBlocksPersonalFiles(t *testing.T) {
+func TestClaudeSandboxHidesPersonalFiles(t *testing.T) {
 	for _, goos := range []string{"darwin", "linux"} {
 		h := t.TempDir()
-		for _, dir := range []string{"plugins/cache", "skills", "agents", "commands", "rules", "sessions"} {
+		for _, dir := range []string{"plugins/cache", "skills", "agents", "commands", "rules", "output-styles", "workflows", "routines", "sessions"} {
 			if err := os.MkdirAll(filepath.Join(h, dir), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -144,12 +144,12 @@ func TestClaudeSandboxBlocksPersonalFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"CLAUDE.md", "plugins", "skills", "agents", "commands", "rules", "history.jsonl"} {
+		for _, name := range []string{"CLAUDE.md", "plugins", "skills", "agents", "commands", "rules", "output-styles", "workflows", "routines", "history.jsonl"} {
 			if !slices.Contains(p.Hidden, filepath.Join(h, name)) {
 				t.Errorf("%s: %s is not hidden", goos, name)
 			}
 		}
-		for _, kept := range []string{".credentials.json", "settings.json", "sessions", "projects/-r"} {
+		for _, kept := range []string{".credentials.json", "settings.json", "sessions"} {
 			if slices.Contains(p.Hidden, filepath.Join(h, kept)) {
 				t.Errorf("%s: %s is hidden", goos, kept)
 			}

@@ -46,7 +46,7 @@ var personalCodexFiles = []string{"AGENTS.md", "AGENTS.override.md", "plugins", 
 // personalClaudeFiles are the Claude home entries a study run may not read.
 // Project memories are not among them: Claude loads only the run folder's
 // own, and a person may keep thousands, more than a sandbox profile can list.
-var personalClaudeFiles = []string{"CLAUDE.md", "rules", "plugins", "skills", "agents", "commands", "history.jsonl"}
+var personalClaudeFiles = []string{"CLAUDE.md", "rules", "plugins", "skills", "agents", "commands", "output-styles", "workflows", "routines", "history.jsonl"}
 
 // SandboxPaths selects state paths without creating empty CLI state files.
 func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) {

@@ -117,6 +117,11 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.ReadOnly {
 		deny = append(deny, "Edit(//**)", "Bash")
 	}
+	if !o.Coresearch {
+		// A study's evidence comes only through the sources server, whatever
+		// the person's own rules allow; a deny rule wins over them.
+		deny = append(deny, "WebFetch", "WebSearch")
+	}
 	if len(deny) > 0 {
 		tools = append(append(tools, "--disallowedTools"), deny...)
 	}
@@ -124,9 +129,13 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	// depend on what the person has installed: none of their hooks or MCP
 	// servers run, and no CLAUDE.md becomes instructions, even one in the
 	// run's own folders or added after startup. A study run keeps the
-	// account's settings, which may carry its sign-in and default model; the
-	// sandbox hides its plugins, skills and instructions.
-	settings := `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
+	// account's settings, which may carry its sign-in and default model, but
+	// not its output style; the sandbox hides its plugins, skills, styles and
+	// instructions.
+	settings := `{"disableAllHooks":true,"claudeMdExcludes":["**"],"outputStyle":"default"}`
+	if o.Coresearch {
+		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
+	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
 	if o.Coresearch {
 		args = append(args, "--setting-sources", "project")

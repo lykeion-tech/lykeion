@@ -1168,7 +1168,7 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 	run := "/" + root + `/run dir \[1\]\*`
 	reads := []string{filepath.Join(root, "study {a}"), filepath.Join(root, "a,Read,b"), filepath.Join(root, "bases", "python")}
 	allow := "Read(" + run + "/**)\nRead(/" + root + `/study \{a\}/**)` + "\nRead(/" + root + "/bases/python/**)\n--disallowedTools\n"
-	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\n--mcp-config\n"
+	deny := "Read(" + run + "/.cli-home/**)\nRead(" + run + "/.home/**)\nWebFetch\nWebSearch\n--mcp-config\n"
 	for _, c := range []struct{ inherit, readOnly bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
 		args := filepath.Join(t.TempDir(), "args")
 		s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p",
@@ -1184,7 +1184,7 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 			// Nothing else is pre-approved, and no account rule may edit or run
 			// commands either.
 			want = "\n--permission-mode\ndontAsk\n--allowedTools\nSkill,mcp__lyk_door__call_tool\n" + allow
-			deny = strings.TrimSuffix(deny, "--mcp-config\n") + "Edit(//**)\nBash\n--mcp-config\n"
+			deny = strings.TrimSuffix(deny, "WebFetch\nWebSearch\n--mcp-config\n") + "Edit(//**)\nBash\nWebFetch\nWebSearch\n--mcp-config\n"
 		}
 		if !strings.Contains(string(a), want) || !strings.Contains(string(a), deny) || strings.Contains(string(a), "a,Read,b") {
 			t.Fatalf("inherit=%v readOnly=%v, want %q and %q, args:\n%s", c.inherit, c.readOnly, want, deny, a)
@@ -1327,8 +1327,9 @@ echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)}
 	}
 }
 
-// A study run keeps the account's settings but no CLAUDE.md file, hook or MCP
-// server of the person's: only the run's door.
+// A study run keeps the account's settings but no CLAUDE.md file, hook,
+// output style or MCP server of the person's, only the run's door, and never
+// reaches the web itself.
 func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
 	mcp := filepath.Join(t.TempDir(), "mcp")
@@ -1350,9 +1351,13 @@ func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	var settings struct {
 		DisableAllHooks  bool     `json:"disableAllHooks"`
 		ClaudeMdExcludes []string `json:"claudeMdExcludes"`
+		OutputStyle      string   `json:"outputStyle"`
 	}
-	if i := slices.Index(argv, "--settings"); i < 0 || json.Unmarshal([]byte(argv[i+1]), &settings) != nil || !settings.DisableAllHooks || !slices.Equal(settings.ClaudeMdExcludes, []string{"**"}) {
+	if i := slices.Index(argv, "--settings"); i < 0 || json.Unmarshal([]byte(argv[i+1]), &settings) != nil || !settings.DisableAllHooks || !slices.Equal(settings.ClaudeMdExcludes, []string{"**"}) || settings.OutputStyle != "default" {
 		t.Fatalf("settings: %s", a)
+	}
+	if i := slices.Index(argv, "--disallowedTools"); i < 0 || !slices.Contains(argv[i:], "WebFetch") || !slices.Contains(argv[i:], "WebSearch") {
+		t.Fatalf("web tools not denied: %s", a)
 	}
 	var cfg struct {
 		MCPServers map[string]json.RawMessage `json:"mcpServers"`

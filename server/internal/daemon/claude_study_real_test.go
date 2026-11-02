@@ -33,24 +33,32 @@ func TestRealClaudeStudyRunResumesWithoutPersonalContext(t *testing.T) {
 	const personal = "USER-PERSONAL-CONTEXT-5be1"
 	const claudeMd = "USER-CLAUDE-MD-71c0"
 	const pluginSkill = "USER-PLUGIN-SKILL-2e9d"
-	for _, dir := range []string{"skills/mine", "plugins/cache", "agents", "commands", "rules"} {
+	const outsideSkill = "USER-OUTSIDE-PLUGIN-SKILL-8a4f"
+	const outputStyle = "USER-OUTPUT-STYLE-c37b"
+	for _, dir := range []string{"skills/mine", "plugins/cache", "agents", "commands", "rules", "output-styles"} {
 		must(t, os.MkdirAll(filepath.Join(account, dir), 0700))
 	}
 	must(t, os.WriteFile(filepath.Join(account, "CLAUDE.md"), []byte(claudeMd+"\n"), 0600))
 	for _, file := range []string{"agents/mine.md", "commands/mine.md", "rules/mine.md", "history.jsonl"} {
 		must(t, os.WriteFile(filepath.Join(account, file), []byte(personal+"\n"), 0600))
 	}
+	must(t, os.WriteFile(filepath.Join(account, "output-styles/marker.md"), []byte("---\nname: Marker Style\ndescription: fixture style\n---\n"+outputStyle+"\n"), 0600))
 	must(t, os.WriteFile(filepath.Join(account, "skills/mine/SKILL.md"), []byte("---\nname: mine\ndescription: "+personal+"\n---\n"+personal+"\n"), 0600))
 	mcpMarker := filepath.Join(run, "personal-mcp-started")
 	hookMarker := filepath.Join(run, "personal-hook-ran")
 	must(t, os.WriteFile(filepath.Join(account, ".claude.json"), []byte(`{"mcpServers":{"personal":{"type":"stdio","command":"/usr/bin/touch","args":["`+mcpMarker+`"]}}}`), 0600))
-	// An installed plugin from a local marketplace, with a skill.
+	// An installed plugin from a local marketplace, with a skill, and one
+	// from a marketplace outside the account that only the settings declare.
 	market := filepath.Join(account, "plugins", "marketplaces", "fixture")
 	plugin := filepath.Join(market, "mine")
+	outside := filepath.Join(filepath.Dir(account), "market")
 	for dir, files := range map[string]map[string]string{
-		filepath.Join(market, ".claude-plugin"):          {"marketplace.json": `{"name":"fixture","owner":{"name":"fixture"},"plugins":[{"name":"mine","source":"./mine"}]}`},
-		filepath.Join(plugin, ".claude-plugin"):          {"plugin.json": `{"name":"mine","version":"1.0.0"}`},
-		filepath.Join(plugin, "skills", "plugin-method"): {"SKILL.md": "---\nname: plugin-method\ndescription: " + pluginSkill + "\n---\n" + pluginSkill + "\n"},
+		filepath.Join(outside, ".claude-plugin"):                  {"marketplace.json": `{"name":"outside","owner":{"name":"fixture"},"plugins":[{"name":"ext","source":"./ext"}]}`},
+		filepath.Join(outside, "ext", ".claude-plugin"):           {"plugin.json": `{"name":"ext","version":"1.0.0"}`},
+		filepath.Join(outside, "ext", "skills", "outside-method"): {"SKILL.md": "---\nname: outside-method\ndescription: " + outsideSkill + "\n---\n" + outsideSkill + "\n"},
+		filepath.Join(market, ".claude-plugin"):                   {"marketplace.json": `{"name":"fixture","owner":{"name":"fixture"},"plugins":[{"name":"mine","source":"./mine"}]}`},
+		filepath.Join(plugin, ".claude-plugin"):                   {"plugin.json": `{"name":"mine","version":"1.0.0"}`},
+		filepath.Join(plugin, "skills", "plugin-method"):          {"SKILL.md": "---\nname: plugin-method\ndescription: " + pluginSkill + "\n---\n" + pluginSkill + "\n"},
 		filepath.Join(account, "plugins"): {
 			"known_marketplaces.json": `{"fixture":{"source":{"source":"directory","path":"` + market + `"},"installLocation":"` + market + `","lastUpdated":"2026-01-01T00:00:00.000Z"}}`,
 			"installed_plugins.json":  `{"version":2,"plugins":{"mine@fixture":[{"scope":"user","installPath":"` + plugin + `","version":"1.0.0","installedAt":"2026-01-01T00:00:00.000Z","lastUpdated":"2026-01-01T00:00:00.000Z"}]}}`,
@@ -62,7 +70,7 @@ func TestRealClaudeStudyRunResumesWithoutPersonalContext(t *testing.T) {
 		}
 	}
 	// The settings env adds a header, so a request shows the settings loaded.
-	must(t, os.WriteFile(filepath.Join(account, "settings.json"), []byte(`{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Lyk-Settings: loaded"},"enabledPlugins":{"mine@fixture":true},"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/usr/bin/touch `+hookMarker+`"}]}]}}`), 0600))
+	must(t, os.WriteFile(filepath.Join(account, "settings.json"), []byte(`{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Lyk-Settings: loaded"},"outputStyle":"Marker Style","extraKnownMarketplaces":{"outside":{"source":{"source":"directory","path":"`+outside+`"}}},"enabledPlugins":{"mine@fixture":true,"ext@outside":true},"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/usr/bin/touch `+hookMarker+`"}]}]}}`), 0600))
 	const prompt = "Run the study isolation fixture."
 	var mu sync.Mutex
 	var requests [][]byte
@@ -113,7 +121,7 @@ func TestRealClaudeStudyRunResumesWithoutPersonalContext(t *testing.T) {
 			t.Fatalf("turn %d: requests=%d result=%+v logs=%s", turn, len(captured), result, logs.String())
 		}
 		last := string(captured[turn])
-		for name, marker := range map[string]string{"CLAUDE.md": claudeMd, "plugin skill": pluginSkill, "personal context": personal} {
+		for name, marker := range map[string]string{"CLAUDE.md": claudeMd, "plugin skill": pluginSkill, "outside plugin skill": outsideSkill, "output style": outputStyle, "personal context": personal} {
 			if strings.Contains(last, marker) {
 				t.Errorf("turn %d: the account's %s reached the model", turn, name)
 			}
