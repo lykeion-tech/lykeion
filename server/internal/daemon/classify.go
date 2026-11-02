@@ -13,8 +13,8 @@ import (
 var (
 	// A 401 counts only in the forms the CLIs and HTTP clients print it.
 	unauthorized = regexp.MustCompile(`(?i)\b401 unauthorized|\b(?:status|http|api error:?|error:?)\s*(?:code\s*)?401\b`)
-	// "Not logged in" counts only as a CLI's own message, at a line start.
-	notLoggedIn = regexp.MustCompile(`(?im)^\s*(?:error:\s*)?not logged in\b`)
+	// "Not logged in" counts only as a CLI's own message, at a line start or right after the folded "stderr:".
+	notLoggedIn = regexp.MustCompile(`(?im)(?:^|stderr:)\s*(?:error:\s*)?not logged in\b`)
 	// The sandbox package's launch and policy errors, which carry no type.
 	sandboxSignatures = []string{"sandbox failed to start", "install bubblewrap", "no sandbox on", "sandbox policy", "sandbox path", "sandbox carved", "sandbox read folder", "sandbox restricted", "sandbox grant", "sandbox started but", "bwrap:", "sandbox-exec:"}
 	signInSignatures  = map[string][]string{

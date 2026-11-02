@@ -32,6 +32,7 @@ func TestClassify(t *testing.T) {
 		{"401 tokens", "claude", errors.New("exit status 1"), "used 401 tokens of context", agent.ReasonAgentError},
 		{"429 body mentioning 401", "codex", errors.New("exit status 1"), "unexpected status 429 Too Many Requests: request 401 queued", agent.ReasonAgentError},
 		{"not logged in mid-sentence", "claude", errors.New("exit status 1"), "the script printed: user is not logged in to the site", agent.ReasonAgentError},
+		{"codex not logged in folded by agent", "codex", fmt.Errorf("%w; stderr: %s", errors.New("exit status 1"), "Error: not logged in"), "", agent.ReasonSignIn},
 		{"plain agent error", "claude", errors.New("agent exited without a terminal result"), "Traceback: ValueError: bad input", agent.ReasonAgentError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
