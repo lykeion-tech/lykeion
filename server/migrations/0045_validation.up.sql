@@ -26,3 +26,19 @@ WITH restarted AS (
 UPDATE card SET round = round + 1, redos = 0, legacy_column = '',
   handoff_note = 'Validation restarted under the new review rules.', version = version + 1
 FROM restarted WHERE card.id = restarted.id;
+
+-- A rerun runs no agent CLI: it waits only while no runtime of its study's
+-- machine, or of its owner's machines when the study chose none, is online.
+CREATE OR REPLACE FUNCTION mark_queue_offline() RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  WITH want AS (
+    SELECT t.id, CASE WHEN EXISTS (
+        SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id AND r.status = 'online'
+          AND ((t.kind <> 'rerun' AND r.owner_id = t.responsible_user_id AND r.harness = t.harness)
+            OR (t.kind = 'rerun' AND ((c.machine IS NULL AND r.owner_id = t.responsible_user_id) OR r.daemon_id = c.machine))))
+      THEN NULL ELSE 'runtime_offline' END AS reason
+    FROM agent_run t LEFT JOIN card c ON c.id = t.card_id
+    WHERE t.status = 'queued' AND (t.queue_reason IS NULL OR t.queue_reason = 'runtime_offline'))
+  UPDATE agent_run SET queue_reason = want.reason FROM want
+  WHERE agent_run.id = want.id AND agent_run.queue_reason IS DISTINCT FROM want.reason
+$$;

@@ -229,7 +229,7 @@ JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = @workspace_id AND t.status IN ('queued','dispatched','running')
 AND t.kind <> 'coresearch' AND t.responsible_user_id <> @owner_id
-AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = @daemon_id AND t.harness = @harness))
+AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind IN ('role','rerun') AND c.machine = @daemon_id AND (t.harness = @harness OR t.kind = 'rerun')))
 ORDER BY t.id FOR UPDATE OF t;
 
 -- name: SetRuntimeRevokedReason :exec
@@ -252,8 +252,8 @@ AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = @user_id AND r.owner_id <> @user_id)
    OR (t.responsible_user_id <> @user_id AND r.owner_id = @user_id))
- AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
-      AND c.machine = r.daemon_id AND t.harness = r.harness))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind IN ('role','rerun')
+      AND c.machine = r.daemon_id AND (t.harness = r.harness OR t.kind = 'rerun')))
 )
 ORDER BY t.id FOR UPDATE OF t;
 

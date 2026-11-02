@@ -27,7 +27,6 @@ type rerunLab struct {
 func newRerunLab(t *testing.T) *rerunLab {
 	t.Helper()
 	s := newServer(t)
-	s.H.AgentRuns.Blobs = s.H.Blobs // the claim reads the saved package list
 	l := &rerunLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
 	l.ws = s.workspace(t, l.jwt, "lab").ID
 	l.personal = s.personalToken(t, l.jwt)
@@ -208,12 +207,13 @@ func TestRerunResultMarksReproduced(t *testing.T) {
 	l.enqueue(t)
 	cl := l.claim(t)
 	l.upload(t, cl.Token, "metrics.txt", "f1 = 1.50\n")
-	if c := l.s.call(t, "POST", "/api/role/records", cl.Token, "", map[string]any{"kind": "rerun", "body": map[string]any{"reproduced": map[string]bool{"acc": true}}}, nil); c != 400 {
+	if c := l.s.call(t, "POST", "/api/role/records", cl.Token, "", map[string]any{"kind": "value", "body": map[string]any{"name": "acc", "value": "0.912"}}, nil); c != 403 {
 		t.Fatalf("a run wrote its own rerun record: %d", c)
 	}
 	out := map[string]any{"steps": []map[string]any{
 		{"key": "x1", "exit_status": 0, "output": "auc=0.8731\n", "error": ""},
 		{"key": "x2", "exit_status": 0, "output": "acc 0.874\n", "error": ""},
+		{"key": "x9", "exit_status": 0, "output": "0.912\n", "error": ""},
 	}, "outputs": []map[string]string{{"name": "metrics.txt", "text_sha256": hexSHA("f1 = 1.50\n")}}, "failure": nil}
 	if c := l.result(t, cl, out); c != 200 {
 		t.Fatalf("result %d", c)
@@ -333,5 +333,33 @@ func TestRerunResultRefusedForOtherRun(t *testing.T) {
 	}
 	if n := len(l.rerunRecords(t)); n != 0 {
 		t.Fatalf("refused results wrote %d records", n)
+	}
+}
+
+func TestAFailedRerunRecordsNothingReproduced(t *testing.T) {
+	l := newRerunLab(t)
+	l.script(t, "x1", "fit.py", 0, "")
+	l.record(t, "experimentation", "value", "r1", map[string]any{"name": "auc", "value": "0.873", "file": "fit.py", "cites": []string{"run:x1"}}, nil)
+	l.enqueue(t)
+	cl := l.claim(t)
+	body := maps.Clone(cl.ref)
+	body["failure_reason"], body["error"] = "agent_error", "the daemon crashed"
+	if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+cl.AgentRun.ID+"/fail", l.personal, "", body, nil); c != 200 {
+		t.Fatalf("fail %d", c)
+	}
+	recs := l.rerunRecords(t)
+	if len(recs) != 1 || !maps.Equal(recs[0].Reproduced, map[string]bool{"auc": false}) || recs[0].Notes["auc"] != "the rerun failed before reporting a result" {
+		t.Fatalf("records %+v", recs)
+	}
+	// A rerun cancelled with its study records nothing.
+	l2 := newRerunLab(t)
+	l2.script(t, "x1", "fit.py", 0, "")
+	l2.enqueue(t)
+	cl2 := l2.claim(t)
+	if c := l2.s.call(t, "POST", "/api/agent-runs/"+cl2.AgentRun.ID+"/cancel", l2.jwt, l2.ws, nil, nil); c >= 300 {
+		t.Fatalf("cancel %d", c)
+	}
+	if n := len(l2.rerunRecords(t)); n != 0 {
+		t.Fatalf("a cancelled rerun wrote %d records", n)
 	}
 }

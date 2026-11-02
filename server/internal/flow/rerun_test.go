@@ -106,3 +106,16 @@ func TestToleranceWidensTheDigitRule(t *testing.T) {
 		t.Fatalf("4%% tolerance reproduced a value 4.2%% off")
 	}
 }
+
+func TestAValueFoundInAnyFileTheRerunSavedIsReproduced(t *testing.T) {
+	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"fit.py","cites":["run:x1"]}`)}}
+	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "done"}}
+	if ok, notes := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); !ok["f1"] {
+		t.Fatalf("a saved file of another name: %v %v", ok, notes)
+	}
+	// A value citing no replayed script is not found in an unrelated file.
+	values = []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"other.txt","cites":[]}`)}}
+	if ok, _ := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); ok["f1"] {
+		t.Fatal("a value no replayed script made was found in another file")
+	}
+}

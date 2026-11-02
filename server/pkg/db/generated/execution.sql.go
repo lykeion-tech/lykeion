@@ -440,8 +440,8 @@ AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = $2 AND r.owner_id <> $2)
    OR (t.responsible_user_id <> $2 AND r.owner_id = $2))
- AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
-      AND c.machine = r.daemon_id AND t.harness = r.harness))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind IN ('role','rerun')
+      AND c.machine = r.daemon_id AND (t.harness = r.harness OR t.kind = 'rerun')))
 )
 ORDER BY t.id FOR UPDATE OF t
 `
@@ -1509,7 +1509,7 @@ JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued','dispatched','running')
 AND t.kind <> 'coresearch' AND t.responsible_user_id <> $2
-AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = $4 AND t.harness = $5))
+AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind IN ('role','rerun') AND c.machine = $4 AND (t.harness = $5 OR t.kind = 'rerun')))
 ORDER BY t.id FOR UPDATE OF t
 `
 

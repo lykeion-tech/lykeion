@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 const (
 	noScriptNote    = "no recorded script run produced this value"
 	environmentNote = "the saved package list could not be rebuilt"
+	rerunFailedNote = "the rerun failed before reporting a result"
 )
 
 // RerunStepResult is one replayed script as the daemon reports it, under the
@@ -124,6 +126,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		return err
 	}
 	var exp, saved []db.Record
+	var claimed []service.RerunStep
 	done := false
 	tolerance := 0.0
 	err := e.AgentRuns.OnRerun(ctx, user, ref, id, func(tx *store.Tx, t db.AgentRun) error {
@@ -142,6 +145,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		if exp, err = service.ExperimentationRound(ctx, tx, *t.CardID); err != nil {
 			return err
 		}
+		claimed, _ = service.RerunSteps(exp)
 		_, m, err := columnTeam(ctx, tx, *t.CardID, board.Experimentation)
 		if err == nil {
 			tolerance = m.Validation.Tolerance
@@ -154,6 +158,10 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		return err
 	}
 	if !done {
+		// A step the claim did not hand out is not the round's; it is dropped.
+		in.Steps = slices.DeleteFunc(in.Steps, func(s RerunStepResult) bool {
+			return !slices.ContainsFunc(claimed, func(c service.RerunStep) bool { return c.Key == s.Key })
+		})
 		body, err := e.rerunRecord(ctx, exp, saved, in, tolerance)
 		if err != nil {
 			return err
@@ -171,6 +179,31 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 	}
 	_, err = e.AgentRuns.Complete(ctx, user, ref, id, service.Report{})
 	return err
+}
+
+// afterRerun records, for a rerun that failed without a result, every value
+// of its round not reproduced, so its Validation round does not wait for
+// ever. A cancelled rerun, its study stopped or its machine withdrawn,
+// records nothing; an infrastructure failure was parked, not settled.
+func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
+	if t.Status != "failed" {
+		return nil
+	}
+	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+		if _, err := lockCard(ctx, tx, *t.CardID); err != nil {
+			return err
+		}
+		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
+		if err != nil || slices.ContainsFunc(recs, func(r db.Record) bool { return r.Kind == "rerun" && r.Round == t.Round }) {
+			return err
+		}
+		exp, err := service.ExperimentationRound(ctx, tx, *t.CardID)
+		if err != nil {
+			return err
+		}
+		ok, notes := noneReproduced(exp, rerunFailedNote)
+		return writeRerun(ctx, tx, *t.CardID, t.BoardColumn, t.Round, &t.ID, rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Reproduced: ok, Notes: notes})
+	})
 }
 
 // rerunRecord turns a result into the record's body. The saved files it
@@ -267,7 +300,14 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 			texts = append(texts, s.Output)
 		}
 	}
-	if text, ok := files[v.File]; ok {
+	// As in the Experimentation check, a value a replayed script made may
+	// be in any file the rerun saved; one no replayed script made only in
+	// the file it names.
+	if len(texts) > 0 {
+		for _, name := range slices.Sorted(maps.Keys(files)) {
+			texts = append(texts, files[name])
+		}
+	} else if text, ok := files[v.File]; ok {
 		texts = append(texts, text)
 	}
 	n, isNumber := parseNumber(strings.TrimSpace(v.Value))

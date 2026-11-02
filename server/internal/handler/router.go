@@ -86,11 +86,12 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/runs", h.listRuns)
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
-			r.Get("/attachments/{id}", h.roleAttachment)
-			r.Post("/outputs", h.uploadOutput)
 			r.Get("/outputs/by-name", h.roleOutputByName)
 			r.Get("/outputs/{key}", h.roleOutput)
 		})
+		// A rerun's token reads attachments and saves outputs, and no more.
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeRerun)).Get("/attachments/{id}", h.roleAttachment)
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeRerun)).Post("/outputs", h.uploadOutput)
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall, service.ScopeCoresearchConnector)).Post("/calls", h.postCall)
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/runs", h.postRun)

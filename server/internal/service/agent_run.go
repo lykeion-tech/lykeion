@@ -48,6 +48,9 @@ const (
 	ScopeRole                = "card:role"
 	ScopeReport              = "report:write"
 	ScopeCardCreate          = "card:create"
+	// ScopeRerun reads the study's attachments and saves a rerun's outputs,
+	// and nothing else: a rerun writes no record of its own.
+	ScopeRerun = "rerun:files"
 	// ScopeCall records a connector call. Only the daemon's tool door holds a
 	// token with it; the agent's own token never does.
 	ScopeCall = "call:record"
@@ -60,6 +63,9 @@ func Scopes(kind string) []string {
 	}
 	if kind == "autoresearch" {
 		return []string{ScopeReport, ScopeCardCreate}
+	}
+	if kind == "rerun" {
+		return []string{ScopeRerun}
 	}
 	return []string{ScopeRole}
 }
