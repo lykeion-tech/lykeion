@@ -3,6 +3,7 @@ package autoresearch
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -72,8 +73,17 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 	if strings.Contains(tk.Prompt, "lyk_sources") || !strings.Contains(tk.Prompt, "call_tool") {
 		t.Fatal("the prompt names a server the agent no longer has")
 	}
-	if !strings.Contains(tk.Prompt, "lyk tools \"what you need\"") {
-		t.Fatal("the prompt does not tell the agent about lyk tools")
+	if !strings.Contains(tk.Prompt, "find_tools") {
+		t.Fatal("the prompt does not tell the agent about find_tools")
+	}
+	// The run hands in its report; it is told no lyk command.
+	if regexp.MustCompile("`?\\blyk\\b").MatchString(tk.Prompt) {
+		t.Fatalf("the prompt names lyk:\n%s", tk.Prompt)
+	}
+	for _, f := range []string{"`report`", "`new_studies`", "`status`", "`answer`", "`reason`"} {
+		if !strings.Contains(tk.Prompt, f) {
+			t.Fatalf("the prompt does not describe the hand-in field %s:\n%s", f, tk.Prompt)
+		}
 	}
 	if tk.Kind != "autoresearch" || tk.CardID != nil || tk.RequesterID == nil || *tk.RequesterID != actor ||
 		tk.ResponsibleUserID != actor || tk.Role != Role || tk.BoardColumn != "" || tk.Round != 0 || tk.Harness != "claude" || tk.ContinuityScope != "" {

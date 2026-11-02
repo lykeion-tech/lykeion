@@ -1,13 +1,17 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/pkg/agent"
 )
@@ -112,5 +116,37 @@ func TestFindToolsAsksForNoNotice(t *testing.T) {
 	}
 	if len(o.asked) != 1 || o.asked[0]["notify"] != false {
 		t.Fatalf("asked %v, want notify false", o.asked)
+	}
+}
+
+// A hand-in run cites nothing by hand, so no tool it is offered mentions lyk
+// or a record key's cite prefix; a Validation run's tools still say how to
+// cite.
+func TestAHandInDoorsToolsNameNoProtocol(t *testing.T) {
+	o := newOutputsServer(t)
+	protocol := regexp.MustCompile(`\blyk\b|\b(?:call|run):`)
+	text := func(d *Door) string {
+		ctx := context.Background()
+		c := mcp.NewClient(&mcp.Implementation{Name: "cli", Version: "0"}, nil)
+		s, err := c.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}, DisableStandaloneSSE: true}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		var all string
+		for tool, err := range s.Tools(ctx, nil) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			schema, _ := json.Marshal(tool.InputSchema)
+			all += tool.Name + ": " + tool.Description + " " + string(schema) + "\n"
+		}
+		return all
+	}
+	if got := text(handInDoor(t, o.URL)); protocol.MatchString(got) {
+		t.Fatalf("a hand-in door's tools name the protocol:\n%s", got)
+	}
+	if got := text(memberDoor(t, o.URL, false)); !protocol.MatchString(got) {
+		t.Fatalf("a Validation door's tools no longer say how to cite:\n%s", got)
 	}
 }

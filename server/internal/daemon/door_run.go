@@ -31,10 +31,12 @@ import (
 
 const (
 	runCodeDescription = "Run code in a live session (language: python, r or julia) that keeps its variables between calls, in this study's environment. " +
-		"For exploring; a reported result must come from run_script. The answer starts with run:<key>, which you may cite as run:<key>. " +
+		"For exploring; a reported result must come from run_script. " +
 		"Pass restart: true to restart the session first, clearing its variables; with no code, only the restart happens."
-	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment. " +
-		"Cite the result's numbers as run:<key>, the first line of the answer."
+	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment."
+	// runCodeCite and runScriptCite tell a run that cites by hand how.
+	runCodeCite   = " The answer starts with run:<key>, which you may cite as run:<key>."
+	runScriptCite = " Cite the result's numbers as run:<key>, the first line of the answer."
 	// maxScript is the longest script or cell the server records.
 	maxScript = 256 << 10
 	// outputCut ends output dropped past maxAnswer, as the session bridge

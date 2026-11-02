@@ -39,8 +39,8 @@ func TestDecide(t *testing.T) {
 	}
 }
 
-const redoAnswer = "Items not listed stand. Answer each listed item: declare it again with the same id or text once it is fixed, or withdraw it with " +
-	"`lyk record put withdrawn --content '{\"item\":\"rN\",\"reason\":\"…\"}'`. " +
+const redoAnswer = "Items not listed stand. In your hand-in's replies, answer each listed item by the name shown: corrected (it is in this hand-in again, fixed, with the same id or text), " +
+	"withdrawn (it no longer stands) or, for a paper Jev found missing, declined, each with a reason. " +
 	"A replacement with a different id or text is a new item, so also withdraw the old one. " +
 	"Items you leave unanswered count as failed, and a second failure blocks the study."
 
@@ -48,7 +48,7 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 	bad := it("bad", Fail, Check{ID: "exists", Status: Pass}, Check{ID: "falsifiable", Status: Fail})
 	bad.Key = "r4"
 	r := Result{Items: []Item{it("good", Pass, Check{ID: "exists", Status: Pass}), bad}}
-	want := "Jev's review sent back these items:\n- bad (r4):\n  - falsifiable\n" + redoAnswer
+	want := "Jev's review sent back these items:\n- bad:\n  - falsifiable\n" + redoAnswer
 	if got := RedoNote(r); got != want {
 		t.Errorf("got %q", got)
 	}
@@ -70,9 +70,19 @@ func TestRedoNoteShowsQuestionsAndDetails(t *testing.T) {
 		Check{ID: "cited", By: "server", Detail: "no citation was found", Status: Fail},
 		Check{ID: "ok", By: "jev", Question: "fine?", Status: Pass})
 	bad.Key = "r4"
-	want := "Jev's review sent back these items:\n- bad (r4):\n" +
+	want := "Jev's review sent back these items:\n- bad:\n" +
 		"  - supported: \"Does the cited evidence support making this prediction?\" (scored 0.13)\n" +
 		"  - cited: no citation was found\n" + redoAnswer
+	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
+		t.Errorf("got %q", got)
+	}
+}
+
+// A reply names a hypothesis by its whole text, never by its record key.
+func TestRedoNoteNamesAHypothesisByItsText(t *testing.T) {
+	bad := it("a short label…", Fail, Check{ID: "falsifiable", Status: Fail})
+	bad.Key, bad.Kind, bad.Identity = "r4", KindHypothesis, "the whole hypothesis text"
+	want := "Jev's review sent back these items:\n- the whole hypothesis text:\n  - falsifiable\n" + redoAnswer
 	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
 		t.Errorf("got %q", got)
 	}

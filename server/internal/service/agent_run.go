@@ -600,7 +600,7 @@ func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, e
 	if b.Len() == 0 {
 		return t.Prompt, nil
 	}
-	return t.Prompt + "\n\nYour members' work on this column so far:\n" + b.String(), nil
+	return t.Prompt + "\n\nYour members' work on this column so far:\n" + b.String() + "Use their work; don't ask them for it again.\n", nil
 }
 
 type ClaimOptions struct {

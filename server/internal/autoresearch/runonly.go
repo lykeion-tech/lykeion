@@ -165,8 +165,12 @@ func prompt(ap db.Autoresearch, r db.AutoresearchRun, actor string, cards []db.L
 	if r.Source == "webhook" {
 		b.WriteString("\n" + fence.Untrusted("The webhook payload that started this run", string(r.Payload)))
 	}
-	b.WriteString("\nPost your result with `lyk report` (the text on stdin), and open studies with `lyk open-card`. " +
-		"You cannot write records, comment or move cards. Calls through call_tool are logged but are evidence for no card.\n" +
-		"To find a skill or database tool for what you need, run `lyk tools \"what you need\"`; call the tools it names through `call_tool`.\n")
+	b.WriteString("\nYour final answer is your hand-in. Its fields:\n" +
+		"- `status`: `done`, or `could_not_do` when something outside the work blocked it; then `reason` says plainly what blocked it, and is null otherwise.\n" +
+		"- `answer`: what you found or did, in plain language.\n" +
+		"- `report`: the report to post for the people who set up this Autoresearch, or null to post the answer.\n" +
+		"- `new_studies`: the studies to open, each a `title` and the `question` it asks; empty when none is needed.\n" +
+		"You cannot comment on or move studies. Calls through call_tool are logged but are evidence for no study.\n" +
+		"To find a skill or database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
 	return b.String()
 }

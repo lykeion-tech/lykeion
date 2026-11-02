@@ -157,7 +157,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 	if m.id != out.AgentRunID || m.role != "member-1" || !strings.Contains(m.prompt, "List three rival explanations.") {
 		t.Fatalf("member run %+v", m)
 	}
-	if !strings.HasPrefix(m.skill, "You are member-1.") || !strings.Contains(m.skill, "lyk record put") {
+	if !strings.HasPrefix(m.skill, "You are member-1.") || !strings.Contains(m.skill, "items are optional") || strings.Contains(m.skill, "lyk") {
 		t.Fatalf("member skill:\n%s", m.skill)
 	}
 	if want := flow.ContinuityScope(uuid.MustParse(l.card.ID), "member-1", "hypotheses", 1); m.scope != want {
@@ -186,7 +186,7 @@ func TestAtTheCapTheLeaderCanStillFinish(t *testing.T) {
 		t.Fatalf("first step %d", c)
 	}
 	c, out := l.step(t, leader.token, map[string]any{"member": "member-2", "content": "two"})
-	if c != 409 || out.Error != "step cap reached: finish with lyk team done or do the step yourself" {
+	if c != 409 || out.Error != "this Team has used all its steps for this column: finish the column with what you have, or do the remaining work yourself" {
 		t.Fatalf("over the cap: %d %+v", c, out)
 	}
 	if c, out := l.step(t, leader.token, map[string]any{"self": true, "content": "I compare the rivals myself."}); c != 201 || out.Key == "" {

@@ -22,7 +22,7 @@ import (
 
 var (
 	ErrUndeclaredMember = errors.New("the Team's manifest declares no such member")
-	ErrStepCap          = errors.New("step cap reached: finish with lyk team done or do the step yourself")
+	ErrStepCap          = errors.New("this Team has used all its steps for this column: finish the column with what you have, or do the remaining work yourself")
 	ErrInFlight         = errors.New("a member's run is still in flight: wait until its work lands")
 	ErrMovedOn          = errors.New("the study is no longer working this run's column")
 	ErrDeclaredDone     = errors.New("this column was already declared done")

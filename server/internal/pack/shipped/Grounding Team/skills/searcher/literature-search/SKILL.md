@@ -10,7 +10,7 @@ Tools (through the door, `call_tool`):
   id, title, DOI, year and a short abstract.
 - `{"server": "sources", "tool": "fetch_text", "args": {"source_id": "<id from a hit>"}}` returns the full text when it is open,
   else the abstract. Only fetched sources may be quoted.
-Every call is recorded; its answer starts with `call:<key>`, which you cite.
+Every call is recorded; name each source by its identifiers.
 
 Searching well:
 - Turn the request into its distinct conditions first, then query on the rarest, most specific
@@ -21,8 +21,8 @@ Searching well:
   next query.
 - Stop a line of search when two queries in a row add nothing new.
 
-Recording a source (one record per source you rely on):
-`lyk record put source --cites call:KEY --content '{"text": "<title> (<year>). <what it says that matters, quoted>", "doi": "...", "arxiv": "..."}'`
+Reporting a source (one entry per source you rely on): its title and year, its DOI or arXiv id,
+and what it says that matters, quoted from the fetched text.
 
 Identifiers:
 - Copy identifiers exactly as the tool returned them; never complete or guess one.
@@ -30,5 +30,5 @@ Identifiers:
   arxiv:NNNN.NNNNN (no version suffix). A source URL on arxiv.org/abs/ gives the same identifier.
 - If a source has no identifier in what you retrieved, say so rather than inventing one.
 
-If a tool call fails or a text will not open, record that (`lyk record put limitation ...`) and
-carry on with what you have.
+If a tool call fails or a text will not open, say so in your answer and carry on with what you
+have.

@@ -74,7 +74,7 @@ func TestAskMemberStopsAtTheStepCap(t *testing.T) {
 		t.Fatalf("first ask %d", c)
 	}
 	l.complete(t, l.claim(t))
-	if c, out := l.ask(t, leader.token, "member-2", "two"); c != 409 || out.Busy || out.Error == "" {
+	if c, out := l.ask(t, leader.token, "member-2", "two"); c != 409 || out.Busy || out.Error == "" || strings.Contains(out.Error, "lyk") {
 		t.Fatalf("over the cap %d %+v", c, out)
 	}
 }
@@ -176,7 +176,7 @@ func TestLeaderReclaimListsMemberHandIns(t *testing.T) {
 	for again.id != leader.id {
 		again = l.claim(t)
 	}
-	for _, want := range []string{ask.Ticket, "Nothing qualifies on telomeres.", ask2.Ticket, "member-1"} {
+	for _, want := range []string{ask.Ticket, "Nothing qualifies on telomeres.", ask2.Ticket, "member-1", "Use their work; don't ask them for it again."} {
 		if !strings.Contains(again.prompt, want) {
 			t.Fatalf("re-claimed prompt lacks %q:\n%s", want, again.prompt)
 		}

@@ -4,12 +4,11 @@ description: the column's final summary (the evidence brief) is being written
 ---
 # The evidence brief
 
-Write the summary in this order, short and plain:
+Write the answer in this order, short and plain:
 1. **Question as read**: one or two sentences, including any reading you had to choose.
 2. **What was searched**: databases and the main queries; how many candidates were checked.
 3. **Evidence**: one line per source relied on: identifier(s), title, year, and what it says
-   that matters, with a short quote from the fetched text and the record key. Mark sources read
-   only as abstracts.
+   that matters, with a short quote from the fetched text. Mark sources read only as abstracts.
 4. **Conflicts and gaps**: where sources disagree, what no source covered, which sources could
    not be opened.
 5. **Answer**: the direct answer to what was asked (the paper, the list, or the state of the

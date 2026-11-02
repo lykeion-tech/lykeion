@@ -89,7 +89,7 @@ func TestChangingTheMachineResumesTheCancelledStep(t *testing.T) {
 				if r.Prompt != terminal.Prompt+"\nResumed on another machine.\n" || r.Assignment != terminal.Assignment {
 					t.Errorf("interrupted input lost: prompt=%q assignment=%q; original prompt=%q assignment=%q", r.Prompt, r.Assignment, terminal.Prompt, terminal.Assignment)
 				}
-				if r.AgentID == nil || *r.AgentID != *terminal.AgentID || r.Harness != "codex" || r.RequestedModel != "gpt-5.6-sol" || !strings.HasPrefix(r.Skill, "Current instructions.\n\n") || !strings.Contains(r.Skill, "lyk record put") || strings.Contains(r.Skill, "stale skill") {
+				if r.AgentID == nil || *r.AgentID != *terminal.AgentID || r.Harness != "codex" || r.RequestedModel != "gpt-5.6-sol" || !strings.HasPrefix(r.Skill, "Current instructions.\n\n") || !strings.Contains(r.Skill, "Your final answer is your hand-in") || strings.Contains(r.Skill, "stale skill") {
 					t.Errorf("did not use current agent and protocol: %+v", r)
 				}
 				if r.Round != c.Round || r.CardID == nil || *r.CardID != c.ID || r.SessionID != "" || r.RuntimeID != nil || r.MachineName != nil || r.MachineOwnerID != nil || r.ProfileMode != "" || r.PolicyDigest != "" {

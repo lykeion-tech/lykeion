@@ -153,9 +153,11 @@ func RedoNote(r Result) string {
 	b.WriteString("Jev's review sent back these items:\n")
 	for _, it := range r.Items {
 		if it.Status == Fail {
+			// Replies name an item by its identity; a hypothesis's label is
+			// cut short, so its whole text is shown.
 			name := it.Label
-			if it.Key != "" {
-				name += " (" + it.Key + ")"
+			if it.Kind == KindHypothesis && it.Identity != "" {
+				name = it.Identity
 			}
 			fmt.Fprintf(&b, "- %s:\n", name)
 			for _, c := range it.Checks {
@@ -178,8 +180,8 @@ func RedoNote(r Result) string {
 	for _, it := range r.Missed {
 		fmt.Fprintf(&b, "- %s: consider this paper (it meets every criterion but was not cited)\n", it.Label)
 	}
-	b.WriteString("Items not listed stand. Answer each listed item: declare it again with the same id or text once it is fixed, or withdraw it with " +
-		"`lyk record put withdrawn --content '{\"item\":\"rN\",\"reason\":\"…\"}'`. " +
+	b.WriteString("Items not listed stand. In your hand-in's replies, answer each listed item by the name shown: corrected (it is in this hand-in again, fixed, with the same id or text), " +
+		"withdrawn (it no longer stands) or, for a paper Jev found missing, declined, each with a reason. " +
 		"A replacement with a different id or text is a new item, so also withdraw the old one. " +
 		"Items you leave unanswered count as failed, and a second failure blocks the study.")
 	return b.String()
