@@ -1,15 +1,45 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
+	db "lykeion/server/pkg/db/generated"
 )
+
+// autoresearchOps gives the hand-in the Autoresearch service's operations,
+// naming their outcomes the way handin does.
+type autoresearchOps struct{ s *autoresearch.Service }
+
+func (o autoresearchOps) Report(ctx context.Context, tx *store.Tx, run uuid.UUID, text string) error {
+	if err := o.s.Report(ctx, tx, run, text); errors.Is(err, autoresearch.ErrReported) {
+		return handin.ErrReported
+	} else {
+		return err
+	}
+}
+
+func (o autoresearchOps) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, run uuid.UUID, title, question string) (db.Card, error) {
+	c, err := o.s.OpenCardForAgentRun(ctx, tx, run, title, question)
+	var nb team.NoBuiltInError
+	switch {
+	case errors.Is(err, autoresearch.ErrAlreadyActive):
+		return c, handin.ErrDuplicate
+	case errors.Is(err, autoresearch.ErrStartFailed), errors.As(err, &nb):
+		return c, handin.ErrCannotStart
+	}
+	return c, err
+}
 
 // daemonHandIn takes a run's hand-in from the daemon running it: accepted,
 // or the problems to ask the agent to correct.
@@ -27,7 +57,7 @@ func (h *H) daemonHandIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "workspace_id, runtime_id, positive attempt and hand_in required")
 		return
 	}
-	s := handin.HandIns{Runs: h.AgentRuns}
+	s := handin.HandIns{Runs: h.AgentRuns, Autoresearch: autoresearchOps{h.Autoresearch}}
 	if h.Engine != nil {
 		s.SentBack = h.Engine.SentBack
 	}

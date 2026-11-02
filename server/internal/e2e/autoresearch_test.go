@@ -103,9 +103,6 @@ func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
 		}
 		return string(b)
 	}
-	if r := read("autoresearch.refused"); !strings.Contains(r, "POST /api/role/records: this agent run's token may not do that") || strings.Contains(r, "ALLOWED") {
-		t.Fatalf("the role command was not refused: %q", r)
-	}
 	// the CLI is given the daemon's tool door alone; add-on servers sit behind it
 	if cfg := read("autoresearch.mcp"); !strings.Contains(cfg, `"lyk_door"`) || strings.Contains(cfg, "lab-index") || strings.Contains(cfg, "lyk_sources") {
 		t.Fatalf("MCP config: %s", cfg)

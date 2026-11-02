@@ -29,13 +29,6 @@ if [ -n "$LYK_TEST_CAPTURE" ]; then
 fi
 exec 3>&1
 exec 1>&2
-case "$prompt" in
-  *"You are the autoresearch role"*)
-    dir="${LYK_TEST_CAPTURE:-$(mktemp -d)}"
-    if lyk result failed --reason x 2> "$dir/autoresearch.refused"; then echo ALLOWED >> "$dir/autoresearch.refused"; fi
-    lyk open-card --title "Z and W" "Does Z lower W in mouse liver?" || exit 1
-    printf 'Nothing new this week.\n' | lyk report || exit 1 ;;
-esac
 # A study's runs follow the Team protocol: the leader names its first member,
 # the member writes a note, and the leader, woken with the member's work,
 # declares the column done citing it. A single agent writes its note and

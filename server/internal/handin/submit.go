@@ -25,6 +25,15 @@ type HandIns struct {
 	// SentBack is what the review before the study's round sent back; nil
 	// reads as nothing sent back.
 	SentBack func(context.Context, *store.Tx, db.Card) (Review, error)
+	// Autoresearch applies an Autoresearch run's hand-in. It is a field because
+	// the autoresearch package imports this one.
+	Autoresearch AutoresearchOps
+}
+
+// AutoresearchOps are the two things an Autoresearch run's hand-in does.
+type AutoresearchOps interface {
+	Report(ctx context.Context, tx *store.Tx, run uuid.UUID, text string) error
+	OpenCardForAgentRun(ctx context.Context, tx *store.Tx, run uuid.UUID, title, question string) (db.Card, error)
 }
 
 type handInBody struct {
@@ -45,7 +54,15 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		if !ok {
 			return service.ErrConflict
 		}
-		if k == Autoresearch || t.CardID == nil {
+		if k == Autoresearch {
+			if t.Status != "running" {
+				return service.ErrConflict
+			}
+			var err error
+			probs, err = s.autoresearch(ctx, tx, t.ID, raw)
+			return err
+		}
+		if t.CardID == nil {
 			probs = []string{"not yet supported"}
 			return nil
 		}
@@ -107,5 +124,8 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		}
 		return nil
 	})
+	if errors.As(err, new(errNotApplied)) {
+		err = nil
+	}
 	return probs, err
 }
