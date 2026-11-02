@@ -387,3 +387,83 @@ func TestAgentErrorStillFailsAsToday(t *testing.T) {
 		t.Fatal("an agent error touched the machine or skipped settlement")
 	}
 }
+
+type decisionItem struct {
+	User uuid.UUID
+	Card uuid.UUID
+	Text string
+}
+
+func (f *fixture) openDecisions(t *testing.T) []decisionItem {
+	t.Helper()
+	rows, err := f.Env.Owner.Query(context.Background(),
+		"SELECT user_id, card_id, text FROM inbox_item WHERE workspace_id = $1 AND kind = 'needs_decision' AND resolved_at IS NULL", f.WS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []decisionItem
+	for rows.Next() {
+		var d decisionItem
+		if err := rows.Scan(&d.User, &d.Card, &d.Text); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// A study's run that its machines keep failing is not retried forever: the
+// fifth park holds it, whatever passes its machine made in between, and its
+// owner is asked once, in plain words, what to do. Resolving that item lets
+// the run try again.
+func TestTheFifthParkHoldsTheRunAndAsksItsOwner(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.enqueue(t, 1, "claude")
+	runtime := f.runtime(t, f.Owner, "d1", "claude")
+	var id uuid.UUID
+	for n := 1; n <= 5; n++ {
+		var ref RuntimeRef
+		ref, id = f.claimStart(t, runtime)
+		if got, err := f.T.Fail(ctx, f.Owner, ref, id, Report{FailureReason: "provider_network", Error: "connect ECONNRESET"}); err != nil || got.Status != "queued" {
+			t.Fatalf("park %d: %+v %v", n, got, err)
+		}
+		if n < 5 {
+			if d := f.openDecisions(t); len(d) != 0 {
+				t.Fatalf("park %d asked the owner: %+v", n, d)
+			}
+			// A machine pass in between doesn't reset the run's count.
+			if err := f.T.MarkHealthy(ctx, f.Owner, runtime); err != nil {
+				t.Fatal(err)
+			}
+			f.clearBackoff(t)
+		}
+	}
+	if s := f.infraState(t, id); s.Status != "queued" || s.Wait == nil || *s.Wait < 24*time.Hour {
+		t.Fatalf("the fifth park did not hold the run: %+v", s)
+	}
+	want := "Study #1 “t” has stopped trying: its run failed 5 times for reasons outside the agent's work, last because the agent's provider could not be reached (connect ECONNRESET). Resolve this item to try again."
+	d := f.openDecisions(t)
+	if len(d) != 1 || d[0].User != f.Owner || d[0].Card != f.Card || d[0].Text != want {
+		t.Fatalf("items %+v", d)
+	}
+	// Neither a machine pass nor another healthy machine takes the held run.
+	if err := f.T.MarkHealthy(ctx, f.Owner, runtime); err != nil {
+		t.Fatal(err)
+	}
+	other := f.runtime(t, f.Owner, "d2", "claude")
+	if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{runtime, other}, 1); err != nil || len(got) != 0 {
+		t.Fatalf("a held run was claimed: %d %v", len(got), err)
+	}
+	err := f.T.Store.InWorkspace(ctx, f.WS, f.Owner, func(tx *store.Tx) error { return ReleaseParkedRuns(ctx, tx, f.Card) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := f.infraState(t, id); s.InfraFailures != 0 || s.Wait != nil {
+		t.Fatalf("released run %+v", s)
+	}
+	if again, _ := f.claimStart(t, runtime); again.Attempt != 6 {
+		t.Fatalf("released run claimed as attempt %d", again.Attempt)
+	}
+}

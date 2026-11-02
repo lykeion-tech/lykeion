@@ -208,6 +208,7 @@ export interface InboxItem {
     | 'no_tool'
     | 'scoring_unavailable'
     | 'waiting_for_machine'
+    | 'needs_decision'
     | 'done';
   text: string;
   read_at: string | null;

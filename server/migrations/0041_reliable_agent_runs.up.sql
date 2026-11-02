@@ -11,6 +11,9 @@ ALTER TABLE inbox_item ADD COLUMN runtime_id uuid REFERENCES runtime(id) ON DELE
 -- One open machine-wait item per machine and cause, however many runs wait on it.
 CREATE UNIQUE INDEX inbox_item_open_machine_wait ON inbox_item (workspace_id, runtime_id, cause)
   WHERE kind = 'waiting_for_machine' AND resolved_at IS NULL;
+-- One open decision item per study and cause.
+CREATE UNIQUE INDEX inbox_item_open_decision ON inbox_item (workspace_id, card_id, cause)
+  WHERE kind = 'needs_decision' AND resolved_at IS NULL;
 
 ALTER TABLE agent_run ADD COLUMN retry_after timestamptz, ADD COLUMN infra_failures int NOT NULL DEFAULT 0;
 -- infra_streak counts the runtime's machine failures since its last success.

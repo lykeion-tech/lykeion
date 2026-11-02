@@ -303,9 +303,15 @@ UPDATE runtime SET infra_streak = 0 WHERE id = @id AND workspace_id = @workspace
 -- name: HoldAgentRun :exec
 UPDATE agent_run SET retry_after = @held_until WHERE id = @id AND workspace_id = @workspace_id;
 
--- Held runs whose last attempt ran on the runtime become claimable again.
+-- Held runs whose last attempt ran on the runtime become claimable again,
+-- except those parked too often, which wait for their study's owner.
 -- name: ReleaseHeldAgentRuns :exec
 UPDATE agent_run t SET retry_after = NULL
-WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after = @held_until
+WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after = @held_until AND t.infra_failures < @park_limit
   AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
     AND r.attempt = t.attempt AND r.runtime_id = @runtime_id);
+
+-- A study's runs held after too many parks try again from a fresh count.
+-- name: ReleaseParkedAgentRuns :exec
+UPDATE agent_run SET retry_after = NULL, infra_failures = 0
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued' AND infra_failures >= @park_limit;

@@ -20,6 +20,59 @@ import (
 // deleted". It is a real date because Go cannot read Postgres infinity.
 var HeldUntil = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
+// parkLimit is how many times a study's run is parked for its machines'
+// sake before it is held for its owner to decide on.
+const parkLimit = 5
+
+// failureWords names each infrastructure cause as the end of "last because …".
+var failureWords = map[string]string{
+	agent.ReasonRuntimeOffline:  "its machine went offline",
+	"timeout":                   "it ran out of time",
+	agent.ReasonProviderNetwork: "the agent's provider could not be reached",
+	agent.ReasonSignIn:          "the agent's CLI was signed out",
+	agent.ReasonCLIMissing:      "the agent's CLI was not installed",
+	agent.ReasonCLITooOld:       "the agent's CLI was too old",
+	agent.ReasonDoor:            "the agent's CLI could not reach Lykeion's tools",
+	agent.ReasonCLIBroken:       "the agent's CLI failed to start or answer",
+	agent.ReasonSandbox:         "the sandbox could not start",
+	agent.ReasonFenceBreach:     "it used a tool outside Lykeion's sources",
+}
+
+// holdForOwner holds a study's run parked parkLimit times and asks the
+// study's owner, once per study, to decide on it; resolving that item
+// releases the run (ReleaseParkedRuns).
+func holdForOwner(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, detail string) error {
+	if err := tx.Q.HoldAgentRun(ctx, db.HoldAgentRunParams{WorkspaceID: tx.WS, ID: run.ID, HeldUntil: &HeldUntil}); err != nil {
+		return err
+	}
+	c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: *run.CardID})
+	if err != nil {
+		return err
+	}
+	name := c.Title
+	if name == "" {
+		name = c.Question
+	}
+	if r := []rune(detail); len(r) > 300 {
+		detail = string(r[:300]) + "…"
+	}
+	text := fmt.Sprintf("Study #%d “%s” has stopped trying: its run failed %d times for reasons outside the agent's work, last because %s", c.Number, name, parkLimit, failureWords[reason])
+	if detail != "" {
+		text += " (" + detail + ")"
+	}
+	text += ". Resolve this item to try again."
+	if err := tx.Q.UpsertParkedRunDecision(ctx, db.UpsertParkedRunDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Text: text}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID})
+}
+
+// ReleaseParkedRuns lets a study's runs held after too many parks try again,
+// from a fresh count, once their owner resolved the item that asked.
+func ReleaseParkedRuns(ctx context.Context, tx *store.Tx, card uuid.UUID) error {
+	return tx.Q.ReleaseParkedAgentRuns(ctx, db.ReleaseParkedAgentRunsParams{WorkspaceID: tx.WS, CardID: card, ParkLimit: parkLimit})
+}
+
 // machineWaitText is the owner's Inbox text for a machine that cannot run
 // studies. For fence_breach, tool names the tool the run used.
 func machineWaitText(machine, harness, reason, tool string) string {
@@ -77,6 +130,11 @@ func breachedTool(detail string) string {
 func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, detail string, spent float64) error {
 	if err := tx.Q.ParkAgentRun(ctx, db.ParkAgentRunParams{WorkspaceID: tx.WS, ID: run.ID, CostUsd: spent, Error: detail, FailureReason: &reason}); err != nil {
 		return err
+	}
+	if run.InfraFailures+1 >= parkLimit {
+		if err := holdForOwner(ctx, tx, run, reason, detail); err != nil {
+			return err
+		}
 	}
 	// A machine that went offline already shows as offline, so a lost
 	// attempt neither counts toward its streak nor flags it.
@@ -141,7 +199,7 @@ func runtimeHealthChanged(ctx context.Context, tx *store.Tx, runtime uuid.UUID) 
 // ReleaseHeldRuns makes the runs held for a runtime claimable again, when the
 // runtime is marked healthy or deleted.
 func ReleaseHeldRuns(ctx context.Context, tx *store.Tx, runtime uuid.UUID) error {
-	return tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: tx.WS, RuntimeID: &runtime, HeldUntil: &HeldUntil})
+	return tx.Q.ReleaseHeldAgentRuns(ctx, db.ReleaseHeldAgentRunsParams{WorkspaceID: tx.WS, RuntimeID: &runtime, HeldUntil: &HeldUntil, ParkLimit: parkLimit})
 }
 
 // MarkUnhealthy flags the owner's runtime after a failed preflight: it stops

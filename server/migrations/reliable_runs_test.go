@@ -39,6 +39,9 @@ func TestReliableRunsMigration(t *testing.T) {
 	}
 	insertInbox := `INSERT INTO inbox_item (workspace_id,card_id,user_id,kind,text,runtime_id,cause) VALUES ($1,NULL,$2,$3,'t',$4,$5)`
 	exec(insertInbox, ws, u, "needs_decision", nil, nil)
+	insertDecision := `INSERT INTO inbox_item (workspace_id,card_id,user_id,kind,text,cause) VALUES ($1,$2,$3,'needs_decision','t','machine_failures')`
+	exec(insertDecision, ws, card, u)
+	refuse(insertDecision, "23505", ws, card, u)
 	exec(insertInbox, ws, u, "open_doubts", nil, nil)
 	exec(insertInbox, ws, u, "waiting_for_machine", runtime, "sign_in")
 	refuse(insertInbox, "23505", ws, u, "waiting_for_machine", runtime, "sign_in")

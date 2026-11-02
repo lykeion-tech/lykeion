@@ -123,10 +123,19 @@ ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine'
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
--- name: ResolveOpenMachineWait :one
+-- The items their owner resolves by saying the cause is dealt with: a
+-- machine's wait, or a study whose run its machines kept failing.
+-- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now()
-WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
+  AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
 RETURNING *;
+
+-- name: UpsertParkedRunDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'machine_failures')
+ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
+DO UPDATE SET text = EXCLUDED.text;
 
 -- name: ResolveMachineWaitsExcept :exec
 UPDATE inbox_item SET resolved_at = now()

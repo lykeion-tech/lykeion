@@ -6,8 +6,9 @@ import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import type { InboxItem } from '../../api/types';
 
-// A machine's wait: its owner resolves it once the machine is fixed, which
-// lets the machine take studies again.
+// A machine's wait, or a study whose run its machines kept failing: its
+// owner resolves it once the cause is dealt with, which lets the machine take
+// studies again or the run try again.
 const props = defineProps<{ item: InboxItem }>();
 const client = useQueryClient();
 const busy = ref(false);
@@ -32,7 +33,7 @@ async function resolve() {
     <p class="type-body">{{ item.text }}</p>
     <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
     <button
-      v-if="item.kind === 'waiting_for_machine' && !item.resolved_at"
+      v-if="(item.kind === 'waiting_for_machine' || item.kind === 'needs_decision') && !item.resolved_at"
       class="button"
       :disabled="busy"
       @click="resolve"

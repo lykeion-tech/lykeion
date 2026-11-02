@@ -1378,20 +1378,44 @@ func (q *Queries) RecordLateUsage(ctx context.Context, arg RecordLateUsageParams
 
 const releaseHeldAgentRuns = `-- name: ReleaseHeldAgentRuns :exec
 UPDATE agent_run t SET retry_after = NULL
-WHERE t.workspace_id = $1 AND t.status = 'queued' AND t.retry_after = $2
+WHERE t.workspace_id = $1 AND t.status = 'queued' AND t.retry_after = $2 AND t.infra_failures < $3
   AND EXISTS (SELECT 1 FROM agent_run_receipt r WHERE r.workspace_id = t.workspace_id AND r.agent_run_id = t.id
-    AND r.attempt = t.attempt AND r.runtime_id = $3)
+    AND r.attempt = t.attempt AND r.runtime_id = $4)
 `
 
 type ReleaseHeldAgentRunsParams struct {
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
 	HeldUntil   *time.Time `json:"held_until"`
+	ParkLimit   int32      `json:"park_limit"`
 	RuntimeID   *uuid.UUID `json:"runtime_id"`
 }
 
-// Held runs whose last attempt ran on the runtime become claimable again.
+// Held runs whose last attempt ran on the runtime become claimable again,
+// except those parked too often, which wait for their study's owner.
 func (q *Queries) ReleaseHeldAgentRuns(ctx context.Context, arg ReleaseHeldAgentRunsParams) error {
-	_, err := q.db.Exec(ctx, releaseHeldAgentRuns, arg.WorkspaceID, arg.HeldUntil, arg.RuntimeID)
+	_, err := q.db.Exec(ctx, releaseHeldAgentRuns,
+		arg.WorkspaceID,
+		arg.HeldUntil,
+		arg.ParkLimit,
+		arg.RuntimeID,
+	)
+	return err
+}
+
+const releaseParkedAgentRuns = `-- name: ReleaseParkedAgentRuns :exec
+UPDATE agent_run SET retry_after = NULL, infra_failures = 0
+WHERE workspace_id = $1 AND card_id = $2::uuid AND status = 'queued' AND infra_failures >= $3
+`
+
+type ReleaseParkedAgentRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	ParkLimit   int32     `json:"park_limit"`
+}
+
+// A study's runs held after too many parks try again from a fresh count.
+func (q *Queries) ReleaseParkedAgentRuns(ctx context.Context, arg ReleaseParkedAgentRunsParams) error {
+	_, err := q.db.Exec(ctx, releaseParkedAgentRuns, arg.WorkspaceID, arg.CardID, arg.ParkLimit)
 	return err
 }
 

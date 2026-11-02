@@ -830,9 +830,10 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resolveInbox is the owner saying a machine's wait is dealt with: the item
-// is resolved and the machine cleared, as a pass at daemon start would, which
-// is the only other way a fence breach clears. Only an open wait of the
+// resolveInbox is the owner saying an item's cause is dealt with. For a
+// machine's wait the machine is cleared, as a pass at daemon start would,
+// which is the only other way a fence breach clears; for a study whose run
+// its machines kept failing, the run tries again. Only an open item of the
 // caller's own does anything.
 func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
@@ -840,9 +841,14 @@ func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		item, err := tx.Q.ResolveOpenMachineWait(r.Context(), db.ResolveOpenMachineWaitParams{ID: id, WorkspaceID: ws, UserID: user})
+		item, err := tx.Q.ResolveOpenOwnerItem(r.Context(), db.ResolveOpenOwnerItemParams{ID: id, WorkspaceID: ws, UserID: user})
 		if err != nil {
 			return err
+		}
+		if item.Kind == "needs_decision" && item.CardID != nil {
+			if err := service.ReleaseParkedRuns(r.Context(), tx, *item.CardID); err != nil {
+				return err
+			}
 		}
 		if item.RuntimeID != nil {
 			// A machine that is no longer the caller's stays as it is.
@@ -850,7 +856,7 @@ func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		return tx.Emit(r.Context(), "inbox.resolved", nil, store.User(user), map[string]string{"inbox_item_id": id.String()})
+		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
 	})
 	if err != nil {
 		fail(w, r, err)

@@ -141,3 +141,48 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 	}
 	stillBreached("after stale and foreign resolves")
 }
+
+// Resolving the item that asks about a run its machines kept failing lets
+// the run try again from a fresh count; only its owner can, and only for
+// that sort of item.
+func TestResolvingAParkedRunsItemReleasesIt(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "Why?")
+	var run, item, other string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt, infra_failures, failure_reason, retry_after)
+		VALUES ($1, $2, $3, 'grounding', 1, 'scoper', 'claude', 'p', 'queued', 5, 5, 'provider_network', '9999-12-31') RETURNING id::text`, w.ID, c.ID, c.OwnerID).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause) VALUES ($1, $2, $3, 'needs_decision', 't', $4) RETURNING id::text`
+	if err := s.Env.Owner.QueryRow(t.Context(), insert, w.ID, c.ID, c.OwnerID, "machine_failures").Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), insert, w.ID, c.ID, c.OwnerID, nil).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	held := func() (failures int, heldRun bool) {
+		t.Helper()
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT infra_failures, retry_after IS NOT NULL FROM agent_run WHERE id = $1`, run).Scan(&failures, &heldRun); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
+		t.Fatalf("a colleague resolved the owner's item: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/inbox/"+other+"/resolve", a, w.ID, nil, nil); code != 404 {
+		t.Fatalf("another decision resolved: %d", code)
+	}
+	if n, h := held(); n != 5 || !h {
+		t.Fatalf("released early: %d %v", n, h)
+	}
+	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("resolve: %d", code)
+	}
+	if n, h := held(); n != 0 || h {
+		t.Fatalf("still held: %d %v", n, h)
+	}
+}

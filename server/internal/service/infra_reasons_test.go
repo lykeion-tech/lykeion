@@ -40,3 +40,12 @@ func TestMachineWaitTextNamesNoReasonCode(t *testing.T) {
 		t.Errorf("sign in copy changed: %q", got)
 	}
 }
+
+// The owner's question about a held run names its last cause in plain words.
+func TestEveryInfraReasonHasPlainWords(t *testing.T) {
+	for _, r := range FailureReasons {
+		if Infra(r) && failureWords[r] == "" {
+			t.Errorf("%s has no plain words", r)
+		}
+	}
+}

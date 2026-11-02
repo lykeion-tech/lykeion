@@ -4,6 +4,7 @@ ALTER TABLE runtime DROP COLUMN unhealthy_reason, DROP COLUMN infra_streak;
 ALTER TABLE agent_run DROP COLUMN retry_after, DROP COLUMN infra_failures;
 
 DROP INDEX inbox_item_open_machine_wait;
+DROP INDEX inbox_item_open_decision;
 DELETE FROM inbox_item WHERE kind IN ('waiting_for_machine', 'needs_decision', 'open_doubts');
 ALTER TABLE inbox_item DROP COLUMN runtime_id, DROP COLUMN cause;
 ALTER TABLE inbox_item DROP CONSTRAINT inbox_item_kind_check,

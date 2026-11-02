@@ -440,20 +440,23 @@ func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMach
 	return err
 }
 
-const resolveOpenMachineWait = `-- name: ResolveOpenMachineWait :one
+const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now()
-WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
+  AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause
 `
 
-type ResolveOpenMachineWaitParams struct {
+type ResolveOpenOwnerItemParams struct {
 	ID          uuid.UUID `json:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	UserID      uuid.UUID `json:"user_id"`
 }
 
-func (q *Queries) ResolveOpenMachineWait(ctx context.Context, arg ResolveOpenMachineWaitParams) (InboxItem, error) {
-	row := q.db.QueryRow(ctx, resolveOpenMachineWait, arg.ID, arg.WorkspaceID, arg.UserID)
+// The items their owner resolves by saying the cause is dealt with: a
+// machine's wait, or a study whose run its machines kept failing.
+func (q *Queries) ResolveOpenOwnerItem(ctx context.Context, arg ResolveOpenOwnerItemParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, resolveOpenOwnerItem, arg.ID, arg.WorkspaceID, arg.UserID)
 	var i InboxItem
 	err := row.Scan(
 		&i.ID,
@@ -799,6 +802,30 @@ func (q *Queries) UpsertMachineWait(ctx context.Context, arg UpsertMachineWaitPa
 		arg.Text,
 		arg.RuntimeID,
 		arg.Cause,
+	)
+	return err
+}
+
+const upsertParkedRunDecision = `-- name: UpsertParkedRunDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES ($1, $2::uuid, $3, 'needs_decision', $4, 'machine_failures')
+ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
+DO UPDATE SET text = EXCLUDED.text
+`
+
+type UpsertParkedRunDecisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Text        string    `json:"text"`
+}
+
+func (q *Queries) UpsertParkedRunDecision(ctx context.Context, arg UpsertParkedRunDecisionParams) error {
+	_, err := q.db.Exec(ctx, upsertParkedRunDecision,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.UserID,
+		arg.Text,
 	)
 	return err
 }

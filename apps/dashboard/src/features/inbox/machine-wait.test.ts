@@ -52,3 +52,12 @@ it('offers no Resolve for a resolved wait or another kind', () => {
   expect(resolveButton(mount(item({ resolved_at: '2026-11-02T01:00:00Z' })))).toBeUndefined();
   expect(resolveButton(mount(item({ kind: 'blocked' })))).toBeUndefined();
 });
+
+it('resolves a study held after its machines kept failing its run', async () => {
+  api.mockResolvedValue(undefined);
+  const root = mount(item({ kind: 'needs_decision', card_id: 'c1', text: 'Study #1 has stopped trying.' }));
+  const button = resolveButton(root);
+  expect(button).toBeDefined();
+  await (button!.props.onClick as () => Promise<void>)();
+  expect(api).toHaveBeenCalledWith('POST', '/api/inbox/i1/resolve');
+});

@@ -85,16 +85,16 @@ watch(
     <div class="split-workspace">
       <div class="conversation-content">
         <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
+        <MachineWait
+          v-if="selected?.kind === 'waiting_for_machine' || selected?.kind === 'needs_decision'"
+          :key="selected.id"
+          :item="selected"
+        />
         <StudyDetail
-          v-if="selected?.card_id && selected.kind !== 'autoresearch_report'"
+          v-else-if="selected?.card_id && selected.kind !== 'autoresearch_report'"
           :id="selected.card_id"
           :key="selected.card_id"
           embedded
-        />
-        <MachineWait
-          v-else-if="selected?.kind === 'waiting_for_machine'"
-          :key="selected.id"
-          :item="selected"
         />
         <div v-else-if="selectedReport" class="conversation-empty">
           <Icon name="zap" :size="38" />
