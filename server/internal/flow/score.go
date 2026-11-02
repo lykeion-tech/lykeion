@@ -99,6 +99,14 @@ func couldNotDoText(number int32, reason string) string {
 	return fmt.Sprintf("Study #%d: the agent could not do this column: %s", number, reason)
 }
 
+func allWithdrawnText(reasons []string) string {
+	return fmt.Sprintf("The Team withdrew all %d hypotheses: %s. Nothing is left to test. Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), strings.Join(reasons, "; "))
+}
+
+func openDoubtsText(number int32, column string, doubts []string) string {
+	return fmt.Sprintf("Study #%d passed %s with open doubts: %s", number, title(column), strings.Join(doubts, "; "))
+}
+
 func doneText(number int32, column string) string {
 	return fmt.Sprintf("Study #%d is done, in its %s column.", number, title(column))
 }
@@ -783,13 +791,15 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
 		return false, err
 	}
-	ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: "could_not_do"})
-	if err != nil {
-		return false, err
-	}
-	for _, id := range ids {
-		if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+	for _, cause := range []string{"could_not_do", "all_withdrawn"} {
+		ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: cause})
+		if err != nil {
 			return false, err
+		}
+		for _, id := range ids {
+			if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+				return false, err
+			}
 		}
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})

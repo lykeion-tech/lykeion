@@ -125,3 +125,19 @@ func TestUnfinishedStudyDraftNotifiesOnAgentCompletion(t *testing.T) {
 		t.Fatalf("failure notifications: %d", n)
 	}
 }
+
+func TestSyncReportsCouldNotDoReason(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	ap := f.autoresearch(t, "create_card", "Digest", "", "")
+	r := f.fire(t, ap, Admission{})
+	f.exec(t, "UPDATE card SET state = 'blocked', block_kind = '' WHERE id = $1", *r.CardID)
+	f.exec(t, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+		SELECT workspace_id, id, owner_id, 'needs_decision', 'Study #1: the agent could not do this column: no data', 'could_not_do' FROM card WHERE id = $1`, *r.CardID)
+	if err := f.s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := reason(f.run(t, r.ID)); got != "blocked/Study #1: the agent could not do this column: no data" {
+		t.Fatal(got)
+	}
+}

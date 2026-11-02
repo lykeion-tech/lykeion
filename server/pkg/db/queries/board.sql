@@ -146,9 +146,9 @@ VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'machi
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text;
 
--- name: UpsertCouldNotDoDecision :exec
+-- name: UpsertCardDecision :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'could_not_do')
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, @cause::text)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text;
 

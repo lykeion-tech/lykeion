@@ -594,18 +594,32 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		var items []board.Item
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
-		switch res.Decision {
-		case review.DecideRedo:
+		switch {
+		case review.AllWithdrawn(res):
+			// Nothing is left to review or redo: the owner decides, and the
+			// redo count stays.
+			next.State = "blocked"
+			if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
+				Cause: "all_withdrawn", Text: allWithdrawnText(review.WithdrawalReasons(res))}); err != nil {
+				return err
+			}
+			if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
+				return err
+			}
+		case res.Decision == review.DecideRedo:
 			next.Redos, next.Round = 1, c.Round+1
 			if next.HandoffNote, err = redoNote(ctx, tx, c, res); err != nil {
 				return err
 			}
-		case review.DecideBlock:
+		case res.Decision == review.DecideBlock:
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
 			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res))})
 		default:
 			e.drawRatingSafely(ctx, tx, c)
+			if doubts := review.OpenDoubts(res); len(doubts) > 0 {
+				items = append(items, board.Item{Kind: "open_doubts", Text: openDoubtsText(c.Number, c.BoardColumn, doubts)})
+			}
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 				if res.Decision == review.DecideCarry {

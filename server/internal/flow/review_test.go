@@ -864,3 +864,77 @@ func TestAReviewWithoutIdentitiesMatchesByLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestAllWithdrawnAsksTheOwner(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	stub.setNoul(func(q string) float64 {
+		if strings.Contains(q, "already contain the answer") {
+			return 0.1
+		}
+		return 0.9
+	})
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	ground := l.groundingPaper(t, c.ID, paperA)
+	prose := l.item(t, c.ID, "explanation", map[string]any{"text": "Our own prose."})
+	var keys []string
+	for _, text := range []string{"First idea.", "Second idea.", "Third idea."} {
+		keys = append(keys, l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: text,
+			Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "Young cells"}, Cites: []string{prose}}))
+	}
+	_ = ground
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	if got := l.card(t, c.ID); got.Round != c.Round+1 || got.Redos != 1 || got.State != "working" {
+		t.Fatalf("after the first failure: %s round %d redos %d", got.State, got.Round, got.Redos)
+	}
+	for i, k := range keys {
+		l.item(t, c.ID, review.KindWithdrawn, map[string]any{"item": k, "reason": fmt.Sprintf("reason %d", i+1)})
+	}
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	got := l.card(t, c.ID)
+	if got.State != "blocked" || got.BlockKind != "" || got.Redos != 1 || got.BoardColumn != "hypotheses" {
+		t.Fatalf("held study: %s %q redos %d column %s", got.State, got.BlockKind, got.Redos, got.BoardColumn)
+	}
+	items := l.inbox(t, c.ID, "needs_decision")
+	want := "The Team withdrew all 3 hypotheses: reason 1; reason 2; reason 3. Nothing is left to test. Comment with guidance to redo the column, or close the study as a negative result."
+	if len(items) != 1 || items[0] != want {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 1 {
+		t.Fatalf("%d open all_withdrawn items", n)
+	}
+	l.e.OnComment(l.ws, c.ID, l.owner, "Try a different angle.")
+	got = l.card(t, c.ID)
+	if got.State != "working" || got.Round != c.Round+2 || got.Redos != 1 {
+		t.Fatalf("after the owner's comment: %s round %d redos %d", got.State, got.Round, got.Redos)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 0 {
+		t.Fatalf("the comment left %d all_withdrawn items open", n)
+	}
+}
+
+func TestPassedWithOpenDoubts(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	stub.setNoul(func(string) float64 { return 0.52 })
+	l.e.Sources = stubSources{}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	got := l.card(t, c.ID)
+	if got.BoardColumn != "hypotheses" || !strings.Contains(got.HandoffNote, "Unclear in Grounding") {
+		t.Fatalf("after an unclear review: %s %q", got.BoardColumn, got.HandoffNote)
+	}
+	items := l.inbox(t, c.ID, "open_doubts")
+	if len(items) != 1 {
+		t.Fatalf("open_doubts items: %q", items)
+	}
+	prefix := fmt.Sprintf("Study #%d passed Grounding with open doubts: %s (", c.Number, paperA)
+	if !strings.HasPrefix(items[0], prefix) || !strings.Contains(items[0], "52%") || !strings.Contains(items[0], "; "+paperB+" (") {
+		t.Fatalf("open_doubts text: %q", items[0])
+	}
+}

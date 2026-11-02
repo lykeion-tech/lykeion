@@ -310,7 +310,7 @@ func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error
 		Round: c.Round, Redos: c.Redos}); err != nil {
 		return err
 	}
-	if err := tx.Q.UpsertCouldNotDoDecision(ctx, db.UpsertCouldNotDoDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
+	if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Cause: "could_not_do",
 		Text: couldNotDoText(c.Number, reason)}); err != nil {
 		return err
 	}

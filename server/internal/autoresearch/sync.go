@@ -42,6 +42,12 @@ func (s *Service) Sync(ctx context.Context) error {
 					status, reason = "completed", ""
 				case card.State == "blocked":
 					status, reason = "blocked", card.BlockKind
+					if reason == "" {
+						// A study held for its owner's decision: the open item says why.
+						if text, err := tx.Q.CardHoldText(ctx, db.CardHoldTextParams{WorkspaceID: d.WorkspaceID, CardID: &card.ID}); err == nil {
+							reason = text
+						}
+					}
 				case card.Flag != "":
 					status, reason = "blocked", card.Flag
 				default:
