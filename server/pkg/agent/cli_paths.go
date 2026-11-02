@@ -135,15 +135,20 @@ func SandboxPaths(harness, home, runDir, resume, goos string) (CLIPaths, error) 
 			// Codex will not start when Seatbelt refuses to list its agents
 			// folder, so on macOS the folder stays listable and what is in it
 			// is hidden.
-			if e.Name() == "agents" && e.IsDir() && goos == "darwin" {
-				inside, err := os.ReadDir(filepath.Join(home, e.Name()))
-				if err != nil {
-					return p, err
+			// A link to a folder counts as the folder. If its contents can't
+			// be listed they can't be hidden one by one either, and hiding
+			// the folder whole would stop Codex, so the run doesn't start.
+			if agents := filepath.Join(home, e.Name()); e.Name() == "agents" && goos == "darwin" {
+				if fi, err := os.Stat(agents); err == nil && fi.IsDir() {
+					inside, err := os.ReadDir(agents)
+					if err != nil {
+						return p, fmt.Errorf("cannot list the Codex agents folder to hide what is in it: %w", err)
+					}
+					for _, a := range inside {
+						p.Hidden = append(p.Hidden, filepath.Join(agents, a.Name()))
+					}
+					continue
 				}
-				for _, a := range inside {
-					p.Hidden = append(p.Hidden, filepath.Join(home, e.Name(), a.Name()))
-				}
-				continue
 			}
 			p.Hidden = append(p.Hidden, filepath.Join(home, e.Name()))
 		}

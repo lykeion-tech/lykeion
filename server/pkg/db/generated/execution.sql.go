@@ -1808,7 +1808,8 @@ func (q *Queries) SetRuntimeSharing(ctx context.Context, arg SetRuntimeSharingPa
 }
 
 const setRuntimeUnhealthy = `-- name: SetRuntimeUnhealthy :exec
-UPDATE runtime SET unhealthy_reason = $1 WHERE id = $2 AND workspace_id = $3
+UPDATE runtime SET unhealthy_reason = CASE WHEN unhealthy_reason = 'fence_breach' THEN unhealthy_reason ELSE $1::text END
+WHERE id = $2 AND workspace_id = $3
 `
 
 type SetRuntimeUnhealthyParams struct {
@@ -1817,6 +1818,8 @@ type SetRuntimeUnhealthyParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 }
 
+// A fence breach stays the reason until the owner clears it or the daemon
+// restarts: a later failure must not let an ordinary pass clear it.
 func (q *Queries) SetRuntimeUnhealthy(ctx context.Context, arg SetRuntimeUnhealthyParams) error {
 	_, err := q.db.Exec(ctx, setRuntimeUnhealthy, arg.Reason, arg.ID, arg.WorkspaceID)
 	return err

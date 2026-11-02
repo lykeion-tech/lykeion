@@ -60,6 +60,8 @@ type ExecOptions struct {
 	// OutputSchema, when set, is a JSON Schema the CLI holds its final
 	// answer to; Result.Output carries that answer.
 	OutputSchema string
+	// MaxTurns, when positive, caps Claude's agentic turns.
+	MaxTurns int
 	// OnMessage, when set, durably accepts each normalized message instead of
 	// publishing it to Session.Messages. An error stops the child and is reported.
 	OnMessage func(Message) error

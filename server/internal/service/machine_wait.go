@@ -146,7 +146,10 @@ func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref Runtime
 	})
 }
 
-// ClearRuntime is MarkHealthy inside the caller's transaction.
+// ClearRuntime lets the owner's runtime claim again, whatever flagged it, a
+// fence breach included: it clears the flag and streak, releases the runs
+// held for it and resolves all its waits, inside the caller's transaction.
+// ErrNotYours means the runtime is not the user's.
 func ClearRuntime(ctx context.Context, tx *store.Tx, user, runtime uuid.UUID) error {
 	n, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: tx.WS, ID: runtime, OwnerID: user})
 	if err != nil {

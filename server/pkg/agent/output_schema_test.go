@@ -102,3 +102,21 @@ echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)
 		t.Fatal("schema flag without a schema")
 	}
 }
+
+func TestClaudeMaxTurns(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	bin := script(t, `printf '%s\n' "$@" > `+args+`
+echo '{"type":"result","subtype":"success","is_error":false,"result":"done"}'`)
+	for _, turns := range []int{0, 1} {
+		s, err := Claude{Bin: bin}.Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), MaxTurns: turns})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, s)
+		argv := argvOf(t, args)
+		i := slices.Index(argv, "--max-turns")
+		if (turns == 0) != (i < 0) || turns == 1 && (i+1 >= len(argv) || argv[i+1] != "1") {
+			t.Fatalf("MaxTurns %d ran with %q", turns, argv)
+		}
+	}
+}

@@ -70,7 +70,11 @@ func TestPreflightOrder(t *testing.T) {
 		{"signed out", "claude", claudeProbes + "IFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
 		{"says no", "claude", claudeProbes + isolatedHello + fmtAnswer(`{"ok":false}`), false, false, agent.ReasonCLIBroken},
 		{"no answer", "claude", claudeProbes + "IFS= read -r first\nexit 0\n", false, false, agent.ReasonCLIBroken},
-		{"healthy", "claude", claudeProbes + isolatedHello + fmtAnswer(`{"ok":true}`), false, false, ""},
+		{"healthy", "claude", claudeProbes + `case "$*" in *--max-turns*) exit 4;; esac
+` + isolatedHello + fmtAnswer(`{"ok":true}`), false, false, ""},
+		{"one turn", "claude", `case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>"; echo "  --max-turns <turns>"; exit 0;; esac
+case "$*" in *"--max-turns 1"*) ;; *) exit 4;; esac
+` + isolatedHello + fmtAnswer(`{"ok":true}`), false, false, ""},
 		{"codex too old", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.1; exit 0;; "exec --help") echo "  --json"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
 		{"codex healthy", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.160.0; exit 0;; "exec --help") echo "  --output-schema <FILE>"; exit 0;; "debug models") echo '{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}'; exit 0;; esac
 case "$*" in *"--output-schema "*.lyk-output-schema.json*) ;; *) exit 5;; esac
@@ -127,14 +131,26 @@ func TestPreflightDoorAnswers(t *testing.T) {
 	}
 }
 
-// Failed runs ask for at most one check per CLI per gap; a fence breach and
-// an agent's own failure ask for none.
+// Failed runs ask for at most one check per CLI per gap, counted from its
+// last check of any kind; a fence breach and an agent's own failure ask for
+// none.
 func TestPreflightRecheckIsDeduped(t *testing.T) {
+	gap := recheckGap
+	t.Cleanup(func() { recheckGap = gap })
+	recheckGap = 300 * time.Millisecond
 	var calls atomic.Int32
-	d := &daemon{rechecks: make(chan string, 4), cfg: Config{Preflight: func(context.Context, string) (string, string) { calls.Add(1); return "", "" }}}
+	d := &daemon{rechecks: make(chan string, 4), cfg: Config{Harnesses: map[string]string{"claude": "claude"}, Preflight: func(context.Context, string) (string, string) { calls.Add(1); return "", "" }}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go d.preflights(ctx)
+	// Right after the pass at start, a failure asks in vain.
+	d.recheck("claude", agent.ReasonSignIn)
+	d.recheck("claude", agent.ReasonFenceBreach)
+	time.Sleep(100 * time.Millisecond)
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("%d checks right after the start pass", n)
+	}
+	time.Sleep(300 * time.Millisecond)
 	d.recheck("claude", agent.ReasonFenceBreach)
 	d.recheck("claude", agent.ReasonAgentError)
 	d.recheck("claude", agent.ReasonRuntimeOffline)
@@ -149,7 +165,7 @@ func TestPreflightRecheckIsDeduped(t *testing.T) {
 	waitFor(t, func() bool { return calls.Load() >= 1 })
 	time.Sleep(100 * time.Millisecond)
 	if n := calls.Load(); n != 1 {
-		t.Fatalf("%d checks within a minute", n)
+		t.Fatalf("%d checks within the gap", n)
 	}
 }
 
@@ -193,6 +209,9 @@ func TestPreflightOnRestartClearsTheMachine(t *testing.T) {
 func TestPreflightAfterInfraFailure(t *testing.T) {
 	f := fixture(t)
 	var calls atomic.Int32
+	gap := recheckGap
+	t.Cleanup(func() { recheckGap = gap })
+	recheckGap = 0 // the run fails moments after the pass at start
 	f.cfg.Preflight = func(context.Context, string) (string, string) { calls.Add(1); return "", "" }
 	must(t, os.WriteFile(f.cfg.Harnesses["claude"], []byte("#!/bin/sh\nIFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n"), 0700))
 	cancel, done := startDaemon(t, f.cfg)

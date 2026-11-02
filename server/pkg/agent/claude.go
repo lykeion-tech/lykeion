@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,7 +56,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	cfg := filepath.Join(o.Dir, ".lyk-mcp.json")
 	// Replace only the adapter's prior file; never follow a planted link.
-	exists, err := claudeMCPExists(cfg)
+	exists, err := regularFileExists(cfg)
 	if err != nil {
 		cleanup(true)
 		return nil, err
@@ -153,6 +154,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	if o.OutputSchema != "" {
 		args = append(args, "--json-schema", o.OutputSchema)
+	}
+	if o.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(o.MaxTurns))
 	}
 	bin := c.Bin
 	if bin == "" {
@@ -385,8 +389,9 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 	}
 }
 
-// claudeMCPExists checks the replaceable adapter file without following links.
-func claudeMCPExists(path string) (bool, error) {
+// regularFileExists checks a file the adapter replaces without following
+// links: it is absent or a regular file, never anything else.
+func regularFileExists(path string) (bool, error) {
 	st, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -395,7 +400,7 @@ func claudeMCPExists(path string) (bool, error) {
 		return false, err
 	}
 	if !st.Mode().IsRegular() {
-		return false, fmt.Errorf("MCP config is not a regular file: %s", path)
+		return false, fmt.Errorf("not a regular file: %s", path)
 	}
 	return true, nil
 }

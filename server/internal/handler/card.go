@@ -21,7 +21,6 @@ import (
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	"lykeion/server/internal/workflow"
-	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -819,21 +818,39 @@ func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
 		}
-		// The owner dismissing a fence breach's wait is what lets the
-		// machine claim again: no preflight can tell the breach is fixed.
-		fence := item.Kind == "waiting_for_machine" && item.Cause != nil && *item.Cause == agent.ReasonFenceBreach && item.RuntimeID != nil
-		if fence {
-			err := service.ClearRuntime(r.Context(), tx, user, *item.RuntimeID)
-			if errors.Is(err, service.ErrNotYours) {
-				fence = false // the machine is no longer theirs to clear
-			} else if err != nil {
-				return err
-			}
-		}
-		if !fence && !slices.Contains(readResolves, item.Kind) {
+		if !slices.Contains(readResolves, item.Kind) {
 			return nil
 		}
 		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resolveInbox is the owner saying a machine's wait is dealt with: the item
+// is resolved and the machine cleared, as a pass at daemon start would, which
+// is the only other way a fence breach clears. Only an open wait of the
+// caller's own does anything.
+func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		item, err := tx.Q.ResolveOpenMachineWait(r.Context(), db.ResolveOpenMachineWaitParams{ID: id, WorkspaceID: ws, UserID: user})
+		if err != nil {
+			return err
+		}
+		if item.RuntimeID != nil {
+			// A machine that is no longer the caller's stays as it is.
+			if err := service.ClearRuntime(r.Context(), tx, user, *item.RuntimeID); err != nil && !errors.Is(err, service.ErrNotYours) {
+				return err
+			}
+		}
+		return tx.Emit(r.Context(), "inbox.resolved", nil, store.User(user), map[string]string{"inbox_item_id": id.String()})
 	})
 	if err != nil {
 		fail(w, r, err)

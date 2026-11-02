@@ -123,6 +123,11 @@ ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine'
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
+-- name: ResolveOpenMachineWait :one
+UPDATE inbox_item SET resolved_at = now()
+WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+RETURNING *;
+
 -- name: ResolveMachineWaitsExcept :exec
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL

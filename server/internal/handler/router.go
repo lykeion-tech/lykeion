@@ -345,6 +345,7 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/inbox", h.listInbox)
 			r.Post("/api/inbox/{id}/read", h.readInbox)
+			r.Post("/api/inbox/{id}/resolve", h.resolveInbox)
 		})
 	})
 	return r

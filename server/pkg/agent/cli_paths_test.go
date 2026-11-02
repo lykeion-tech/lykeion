@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,28 @@ func TestCodexAgentsFolderStaysListableOnMacOS(t *testing.T) {
 	}
 	if slices.Contains(p.Hidden, filepath.Join(h, "agents")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "role.toml")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "nested")) {
 		t.Fatalf("hidden %v", p.Hidden)
+	}
+
+	// A link to a folder is the folder: what it holds is hidden.
+	linked := t.TempDir()
+	if err := os.Rename(filepath.Join(h, "agents"), filepath.Join(linked, "agents")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(linked, "agents"), filepath.Join(h, "agents")); err != nil {
+		t.Fatal(err)
+	}
+	if p, err = SandboxPaths("codex", h, "/r", "", "darwin"); err != nil || slices.Contains(p.Hidden, filepath.Join(h, "agents")) || !slices.Contains(p.Hidden, filepath.Join(h, "agents", "role.toml")) {
+		t.Fatalf("linked agents: %v %v", p.Hidden, err)
+	}
+
+	// A folder whose contents can't be listed can't be hidden entry by entry,
+	// and Codex won't start with it hidden whole: no run.
+	if err := os.Chmod(filepath.Join(linked, "agents"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(linked, "agents"), 0o700) })
+	if _, err = SandboxPaths("codex", h, "/r", "", "darwin"); err == nil || !strings.Contains(err.Error(), "agents folder") {
+		t.Fatalf("unlistable agents folder: %v", err)
 	}
 }
 func TestPlaceBlockedNeverOverwrites(t *testing.T) {

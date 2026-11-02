@@ -25,13 +25,15 @@ const (
 	preflightSchema = `{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`
 	// preflightEvery is how often an online machine checks its CLIs again.
 	preflightEvery = 30 * time.Minute
-	// recheckGap is the least time between two checks of one CLI that run
-	// failures asked for.
-	recheckGap = time.Minute
 )
 
-// preflightTurn caps the hello turn.
-var preflightTurn = 60 * time.Second
+var (
+	// preflightTurn caps the hello turn.
+	preflightTurn = 60 * time.Second
+	// recheckGap is the least time between a CLI's last check and one a
+	// failed run asks for.
+	recheckGap = time.Minute
+)
 
 // schemaFlags is the help command each CLI lists its schema flag in, and
 // the flag: a CLI without it can't hold a run's answer to a shape.
@@ -108,6 +110,11 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		OnMessage: func(m agent.Message) error { messages = append(messages, m); return nil },
 		Env:       []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
 	opts.Sandbox = d.cliSandbox(dir, nil, false)
+	// One turn is all the hello needs. Claude takes --max-turns only where
+	// its help lists it, so an older CLI isn't flagged for an unknown flag.
+	if harness == "claude" && strings.Contains(help, "--max-turns") {
+		opts.MaxTurns = 1
+	}
 	door := &Door{Server: d.cfg.Server, Sources: d.sourcesURL(), Harness: harness, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
 		Child: func() agent.ExecOptions { return opts }}
 	if err := door.Start(); err != nil {
@@ -208,16 +215,24 @@ func (d *daemon) preflightAll(ctx context.Context, start bool) {
 func (d *daemon) preflights(ctx context.Context) {
 	t := time.NewTicker(preflightEvery)
 	defer t.Stop()
-	asked := map[string]time.Time{}
+	// Every CLI was just checked by the pass at start.
+	checked := map[string]time.Time{}
+	all := func() {
+		for h := range d.cfg.Harnesses {
+			checked[h] = time.Now()
+		}
+	}
+	all()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			all()
 			d.preflightAll(ctx, false)
 		case h := <-d.rechecks:
-			if time.Since(asked[h]) >= recheckGap {
-				asked[h] = time.Now()
+			if time.Since(checked[h]) >= recheckGap {
+				checked[h] = time.Now()
 				d.checkMachine(ctx, h, false)
 			}
 		}

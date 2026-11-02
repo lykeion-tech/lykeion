@@ -278,7 +278,10 @@ UPDATE agent_run SET status = 'queued', runtime_id = NULL, prepare_lease_expires
 WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: SetRuntimeUnhealthy :exec
-UPDATE runtime SET unhealthy_reason = @reason WHERE id = @id AND workspace_id = @workspace_id;
+-- A fence breach stays the reason until the owner clears it or the daemon
+-- restarts: a later failure must not let an ordinary pass clear it.
+UPDATE runtime SET unhealthy_reason = CASE WHEN unhealthy_reason = 'fence_breach' THEN unhealthy_reason ELSE sqlc.narg(reason)::text END
+WHERE id = @id AND workspace_id = @workspace_id;
 
 -- name: MarkRuntimeHealthy :execrows
 UPDATE runtime SET unhealthy_reason = NULL, infra_streak = 0 WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;

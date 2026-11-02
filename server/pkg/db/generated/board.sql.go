@@ -440,6 +440,38 @@ func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMach
 	return err
 }
 
+const resolveOpenMachineWait = `-- name: ResolveOpenMachineWait :one
+UPDATE inbox_item SET resolved_at = now()
+WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause
+`
+
+type ResolveOpenMachineWaitParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ResolveOpenMachineWait(ctx context.Context, arg ResolveOpenMachineWaitParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, resolveOpenMachineWait, arg.ID, arg.WorkspaceID, arg.UserID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+	)
+	return i, err
+}
+
 const roundAgentRunRecords = `-- name: RoundAgentRunRecords :many
 SELECT agent_run_id::uuid AS agent_run_id, kind, body FROM record
 WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3

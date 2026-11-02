@@ -109,7 +109,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	if o.OutputSchema != "" {
 		// Replace only the adapter's prior file; never follow a planted link.
 		schema := filepath.Join(o.Dir, ".lyk-output-schema.json")
-		exists, err := claudeMCPExists(schema)
+		exists, err := regularFileExists(schema)
 		if err == nil && exists {
 			err = os.Remove(schema)
 		}
