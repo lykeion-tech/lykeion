@@ -70,10 +70,8 @@ func TestPreflightOrder(t *testing.T) {
 		{"signed out", "claude", claudeProbes + "IFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
 		{"says no", "claude", claudeProbes + isolatedHello + fmtAnswer(`{"ok":false}`), false, false, agent.ReasonCLIBroken},
 		{"no answer", "claude", claudeProbes + "IFS= read -r first\nexit 0\n", false, false, agent.ReasonCLIBroken},
-		{"healthy", "claude", claudeProbes + `case "$*" in *--max-turns*) exit 4;; esac
-` + isolatedHello + fmtAnswer(`{"ok":true}`), false, false, ""},
-		{"one turn", "claude", `case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>"; echo "  --max-turns <turns>"; exit 0;; esac
-case "$*" in *"--max-turns 1"*) ;; *) exit 4;; esac
+		// The hello is one turn even where Claude's help doesn't list the flag.
+		{"healthy", "claude", claudeProbes + `case "$*" in *"--max-turns 1"*) ;; *) exit 4;; esac
 ` + isolatedHello + fmtAnswer(`{"ok":true}`), false, false, ""},
 		{"codex too old", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.1; exit 0;; "exec --help") echo "  --json"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
 		{"codex healthy", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.160.0; exit 0;; "exec --help") echo "  --output-schema <FILE>"; exit 0;; "debug models") echo '{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}'; exit 0;; esac

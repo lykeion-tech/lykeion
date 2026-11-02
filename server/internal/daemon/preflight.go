@@ -110,9 +110,9 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		OnMessage: func(m agent.Message) error { messages = append(messages, m); return nil },
 		Env:       []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
 	opts.Sandbox = d.cliSandbox(dir, nil, false)
-	// One turn is all the hello needs. Claude takes --max-turns only where
-	// its help lists it, so an older CLI isn't flagged for an unknown flag.
-	if harness == "claude" && strings.Contains(help, "--max-turns") {
+	// One turn is all the hello needs. Claude accepts --max-turns even where
+	// its help doesn't list it.
+	if harness == "claude" {
 		opts.MaxTurns = 1
 	}
 	door := &Door{Server: d.cfg.Server, Sources: d.sourcesURL(), Harness: harness, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
