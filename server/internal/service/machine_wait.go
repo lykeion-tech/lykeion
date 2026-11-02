@@ -175,6 +175,9 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 
 // flagRuntime stops a runtime claiming and tells its owner, once per cause.
 func flagRuntime(ctx context.Context, tx *store.Tx, rt db.Runtime, reason, detail string) error {
+	if err := lockBeforeRuntime(ctx, tx); err != nil {
+		return err
+	}
 	if err := tx.Q.SetRuntimeUnhealthy(ctx, db.SetRuntimeUnhealthyParams{WorkspaceID: tx.WS, ID: rt.ID, Reason: &reason}); err != nil {
 		return err
 	}
@@ -188,6 +191,16 @@ func flagRuntime(ctx context.Context, tx *store.Tx, rt db.Runtime, reason, detai
 		return err
 	}
 	return runtimeHealthChanged(ctx, tx, rt.ID)
+}
+
+// lockBeforeRuntime takes the workspace's execution and event locks, which
+// every writer that also locks a runtime row takes first; a runtime update
+// followed by an event would otherwise deadlock with such a writer.
+func lockBeforeRuntime(ctx context.Context, tx *store.Tx) error {
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return err
+	}
+	return tx.Q.LockWorkspaceEvents(ctx, tx.WS)
 }
 
 // runtimeHealthChanged tells open pages that a machine started or stopped
@@ -230,6 +243,9 @@ func (s *AgentRuns) MarkHealthy(ctx context.Context, user uuid.UUID, ref Runtime
 // held for it and resolves all its waits, inside the caller's transaction.
 // ErrNotYours means the runtime is not the user's.
 func ClearRuntime(ctx context.Context, tx *store.Tx, user, runtime uuid.UUID) error {
+	if err := lockBeforeRuntime(ctx, tx); err != nil {
+		return err
+	}
 	n, err := tx.Q.MarkRuntimeHealthy(ctx, db.MarkRuntimeHealthyParams{WorkspaceID: tx.WS, ID: runtime, OwnerID: user})
 	if err != nil {
 		return err
@@ -252,6 +268,9 @@ func ClearRuntime(ctx context.Context, tx *store.Tx, user, runtime uuid.UUID) er
 // its wait open until the owner resolves the wait or the daemon restarts.
 func (s *AgentRuns) MarkPassed(ctx context.Context, user uuid.UUID, ref RuntimeRef) error {
 	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+		if err := lockBeforeRuntime(ctx, tx); err != nil {
+			return err
+		}
 		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && rt.OwnerID != user {
 			return ErrNotYours

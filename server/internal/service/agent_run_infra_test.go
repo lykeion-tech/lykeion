@@ -467,3 +467,60 @@ func TestTheFifthParkHoldsTheRunAndAsksItsOwner(t *testing.T) {
 		t.Fatalf("released run claimed as attempt %d", again.Attempt)
 	}
 }
+
+// A preflight report takes the workspace's locks in the order every other
+// writer does: a writer holding them and then locking the runtime row, as a
+// skill claim does, must not deadlock with it.
+func TestHealthReportsTakeLocksInWorkspaceOrder(t *testing.T) {
+	for name, report := range map[string]func(*fixture, RuntimeRef) error{
+		"unhealthy": func(f *fixture, ref RuntimeRef) error {
+			return f.T.MarkUnhealthy(context.Background(), f.Owner, ref, "cli_too_old")
+		},
+		"healthy": func(f *fixture, ref RuntimeRef) error { return f.T.MarkHealthy(context.Background(), f.Owner, ref) },
+		"passed":  func(f *fixture, ref RuntimeRef) error { return f.T.MarkPassed(context.Background(), f.Owner, ref) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			ref := f.runtime(t, f.Owner, "d1", "claude")
+			// A flagged runtime, so that every report changes it and emits.
+			if err := f.T.MarkUnhealthy(ctx, f.Owner, ref, "sandbox"); err != nil {
+				t.Fatal(err)
+			}
+			reported := make(chan error, 1)
+			err := f.T.Store.InWorkspace(ctx, f.WS, f.Owner, func(tx *store.Tx) error {
+				if _, err := tx.Q.LockWorkspaceExecution(ctx, f.WS); err != nil {
+					return err
+				}
+				if err := tx.Q.LockWorkspaceEvents(ctx, f.WS); err != nil {
+					return err
+				}
+				go func() { reported <- report(f, ref) }()
+				// Wait until the report is blocked on a lock this
+				// transaction holds, then reach for the runtime row.
+				deadline := time.Now().Add(10 * time.Second)
+				for {
+					var waiting int
+					if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'").Scan(&waiting); err != nil {
+						return err
+					}
+					if waiting > 0 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the report never waited for the workspace's locks")
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				_, err := tx.Q.LockRuntime(ctx, db.LockRuntimeParams{WorkspaceID: f.WS, ID: ref.RuntimeID})
+				return err
+			})
+			if err != nil {
+				t.Fatalf("lock holder: %v", err)
+			}
+			if err := <-reported; err != nil {
+				t.Fatalf("report: %v", err)
+			}
+		})
+	}
+}
