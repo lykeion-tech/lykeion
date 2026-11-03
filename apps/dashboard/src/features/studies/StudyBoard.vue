@@ -537,7 +537,7 @@ onUnmounted(() => {
                 researches.data.value?.find((project) => project.id === card.research_id)?.name ??
                 'Unavailable project'
               }}</span>
-              <span v-if="display.properties.includes('Role') && card.role"
+              <span v-if="display.properties.includes('Role') && card.role && card.role !== 'agent'"
                 ><Icon name="bot" :size="12" />{{ roleLabel(card.role) }}</span
               ><span
                 v-if="cardStateLabel(card) && column.id !== 'blocked'"
