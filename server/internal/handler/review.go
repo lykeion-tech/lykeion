@@ -38,6 +38,19 @@ func (h *H) cardReview(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		// Reviews may refer to an earlier attempt's superseded records.
+		byKey := make(map[string]db.Record)
+		for _, stage := range board.Stages {
+			records, err := tx.Q.ListAllRecords(r.Context(), db.ListAllRecordsParams{WorkspaceID: ws, CardID: id, BoardColumn: stage})
+			if err != nil {
+				return err
+			}
+			for _, record := range records {
+				if record.Key != "" {
+					byKey[record.Key] = record
+				}
+			}
+		}
 		v, err := validationOf(r, tx, ws, id)
 		if err != nil {
 			return err
@@ -45,7 +58,49 @@ func (h *H) cardReview(w http.ResponseWriter, r *http.Request) {
 		cols[board.StageIndex(board.Validation)].validationView = v
 		for _, rec := range recs {
 			if i := board.StageIndex(rec.BoardColumn); i >= 0 {
-				cols[i].Attempts = append(cols[i].Attempts, rec.Body)
+				var body map[string]any
+				if err := json.Unmarshal(rec.Body, &body); err != nil {
+					return err
+				}
+				body["round"] = rec.Round
+				body["at"] = rec.CreatedAt
+				for _, field := range []string{"items", "missed"} {
+					items, _ := body[field].([]any)
+					for _, value := range items {
+						item, ok := value.(map[string]any)
+						if !ok {
+							continue
+						}
+						quote, _ := item["label"].(string)
+						cites := []string{}
+						key, _ := item["key"].(string)
+						if record, found := byKey[key]; found {
+							var evidence struct {
+								Text, Claim, Problem, Source string
+								Cites                        []string
+							}
+							if err := json.Unmarshal(record.Body, &evidence); err != nil {
+								return err
+							}
+							for _, text := range []string{evidence.Text, evidence.Claim, evidence.Problem} {
+								if text != "" {
+									quote = text
+									break
+								}
+							}
+							cites = append(cites, evidence.Cites...)
+							if evidence.Source != "" {
+								cites = append(cites, evidence.Source)
+							}
+						}
+						item["quote"], item["cites"] = quote, cites
+					}
+				}
+				answer, err := json.Marshal(body)
+				if err != nil {
+					return err
+				}
+				cols[i].Attempts = append(cols[i].Attempts, answer)
 			}
 		}
 		return nil

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -16,6 +17,12 @@ type reviewView struct {
 		Attempts []struct {
 			Column, Decision string
 			Attempt          int
+			Round            int
+			At               string
+			Items, Missed    []struct {
+				Key, Label, Quote string
+				Cites             []string
+			}
 		}
 	}
 }
@@ -147,5 +154,85 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 		len(val.Objections) != 1 || val.Objections[0].Label != "H1" || val.Rerun.Notes["v"] != "off by 3" || val.Rerun.Reproduced["v"] || !val.SameFamily ||
 		val.Objector == nil || val.Objector.Ran || val.Objector.Reason != "the objector did not run: its run failed (agent error)" {
 		t.Fatalf("validation %+v", val)
+	}
+}
+
+// Missing enrichment or filtering out superseded records loses the evidence
+// behind earlier review attempts.
+func TestCardReviewAddsRoundTimeAndItemText(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a, b := s.signIn(t, "a@lab.org"), s.signIn(t, "b@else.org")
+	wa, wb := s.workspace(t, a, "lab-a"), s.workspace(t, b, "lab-b")
+	var c card
+	s.call(t, "POST", "/api/cards", a, wa.ID, map[string]any{"question": "q"}, &c)
+	var reviewAt time.Time
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(wa.ID), uuid.Nil, func(tx *store.Tx) error {
+		hypothesis, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+			BoardColumn: "hypotheses", Round: 1, Kind: "hypothesis", Role: "hypothesist", Key: "r2",
+			Body: json.RawMessage(`{"text":"Fertilizer makes seedlings taller.","cites":["r1"],"label":"H1"}`)})
+		if err != nil {
+			return err
+		}
+		verdict, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+			BoardColumn: "validation", Round: 2, Kind: "verdict", Role: "validator", Key: "r3",
+			Body: json.RawMessage(`{"claim":"C","source":"paper.pdf","quote":"q","label":"V1"}`)})
+		if err != nil {
+			return err
+		}
+		for _, item := range []db.Record{hypothesis, verdict} {
+			body, err := json.Marshal(map[string]any{"column": item.BoardColumn, "attempt": item.Round, "decision": "pass",
+				"items":  []any{map[string]any{"key": item.Key, "label": "reviewed item", "checks": []any{}}},
+				"missed": []any{map[string]any{"key": "", "label": "doi:10.1/x", "checks": []any{}}}})
+			if err != nil {
+				return err
+			}
+			rec, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+				BoardColumn: item.BoardColumn, Round: item.Round, Kind: "review", Role: "server", Body: body})
+			if err != nil {
+				return err
+			}
+			if item.BoardColumn == "hypotheses" {
+				reviewAt = rec.CreatedAt
+			}
+		}
+		return tx.Q.SupersedeRecord(t.Context(), db.SupersedeRecordParams{WorkspaceID: tx.WS, ID: hypothesis.ID})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v reviewView
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, wa.ID, nil, &v); code != 200 {
+		t.Fatalf("code %d", code)
+	}
+	if len(v.Columns) != 4 || len(v.Columns[1].Attempts) != 1 || len(v.Columns[3].Attempts) != 1 {
+		t.Fatalf("columns %+v", v.Columns)
+	}
+	h := v.Columns[1].Attempts[0]
+	if h.Round != 1 {
+		t.Fatalf("hypothesis review round = %d, want 1", h.Round)
+	}
+	at, err := time.Parse(time.RFC3339Nano, h.At)
+	if err != nil || !at.Equal(reviewAt) {
+		t.Fatalf("review at = %q, want %s (parse error %v)", h.At, reviewAt, err)
+	}
+	if len(h.Items) != 1 || h.Items[0].Quote != "Fertilizer makes seedlings taller." || len(h.Items[0].Cites) != 1 || h.Items[0].Cites[0] != "r1" {
+		t.Fatalf("hypothesis items %+v", h.Items)
+	}
+	verdict := v.Columns[3].Attempts[0]
+	if verdict.Round != 2 || len(verdict.Items) != 1 || verdict.Items[0].Quote != "C" || len(verdict.Items[0].Cites) != 1 || verdict.Items[0].Cites[0] != "paper.pdf" {
+		t.Fatalf("verdict review %+v", verdict)
+	}
+	for _, attempt := range []int{1, 3} {
+		missed := v.Columns[attempt].Attempts[0].Missed
+		if len(missed) != 1 || missed[0].Quote != "doi:10.1/x" || missed[0].Cites == nil || len(missed[0].Cites) != 0 {
+			t.Fatalf("missed items %+v", missed)
+		}
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", b, wb.ID, nil, nil); code != 404 {
+		t.Fatalf("B read A's review through B's workspace: %d", code)
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", b, wa.ID, nil, nil); code != 404 {
+		t.Fatalf("B read A's review through A's workspace: %d", code)
 	}
 }
