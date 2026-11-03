@@ -114,7 +114,6 @@ describe('the dashboard source layout', () => {
   it('runs holds its files', () => {
     const moved = [
       ['components/AgentRunCard.vue', 'features/runs/AgentRunCard.vue'],
-      ['components/AgentRunDialog.vue', 'features/runs/AgentRunDialog.vue'],
       ['components/ExecutionLog.vue', 'features/runs/ExecutionLog.vue'],
       ['components/HighlightedSource.vue', 'features/runs/HighlightedSource.vue'],
       ['components/RunActivity.vue', 'features/runs/RunActivity.vue'],
@@ -127,6 +126,7 @@ describe('the dashboard source layout', () => {
       ['lib/run-transcript.ts', 'features/runs/run-transcript.ts'],
       ['lib/tool-step-title.ts', 'features/runs/tool-step-title.ts'],
     ];
+    expect(existsSync(join(src, 'features/runs/AgentRunDialog.vue'))).toBe(false);
     for (const [from, to] of moved) {
       expect(existsSync(join(src, to)), to).toBe(true);
       expect(existsSync(join(src, from)), from).toBe(false);
