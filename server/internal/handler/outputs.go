@@ -155,17 +155,23 @@ func (h *H) uploadOutput(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			actor := store.Actor{Type: "role", ID: role.AgentRunID}
+			// A rerun's files are kept apart from the study's: no reader of
+			// the study's outputs lists them or finds them by name.
+			kind := "output"
+			if role.Role == "rerun" {
+				kind = "rerun_output"
+			}
 			if err := tx.Emit(r.Context(), "blob.created", &role.CardID, actor, map[string]any{"blob_key": key, "sha256": sum, "size": n}); err != nil {
 				return err
 			}
 			rec, err = tx.Q.InsertRecord(r.Context(), db.InsertRecordParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID,
-				BoardColumn: role.Column, Round: role.Round, Kind: "output", Role: role.Role, Key: k, Body: body,
+				BoardColumn: role.Column, Round: role.Round, Kind: kind, Role: role.Role, Key: k, Body: body,
 				BlobKey: key, AgentRunID: &role.AgentRunID})
 			if err != nil {
 				return err
 			}
 			return tx.Emit(r.Context(), "record.created", &role.CardID, actor,
-				map[string]any{"record_id": rec.ID, "kind": "output", "key": k, "role": role.Role})
+				map[string]any{"record_id": rec.ID, "kind": kind, "key": k, "role": role.Role})
 		})
 	}
 	if err != nil {

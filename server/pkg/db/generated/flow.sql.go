@@ -189,7 +189,7 @@ func (q *Queries) GetTeamAgent(ctx context.Context, arg GetTeamAgentParams) (Age
 
 const lastOutputNumber = `-- name: LastOutputNumber :one
 SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
-WHERE workspace_id = $1 AND card_id = $2 AND kind = 'output' AND key ~ '^o[0-9]+$'
+WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('output', 'rerun_output') AND key ~ '^o[0-9]+$'
 `
 
 type LastOutputNumberParams struct {
@@ -351,7 +351,7 @@ func (q *Queries) ResolveCardInboxKind(ctx context.Context, arg ResolveCardInbox
 
 const runOutputTotals = `-- name: RunOutputTotals :one
 SELECT count(*)::int AS outputs, COALESCE(sum((body->>'size_bytes')::bigint), 0)::bigint AS bytes FROM record
-WHERE workspace_id = $1 AND card_id = $2 AND agent_run_id = $3 AND kind = 'output' AND superseded_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND agent_run_id = $3 AND kind IN ('output', 'rerun_output') AND superseded_at IS NULL
 `
 
 type RunOutputTotalsParams struct {

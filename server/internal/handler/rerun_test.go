@@ -438,3 +438,17 @@ func TestARerunGetsTheStudysServices(t *testing.T) {
 		t.Fatalf("the rerun's daemon could not fetch the service: %d", resp.StatusCode)
 	}
 }
+
+func TestARerunsFilesAreNotTheStudysFiles(t *testing.T) {
+	l := newRerunLab(t)
+	l.script(t, "x1", "fit.py", 0, "")
+	l.enqueue(t)
+	cl := l.claim(t)
+	l.upload(t, cl.Token, "metrics.txt", "f1 = 1.50\n")
+	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'output'", l.card); n != 0 {
+		t.Fatalf("the rerun's file is listed among the study's %d files", n)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'rerun_output' AND key = 'o1'", l.card); n != 1 {
+		t.Fatalf("the rerun's file was not kept as its own: %d", n)
+	}
+}

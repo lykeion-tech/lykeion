@@ -464,6 +464,30 @@ func (l *lab) judgedObjections(t *testing.T, id uuid.UUID) []review.Objection {
 	return out
 }
 
+func TestARerunRefusedAtClaimIsQueuedAgain(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	c := modeAStudy(t, l, nil)
+	l.assess(t, c.ID)
+	first := l.latestRun(t, c.ID, "rerun")
+	l.settle(t, first, "failed", "runtime_access_denied", "This machine is no longer shared with you; choose another for this study.")
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'rerun'", c.ID); n != 0 {
+		t.Fatalf("a rerun refused at claim wrote %d rerun records", n)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun' AND status = 'queued' AND id <> $2", c.ID, first.ID); n != 1 {
+		t.Fatalf("%d new reruns queued after the first was refused", n)
+	}
+	// A failure the daemon reports after starting the rerun is recorded.
+	second := l.latestRun(t, c.ID, "rerun")
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET started_at = now() WHERE id = $1", second.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.settle(t, l.latestRun(t, c.ID, "rerun"), "failed", "agent_error", "crashed")
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'rerun' AND body->'notes'->>'auc' = $2", c.ID, rerunFailedNote); n != 1 {
+		t.Fatalf("a rerun that failed after it started wrote %d records", n)
+	}
+}
+
 func TestACancelledRerunIsQueuedAgain(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))

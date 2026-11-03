@@ -61,6 +61,13 @@ type unrebuildable struct{ error }
 
 func (u unrebuildable) Unwrap() error { return u.error }
 
+// otherMachine is a saved package list made on another kind of machine:
+// another platform, or another language base. A machine like the study's
+// can rebuild it, so it is this machine's cause, never the study's.
+type otherMachine struct{ error }
+
+func (o otherMachine) Unwrap() error { return o.error }
+
 // cranURL is where R packages are fetched at their saved versions, with
 // cranClient, each at most maxCRANBytes.
 var (
@@ -165,12 +172,15 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	ended := func(err error) {
 		var sandboxErr unsandboxedError
 		var refused unrebuildable
+		var other otherMachine
 		switch {
 		case errors.As(err, &sandboxErr):
 			machine(agent.ReasonSandbox, err)
 		case errors.Is(err, context.DeadlineExceeded):
 			machine("timeout", err)
 		case runCtx.Err() != nil:
+		case errors.As(err, &other):
+			machine(agent.ReasonRuntimeOffline, err)
 		case errors.As(err, &refused):
 			slog.Warn("rerun environment", "run", r.AgentRunID, "err", err)
 			settle(failEnvironment)
@@ -387,6 +397,11 @@ func (d *daemon) rebuildLanguage(ctx context.Context, door *Door, python, lang, 
 	study := door.Study
 	switch lang {
 	case envs.Python:
+		if saved := lockPlatform(base); saved != "" {
+			if here, err := envs.CondaPlatform(); err == nil && here != saved {
+				return otherMachine{fmt.Errorf("the study's Python environment was saved on %s, and this machine is %s", saved, here)}
+			}
+		}
 		lock := filepath.Join(study.Dir, "saved-lock.txt")
 		if err := os.WriteFile(lock, []byte(base), 0o600); err != nil {
 			return err
@@ -426,7 +441,7 @@ func (d *daemon) rebuildLanguage(ctx context.Context, door *Door, python, lang, 
 			return err
 		}
 		if _, now, _, _ := savedPackages(fresh); now != base {
-			return unrebuildable{fmt.Errorf("this machine's %s base is not the one the study ran on", lang)}
+			return otherMachine{fmt.Errorf("this machine's %s base is not the one the study ran on", lang)}
 		}
 		if strings.TrimSpace(own) == "" {
 			return nil
@@ -452,6 +467,16 @@ func (d *daemon) rebuildLanguage(ctx context.Context, door *Door, python, lang, 
 		return nil
 	}
 	return unrebuildable{fmt.Errorf("unknown language %q", lang)}
+}
+
+// lockPlatform is the conda platform a saved lock names, "" when it names none.
+func lockPlatform(lock string) string {
+	for line := range strings.Lines(lock) {
+		if p, ok := strings.CutPrefix(strings.TrimSpace(line), "# platform:"); ok {
+			return strings.TrimSpace(p)
+		}
+	}
+	return ""
 }
 
 // rPackage and rVersion are what a saved R package's name and version may

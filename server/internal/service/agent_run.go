@@ -962,7 +962,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						}
 						saved := []SavedOutput{}
 						for _, r := range own {
-							if r.Kind == "output" {
+							if r.Kind == "rerun_output" {
 								var b SavedOutput
 								if json.Unmarshal(r.Body, &b) == nil {
 									saved = append(saved, b)

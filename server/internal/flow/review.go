@@ -404,7 +404,7 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 func (e *Engine) outputTexts(ctx context.Context, recs []db.Record) (map[string]string, error) {
 	files := map[string]string{}
 	for _, r := range recs {
-		if r.Kind != "output" || r.BlobKey == "" || e.Blobs == nil ||
+		if r.Kind != "output" && r.Kind != "rerun_output" || r.BlobKey == "" || e.Blobs == nil ||
 			records.Body[struct {
 				SizeBytes int64 `json:"size_bytes"`
 			}](r).SizeBytes > maxOutputText {

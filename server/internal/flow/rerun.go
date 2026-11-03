@@ -85,9 +85,9 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 	if err != nil {
 		return err
 	}
-	// A cancelled rerun, its machine withdrawn, left no record: the round
-	// gets another.
-	if slices.ContainsFunc(runs, func(r db.AgentRun) bool { return r.Kind == "rerun" && r.Status != "cancelled" }) {
+	// A rerun cancelled, its machine withdrawn, or refused when claimed
+	// left no record: the round gets another.
+	if slices.ContainsFunc(runs, func(r db.AgentRun) bool { return r.Kind == "rerun" && r.Status != "cancelled" && !refusedAtClaim(r) }) {
 		return nil
 	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
@@ -146,7 +146,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 			switch r.Kind {
 			case "rerun":
 				done = true
-			case "output":
+			case "rerun_output":
 				saved = append(saved, r)
 			}
 		}
@@ -200,12 +200,18 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 	return err
 }
 
-// afterRerun records, for a rerun that failed without a result, every value
-// of its round not reproduced, so its Validation round does not wait for
-// ever. A cancelled rerun, its study stopped or its machine withdrawn,
-// records nothing; an infrastructure failure was parked, not settled.
+// refusedAtClaim says whether a rerun failed before its daemon started it:
+// refused when claimed, its machine no longer shared, it never ran.
+func refusedAtClaim(r db.AgentRun) bool { return r.Status == "failed" && r.StartedAt == nil }
+
+// afterRerun records, for a rerun that failed without a result once its
+// daemon had started it, every value of its round not reproduced, so its
+// Validation round does not wait for ever. A cancelled rerun, its study
+// stopped or its machine withdrawn, or one refused when claimed, records
+// nothing and is queued again; an infrastructure failure was parked, not
+// settled.
 func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
-	if t.Status != "failed" {
+	if t.Status != "failed" || refusedAtClaim(t) {
 		return nil
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {

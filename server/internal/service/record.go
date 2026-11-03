@@ -20,7 +20,7 @@ type Writer struct {
 
 // ServerKinds are the record kinds only the server writes: no role command
 // stores one, except the auditor's own `audit`.
-var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score", "outcome", "call", "tools", "run", "output", "python_version", "review", "hand_in", "declined", "comment_delivery", "rerun", "objection", "validation_status", "route_back"}
+var ServerKinds = []string{"delegation", "self_step", "summary", "audit", "score", "outcome", "call", "tools", "run", "output", "rerun_output", "python_version", "review", "hand_in", "declined", "comment_delivery", "rerun", "objection", "validation_status", "route_back"}
 
 // FreeKinds are the agent-written kinds that need no citation; every other
 // agent-written kind is a fact kind.

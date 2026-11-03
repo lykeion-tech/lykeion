@@ -408,6 +408,13 @@ func TestRerunMachineFailuresAreRetried(t *testing.T) {
 		"the R install is killed": {rInstall(func(ctx context.Context) (*exec.Cmd, error) {
 			return exec.CommandContext(ctx, "/bin/sh", "-c", "kill -9 $$"), nil
 		}), "runtime_offline"},
+		"the lock was saved on another platform": {func(rc *rerunCase) {
+			rc.c.Rerun.Steps[0].Packages = "# python base\n# platform: " + otherPlatform() + "\n@EXPLICIT\nhttps://conda/python.tar.bz2\n\n# python study\n"
+		}, "runtime_offline"},
+		"this machine's R base is another": {func(rc *rerunCase) {
+			rInstall(func(ctx context.Context) (*exec.Cmd, error) { return exec.CommandContext(ctx, "/usr/bin/true"), nil })(rc)
+			rc.c.Rerun.Steps[0].Packages = "# r base\nanother-r-lock\n\n# r study\n"
+		}, "runtime_offline"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rc := newRerun(t, fakePackages, steps, nil)
@@ -429,6 +436,14 @@ func TestRerunMachineFailuresAreRetried(t *testing.T) {
 }
 
 func chainDoor(a, b func(*Door)) func(*Door) { return func(d *Door) { a(d); b(d) } }
+
+// otherPlatform is a conda platform this machine is not.
+func otherPlatform() string {
+	if here, _ := envs.CondaPlatform(); here == "linux-64" {
+		return "osx-arm64"
+	}
+	return "linux-64"
+}
 
 // rInstall makes the rerun an R step whose saved packages CRAN has, and
 // starts the sandboxed install of them with install instead.
