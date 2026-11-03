@@ -2,6 +2,7 @@ package labindex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,7 +63,7 @@ func drainIndexer(ctx context.Context, x *Indexer) error {
 			return err
 		}
 		var pending int
-		if err := x.Store.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_pending_events('indexer',200)`).Scan(&pending); err != nil {
+		if err := x.Store.Pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM lab_pending_events('indexer',200))+(SELECT count(*) FROM lab_pending_workspace_work('indexer',$1,200) WHERE source='dirty')`, uuid.Nil).Scan(&pending); err != nil {
 			return err
 		}
 		if x.initialized && x.work == nil && pending == 0 {
@@ -494,12 +495,12 @@ func TestIndexerDeliveryHelpersBoundedAndPrivileged(t *testing.T) {
 	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM lab_pending_events('indexer',10000)`).Scan(&n); err != nil || n != 200 {
 		t.Fatalf("unbounded delivery: %d %v", n, err)
 	}
-	for _, table := range []string{"lab_event_delivery", "lab_event_consumer"} {
+	for _, table := range []string{"lab_event_delivery", "lab_event_consumer", "lab_fact_dirty"} {
 		if _, err := env.App.Exec(ctx, "SELECT * FROM "+table); err == nil {
 			t.Fatalf("app can directly read %s", table)
 		}
 	}
-	for _, name := range []string{"lab_pending_workspace_events(text,uuid,integer)", "lab_pending_events(text,integer)", "lab_ack_event(text,bigint)", "lab_index_workspaces_after(uuid,integer)", "lab_index_workspace_exists(uuid)"} {
+	for _, name := range []string{"lab_pending_workspace_work(text,uuid,integer)", "lab_ack_work(text,bigint[],bigint[])", "lab_pending_workspace_events(text,uuid,integer)", "lab_pending_events(text,integer)", "lab_ack_event(text,bigint)", "lab_index_workspaces_after(uuid,integer)", "lab_index_workspace_exists(uuid)"} {
 		var public bool
 		if err := env.Owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM aclexplode((SELECT proacl FROM pg_proc WHERE oid=$1::regprocedure)) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE')`, name).Scan(&public); err != nil || public {
 			t.Fatalf("public helper %s: %v %v", name, public, err)
@@ -685,7 +686,7 @@ func TestIndexerTracksUserAndAutomaticDecisionMutations(t *testing.T) {
 
 func TestIndexerSchedulingMigrationReversible(t *testing.T) {
 	_, env, _, _ := indexerFixture(t)
-	for _, name := range []string{"0054_lab_index_scheduling.down.sql", "0054_lab_index_scheduling.up.sql"} {
+	for _, name := range []string{"0055_lab_fact_dirty.down.sql", "0054_lab_index_scheduling.down.sql", "0054_lab_index_scheduling.up.sql", "0055_lab_fact_dirty.up.sql"} {
 		sql, err := migrations.FS.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -693,5 +694,161 @@ func TestIndexerSchedulingMigrationReversible(t *testing.T) {
 		if _, err := env.Owner.Exec(context.Background(), string(sql)); err != nil {
 			t.Fatal(name, err)
 		}
+	}
+}
+
+func TestIndexerDecisionDirtyingDoesNotDeadlockCardDeletion(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		name := "triage"
+		if automatic {
+			name = "automatic_archive"
+		}
+		t.Run(name, func(t *testing.T) {
+			x, env, ws, card := indexerFixture(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var user uuid.UUID
+			if err := env.Owner.QueryRow(ctx, `SELECT owner_id FROM card WHERE id=$1`, card).Scan(&user); err != nil {
+				t.Fatal(err)
+			}
+			decision := uuid.New()
+			if _, err := env.Owner.Exec(ctx, `INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,options,status,resolved_at,touched_at) VALUES($1,$2,$3,$4,'agent_decision','Question','[{"id":"a"}]','decided',now(),now()-interval '91 days')`, decision, ws, card, user); err != nil {
+				t.Fatal(err)
+			}
+			if err := drainIndexer(ctx, x); err != nil {
+				t.Fatal(err)
+			}
+			deleting, err := env.Owner.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer deleting.Rollback(context.Background())
+			// deleteCard's real lock ordering: workspace event lock, then cascading source deletion.
+			if _, err := deleting.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text,0))`, ws); err != nil {
+				t.Fatal(err)
+			}
+			var deletingPID int32
+			if err := deleting.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&deletingPID); err != nil {
+				t.Fatal(err)
+			}
+			updating, err := env.App.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer updating.Rollback(context.Background())
+			if _, err := updating.Exec(ctx, `SELECT set_config('app.workspace_id',$1,true),set_config('app.user_id',$2,true)`, ws.String(), user.String()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := updating.Exec(ctx, `SELECT id FROM inbox_item WHERE id=$1 FOR UPDATE`, decision); err != nil {
+				t.Fatal(err)
+			}
+			deleted := make(chan error, 1)
+			go func() { _, err := deleting.Exec(ctx, `DELETE FROM card WHERE id=$1`, card); deleted <- err }()
+			waiting := false
+			for n := 0; n < 100; n++ {
+				if err := env.Owner.QueryRow(ctx, `SELECT COALESCE(wait_event_type='Lock',false) FROM pg_stat_activity WHERE pid=$1`, deletingPID).Scan(&waiting); err != nil {
+					t.Fatal(err)
+				}
+				if waiting {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if !waiting {
+				t.Fatal("deletion did not interleave while inbox row was held")
+			}
+			q := db.New(updating)
+			if automatic {
+				err = q.ArchiveStale(ctx, time.Now())
+			} else {
+				err = q.SetDecisionTriage(ctx, db.SetDecisionTriageParams{ID: decision, WorkspaceID: ws, DecideBy: "today"})
+			}
+			if err != nil {
+				t.Fatalf("inbox write waited for event lock held by its deleting waiter: %v", err)
+			}
+			if err := updating.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-deleted:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-ctx.Done():
+				t.Fatal("cascading card deletion deadlocked")
+			}
+			if err := deleting.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			// Dirty rows deliberately survive source deletion; reconciliation removes stale vectors.
+			if err := drainIndexer(ctx, x); err != nil {
+				t.Fatal(err)
+			}
+			if env.Redis.Exists(ctx, key(ws, labmemory.Ref{Kind: "decision", ID: decision})).Val() != 0 {
+				t.Fatal("deleted decision remained indexed")
+			}
+		})
+	}
+}
+
+func TestIndexerBatchAcknowledgementProgressWithSlowDatabaseAndDeletedPrefix(t *testing.T) {
+	x, env, ws, card := indexerFixture(t)
+	ctx := context.Background()
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 200; n++ {
+		emitIndexEvent(t, x, ws, card, "card.steered")
+	}
+	rows, err := env.Owner.Query(ctx, `SELECT event_id FROM lab_event_delivery WHERE consumer='indexer' ORDER BY event_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		captured = append(captured, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a completed reconciliation whose old per-ID ACK loop committed a prefix before timeout.
+	job := indexWork{WS: ws, Model: x.Index.model, Events: captured, SourceDone: true, ScanDone: true}
+	encoded, err := json.Marshal(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Redis.Set(ctx, "labindex:job:"+ws.String(), encoded, time.Hour).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `DELETE FROM lab_event_delivery WHERE event_id=ANY($1)`, captured[:100]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `CREATE TABLE test_lab_ack_calls(n int);
+ CREATE FUNCTION test_slow_lab_ack() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO test_lab_ack_calls VALUES(1); PERFORM pg_sleep(0.1); RETURN NULL; END $$;
+ CREATE TRIGGER test_slow_lab_ack BEFORE DELETE ON lab_event_delivery FOR EACH STATEMENT EXECUTE FUNCTION test_slow_lab_ack()`); err != nil {
+		t.Fatal(err)
+	}
+	// 200 individual slow calls would exceed both this deadline and the production
+	// tick deadline, repeating the deleted prefix. One exact bounded DELETE succeeds.
+	slowCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := x.Tick(slowCtx); err != nil {
+		t.Fatal(err)
+	}
+	var calls, pending int
+	if err := env.Owner.QueryRow(ctx, `SELECT (SELECT count(*) FROM test_lab_ack_calls),(SELECT count(*) FROM lab_event_delivery)`).Scan(&calls, &pending); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || pending != 0 {
+		t.Fatalf("batch acknowledgement made no bounded progress: calls=%d pending=%d", calls, pending)
+	}
+	if env.Redis.Exists(ctx, "labindex:job:"+ws.String()).Val() != 0 {
+		t.Fatal("completed acknowledgement retained replay job")
 	}
 }

@@ -37,6 +37,7 @@ type indexWork struct {
 	WS         uuid.UUID
 	Model      string
 	Events     []int64 // exact observed IDs; later events are never added to this snapshot
+	Dirty      []int64
 	After      string
 	SourceDone bool
 	Scan       uint64
@@ -44,10 +45,11 @@ type indexWork struct {
 	ScanDone   bool
 }
 type indexEvent struct {
-	id   int64
-	ws   uuid.UUID
-	typ  string
-	card *uuid.UUID
+	id    int64
+	ws    uuid.UUID
+	typ   string
+	card  *uuid.UUID
+	dirty bool
 }
 
 func relevantEvent(typ string) bool {
@@ -197,14 +199,28 @@ func (x *Indexer) deliver(ctx context.Context) error {
 	}
 	if err == redis.Nil {
 		w = indexWork{WS: ws, Model: x.Index.model}
+		var ignoredEvents, ignoredDirty []int64
 		for _, e := range events {
 			if relevantDelivery(e) {
-				w.Events = append(w.Events, e.id)
-			} else if err := x.ack(ctx, e.id); err != nil {
+				if e.dirty {
+					w.Dirty = append(w.Dirty, e.id)
+				} else {
+					w.Events = append(w.Events, e.id)
+				}
+			} else {
+				if e.dirty {
+					ignoredDirty = append(ignoredDirty, e.id)
+				} else {
+					ignoredEvents = append(ignoredEvents, e.id)
+				}
+			}
+		}
+		if len(ignoredEvents)+len(ignoredDirty) > 0 {
+			if err := x.ack(ctx, ignoredEvents, ignoredDirty); err != nil {
 				return err
 			}
 		}
-		if len(w.Events) == 0 {
+		if len(w.Events)+len(w.Dirty) == 0 {
 			return nil
 		}
 	}
@@ -224,15 +240,13 @@ func (x *Indexer) deliver(ctx context.Context) error {
 	if !done {
 		return nil
 	}
-	for _, id := range w.Events {
-		if err := x.ack(ctx, id); err != nil {
-			return err
-		}
+	if err := x.ack(ctx, w.Events, w.Dirty); err != nil {
+		return err
 	}
 	return x.Index.rdb.Del(ctx, jobKey).Err()
 }
 func (x *Indexer) pendingWorkspace(ctx context.Context, after uuid.UUID) ([]indexEvent, error) {
-	rows, err := x.Store.Pool.Query(ctx, `SELECT id,workspace_id,type,card_id FROM lab_pending_workspace_events('indexer',$1,200)`, after)
+	rows, err := x.Store.Pool.Query(ctx, `SELECT source,id,workspace_id,type,card_id FROM lab_pending_workspace_work('indexer',$1,200)`, after)
 	if err != nil {
 		return nil, err
 	}
@@ -240,9 +254,11 @@ func (x *Indexer) pendingWorkspace(ctx context.Context, after uuid.UUID) ([]inde
 	var events []indexEvent
 	for rows.Next() {
 		var e indexEvent
-		if err := rows.Scan(&e.id, &e.ws, &e.typ, &e.card); err != nil {
+		var source string
+		if err := rows.Scan(&source, &e.id, &e.ws, &e.typ, &e.card); err != nil {
 			return nil, err
 		}
+		e.dirty = source == "dirty"
 		events = append(events, e)
 	}
 	return events, rows.Err()
@@ -264,10 +280,11 @@ func (x *Indexer) Run(ctx context.Context, interval time.Duration, onError func(
 		}
 	}
 }
-func (x *Indexer) ack(ctx context.Context, id int64) error {
-	_, err := x.Store.Pool.Exec(ctx, `SELECT lab_ack_event('indexer',$1)`, id)
+func (x *Indexer) ack(ctx context.Context, events, dirty []int64) error {
+	_, err := x.Store.Pool.Exec(ctx, `SELECT lab_ack_work('indexer',$1,$2)`, events, dirty)
 	return err
 }
+
 func (x *Indexer) read(ctx context.Context, ws uuid.UUID, r labmemory.Ref) (labmemory.Fact, error) {
 	var f labmemory.Fact
 	err := x.Store.Maintenance(ctx, func(tx *store.Tx) error {
