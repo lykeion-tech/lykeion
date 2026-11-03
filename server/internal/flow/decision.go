@@ -438,6 +438,9 @@ var fitOptions = map[string]string{
 func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.DecisionIn) string {
 	questions := []handin.DecisionIn{d}
 	if d.QuestionSet != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Minute)
+		defer cancel()
 		questions = make([]handin.DecisionIn, 0, len(d.QuestionSet.Questions))
 		for _, q := range d.QuestionSet.Questions {
 			one := d
@@ -447,6 +450,9 @@ func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.Decision
 	}
 	result := fitFits
 	for _, question := range questions {
+		if ctx.Err() != nil {
+			return fitUnavailable
+		}
 		a, err := e.Jev.Choice(ctx, decisionState(question), fitQuestion, fitOptions)
 		if err != nil {
 			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)

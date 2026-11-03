@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -368,5 +369,65 @@ func TestJevRejectsSetWhenAnyQuestionDoesNotFit(t *testing.T) {
 	}
 	if got := e.fitCheck(context.Background(), uuid.New(), d); got != fitDecide || calls != 2 {
 		t.Fatalf("Jev verdict %q after %d calls", got, calls)
+	}
+}
+
+// A slow Jev must share one deadline across the entire set and stop when the
+// caller cancels, instead of starting another request for each question.
+func TestQuestionSetFitCheckBoundsSlowJev(t *testing.T) {
+	calls := 0
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) > 61*time.Second {
+			t.Error("question set has no bounded Jev deadline")
+		}
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	e := &Engine{Jev: &jev.Client{BaseURL: "http://jev.test", Key: "k", Model: jev.Model, HTTP: &http.Client{Transport: transport}}}
+	d := handin.DecisionIn{QuestionSet: &handin.QuestionSetIn{Questions: make([]handin.QuestionIn, 64)}}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(30*time.Millisecond, cancel)
+	start := time.Now()
+	if got := e.fitCheck(ctx, uuid.New(), d); got != fitUnavailable {
+		t.Fatalf("verdict %q", got)
+	}
+	if calls != 1 {
+		t.Fatalf("started %d calls after cancellation, want 1", calls)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("cancellation did not stop fit checks promptly")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestJevRejectsLaterQuestionAfterUnavailable(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req jevRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		answers := map[string]any{}
+		for id := range req.Questions {
+			answers[id] = map[string]any{"type": "choice", "choice": "decide_yourself", "probabilities": map[string]float64{"decide_yourself": 0.9}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": jev.Model, "answers": answers})
+	}))
+	defer srv.Close()
+	e := &Engine{Jev: &jev.Client{BaseURL: srv.URL, Key: "k", Model: jev.Model}}
+	d := handin.DecisionIn{QuestionSet: &handin.QuestionSetIn{Questions: make([]handin.QuestionIn, 2)}}
+	if got := e.fitCheck(context.Background(), uuid.New(), d); got != fitDecide || calls != 2 {
+		t.Fatalf("verdict %q after %d calls", got, calls)
 	}
 }
