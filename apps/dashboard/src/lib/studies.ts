@@ -368,11 +368,34 @@ export const isMachineWait = (item: { kind: InboxItem['kind']; cause?: string | 
   item.kind === 'waiting_for_machine' ||
   (item.kind === 'needs_decision' && item.cause === 'machine_failures');
 
+// What a decision or a pass with doubts is about, by the item's cause.
+const decisionLabels: Record<string, string> = {
+  all_withdrawn: 'Everything withdrawn',
+  validation_invalid: 'Validation found invalid results',
+};
+
+// Validation's final statuses, one line per hypothesis: its status and the
+// first reason for it.
+export function validationLines(records: StudyRecord[]): string[] {
+  return records
+    .filter((r) => r.kind === 'validation_status' && !r.superseded_at && r.body.final === true)
+    .map((r) => {
+      const reasons = Array.isArray(r.body.reasons) ? r.body.reasons : [];
+      return [str(r.body.status), ...reasons.slice(0, 1).map(str)].join(' · ');
+    });
+}
+
 export function inboxText(
-  item: { kind: InboxItem['kind']; text: string },
+  item: { kind: InboxItem['kind']; text: string; cause?: string | null },
   study: string,
 ): string | null {
   switch (item.kind) {
+    case 'open_doubts':
+      return `${study}: Passed with open doubts`;
+    case 'needs_decision': {
+      const label = item.cause ? decisionLabels[item.cause] : undefined;
+      return label ? `${study}: ${label}` : null;
+    }
     case 'middle_score': {
       const criterion = /“([^”]+)”/.exec(item.text)?.[1];
       if (!criterion) return null;

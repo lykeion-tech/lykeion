@@ -24,6 +24,7 @@ const kinds: Record<InboxItem['kind'], { label: string; mark: string }> = {
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
   waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
   needs_decision: { label: 'Needs a decision', mark: '?' },
+  open_doubts: { label: 'Passed with open doubts', mark: '?' },
   done: { label: 'Done', mark: '✓' },
 };
 const titleOf = (item: InboxItem) =>

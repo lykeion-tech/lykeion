@@ -82,3 +82,57 @@ func TestReviewEndpointIsWorkspaceScoped(t *testing.T) {
 		t.Fatalf("B read A's review through A's workspace: %d", code)
 	}
 }
+
+func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), uuid.Nil, func(tx *store.Tx) error {
+		for _, x := range []struct {
+			kind string
+			body any
+		}{
+			{"validation_status", map[string]any{"hypothesis": "H1", "status": "invalid", "reasons": []string{"the value did not reproduce"}, "cites": []string{}, "final": true}},
+			{"objection", map[string]any{"target_key": "k", "label": "H1", "type": "leakage", "problem": "p", "server": "ok", "checks": []any{}, "upheld": true, "same_family": true}},
+			{"rerun", map[string]any{"reproduced": map[string]bool{"v": false}, "notes": map[string]string{"v": "off by 3"}}},
+		} {
+			b, _ := json.Marshal(x.body)
+			if _, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+				BoardColumn: "validation", Round: 1, Kind: x.kind, Role: "server", Body: b}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Columns []struct {
+			Column   string
+			Mode     string
+			Statuses []struct {
+				Hypothesis, Status string
+				Reasons            []string
+				Final              bool
+			}
+			Objections []struct{ Label string }
+			Rerun      struct {
+				Reproduced map[string]bool
+				Notes      map[string]string
+			}
+			SameFamily bool `json:"same_family"`
+		}
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, w.ID, nil, &v); code != 200 {
+		t.Fatalf("code %d", code)
+	}
+	val := v.Columns[3]
+	if val.Mode != "claims" || len(val.Statuses) != 1 || val.Statuses[0].Status != "invalid" || !val.Statuses[0].Final ||
+		len(val.Objections) != 1 || val.Rerun.Notes["v"] != "off by 3" || val.Rerun.Reproduced["v"] || !val.SameFamily {
+		t.Fatalf("validation %+v", val)
+	}
+}

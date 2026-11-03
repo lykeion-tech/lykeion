@@ -396,6 +396,25 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.inboxTitle({ kind: 'autoresearch_report' })).toBe('Autoresearch');
     expect(studies.inboxTitle({ kind: 'blocked' })).toBe('Study');
   });
+  it('labels the Validation decisions', () => {
+    const at = (kind: any, cause?: string) => studies.inboxText({ kind, cause, text: 'x' }, 'S');
+    expect(at('needs_decision', 'all_withdrawn')).toBe('S: Everything withdrawn');
+    expect(at('needs_decision', 'validation_invalid')).toBe('S: Validation found invalid results');
+    expect(at('open_doubts')).toBe('S: Passed with open doubts');
+    expect(at('needs_decision', 'could_not_do')).toBeNull();
+  });
+  it('shows final Validation statuses as one line per hypothesis', () => {
+    const rec = (body: Record<string, unknown>, superseded_at: string | null = null) =>
+      ({ kind: 'validation_status', superseded_at, body }) as any;
+    expect(
+      studies.validationLines([
+        rec({ status: 'invalid', reasons: ['did not reproduce', 'x'], final: true }),
+        rec({ status: 'valid', reasons: [], final: true }),
+        rec({ status: 'valid', reasons: ['r'], final: false }),
+        rec({ status: 'valid', reasons: ['r'], final: true }, 't'),
+      ]),
+    ).toEqual(['invalid · did not reproduce', 'valid']);
+  });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
