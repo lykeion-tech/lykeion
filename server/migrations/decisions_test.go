@@ -32,11 +32,11 @@ func TestDecisionColumns(t *testing.T) {
 func TestOpenStopsGetOptions(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := t.Context()
-	up, err := fs.ReadFile(migrations.FS, "0048_decisions.up.sql")
+	up, err := fs.ReadFile(migrations.FS, "0049_decisions.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	down, err := fs.ReadFile(migrations.FS, "0048_decisions.down.sql")
+	down, err := fs.ReadFile(migrations.FS, "0049_decisions.down.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
