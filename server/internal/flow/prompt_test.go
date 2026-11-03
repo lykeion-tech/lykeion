@@ -18,8 +18,8 @@ func TestThePromptListsTheFiles(t *testing.T) {
 		t.Fatalf("the prompt doesn't list the files:\n%s", p)
 	}
 	c.BoardColumn = board.Validation
-	if p := prompt(c, "agent", nil, "", files); !strings.Contains(p, "Attached files (read-only) are in ./attachments: data.csv (cite call:c1), notes.md (cite call:c2)\n") {
-		t.Fatalf("a Validation prompt doesn't list the files with their cites:\n%s", p)
+	if p = prompt(c, "agent", nil, "", files); !strings.Contains(p, "Attached files (read-only) are in ./attachments: data.csv, notes.md\n") {
+		t.Fatalf("a Validation prompt doesn't list the files as the other columns do:\n%s", p)
 	}
 	if strings.Contains(p, "../Data.csv") {
 		t.Fatalf("the prompt names a file by its display name, not its name on disk:\n%s", p)
@@ -55,16 +55,11 @@ func TestExperimentationRunsAreToldToSaveOutputs(t *testing.T) {
 	if p := Protocol("auditor", "experimentation", "", nil); strings.Contains(p, put) {
 		t.Errorf("the auditor is told to save outputs:\n%s", p)
 	}
-	for _, col := range []string{"grounding", "hypotheses"} {
+	for _, col := range []string{"grounding", "hypotheses", "validation"} {
 		for _, role := range []string{"leader", "agent", "Curie"} {
 			if p := Protocol(role, col, "", nil); !strings.Contains(p, put) || !strings.Contains(p, "never by a path in a run folder") || strings.Contains(p, install) {
 				t.Errorf("%s on %s is not told how files are kept, or is told to install:\n%s", role, col, p)
 			}
-		}
-	}
-	for _, role := range []string{"leader", "agent", "auditor", "Curie"} {
-		if p := Protocol(role, "validation", "", nil); strings.Contains(p, put) {
-			t.Errorf("%s on validation is told to save outputs:\n%s", role, p)
 		}
 	}
 }
@@ -134,8 +129,10 @@ func TestItemsPromptPerColumn(t *testing.T) {
 	if !strings.Contains(itemsPrompt(board.Experimentation), "run_script") {
 		t.Errorf("the Experimentation prompt does not tie numbers to run_script runs")
 	}
-	if p := itemsPrompt(board.Validation); p != "" {
-		t.Errorf("Validation declares no items yet, got %q", p)
+	for _, want := range []string{"`assessments`", "`verdicts`", "`flagged_errors`", "`replies`", "you set no status"} {
+		if !strings.Contains(itemsPrompt(board.Validation), want) {
+			t.Errorf("the Validation prompt does not name %s", want)
+		}
 	}
 
 	c := db.Card{Number: 1, BoardColumn: board.Grounding, Question: "q?", GroundingCriteria: []byte(`["historical"]`)}

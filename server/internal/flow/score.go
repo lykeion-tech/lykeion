@@ -190,18 +190,10 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	return false, err
 }
 
-// auditNote is what the auditor is asked to audit: on a hand-in column the
-// leader's answer and the items this attempt handed in, by their ids; on
-// Validation the summary and the records it cites.
+// auditNote is what the auditor is asked to audit: the leader's answer and
+// the items this attempt handed in, by their ids.
 func auditNote(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) (string, error) {
 	text := records.Body[struct{ Text string }](summary).Text
-	if !handsIn(c.BoardColumn) {
-		cited, err := citedRecords(ctx, tx, c, summary)
-		if err != nil {
-			return "", err
-		}
-		return "The leader declared the column done. Audit its summary and the records it cites:\n\n" + evidence(text, cited, maxJevInput), nil
-	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 	if err != nil {
 		return "", err
@@ -294,7 +286,8 @@ var (
 
 // Score asks Jev to score the study's current column once it is declared
 // done and its auditor settled, then moves the study on, redoes the column or
-// blocks it. A column reviewed item by item goes to reviewColumn instead. Jev
+// blocks it. A column reviewed item by item goes to reviewColumn instead, and
+// Validation to reviewValidation. Jev
 // is asked with no transaction open. When Jev cannot be reached the study
 // stays where it is, its owner hears once, and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
@@ -303,6 +296,9 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 		return err
 	}
 	if usesReview(in.card) {
+		if in.card.BoardColumn == board.Validation {
+			return e.reviewValidation(ctx, ws, in)
+		}
 		return e.reviewColumn(ctx, ws, in)
 	}
 	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
@@ -743,20 +739,26 @@ func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause erro
 // writeServer stores a record the server writes itself, under the study's
 // next key, on its current column and round.
 func writeServer(ctx context.Context, tx *store.Tx, c db.Card, kind string, body any) error {
+	_, err := writeServerKey(ctx, tx, c, kind, body)
+	return err
+}
+
+// writeServerKey is writeServer, saying the key the record got.
+func writeServerKey(ctx context.Context, tx *store.Tx, c db.Card, kind string, body any) (string, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	key, err := records.NextRecordKey(ctx, tx, c.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn,
 		Round: c.Round, Kind: kind, Role: "server", Key: key, Body: b})
 	if err != nil {
-		return err
+		return "", err
 	}
-	return tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": "server"})
+	return key, tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": "server"})
 }
 
 func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string) error {
@@ -800,7 +802,7 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
 		return false, err
 	}
-	for _, cause := range []string{"could_not_do", "all_withdrawn"} {
+	for _, cause := range []string{"could_not_do", "all_withdrawn", "validation_invalid"} {
 		ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: cause})
 		if err != nil {
 			return false, err

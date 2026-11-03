@@ -206,9 +206,9 @@ func TestTheLeaderSkillNamesEveryMemberAndItsRole(t *testing.T) {
 	if member := Protocol("bioinformatician", "grounding", "", m); strings.Contains(member, "ask_member") || !strings.Contains(member, "items are optional") {
 		t.Errorf("member protocol:\n%s", member)
 	}
-	// Validation keeps the protocol until it hands in.
+	// Validation's leader asks its members as every leader does.
 	v := Protocol("leader", "validation", "", m)
-	for _, want := range []string{"lyk team step", "lyk team done", "--self", "--cites KEY1,KEY2 "} {
+	for _, want := range []string{"ask_member", "member_result", "bioinformatician", "Copy the items"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("Validation leader: missing %q in:\n%s", want, v)
 		}
@@ -238,8 +238,8 @@ func TestEveryRoleIsToldHowToFindTools(t *testing.T) {
 		if s := Protocol(role, "grounding", "", m); !strings.Contains(s, "find_tools") || !strings.Contains(s, "call_tool") {
 			t.Errorf("%s is not told about find_tools:\n%s", role, s)
 		}
-		if s := Protocol(role, "validation", "", m); !strings.Contains(s, "lyk tools \"what you need\"") || !strings.Contains(s, "call_tool") {
-			t.Errorf("Validation's %s is not told about lyk tools:\n%s", role, s)
+		if s := Protocol(role, "validation", "", m); !strings.Contains(s, "find_tools") || !strings.Contains(s, "call_tool") {
+			t.Errorf("Validation's %s is not told about find_tools:\n%s", role, s)
 		}
 	}
 }
@@ -276,25 +276,12 @@ func TestLaterColumnsAreToldTheEarlierOnes(t *testing.T) {
 	if !strings.Contains(s, "Earlier columns of this study (grounding)") {
 		t.Errorf("a Hypotheses column that starts at Grounding is not told:\n%s", s)
 	}
-	if s := Protocol("agent", "validation", "grounding", nil); !strings.Contains(s, "lyk records --column grounding") {
-		t.Errorf("a Validation column that starts at Grounding is not told how to read it:\n%s", s)
+	if s := Protocol("agent", "validation", "grounding", nil); !strings.Contains(s, "Earlier columns of this study (grounding, hypotheses, experimentation)") {
+		t.Errorf("a Validation column that starts at Grounding is not told the earlier ones:\n%s", s)
 	}
 	for _, c := range [][2]string{{"grounding", "grounding"}, {"hypotheses", "hypotheses"}} {
 		if s := Protocol("agent", c[0], c[1], nil); strings.Contains(s, "Earlier columns") {
 			t.Errorf("first column %s names earlier ones:\n%s", c[0], s)
-		}
-	}
-}
-
-func TestProtocolExamplesNeedNoFileWrites(t *testing.T) {
-	m := &pack.Manifest{Leader: pack.Member{Name: "pi"}, Members: []pack.Member{{Name: "x", Role: "Does x."}}}
-	for _, role := range []string{"leader", "x", "agent", "auditor"} {
-		s := Protocol(role, "validation", "", m)
-		if strings.Contains(s, "--content-file") {
-			t.Errorf("%s:\n%s", role, s)
-		}
-		if strings.Contains(s, "record put") && (strings.Contains(s, "put KIND --content-stdin") || strings.Contains(s, "put audit --content-stdin") || !strings.Contains(s, "--content '")) {
-			t.Errorf("%s writes JSON records through a heredoc or without --content '…':\n%s", role, s)
 		}
 	}
 }

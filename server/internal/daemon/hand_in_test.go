@@ -212,7 +212,8 @@ func TestOutputsSavedBeforeSubmit(t *testing.T) {
 
 func TestRunWithoutSchemaUnchanged(t *testing.T) {
 	f := fixture(t)
-	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = 'validation' WHERE id = $1", f.id)
+	// Every study column owes a hand-in; a run outside the board owes none.
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = '' WHERE id = $1", f.id)
 	must(t, err)
 	calls, paths, _ := handInRun(t, f, nil, func(int) (int, string) { return 200, oneProblem })
 	if len(calls) != 1 || calls[0].schema != "" {

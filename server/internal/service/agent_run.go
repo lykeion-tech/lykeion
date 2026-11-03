@@ -25,7 +25,6 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/availability"
-	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
@@ -605,18 +604,14 @@ func activeSlots(ctx context.Context, tx *store.Tx, ref RuntimeRef) (int, error)
 // withMemberWork is a re-claimed leader run's prompt with what its members
 // already handed in on its column and round, and the member still working,
 // so a leader whose session could not be resumed redoes no member's work.
-// Validation leaders, which take no hand-ins, keep their prompt.
 func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, error) {
-	if t.BoardColumn == board.Validation {
-		return t.Prompt, nil
-	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	for _, r := range recs {
-		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent"}, r.Role) {
+		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent", "objector", "rerun"}, r.Role) {
 			continue
 		}
 		var body struct {

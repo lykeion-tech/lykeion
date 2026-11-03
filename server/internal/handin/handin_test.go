@@ -159,14 +159,6 @@ func TestValidationSchemaIsStrict(t *testing.T) {
 }
 
 func TestKindForValidation(t *testing.T) {
-	defer func(v bool) { validationHandsIn = v }(validationHandsIn)
-	validationHandsIn = false
-	for _, role := range []string{"leader", "agent", "auditor"} {
-		if got, ok := KindFor("role", role, "validation"); ok || got != "" {
-			t.Errorf("gated %s: got %q %v", role, got, ok)
-		}
-	}
-	validationHandsIn = true
 	cases := []struct {
 		role string
 		want Kind
@@ -250,12 +242,6 @@ func TestObjectorHandIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	walk(t, "objector", doc)
-	defer func(v bool) { validationHandsIn = v }(validationHandsIn)
-	validationHandsIn = false
-	if got, ok := KindFor("role", "objector", "validation"); ok || got != "" {
-		t.Errorf("gated objector: %q %v", got, ok)
-	}
-	validationHandsIn = true
 	if got, ok := KindFor("role", "objector", "validation"); !ok || got != Objector {
 		t.Errorf("objector: %q %v", got, ok)
 	}

@@ -43,25 +43,25 @@ func reviewBlockedText(number int32, column string, reasons []string) string {
 	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing:\n- %s\nComment on the study to tell the Team what to fix.", number, title(column), strings.Join(reasons, "\n- "))
 }
 
-// usesReview says whether the study's current column is reviewed item by item:
-// Grounding, Hypotheses and Experimentation, unless the column was already
-// under way when item review shipped.
+// usesReview says whether the study's current column is reviewed item by
+// item, unless the column was already under way when item review shipped.
 func usesReview(c db.Card) bool {
-	return c.BoardColumn != c.LegacyColumn && c.BoardColumn != board.Validation
+	return c.BoardColumn != c.LegacyColumn
 }
 
 // reviewing is what one pass read to review a column's items, with no
 // transaction open. The auditor's findings are never part of it: Jev reviews
 // the items and their evidence alone.
 type reviewing struct {
-	items    []db.Record          // this round's item records
-	carried  []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
-	cited    map[string]db.Record // what the hypotheses cite, by the cite as written
-	saved    []string             // names of the files saved in this column
-	work     []db.Record          // this round's records that may report values, and the column's outputs
-	runs     []db.Record          // the run records the work cites
-	comments []string             // the researchers' comments on the study, oldest first
-	declined map[string]string    // missed papers the Team declined this round, by normalised id, with its reason
+	items    []db.Record            // this round's item records
+	carried  []review.Item          // the last attempt's items that stand, withdrawn or failed unanswered
+	cited    map[string]db.Record   // what the hypotheses cite, by the cite as written
+	saved    []string               // names of the files saved in this column
+	work     []db.Record            // this round's records that may report values, and the column's outputs
+	runs     []db.Record            // the run records the work cites
+	comments []string               // the researchers' comments on the study, oldest first
+	declined map[string]string      // missed papers the Team declined this round, by normalised id, with its reason
+	sources  map[string][]db.Record // the calls holding each source Validation's claims cite
 }
 
 // reviewColumn reviews the study's current column item by item, writes the
@@ -166,6 +166,11 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				it.Checks = []review.Check{{ID: "withdrawn", By: "agent", Detail: reason, Status: review.Withdrawn}}
 			}
 			rv.carried = append(rv.carried, it)
+		}
+		if c.BoardColumn == board.Validation {
+			if rv.sources, err = claimSources(ctx, tx, c.ID, rv.items); err != nil {
+				return err
+			}
 		}
 		var citeKeys, runKeys []string
 		for _, r := range rv.items {
@@ -384,6 +389,12 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 		})
 		return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
 			Values: values, Carried: rv.carried, Attempt: in.attempt})
+	case board.Validation:
+		texts, err := e.sourceTexts(ctx, rv.sources)
+		if err != nil {
+			return review.Result{}, fmt.Errorf("reading sources: %w", err)
+		}
+		return review.Claims(ctx, a, review.ClaimsInput{Items: rv.items, Sources: texts, Carried: rv.carried, Attempt: int32(in.attempt)})
 	}
 	return review.Result{}, fmt.Errorf("no item review for the %s column", in.card.BoardColumn)
 }

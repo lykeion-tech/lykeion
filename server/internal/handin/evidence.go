@@ -78,6 +78,17 @@ type Evidence struct {
 	Mode string
 }
 
+// ModeOf is how Validation checks a study, from its records in every
+// column: "runs" when Experimentation's lead handed in, else "claims".
+func ModeOf(study []db.Record) string {
+	for _, r := range study {
+		if r.BoardColumn == board.Experimentation && r.Kind == "summary" && Leads(r.Role) && r.SupersededAt == nil {
+			return "runs"
+		}
+	}
+	return "claims"
+}
+
 // NewEvidence indexes the live records among recs, from every column.
 // A call's answer is searched as stored, which is cut at records.MaxCallAnswer.
 func NewEvidence(recs []db.Record) Evidence {

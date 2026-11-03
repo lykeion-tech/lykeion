@@ -96,7 +96,7 @@ RETURNING id;
 -- name: CardHoldText :one
 SELECT text FROM inbox_item
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND resolved_at IS NULL
-  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn'))
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 ORDER BY created_at DESC LIMIT 1;
 
 -- name: DeleteCard :exec

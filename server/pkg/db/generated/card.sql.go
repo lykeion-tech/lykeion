@@ -178,7 +178,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 const cardHoldText = `-- name: CardHoldText :one
 SELECT text FROM inbox_item
 WHERE workspace_id = $1 AND card_id = $2 AND resolved_at IS NULL
-  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn'))
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 ORDER BY created_at DESC LIMIT 1
 `
 

@@ -57,26 +57,51 @@ func rivalLabel(i int) string {
 // the names of the study's values and saved files. It holds no names of who
 // did the work. labels maps each label to its hypothesis's text.
 func ObjectorBrief(statuses []StatusResult, hs []HypothesisBody, values, outputs []string, seed int64) (string, map[string]string) {
+	labels := map[string]string{}
+	var b strings.Builder
+	for _, r := range shuffled(statuses, hs, seed) {
+		labels[r.label] = r.text
+		fmt.Fprintf(&b, "%s\n%s\n", r.label, r.block)
+	}
+	fmt.Fprintf(&b, "Values: %s\nSaved files: %s\n", strings.Join(values, ", "), strings.Join(outputs, ", "))
+	return objectorHandIn + fence.Untrusted("The study's hypotheses, values and saved files", b.String()), labels
+}
+
+// RivalTexts is the text the objector was shown under each label of
+// ObjectorBrief with the same arguments: what an objection to that label is
+// checked against.
+func RivalTexts(statuses []StatusResult, hs []HypothesisBody, seed int64) map[string]string {
+	out := map[string]string{}
+	for _, r := range shuffled(statuses, hs, seed) {
+		out[r.label] = r.block
+	}
+	return out
+}
+
+type rival struct{ label, text, block string }
+
+// shuffled are the hypotheses shuffled by seed, each with its label and the
+// block the brief shows under it.
+func shuffled(statuses []StatusResult, hs []HypothesisBody, seed int64) []rival {
 	byText := map[string]StatusResult{}
 	for _, s := range statuses {
 		byText[strings.TrimSpace(s.Hypothesis)] = s
 	}
-	labels := map[string]string{}
-	var b strings.Builder
+	var out []rival
 	for i, j := range rand.New(rand.NewPCG(uint64(seed), 0)).Perm(len(hs)) {
-		h, label := hs[j], rivalLabel(i)
-		labels[label] = h.Text
-		fmt.Fprintf(&b, "%s\nHypothesis: %s\n%s\n", label, h.Text, predictionLine(h.Prediction))
+		h := hs[j]
+		var b strings.Builder
+		fmt.Fprintf(&b, "Hypothesis: %s\n%s\n", h.Text, predictionLine(h.Prediction))
 		if h.Control.None != "" {
 			fmt.Fprintf(&b, "No control: %s\n", h.Control.None)
 		} else {
 			fmt.Fprintf(&b, "Control: %s\n", h.Control.Text)
 		}
 		s := byText[strings.TrimSpace(h.Text)]
-		fmt.Fprintf(&b, "Status: %s\nWhy: %s\n\n", s.Status, strings.Join(s.Reasons, "; "))
+		fmt.Fprintf(&b, "Status: %s\nWhy: %s\n", s.Status, strings.Join(s.Reasons, "; "))
+		out = append(out, rival{label: rivalLabel(i), text: h.Text, block: b.String()})
 	}
-	fmt.Fprintf(&b, "Values: %s\nSaved files: %s\n", strings.Join(values, ", "), strings.Join(outputs, ", "))
-	return objectorHandIn + fence.Untrusted("The study's hypotheses, values and saved files", b.String()), labels
+	return out
 }
 
 // objectionQuestions are Jev's two questions on an objection; both must pass

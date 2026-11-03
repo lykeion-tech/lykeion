@@ -120,12 +120,7 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 			}
 		}
 		ev := NewEvidence(study)
-		ev.Mode = "claims"
-		for _, r := range study {
-			if r.BoardColumn == board.Experimentation && r.Kind == "summary" && Leads(r.Role) && r.SupersededAt == nil {
-				ev.Mode = "runs"
-			}
-		}
+		ev.Mode = ModeOf(study)
 		recs, more := Convert(k, lead, h, ev, prev)
 		if probs = append(probs, more...); len(probs) > 0 {
 			return nil

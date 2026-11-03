@@ -266,7 +266,7 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 const inFlightMemberRun = `-- name: InFlightMemberRun :one
 SELECT id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4
-  AND role NOT IN ('', 'leader', 'auditor', 'agent') AND status IN ('queued', 'dispatched', 'running')
+  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1
 `
 
@@ -278,8 +278,8 @@ type InFlightMemberRunParams struct {
 }
 
 // A member's run of a column's round that has not ended: queued, dispatched
-// or running. Members are every role but the leader, the auditor and a
-// study's single agent.
+// or running. Members are every role but the leader, the auditor, a study's
+// single agent and Validation's system runs, the objector and the rerun.
 func (q *Queries) InFlightMemberRun(ctx context.Context, arg InFlightMemberRunParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, inFlightMemberRun,
 		arg.WorkspaceID,

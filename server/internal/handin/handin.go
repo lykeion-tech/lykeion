@@ -28,25 +28,18 @@ const (
 	Objector        Kind = "objector"
 )
 
-// validationHandsIn says whether Validation's runs, its auditor's included,
-// owe a hand-in; until its engine reads hand-ins they still work through lyk.
-var validationHandsIn = false
-
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
 func KindFor(runKind, role, column string) (Kind, bool) {
 	switch {
 	case runKind == "autoresearch":
 		return Autoresearch, true
-	case role == "auditor" && (column != board.Validation || validationHandsIn):
+	case role == "auditor":
 		return Auditor, true
-	case role == "objector" && column == board.Validation && validationHandsIn:
+	case role == "objector" && column == board.Validation:
 		return Objector, true
 	}
 	switch column {
 	case board.Validation:
-		if !validationHandsIn {
-			return "", false
-		}
 		return Validation, true
 	case board.Grounding:
 		return Grounding, true

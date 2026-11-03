@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/review"
@@ -179,13 +180,21 @@ func (e *Engine) worker(ctx context.Context, tx *store.Tx, c db.Card) (string, *
 // Start enqueues the first run of the study's current column, in the
 // caller's transaction: the leader's on a Team column, the study's agent's
 // otherwise. A redone column's first run carries the reason for the redo.
+// A Validation round that checks the study's runs also starts their rerun.
 func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 	role, m, a, err := e.worker(ctx, tx, c)
 	if err != nil {
 		return err
 	}
-	_, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote)
-	return err
+	if _, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote); err != nil || c.BoardColumn != board.Validation {
+		return err
+	}
+	// A Validation round that checks the study's runs replays them while
+	// its lead works.
+	if mode, err := validationMode(ctx, tx, c.ID); err != nil || mode != modeRuns {
+		return err
+	}
+	return e.startRerun(ctx, tx, c)
 }
 
 // enqueue queues one run of role on the study's current column. The run
@@ -222,14 +231,19 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 		return "", nil, err
 	}
 	p := prompt(c, role, comments, ws.ResearchContext, files)
-	if handsIn(c.BoardColumn) {
-		earlier, err := earlierWork(ctx, tx, c)
+	earlier, err := earlierWork(ctx, tx, c)
+	if err != nil {
+		return "", nil, err
+	}
+	if earlier != "" {
+		p += "\n" + earlier
+	}
+	if c.BoardColumn == board.Validation && role != "auditor" {
+		mode, err := validationMode(ctx, tx, c.ID)
 		if err != nil {
 			return "", nil, err
 		}
-		if earlier != "" {
-			p += "\n" + earlier
-		}
+		p += "\n" + modeLines[mode] + "\n"
 	}
 	if note != "" {
 		p += "\n" + note + "\n"
