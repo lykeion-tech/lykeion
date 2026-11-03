@@ -16,6 +16,10 @@ import (
 const DefaultPythonVersion = "3.13"
 
 var setupLimit = 30 * time.Minute
+
+// SetupLimit is how long one environment setup may take.
+func SetupLimit() time.Duration { return setupLimit }
+
 var pythonVersionPattern = regexp.MustCompile(`^3\.(9|1[0-4])$`)
 
 func ValidPythonVersion(v string) bool { return pythonVersionPattern.MatchString(v) }

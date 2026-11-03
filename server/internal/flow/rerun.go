@@ -93,7 +93,7 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 	if err != nil {
 		return err
 	}
-	if steps, _ := service.RerunSteps(exp); len(steps) > 0 {
+	if steps := service.RerunSteps(exp); len(steps) > 0 {
 		_, err = e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
 		return err
 	}
@@ -145,7 +145,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		if exp, err = service.ExperimentationRound(ctx, tx, *t.CardID); err != nil {
 			return err
 		}
-		claimed, _ = service.RerunSteps(exp)
+		claimed = service.RerunSteps(exp)
 		_, m, err := columnTeam(ctx, tx, *t.CardID, board.Experimentation)
 		if err == nil {
 			tolerance = m.Validation.Tolerance

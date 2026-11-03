@@ -85,10 +85,10 @@ type rerunClaim struct {
 	} `json:"agent_run"`
 	Token string
 	Rerun *struct {
-		Steps       []struct{ Key, Path, Language, Script string }
+		Steps       []struct{ Key, Path, Language, Script, Packages string }
 		Python      string
-		Packages    string
 		Attachments []any
+		Saved       []struct{ Name, Sha256 string }
 	}
 	ref map[string]any
 }
@@ -170,8 +170,11 @@ func TestRerunClaimCarriesScriptsInOrder(t *testing.T) {
 	if want := []string{"x1 prep.py python # prep.py", "x3 fit.py python # fit.py"}; !slices.Equal(got, want) {
 		t.Fatalf("steps %q, want %q", got, want)
 	}
-	if cl.Rerun.Python != "3.12" || !strings.Contains(cl.Rerun.Packages, "scipy==1.14") {
-		t.Fatalf("python %q packages %q", cl.Rerun.Python, cl.Rerun.Packages)
+	if cl.Rerun.Python != "3.12" || !strings.Contains(cl.Rerun.Steps[0].Packages, "scipy==1.13") || !strings.Contains(cl.Rerun.Steps[1].Packages, "scipy==1.14") {
+		t.Fatalf("python %q steps %+v", cl.Rerun.Python, cl.Rerun.Steps)
+	}
+	if cl.Rerun.Saved == nil || len(cl.Rerun.Saved) != 0 {
+		t.Fatalf("a first attempt has saved %+v", cl.Rerun.Saved)
 	}
 }
 
@@ -361,5 +364,70 @@ func TestAFailedRerunRecordsNothingReproduced(t *testing.T) {
 	}
 	if n := len(l2.rerunRecords(t)); n != 0 {
 		t.Fatalf("a cancelled rerun wrote %d records", n)
+	}
+}
+
+func TestARetriedRerunKnowsItsSavedOutputs(t *testing.T) {
+	l := newRerunLab(t)
+	l.script(t, "x1", "fit.py", 0, "")
+	l.enqueue(t)
+	cl := l.claim(t)
+	l.upload(t, cl.Token, "outputs/auc.txt", "0.873\n")
+	if c := l.result(t, cl, map[string]any{"steps": []any{}, "outputs": []any{}, "failure": "machine_offline"}); c != 200 {
+		t.Fatalf("result %d", c)
+	}
+	for _, sql := range []string{"UPDATE agent_run SET retry_after = NULL WHERE id = $1", "UPDATE runtime SET unhealthy_reason = NULL WHERE id = $1"} {
+		id := cl.AgentRun.ID
+		if strings.Contains(sql, "runtime") {
+			id = l.rts
+		}
+		if _, err := l.s.Env.Owner.Exec(t.Context(), sql, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again := l.claim(t)
+	if again.AgentRun.ID != cl.AgentRun.ID || again.AgentRun.Attempt == cl.AgentRun.Attempt {
+		t.Fatalf("claimed %+v", again.AgentRun)
+	}
+	if len(again.Rerun.Saved) != 1 || again.Rerun.Saved[0].Name != "outputs/auc.txt" || again.Rerun.Saved[0].Sha256 != hexSHA("0.873\n") {
+		t.Fatalf("saved %+v", again.Rerun.Saved)
+	}
+}
+
+func TestARerunGetsTheStudysServices(t *testing.T) {
+	l := newRerunLab(t)
+	_, up := l.s.serviceUpload(t, l.jwt, l.ws, "s.tar", serviceTar(t), false)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE attachment SET card_id = $1, service_name = 'evaluator', service_start = 'python server.py' WHERE id = $2", l.card, up["id"]); err != nil {
+		t.Fatal(err)
+	}
+	l.script(t, "x1", "fit.py", 0, "")
+	l.enqueue(t)
+	ref := map[string]any{"workspace_id": l.ws, "runtime_id": l.rts}
+	var claims []map[string]json.RawMessage
+	if c := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, &claims); c != 200 || len(claims) != 1 {
+		t.Fatalf("claim %d %v", c, claims)
+	}
+	if !strings.Contains(string(claims[0]["services"]), `"name":"evaluator"`) {
+		t.Fatalf("services %s", claims[0]["services"])
+	}
+	var run struct {
+		ID      string
+		Attempt int
+	}
+	json.Unmarshal(claims[0]["agent_run"], &run)
+	ref["attempt"] = run.Attempt
+	if c := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.ID+"/start", l.personal, "", ref, nil); c != 204 {
+		t.Fatalf("start %d", c)
+	}
+	req, _ := http.NewRequest("GET", l.s.URL+"/api/daemon/runs/"+run.ID+"/services/"+up["id"].(string), nil)
+	req.Header.Set("Authorization", "Bearer "+l.personal)
+	req.Header.Set("X-Workspace-ID", l.ws)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("the rerun's daemon could not fetch the service: %d", resp.StatusCode)
 	}
 }

@@ -163,23 +163,34 @@ type ClaimedCoresearch struct {
 }
 
 // RerunStep is a recorded script run a rerun replays: the run record's key,
-// and what it ran.
+// what it ran, and the package list it saved, empty when that list is gone.
 type RerunStep struct {
 	Key      string `json:"key"`
 	Path     string `json:"path"`
 	Language string `json:"language"`
 	Script   string `json:"script"`
+	Packages string `json:"packages"`
+	// packagesSHA names the saved list's blob, read once the claim's
+	// transaction is closed.
+	packagesSHA string
+}
+
+// SavedOutput is an output a rerun's earlier attempt already saved.
+type SavedOutput struct {
+	Name   string `json:"name"`
+	Sha256 string `json:"sha256"`
 }
 
 // ClaimedRerun is what a rerun replays: the scripts of the study's newest
 // Experimentation round that exited 0, in the order they ran, in a fresh
-// environment rebuilt from the newest step's package list and the study's
-// Python version, with the study's attachments in place.
+// environment rebuilt from each step's package list and the study's Python
+// version, with the study's attachments in place. Saved are the outputs an
+// earlier attempt of the rerun already saved, which are not saved again.
 type ClaimedRerun struct {
 	Steps       []RerunStep         `json:"steps"`
 	Python      string              `json:"python"`
-	Packages    string              `json:"packages"`
 	Attachments []ClaimedAttachment `json:"attachments"`
+	Saved       []SavedOutput       `json:"saved"`
 }
 
 type Claimed struct {
@@ -925,7 +936,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						if err != nil {
 							return err
 						}
-						if t.BoardColumn == "experimentation" {
+						// A rerun replays Experimentation's scripts, which may call
+						// its services.
+						if t.BoardColumn == "experimentation" || t.Kind == "rerun" {
 							rows, err := tx.Q.CardServices(ctx, db.CardServicesParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
 							if err != nil {
 								return err
@@ -948,11 +961,21 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						if err != nil {
 							return err
 						}
-						steps, packages := RerunSteps(recs)
-						rerun = &ClaimedRerun{Steps: steps, Python: python, Attachments: files}
-						if packages != "" {
-							rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/" + packages
+						own, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: ref.WorkspaceID, AgentRunID: &t.ID})
+						if err != nil {
+							return err
 						}
+						saved := []SavedOutput{}
+						for _, r := range own {
+							if r.Kind == "output" {
+								var b SavedOutput
+								if json.Unmarshal(r.Body, &b) == nil {
+									saved = append(saved, b)
+								}
+							}
+						}
+						rerun = &ClaimedRerun{Steps: RerunSteps(recs), Python: python, Attachments: files, Saved: saved}
+						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
 					}
 					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
 						// No CLI offers the frozen model any longer: run on the CLI's default.
@@ -990,20 +1013,31 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	// A Team pack and a package list are blobs, read only once the
 	// transaction is closed.
 	for i := range out {
-		if key, ok := rerunPackages[out[i].AgentRun.ID]; ok {
-			// A list that is gone leaves none to rebuild from, which the
-			// daemon reports as an environment that could not be rebuilt.
-			rc, err := s.Blobs.Get(ctx, key)
-			if err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return nil, fmt.Errorf("reading a rerun's package list: %w", err)
-			}
-			if err == nil {
-				b, err := io.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					return nil, err
+		if prefix, ok := rerunPackages[out[i].AgentRun.ID]; ok {
+			lists := map[string]string{}
+			for j, step := range out[i].Rerun.Steps {
+				if step.packagesSHA == "" {
+					continue
 				}
-				out[i].Rerun.Packages = string(b)
+				list, ok := lists[step.packagesSHA]
+				if !ok {
+					// A list that is gone leaves none to rebuild from, which the
+					// daemon reports as an environment that could not be rebuilt.
+					rc, err := s.Blobs.Get(ctx, prefix+step.packagesSHA)
+					if err != nil && !errors.Is(err, storage.ErrNotFound) {
+						return nil, fmt.Errorf("reading a rerun's package list: %w", err)
+					}
+					if err == nil {
+						b, err := io.ReadAll(rc)
+						rc.Close()
+						if err != nil {
+							return nil, err
+						}
+						list = string(b)
+					}
+					lists[step.packagesSHA] = list
+				}
+				out[i].Rerun.Steps[j].Packages = list
 			}
 		}
 		if out[i].Coresearch != nil {

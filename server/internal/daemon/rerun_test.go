@@ -24,6 +24,7 @@ import (
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/service"
+	"lykeion/server/pkg/agent"
 )
 
 // rerunServer is a stand-in for Lykeion's server as a rerun meets it: it
@@ -34,6 +35,7 @@ type rerunServer struct {
 	started     bool
 	attachments map[uuid.UUID]string
 	outputs     map[string]string
+	services    map[string][]byte
 	result      map[string]any
 	fail        map[string]any
 	tokens      []string
@@ -48,6 +50,9 @@ func (s *rerunServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, "/prepare-lease"):
 	case strings.HasSuffix(p, "/start"):
 		s.started = true
+	case strings.HasPrefix(p, "/api/daemon/runs/") && s.services[p] != nil:
+		w.Write(s.services[p])
+		return
 	case strings.HasPrefix(p, "/api/role/attachments/"):
 		id, _ := uuid.Parse(strings.TrimPrefix(p, "/api/role/attachments/"))
 		w.Write([]byte(s.attachments[id]))
@@ -91,17 +96,32 @@ type rerunCase struct {
 
 type condaCall struct{ python, lock string }
 
-// newRerun is a rerun of steps over a study with a ready Python base whose
-// scripts run under /bin/sh in a stand-in sandbox; adjust may change the
-// door before it starts.
+// fakeRscript notes each command line it is given in Rscript.log beside
+// itself, and lists no installed package.
+const fakeRscript = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.log\"\n"
+
+// newRerun is a rerun of steps over a study with ready Python and R bases
+// whose scripts run under /bin/sh in a stand-in sandbox. A step with no
+// package list of its own saved packages; adjust may change the door
+// before it starts.
 func newRerun(t *testing.T, packages string, steps []service.RerunStep, adjust func(*Door)) *rerunCase {
 	t.Helper()
-	rc := &rerunCase{srv: &rerunServer{attachments: map[uuid.UUID]string{}, outputs: map[string]string{}}, sandbox: &sandboxed{}}
+	rc := &rerunCase{srv: &rerunServer{attachments: map[uuid.UUID]string{}, outputs: map[string]string{}, services: map[string][]byte{}}, sandbox: &sandboxed{}}
 	srv := httptest.NewServer(rc.srv)
 	t.Cleanup(srv.Close)
-	bases := fakeStudy(t, envs.Python).Bases
+	bases := fakeStudy(t, envs.Python, envs.R).Bases
+	must(t, os.MkdirAll(filepath.Join(bases.Dir, "r", "bin"), 0o755))
+	must(t, os.WriteFile(filepath.Join(bases.Dir, "r", "bin", "Rscript"), []byte(fakeRscript), 0o755))
+	steps = slices.Clone(steps)
+	for i := range steps {
+		if steps[i].Packages == "" {
+			steps[i].Packages = packages
+		}
+	}
 	runtimeID, ws, card, owner := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	state := t.TempDir()
+	// Service code is kept read-only.
+	t.Cleanup(func() { agent.RemoveTree(state) })
 	rc.d = &daemon{cfg: Config{Server: srv.URL, StateDir: state, Home: t.TempDir()}, bases: bases, ownerOf: map[uuid.UUID]uuid.UUID{runtimeID: owner},
 		api: &apiclient.Client{Server: srv.URL, Token: "lyk_daemon"}}
 	rc.d.messages = &Outbox{Dir: filepath.Join(state, "messages"), Send: rc.d.sendMessages}
@@ -135,7 +155,7 @@ func newRerun(t *testing.T, packages string, steps []service.RerunStep, adjust f
 	rc.c.AgentRun.ID, rc.c.AgentRun.WorkspaceID, rc.c.AgentRun.RuntimeID = uuid.New(), ws, &runtimeID
 	rc.c.AgentRun.ResponsibleUserID, rc.c.AgentRun.CardID, rc.c.AgentRun.Attempt, rc.c.AgentRun.Kind = owner, &card, 1, "rerun"
 	rc.c.Token = "ltk_rerun_secret"
-	rc.c.Rerun = &service.ClaimedRerun{Steps: steps, Packages: packages}
+	rc.c.Rerun = &service.ClaimedRerun{Steps: steps}
 	return rc
 }
 
@@ -162,7 +182,12 @@ func TestRerunReplaysScriptsInAFreshFolder(t *testing.T) {
 	steps := []service.RerunStep{
 		{Key: "run1", Path: "src/make.py", Language: envs.Python, Script: "mkdir -p outputs && echo 0.873 > outputs/auc.txt && echo made\n"},
 		{Key: "run2", Path: "report.py", Language: envs.Python, Script: "cat outputs/auc.txt\n"},
+		{Key: "run3", Path: "env.py", Language: envs.Python, Script: "env\n"},
 	}
+	// The daemon's own token is in its environment; neither it nor the
+	// rerun's may reach a script.
+	t.Setenv("LYK_TOKEN", "lyk_daemon")
+	t.Setenv("LYKEION_SECRET_PROBE", "ltk_rerun_secret")
 	rc := newRerun(t, fakePackages, steps, nil)
 	before, mtime := listing(t, rc.original)
 	rc.run(t)
@@ -171,8 +196,12 @@ func TestRerunReplaysScriptsInAFreshFolder(t *testing.T) {
 		t.Fatalf("no result posted; fail report %v", rc.srv.fail)
 	}
 	got := rc.srv.result["steps"].([]any)
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("steps %v", got)
+	}
+	env := got[2].(map[string]any)["output"].(string)
+	if !strings.Contains(env, "PATH=") || strings.Contains(env, "lyk_daemon") || strings.Contains(env, "ltk_rerun_secret") {
+		t.Fatalf("a token reached a script, or env did not run: %q", env)
 	}
 	first, second := got[0].(map[string]any), got[1].(map[string]any)
 	if first["key"] != "run1" || first["output"] != "made\n" || first["exit_status"] != 0.0 {
@@ -259,7 +288,7 @@ func TestRerunEnvironmentFromSavedPackages(t *testing.T) {
 			b, err := os.ReadFile(lock)
 			must(t, err)
 			rc.conda = append(rc.conda, condaCall{python, string(b)})
-			return "", errors.New("conda-forge has no such build")
+			return "error    libmamba Could not solve for environment specs", errors.New("exit status 1")
 		}
 		rc.run(t)
 		if len(rc.conda) != 1 || rc.conda[0].python != "3.11" || rc.conda[0].lock != "@EXPLICIT\nhttps://conda/python-3.11.tar.bz2\n" {
@@ -323,5 +352,210 @@ func TestRerunAttachmentsReadOnly(t *testing.T) {
 	dir := filepath.Join(rc.d.cfg.Home, scratchName(rc.c.AgentRun.ID, 1), "attachments")
 	if len(policies) == 0 || !slices.ContainsFunc(policies[len(policies)-1].ReadOnly, func(p string) bool { return p == dir }) {
 		t.Fatalf("attachments are not read-only in the sandbox")
+	}
+}
+
+// TestRerunMachineFailuresAreRetried: a cause on the machine is never the
+// saved list's: it fails the run with an infrastructure reason, which the
+// server retries, and posts no result.
+func TestRerunMachineFailuresAreRetried(t *testing.T) {
+	steps := []service.RerunStep{{Key: "run1", Path: "a.py", Language: envs.Python, Script: "echo 1\n"}}
+	for name, tc := range map[string]struct {
+		setup  func(*rerunCase)
+		reason string
+	}{
+		"no language bases": {func(rc *rerunCase) { rc.d.bases = nil }, "runtime_offline"},
+		"conda can't reach its channel": {func(rc *rerunCase) {
+			rc.d.setUpConda = func(*envs.Study, context.Context, string, []string, string) (string, error) {
+				return "Could not resolve host: conda.anaconda.org", errors.New("exit status 1")
+			}
+		}, "runtime_offline"},
+		"conda fails for no stated reason": {func(rc *rerunCase) {
+			rc.d.setUpConda = func(*envs.Study, context.Context, string, []string, string) (string, error) {
+				return "", errors.New("signal: killed")
+			}
+		}, "runtime_offline"},
+		"the setup runs past its limit": {func(rc *rerunCase) {
+			rc.d.rebuildLimit = 50 * time.Millisecond
+			rc.d.setUpConda = func(_ *envs.Study, ctx context.Context, _ string, _ []string, _ string) (string, error) {
+				<-ctx.Done()
+				return "", errors.New("signal: killed")
+			}
+		}, "timeout"},
+		"the interpreter won't start": {func(rc *rerunCase) {
+			rc.d.rerunDoor = chainDoor(rc.d.rerunDoor, func(d *Door) {
+				d.interp = func(string) (string, []string, error) { return "/nonexistent/interpreter", nil, nil }
+			})
+		}, "runtime_offline"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rc := newRerun(t, fakePackages, steps, nil)
+			tc.setup(rc)
+			rc.run(t)
+			if rc.srv.result != nil {
+				t.Fatalf("posted %v", rc.srv.result)
+			}
+			if rc.srv.fail == nil || rc.srv.fail["failure_reason"] != tc.reason {
+				t.Fatalf("fail report %v, want reason %s", rc.srv.fail, tc.reason)
+			}
+		})
+	}
+}
+
+func chainDoor(a, b func(*Door)) func(*Door) { return func(d *Door) { a(d); b(d) } }
+
+// cran stands in for CRAN, serving only the files it holds and noting every
+// path asked for.
+type cran struct {
+	mu    sync.Mutex
+	files map[string]string
+	asked []string
+	down  bool
+}
+
+func (c *cran) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.asked = append(c.asked, r.URL.Path)
+	if c.down {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	b, ok := c.files[r.URL.Path]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Write([]byte(b))
+}
+
+func TestRerunRebuildsEachLanguageFromItsOwnList(t *testing.T) {
+	const rList = "# r base\nr-lock\n\n# r study\nggplot2 3.4.0\noldpkg 1.0\n"
+	steps := func() []service.RerunStep {
+		return []service.RerunStep{
+			{Key: "run1", Path: "fit.py", Language: envs.Python, Script: "echo py\n", Packages: fakePackages},
+			{Key: "run2", Path: "plot.R", Language: envs.R, Script: "echo r\n", Packages: rList},
+		}
+	}
+	serve := func(t *testing.T, c *cran) {
+		srv := httptest.NewServer(c)
+		t.Cleanup(srv.Close)
+		old := cranURL
+		cranURL = srv.URL
+		t.Cleanup(func() { cranURL = old })
+	}
+	t.Run("each package at its saved version", func(t *testing.T) {
+		c := &cran{files: map[string]string{"/src/contrib/ggplot2_3.4.0.tar.gz": "gg", "/src/contrib/Archive/oldpkg/oldpkg_1.0.tar.gz": "old"}}
+		serve(t, c)
+		rc := newRerun(t, "", steps(), nil)
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != nil || len(rc.srv.result["steps"].([]any)) != 2 {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
+		}
+		if len(rc.conda) != 1 || rc.conda[0].lock != "python-lock\n" {
+			t.Fatalf("python was not rebuilt from its own list: %+v", rc.conda)
+		}
+		want := []string{"/src/contrib/ggplot2_3.4.0.tar.gz", "/src/contrib/oldpkg_1.0.tar.gz", "/src/contrib/Archive/oldpkg/oldpkg_1.0.tar.gz"}
+		if !slices.Equal(c.asked, want) {
+			t.Fatalf("asked CRAN for %q, want %q", c.asked, want)
+		}
+		log, err := os.ReadFile(filepath.Join(rc.d.bases.Dir, "r", "bin", "Rscript.log"))
+		must(t, err)
+		i := strings.Index(string(log), "install.packages")
+		if i < 0 || !strings.Contains(string(log)[i:], "saved-r/ggplot2_3.4.0.tar.gz") || !strings.Contains(string(log)[i:], "saved-r/oldpkg_1.0.tar.gz") {
+			t.Fatalf("Rscript ran %s", log)
+		}
+		commands, _ := rc.sandbox.seen()
+		if !slices.ContainsFunc(commands, func(c []string) bool {
+			return strings.HasSuffix(c[0], "Rscript") && slices.ContainsFunc(c, func(a string) bool { return strings.Contains(a, "install.packages") })
+		}) {
+			t.Fatalf("the R packages were not installed in the sandbox: %v", commands)
+		}
+	})
+	t.Run("a version CRAN never had", func(t *testing.T) {
+		c := &cran{files: map[string]string{"/src/contrib/ggplot2_3.4.0.tar.gz": "gg"}}
+		serve(t, c)
+		rc := newRerun(t, "", steps(), nil)
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != "environment" {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
+		}
+	})
+	t.Run("CRAN unreachable", func(t *testing.T) {
+		serve(t, &cran{down: true})
+		rc := newRerun(t, "", steps(), nil)
+		rc.run(t)
+		if rc.srv.result != nil || rc.srv.fail == nil || rc.srv.fail["failure_reason"] != "runtime_offline" {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
+		}
+	})
+	t.Run("a language with no list of its own", func(t *testing.T) {
+		s := steps()
+		s[1].Packages = fakePackages
+		rc := newRerun(t, "", s, nil)
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != "environment" {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
+		}
+	})
+}
+
+func TestRerunKeepsAnEarlierAttemptsOutputs(t *testing.T) {
+	steps := []service.RerunStep{{Key: "run1", Path: "a.py", Language: envs.Python, Script: "mkdir -p outputs && echo 1 > outputs/auc.txt && echo 2 > outputs/new.txt\n"}}
+	rc := newRerun(t, fakePackages, steps, nil)
+	rc.c.AgentRun.Attempt = 2
+	rc.c.Rerun.Saved = []service.SavedOutput{{Name: "outputs/auc.txt", Sha256: "earlier"}}
+	rc.run(t)
+	if _, again := rc.srv.outputs["outputs/auc.txt"]; again || rc.srv.outputs["outputs/new.txt"] != "2\n" {
+		t.Fatalf("uploaded %v", rc.srv.outputs)
+	}
+	sum := sha256.Sum256([]byte("2\n"))
+	got, _ := json.Marshal(rc.srv.result["outputs"])
+	want, _ := json.Marshal([]map[string]string{{"name": "outputs/auc.txt", "text_sha256": "earlier"}, {"name": "outputs/new.txt", "text_sha256": hex.EncodeToString(sum[:])}})
+	if string(got) != string(want) {
+		t.Fatalf("outputs %s, want %s", got, want)
+	}
+}
+
+func TestRerunRefusesProtectedPaths(t *testing.T) {
+	var steps []service.RerunStep
+	for _, p := range []string{".lyk-env/bin/python", "attachments/x.py", "CLAUDE.md", ".claude/x.py", "src/../.lyk-env/x.py", "fine.py"} {
+		steps = append(steps, service.RerunStep{Key: p, Path: p, Language: envs.Python, Script: "echo ran\n"})
+	}
+	rc := newRerun(t, fakePackages, steps, nil)
+	rc.run(t)
+	if rc.srv.result == nil {
+		t.Fatalf("fail %v", rc.srv.fail)
+	}
+	for _, s := range rc.srv.result["steps"].([]any) {
+		step := s.(map[string]any)
+		ran := step["exit_status"] == 0.0 && step["output"] == "ran\n"
+		if ran != (step["key"] == "fine.py") || (!ran && !strings.Contains(step["error"].(string), "kept for the run")) {
+			t.Fatalf("step %v", step)
+		}
+	}
+}
+
+func TestRerunStartsTheStudysServices(t *testing.T) {
+	steps := []service.RerunStep{{Key: "run1", Path: "a.py", Language: envs.Python, Script: "echo \"$LYK_SERVICE_EVALUATOR_URL\"\n"}}
+	rc := newRerun(t, fakePackages, steps, nil)
+	blob := serviceArchive(t)
+	sum := sha256.Sum256(blob)
+	spec := service.ClaimedService{ID: uuid.New(), Name: "evaluator", Start: "exec ./helper", Sha256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(blob))}
+	rc.c.Services = []service.ClaimedService{spec}
+	rc.srv.services["/api/daemon/runs/"+rc.c.AgentRun.ID.String()+"/services/"+spec.ID.String()] = blob
+	rc.d.serviceReadyLimit, rc.d.serviceStopLimit = 10*time.Second, 50*time.Millisecond
+	// As in the service tests: the real filesystem sandbox, its default network.
+	rc.d.serviceCommand = func(p sandbox.Policy, ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+		p.LoopbackOnly = false
+		return p.Command(ctx, name, args...)
+	}
+	rc.run(t)
+	if rc.srv.result == nil {
+		t.Fatalf("fail %v", rc.srv.fail)
+	}
+	step := rc.srv.result["steps"].([]any)[0].(map[string]any)
+	if !strings.HasPrefix(step["output"].(string), "http://127.0.0.1:") {
+		t.Fatalf("the step did not get the service: %v", step)
 	}
 }

@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -41,16 +45,28 @@ type rerunOutput struct {
 	TextSHA256 string `json:"text_sha256"`
 }
 
-// failEnvironment is the result's failure when the saved package list can't
-// rebuild the environment the scripts ran in.
+// failEnvironment is the result's failure when the saved package lists
+// can't rebuild the environment the scripts ran in.
 const failEnvironment = "environment"
 
+// rerunEnv is the folder, inside the rerun's own, that holds its rebuilt
+// environment; no replayed script is written there.
+const rerunEnv = ".lyk-env"
+
+// unrebuildable is why the saved package lists can't rebuild the
+// environment: retrying on this machine would end the same way. Every other
+// failure to rebuild is the machine's, and the rerun is tried again.
+type unrebuildable struct{ error }
+
+// cranURL is where R packages are fetched at their saved versions.
+var cranURL = "https://cloud.r-project.org"
+
 // runRerun replays a study's recorded scripts, in the order they ran, in a
-// fresh folder and a fresh environment rebuilt from the saved package list,
-// inside the sandbox, with the study's attachments read-only beside them.
-// The study's own folders are never touched. No agent CLI runs, and the
-// rerun's token stays with the daemon: it fetches the attachments and saves
-// the outputs, and no script sees it.
+// fresh folder and a fresh environment rebuilt from each step's saved
+// package list, inside the sandbox, with the study's attachments read-only
+// and its services running beside them. The study's own folders are never
+// touched. No agent CLI runs, and the rerun's token stays with the daemon:
+// it fetches the attachments and saves the outputs, and no script sees it.
 func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	var runtimeID uuid.UUID
 	if c.AgentRun.RuntimeID != nil {
@@ -62,6 +78,11 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		return err
 	}
 	fail := func(err error) { failReport(&r, "", err) }
+	// machine fails the rerun for a cause on this machine, which the server
+	// retries and never holds against the study.
+	machine := func(reason string, err error) {
+		r.Kind, r.Rerun, r.Error, r.FailureReason = "fail", nil, err.Error(), reason
+	}
 	dir := filepath.Join(d.cfg.Home, scratchName(r.AgentRunID, r.Attempt))
 	defer func() {
 		if ctx.Err() != nil {
@@ -95,7 +116,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	if err := os.Mkdir(dir, 0o700); err != nil {
-		fail(fmt.Errorf("prepare scratch: %w", err))
+		machine(agent.ReasonRuntimeOffline, fmt.Errorf("prepare scratch: %w", err))
 		return nil
 	}
 	base := "/api/daemon/agent-runs/" + r.AgentRunID.String()
@@ -130,8 +151,24 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		r.Kind, r.Rerun, r.Error, r.FailureReason = "rerun", result, "", ""
 	}
-	unsandboxed := func(err error) {
-		r.Kind, r.Error, r.FailureReason = "fail", err.Error(), agent.ReasonSandbox
+	// ended settles a rerun that err stopped. Only a saved list that can't
+	// rebuild the environment is the study's; the run's own end reports
+	// nothing more, and every other cause is this machine's.
+	ended := func(err error) {
+		var sandboxErr unsandboxedError
+		var refused unrebuildable
+		switch {
+		case errors.As(err, &sandboxErr):
+			machine(agent.ReasonSandbox, err)
+		case errors.Is(err, context.DeadlineExceeded):
+			machine("timeout", err)
+		case runCtx.Err() != nil:
+		case errors.As(err, &refused):
+			slog.Warn("rerun environment", "run", r.AgentRunID, "err", err)
+			settle(failEnvironment)
+		default:
+			machine(agent.ReasonRuntimeOffline, err)
+		}
 	}
 
 	files := c
@@ -143,25 +180,30 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
+	// No sandbox, no rerun: nothing is built or run before it is known to work.
+	if d.sandboxErr != nil {
+		ended(unsandboxed(d.sandboxErr))
+		return nil
+	}
 	if d.bases == nil {
-		settle(failEnvironment)
+		ended(errors.New("this machine has no language bases"))
 		return nil
 	}
 	// The environment is the rerun's own, beside its scripts and gone with
 	// them.
-	study := envs.ForStudy(d.bases, filepath.Join(dir, ".lyk-env"))
+	study := envs.ForStudy(d.bases, filepath.Join(dir, rerunEnv))
 	study.PythonVersion = c.Rerun.Python
 	if err := os.Mkdir(study.Dir, 0o700); err != nil {
-		fail(err)
+		ended(err)
 		return nil
 	}
 	private, err := d.privatePaths()
 	if err != nil {
-		fail(err)
+		ended(err)
 		return nil
 	}
 	opts := agent.ExecOptions{Dir: dir}
-	door := &Door{Guest: guest, Server: d.cfg.Server, Study: study, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
+	door := &Door{Guest: guest, Server: d.cfg.Server, Study: study, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		Child: func() agent.ExecOptions {
 			if guest {
 				return guestDoorOptions(opts)
@@ -172,37 +214,34 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		d.rerunDoor(door)
 	}
 	if err := door.Start(); err != nil {
-		fail(err)
+		ended(err)
 		return nil
 	}
 	defer door.Close()
 	// The rerun keeps the study's Python as given; the server already has it.
 	door.Study.PersistPython = nil
-	// No sandbox, no rerun: nothing is built or run before it is known to work.
 	if _, err := door.command(runCtx, "/usr/bin/true"); err != nil {
-		unsandboxed(err)
+		ended(err)
 		return nil
-	}
-	// ended settles a rerun that err stopped: the sandbox's failure, the
-	// run's ending, or an environment that can't run the scripts.
-	ended := func(err error) {
-		var sandboxErr unsandboxedError
-		switch {
-		case errors.As(err, &sandboxErr):
-			unsandboxed(err)
-		case runCtx.Err() != nil:
-		default:
-			slog.Warn("rerun environment", "run", r.AgentRunID, "err", err)
-			settle(failEnvironment)
-		}
 	}
 	if err := d.rebuild(runCtx, door, c.Rerun); err != nil {
 		ended(err)
 		return nil
 	}
+	// The scripts ran beside Experimentation's services, which a rerun
+	// starts the same way.
+	exp := c
+	exp.AgentRun.BoardColumn = "experimentation"
+	services, err := d.startServices(runCtx, exp, door.Study, guest)
+	if err != nil {
+		ended(err)
+		return nil
+	}
+	defer services.Stop()
+	door.ServiceEnv = services.Env()
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		fail(err)
+		ended(err)
 		return nil
 	}
 	defer root.Close()
@@ -212,7 +251,10 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	for _, s := range c.Rerun.Steps {
 		// A step is written just before it runs: a script may have changed
 		// between two runs of the same path.
-		err := root.MkdirAll(filepath.Dir(s.Path), 0o700)
+		err := protectedStep(s.Path)
+		if err == nil {
+			err = root.MkdirAll(filepath.Dir(s.Path), 0o700)
+		}
 		if err == nil {
 			err = root.WriteFile(s.Path, []byte(s.Script), 0o600)
 		}
@@ -229,7 +271,11 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		result.Steps = append(result.Steps, rerunStep{Key: s.Key, ExitStatus: status, Output: body["output"].(string), Error: body["error"].(string)})
 	}
 	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
+	// An earlier attempt's outputs are kept as it saved them.
 	saved, sums := map[string]bool{}, map[string]string{}
+	for _, o := range c.Rerun.Saved {
+		saved[o.Name], sums[o.Name] = true, o.Sha256
+	}
 	// A file the server's limits refuse is left out: a value only it held is
 	// not reproduced.
 	if _, err := sendOutputs(runCtx, role, dir, func() (map[string]bool, error) { return saved, nil }, sums); err != nil {
@@ -246,26 +292,90 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	return nil
 }
 
-// rebuild makes the rerun's fresh environment, for the languages its steps
-// use, from the saved package list, which holds one language's: its base and
-// what the study added. A language the list doesn't hold, or holds in a form
-// that can't be rebuilt, is an error.
+// protectedStep refuses a script path the rerun keeps for itself: its
+// environment and what the run folder holds for the CLIs and the daemon.
+func protectedStep(p string) error {
+	clean := path.Clean(filepath.ToSlash(p))
+	names := []string{rerunEnv}
+	for _, f := range agent.RunFolderConfig {
+		names = append(names, f.Name)
+	}
+	for _, name := range names {
+		if strings.EqualFold(clean, name) || len(clean) > len(name) && strings.EqualFold(clean[:len(name)+1], name+"/") {
+			return fmt.Errorf("%s is kept for the run", name)
+		}
+	}
+	return nil
+}
+
+// rebuild makes the rerun's fresh environment, for each language its steps
+// use, from that language's newest step's saved package list, which holds
+// its base and what the study added.
 //   - Python: a conda environment from the saved lock, then the study's own
 //     packages at the versions pip froze.
-//   - R: the machine's base, which must be the one saved; packages the study
-//     installed can't be rebuilt from their names and versions alone.
+//   - R: the machine's base, which must be the one saved, and each package
+//     the study installed at its saved version from CRAN.
 //   - Julia: the machine's base, which must be the one saved, and the
 //     study's saved Manifest.toml, instantiated.
 func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.ClaimedRerun) error {
-	lang, base, own, ok := savedPackages(rerun.Packages)
-	if !ok {
-		return errors.New("the saved package list is missing or unreadable")
-	}
+	lists := map[string]string{}
+	var langs []string
 	for _, s := range rerun.Steps {
-		if s.Language != lang {
-			return fmt.Errorf("no package list was saved for %s", s.Language)
+		if _, ok := lists[s.Language]; !ok {
+			langs = append(langs, s.Language)
+		}
+		lists[s.Language] = s.Packages
+	}
+	limit := d.rebuildLimit
+	if limit == 0 {
+		limit = envs.SetupLimit()
+	}
+	for _, lang := range langs {
+		saved, base, own, ok := savedPackages(lists[lang])
+		if !ok || saved != lang {
+			return unrebuildable{fmt.Errorf("no package list was saved for %s", lang)}
+		}
+		// Each language's setup has the setup limit; running past it is a
+		// timeout, never the saved list's fault.
+		setupCtx, stop := context.WithTimeout(ctx, limit)
+		start := time.Now()
+		err := d.rebuildLanguage(setupCtx, door, rerun.Python, lang, base, own)
+		stop()
+		if err != nil && (setupCtx.Err() == context.DeadlineExceeded || (ctx.Err() == nil && time.Since(start) >= limit)) {
+			return fmt.Errorf("%w: rebuilding %s: %v", context.DeadlineExceeded, lang, err)
+		}
+		if err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+// networkTrouble is output that says a download failed for the network's
+// sake; refusal is output that says the saved list asks for what can't be had.
+var (
+	networkTrouble = regexp.MustCompile(`(?i)could not resolve|name resolution|connection (refused|reset|timed out|aborted)|network is unreachable|timed? ?out|temporary failure|max retries exceeded|newconnectionerror|ssl|tls|proxy`)
+	refusal        = regexp.MustCompile(`(?i)could not solve|nothing provides|unsatisfiable|is not installable|no matching distribution|could not find a version|resolutionimpossible|\b404\b|does not exist|the lock must provide|the lock's python must include|python must be a version|cannot be found|could not find package|expected package`)
+)
+
+// judged makes a failed setup step's error unrebuildable when its output
+// says the saved list asks for what can't be had, unless the network failed.
+func judged(err error, output string) error {
+	text := err.Error() + "\n" + output
+	if !networkTrouble.MatchString(text) && refusal.MatchString(text) {
+		return unrebuildable{fmt.Errorf("%w: %s", err, tail(output))}
+	}
+	return fmt.Errorf("%w: %s", err, tail(output))
+}
+
+func tail(s string) string {
+	if len(s) > 4096 {
+		return s[len(s)-4096:]
+	}
+	return s
+}
+
+func (d *daemon) rebuildLanguage(ctx context.Context, door *Door, python, lang, base, own string) error {
 	study := door.Study
 	switch lang {
 	case envs.Python:
@@ -277,8 +387,8 @@ func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.Claimed
 		if setUp == nil {
 			setUp = (*envs.Study).SetUpConda
 		}
-		if out, err := setUp(study, ctx, rerun.Python, nil, lock); err != nil {
-			return fmt.Errorf("%w: %s", err, out)
+		if out, err := setUp(study, ctx, python, nil, lock); err != nil {
+			return judged(err, out)
 		}
 		if strings.TrimSpace(own) == "" {
 			return nil
@@ -287,7 +397,7 @@ func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.Claimed
 		if err := os.WriteFile(reqs, []byte(own), 0o600); err != nil {
 			return err
 		}
-		python, _, err := study.Interpreter(envs.Python)
+		interpreter, _, err := study.Interpreter(envs.Python)
 		if err != nil {
 			return err
 		}
@@ -295,8 +405,10 @@ func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.Claimed
 		if err != nil {
 			return err
 		}
-		_, err = door.runSandboxed(ctx, env, study.Dir, python, "-m", "pip", "install", "--no-deps", "--no-input", "--disable-pip-version-check", "-r", reqs)
-		return err
+		if out, err := door.runSandboxed(ctx, env, study.Dir, interpreter, "-m", "pip", "install", "--no-deps", "--no-input", "--disable-pip-version-check", "-r", reqs); err != nil {
+			return judged(err, string(out))
+		}
+		return nil
 	case envs.R, envs.Julia:
 		if err := study.Bases.Ensure(ctx, lang); err != nil {
 			return err
@@ -306,31 +418,120 @@ func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.Claimed
 			return err
 		}
 		if _, now, _, _ := savedPackages(fresh); now != base {
-			return fmt.Errorf("this machine's %s base is not the one the study ran on", lang)
+			return unrebuildable{fmt.Errorf("this machine's %s base is not the one the study ran on", lang)}
 		}
 		if strings.TrimSpace(own) == "" {
 			return nil
-		}
-		if lang == envs.R {
-			return errors.New("R packages the study installed can't be rebuilt from the saved list")
 		}
 		env, err := study.Environment(ctx)
 		if err != nil {
 			return err
 		}
+		interpreter, _, err := study.Interpreter(lang)
+		if err != nil {
+			return err
+		}
+		if lang == envs.R {
+			return d.rebuildR(ctx, door, env, interpreter, own)
+		}
 		project := filepath.Join(study.Dir, "julia")
 		if err := os.WriteFile(filepath.Join(project, "Manifest.toml"), []byte(own), 0o600); err != nil {
 			return err
 		}
-		julia, _, err := study.Interpreter(envs.Julia)
+		if out, err := door.runSandboxed(ctx, env, project, interpreter, "-e", instantiateManifest); err != nil {
+			return judged(err, string(out))
+		}
+		return nil
+	}
+	return unrebuildable{fmt.Errorf("unknown language %q", lang)}
+}
+
+// rPackage and rVersion are what a saved R package's name and version may
+// be; the list was written by the study's code, so nothing else reaches a URL.
+var (
+	rPackage = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9.]*[A-Za-z0-9]$`)
+	rVersion = regexp.MustCompile(`^[0-9]+([.-][0-9]+)+$`)
+)
+
+// rebuildR fetches each package the study installed, as the saved list
+// names it, at its saved version from CRAN: the current source if that is
+// the version, else the archived one. The daemon fetches; the packages are
+// built and installed into the fresh library inside the sandbox, with no
+// network needed there.
+func (d *daemon) rebuildR(ctx context.Context, door *Door, env []string, rscript, own string) error {
+	dir := filepath.Join(door.Study.Dir, "saved-r")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return err
+	}
+	var tarballs []string
+	for line := range strings.Lines(own) {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 2 || !rPackage.MatchString(f[0]) || !rVersion.MatchString(f[1]) {
+			return unrebuildable{fmt.Errorf("the saved R package list has an unreadable line %q", strings.TrimSpace(line))}
+		}
+		file, err := fetchCRAN(ctx, dir, f[0], f[1])
 		if err != nil {
 			return err
 		}
-		_, err = door.runSandboxed(ctx, env, project, julia, "-e", instantiateManifest)
-		return err
+		tarballs = append(tarballs, file)
 	}
-	return fmt.Errorf("unknown language %q", lang)
+	if out, err := door.runSandboxed(ctx, env, door.Study.Dir, rscript, append([]string{"-e", installSaved}, tarballs...)...); err != nil {
+		// The sources are all here: a package that won't build from them
+		// can't be rebuilt on this machine.
+		return unrebuildable{fmt.Errorf("%w: %s", err, tail(string(out)))}
+	}
+	return nil
 }
+
+func fetchCRAN(ctx context.Context, dir, pkg, version string) (string, error) {
+	file := pkg + "_" + version + ".tar.gz"
+	for _, u := range []string{cranURL + "/src/contrib/" + file, cranURL + "/src/contrib/Archive/" + pkg + "/" + file} {
+		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return "", err
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			resp.Body.Close()
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return "", fmt.Errorf("fetching %s: %s", u, resp.Status)
+		}
+		path := filepath.Join(dir, file)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, err = io.Copy(f, resp.Body)
+			err = errors.Join(err, f.Close())
+		}
+		resp.Body.Close()
+		return path, err
+	}
+	return "", unrebuildable{fmt.Errorf("CRAN has no %s %s", pkg, version)}
+}
+
+// installSaved installs the source packages it is given into the study's
+// library, passing over the list until each is in or none more goes in, so
+// a package can follow the ones it needs.
+const installSaved = `lib <- Sys.getenv("R_LIBS_USER")
+left <- commandArgs(TRUE)
+name <- function(f) sub("_[^_]*$", "", basename(f))
+repeat {
+  before <- length(left)
+  for (f in left) {
+    suppressWarnings(install.packages(f, repos = NULL, type = "source", lib = lib))
+    if (name(f) %in% rownames(installed.packages(lib.loc = lib))) left <- setdiff(left, f)
+  }
+  if (!length(left)) quit(status = 0)
+  if (length(left) == before) { cat("not installed:", basename(left), "\n"); quit(status = 1) }
+}`
 
 // instantiateManifest makes every package of the saved Manifest.toml a
 // dependency of the project beside it, which the saved list doesn't keep,

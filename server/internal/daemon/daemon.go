@@ -178,6 +178,9 @@ type daemon struct {
 	setUpConda func(*envs.Study, context.Context, string, []string, string) (string, error)
 	// rerunDoor, when set, adjusts a rerun's door before it starts.
 	rerunDoor func(*Door)
+	// rebuildLimit is how long a rerun may take to rebuild one language's
+	// environment; 0 means envs.SetupLimit.
+	rebuildLimit time.Duration
 }
 
 func daemonID(dir, server string) (string, error) {

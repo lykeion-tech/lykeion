@@ -50,12 +50,11 @@ func ExperimentationRound(ctx context.Context, tx *store.Tx, card uuid.UUID) ([]
 	return out, nil
 }
 
-// RerunSteps are the script runs in recs that exited 0, in order, and the
-// sha256 of the newest one's saved package list, empty when it saved none.
-// Code run with run_code is never replayed.
-func RerunSteps(recs []db.Record) ([]RerunStep, string) {
+// RerunSteps are the script runs in recs that exited 0, in order, each with
+// the sha256 of the package list it saved, empty when it saved none. Code run
+// with run_code is never replayed.
+func RerunSteps(recs []db.Record) []RerunStep {
 	var steps []RerunStep
-	packages := ""
 	for _, r := range recs {
 		if r.Kind != "run" {
 			continue
@@ -68,8 +67,7 @@ func RerunSteps(recs []db.Record) ([]RerunStep, string) {
 		if json.Unmarshal(r.Body, &b) != nil || b.Tool != "run_script" || b.ExitStatus == nil || *b.ExitStatus != 0 {
 			continue
 		}
-		steps = append(steps, RerunStep{Key: r.Key, Path: b.Path, Language: b.Language, Script: b.Script})
-		packages = b.Packages
+		steps = append(steps, RerunStep{Key: r.Key, Path: b.Path, Language: b.Language, Script: b.Script, packagesSHA: b.Packages})
 	}
-	return steps, packages
+	return steps
 }

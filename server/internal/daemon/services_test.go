@@ -29,7 +29,9 @@ import (
 	"strconv"
 )
 
-func serviceFixture(t *testing.T) (*daemon, claimed, *envs.Study) {
+// serviceArchive is a service whose helper listens on its port, notes its
+// environment and a run counter in its state, and leaves a child running.
+func serviceArchive(t *testing.T) []byte {
 	t.Helper()
 	dir := t.TempDir()
 	source := `package main
@@ -61,6 +63,13 @@ func main(){
 		must(t, err)
 	}
 	must(t, tw.Close())
+	return blob.Bytes()
+}
+
+func serviceFixture(t *testing.T) (*daemon, claimed, *envs.Study) {
+	t.Helper()
+	dir := t.TempDir()
+	blob := bytes.NewBuffer(serviceArchive(t))
 	c := claimed{Token: "ltk_agent"}
 	c.AgentRun.ID = uuid.New()
 	c.AgentRun.ResponsibleUserID = uuid.New()
