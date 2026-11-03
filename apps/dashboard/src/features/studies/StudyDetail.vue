@@ -15,6 +15,7 @@ import Icon from '../../ui/Icon.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
 import StudyReview from './StudyReview.vue';
+import StudyNotebook from './StudyNotebook.vue';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
 import AgentRunDialog from '../runs/AgentRunDialog.vue';
@@ -109,9 +110,12 @@ onMounted(() => {
 onUnmounted(() => studyObserver?.disconnect());
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
+const notebookRun = ref<string | null>(null);
+const notebookScrollRequest = ref(0);
 const studySurfaces = [
   { id: 'execution', label: 'Timeline', icon: 'chart' },
   { id: 'review', label: 'Review', icon: 'shield' },
+  { id: 'notebook', label: 'Notebook', icon: 'code' },
   { id: 'files', label: 'Files', icon: 'file' },
   { id: 'properties', label: 'Properties', icon: 'settings' },
 ];
@@ -237,6 +241,13 @@ const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?
 const openRun = ref('');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
+function openNotebookAt(run: string) {
+  notebookRun.value = run;
+  notebookScrollRequest.value++;
+  showMeta.value = true;
+  activeSurface.value = 'notebook';
+}
+defineExpose({ openNotebookAt });
 const comment = ref('');
 const busy = ref(false);
 const error = ref('');
@@ -285,6 +296,7 @@ watch(
   () => {
     generation++;
     activeSurface.value = null;
+    notebookRun.value = null;
     paneFocused.value = false;
     propertyBusy.value = false;
     comment.value = '';
@@ -708,6 +720,12 @@ function pin() {
           <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
         <StudyReview v-else-if="active === 'review'" :card-id="id" />
+        <StudyNotebook
+          v-else-if="active === 'notebook'"
+          :card-id="id"
+          :run-id="notebookRun"
+          :scroll-request="notebookScrollRequest"
+        />
         <StudyOutputs v-else-if="active === 'files'" :card-id="id" />
       </template>
     </SurfacePane>

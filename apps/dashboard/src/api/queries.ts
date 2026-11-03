@@ -157,6 +157,31 @@ export const useKindRecords = (
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id)) && toValue(enabled)),
   });
 
+// Script history includes superseded attempts. The kind-only endpoint returns
+// live records, so read each stage's existing history endpoint instead.
+export const useNotebookRecords = (id: MaybeRefOrGetter<string>) =>
+  useQuery({
+    queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'notebook']),
+    queryFn: async ({ signal }) => {
+      const workspace = ws.value;
+      const card = toValue(id);
+      const records = await Promise.all(
+        ['grounding', 'hypotheses', 'experimentation', 'validation'].map(
+          async (column) =>
+            (await api<StudyRecord[] | null>(
+              'GET',
+              `/api/cards/${encodeURIComponent(card)}/records?column=${column}&all=1`,
+              undefined,
+              undefined,
+              { workspace, signal },
+            )) ?? [],
+        ),
+      );
+      return records.flat();
+    },
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
+
 // A run's messages, every attempt's in order, so an earlier attempt stays
 // readable after a retry. The cache is keyed by the current attempt so a retry
 // reads afresh. No event announces a message, so while the run is live the
