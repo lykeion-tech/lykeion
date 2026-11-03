@@ -6,11 +6,15 @@ import (
 	"github.com/google/uuid"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
 // Enqueue freezes one private chat turn in the same transaction as its question.
 func Enqueue(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.LabChat, asker uuid.UUID, question string, contextCard *uuid.UUID, harness, model string) (db.AgentRun, error) {
+	if harness != "claude" {
+		return db.AgentRun{}, agent.ErrLabHarness
+	}
 	if chat.WorkspaceID != tx.WS || chat.OwnerID != asker {
 		return db.AgentRun{}, service.ErrNotYours
 	}

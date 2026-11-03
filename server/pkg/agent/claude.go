@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,6 +32,38 @@ const ScriptLimit = 2 * time.Hour
 // limit ends a long script and not the CLI's own tool-call timeout. In Claude
 // Code the per-server timeout also lifts its request and idle timeouts.
 const doorCallTimeout = ScriptLimit + 5*time.Minute
+
+// The host-managed provider guard is verified with Claude Code 2.1.317.
+// Unknown versions must not receive a private prompt.
+var labClaudeVersion = regexp.MustCompile(`^2\.([0-9]+)\.([0-9]+)(?: |$)`)
+
+func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
+	probe, cancel := context.WithTimeout(ctx, VersionTimeout)
+	defer cancel()
+	cmd, err := command(probe, bin, "", o, "--version")
+	if err != nil {
+		return err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err = cmd.Start(); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(io.LimitReader(out, 256))
+	out.Close()
+	waitErr := cmd.Wait()
+	m := labClaudeVersion.FindStringSubmatch(strings.TrimSpace(string(data)))
+	if err == nil && waitErr == nil && len(m) == 3 {
+		minor, e1 := strconv.Atoi(m[1])
+		patch, e2 := strconv.Atoi(m[2])
+		if e1 == nil && e2 == nil && (minor > 1 || minor == 1 && patch >= 317) {
+			return nil
+		}
+	}
+	return errors.New("lab questions require Claude Code 2.1.317 or later in the verified 2.x series")
+}
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
 	if o.Coresearch && !o.Aristotle {
@@ -141,7 +175,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
 	if o.Lab {
-		args = append(args, "--tools", "StructuredOutput,ToolSearch", "--disable-slash-commands")
+		args = append(args, "--restricted", "--setting-sources", "", "--tools", "StructuredOutput", "--disable-slash-commands")
 	}
 	if o.Coresearch {
 		args = append(args, "--setting-sources", "project")
@@ -166,6 +200,12 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	bin := c.Bin
 	if bin == "" {
 		bin = "claude"
+	}
+	if o.Lab {
+		if err = checkLabClaude(ctx, bin, o); err != nil {
+			cleanup(true)
+			return nil, err
+		}
 	}
 	cmd, err := command(ctx, bin, prompt, o, args...)
 	if err != nil {

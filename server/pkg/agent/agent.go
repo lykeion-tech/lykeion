@@ -354,6 +354,9 @@ func waitSupervised(cmd *exec.Cmd, nonce string) error {
 // SandboxCommand creates an OS-confined CLI command from its computed state grants.
 type SandboxCommand func(context.Context, CLIPaths, string, ...string) (*exec.Cmd, error)
 
+// ErrLabHarness is returned before a private question reaches an unsupported CLI.
+var ErrLabHarness = errors.New("Lab questions currently require Claude Code. The Codex CLI cannot restrict its native tools to the lab.")
+
 var ErrNoSandbox = errors.New("this run has no sandbox")
 var ErrHarnessRemoved = errors.New("Cursor and Antigravity are no longer supported; choose Claude Code or Codex")
 

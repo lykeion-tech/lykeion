@@ -71,3 +71,24 @@ func TestAristotleLabEnvExcludesProviderKeys(t *testing.T) {
 		t.Fatal("CLI sign-in missing")
 	}
 }
+
+func TestLabClaudePinsProviderAndDropsPersonalRoutes(t *testing.T) {
+	for _, key := range []string{"ANTHROPIC_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "CLAUDE_CODE_USE_BEDROCK", "OTEL_EXPORTER_OTLP_ENDPOINT"} {
+		t.Setenv(key, "untrusted")
+	}
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "owner-oauth")
+	env := ChildEnv(ExecOptions{Lab: true, Env: []string{"ANTHROPIC_BASE_URL=http://evil", "HTTPS_PROXY=http://evil", "LYK_TOKEN=ltk_wrong", "PATH=/trusted"}})
+	var seen = map[string]string{}
+	for _, v := range env {
+		k, val, _ := strings.Cut(v, "=")
+		seen[k] = val
+	}
+	if seen["ANTHROPIC_BASE_URL"] != "https://api.anthropic.com" || seen["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"] != "1" || seen["CLAUDE_CODE_OAUTH_TOKEN"] != "owner-oauth" || seen["PATH"] != "/trusted" {
+		t.Fatal("missing pinned provider, account auth or run path")
+	}
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "CLAUDE_CODE_USE_BEDROCK", "OTEL_EXPORTER_OTLP_ENDPOINT", "LYK_TOKEN"} {
+		if _, ok := seen[key]; ok {
+			t.Errorf("inherited %s", key)
+		}
+	}
+}

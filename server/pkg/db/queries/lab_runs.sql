@@ -22,3 +22,9 @@ UPDATE agent_run r SET prompt=q.body||
 FROM lab_message q WHERE r.workspace_id=app_workspace() AND r.kind='aristotle' AND r.id= @id
 AND q.workspace_id=r.workspace_id AND q.owner_id=app_user() AND q.chat_id=r.lab_chat_id AND q.agent_run_id=r.id AND q.kind='question'
 RETURNING r.*;
+
+-- name: LockDepartingLabRuns :many
+SELECT * FROM agent_run
+WHERE workspace_id = @workspace_id AND kind = 'aristotle' AND requester_id = @requester_id
+ AND status IN ('queued','dispatched','running')
+ORDER BY id FOR UPDATE;

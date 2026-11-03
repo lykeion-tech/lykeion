@@ -63,7 +63,8 @@ WHERE id = (
     -- of the owner's online runtimes lists it, any runs it on the CLI default
     AND (t.kind NOT IN ('coresearch','aristotle') OR t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
                OR NOT EXISTS(SELECT 1 FROM runtime o WHERE o.workspace_id=t.workspace_id AND o.owner_id=r.owner_id AND o.harness=r.harness
-                             AND o.status='online' AND o.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))))
+                             AND o.status='online' AND (t.kind <> 'aristotle' OR o.unhealthy_reason IS NULL)
+                             AND o.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))))
     AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (

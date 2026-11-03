@@ -115,6 +115,89 @@ func (q *Queries) InsertLabQuestion(ctx context.Context, arg InsertLabQuestionPa
 	return err
 }
 
+const lockDepartingLabRuns = `-- name: LockDepartingLabRuns :many
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id FROM agent_run
+WHERE workspace_id = $1 AND kind = 'aristotle' AND requester_id = $2
+ AND status IN ('queued','dispatched','running')
+ORDER BY id FOR UPDATE
+`
+
+type LockDepartingLabRunsParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RequesterID *uuid.UUID `json:"requester_id"`
+}
+
+func (q *Queries) LockDepartingLabRuns(ctx context.Context, arg LockDepartingLabRunsParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, lockDepartingLabRuns, arg.WorkspaceID, arg.RequesterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
+			&i.CoresearchChatID,
+			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
+			&i.AttachmentSnapshot,
+			&i.LabChatID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const refreshLabRunPrompt = `-- name: RefreshLabRunPrompt :one
 UPDATE agent_run r SET prompt=q.body||
  CASE WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END||

@@ -173,6 +173,9 @@ func filteredEnvKey(k string) bool {
 func ChildEnv(o ExecOptions) []string { return childEnv(o, o.CacheDir) }
 
 func childEnv(o ExecOptions, cacheDir string) []string {
+	if o.Lab {
+		return labClaudeEnv(o)
+	}
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		k, v, ok := strings.Cut(entry, "=")
@@ -232,13 +235,33 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 			values[k] = filepath.Join(cacheDir, sub)
 		}
 	}
-	if o.Lab {
-		for k := range values {
-			if strings.EqualFold(k, "ANTHROPIC_API_KEY") || strings.EqualFold(k, "TYPESAFE_API_KEY") {
-				delete(values, k)
-			}
+	return envList(values)
+}
+
+// labClaudeEnv allows account sign-in and process basics. Personal gateways,
+// TLS/proxy settings, provider switches, hooks and API keys never enter a lab CLI.
+func labClaudeEnv(o ExecOptions) []string {
+	values := map[string]string{}
+	for _, entry := range os.Environ() {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && (guestAmbientEnvKey(k) || inheritedEnvKey(k) || k == "CLAUDE_CODE_OAUTH_TOKEN") {
+			values[k] = v
 		}
 	}
+	for _, entry := range o.Env {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && (k == "PATH" || k == "CLAUDE_CODE_OAUTH_TOKEN") {
+			values[k] = v
+		}
+	}
+	if o.ConfigHome != "" {
+		values["CLAUDE_CONFIG_DIR"] = o.ConfigHome
+	}
+	values["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"] = "1"
+	values["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+	values["ENABLE_TOOL_SEARCH"] = "false"
+	values["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+	values["DISABLE_TELEMETRY"] = "1"
 	return envList(values)
 }
 

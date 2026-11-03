@@ -337,3 +337,50 @@ func TestCodexPersonalMCPOffRealProvider(t *testing.T) {
 		t.Fatal("Codex started the personal MCP server")
 	}
 }
+
+// Recheck the limitation behind ErrLabHarness against an installed Codex.
+// The loopback model receives only a synthetic prompt and never answers it.
+func TestLabCodexNativeInventory(t *testing.T) {
+	bin := os.Getenv("LYK_TEST_CODEX_BIN")
+	if bin == "" {
+		t.Skip("set LYK_TEST_CODEX_BIN to inspect the installed native tool inventory")
+	}
+	tools := make(chan []string, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Tools []struct{ Name, Type string } }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		var names []string
+		for _, tool := range body.Tools {
+			names = append(names, tool.Name)
+		}
+		select {
+		case tools <- names:
+		default:
+		}
+		http.Error(w, "end of local probe", 400)
+	}))
+	defer provider.Close()
+	home := t.TempDir()
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "-s", "read-only", "-m", "gpt-5.5", "-c", `web_search="disabled"`, "-c", "skills.bundled.enabled=false"}
+	for _, flag := range []string{"shell_tool", "unified_exec", "skill_search", "image_generation", "view_image", "goals", "sleep_tool", "tool_suggest", "apps", "hooks", "memories", "multi_agent", "plugins", "remote_plugin", "skill_mcp_dependency_install", "code_mode", "code_mode_host", "request_permissions_tool"} {
+		args = append(args, "--disable", flag)
+	}
+	args = append(args, "-c", `model_provider="local_fixture"`, "-c", `model_providers.local_fixture={name="fixture",base_url=`+string(raw(provider.URL))+`,wire_api="responses",requires_openai_auth=false,request_max_retries=0,stream_max_retries=0}`, "synthetic tool inventory")
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = home
+	cmd.Env = []string{"HOME=" + home, "CODEX_HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	output, runErr := cmd.CombinedOutput()
+	select {
+	case names := <-tools:
+		t.Log("native tools sent to the model:", names)
+		if !slices.Contains(names, "apply_patch") {
+			t.Fatalf("reassess Codex lab tool support; inventory %v", names)
+		}
+	default:
+		t.Fatalf("no model request: %v %s", runErr, output)
+	}
+}

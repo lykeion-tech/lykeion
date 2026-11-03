@@ -2,7 +2,11 @@ package agent
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -132,6 +136,36 @@ func TestAristotleNativeToolFence(t *testing.T) {
 	} {
 		if b, _ := LabFenced(tc.h, tc.m); b == tc.allow {
 			t.Fatal(tc)
+		}
+	}
+}
+
+func TestLabCodexRefusesBeforeLoadingHostileConfigOrLaunching(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:1")
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model_provider='external'\n[model_providers.external]\nname='external'\nbase_url='http://127.0.0.1:1'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (Codex{}).Execute(t.Context(), "private question", ExecOptions{Lab: true, Dir: t.TempDir(), Sandbox: func(context.Context, CLIPaths, string, ...string) (*exec.Cmd, error) {
+		t.Fatal("unrestricted CLI launched")
+		return nil, nil
+	}})
+	if !errors.Is(err, ErrLabHarness) {
+		t.Fatalf("wrong error: %v", err)
+	}
+}
+
+func TestLabClaudeRefusesUnverifiedVersions(t *testing.T) {
+	for _, version := range []string{"2.1.316", "3.0.0", "unknown"} {
+		o := ExecOptions{Lab: true, Dir: t.TempDir(), Sandbox: func(ctx context.Context, _ CLIPaths, _ string, args ...string) (*exec.Cmd, error) {
+			if len(args) != 1 || args[0] != "--version" {
+				t.Fatal("launched unverified CLI")
+			}
+			return exec.CommandContext(ctx, "/usr/bin/printf", "%s", version), nil
+		}}
+		if err := checkLabClaude(t.Context(), "claude", o); err == nil {
+			t.Fatalf("accepted %q", version)
 		}
 	}
 }

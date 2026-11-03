@@ -114,6 +114,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		guest = c.AgentRun.ResponsibleUserID.String()
 	}
 	lab := c.AgentRun.Kind == "aristotle"
+	if lab && c.AgentRun.Harness != "claude" {
+		fail(agent.ErrLabHarness)
+		return nil
+	}
 	if lab && (guest != "" || c.OutputSchema == "") {
 		fail(errors.New("A lab question requires the asker's own machine and a structured hand-in."))
 		return nil

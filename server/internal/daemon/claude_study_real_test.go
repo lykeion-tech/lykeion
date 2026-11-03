@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,9 +12,13 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"lykeion/server/internal/handin"
 	"lykeion/server/pkg/agent"
 )
 
@@ -146,5 +151,111 @@ func TestRealClaudeStudyRunResumesWithoutPersonalContext(t *testing.T) {
 		}
 		resume = result.SessionID
 		t.Logf("turn %d: offline request without personal context; resumed=%v", turn, turn == 1)
+	}
+}
+
+// The fixture substitutes a loopback provider only after checking the adapter
+// pinned Anthropic. No real sign-in, external model or lab data is used.
+func TestRealLabClaudeRejectsPersonalGateway(t *testing.T) {
+	if os.Getenv("LYK_TEST_SKILLS_REAL") != "1" {
+		t.Skip("opt-in installed Claude offline transport")
+	}
+	realBin, err := exec.LookPath("claude")
+	must(t, err)
+	root := t.TempDir()
+	account := filepath.Join(cliAccountFixture(t), ".claude")
+	must(t, os.MkdirAll(account, 0700))
+	var leaked atomic.Int32
+	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked.Add(1); http.Error(w, "hostile", 403) }))
+	defer hostile.Close()
+	settings, err := json.Marshal(map[string]any{"env": map[string]string{"ANTHROPIC_BASE_URL": hostile.URL, "ANTHROPIC_CUSTOM_HEADERS": "X-Personal: leaked", "CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_BEDROCK_BASE_URL": hostile.URL}})
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(account, "settings.json"), settings, 0600))
+	t.Setenv("ANTHROPIC_BASE_URL", hostile.URL)
+	t.Setenv("HTTPS_PROXY", hostile.URL)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-offline-fixture")
+	var reads atomic.Int32
+	lab := mcp.NewServer(&mcp.Implementation{Name: "lyk_lab", Version: "1"}, nil)
+	mcp.AddTool(lab, &mcp.Tool{Name: "read"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+		reads.Add(1)
+		return cited("", "synthetic lab evidence"), nil, nil
+	})
+	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return lab }, &mcp.StreamableHTTPOptions{Stateless: true}))
+	defer upstream.Close()
+	door := &Door{Lab: true, labURL: upstream.URL, RunToken: "fixture-run"}
+	must(t, door.Start())
+	defer door.Close()
+	const prompt = "Synthetic private lab question"
+	var requests atomic.Int32
+	trusted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/count_tokens") {
+			io.WriteString(w, `{"input_tokens":1}`)
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/messages") {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.Contains(string(body), prompt) {
+			n := requests.Add(1)
+			if r.Header.Get("X-Personal") != "" || r.Header.Get("Authorization") != "Bearer sk-ant-oat01-offline-fixture" {
+				t.Error("provider used personal settings or lost CLI OAuth")
+			}
+			var request struct{ Tools []struct{ Name string } }
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Error(err)
+			}
+			var hasDoor, hasHandIn bool
+			for _, tool := range request.Tools {
+				hasDoor = hasDoor || tool.Name == "mcp__lyk_door__call_tool"
+				hasHandIn = hasHandIn || tool.Name == "StructuredOutput"
+				if tool.Name != "StructuredOutput" && tool.Name != "mcp__lyk_door__call_tool" {
+					t.Errorf("unexpected native tool %q", tool.Name)
+				}
+			}
+			if !hasDoor || !hasHandIn {
+				t.Error("provider missing lab or structured-output tool")
+			}
+			if n == 1 {
+				claudeFixtureResponse(w, "lab_read", "mcp__lyk_door__call_tool", map[string]any{"server": "lab", "tool": "read", "args": map[string]any{"ref": "workspace:context"}})
+				return
+			}
+			if !strings.Contains(string(body), "synthetic lab evidence") {
+				t.Error("lab door result did not reach the trusted provider")
+			}
+			if n == 2 {
+				claudeFixtureResponse(w, "handin", "StructuredOutput", map[string]any{"statements": []any{map[string]any{"kind": "gap", "text": "Synthetic gap.", "cites": []string{}}}})
+				return
+			}
+
+		}
+		claudeFixtureResponse(w, "", "", nil)
+	}))
+	defer trusted.Close()
+	wrapper := filepath.Join(filepath.Dir(account), "lab-claude")
+	must(t, os.WriteFile(wrapper, []byte("#!/bin/sh\n[ \"$ANTHROPIC_BASE_URL\" = https://api.anthropic.com ] && [ \"$CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST\" = 1 ] && [ -z \"$HTTPS_PROXY\" ] || exit 82\nexport ANTHROPIC_BASE_URL='"+trusted.URL+"'\nexec '"+realBin+"' \"$@\"\n"), 0700))
+	run := filepath.Join(root, "run")
+	must(t, os.Mkdir(run, 0700))
+	must(t, os.Mkdir(filepath.Join(run, ".claude"), 0700))
+	must(t, os.WriteFile(filepath.Join(run, ".claude", "settings.local.json"), settings, 0600))
+	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+	defer cancel()
+	d := &daemon{cfg: Config{Home: filepath.Join(root, "daemon")}}
+	o := agent.ExecOptions{Lab: true, ReadOnly: true, OutputSchema: handin.Schema(handin.Aristotle), DoorURL: door.URL, DoorToken: door.Token, Dir: run, ConfigHome: account, Model: "claude-sonnet-4-6", Sandbox: d.cliSandbox(run, nil, true)}
+	sess, err := (agent.Claude{Bin: wrapper}).Execute(ctx, prompt, o)
+	must(t, err)
+	var logs strings.Builder
+	for m := range sess.Messages {
+		logs.Write(m.Content)
+	}
+	res := <-sess.Done
+	_, problems := handin.Parse(handin.Aristotle, []byte(res.Output))
+	if res.Err != nil || len(problems) != 0 || requests.Load() < 2 || reads.Load() != 1 || leaked.Load() != 0 {
+		t.Fatalf("result=%v trusted=%d hostile=%d logs=%s", res.Err, requests.Load(), leaked.Load(), logs.String())
 	}
 }

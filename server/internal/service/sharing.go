@@ -140,6 +140,15 @@ func (s *AgentRuns) RemoveMemberSharing(ctx context.Context, tx *store.Tx, actor
 	if err := s.RevokeCoresearchWork(ctx, tx, actor, member, nil); err != nil {
 		return err
 	}
+	labRuns, err := tx.Q.LockDepartingLabRuns(ctx, db.LockDepartingLabRunsParams{WorkspaceID: tx.WS, RequesterID: &member})
+	if err != nil {
+		return err
+	}
+	for _, run := range labRuns {
+		if err := s.CancelInTx(ctx, tx, actor, run); err != nil {
+			return err
+		}
+	}
 	runs, err := tx.Q.DepartingMemberSharedRuns(ctx, db.DepartingMemberSharedRunsParams{WorkspaceID: tx.WS, UserID: member})
 	if err != nil {
 		return err

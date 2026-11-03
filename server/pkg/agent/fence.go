@@ -36,13 +36,13 @@ func Fenced(harness string, m Message) (breach bool, what string) {
 }
 
 // LabFenced permits only the private lab door and the CLI machinery used
-// to discover it and produce the structured answer.
+// to produce the structured answer.
 func LabFenced(harness string, m Message) (bool, string) {
 	if harness == "codex" {
 		return codexFenced(m, true)
 	}
 	if m.Type != "tool_use" || m.Server == doorServer && m.Tool == "mcp__lyk_door__call_tool" ||
-		m.Server == "" && (m.Tool == "ToolSearch" || m.Tool == "StructuredOutput") {
+		m.Server == "" && m.Tool == "StructuredOutput" {
 		return false, ""
 	}
 	return true, m.Tool
