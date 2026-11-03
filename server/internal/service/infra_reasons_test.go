@@ -6,7 +6,7 @@ import (
 )
 
 func TestInfraReasons(t *testing.T) {
-	notInfra := map[string]bool{"agent_error": true, "context_exhausted": true, "hand_in_invalid": true, "runtime_access_denied": true, "coresearch_access_revoked": true}
+	notInfra := map[string]bool{"agent_error": true, "context_exhausted": true, "hand_in_invalid": true, "lab_context_changed": true, "runtime_access_denied": true, "coresearch_access_revoked": true}
 	for _, r := range FailureReasons {
 		if got := Infra(r); got == notInfra[r] {
 			t.Errorf("Infra(%q)=%v", r, got)
@@ -17,8 +17,8 @@ func TestInfraReasons(t *testing.T) {
 			t.Errorf("Infra(%q)=false", r)
 		}
 	}
-	if len(FailureReasons) != 15 {
-		t.Errorf("FailureReasons has %d, want 15", len(FailureReasons))
+	if len(FailureReasons) != 16 {
+		t.Errorf("FailureReasons has %d, want 16", len(FailureReasons))
 	}
 }
 
