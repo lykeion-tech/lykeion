@@ -43,6 +43,7 @@ export interface Workspace {
 export type Column = 'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'done';
 
 export type CheckStatus = 'pass' | 'unclear' | 'fail' | 'withdrawn';
+export type ValidationStatus = 'supported' | 'refuted' | 'inconclusive' | 'invalid' | 'caveated';
 export interface ReviewCheck {
   id: string;
   by: 'server' | 'jev';
@@ -58,7 +59,7 @@ export interface ReviewItem {
   kind: string;
   label: string;
   identity?: string;
-  status: CheckStatus;
+  status: CheckStatus | ValidationStatus;
   carried?: boolean;
   checks: ReviewCheck[];
   quote: string;
@@ -74,7 +75,7 @@ export interface ReviewAttempt {
   recall?: { query: string; hits: number; screened: number };
   weakest?: { key: string; p: number };
   objector?: { ran: boolean; reason?: string; same_family: boolean };
-  decision: 'pass' | 'carry' | 'redo' | 'block' | 'ask';
+  decision: 'pass' | 'carry' | 'redo' | 'block' | 'ask' | 'route_back';
 }
 export interface ReviewColumn {
   column: Column;
@@ -112,6 +113,7 @@ export interface Card {
   start_date?: string | null;
   spent_usd: number;
   board_column: Column;
+  legacy_column?: Column | '';
   state: 'working' | 'done' | 'blocked' | 'stopped';
   flag: '' | 'escalated';
   ending: '' | 'released' | 'stopped';

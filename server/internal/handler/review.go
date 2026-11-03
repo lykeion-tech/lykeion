@@ -65,11 +65,20 @@ func (h *H) cardReview(w http.ResponseWriter, r *http.Request) {
 				body["round"] = rec.Round
 				body["at"] = rec.CreatedAt
 				for _, field := range []string{"items", "missed"} {
+					if _, present := body[field]; !present && field == "missed" {
+						continue
+					}
 					items, _ := body[field].([]any)
+					if items == nil {
+						body[field] = []any{}
+					}
 					for _, value := range items {
 						item, ok := value.(map[string]any)
 						if !ok {
 							continue
+						}
+						if item["checks"] == nil {
+							item["checks"] = []any{}
 						}
 						quote, _ := item["label"].(string)
 						cites := []string{}
@@ -168,13 +177,14 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 			round = r.Round
 		}
 	}
-	if round < 0 {
+	haveFinal := round >= 0
+	if !haveFinal {
 		for _, r := range statuses {
 			round = max(round, r.Round)
 		}
 	}
 	for _, r := range statuses {
-		if r.Round == round {
+		if r.Round == round && (!haveFinal || final(r)) {
 			v.Statuses = append(v.Statuses, r.Body)
 		}
 	}

@@ -1,5 +1,6 @@
 import type {
   AgentRun,
+  Card,
   CheckStatus,
   Column,
   ReviewAttempt,
@@ -94,7 +95,8 @@ export function tileOf(
   current: Column,
 ): {
   index: number | null;
-  pass: number;
+  pass: number | null;
+  statusSummary?: string;
   total: number;
   tryN: number | null;
   state: 'reviewed' | 'working' | 'not reached';
@@ -109,9 +111,18 @@ export function tileOf(
       state: col.column === current ? 'working' : 'not reached',
     };
   const items = [...a.items, ...(a.missed ?? [])].filter((item) => item.status !== 'withdrawn');
+  const runStatuses = col.column === 'validation' && col.mode === 'runs';
+  const counts = new Map<string, number>();
+  if (runStatuses) {
+    for (const item of items) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
+  }
   return {
     index: indexOf(items.flatMap((item) => item.checks)),
-    pass: items.filter((item) => item.status === 'pass').length,
+    pass: runStatuses ? null : items.filter((item) => item.status === 'pass').length,
+    statusSummary: runStatuses
+      ? [...counts].map(([status, count]) => `${count} ${status}`).join(' · ') ||
+        'No hypothesis statuses'
+      : undefined,
     total: items.length,
     tryN: a.attempt,
     state: 'reviewed',
@@ -125,22 +136,29 @@ export function feedLine(a: ReviewAttempt): string {
     redo: 'needs another try',
     block: 'blocked, waiting for you',
     ask: 'waiting for you',
+    route_back: 'sent back to Experimentation',
   }[a.decision];
   return `Jev · ${columnName(a.column)}, try ${a.attempt} · ${outcome}`;
 }
 
 export function reviewingLine(
-  col: Column,
+  card: Pick<Card, 'board_column' | 'state' | 'ending' | 'flag' | 'legacy_column' | 'round'>,
   runs: AgentRun[],
   reviews: ReviewColumn[],
 ): string | null {
-  const columnRuns = runs.filter((run) => run.board_column === col);
-  if (!columnRuns.length) return null;
-  const round = Math.max(...columnRuns.map((run) => run.round));
+  const { board_column: col, round } = card;
   if (
-    columnRuns.some(
-      (run) => run.round === round && ['queued', 'dispatched', 'running'].includes(run.status),
-    )
+    card.state !== 'working' ||
+    card.ending ||
+    card.flag ||
+    col === 'done' ||
+    col === card.legacy_column
+  )
+    return null;
+  const currentRuns = runs.filter((run) => run.board_column === col && run.round === round);
+  if (
+    !currentRuns.length ||
+    currentRuns.some((run) => ['queued', 'dispatched', 'running'].includes(run.status))
   )
     return null;
   const attempts = reviews.find((review) => review.column === col)?.attempts ?? [];

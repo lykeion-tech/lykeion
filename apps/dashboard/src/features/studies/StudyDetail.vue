@@ -192,7 +192,6 @@ const resourceReads = computed(() =>
 );
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
-// Runs are read as agent cards above; their transcripts open in a dialog.
 const entries = computed(() => {
   const columns = review.data.value ?? [];
   const entries = transcript(
@@ -207,16 +206,20 @@ const entries = computed(() => {
       })),
     ),
   );
-  const current = c.value?.board_column;
-  const line = current ? reviewingLine(current, runs.data.value ?? [], columns) : null;
-  const newest = agentRuns.value.at(-1);
-  if (line && current && newest) {
+  const current = c.value;
+  if (!current || !review.isSuccess.value || !runs.isSuccess.value) return entries;
+  const line = reviewingLine(current, agentRuns.value, columns);
+  if (!line) return entries;
+  const newest = agentRuns.value
+    .filter((run) => run.board_column === current.board_column && run.round === current.round)
+    .at(-1);
+  if (newest) {
     // A completed run can lack completed_at in older data.
     entries.push({
       kind: 'jev',
       at: newest.completed_at ?? newest.started_at ?? newest.created_at,
       text: line,
-      column: current,
+      column: current.board_column,
     });
   }
   return entries;

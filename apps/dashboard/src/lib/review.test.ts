@@ -118,25 +118,31 @@ describe('review helpers', () => {
     expect(feedLine(attempt({ column: 'grounding', attempt: 1, decision: 'redo' }))).toBe(
       'Jev · Grounding, try 1 · needs another try',
     );
+    expect(feedLine(attempt({ column: 'validation', decision: 'route_back' }))).toBe(
+      'Jev · Validation, try 1 · sent back to Experimentation',
+    );
   });
 
   it('shows reviewing only after the latest round finishes and before it has a review', () => {
+    const card = {
+      board_column: 'hypotheses',
+      round: 3,
+      state: 'working',
+      ending: '',
+      flag: '',
+    } as const;
     const runs = [
       { board_column: 'hypotheses', round: 2, status: 'running' },
       { board_column: 'hypotheses', round: 3, status: 'completed' },
       { board_column: 'hypotheses', round: 3, status: 'completed' },
     ] as AgentRun[];
     const reviews = [{ column: 'hypotheses' as const, attempts: [attempt()] }];
-    expect(reviewingLine('hypotheses', runs, reviews)).toBe('Jev · Hypotheses, try 2 · reviewing…');
+    expect(reviewingLine(card, runs, reviews)).toBe('Jev · Hypotheses, try 2 · reviewing…');
+    expect(reviewingLine(card, [...runs, { ...runs[2]!, status: 'running' }], reviews)).toBeNull();
     expect(
-      reviewingLine('hypotheses', [...runs, { ...runs[2]!, status: 'running' }], reviews),
+      reviewingLine(card, runs, [{ column: 'hypotheses', attempts: [attempt({ round: 3 })] }]),
     ).toBeNull();
-    expect(
-      reviewingLine('hypotheses', runs, [
-        { column: 'hypotheses', attempts: [attempt({ round: 3 })] },
-      ]),
-    ).toBeNull();
-    expect(reviewingLine('grounding', runs, reviews)).toBeNull();
+    expect(reviewingLine({ ...card, board_column: 'grounding' }, runs, reviews)).toBeNull();
   });
 
   it('uses the latest legacy round per column and rounds levels to words', () => {

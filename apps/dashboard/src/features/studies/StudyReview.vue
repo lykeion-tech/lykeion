@@ -164,6 +164,11 @@ const tiles = computed(() =>
 const loadLegacy = computed(() => review.isSuccess.value && !newest.value);
 const scores = useKindRecords(() => props.cardId, 'score', loadLegacy);
 const outcomes = useKindRecords(() => props.cardId, 'outcome', loadLegacy);
+const historyError = computed(() => scores.error.value ?? outcomes.error.value);
+function retryHistory() {
+  if (scores.isError.value) void scores.refetch();
+  if (outcomes.isError.value) void outcomes.refetch();
+}
 const legacy = computed(() =>
   loadLegacy.value && outcomes.data.value?.length
     ? legacyColumns(scores.data.value ?? [], outcomes.data.value)
@@ -310,6 +315,17 @@ const unlinkedObjections = computed(() =>
         Retry
       </button>
     </p>
+    <p v-else-if="loadLegacy && historyError" class="inline-error" role="alert">
+      {{ historyError.message }}
+      <button class="text-button" @click="retryHistory">Retry</button>
+    </p>
+    <p
+      v-else-if="loadLegacy && (scores.isPending.value || outcomes.isPending.value)"
+      class="review-empty"
+      role="status"
+    >
+      Loading review history…
+    </p>
     <section v-else-if="legacy.length" class="legacy-review" aria-label="Legacy review">
       <h2>Reviewed under the old scoring</h2>
       <section v-for="column in legacy" :key="column.column">
@@ -342,7 +358,18 @@ const unlinkedObjections = computed(() =>
           {{ card.data.value?.board_column === shown ? 'being worked on' : 'not reached' }}
         </p>
         <p v-else-if="!checks.length" class="review-empty">
-          No Jev checks this try: the server's checks stopped it.
+          <template v-if="shown === 'validation' && validation?.mode === 'runs'">
+            Hypothesis statuses were determined from recorded runs.
+          </template>
+          <template
+            v-else-if="
+              ['redo', 'block'].includes(attempt.decision) &&
+              serverChecks.some(({ check }) => check.status === 'fail')
+            "
+          >
+            No Jev checks this try: the server's checks stopped it.
+          </template>
+          <template v-else>No Jev checks this try.</template>
         </p>
         <svg
           v-else
@@ -448,12 +475,12 @@ const unlinkedObjections = computed(() =>
           <text x="215" y="191" text-anchor="middle" class="index-caption">Support index</text>
           <text x="215" y="204" text-anchor="middle" class="index-scale">out of 100</text>
         </svg>
-        <div v-if="attempt" class="legend type-caption">
+        <div v-if="checks.length" class="legend type-caption">
           <span><i :style="{ color: colors.pass }">✓</i> Supported</span>
           <span><i :style="{ color: colors.unclear }">◐</i> Unclear</span>
           <span><i :style="{ color: colors.fail }">○</i> Unsupported</span>
         </div>
-        <p v-if="attempt" class="fingerprint-note type-caption">
+        <p v-if="checks.length" class="fingerprint-note type-caption">
           spoke length = evidence the claim holds
         </p>
         <section v-if="selected && attempt" class="selected-check" aria-label="Selected check">
@@ -492,7 +519,7 @@ const unlinkedObjections = computed(() =>
             <span class="tile-bar"><i :style="{ width: `${tile.index ?? 0}%` }" /></span>
             <small class="type-caption">{{
               tile.state === 'reviewed'
-                ? `${tile.pass} of ${tile.total} items pass · try ${tile.tryN}`
+                ? `${tile.statusSummary ?? `${tile.pass} of ${tile.total} items pass`} · try ${tile.tryN}`
                 : tile.state === 'working'
                   ? 'being worked on'
                   : 'not reached'

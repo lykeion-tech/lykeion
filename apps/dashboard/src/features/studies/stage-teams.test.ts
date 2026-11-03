@@ -165,6 +165,7 @@ type Node = {
   addEventListener(): void;
   removeEventListener(): void;
   querySelector(): null;
+  querySelectorAll(): Node[];
   contains(): boolean;
   focus(): void;
   showModal(): void;
@@ -190,6 +191,7 @@ function node(tag: string, text = ''): Node {
     addEventListener() {},
     removeEventListener() {},
     querySelector: () => null,
+    querySelectorAll: () => [],
     contains: () => true,
     focus() {},
     showModal() {},
@@ -1203,6 +1205,65 @@ describe('a study worked by one agent', () => {
 });
 
 describe('study right-pane surfaces', () => {
+  it('shows a pending Jev line only for a successfully read review in the active non-legacy round', async () => {
+    let failReview!: () => void;
+    const pending = new Promise<Response>((resolve) => {
+      failReview = () => resolve(Response.json({ error: 'Review unavailable' }, { status: 503 }));
+    });
+    vi.stubGlobal('fetch', (path: string) =>
+      path.endsWith('/review') ? pending : Promise.resolve(Response.json([])),
+    );
+    let client!: QueryClient;
+    const t = await mount(
+      StudyDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (c) => {
+        client = c;
+        seedStudy(c);
+        c.setQueryData(keys.runs('w', 'c'), [
+          {
+            id: 'lead',
+            board_column: 'grounding',
+            round: 1,
+            role: 'leader',
+            harness: 'claude',
+            status: 'completed',
+            created_at: '2026-11-03T10:00:00Z',
+            completed_at: '2026-11-03T10:01:00Z',
+          },
+        ]);
+      },
+    );
+    try {
+      expect(t.text()).not.toContain('reviewing…');
+      failReview();
+      await vi.waitFor(() => expect(t.text()).toContain('Review unavailable'));
+      expect(t.text()).not.toContain('reviewing…');
+      client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
+      await vi.waitFor(() => expect(t.text()).toContain('Jev · Grounding, try 1 · reviewing…'));
+      const cardKey = keys.card('w', 'c');
+      const working = client.getQueryData<Record<string, unknown>>(cardKey)!;
+      for (const change of [
+        { state: 'blocked' },
+        { state: 'done' },
+        { ending: 'stopped' },
+        { flag: 'escalated' },
+        { legacy_column: 'grounding' },
+        { round: 2 },
+      ]) {
+        client.setQueryData(cardKey, working);
+        await vi.waitFor(() => expect(t.text()).toContain('reviewing…'));
+        client.setQueryData(cardKey, { ...working, ...change });
+        await vi.waitFor(() =>
+          expect(t.text(), JSON.stringify(change)).not.toContain('reviewing…'),
+        );
+      }
+    } finally {
+      t.unmount();
+    }
+  });
+
   it('opens the chooser and shows properties, execution and files one at a time', async () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {

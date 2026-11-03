@@ -282,7 +282,11 @@ it('keeps eight long item labels, weakest markers and indexes from overlapping',
 });
 
 it('shows an empty review and the current stage before any attempts', async () => {
-  const { root } = setup(columns().map((column) => ({ ...column, attempts: [] })));
+  const { root } = setup(
+    columns().map((column) => ({ ...column, attempts: [] })),
+    'experimentation',
+    { scores: [], outcomes: [] },
+  );
   await nextTick();
   expect(textOf(root)).toContain(
     'Jev reviews each column when its agents finish. Nothing to review yet.',
@@ -405,6 +409,25 @@ function validation(extra: Partial<ReviewColumn> = {}): ReviewColumn[] {
     },
   ];
 }
+
+it('reports the recorded Validation statuses without implying the server stopped a passing try', async () => {
+  const a: ReviewAttempt = {
+    ...grounding(),
+    column: 'validation',
+    decision: 'pass',
+    items: [
+      { ...grounding().items[0]!, status: 'supported', checks: [] },
+      { ...grounding().items[1]!, status: 'caveated', checks: [] },
+    ],
+  };
+  const { root } = setup(validation({ attempts: [a] }));
+  await nextTick();
+  const tile = labelled(root, 'Show Validation review');
+  expect(textOf(tile)).toContain('1 supported · 1 caveated');
+  expect(textOf(tile)).not.toContain('items pass');
+  expect(textOf(root)).not.toContain("server's checks stopped it");
+  expect(textOf(root)).toContain('Hypothesis statuses were determined from recorded runs.');
+});
 
 it('shows Validation statuses with the objections upheld against them', async () => {
   const { root } = setup(
@@ -661,3 +684,46 @@ it('fetches legacy records only after an empty review, and stops using them when
   expect(spokeButtons(root)).toHaveLength(4);
   expect(textOf(root)).not.toContain('Reviewed under the old scoring');
 });
+
+it.each(['score', 'outcome'])(
+  'waits for legacy %s records and retries errors before displaying evidence',
+  async (kind) => {
+    const score = {
+      kind: 'score',
+      board_column: 'grounding',
+      round: 1,
+      body: { criterion: 'Relevance', level: 4 },
+    };
+    const outcome = {
+      kind: 'outcome',
+      board_column: 'grounding',
+      round: 1,
+      body: { verdict: 'middle' },
+    };
+    let fail!: () => void;
+    const pending = new Promise<Response>((resolve) => {
+      fail = () => resolve(Response.json({ error: 'History read failed' }, { status: 503 }));
+    });
+    let first = true;
+    vi.stubGlobal('fetch', (path: string) => {
+      if (path.endsWith('kind=' + kind) && first) {
+        first = false;
+        return pending;
+      }
+      return Promise.resolve(Response.json([path.endsWith('kind=score') ? score : outcome]));
+    });
+    const { root } = setup([], 'done');
+    await nextTick();
+    expect(textOf(root)).toContain('Loading review history');
+    expect(textOf(root)).not.toContain('Nothing to review yet');
+    expect(textOf(root)).not.toContain('Reviewed under the old scoring');
+    fail();
+    await vi.waitFor(() => expect(textOf(root)).toContain('History read failed'));
+    expect(textOf(root)).not.toContain('Nothing to review yet');
+    expect(textOf(root)).not.toContain('Reviewed under the old scoring');
+    const retry = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Retry')!;
+    await click(retry);
+    await vi.waitFor(() => expect(textOf(root)).toContain('Grounding · middle'));
+    expect(textOf(root)).toContain('Relevance — Mostly');
+  },
+);

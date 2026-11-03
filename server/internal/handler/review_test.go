@@ -22,6 +22,7 @@ type reviewView struct {
 			Items, Missed    []struct {
 				Key, Label, Quote string
 				Cites             []string
+				Checks            []json.RawMessage
 			}
 		}
 	}
@@ -37,7 +38,7 @@ func seedReviews(t *testing.T, s *server, ws, card string) {
 			attempt  int
 			decision string
 		}{{"hypotheses", 1, 1, "pass"}, {"grounding", 1, 1, "redo"}, {"grounding", 2, 2, "pass"}} {
-			b, _ := json.Marshal(map[string]any{"column": x.col, "attempt": x.attempt, "decision": x.decision})
+			b, _ := json.Marshal(map[string]any{"column": x.col, "attempt": x.attempt, "decision": x.decision, "items": nil})
 			if _, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(card),
 				BoardColumn: x.col, Round: x.round, Kind: "review", Role: "server", Body: b}); err != nil {
 				return err
@@ -68,6 +69,9 @@ func TestReviewEndpointListsAttemptsInOrder(t *testing.T) {
 	g := v.Columns[0].Attempts
 	if len(g) != 2 || g[0].Attempt != 1 || g[0].Decision != "redo" || g[1].Attempt != 2 || g[1].Decision != "pass" {
 		t.Fatalf("grounding attempts %+v", g)
+	}
+	if g[0].Items == nil || len(g[0].Items) != 0 {
+		t.Fatalf("empty hand-in returned items = %#v, want an empty array", g[0].Items)
 	}
 	if len(v.Columns[1].Attempts) != 1 || len(v.Columns[2].Attempts) != 0 {
 		t.Fatalf("%+v", v.Columns)
@@ -182,8 +186,8 @@ func TestCardReviewAddsRoundTimeAndItemText(t *testing.T) {
 		}
 		for _, item := range []db.Record{hypothesis, verdict} {
 			body, err := json.Marshal(map[string]any{"column": item.BoardColumn, "attempt": item.Round, "decision": "pass",
-				"items":  []any{map[string]any{"key": item.Key, "label": "reviewed item", "checks": []any{}}},
-				"missed": []any{map[string]any{"key": "", "label": "doi:10.1/x", "checks": []any{}}}})
+				"items":  []any{map[string]any{"key": item.Key, "label": "reviewed item", "checks": nil}},
+				"missed": []any{map[string]any{"key": "", "label": "doi:10.1/x"}}})
 			if err != nil {
 				return err
 			}
@@ -224,9 +228,13 @@ func TestCardReviewAddsRoundTimeAndItemText(t *testing.T) {
 		t.Fatalf("verdict review %+v", verdict)
 	}
 	for _, attempt := range []int{1, 3} {
-		missed := v.Columns[attempt].Attempts[0].Missed
+		a := v.Columns[attempt].Attempts[0]
+		missed := a.Missed
 		if len(missed) != 1 || missed[0].Quote != "doi:10.1/x" || missed[0].Cites == nil || len(missed[0].Cites) != 0 {
 			t.Fatalf("missed items %+v", missed)
+		}
+		if missed[0].Checks == nil || a.Items[0].Checks == nil {
+			t.Fatalf("expected empty check arrays, got missed=%#v items=%#v", missed[0].Checks, a.Items[0].Checks)
 		}
 	}
 	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", b, wb.ID, nil, nil); code != 404 {
@@ -246,6 +254,7 @@ func TestReviewEndpointIncludesObjectionRecordKeys(t *testing.T) {
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), uuid.Nil, func(tx *store.Tx) error {
 		for _, rec := range []struct{ kind, key, body string }{
+			{"validation_status", "initial-1", `{"hypothesis":"H1","status":"supported","final":false}`},
 			{"validation_status", "status-1", `{"hypothesis":"H1","status":"caveated","reasons":["an upheld wrong test objection"],"cites":["value-1","objection-9"],"final":true}`},
 			{"objection", "objection-9", `{"target_key":"value-1","label":"H1","type":"wrong_test","problem":"Incorrect comparison","upheld":true,"same_family":false,"server":"ok","checks":[]}`},
 			{"objection", "objection-10", `{"target_key":"value-1","label":"H1","type":"wrong_test","problem":"No further status reduction","upheld":true}`},
@@ -291,5 +300,45 @@ func TestReviewEndpointIncludesObjectionRecordKeys(t *testing.T) {
 	}
 	if byKey["objection-10"]["problem"] != "No further status reduction" {
 		t.Fatalf("uncited objection missing: %+v", val.Objections)
+	}
+}
+
+func TestReviewEndpointReturnsProvisionalStatusesBeforeJudgment(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), uuid.Nil, func(tx *store.Tx) error {
+		for i, status := range []string{"invalid", "supported"} {
+			body, err := json.Marshal(map[string]any{"hypothesis": "H1", "status": status, "final": false})
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+				BoardColumn: "validation", Round: int32(i + 1), Kind: "validation_status", Role: "server", Body: body}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view struct {
+		Columns []struct {
+			Statuses []struct {
+				Hypothesis, Status string
+				Final              bool
+			}
+		}
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, w.ID, nil, &view); code != 200 {
+		t.Fatalf("code %d", code)
+	}
+	statuses := view.Columns[3].Statuses
+	if len(statuses) != 1 || statuses[0].Hypothesis != "H1" || statuses[0].Status != "supported" || statuses[0].Final {
+		t.Fatalf("provisional statuses %+v", statuses)
 	}
 }
