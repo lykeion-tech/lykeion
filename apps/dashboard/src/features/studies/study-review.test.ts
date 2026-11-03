@@ -1,14 +1,17 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import StudyReview from './StudyReview.vue';
-import type { Column, ReviewAttempt, ReviewColumn } from '../../api/types';
+import type { Column, ReviewAttempt, ReviewColumn, StudyRecord } from '../../api/types';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 
 const disposals: (() => void)[] = [];
-afterEach(() => disposals.splice(0).forEach((dispose) => dispose()));
+afterEach(() => {
+  disposals.splice(0).forEach((dispose) => dispose());
+  vi.unstubAllGlobals();
+});
 
 function grounding(): ReviewAttempt {
   return {
@@ -81,13 +84,21 @@ function columns(a = grounding()): ReviewColumn[] {
     { column: 'validation', attempts: [] },
   ];
 }
-function setup(reviews = columns(), current: Column = 'experimentation') {
+function setup(
+  reviews = columns(),
+  current: Column = 'experimentation',
+  legacy?: { scores: StudyRecord[]; outcomes: StudyRecord[] },
+) {
   workspaceId.value = 'w';
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], reviews);
   client.setQueryData(keys.card('w', 'c'), { id: 'c', board_column: current });
+  if (legacy) {
+    client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'score'], legacy.scores);
+    client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'outcome'], legacy.outcomes);
+  }
   const root = node('root');
   const app = createTreeApp({ render: () => h(StudyReview, { cardId: 'c' }) });
   app.use(VueQueryPlugin, { queryClient: client });
@@ -308,4 +319,196 @@ it('draws Experimentation warnings dashed and keeps the stored status', async ()
   expect(all(root).some((n) => n.tag === 'line' && n.props['stroke-dasharray'] === '4 4')).toBe(
     true,
   );
+});
+
+const labelled = (root: ReturnType<typeof node>, label: string) => {
+  const found = all(root).find((n) => n.props['aria-label'] === label);
+  expect(found, `Expected a node labelled ${label}`).toBeDefined();
+  return found!;
+};
+const click = async (n: ReturnType<typeof node>) => {
+  (n.props.onClick as () => void)();
+  await nextTick();
+};
+
+it('folds the checks to counts and filters them by status', async () => {
+  const a = grounding();
+  a.items[1]!.carried = true;
+  const { root } = setup(columns(a));
+  await nextTick();
+  const toggle = labelled(root, 'Checks · evidence');
+  expect(textOf(toggle)).toContain('✓ 2');
+  expect(textOf(toggle)).toContain('◐ 1');
+  expect(textOf(toggle)).toContain('○ 1');
+  expect(all(root).filter((n) => n.props.class === 'check-row')).toHaveLength(0);
+  await click(toggle);
+  expect(all(root).filter((n) => n.props.class === 'check-row')).toHaveLength(4);
+  expect(textOf(root)).toContain('weakest · Jev 20% sure');
+  expect(textOf(root)).toContain('carried');
+  expect(textOf(labelled(root, 'Unsupported checks'))).toContain('1');
+  await click(labelled(root, 'Unsupported checks'));
+  const rows = all(root).filter((n) => n.props.class === 'check-row');
+  expect(rows).toHaveLength(1);
+  expect(textOf(rows[0]!)).toContain('Criterion 1');
+  expect(textOf(rows[0]!)).toContain('20%');
+  await click(labelled(root, 'Supported checks'));
+  await click(all(root).find((n) => n.props.class === 'check-row')!);
+  expect(textOf(selected(root))).toContain('The first paper found a benefit.');
+});
+
+it('opens the server checks when one failed', async () => {
+  const a = grounding();
+  a.items[0]!.checks.push({
+    id: 'exists',
+    by: 'server',
+    status: 'fail',
+    detail: 'DOI was not found',
+  });
+  a.items[1]!.checks.push({ id: 'exists', by: 'server', status: 'pass', detail: 'DOI resolved' });
+  a.recall = { query: 'seedling growth', hits: 14, screened: 6 };
+  const { root } = setup(columns(a));
+  await nextTick();
+  const server = labelled(root, 'Checked by the server');
+  expect(textOf(server)).toContain('1 passed · 1 failed');
+  expect(server.props['aria-expanded']).toBe(true);
+  expect(textOf(root)).toContain('DOI was not found');
+  expect(all(root).filter((n) => n.props.class === 'server-family')).toHaveLength(1);
+  expect(textOf(root)).toContain('Searched “seedling growth” · 14 found · 6 screened by Jev');
+});
+
+it('puts Experimentation server checks open above the fingerprint and marks warning rows', async () => {
+  const a = grounding();
+  a.column = 'experimentation';
+  a.items[0]!.checks = [
+    { id: 'declared', by: 'server', status: 'pass', detail: 'Output was declared' },
+    { id: 'described', by: 'jev', status: 'unclear', p: 0.5, warning: true },
+  ];
+  const { root } = setup([{ column: 'experimentation', attempts: [a] }]);
+  await nextTick();
+  const nodes = all(root);
+  expect(labelled(root, 'Checked by the server').props['aria-expanded']).toBe(true);
+  expect(nodes.indexOf(labelled(root, 'Checked by the server'))).toBeLessThan(
+    nodes.indexOf(labelled(root, 'Fingerprint caption')),
+  );
+  expect(textOf(root)).toContain('Output was declared');
+  await click(labelled(root, 'Checks · evidence'));
+  expect(textOf(root)).toContain('warning only');
+});
+
+function validation(extra: Partial<ReviewColumn> = {}): ReviewColumn[] {
+  return [
+    {
+      column: 'validation',
+      attempts: [{ ...grounding(), column: 'validation' }],
+      mode: 'runs',
+      ...extra,
+    },
+  ];
+}
+
+it('shows Validation statuses with the objections upheld against them', async () => {
+  const { root } = setup(
+    validation({
+      statuses: [
+        {
+          hypothesis: 'Seedlings grow taller',
+          status: 'caveated',
+          reasons: ['Small sample', 'Second reason'],
+          cites: ['r9'],
+        },
+      ],
+      objections: [
+        { target_key: 'r9', type: 'wrong_test', problem: 'p', upheld: true },
+        { target_key: 'r9', type: 'missing_control', problem: 'dropped objection', upheld: false },
+        { target_key: 'other', type: 'wrong_test', problem: 'unrelated objection', upheld: true },
+      ],
+      route_back: { to: 'experimentation' },
+    }),
+  );
+  await nextTick();
+  const row = all(root).find((n) => n.props.class === 'validation-status');
+  expect(row).toBeDefined();
+  expect(textOf(row!)).toContain('Seedlings grow taller');
+  expect(textOf(row!)).toContain('caveated');
+  expect(textOf(row!)).toContain('Small sample');
+  expect(textOf(row!)).toContain('wrong test: p');
+  expect(textOf(row!)).not.toContain('Second reason');
+  expect(textOf(row!)).not.toContain('dropped objection');
+  expect(textOf(row!)).not.toContain('unrelated objection');
+  expect(textOf(root)).toContain('Sent back to Experimentation once');
+});
+
+it('says why the objector did not run and marks a same-family objector', async () => {
+  const skipped = setup(
+    validation({
+      objector: { ran: false, reason: 'No independent backend available', same_family: false },
+    }),
+  );
+  await nextTick();
+  expect(textOf(skipped.root)).toContain('No independent backend available');
+  const same = setup(validation({ same_family: true }));
+  await nextTick();
+  expect(textOf(same.root)).toContain('same-family objector');
+});
+
+it('uses generic item checks for Validation without runs', async () => {
+  const { root } = setup(
+    validation({
+      mode: 'sources',
+      statuses: [{ hypothesis: 'Run-only status', status: 'supported' }],
+    }),
+  );
+  await nextTick();
+  await click(labelled(root, 'Checks · evidence'));
+  expect(all(root).filter((n) => n.props.class === 'check-row')).toHaveLength(4);
+  expect(textOf(root)).not.toContain('Run-only status');
+});
+
+it('shows a finished legacy study in the old form', async () => {
+  const record = (kind: string, body: Record<string, unknown>): StudyRecord => ({
+    id: kind,
+    card_id: 'c',
+    board_column: 'grounding',
+    round: 1,
+    kind,
+    role: 'server',
+    key: kind,
+    body,
+    blob_key: '',
+    agent_run_id: null,
+    superseded_at: null,
+    created_at: '2026-11-03T10:00:00Z',
+  });
+  const { root } = setup([], 'done', {
+    scores: [
+      record('score', { criterion: 'Relevance', level: 4 }),
+      record('score', { criterion: 'Coverage', level: 2 }),
+    ],
+    outcomes: [record('outcome', { verdict: 'middle' })],
+  });
+  await nextTick();
+  expect(textOf(root)).toContain('Reviewed under the old scoring');
+  expect(textOf(root)).toContain('Grounding · middle');
+  expect(textOf(root)).toContain('Relevance — Mostly');
+  expect(textOf(root)).toContain('Coverage — Barely');
+  expect(spokeButtons(root)).toHaveLength(0);
+  expect(all(root).some((n) => n.props['aria-label'] === 'Review stages')).toBe(false);
+});
+
+it('fetches legacy records only after an empty review, and stops using them when an attempt arrives', async () => {
+  const fetch = vi.fn(async (_path: string) => Response.json([]));
+  vi.stubGlobal('fetch', fetch);
+  const { root, client } = setup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(fetch).not.toHaveBeenCalled();
+  client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(fetch.mock.calls.map((args) => String(args[0])).sort()).toEqual([
+    '/api/cards/c/records?kind=outcome',
+    '/api/cards/c/records?kind=score',
+  ]);
+  client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], columns());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(spokeButtons(root)).toHaveLength(4);
+  expect(textOf(root)).not.toContain('Reviewed under the old scoring');
 });

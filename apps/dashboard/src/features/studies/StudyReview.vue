@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { useCard, useCardReview } from '../../api/queries';
+import { computed, h, ref, watch } from 'vue';
+import { useCard, useCardReview, useKindRecords } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import type { CheckStatus, Column, ReviewAttempt } from '../../api/types';
-import { checkLabel, defaultSpoke, indexOf, spokes, statusWord, tileOf } from '../../lib/review';
+import {
+  checkLabel,
+  defaultSpoke,
+  indexOf,
+  legacyColumns,
+  spokes,
+  statusWord,
+  tileOf,
+} from '../../lib/review';
 import { columnName } from '../../lib/studies';
 
 const props = defineProps<{ cardId: string }>();
@@ -152,6 +160,133 @@ const tiles = computed(() =>
     ...tileOf(c, card.data.value?.board_column ?? shown.value),
   })),
 );
+
+const loadLegacy = computed(() => review.isSuccess.value && !newest.value);
+const scores = useKindRecords(() => props.cardId, 'score', loadLegacy);
+const outcomes = useKindRecords(() => props.cardId, 'outcome', loadLegacy);
+const legacy = computed(() =>
+  loadLegacy.value && outcomes.data.value?.length
+    ? legacyColumns(scores.data.value ?? [], outcomes.data.value)
+    : [],
+);
+const checksOpen = ref(false);
+const checkFilter = ref<CheckStatus | 'all'>('all');
+const filters = [
+  { status: 'all', label: 'All' },
+  { status: 'fail', label: 'Unsupported' },
+  { status: 'unclear', label: 'Unclear' },
+  { status: 'pass', label: 'Supported' },
+] as const;
+const count = (status: CheckStatus | 'all') =>
+  checks.value.filter((check) => status === 'all' || check.status === status).length;
+const checkGroups = computed(() =>
+  items.value.flatMap((item, i) => {
+    const rows = checks.value.filter(
+      (spoke) =>
+        spoke.item === i && (checkFilter.value === 'all' || spoke.status === checkFilter.value),
+    );
+    return rows.length ? [{ item, rows }] : [];
+  }),
+);
+const icons: Record<CheckStatus, string> = { pass: '✓', unclear: '◐', fail: '○', withdrawn: '—' };
+const serverChecks = computed(() =>
+  items.value.flatMap((item) =>
+    item.checks.filter((check) => check.by === 'server').map((check) => ({ item, check })),
+  ),
+);
+const serverFamilies = computed(() =>
+  [...new Set(serverChecks.value.map(({ check }) => checkLabel(check.id)))].map((label) => ({
+    label,
+    rows: serverChecks.value.filter(({ check }) => checkLabel(check.id) === label),
+  })),
+);
+const serverOpen = ref(false);
+watch(
+  attempt,
+  () => {
+    checksOpen.value = false;
+    checkFilter.value = 'all';
+    serverOpen.value =
+      shown.value === 'experimentation' ||
+      serverChecks.value.some(({ check }) => check.status === 'fail');
+  },
+  { immediate: true },
+);
+// Render the same server evidence above the fingerprint in Experimentation
+// and below the evidence list in other stages.
+const ServerChecks = () =>
+  h('section', { class: 'server-checks review-fold' }, [
+    h(
+      'button',
+      {
+        class: 'fold-toggle',
+        'aria-label': 'Checked by the server',
+        'aria-expanded': serverOpen.value,
+        onClick: () => {
+          serverOpen.value = !serverOpen.value;
+        },
+      },
+      [
+        h('b', 'Checked by the server'),
+        h(
+          'span',
+          { class: 'type-caption' },
+          `${serverChecks.value.filter(({ check }) => check.status === 'pass').length} passed · ${serverChecks.value.filter(({ check }) => check.status === 'fail').length} failed`,
+        ),
+      ],
+    ),
+    ...(serverOpen.value
+      ? [
+          ...serverFamilies.value.map((family) =>
+            h('section', { class: 'server-family', key: family.label }, [
+              h('h3', { class: 'type-caption' }, family.label),
+              ...family.rows.map(({ item, check }, i) =>
+                h('div', { class: 'server-row', key: `${item.key}-${check.id}-${i}` }, [
+                  h(
+                    'span',
+                    {
+                      style: { color: colors[check.status] },
+                      'aria-label': statusWord(check.status),
+                    },
+                    icons[check.status],
+                  ),
+                  h('div', [h('b', item.label), h('p', check.detail ?? '')]),
+                ]),
+              ),
+            ]),
+          ),
+          ...(shown.value === 'grounding' && attempt.value?.recall
+            ? [
+                h(
+                  'p',
+                  { class: 'type-caption recall' },
+                  `Searched “${attempt.value.recall.query}” · ${attempt.value.recall.hits} found · ${attempt.value.recall.screened} screened by Jev`,
+                ),
+              ]
+            : []),
+        ]
+      : []),
+  ]);
+const validation = computed(() => columns.value.find((column) => column.column === 'validation'));
+const objector = computed(() => validation.value?.objector ?? attempt.value?.objector);
+const validationStatuses = computed(() =>
+  (validation.value?.statuses ?? []).map((status) => ({
+    hypothesis: String(status.hypothesis ?? '').slice(0, 80),
+    status: String(status.status ?? ''),
+    reason: Array.isArray(status.reasons) ? String(status.reasons[0] ?? '') : '',
+    objections: (validation.value?.objections ?? [])
+      .filter(
+        (objection) =>
+          objection.upheld === true &&
+          Array.isArray(status.cites) &&
+          status.cites.includes(objection.target_key),
+      )
+      .map(
+        (objection) =>
+          `${String(objection.type ?? '').replaceAll('_', ' ')}: ${String(objection.problem ?? '')}`,
+      ),
+  })),
+);
 </script>
 
 <template>
@@ -163,7 +298,17 @@ const tiles = computed(() =>
         Retry
       </button>
     </p>
+    <section v-else-if="legacy.length" class="legacy-review" aria-label="Legacy review">
+      <h2>Reviewed under the old scoring</h2>
+      <section v-for="column in legacy" :key="column.column">
+        <h3>{{ columnName(column.column) }} · {{ column.verdict }}</h3>
+        <p v-for="(criterion, i) in column.criteria" :key="i">
+          {{ criterion.name }} — {{ criterion.level }}
+        </p>
+      </section>
+    </section>
     <template v-else>
+      <ServerChecks v-if="attempt && shown === 'experimentation'" />
       <header class="fingerprint-caption type-caption" aria-label="Fingerprint caption">
         <span>Claim fingerprint</span>
         <span
@@ -342,6 +487,86 @@ const tiles = computed(() =>
             }}</small>
           </button>
         </div>
+        <section v-if="attempt" class="review-fold evidence-checks">
+          <button
+            class="fold-toggle"
+            aria-label="Checks · evidence"
+            :aria-expanded="checksOpen"
+            @click="checksOpen = !checksOpen"
+          >
+            <b>Checks · evidence</b>
+            <span class="type-caption"
+              >✓ {{ count('pass') }} · ◐ {{ count('unclear') }} · ○ {{ count('fail') }}</span
+            >
+          </button>
+          <template v-if="checksOpen">
+            <div class="check-filters" aria-label="Filter checks">
+              <button
+                v-for="filter in filters"
+                :key="filter.status"
+                :aria-label="`${filter.label} checks`"
+                :aria-pressed="checkFilter === filter.status"
+                @click="checkFilter = filter.status"
+              >
+                {{ filter.label }} {{ count(filter.status) }}
+              </button>
+            </div>
+            <section v-for="group in checkGroups" :key="group.item.key" class="check-group">
+              <header class="check-group-heading">
+                <b>{{ group.item.label }}</b>
+                <span v-if="group.item.carried" class="review-tag">carried</span>
+                <span v-if="attempt.weakest?.key === group.item.key" class="type-caption"
+                  >weakest · Jev {{ pct(attempt.weakest.p) }}% sure</span
+                >
+                <p class="item-quote" :title="group.item.quote">{{ group.item.quote }}</p>
+              </header>
+              <button
+                v-for="spoke in group.rows"
+                :key="spoke.id"
+                class="check-row"
+                :aria-pressed="picked === spoke.id"
+                @click="picked = spoke.id"
+              >
+                <span
+                  :style="{ color: colors[spoke.status] }"
+                  :aria-label="statusWord(spoke.status)"
+                  >{{ icons[spoke.status] }}</span
+                >
+                <span class="check-row-label"
+                  >{{ checkLabel(group.item.checks[spoke.check]!.id) }}
+                  <span class="review-tag">{{ columnName(shown) }}</span
+                  ><span v-if="spoke.warning" class="review-tag">warning only</span></span
+                >
+                <span class="evidence-bar" aria-hidden="true"
+                  ><i :style="{ width: `${pct(spoke.p)}%`, background: colors[spoke.status] }" /><i
+                    class="evidence-tick"
+                    style="left: 35%" /><i class="evidence-tick" style="left: 70%"
+                /></span>
+                <span class="type-caption">{{ pct(spoke.p) }}%</span>
+              </button>
+            </section>
+          </template>
+        </section>
+        <ServerChecks v-if="attempt && shown !== 'experimentation'" />
+        <section v-if="shown === 'validation'" class="validation-details" aria-label="Validation">
+          <h2>Validation</h2>
+          <span v-if="validation?.same_family || objector?.same_family" class="review-tag"
+            >same-family objector</span
+          >
+          <p v-if="objector?.ran === false">{{ objector.reason }}</p>
+          <template v-if="validation?.mode === 'runs'">
+            <section v-for="(status, i) in validationStatuses" :key="i" class="validation-status">
+              <div>
+                <b>{{ status.hypothesis }}</b> <span class="review-tag">{{ status.status }}</span>
+              </div>
+              <p>{{ status.reason }}</p>
+              <p v-for="(objection, j) in status.objections" :key="j" class="validation-objection">
+                {{ objection }}
+              </p>
+            </section>
+          </template>
+          <p v-if="validation?.route_back">Sent back to Experimentation once</p>
+        </section>
         <footer class="type-caption">
           Jev checks whether each claim is backed by the evidence this study recorded. It does not
           decide whether the science is true.
@@ -519,5 +744,148 @@ footer {
   padding: 28px 12px;
   text-align: center;
   color: var(--muted);
+}
+.review-fold {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.fold-toggle,
+.server-checks :deep(.fold-toggle) {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  text-align: left;
+}
+.fold-toggle > span,
+.server-checks :deep(.fold-toggle > span) {
+  color: var(--muted);
+}
+.check-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+.check-filters button,
+.review-tag {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+.check-filters button[aria-pressed='true'] {
+  background: var(--hover);
+  border-color: var(--muted);
+}
+.review-tag {
+  display: inline-block;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.check-group {
+  margin: 15px 0;
+}
+.check-group-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.check-group-heading > .type-caption {
+  color: var(--muted);
+}
+.item-quote {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  margin: 2px 0 7px;
+}
+.check-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(45px, 100px) 36px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 4px;
+  text-align: left;
+  border-radius: 5px;
+}
+.check-row:hover,
+.check-row[aria-pressed='true'] {
+  background: var(--hover);
+}
+.check-row-label {
+  overflow-wrap: anywhere;
+}
+.check-row-label .review-tag {
+  margin-left: 4px;
+}
+.evidence-bar {
+  display: block;
+  position: relative;
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+}
+.evidence-bar > i:first-child {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.evidence-tick {
+  position: absolute;
+  height: 9px;
+  width: 1px;
+  top: -2px;
+  background: var(--muted);
+}
+.server-checks :deep(.server-family),
+.validation-status {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.server-checks :deep(.server-family h3) {
+  margin: 0 0 9px;
+  color: var(--muted);
+}
+.server-checks :deep(.server-row) {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.server-checks :deep(.server-row p),
+.validation-status p {
+  margin: 4px 0 0;
+}
+.server-checks :deep(.server-row p),
+.server-checks :deep(.recall) {
+  color: var(--muted);
+}
+.validation-details {
+  margin-top: 16px;
+}
+.validation-details h2,
+.legacy-review h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.legacy-review h3 {
+  font-size: 13px;
+  margin-top: 18px;
+}
+.validation-objection {
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
 }
 </style>

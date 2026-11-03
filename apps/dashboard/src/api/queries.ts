@@ -142,7 +142,11 @@ export const useRuns = (id: MaybeRefOrGetter<string>) =>
   });
 
 // One kind's live records from every column of the study.
-export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
+export const useKindRecords = (
+  id: MaybeRefOrGetter<string>,
+  kind: string,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) =>
   useQuery({
     queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'kind', kind]),
     queryFn: async () =>
@@ -150,7 +154,7 @@ export const useKindRecords = (id: MaybeRefOrGetter<string>, kind: string) =>
         'GET',
         `/api/cards/${toValue(id)}/records?kind=${encodeURIComponent(kind)}`,
       )) ?? [],
-    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id)) && toValue(enabled)),
   });
 
 // A run's messages, every attempt's in order, so an earlier attempt stays
