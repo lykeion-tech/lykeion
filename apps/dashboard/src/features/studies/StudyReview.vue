@@ -269,25 +269,35 @@ const ServerChecks = () =>
   ]);
 const validation = computed(() => columns.value.find((column) => column.column === 'validation'));
 const objector = computed(() => validation.value?.objector ?? attempt.value?.objector);
+const upheldObjections = computed(() =>
+  (validation.value?.objections ?? []).filter((objection) => objection.upheld === true),
+);
+function citesObjection(status: Record<string, unknown>, objection: Record<string, unknown>) {
+  // Final statuses cite the judged objection's record, not its target.
+  // Target matching is only for older responses without record keys.
+  return (
+    Array.isArray(status.cites) && status.cites.includes(objection.key || objection.target_key)
+  );
+}
+const objectionText = (objection: Record<string, unknown>) =>
+  `${String(objection.type ?? '').replaceAll('_', ' ')}: ${String(objection.problem ?? '')}`;
 const validationStatuses = computed(() =>
   (validation.value?.statuses ?? []).map((status) => ({
     hypothesis: String(status.hypothesis ?? '').slice(0, 80),
     status: String(status.status ?? ''),
     reason: Array.isArray(status.reasons) ? String(status.reasons[0] ?? '') : '',
-    objections: (validation.value?.objections ?? [])
-      .filter(
-        (objection) =>
-          objection.upheld === true &&
-          Array.isArray(status.cites) &&
-          // Final statuses cite the judged objection's record, not its target.
-          // Target matching is only for older responses without record keys.
-          status.cites.includes(objection.key || objection.target_key),
-      )
-      .map(
-        (objection) =>
-          `${String(objection.type ?? '').replaceAll('_', ' ')}: ${String(objection.problem ?? '')}`,
-      ),
+    objections: upheldObjections.value
+      .filter((objection) => citesObjection(status, objection))
+      .map(objectionText),
   })),
+);
+const unlinkedObjections = computed(() =>
+  upheldObjections.value
+    .filter(
+      (objection) =>
+        !(validation.value?.statuses ?? []).some((status) => citesObjection(status, objection)),
+    )
+    .map(objectionText),
 );
 </script>
 
@@ -567,6 +577,19 @@ const validationStatuses = computed(() =>
               </p>
             </section>
           </template>
+          <section
+            v-if="unlinkedObjections.length"
+            class="validation-unlinked"
+            aria-label="Other upheld objections"
+          >
+            <h3 class="type-caption">Other upheld objections</h3>
+            <p class="type-caption">
+              These upheld objections have no recorded link to a hypothesis.
+            </p>
+            <p v-for="(objection, i) in unlinkedObjections" :key="i" class="validation-objection">
+              {{ objection }}
+            </p>
+          </section>
           <p v-if="validation?.route_back">Sent back to Experimentation once</p>
         </section>
         <footer class="type-caption">
@@ -850,7 +873,8 @@ footer {
   background: var(--muted);
 }
 .server-checks :deep(.server-family),
-.validation-status {
+.validation-status,
+.validation-unlinked {
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 10px 12px;
@@ -867,7 +891,8 @@ footer {
   margin: 8px 0;
 }
 .server-checks :deep(.server-row p),
-.validation-status p {
+.validation-status p,
+.validation-unlinked p {
   margin: 4px 0 0;
 }
 .server-checks :deep(.server-row p),

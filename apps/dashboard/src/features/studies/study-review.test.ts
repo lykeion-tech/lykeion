@@ -487,6 +487,52 @@ it('links final Validation objections by their record keys without guessing unci
   expect(textOf(rows[1]!)).not.toContain('Uncited and did not lower the status');
 });
 
+it('shows uncited upheld Validation objections separately from hypotheses', async () => {
+  const { root } = setup(
+    validation({
+      statuses: [
+        {
+          hypothesis: 'No reliable effect',
+          status: 'invalid',
+          reasons: ['No valid test'],
+          cites: ['value-2', 'objection-9'],
+        },
+      ],
+      objections: [
+        {
+          key: 'objection-9',
+          target_key: 'hypothesis-record',
+          type: 'wrong_test',
+          problem: 'Already linked objection',
+          upheld: true,
+        },
+        {
+          key: 'objection-10',
+          target_key: 'value-2',
+          type: 'missing_control',
+          problem: 'A control is still missing',
+          upheld: true,
+        },
+        {
+          key: 'objection-11',
+          target_key: 'value-2',
+          type: 'wrong_test',
+          problem: 'Rejected concern',
+          upheld: false,
+        },
+      ],
+    }),
+  );
+  await nextTick();
+  const other = labelled(root, 'Other upheld objections');
+  expect(textOf(other)).toContain('missing control: A control is still missing');
+  expect(textOf(other)).not.toContain('Already linked objection');
+  expect(textOf(other)).not.toContain('Rejected concern');
+  const status = all(root).find((n) => n.props.class === 'validation-status')!;
+  expect(textOf(status)).toContain('Already linked objection');
+  expect(textOf(status)).not.toContain('A control is still missing');
+});
+
 it('preserves distinct missed item groups and selection when status filters change', async () => {
   const a = grounding();
   a.items = [];
