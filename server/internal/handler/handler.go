@@ -51,6 +51,8 @@ type H struct {
 	// TextDeadline, textDeadline when zero.
 	ExtractText  func(name, contentType string, f io.ReaderAt, size int64) (*io.SectionReader, bool, error)
 	TextDeadline time.Duration
+
+	LessonWritesEnabled bool
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

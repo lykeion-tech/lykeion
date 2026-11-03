@@ -702,3 +702,33 @@ export type WorkflowDetail = WorkflowSummary & {
   readme: string;
   instruction: string;
 };
+
+export interface LabChat {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabRef {
+  study_id?: string;
+  ref: string;
+  title: string;
+  via?: string;
+  facts?: LabRef[];
+}
+
+export interface LabStatement {
+  kind: 'fact' | 'lesson' | 'gap';
+  text: string;
+  cites: LabRef[];
+}
+
+export interface LabMessage {
+  id: string;
+  kind: 'question' | 'answer' | 'failure';
+  body: string;
+  statements: LabStatement[];
+  evidence: LabRef[];
+  created_at: string;
+}

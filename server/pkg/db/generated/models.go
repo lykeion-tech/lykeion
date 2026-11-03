@@ -721,6 +721,7 @@ type LabMessage struct {
 	Body          string          `json:"body"`
 	Statements    json.RawMessage `json:"statements"`
 	ContextCardID *uuid.UUID      `json:"context_card_id"`
+	ContextRef    *string         `json:"context_ref"`
 	AgentRunID    *uuid.UUID      `json:"agent_run_id"`
 	CreatedAt     time.Time       `json:"created_at"`
 	Evidence      json.RawMessage `json:"evidence"`

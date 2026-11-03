@@ -12,6 +12,10 @@ import (
 
 // Enqueue freezes one private chat turn in the same transaction as its question.
 func Enqueue(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.LabChat, asker uuid.UUID, question string, contextCard *uuid.UUID, harness, model string) (db.AgentRun, error) {
+	return EnqueueWithContext(ctx, tx, runs, chat, asker, question, contextCard, nil, harness, model)
+}
+
+func EnqueueWithContext(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.LabChat, asker uuid.UUID, question string, contextCard *uuid.UUID, contextRef *string, harness, model string) (db.AgentRun, error) {
 	if harness != "claude" {
 		return db.AgentRun{}, agent.ErrLabHarness
 	}
@@ -29,7 +33,7 @@ func Enqueue(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db
 	if err != nil {
 		return run, err
 	}
-	if err = tx.Q.InsertLabQuestion(ctx, db.InsertLabQuestionParams{ChatID: chat.ID, Body: question, ContextCardID: contextCard, AgentRunID: &run.ID}); err != nil {
+	if err = tx.Q.InsertLabQuestion(ctx, db.InsertLabQuestionParams{ChatID: chat.ID, Body: question, ContextCardID: contextCard, ContextRef: contextRef, AgentRunID: &run.ID}); err != nil {
 		return run, err
 	}
 	run, err = tx.Q.RefreshLabRunPrompt(ctx, run.ID)

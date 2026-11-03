@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -34,6 +35,120 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 		arg.ReadVersion,
 	)
 	return err
+}
+
+const createLabChat = `-- name: CreateLabChat :one
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at
+`
+
+func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
+	row := q.db.QueryRow(ctx, createLabChat)
+	var i LabChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.Title,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const flagLabLesson = `-- name: FlagLabLesson :one
+UPDATE lesson SET status='set_aside',set_aside_reason='flagged'
+WHERE workspace_id=app_workspace() AND id= $1 RETURNING id
+`
+
+func (q *Queries) FlagLabLesson(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, flagLabLesson, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const getLabQuestion = `-- name: GetLabQuestion :one
+SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user()
+AND agent_run_id= $1::uuid AND kind='question'
+`
+
+func (q *Queries) GetLabQuestion(ctx context.Context, runID uuid.UUID) (LabMessage, error) {
+	row := q.db.QueryRow(ctx, getLabQuestion, runID)
+	var i LabMessage
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ChatID,
+		&i.OwnerID,
+		&i.Kind,
+		&i.Body,
+		&i.Statements,
+		&i.ContextCardID,
+		&i.ContextRef,
+		&i.AgentRunID,
+		&i.CreatedAt,
+		&i.Evidence,
+		&i.HistorySafe,
+		&i.LaunchAttempt,
+		&i.StaleAttempt,
+		&i.LaunchSources,
+	)
+	return i, err
+}
+
+const getPrivateAnswerSources = `-- name: GetPrivateAnswerSources :one
+SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
+FROM lab_message m JOIN lab_message q ON q.workspace_id=m.workspace_id AND q.chat_id=m.chat_id
+AND q.owner_id=m.owner_id AND q.agent_run_id=m.agent_run_id AND q.kind='question'
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.chat_id= $1 AND m.id= $2 AND m.kind='answer'
+`
+
+type GetPrivateAnswerSourcesParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	ID     uuid.UUID `json:"id"`
+}
+
+type GetPrivateAnswerSourcesRow struct {
+	ID            uuid.UUID       `json:"id"`
+	Kind          string          `json:"kind"`
+	LaunchSources []uuid.UUID     `json:"launch_sources"`
+	Question      string          `json:"question"`
+	Statements    json.RawMessage `json:"statements"`
+	Evidence      json.RawMessage `json:"evidence"`
+	HistorySafe   bool            `json:"history_safe"`
+}
+
+func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAnswerSourcesParams) (GetPrivateAnswerSourcesRow, error) {
+	row := q.db.QueryRow(ctx, getPrivateAnswerSources, arg.ChatID, arg.ID)
+	var i GetPrivateAnswerSourcesRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.LaunchSources,
+		&i.Question,
+		&i.Statements,
+		&i.Evidence,
+		&i.HistorySafe,
+	)
+	return i, err
+}
+
+const getPrivateLabChat = `-- name: GetPrivateLabChat :one
+SELECT id, workspace_id, owner_id, title, created_at, updated_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1
+`
+
+func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat, error) {
+	row := q.db.QueryRow(ctx, getPrivateLabChat, id)
+	var i LabChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.Title,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const labAsker = `-- name: LabAsker :one
@@ -301,4 +416,139 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listPrivateLabChats = `-- name: ListPrivateLabChats :many
+SELECT id, workspace_id, owner_id, title, created_at, updated_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user()
+AND ($1::timestamptz IS NULL OR (updated_at,id)<($1,$2::uuid))
+ORDER BY updated_at DESC,id DESC LIMIT $3::int
+`
+
+type ListPrivateLabChatsParams struct {
+	BeforeTime *time.Time `json:"before_time"`
+	BeforeID   uuid.UUID  `json:"before_id"`
+	PageSize   int32      `json:"page_size"`
+}
+
+func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabChatsParams) ([]LabChat, error) {
+	rows, err := q.db.Query(ctx, listPrivateLabChats, arg.BeforeTime, arg.BeforeID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LabChat
+	for rows.Next() {
+		var i LabChat
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.OwnerID,
+			&i.Title,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrivateLabMessages = `-- name: ListPrivateLabMessages :many
+SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1
+AND ($2::timestamptz IS NULL OR (created_at,id)<($2,$3::uuid))
+ORDER BY created_at DESC,id DESC LIMIT $4::int
+`
+
+type ListPrivateLabMessagesParams struct {
+	ChatID     uuid.UUID  `json:"chat_id"`
+	BeforeTime *time.Time `json:"before_time"`
+	BeforeID   uuid.UUID  `json:"before_id"`
+	PageSize   int32      `json:"page_size"`
+}
+
+func (q *Queries) ListPrivateLabMessages(ctx context.Context, arg ListPrivateLabMessagesParams) ([]LabMessage, error) {
+	rows, err := q.db.Query(ctx, listPrivateLabMessages,
+		arg.ChatID,
+		arg.BeforeTime,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LabMessage
+	for rows.Next() {
+		var i LabMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ChatID,
+			&i.OwnerID,
+			&i.Kind,
+			&i.Body,
+			&i.Statements,
+			&i.ContextCardID,
+			&i.ContextRef,
+			&i.AgentRunID,
+			&i.CreatedAt,
+			&i.Evidence,
+			&i.HistorySafe,
+			&i.LaunchAttempt,
+			&i.StaleAttempt,
+			&i.LaunchSources,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queueLabFlagRewrite = `-- name: QueueLabFlagRewrite :exec
+INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
+SELECT app_workspace(),$1::uuid,ARRAY['flag'],now()
+WHERE NOT EXISTS(SELECT 1 FROM lesson_job WHERE workspace_id=app_workspace() AND lesson_id= $1 AND status='queued' AND 'flag'=ANY(triggers))
+`
+
+func (q *Queries) QueueLabFlagRewrite(ctx context.Context, lessonID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, queueLabFlagRewrite, lessonID)
+	return err
+}
+
+const recordLabFlag = `-- name: RecordLabFlag :exec
+INSERT INTO lesson_flag(workspace_id,lesson_id,user_id,reason)
+VALUES(app_workspace(),$1,app_user(),$2)
+`
+
+type RecordLabFlagParams struct {
+	LessonID uuid.UUID `json:"lesson_id"`
+	Reason   string    `json:"reason"`
+}
+
+func (q *Queries) RecordLabFlag(ctx context.Context, arg RecordLabFlagParams) error {
+	_, err := q.db.Exec(ctx, recordLabFlag, arg.LessonID, arg.Reason)
+	return err
+}
+
+const touchLabChat = `-- name: TouchLabChat :exec
+UPDATE lab_chat SET updated_at=clock_timestamp(),title=CASE WHEN title='' THEN $1::text ELSE title END
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2
+`
+
+type TouchLabChatParams struct {
+	Title string    `json:"title"`
+	ID    uuid.UUID `json:"id"`
+}
+
+func (q *Queries) TouchLabChat(ctx context.Context, arg TouchLabChatParams) error {
+	_, err := q.db.Exec(ctx, touchLabChat, arg.Title, arg.ID)
+	return err
 }

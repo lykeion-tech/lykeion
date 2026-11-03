@@ -35,6 +35,7 @@ CREATE TABLE lab_message (
   body text NOT NULL,
   statements jsonb NOT NULL DEFAULT '[]',
   context_card_id uuid,
+  context_ref text,
   agent_run_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (workspace_id, chat_id, owner_id) REFERENCES lab_chat (workspace_id, id, owner_id) ON DELETE CASCADE,

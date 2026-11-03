@@ -200,6 +200,12 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		t.Fatalf("owner cannot patch runtime fixture: %d", code)
 	}
 
+	labChat := newLabChat(t, s, a, wa.ID)
+	var lesson string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO lesson(workspace_id,kind,text,model) VALUES($1,'lab','Isolation lesson','test') RETURNING id`, wa.ID).Scan(&lesson); err != nil {
+		t.Fatal(err)
+	}
+
 	checked := 0
 	err := chi.Walk(NewRouter(s.H).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if !strings.HasPrefix(route, "/api/") || strings.HasPrefix(route, "/api/tokens") ||
@@ -218,12 +224,16 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/lab/chats" || route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}
-		if strings.HasPrefix(route, "/api/decisions/{id}") {
+		if strings.HasPrefix(route, "/api/lab/chats/{id}") {
+			path = strings.Replace(path, "{id}", labChat, 1)
+		} else if route == "/api/lessons/{id}/flag" {
+			path = strings.Replace(path, "{id}", lesson, 1)
+		} else if strings.HasPrefix(route, "/api/decisions/{id}") {
 			path = strings.Replace(path, "{id}", item, 1)
 		} else if strings.HasPrefix(route, "/api/mcp-servers/{id}") {
 			path = strings.Replace(path, "{id}", mcp.ID, 1)
@@ -243,6 +253,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		path = strings.TrimSuffix(path, "/")
 		var body any
 		switch {
+		case route == "/api/lab/chats/{id}/questions":
+			body = map[string]string{"text": "outsider", "harness": "claude"}
+		case route == "/api/lessons/{id}/flag":
+			body = map[string]string{"reason": "outsider"}
 		case strings.HasSuffix(route, "/stop"):
 			body = map[string]string{"reason": "outsider"}
 		case strings.HasSuffix(route, "/decide"):

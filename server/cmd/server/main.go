@@ -225,8 +225,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
-		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
-		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
+		LessonWritesEnabled: strings.TrimSpace(getenv("ANTHROPIC_API_KEY")) != "" && strings.TrimSpace(getenv("TYPESAFE_API_KEY")) != "",
+		Google:              auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
+		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
 	}

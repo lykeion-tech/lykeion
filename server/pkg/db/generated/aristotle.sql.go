@@ -14,16 +14,17 @@ import (
 )
 
 const aristotleRuntimeAvailable = `-- name: AristotleRuntimeAvailable :one
-SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id=app_workspace() AND owner_id=app_user() AND harness= $1 AND status='online' AND last_seen_at>now()-interval '60 seconds' AND ($2::text IS NULL OR daemon_id=$2))::boolean
+SELECT EXISTS(SELECT 1 FROM runtime WHERE workspace_id=app_workspace() AND owner_id=app_user() AND harness= $1 AND status='online' AND last_seen_at>now()-interval '60 seconds' AND (NOT $2::boolean OR unhealthy_reason IS NULL) AND ($3::text IS NULL OR daemon_id=$3))::boolean
 `
 
 type AristotleRuntimeAvailableParams struct {
-	Harness  string  `json:"harness"`
-	DaemonID *string `json:"daemon_id"`
+	Harness        string  `json:"harness"`
+	RequireHealthy bool    `json:"require_healthy"`
+	DaemonID       *string `json:"daemon_id"`
 }
 
 func (q *Queries) AristotleRuntimeAvailable(ctx context.Context, arg AristotleRuntimeAvailableParams) (bool, error) {
-	row := q.db.QueryRow(ctx, aristotleRuntimeAvailable, arg.Harness, arg.DaemonID)
+	row := q.db.QueryRow(ctx, aristotleRuntimeAvailable, arg.Harness, arg.RequireHealthy, arg.DaemonID)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

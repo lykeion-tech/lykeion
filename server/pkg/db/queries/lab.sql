@@ -100,3 +100,46 @@ SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
    AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
    ORDER BY i.id LIMIT @page_size::integer) decisions
 ) link ORDER BY link.id,link.kind LIMIT @page_size::integer;
+
+-- name: CreateLabChat :one
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING *;
+
+-- name: GetPrivateLabChat :one
+SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id;
+
+-- name: ListPrivateLabChats :many
+SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user()
+AND (sqlc.narg(before_time)::timestamptz IS NULL OR (updated_at,id)<(sqlc.narg(before_time),@before_id::uuid))
+ORDER BY updated_at DESC,id DESC LIMIT @page_size::int;
+
+-- name: TouchLabChat :exec
+UPDATE lab_chat SET updated_at=clock_timestamp(),title=CASE WHEN title='' THEN @title::text ELSE title END
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id;
+
+-- name: ListPrivateLabMessages :many
+SELECT * FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= @chat_id
+AND (sqlc.narg(before_time)::timestamptz IS NULL OR (created_at,id)<(sqlc.narg(before_time),@before_id::uuid))
+ORDER BY created_at DESC,id DESC LIMIT @page_size::int;
+
+-- name: GetLabQuestion :one
+SELECT * FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user()
+AND agent_run_id= @run_id::uuid AND kind='question';
+
+-- name: GetPrivateAnswerSources :one
+SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
+FROM lab_message m JOIN lab_message q ON q.workspace_id=m.workspace_id AND q.chat_id=m.chat_id
+AND q.owner_id=m.owner_id AND q.agent_run_id=m.agent_run_id AND q.kind='question'
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.chat_id= @chat_id AND m.id= @id AND m.kind='answer';
+
+-- name: FlagLabLesson :one
+UPDATE lesson SET status='set_aside',set_aside_reason='flagged'
+WHERE workspace_id=app_workspace() AND id= @id RETURNING id;
+
+-- name: RecordLabFlag :exec
+INSERT INTO lesson_flag(workspace_id,lesson_id,user_id,reason)
+VALUES(app_workspace(),@lesson_id,app_user(),@reason);
+
+-- name: QueueLabFlagRewrite :exec
+INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
+SELECT app_workspace(),@lesson_id::uuid,ARRAY['flag'],now()
+WHERE NOT EXISTS(SELECT 1 FROM lesson_job WHERE workspace_id=app_workspace() AND lesson_id= @lesson_id AND status='queued' AND 'flag'=ANY(triggers));

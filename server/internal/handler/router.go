@@ -238,12 +238,17 @@ func NewRouter(h *H) http.Handler {
 			})
 		})
 
+		r.Get("/api/lab/chats/{id}/messages", h.listLabMessages)
 		r.Post("/api/coresearch/conversations", h.acceptAristotleTurn)
 		r.Post("/api/coresearch/conversations/{conversation}/turns", h.acceptAristotleTurn)
 		r.Post("/api/coresearch/uploads", h.uploadCoresearchAttachment)
 		r.Post("/api/coresearch/projects/{project}/chats/{chat}/turns", h.coresearchTurn)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
+			r.Get("/api/lab/chats", h.listLabChats)
+			r.Post("/api/lab/chats", h.createLabChat)
+			r.Post("/api/lab/chats/{id}/questions", h.askLabQuestion)
+			r.Post("/api/lessons/{id}/flag", h.flagLabLesson)
 			r.Post("/api/coresearch/bootstrap", h.bootstrapAristotle)
 			r.Get("/api/coresearch/conversations", h.listCoresearchConversations)
 			r.Delete("/api/coresearch/conversations/{conversation}", h.deleteCoresearchConversation)

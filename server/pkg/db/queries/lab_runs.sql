@@ -6,14 +6,14 @@ AND EXISTS(SELECT 1 FROM member m WHERE m.workspace_id=c.workspace_id AND m.user
 RETURNING *;
 
 -- name: InsertLabQuestion :exec
-INSERT INTO lab_message(workspace_id,owner_id,chat_id,kind,body,context_card_id,agent_run_id,created_at)
-VALUES(app_workspace(),app_user(),@chat_id,'question',@body,sqlc.narg(context_card_id),sqlc.narg(agent_run_id),clock_timestamp());
+INSERT INTO lab_message(workspace_id,owner_id,chat_id,kind,body,context_card_id,context_ref,agent_run_id,created_at)
+VALUES(app_workspace(),app_user(),@chat_id,'question',@body,sqlc.narg(context_card_id),sqlc.narg(context_ref),sqlc.narg(agent_run_id),clock_timestamp());
 
 -- Only the current question enters a queued/claimed prompt. The launch request
 -- builds the prior conversation after rechecking every evidence pin.
 -- name: RefreshLabRunPrompt :one
 UPDATE agent_run r SET prompt=q.body||
- CASE WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END
+ CASE WHEN q.context_ref IS NOT NULL THEN E'\n\nContext record (read first): '||q.context_ref WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END
 FROM lab_message q WHERE r.workspace_id=app_workspace() AND r.kind='aristotle' AND r.id= @id
 AND q.workspace_id=r.workspace_id AND q.owner_id=app_user() AND q.chat_id=r.lab_chat_id AND q.agent_run_id=r.id AND q.kind='question'
 RETURNING r.*;
