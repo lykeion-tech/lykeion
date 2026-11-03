@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -58,8 +59,15 @@ const rerunEnv = ".lyk-env"
 // failure to rebuild is the machine's, and the rerun is tried again.
 type unrebuildable struct{ error }
 
-// cranURL is where R packages are fetched at their saved versions.
-var cranURL = "https://cloud.r-project.org"
+func (u unrebuildable) Unwrap() error { return u.error }
+
+// cranURL is where R packages are fetched at their saved versions, with
+// cranClient, each at most maxCRANBytes.
+var (
+	cranURL      = "https://cloud.r-project.org"
+	cranClient   = &http.Client{Timeout: 10 * time.Minute}
+	maxCRANBytes = int64(200 << 20)
+)
 
 // runRerun replays a study's recorded scripts, in the order they ran, in a
 // fresh folder and a fresh environment rebuilt from each step's saved
@@ -354,7 +362,7 @@ func (d *daemon) rebuild(ctx context.Context, door *Door, rerun *service.Claimed
 // networkTrouble is output that says a download failed for the network's
 // sake; refusal is output that says the saved list asks for what can't be had.
 var (
-	networkTrouble = regexp.MustCompile(`(?i)could not resolve|name resolution|connection (refused|reset|timed out|aborted)|network is unreachable|timed? ?out|temporary failure|max retries exceeded|newconnectionerror|ssl|tls|proxy`)
+	networkTrouble = regexp.MustCompile(`(?i)could not resolve host|temporary failure in name resolution|name or service not known|connection (refused|reset|timed out|aborted)|network is unreachable|\btimed out\b|max retries exceeded|newconnectionerror|connecttimeouterror|readtimeouterror|\bssl: |sslerror|proxyerror|tls handshake`)
 	refusal        = regexp.MustCompile(`(?i)could not solve|nothing provides|unsatisfiable|is not installable|no matching distribution|could not find a version|resolutionimpossible|\b404\b|does not exist|the lock must provide|the lock's python must include|python must be a version|cannot be found|could not find package|expected package`)
 )
 
@@ -464,6 +472,7 @@ func (d *daemon) rebuildR(ctx context.Context, door *Door, env []string, rscript
 		return err
 	}
 	var tarballs []string
+	versions := map[string]string{}
 	for line := range strings.Lines(own) {
 		f := strings.Fields(line)
 		if len(f) == 0 {
@@ -472,18 +481,28 @@ func (d *daemon) rebuildR(ctx context.Context, door *Door, env []string, rscript
 		if len(f) != 2 || !rPackage.MatchString(f[0]) || !rVersion.MatchString(f[1]) {
 			return unrebuildable{fmt.Errorf("the saved R package list has an unreadable line %q", strings.TrimSpace(line))}
 		}
+		if v, seen := versions[f[0]]; seen {
+			if v != f[1] {
+				return unrebuildable{fmt.Errorf("the saved R package list names %s at both %s and %s", f[0], v, f[1])}
+			}
+			continue
+		}
+		versions[f[0]] = f[1]
 		file, err := fetchCRAN(ctx, dir, f[0], f[1])
 		if err != nil {
 			return err
 		}
 		tarballs = append(tarballs, file)
 	}
-	if out, err := door.runSandboxed(ctx, env, door.Study.Dir, rscript, append([]string{"-e", installSaved}, tarballs...)...); err != nil {
-		// The sources are all here: a package that won't build from them
-		// can't be rebuilt on this machine.
+	out, err := door.runSandboxed(ctx, env, door.Study.Dir, rscript, append([]string{"-e", installSaved}, tarballs...)...)
+	// The sources are all here: an install that ran and exited saying a
+	// package won't build from them can't be rebuilt on this machine. One
+	// that couldn't start, or was killed, is the machine's.
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.Exited() {
 		return unrebuildable{fmt.Errorf("%w: %s", err, tail(string(out)))}
 	}
-	return nil
+	return err
 }
 
 func fetchCRAN(ctx context.Context, dir, pkg, version string) (string, error) {
@@ -493,7 +512,7 @@ func fetchCRAN(ctx context.Context, dir, pkg, version string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := cranClient.Do(req)
 		if err != nil {
 			return "", err
 		}
@@ -507,11 +526,15 @@ func fetchCRAN(ctx context.Context, dir, pkg, version string) (string, error) {
 		}
 		path := filepath.Join(dir, file)
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		var n int64
 		if err == nil {
-			_, err = io.Copy(f, resp.Body)
+			n, err = io.Copy(f, io.LimitReader(resp.Body, maxCRANBytes+1))
 			err = errors.Join(err, f.Close())
 		}
 		resp.Body.Close()
+		if err == nil && n > maxCRANBytes {
+			return "", unrebuildable{fmt.Errorf("%s is over %d MiB", file, maxCRANBytes>>20)}
+		}
 		return path, err
 	}
 	return "", unrebuildable{fmt.Errorf("CRAN has no %s %s", pkg, version)}

@@ -92,6 +92,8 @@ type rerunCase struct {
 	original string
 	// conda holds each call of the fake environment rebuild.
 	conda []condaCall
+	// cleanup undoes what a case's setup changed.
+	cleanup []func()
 }
 
 type condaCall struct{ python, lock string }
@@ -301,6 +303,16 @@ func TestRerunEnvironmentFromSavedPackages(t *testing.T) {
 			t.Fatalf("steps ran in an environment that failed: %v", steps)
 		}
 	})
+	t.Run("a refusal that names packages like network words", func(t *testing.T) {
+		rc := newRerun(t, fakePackages, steps, nil)
+		rc.d.setUpConda = func(*envs.Study, context.Context, string, []string, string) (string, error) {
+			return "error    libmamba Could not solve for environment specs\n    - nothing provides pyopenssl >=99 needed by async-timeout 4.0, proxy_tools 0.1", errors.New("exit status 1")
+		}
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != "environment" {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
+		}
+	})
 	t.Run("the study's own packages are installed", func(t *testing.T) {
 		rc := newRerun(t, fakePackages, steps, nil)
 		rc.run(t)
@@ -387,10 +399,24 @@ func TestRerunMachineFailuresAreRetried(t *testing.T) {
 				d.interp = func(string) (string, []string, error) { return "/nonexistent/interpreter", nil, nil }
 			})
 		}, "runtime_offline"},
+		"the R install is refused the sandbox": {rInstall(func(ctx context.Context) (*exec.Cmd, error) {
+			return nil, errors.New("install bubblewrap")
+		}), "sandbox"},
+		"the R install won't start": {rInstall(func(ctx context.Context) (*exec.Cmd, error) {
+			return exec.CommandContext(ctx, "/nonexistent/Rscript"), nil
+		}), "runtime_offline"},
+		"the R install is killed": {rInstall(func(ctx context.Context) (*exec.Cmd, error) {
+			return exec.CommandContext(ctx, "/bin/sh", "-c", "kill -9 $$"), nil
+		}), "runtime_offline"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rc := newRerun(t, fakePackages, steps, nil)
 			tc.setup(rc)
+			defer func() {
+				for _, f := range rc.cleanup {
+					f()
+				}
+			}()
 			rc.run(t)
 			if rc.srv.result != nil {
 				t.Fatalf("posted %v", rc.srv.result)
@@ -403,6 +429,27 @@ func TestRerunMachineFailuresAreRetried(t *testing.T) {
 }
 
 func chainDoor(a, b func(*Door)) func(*Door) { return func(d *Door) { a(d); b(d) } }
+
+// rInstall makes the rerun an R step whose saved packages CRAN has, and
+// starts the sandboxed install of them with install instead.
+func rInstall(install func(context.Context) (*exec.Cmd, error)) func(*rerunCase) {
+	return func(rc *rerunCase) {
+		srv := httptest.NewServer(&cran{files: map[string]string{"/src/contrib/ggplot2_3.4.0.tar.gz": "gg"}})
+		old := cranURL
+		cranURL = srv.URL
+		rc.cleanup = append(rc.cleanup, func() { cranURL = old; srv.Close() })
+		rc.c.Rerun.Steps = []service.RerunStep{{Key: "run1", Path: "plot.R", Language: envs.R, Script: "echo r\n", Packages: "# r base\nr-lock\n\n# r study\nggplot2 3.4.0\n"}}
+		rc.d.rerunDoor = chainDoor(rc.d.rerunDoor, func(d *Door) {
+			stub := d.wrap
+			d.wrap = func(ctx context.Context, p sandbox.Policy, name string, args ...string) (*exec.Cmd, error) {
+				if slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, "install.packages") }) {
+					return install(ctx)
+				}
+				return stub(ctx, p, name, args...)
+			}
+		})
+	}
+}
 
 // cran stands in for CRAN, serving only the files it holds and noting every
 // path asked for.
@@ -470,6 +517,28 @@ func TestRerunRebuildsEachLanguageFromItsOwnList(t *testing.T) {
 			return strings.HasSuffix(c[0], "Rscript") && slices.ContainsFunc(c, func(a string) bool { return strings.Contains(a, "install.packages") })
 		}) {
 			t.Fatalf("the R packages were not installed in the sandbox: %v", commands)
+		}
+	})
+	t.Run("a package named twice is fetched once", func(t *testing.T) {
+		c := &cran{files: map[string]string{"/src/contrib/ggplot2_3.4.0.tar.gz": "gg", "/src/contrib/Archive/oldpkg/oldpkg_1.0.tar.gz": "old"}}
+		serve(t, c)
+		s := steps()
+		s[1].Packages = "# r base\nr-lock\n\n# r study\nggplot2 3.4.0\nggplot2 3.4.0\noldpkg 1.0\n"
+		rc := newRerun(t, "", s, nil)
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != nil || strings.Count(strings.Join(c.asked, " "), "ggplot2") != 1 {
+			t.Fatalf("result %v fail %v asked %q", rc.srv.result, rc.srv.fail, c.asked)
+		}
+	})
+	t.Run("a package over the size cap", func(t *testing.T) {
+		serve(t, &cran{files: map[string]string{"/src/contrib/ggplot2_3.4.0.tar.gz": "gg", "/src/contrib/oldpkg_1.0.tar.gz": "0123456789"}})
+		old := maxCRANBytes
+		maxCRANBytes = 4
+		t.Cleanup(func() { maxCRANBytes = old })
+		rc := newRerun(t, "", steps(), nil)
+		rc.run(t)
+		if rc.srv.result == nil || rc.srv.result["failure"] != "environment" {
+			t.Fatalf("result %v fail %v", rc.srv.result, rc.srv.fail)
 		}
 	})
 	t.Run("a version CRAN never had", func(t *testing.T) {
