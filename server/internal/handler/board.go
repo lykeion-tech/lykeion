@@ -26,21 +26,6 @@ import (
 
 var errEnded = errors.New("the card has ended; start a new study to continue")
 
-// resolveBlocked resolves the card's open items asking for a person, whom
-// stopping the study has answered.
-func resolveBlocked(ctx context.Context, tx *store.Tx, card, who uuid.UUID) error {
-	ids, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: &card})
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if err := tx.Emit(ctx, "inbox.resolved", &card, store.User(who), map[string]string{"inbox_item_id": id.String()}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // steer applies one person's action to a card under its lock, cancels the
 // card's in-flight agent runs when asked, and kicks the engine afterwards. A typed
 // input error from act answers 400; other errors retain their server handling. Its routes sit outside
@@ -168,7 +153,7 @@ func (h *H) stopCard(w http.ResponseWriter, r *http.Request) {
 			reason = fmt.Sprintf("duplicate of #%d", o.Number)
 		}
 		board.Stop(s, reason)
-		return nil, resolveBlocked(r.Context(), tx, c.ID, user(r))
+		return nil, service.EndStudyItems(r.Context(), tx, c.ID, store.User(user(r)))
 	})
 }
 

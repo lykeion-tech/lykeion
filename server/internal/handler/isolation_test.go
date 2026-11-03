@@ -245,6 +245,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		switch {
 		case strings.HasSuffix(route, "/stop"):
 			body = map[string]string{"reason": "outsider"}
+		case strings.HasSuffix(route, "/decide"):
+			body = map[string]string{"option": "park"}
 		case strings.HasSuffix(route, "/triage"):
 			body = map[string]string{"decide_by": "today"}
 		case route == "/api/cards/{id}/reactions":

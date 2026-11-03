@@ -13,6 +13,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelCardDecisions = `-- name: CancelCardDecisions :many
+UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()
+WHERE workspace_id = $1 AND card_id = $2::uuid AND status = 'open' AND resolved_at IS NULL
+  AND jsonb_array_length(options) > 0
+RETURNING id
+`
+
+type CancelCardDecisionsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// A stopped study's open decisions are cancelled: nobody answers them any more.
+func (q *Queries) CancelCardDecisions(ctx context.Context, arg CancelCardDecisionsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, cancelCardDecisions, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countDecisions = `-- name: CountDecisions :one
 SELECT count(*) FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $1 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
@@ -32,6 +65,68 @@ func (q *Queries) CountDecisions(ctx context.Context, arg CountDecisionsParams) 
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const decideItem = `-- name: DecideItem :one
+UPDATE inbox_item SET status = 'decided', chosen_option = $1, guidance = $2, decided_by = $3::uuid,
+  decided_at = now(), resolved_at = now(), touched_at = now()
+WHERE id = $4 AND workspace_id = $5
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
+`
+
+type DecideItemParams struct {
+	ChosenOption string    `json:"chosen_option"`
+	Guidance     string    `json:"guidance"`
+	DecidedBy    uuid.UUID `json:"decided_by"`
+	ID           uuid.UUID `json:"id"`
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+}
+
+// Answering resolves the item too, so the code that reads resolved_at sees
+// it closed.
+func (q *Queries) DecideItem(ctx context.Context, arg DecideItemParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, decideItem,
+		arg.ChosenOption,
+		arg.Guidance,
+		arg.DecidedBy,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+	)
+	return i, err
 }
 
 const getDecision = `-- name: GetDecision :one
@@ -187,6 +282,54 @@ func (q *Queries) ListDecisions(ctx context.Context, arg ListDecisionsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockDecision = `-- name: LockDecision :one
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at FROM inbox_item WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+`
+
+type LockDecisionParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) LockDecision(ctx context.Context, arg LockDecisionParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, lockDecision, arg.ID, arg.WorkspaceID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+	)
+	return i, err
 }
 
 const markDecisionRead = `-- name: MarkDecisionRead :one

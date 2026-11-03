@@ -793,12 +793,22 @@ func bookkeeping(kind string) bool {
 	return false
 }
 
-// unblock restarts the column of a blocked study when its owner comments:
-// one blocked by a second low score or by its lead's failed runs (block kind
-// low_score or none), or held because its lead could not do the column. The
-// comment becomes the leader's (or agent's) note, and the redo count stays.
+// unblock restarts the column of a blocked study when its owner comments,
+// as redo does.
 func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
-	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "") || c.Ending != "" || author != c.OwnerID {
+	if author != c.OwnerID {
+		return false, nil
+	}
+	return redo(ctx, tx, c, author, comment)
+}
+
+// redo restarts the column of a blocked study: one blocked by a second low
+// score or by its lead's failed runs (block kind low_score or none), held
+// because its lead could not do the column, or parked. The guidance becomes
+// the leader's (or agent's) note, and the redo count stays. It says false
+// for a study that is not blocked.
+func redo(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
+	if c.State != "blocked" || !slices.Contains([]string{"", "low_score", "parked"}, c.BlockKind) || c.Ending != "" {
 		return false, nil
 	}
 	note := "The researcher asked for this column to be redone:\n" + comment

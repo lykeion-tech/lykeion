@@ -597,7 +597,7 @@ func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMach
 const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now()
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
-  AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
+  AND kind = 'waiting_for_machine'
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
 `
 
@@ -607,8 +607,7 @@ type ResolveOpenOwnerItemParams struct {
 	UserID      uuid.UUID `json:"user_id"`
 }
 
-// The items their owner resolves by saying the cause is dealt with: a
-// machine's wait, or a study whose run its machines kept failing.
+// A machine's wait, which its owner resolves by saying the cause is dealt with.
 func (q *Queries) ResolveOpenOwnerItem(ctx context.Context, arg ResolveOpenOwnerItemParams) (InboxItem, error) {
 	row := q.db.QueryRow(ctx, resolveOpenOwnerItem, arg.ID, arg.WorkspaceID, arg.UserID)
 	var i InboxItem

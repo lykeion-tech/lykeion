@@ -153,12 +153,11 @@ ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine'
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
--- The items their owner resolves by saying the cause is dealt with: a
--- machine's wait, or a study whose run its machines kept failing.
+-- A machine's wait, which its owner resolves by saying the cause is dealt with.
 -- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
-  AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
+  AND kind = 'waiting_for_machine'
 RETURNING *;
 
 -- name: ResolveCardDecision :many

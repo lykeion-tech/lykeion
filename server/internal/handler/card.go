@@ -824,11 +824,10 @@ func (h *H) cardEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
-// resolveInbox is the owner saying an item's cause is dealt with. For a
-// machine's wait the machine is cleared, as a pass at daemon start would,
-// which is the only other way a fence breach clears; for a study whose run
-// its machines kept failing, the run tries again. Only an open item of the
-// caller's own does anything.
+// resolveInbox is the owner saying a machine's wait is dealt with: the
+// machine is cleared, as a pass at daemon start would, which is the only
+// other way a fence breach clears. Only an open wait of the caller's own
+// does anything.
 func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
@@ -838,11 +837,6 @@ func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 		item, err := tx.Q.ResolveOpenOwnerItem(r.Context(), db.ResolveOpenOwnerItemParams{ID: id, WorkspaceID: ws, UserID: user})
 		if err != nil {
 			return err
-		}
-		if item.Kind == "needs_decision" && item.CardID != nil {
-			if err := service.ReleaseParkedRuns(r.Context(), tx, *item.CardID); err != nil {
-				return err
-			}
 		}
 		if item.RuntimeID != nil {
 			// A machine that is no longer the caller's stays as it is.

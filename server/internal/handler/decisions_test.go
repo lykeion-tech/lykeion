@@ -3,6 +3,8 @@ package handler
 import (
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type decisionRow struct {
@@ -211,5 +213,93 @@ func TestHistoryIsNewestFirstDespiteSnooze(t *testing.T) {
 	}
 	if got := s.decisions(t, a, w.ID, "?view=history"); len(got) != 2 || got[0].Text != "newer" {
 		t.Fatalf("history order: %+v", got)
+	}
+}
+
+// heldCard is an idle study held blocked for its owner, with its stop
+// decision.
+func (s *server) heldCard(t *testing.T, tok, ws string) (card, string) {
+	t.Helper()
+	c := s.idleCard(t, tok, ws, "q")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE card SET state = 'blocked' WHERE id = $1`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, options, default_option)
+		VALUES ($1, $2, $3, 'needs_decision', 'held', 'could_not_do', $4::jsonb, 'park') RETURNING id`, ws, c.ID, s.userID(t, tok),
+		`[{"id":"redo","label":"R","consequence":"r"},{"id":"close","label":"C","consequence":"c"},{"id":"park","label":"P","consequence":"p"}]`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return c, id
+}
+
+func TestAdminMayAnswerMemberMayNot(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "owner@lab.org")
+	w := s.workspace(t, owner, "lab")
+	member := s.member(t, owner, w.ID, "member@lab.org", "member")
+	admin := s.member(t, owner, w.ID, "admin@lab.org", "admin")
+	c, id := s.heldCard(t, member, w.ID)
+	plain := s.member(t, owner, w.ID, "plain@lab.org", "member")
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/decide", plain, w.ID, map[string]any{"option": "park"}, nil); code != 403 {
+		t.Fatalf("a plain member answered: %d", code)
+	}
+	var out struct {
+		decisionRow
+		Status       string `json:"status"`
+		ChosenOption string `json:"chosen_option"`
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/decide", admin, w.ID, map[string]any{"option": "park"}, &out); code != 200 || out.Status != "decided" || out.ChosenOption != "park" || out.CanAnswer {
+		t.Fatalf("admin: %d %+v", code, out)
+	}
+	var state, kind string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT state, block_kind FROM card WHERE id = $1`, c.ID).Scan(&state, &kind); err != nil || state != "blocked" || kind != "parked" {
+		t.Fatalf("card %s %s %v", state, kind, err)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/decide", member, w.ID, map[string]any{"option": "close"}, nil); code != 409 {
+		t.Fatalf("answering a decided item: %d", code)
+	}
+}
+
+func TestDecideRefusesBadAnswers(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	_, id := s.heldCard(t, a, w.ID)
+	for _, body := range []map[string]any{{"option": "try_again"}, {"option": "redo"}, {"option": "redo", "guidance": " "}} {
+		if code := s.call(t, "POST", "/api/decisions/"+id+"/decide", a, w.ID, body, nil); code != 400 {
+			t.Fatalf("%v: %d", body, code)
+		}
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+uuid.NewString()+"/decide", a, w.ID, map[string]any{"option": "park"}, nil); code != 404 {
+		t.Fatalf("an unknown item: %d", code)
+	}
+}
+
+func TestStoppingCancelsOpenDecisions(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c, id := s.heldCard(t, a, w.ID)
+	other := s.idleCard(t, a, w.ID, "other")
+	untouched := s.seedDecision(t, w.ID, other.ID, s.userID(t, a), "other")
+	if code := s.call(t, "POST", "/api/cards/"+c.ID+"/stop", a, w.ID, map[string]any{"reason": "enough"}, nil); code != 200 {
+		t.Fatalf("stop: %d", code)
+	}
+	status := func(id string) string {
+		var st string
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status FROM inbox_item WHERE id = $1`, id).Scan(&st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	if got := status(id); got != "cancelled" {
+		t.Fatalf("the stopped study's decision: %s", got)
+	}
+	if got := status(untouched); got != "open" {
+		t.Fatalf("another study's decision: %s", got)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/decide", a, w.ID, map[string]any{"option": "park"}, nil); code != 409 {
+		t.Fatalf("answering a cancelled decision: %d", code)
 	}
 }

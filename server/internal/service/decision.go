@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -47,4 +49,23 @@ func HoldForDecision(ctx context.Context, tx *store.Tx, c db.Card, kind, cause, 
 	expires := now.Add(DecisionWindow)
 	return tx.Q.UpsertStopDecision(ctx, db.UpsertStopDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
 		Kind: kind, Text: text, Cause: cause, Options: options, DefaultOption: "park", ExpiresAt: &expires})
+}
+
+// EndStudyItems closes what a stopped study asked of people: its open
+// decisions are cancelled, and its other items waiting on a person resolved.
+func EndStudyItems(ctx context.Context, tx *store.Tx, card uuid.UUID, who store.Actor) error {
+	cancelled, err := tx.Q.CancelCardDecisions(ctx, db.CancelCardDecisionsParams{WorkspaceID: tx.WS, CardID: card})
+	if err != nil {
+		return err
+	}
+	resolved, err := tx.Q.ResolveCardInbox(ctx, db.ResolveCardInboxParams{WorkspaceID: tx.WS, CardID: &card})
+	if err != nil {
+		return err
+	}
+	for _, id := range append(cancelled, resolved...) {
+		if err := tx.Emit(ctx, "inbox.resolved", &card, who, map[string]string{"inbox_item_id": id.String()}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

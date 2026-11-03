@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -8,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"lykeion/server/internal/flow"
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -160,4 +163,55 @@ func (h *H) setArchived(w http.ResponseWriter, r *http.Request, archived bool) {
 	h.manageDecision(w, r, func(tx *store.Tx, ws, id uuid.UUID) error {
 		return tx.Q.SetDecisionArchived(r.Context(), db.SetDecisionArchivedParams{ID: id, WorkspaceID: ws, Archived: archived})
 	})
+}
+
+// decideDecision answers a decision with one of its options and returns the
+// decided item. It opens its own transaction, outside Scope's, because
+// answering may kick the study's engine.
+func (h *H) decideDecision(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Option   string `json:"option"`
+		Guidance string `json:"guidance"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	ws, err := uuid.Parse(middleware.FromHeader(r))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "X-Workspace-ID required")
+		return
+	}
+	who := user(r)
+	err = h.Engine.Decide(r.Context(), ws, id, who, in.Option, in.Guidance)
+	var opt flow.OptionError
+	switch {
+	case errors.As(err, &opt):
+		writeErr(w, http.StatusBadRequest, opt.Error())
+		return
+	case errors.Is(err, flow.ErrNotAnswerer):
+		writeErr(w, http.StatusForbidden, err.Error())
+		return
+	case errors.Is(err, flow.ErrDecisionClosed), errors.Is(err, flow.ErrAgentDecision), errors.Is(err, flow.ErrNotWaiting):
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		fail(w, r, err)
+		return
+	}
+	var out decisionView
+	err = h.Store.InWorkspace(r.Context(), ws, who, func(tx *store.Tx) error {
+		row, err := tx.Q.GetDecision(r.Context(), db.GetDecisionParams{ID: id, WorkspaceID: ws, Viewer: who})
+		out = viewDecision(row.InboxItem, row.MayAnswer)
+		return err
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
