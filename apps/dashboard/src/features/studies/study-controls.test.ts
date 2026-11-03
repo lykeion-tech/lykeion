@@ -12,12 +12,11 @@ vi.mock('@tanstack/vue-query', () => ({
 }));
 import StudyDescriptionControls from './StudyDescriptionControls.vue';
 
-it('offers reactions and tells people when attached files reach agents', async () => {
+it('lets people remove their reaction', async () => {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   const root = node('root');
   const app = createTreeApp(StudyDescriptionControls, { cardId: 'card', attachments: [] });
   app.mount(root);
-  expect(textOf(root)).toContain('New files are available to runs created after they are attached');
   const reaction = all(root).find((n) => n.tag === 'button' && textOf(n).includes('👍'))!;
   request.mockResolvedValue([]);
   (reaction.props.onClick as () => void)();

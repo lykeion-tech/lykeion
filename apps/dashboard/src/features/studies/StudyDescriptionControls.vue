@@ -164,10 +164,6 @@ async function attach(event: Event) {
         ><span>{{ formatSize(file.size_bytes) }}</span>
       </li>
     </ul>
-    <p class="attachment-hint">
-      New files are available to runs created after they are attached. Runs already created keep
-      their original files.
-    </p>
     <p v-if="reactions.isError?.value" class="inline-error" role="alert">
       Reactions could not be loaded.
       <button class="reaction-more" @click="reactions.refetch()">Retry</button>
@@ -284,7 +280,6 @@ async function attach(event: Event) {
   background: transparent;
   cursor: pointer;
 }
-.attachment-hint,
 .attachment-status {
   font-size: 11px;
   margin: 5px 0 0;
