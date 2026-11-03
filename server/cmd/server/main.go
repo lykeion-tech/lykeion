@@ -164,7 +164,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			return fmt.Errorf("install shipped Teams in %s: %w", id, err)
 		}
 	}
-	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: strings.TrimRight(getenv("PUBLIC_URL"), "/") + "/mcp/sources"}
+	publicURL := strings.TrimRight(getenv("PUBLIC_URL"), "/")
+	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: publicURL + "/mcp/sources", LabMCPURL: publicURL + "/mcp/lab"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
 	if key := getenv("TYPESAFE_API_KEY"); key != "" {
 		engine.Jev = &jev.Client{BaseURL: "https://api.typesafe.ai", Key: key, Model: jev.Model}

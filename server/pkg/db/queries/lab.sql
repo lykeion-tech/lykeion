@@ -42,7 +42,7 @@ FROM inbox_item i JOIN card c ON c.workspace_id=i.workspace_id AND c.id=i.card_i
 WHERE @kind='decision' AND i.workspace_id=sqlc.arg(workspace_id)::uuid AND i.id=sqlc.arg(id)::uuid AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
 UNION ALL
 SELECT 'Lab lesson', l.text, l.written_at::text, false, '[]'::jsonb, l.cites
-FROM lesson l WHERE @kind='lesson' AND l.workspace_id=sqlc.arg(workspace_id)::uuid AND l.id=sqlc.arg(id)::uuid AND l.status='active'
+FROM lesson l WHERE @kind='lesson' AND l.workspace_id=sqlc.arg(workspace_id)::uuid AND l.id=sqlc.arg(id)::uuid AND l.status='active' AND l.checked_at IS NOT NULL
 UNION ALL
 SELECT w.name, jsonb_build_object('research_context',w.research_context,
  'workflows',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('workflow',c.workflow,'release',c.workflow_release) ORDER BY jsonb_build_object('workflow',c.workflow,'release',c.workflow_release)) FROM card c WHERE c.workspace_id=w.id AND c.workflow IS NOT NULL),'[]'::jsonb),
@@ -67,4 +67,35 @@ WHERE r.workspace_id = @workspace_id AND r.id = @id AND r.kind='aristotle' AND r
 -- Navigation only. This directory is not part of the workspace fact or its
 -- citation version. Each candidate is re-read and logged under the asker.
 -- name: LabStudyDirectory :many
-SELECT id FROM card WHERE workspace_id = @workspace_id AND id > @after_id::uuid ORDER BY id LIMIT 21;
+SELECT id FROM card WHERE workspace_id = @workspace_id AND id > @after_id::uuid ORDER BY id LIMIT @page_size::integer;
+
+-- name: LabLessonDirectory :many
+SELECT id,directory_seq FROM lesson WHERE workspace_id = @workspace_id AND status='active'
+  AND checked_at IS NOT NULL AND directory_seq > @after_seq::bigint
+  ORDER BY directory_seq LIMIT @page_size::integer;
+
+-- name: LabStudyOpen :one
+SELECT EXISTS(SELECT 1 FROM card WHERE workspace_id = @workspace_id AND id = @card_id)::boolean;
+
+-- Keep traversal bounded even for a study with thousands of records. Each
+-- table supplies at most the page size before the three result sets are merged.
+-- name: LabStudyLinks :many
+SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
+ SELECT * FROM (SELECT 'record'::text AS kind,r.id FROM record r
+   WHERE r.workspace_id = @workspace_id AND r.card_id = @card_id
+   AND (r.id,'record'::text) > (@after_id::uuid,@after_kind::text)
+   AND (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
+     SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
+     AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
+     AND (r.blob_key='' OR r.blob_key=a.blob_key||'.text')))
+   ORDER BY r.id LIMIT @page_size::integer) records
+ UNION ALL SELECT * FROM (SELECT 'comment'::text AS kind,c.id FROM comment c
+   WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id
+   AND (c.id,'comment'::text) > (@after_id::uuid,@after_kind::text)
+   ORDER BY c.id LIMIT @page_size::integer) comments
+ UNION ALL SELECT * FROM (SELECT 'decision'::text AS kind,i.id FROM inbox_item i
+   WHERE i.workspace_id = @workspace_id AND i.card_id = @card_id
+   AND (i.id,'decision'::text) > (@after_id::uuid,@after_kind::text)
+   AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+   ORDER BY i.id LIMIT @page_size::integer) decisions
+) link ORDER BY link.id,link.kind LIMIT @page_size::integer;

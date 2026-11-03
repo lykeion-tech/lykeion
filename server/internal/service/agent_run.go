@@ -379,6 +379,7 @@ type AgentRuns struct {
 	Store     *store.Store
 	Blobs     storage.Storage // holds the Team packs a claimed run's connectors come from
 	MCPURL    string
+	LabMCPURL string
 	OnSettled func(ctx context.Context, t db.AgentRun)
 	// OnSettlement takes precedence over OnSettled. Consumers must deduplicate by
 	// Settlement.ID: a crash after callback effects but before acknowledgment can
@@ -919,7 +920,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					if team != nil {
 						teams[t.ID] = *team
-					} else if t.Kind != "coresearch" && t.AgentID != nil {
+					} else if t.Kind != "coresearch" && t.Kind != "aristotle" && t.AgentID != nil {
 						cfg, err := tx.AgentCapabilities(ctx, *t.AgentID)
 						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 							return err
@@ -1010,7 +1011,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return err
 						}
 					}
-					c = &Claimed{Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					mcpURL := s.MCPURL
+					if t.Kind == "aristotle" {
+						mcpURL = s.LabMCPURL
+					}
+					c = &Claimed{Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {

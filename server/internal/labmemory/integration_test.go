@@ -101,7 +101,7 @@ func TestLessonOpensOnlyWhenEveryCiteOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	cites, _ := json.Marshal([]Citation{{Ref: Ref{"record", f.record}.String(), Version: "live"}, {Ref: Ref{"study", f.study}.String(), Version: study.Version}})
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson',$3,'test')`, id, f.ws, cites)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())`, id, f.ws, cites)
 	r := Ref{"lesson", id}
 	fact, err := f.read(r)
 	if err != nil || len(fact.Links) != 2 {
@@ -150,7 +150,7 @@ func TestFactsCannotCrossWorkspace(t *testing.T) {
 	// A workspace-local lesson cannot smuggle another workspace's fact.
 	id := uuid.New()
 	cites, _ := json.Marshal([]Citation{{Ref: Ref{"study", otherStudy}.String(), Version: "1"}})
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Leak',$3,'test')`, id, f.ws, cites)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Leak',$3,'test',now())`, id, f.ws, cites)
 	if _, err := f.read(Ref{"lesson", id}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign citation: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestFactsCannotCrossWorkspace(t *testing.T) {
 func TestLessonRejectsMalformedEmptyAndRecursiveCites(t *testing.T) {
 	f := setup(t)
 	id := uuid.New()
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Bad lesson','[]','test')`, id, f.ws)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Bad lesson','[]','test',now())`, id, f.ws)
 	for _, cites := range []string{`[]`, `{}`, `["record:` + f.record.String() + `"]`, `[{"ref":"record:` + f.record.String() + `"}]`, `[{"ref":"lesson:` + id.String() + `","version":"1"}]`} {
 		f.exec(`UPDATE lesson SET cites=$2 WHERE id=$1`, id, cites)
 		if _, err := f.read(Ref{"lesson", id}); !errors.Is(err, ErrNotFound) {
@@ -266,7 +266,7 @@ func (f *fixture) lessonFor(ref Ref) Ref {
 	}
 	cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: fact.Version}})
 	id := uuid.New()
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson',$3,'test')`, id, f.ws, cites)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())`, id, f.ws, cites)
 	return Ref{"lesson", id}
 }
 func TestPublicReadsBindTransactionIdentity(t *testing.T) {
@@ -411,7 +411,7 @@ func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
 		}
 		cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: shared.Version}})
 		id := uuid.New()
-		f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Shared lesson',$3,'test')`, id, f.ws, cites)
+		f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Shared lesson',$3,'test',now())`, id, f.ws, cites)
 		lesson := Ref{"lesson", id}
 		ownerLesson := f.lessonFor(ref)
 		check := func() {

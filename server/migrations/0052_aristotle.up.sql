@@ -51,7 +51,14 @@ CREATE TABLE lab_read (
 
 CREATE INDEX lab_read_run_ref ON lab_read (agent_run_id, ref);
 
+-- Keyset navigation reads one bounded slice of a study under the run lock.
+CREATE INDEX lab_study_record_links ON record (workspace_id,card_id,id);
+CREATE INDEX lab_study_comment_links ON comment (workspace_id,card_id,id);
+CREATE INDEX lab_study_decision_links ON inbox_item (workspace_id,card_id,id)
+  WHERE jsonb_array_length(options)>0 OR question_set IS NOT NULL;
+
 CREATE TABLE lesson (
+  directory_seq bigint NOT NULL GENERATED ALWAYS AS IDENTITY,
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   kind text NOT NULL CHECK (kind IN ('lab', 'preference')),
@@ -66,6 +73,10 @@ CREATE TABLE lesson (
   checked_at timestamptz,
   UNIQUE (workspace_id, id)
 );
+-- A navigation cursor never has to disclose the reference of a stale lesson.
+CREATE INDEX lab_lesson_directory ON lesson (workspace_id,directory_seq)
+ WHERE status='active' AND checked_at IS NOT NULL;
+
 CREATE TABLE lesson_flag (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,

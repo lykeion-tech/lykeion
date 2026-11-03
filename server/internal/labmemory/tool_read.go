@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -44,6 +45,24 @@ func blobSections(ctx context.Context, tx *store.Tx, f Fact) (map[string]string,
 	// Collect only pointers written by record producers, and only from this
 	// record's card. Attachment text additionally requires a matching live file.
 	keys := map[string]string{}
+	// Member output downloads resolve the current live "output" under the
+	// record key. Older outputs and rerun artifacts still have visible metadata.
+	if r.Kind == "rerun_output" {
+		return keys, nil
+	}
+	if r.Kind == "output" {
+		live, err := tx.Q.LiveCardRecordByKey(ctx, db.LiveCardRecordByKeyParams{WorkspaceID: tx.WS, CardID: r.CardID, Key: r.Key})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return keys, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if live.ID != r.ID || live.Kind != "output" {
+			return keys, nil
+		}
+	}
+
 	if r.BlobKey != "" {
 		keys["body"] = r.BlobKey
 	}
@@ -65,7 +84,7 @@ func blobSections(ctx context.Context, tx *store.Tx, f Fact) (map[string]string,
 	}
 	for section, key := range keys {
 		valid := strings.HasPrefix(key, prefix) && digest(strings.TrimPrefix(key, prefix))
-		if !valid && section == "body" && (r.Kind == "output" || r.Kind == "rerun_output") {
+		if !valid && section == "body" && r.Kind == "output" {
 			s, ok := strings.CutPrefix(key, tx.WS.String()+"/outputs/")
 			id, e := uuid.Parse(s)
 			valid = ok && e == nil && id.String() == s

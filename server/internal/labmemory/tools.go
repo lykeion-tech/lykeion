@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"lykeion/server/internal/auth"
-
 	"net/http"
 	"slices"
 	"strings"
@@ -15,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -31,8 +30,10 @@ type Tools struct {
 }
 
 type refInput struct {
-	After string `json:"after,omitempty" jsonschema:"For the workspace study directory, pass next_after from the previous page."`
-	Ref   string `json:"ref"`
+	Directory string `json:"directory,omitempty" jsonschema:"For workspace:context, studies (default) or lessons."`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Page size, 1 to 20; defaults to 20."`
+	After     string `json:"after,omitempty" jsonschema:"Pass next_after from the previous page."`
+	Ref       string `json:"ref"`
 }
 type readInput struct {
 	Ref     string `json:"ref"`
@@ -72,7 +73,7 @@ func toolError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, safe := range []error{ErrNotFound, middleware.ErrRoleUnauthorized, errMember, errSearch, errQuery, errOffset} {
+	for _, safe := range []error{ErrNotFound, middleware.ErrRoleUnauthorized, errMember, errSearch, errQuery, errOffset, errPage} {
 		if errors.Is(err, safe) {
 			return safe
 		}
@@ -207,44 +208,21 @@ func (t Tools) server(role middleware.Role, token string) *mcp.Server {
 		})
 		return nil, result, toolError(err)
 	})
-	mcp.AddTool(srv, &mcp.Tool{Name: "links", Description: "Follow a lab record’s links. Start from workspace:context for a live directory of studies, even when search is unavailable. Pass next_after as after to continue the directory."}, func(ctx context.Context, _ *mcp.CallToolRequest, in refInput) (*mcp.CallToolResult, hitList, error) {
+	mcp.AddTool(srv, &mcp.Tool{Name: "links", Description: "Follow a lab record's links by page. Start from workspace:context with directory studies or lessons when search is unavailable. Pass next_after as after until it is absent, even when a page has no visible hits."}, func(ctx context.Context, _ *mcp.CallToolRequest, in refInput) (*mcp.CallToolResult, hitList, error) {
 		var result hitList
 		err := c.authorized(ctx, func(tx *store.Tx, asker uuid.UUID) error {
 			ref, e := ParseRef(in.Ref)
 			if e != nil {
 				return ErrNotFound
 			}
-			f, e := Read(ctx, tx, asker, ref)
+			refs, next, e := linkPage(ctx, tx, asker, ref, in)
 			if e != nil {
 				return e
 			}
 			if e = c.log(ctx, tx, ref, "links"); e != nil {
 				return e
 			}
-			var next string
-			if ref.Kind == "workspace" {
-				after := uuid.Nil
-				if in.After != "" {
-					after, e = uuid.Parse(in.After)
-					if e != nil {
-						return ErrNotFound
-					}
-				}
-				ids, e := tx.Q.LabStudyDirectory(ctx, db.LabStudyDirectoryParams{WorkspaceID: tx.WS, AfterID: after})
-				if e != nil {
-					return e
-				}
-				if len(ids) > 20 {
-					ids = ids[:20]
-					next = ids[19].String()
-				}
-				for _, id := range ids {
-					f.Links = append(f.Links, Ref{"study", id})
-				}
-			} else if in.After != "" {
-				return ErrNotFound
-			}
-			result, e = c.hits(ctx, tx, asker, f.Links, ref.String(), 0)
+			result, e = c.hits(ctx, tx, asker, refs, ref.String(), 0)
 			result.NextAfter = next
 			return e
 		})

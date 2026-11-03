@@ -87,7 +87,7 @@ FROM inbox_item i JOIN card c ON c.workspace_id=i.workspace_id AND c.id=i.card_i
 WHERE $2='decision' AND i.workspace_id=$1::uuid AND i.id=$3::uuid AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
 UNION ALL
 SELECT 'Lab lesson', l.text, l.written_at::text, false, '[]'::jsonb, l.cites
-FROM lesson l WHERE $2='lesson' AND l.workspace_id=$1::uuid AND l.id=$3::uuid AND l.status='active'
+FROM lesson l WHERE $2='lesson' AND l.workspace_id=$1::uuid AND l.id=$3::uuid AND l.status='active' AND l.checked_at IS NOT NULL
 UNION ALL
 SELECT w.name, jsonb_build_object('research_context',w.research_context,
  'workflows',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('workflow',c.workflow,'release',c.workflow_release) ORDER BY jsonb_build_object('workflow',c.workflow,'release',c.workflow_release)) FROM card c WHERE c.workspace_id=w.id AND c.workflow IS NOT NULL),'[]'::jsonb),
@@ -133,6 +133,43 @@ func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, e
 	return i, err
 }
 
+const labLessonDirectory = `-- name: LabLessonDirectory :many
+SELECT id,directory_seq FROM lesson WHERE workspace_id = $1 AND status='active'
+  AND checked_at IS NOT NULL AND directory_seq > $2::bigint
+  ORDER BY directory_seq LIMIT $3::integer
+`
+
+type LabLessonDirectoryParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AfterSeq    int64     `json:"after_seq"`
+	PageSize    int32     `json:"page_size"`
+}
+
+type LabLessonDirectoryRow struct {
+	ID           uuid.UUID `json:"id"`
+	DirectorySeq int64     `json:"directory_seq"`
+}
+
+func (q *Queries) LabLessonDirectory(ctx context.Context, arg LabLessonDirectoryParams) ([]LabLessonDirectoryRow, error) {
+	rows, err := q.db.Query(ctx, labLessonDirectory, arg.WorkspaceID, arg.AfterSeq, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LabLessonDirectoryRow
+	for rows.Next() {
+		var i LabLessonDirectoryRow
+		if err := rows.Scan(&i.ID, &i.DirectorySeq); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const labRunRequester = `-- name: LabRunRequester :one
 SELECT r.requester_id FROM agent_run r JOIN lab_chat c
   ON c.workspace_id=r.workspace_id AND c.id=r.lab_chat_id AND c.owner_id=r.requester_id
@@ -153,18 +190,19 @@ func (q *Queries) LabRunRequester(ctx context.Context, arg LabRunRequesterParams
 }
 
 const labStudyDirectory = `-- name: LabStudyDirectory :many
-SELECT id FROM card WHERE workspace_id = $1 AND id > $2::uuid ORDER BY id LIMIT 21
+SELECT id FROM card WHERE workspace_id = $1 AND id > $2::uuid ORDER BY id LIMIT $3::integer
 `
 
 type LabStudyDirectoryParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	AfterID     uuid.UUID `json:"after_id"`
+	PageSize    int32     `json:"page_size"`
 }
 
 // Navigation only. This directory is not part of the workspace fact or its
 // citation version. Each candidate is re-read and logged under the asker.
 func (q *Queries) LabStudyDirectory(ctx context.Context, arg LabStudyDirectoryParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, labStudyDirectory, arg.WorkspaceID, arg.AfterID)
+	rows, err := q.db.Query(ctx, labStudyDirectory, arg.WorkspaceID, arg.AfterID, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -181,4 +219,83 @@ func (q *Queries) LabStudyDirectory(ctx context.Context, arg LabStudyDirectoryPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const labStudyLinks = `-- name: LabStudyLinks :many
+SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
+ SELECT kind, id FROM (SELECT 'record'::text AS kind,r.id FROM record r
+   WHERE r.workspace_id = $1 AND r.card_id = $2
+   AND (r.id,'record'::text) > ($3::uuid,$4::text)
+   AND (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
+     SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
+     AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
+     AND (r.blob_key='' OR r.blob_key=a.blob_key||'.text')))
+   ORDER BY r.id LIMIT $5::integer) records
+ UNION ALL SELECT kind, id FROM (SELECT 'comment'::text AS kind,c.id FROM comment c
+   WHERE c.workspace_id = $1 AND c.card_id = $2
+   AND (c.id,'comment'::text) > ($3::uuid,$4::text)
+   ORDER BY c.id LIMIT $5::integer) comments
+ UNION ALL SELECT kind, id FROM (SELECT 'decision'::text AS kind,i.id FROM inbox_item i
+   WHERE i.workspace_id = $1 AND i.card_id = $2
+   AND (i.id,'decision'::text) > ($3::uuid,$4::text)
+   AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+   ORDER BY i.id LIMIT $5::integer) decisions
+) link ORDER BY link.id,link.kind LIMIT $5::integer
+`
+
+type LabStudyLinksParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	AfterID     uuid.UUID `json:"after_id"`
+	AfterKind   string    `json:"after_kind"`
+	PageSize    int32     `json:"page_size"`
+}
+
+type LabStudyLinksRow struct {
+	Kind string    `json:"kind"`
+	ID   uuid.UUID `json:"id"`
+}
+
+// Keep traversal bounded even for a study with thousands of records. Each
+// table supplies at most the page size before the three result sets are merged.
+func (q *Queries) LabStudyLinks(ctx context.Context, arg LabStudyLinksParams) ([]LabStudyLinksRow, error) {
+	rows, err := q.db.Query(ctx, labStudyLinks,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.AfterID,
+		arg.AfterKind,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LabStudyLinksRow
+	for rows.Next() {
+		var i LabStudyLinksRow
+		if err := rows.Scan(&i.Kind, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const labStudyOpen = `-- name: LabStudyOpen :one
+SELECT EXISTS(SELECT 1 FROM card WHERE workspace_id = $1 AND id = $2)::boolean
+`
+
+type LabStudyOpenParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, labStudyOpen, arg.WorkspaceID, arg.CardID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

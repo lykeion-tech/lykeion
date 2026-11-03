@@ -6,17 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"lykeion/server/internal/storage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 )
 
@@ -113,7 +114,7 @@ func TestSearchDropsWhatTheAskerCannotOpen(t *testing.T) {
 	ws, card, stale := uuid.New(), uuid.New(), uuid.New()
 	f.exec("INSERT INTO workspace(id,slug,name) VALUES($1,'foreign','Foreign')", ws)
 	f.exec("INSERT INTO card(id,workspace_id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'Private','Hidden',$3,'grounding')", card, ws, f.user)
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Stale lesson',$3,'test')`, stale, f.ws, `[{"ref":"record:`+f.record.String()+`","version":"superseded"}]`)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Stale lesson',$3,'test',now())`, stale, f.ws, `[{"ref":"record:`+f.record.String()+`","version":"superseded"}]`)
 	tf := newTools(t, f, searchStub{f.ws, []Ref{{"study", card}, {"study", f.study}, {"lesson", stale}}, nil})
 	out := tf.call("search", map[string]any{"query": "X"}, false)
 	if strings.Contains(out, card.String()) || strings.Contains(out, stale.String()) || !strings.Contains(out, f.study.String()) {
@@ -281,5 +282,134 @@ func TestSearchRejectsRevokedTokenDuringIndexIO(t *testing.T) {
 	var n int
 	if e := f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM lab_read WHERE agent_run_id=$1", run).Scan(&n); e != nil || n != 0 {
 		t.Fatalf("%d %v", n, e)
+	}
+}
+
+func TestLabOutputBytesRequireMemberDownloadVisibility(t *testing.T) {
+	f := setup(t)
+	blobs := storage.Local{Dir: t.TempDir()}
+	tf := newTools(t, f, nil, blobs)
+	for i, kind := range []string{"output", "output", "rerun_output"} {
+		id := uuid.New()
+		key := f.ws.String() + "/outputs/" + uuid.NewString()
+		payload := fmt.Sprintf("file-bytes-%d", i)
+		if err := blobs.Put(t.Context(), key, strings.NewReader(payload), int64(len(payload))); err != nil {
+			t.Fatal(err)
+		}
+		f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,key,body,blob_key) VALUES($1,$2,$3,'experimentation',1,$4,'runner',$5,'{"name":"output-metadata.txt"}',$6)`, id, f.ws, f.study, kind, fmt.Sprintf("o%d", i+1), key)
+		f.exec(`INSERT INTO event(workspace_id,card_id,type,actor_type,payload) VALUES($1,$2,'blob.created','system',jsonb_build_object('blob_key',$3::text))`, f.ws, f.study, key)
+		if i == 1 {
+			f.exec("UPDATE record SET superseded_at=now() WHERE id=$1", id)
+		}
+		out := tf.call("read", map[string]any{"ref": Ref{"record", id}.String()}, false)
+		if !strings.Contains(out, "output-metadata.txt") || strings.Contains(out, payload) != (i == 0) {
+			t.Fatalf("output case %d returned %s", i, out)
+		}
+	}
+}
+func TestLabLessonDirectoryAndSearchRequireSuccessfulCheck(t *testing.T) {
+	f := setup(t)
+	unchecked := f.lessonFor(Ref{"record", f.record})
+	f.exec("UPDATE lesson SET checked_at=NULL WHERE id=$1", unchecked.ID)
+	stale := f.lessonFor(Ref{"comment", f.comment})
+	f.exec("INSERT INTO comment_cancellation(workspace_id,comment_id,author_id) VALUES($1,$2,$3)", f.ws, f.comment, f.user)
+	checked := f.lessonFor(Ref{"record", f.record})
+	tf := newTools(t, f, searchStub{f.ws, []Ref{unchecked, stale, checked}, nil})
+	tf.call("read", map[string]any{"ref": unchecked.String()}, true)
+	tf.call("links", map[string]any{"ref": unchecked.String()}, true)
+	out := tf.call("search", map[string]any{"query": "lesson"}, false)
+	if !strings.Contains(out, checked.String()) || strings.Contains(out, unchecked.String()) || strings.Contains(out, stale.String()) {
+		t.Fatal(out)
+	}
+	// First candidate is stale. Its id must not escape through either the
+	// results or cursor, and its absence must not end directory traversal.
+	args := map[string]any{"ref": "workspace:context", "directory": "lessons", "limit": 1}
+	first := tf.page(args)
+	if len(first.Results) != 0 || first.NextAfter == "" || strings.Contains(first.NextAfter, stale.ID.String()) {
+		t.Fatal(first)
+	}
+	args["after"] = first.NextAfter
+	second := tf.page(args)
+	if len(second.Results) != 1 || second.Results[0].Ref != checked.String() || second.NextAfter != "" {
+		t.Fatal(second)
+	}
+	var count int
+	if err := f.env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_read WHERE agent_run_id=$1 AND ref=ANY($2)", tf.run, []string{stale.String(), unchecked.String()}).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("hidden lesson logged: %d %v", count, err)
+	}
+}
+func (f *toolFixture) page(args map[string]any) hitList {
+	f.t.Helper()
+	res, e := f.session.CallTool(f.t.Context(), &mcp.CallToolParams{Name: "links", Arguments: args})
+	if e != nil || res.IsError {
+		f.t.Fatalf("%+v %v", res, e)
+	}
+	data, e := json.Marshal(res.StructuredContent)
+	if e != nil {
+		f.t.Fatal(e)
+	}
+	var page hitList
+	if e = json.Unmarshal(data, &page); e != nil {
+		f.t.Fatal(e)
+	}
+	return page
+}
+func TestLabLargeStudyLogsOnlyCurrentPage(t *testing.T) {
+	f := setup(t)
+	tf := newTools(t, f, nil)
+	f.exec(`INSERT INTO comment(workspace_id,card_id,author_id,body) SELECT $1,$2,$3,'Comment '||i FROM generate_series(1,1500) i`, f.ws, f.study, f.user)
+	src := Ref{"study", f.study}.String()
+	args := map[string]any{"ref": src}
+	first := tf.page(args)
+	if len(first.Results) != 20 || first.NextAfter == "" {
+		t.Fatal(first)
+	}
+	tf.call("links", map[string]any{"ref": src, "limit": 21}, true)
+	var count int
+	if err := f.env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_read WHERE agent_run_id=$1 AND via=$2", tf.run, src).Scan(&count); err != nil || count != 20 {
+		t.Fatalf("logged %d links: %v", count, err)
+	}
+	// An execution worker can take its workspace lock between pages. Hold it,
+	// start the next tool call, and release it to let traversal continue.
+	tx, err := f.env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	var pid int
+	if err = tx.QueryRow(t.Context(), "SELECT pg_backend_pid() FROM workspace WHERE id=$1 FOR NO KEY UPDATE NOWAIT", f.ws).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	args["after"] = first.NextAfter
+	args["limit"] = 3
+	done := make(chan error, 1)
+	go func() {
+		r, e := tf.session.CallTool(t.Context(), &mcp.CallToolParams{Name: "links", Arguments: args})
+		if e == nil && r.IsError {
+			e = fmt.Errorf("links: %v", r.Content)
+		}
+		done <- e
+	}()
+	waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for {
+		var blocked bool
+		err = f.env.Owner.QueryRow(waitCtx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid)))", pid).Scan(&blocked)
+		if err != nil {
+			t.Fatalf("second page did not reach the execution lock: %v", err)
+		}
+		if blocked {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err = tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err = f.env.Owner.QueryRow(t.Context(), "SELECT count(DISTINCT ref) FROM lab_read WHERE agent_run_id=$1 AND via=$2", tf.run, src).Scan(&count); err != nil || count != 23 {
+		t.Fatalf("second page overlaps: %d %v", count, err)
 	}
 }
