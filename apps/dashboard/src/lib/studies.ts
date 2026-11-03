@@ -390,6 +390,28 @@ export const decisionKindLabel: Record<string, string> = {
   parked: 'Parked',
 };
 
+// How each item kind reads in the rail and on a decision; the lookup falls
+// back for a kind the dashboard does not know yet.
+const decisionKinds: Record<DecisionItem['kind'], { label: string; mark: string }> = {
+  agent_decision: { label: 'Agent decision', mark: '?' },
+  autoresearch_card: { label: 'Autoresearch study', mark: '↻' },
+  autoresearch_report: { label: 'Autoresearch report', mark: '↻' },
+  middle_score: { label: 'Middle score', mark: '~' },
+  blocked: { label: 'Blocked', mark: '!' },
+  no_tool: { label: 'No tool', mark: '?' },
+  scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
+  waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
+  machine_offline: { label: 'Machine offline', mark: '!' },
+  needs_decision: { label: 'Needs a decision', mark: '?' },
+  open_doubts: { label: 'Passed with open doubts', mark: '?' },
+  done: { label: 'Done', mark: '✓' },
+};
+export const decisionKindOf = (kind: string): { label: string; mark: string } =>
+  (decisionKinds as Record<string, { label: string; mark: string }>)[kind] ?? {
+    label: 'Decision',
+    mark: '?',
+  };
+
 // The decide-by choices a person can set, as the page names them.
 export const decideByLabel: Record<string, string> = {
   today: 'Today',

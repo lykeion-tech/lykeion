@@ -10,6 +10,7 @@ import type { DecisionItem } from '../../api/types';
 import {
   agentDecisionParts,
   decideByLabel,
+  decisionKindOf,
   inboxText,
   inboxTitle,
   timeAgo,
@@ -25,21 +26,7 @@ const menu = ref('');
 const error = ref('');
 const shown = computed(() => (history.value ? past.data.value : open.data.value) ?? []);
 const listError = computed(() => (history.value ? past.error.value : open.error.value));
-const kinds: Record<string, { label: string; mark: string }> = {
-  agent_decision: { label: 'Agent decision', mark: '?' },
-  autoresearch_card: { label: 'Autoresearch study', mark: '↻' },
-  autoresearch_report: { label: 'Autoresearch report', mark: '↻' },
-  middle_score: { label: 'Middle score', mark: '~' },
-  blocked: { label: 'Blocked', mark: '!' },
-  no_tool: { label: 'No tool', mark: '?' },
-  scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
-  waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
-  machine_offline: { label: 'Machine offline', mark: '!' },
-  needs_decision: { label: 'Needs a decision', mark: '?' },
-  open_doubts: { label: 'Passed with open doubts', mark: '?' },
-  done: { label: 'Done', mark: '✓' },
-};
-const kindOf = (item: DecisionItem) => kinds[item.kind] ?? { label: 'Decision', mark: '?' };
+const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
 const titleOf = (item: DecisionItem) =>
   item.kind === 'agent_decision'
     ? agentDecisionParts(item.text).title
@@ -133,12 +120,8 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
         <div v-if="menu === item.id" class="row-menu-panel" role="menu">
           <template v-if="!item.archived_at && item.status === 'open'">
             <span class="type-caption">Decide by</span>
-            <button
-              v-for="by in ['today', 'this_week', 'whenever']"
-              :key="by"
-              @click="decideBy(item, by)"
-            >
-              {{ by === 'this_week' ? 'This week' : by[0]!.toUpperCase() + by.slice(1) }}
+            <button v-for="(label, by) in decideByLabel" :key="by" @click="decideBy(item, by)">
+              {{ label }}
             </button>
             <label
               >Decide by…

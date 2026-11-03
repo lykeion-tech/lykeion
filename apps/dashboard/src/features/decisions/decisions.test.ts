@@ -159,3 +159,13 @@ it('renders the rail for machine_offline and for a kind it does not know', () =>
   expect(text).toContain('Machine offline');
   expect(text).toContain('Decision: Study #1 scored low twice.');
 });
+
+it('names the item kind on a decision instead of showing its id', () => {
+  const text = (over: Partial<DecisionItem>) =>
+    textOf(mount(DecisionOptions, { item: item({ decision_kind: '', ...over }) }));
+  expect(text({ kind: 'waiting_for_machine' })).toContain('Waiting for machine');
+  expect(text({ kind: 'waiting_for_machine' })).not.toContain('waiting_for_machine');
+  expect(text({ kind: 'needs_decision' })).toContain('Needs a decision');
+  expect(text({ kind: 'needs_decision' })).not.toContain('needs_decision');
+  expect(text({ kind: 'brand_new' as DecisionItem['kind'] })).not.toContain('brand_new');
+});

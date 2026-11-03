@@ -18,7 +18,7 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
   const list = page.getByRole('navigation', { name: 'Decisions' });
   const link = list.getByRole('link', { name: new RegExp(title) }).first();
   await expect(link).toBeVisible();
-  await expect(link).toContainText('waiting for you');
+  await expect(link).toContainText('column stopped');
   await expect(link.locator('.unread')).toHaveCount(1);
 
   await page.screenshot({ path: `${artifacts}/open-unread.png`, fullPage: true });
