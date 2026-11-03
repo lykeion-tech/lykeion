@@ -16,6 +16,7 @@ func TestShippedTeamsDescribeTheHandIn(t *testing.T) {
 		"Grounding Team":       handin.Grounding,
 		"Hypotheses Team":      handin.Hypotheses,
 		"Experimentation Team": handin.Experimentation,
+		"Validation Team":      handin.Validation,
 	}
 	for name, k := range kinds {
 		_, p, err := pack.ReadShipped(pack.Shipped(), name)

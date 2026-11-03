@@ -13,11 +13,12 @@ description: a claim is checked against a table, text or numbers the study holds
 3. Do the arithmetic the claim implies (differences, ratios, percentage points vs percent,
    averages, rankings, "all"/"most"). Show it.
 4. Decide:
-   - **holds** when the evidence shows every part of the claim;
-   - **fails** when the evidence shows any part is wrong (a wrong number, a reversed comparison,
+   - `supported` when the evidence shows every part of the claim;
+   - `refuted` when the evidence shows any part is wrong (a wrong number, a reversed comparison,
      a wrong entity, an overstatement such as "all" when one is not);
-   - **cannot tell** when the evidence does not contain what is needed to decide (the entity, the
+   - `not_enough_info` when the evidence does not contain what is needed to decide (the entity, the
      measure, or the condition is absent), however plausible the claim sounds.
-5. Use the researcher's label words for the verdict (for example true / false / unverifiable)
-   when they gave them.
+5. Give the passage the verdict rests on, copied word for word, with its source. Use the
+   researcher's label words in the answer (for example true / false / unverifiable) when they
+   gave them.
 Do not bring in outside knowledge to fill a gap in the evidence; that gap is the verdict.

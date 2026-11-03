@@ -5,9 +5,8 @@ description: attached analyses are re-run or attached work is read for errors
 # Re-running and finding errors
 
 Re-running an attached analysis:
-- Run it through the door with `run_script` (a saved script from start to finish); each answer
-  starts with `run:<key>`. Compare each number it prints with the number the work reports; put
-  each value you report in a `value` field next to `"cites": ["run:KEY"]`.
+- Run it through the door with `run_script` (a saved script from start to finish). Compare each
+  number it prints with the number the work reports, and name the script run that printed it.
 - If it cannot run (missing files, packages, data), say exactly what failed; do not patch it into
   a different analysis and report that as the original.
 

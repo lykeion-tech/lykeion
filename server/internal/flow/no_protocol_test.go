@@ -61,7 +61,7 @@ func handInTexts(t *testing.T) map[string]string {
 			out[col+"/"+role] = prompt(c, role, comments, "a lab", files) + Protocol(role, col, board.Grounding, m)
 		}
 	}
-	for _, name := range []string{"Grounding Team", "Hypotheses Team", "Experimentation Team"} {
+	for _, name := range []string{"Grounding Team", "Hypotheses Team", "Experimentation Team", "Validation Team"} {
 		_, p, err := pack.ReadShipped(pack.Shipped(), name)
 		if err != nil {
 			t.Fatal(err)
