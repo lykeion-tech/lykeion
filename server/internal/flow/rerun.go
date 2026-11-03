@@ -66,7 +66,7 @@ type rerunBody struct {
 	Outputs    []RerunOutput     `json:"outputs"`
 	Reproduced map[string]bool   `json:"reproduced"`
 	Notes      map[string]string `json:"notes"`
-	Tests      map[string]bool   `json:"tests"`
+	Printed    []string          `json:"printed"` // every number the rerun printed, as exact fractions
 	Failure    *string           `json:"failure"`
 }
 
@@ -133,7 +133,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		_, err := e.AgentRuns.Fail(ctx, user, ref, id, service.Report{FailureReason: infra, Error: "the rerun could not run: " + *in.Failure})
 		return err
 	}
-	var exp, saved, assessed []db.Record
+	var exp, saved []db.Record
 	var claimed []service.RerunStep
 	done := false
 	tolerance := 0.0
@@ -155,16 +155,6 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 			return err
 		}
 		exp, claimed = st.Values, st.RerunSteps()
-		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: board.Validation})
-		if err != nil {
-			return err
-		}
-		for _, r := range recs {
-			if r.Round == t.Round && r.Kind == review.KindAssessment {
-				assessed = append(assessed, r)
-			}
-		}
-		assessed = latestItems(assessed)
 		_, m, err := columnTeam(ctx, tx, *t.CardID, board.Experimentation)
 		if err == nil {
 			tolerance = m.Validation.Tolerance
@@ -181,7 +171,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		in.Steps = slices.DeleteFunc(in.Steps, func(s RerunStepResult) bool {
 			return !slices.ContainsFunc(claimed, func(c service.RerunStep) bool { return c.Key == s.Key })
 		})
-		body, err := e.rerunRecord(ctx, exp, saved, assessed, in, tolerance)
+		body, err := e.rerunRecord(ctx, exp, saved, in, tolerance)
 		if err != nil {
 			return err
 		}
@@ -236,10 +226,11 @@ func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
 }
 
 // rerunRecord turns a result into the record's body, checking the standing
-// values in exp and the tests the round's assessments report. The saved
-// files it names must be outputs this rerun uploaded, with the text it names.
-func (e *Engine) rerunRecord(ctx context.Context, exp, saved, assessed []db.Record, in RerunResult, tolerance float64) (rerunBody, error) {
-	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Tests: map[string]bool{}, Failure: in.Failure}
+// values in exp and keeping every number it printed, for the tests the
+// lead's assessments report, which may come later. The saved files it names
+// must be outputs this rerun uploaded, with the text it names.
+func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in RerunResult, tolerance float64) (rerunBody, error) {
+	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Printed: []string{}, Failure: in.Failure}
 	steps := map[string]RerunStepResult{}
 	for _, s := range in.Steps {
 		steps[s.Key] = s
@@ -273,66 +264,67 @@ func (e *Engine) rerunRecord(ctx context.Context, exp, saved, assessed []db.Reco
 		}
 	}
 	body.Reproduced, body.Notes = reproduce(exp, steps, files, tolerance)
-	body.Tests = testsPrinted(assessed, steps, files, tolerance)
+	body.Printed = printedNumbers(steps, files)
 	return body, nil
 }
 
-// testsPrinted says, per assessment's hypothesis, trimmed, whether a step
-// the rerun replayed or a file it saved printed the test the assessment
-// reports: its statistic and, when p is given exactly, its p, each by the
-// rule a value is reproduced by. An assessment with no test is left out.
-func testsPrinted(assessed []db.Record, steps map[string]RerunStepResult, files map[string]string, tolerance float64) map[string]bool {
+// printedNumbers is every number the steps that succeeded and the saved
+// files printed, once each, as exact fractions.
+func printedNumbers(steps map[string]RerunStepResult, files map[string]string) []string {
 	var texts []string
-	for _, k := range slices.Sorted(maps.Keys(steps)) {
-		if steps[k].ExitStatus == 0 {
-			texts = append(texts, steps[k].Output)
+	for _, s := range steps {
+		if s.ExitStatus == 0 {
+			texts = append(texts, s.Output)
 		}
 	}
-	for _, name := range slices.Sorted(maps.Keys(files)) {
-		texts = append(texts, files[name])
+	for _, f := range files {
+		texts = append(texts, f)
+	}
+	seen := map[string]bool{}
+	for _, text := range texts {
+		eachToken(text, func(_ int, t *big.Rat) bool {
+			seen[t.RatString()] = true
+			return true
+		})
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
+// testsPrinted says, per assessment's hypothesis, trimmed, whether the rerun
+// printed the test the assessment reports: its statistic and, when p is
+// given exactly, its p, each equal to a printed number rounded to the digits
+// reported. The Team's tolerance for values does not apply: a statistic
+// near the printed one is not the printed one. An assessment with no test is
+// left out.
+func testsPrinted(as []review.Assessment, printed []string) map[string]bool {
+	var nums []*big.Rat
+	for _, p := range printed {
+		if r, ok := new(big.Rat).SetString(p); ok {
+			nums = append(nums, r)
+		}
 	}
 	out := map[string]bool{}
-	for _, r := range assessed {
-		a := records.Body[review.Assessment](r)
+	for _, a := range as {
 		if a.Test == nil {
 			continue
 		}
-		numbers := []string{strconv.FormatFloat(a.Test.Statistic, 'f', max(a.Test.StatDigits, 0), 64)}
+		reported := []string{strconv.FormatFloat(a.Test.Statistic, 'f', max(a.Test.StatDigits, 0), 64)}
 		if a.Test.PBound == "=" {
-			numbers = append(numbers, strconv.FormatFloat(a.Test.P, 'f', max(a.Test.PDigits, 0), 64))
+			reported = append(reported, strconv.FormatFloat(a.Test.P, 'f', max(a.Test.PDigits, 0), 64))
 		}
 		found := true
-		for _, n := range numbers {
-			found = found && printed(texts, n, tolerance)
+		for _, v := range reported {
+			n, ok := parseNumber(v)
+			found = found && ok && slices.ContainsFunc(nums, func(t *big.Rat) bool {
+				if n.integer {
+					return t.Cmp(n.r) == 0
+				}
+				return roundTo(t, n.places).Cmp(n.r) == 0
+			})
 		}
 		out[strings.TrimSpace(a.Hypothesis)] = found
 	}
 	return out
-}
-
-// printed says whether a number in texts equals value rounded to the
-// digits value states, or lies within tolerance of it, relative to it.
-func printed(texts []string, value string, tolerance float64) bool {
-	n, ok := parseNumber(value)
-	if !ok {
-		return false
-	}
-	tol := new(big.Rat).Mul(new(big.Rat).SetFloat64(tolerance), new(big.Rat).Abs(n.r))
-	for _, text := range texts {
-		found := false
-		eachToken(text, func(_ int, t *big.Rat) bool {
-			at := t
-			if !n.integer {
-				at = roundTo(t, n.places)
-			}
-			found = at.Cmp(n.r) == 0 || new(big.Rat).Abs(new(big.Rat).Sub(t, n.r)).Cmp(tol) <= 0
-			return !found
-		})
-		if found {
-			return true
-		}
-	}
-	return false
 }
 
 // noneReproduced marks every value in recs not reproduced, for note.

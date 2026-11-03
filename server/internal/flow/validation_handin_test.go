@@ -73,6 +73,16 @@ func (l *lab) putBy(t *testing.T, run db.AgentRun, kind string, body any) string
 // and one by the script that printed it; Validation reruns that script and
 // sets the hypothesis's status from those records alone.
 func TestAnExperimentationHandInIsValidatedFromItsOwnRecords(t *testing.T) {
+	// The rerun replays the runs while the lead works, so it can report
+	// before or after the lead's assessments.
+	for _, rerunFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "lead first", true: "rerun first"}[rerunFirst], func(t *testing.T) {
+			validatedFromOwnRecords(t, rerunFirst)
+		})
+	}
+}
+
+func validatedFromOwnRecords(t *testing.T, rerunFirst bool) {
 	ctx := context.Background()
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))
@@ -103,13 +113,21 @@ func TestAnExperimentationHandInIsValidatedFromItsOwnRecords(t *testing.T) {
 
 	l.move(t, c.ID, "validation", 2)
 	l.e.Kick(l.ws, c.ID)
+	replay := func() {
+		ref, rerun := l.claimOne(t, c.ID, "rerun")
+		if err := l.e.RerunResult(ctx, l.owner, ref, rerun.ID, RerunResult{Steps: []RerunStepResult{{Key: script, ExitStatus: 0, Output: printed}}, Outputs: []RerunOutput{}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rerunFirst {
+		replay()
+	}
 	l.item(t, c.ID, review.KindAssessment, review.Assessment{Hypothesis: hyp, Measurement: "difference",
 		Test: &statcheck.Test{Kind: "t", Statistic: 8.698, StatDigits: 3, DF1: 36.88, P: 1.83e-10, PDigits: 12, PBound: "="}})
 	l.done(t, c.ID)
 	l.settleAuditor(t, c.ID)
-	ref, rerun := l.claimOne(t, c.ID, "rerun")
-	if err := l.e.RerunResult(ctx, l.owner, ref, rerun.ID, RerunResult{Steps: []RerunStepResult{{Key: script, ExitStatus: 0, Output: printed}}, Outputs: []RerunOutput{}}); err != nil {
-		t.Fatal(err)
+	if !rerunFirst {
+		replay()
 	}
 	l.e.Kick(l.ws, c.ID)
 	l.object(t, c.ID)

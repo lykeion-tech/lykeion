@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/review"
+	"lykeion/server/internal/statcheck"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -104,6 +106,30 @@ func TestToleranceWidensTheDigitRule(t *testing.T) {
 	}
 	if ok, _ := reproduce(values, steps, nil, 0.04); ok["acc"] {
 		t.Fatalf("4%% tolerance reproduced a value 4.2%% off")
+	}
+}
+
+// A reported test statistic must be printed, by the digit rule alone: the
+// Team's tolerance for values does not apply, so a statistic 2% off is not
+// found even with a 50% tolerance.
+func TestAReportedTestIsFoundOnlyByTheDigitRule(t *testing.T) {
+	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "t = 8.698, df = 36.88, p = 1.83e-10"}}
+	printed := printedNumbers(steps, map[string]string{"out/summary.txt": "chi2 4.50"})
+	test := func(stat float64, digits int) []review.Assessment {
+		return []review.Assessment{{Hypothesis: " h ", Test: &statcheck.Test{Kind: "t", Statistic: stat, StatDigits: digits, DF1: 36.88, P: 1.83e-10, PDigits: 12, PBound: "="}}}
+	}
+	if got := testsPrinted(test(8.698, 3), printed); !got["h"] {
+		t.Fatalf("the printed test was not found: %v", got)
+	}
+	if got := testsPrinted(test(8.7, 1), printed); !got["h"] {
+		t.Fatalf("the printed test, reported to fewer digits, was not found: %v", got)
+	}
+	if got := testsPrinted(test(8.874, 3), printed); got["h"] {
+		t.Fatal("a statistic no run printed was found")
+	}
+	failed := printedNumbers(map[string]RerunStepResult{"x1": {Key: "x1", ExitStatus: 1, Output: "t = 8.698, p = 1.83e-10"}}, nil)
+	if got := testsPrinted(test(8.698, 3), failed); got["h"] {
+		t.Fatal("a test printed only by a failed step was found")
 	}
 }
 

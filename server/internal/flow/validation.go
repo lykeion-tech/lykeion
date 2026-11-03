@@ -396,7 +396,7 @@ func (v *validating) read(ctx context.Context, tx *store.Tx, c db.Card, study []
 			v.outputs = append(v.outputs, r)
 		}
 	}
-	v.statuses = review.Statuses(v.hs, as, measured(v.values, *rerun), records.Body[rerunBody](*rerun).Tests)
+	v.statuses = review.Statuses(v.hs, as, measured(v.values, *rerun), testsPrinted(as, records.Body[rerunBody](*rerun).Printed))
 	return rerun, written, nil
 }
 
