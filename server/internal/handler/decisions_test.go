@@ -65,9 +65,26 @@ func TestDecisionsVisibleToStudyReaders(t *testing.T) {
 	if got := s.decisions(t, a, w.ID, ""); len(got) != 2 {
 		t.Fatalf("A sees %+v", got)
 	}
-	other := s.workspace(t, b, "other")
-	if got := s.decisions(t, b, other.ID, ""); len(got) != 0 {
-		t.Fatalf("another workspace shows %+v", got)
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET status = 'decided', resolved_at = now() WHERE kind = 'needs_decision'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.decisions(t, b, w.ID, "?view=history"); len(got) != 1 || got[0].Text != "stopped" {
+		t.Fatalf("B history %+v", got)
+	}
+	// A member of only another workspace sees nothing of A's, by list or id.
+	outsider := s.signIn(t, "out@lab.org")
+	other := s.workspace(t, outsider, "other")
+	id := s.seedDecision(t, w.ID, c.ID, s.userID(t, a), "open one")
+	for _, q := range []string{"", "?view=history"} {
+		if got := s.decisions(t, outsider, other.ID, q); len(got) != 0 {
+			t.Fatalf("another workspace shows %+v", got)
+		}
+	}
+	if code := s.call(t, "PUT", "/api/decisions/"+id+"/triage", outsider, other.ID, map[string]any{"decide_by": "today"}, nil); code != 404 {
+		t.Fatalf("triage across workspaces: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", outsider, other.ID, nil, nil); code != 404 {
+		t.Fatalf("read across workspaces: %d", code)
 	}
 }
 
@@ -169,5 +186,23 @@ func TestCountCountsAnswerableOnly(t *testing.T) {
 	plain := s.member(t, owner, w.ID, "plain@lab.org", "member")
 	if n := s.decisionCount(t, plain, w.ID); n != 0 {
 		t.Fatalf("plain member: %d", n)
+	}
+}
+
+func TestHistoryIsNewestFirstDespiteSnooze(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	user := s.userID(t, a)
+	s.seedDecision(t, w.ID, c.ID, user, "older")
+	newer := s.seedDecision(t, w.ID, c.ID, user, "newer")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET status = 'decided', resolved_at = now(),
+		snoozed_until = CASE WHEN id = $1 THEN now() + interval '2 days' END`, newer); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.decisions(t, a, w.ID, "?view=history"); len(got) != 2 || got[0].Text != "newer" {
+		t.Fatalf("history order: %+v", got)
 	}
 }

@@ -108,7 +108,7 @@ FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $3 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT $4::bool)
 ORDER BY
-  (i.snoozed_until > now()) NULLS FIRST,
+  CASE WHEN $4::bool THEN NULL ELSE i.snoozed_until > now() END NULLS FIRST,
   CASE WHEN $4::bool THEN 0 ELSE CASE i.decide_by WHEN 'today' THEN 0 WHEN 'this_week' THEN 1 WHEN 'date' THEN 2 WHEN '' THEN 3 ELSE 4 END END,
   CASE WHEN $4::bool THEN NULL ELSE i.decide_by_date END,
   i.created_at DESC, i.id DESC
