@@ -35,7 +35,8 @@ type jevStub struct {
 	score    func(instructions string) float64
 	noul     func(instructions string) float64
 	requests []jevRequest
-	maxState int // above this many bytes of state, answer as Jev does when a request is too long
+	maxState int    // above this many bytes of state, answer as Jev does when a request is too long
+	choose   string // the choice answered when it is among the options
 }
 
 type jevRequest struct {
@@ -101,6 +102,9 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 				answers[id] = map[string]any{"type": "noul", "noul": p}
 			case "choice":
 				opts := slices.Sorted(maps.Keys(q.Options))
+				if _, ok := q.Options[s.choose]; ok {
+					opts[0] = s.choose
+				}
 				answers[id] = map[string]any{"type": "choice", "choice": opts[0], "probabilities": map[string]float64{opts[0]: 0.9}}
 			default:
 				answers[id] = map[string]any{"type": "score", "score": s.score(q.Instructions), "probabilities": map[string]float64{"4": 1}}

@@ -63,6 +63,7 @@ func TestAskProblems(t *testing.T) {
 		{"past", ask(t, func(d map[string]any) { d["expires_at"] = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339) }),
 			"decision: expires_at must be after now and at most 30 days ahead"},
 		{"no title", ask(t, func(d map[string]any) { d["title"] = "" }), "decision: title must be one line of 1 to 200 characters"},
+		{"blank member", ask(t, func(d map[string]any) { d["from_member"] = " " }), "decision: from_member must name a Team member, or be null"},
 		{"no body", ask(t, func(d map[string]any) { d["body"] = "" }), "decision: body must be 1 to 4000 characters"},
 	}
 	for _, c := range cases {

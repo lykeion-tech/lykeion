@@ -173,21 +173,48 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 // already waits on one of its questions.
 const errDecisionOpen = "one decision is already open on this study"
 
+// errDecideTwice is the failed hand-in of a lead whose question Jev sent
+// back once already in this round.
+const errDecideTwice = "Jev judged two questions in a row as the agent's own to decide"
+
+// decideYourself introduces the note that sends a question back to its lead.
+const decideYourself = "Decide this yourself: "
+
 // fitQuestion is what Jev is asked of an agent's question before it reaches
 // the researcher.
 const fitQuestion = "Does this question belong to the kind it is tagged with, and is it one only the researcher can answer?"
 
+// Jev's verdicts on an agent's question; unavailable is no Jev, or a Jev
+// that failed, and leaves the server's checks alone.
+const (
+	fitUnavailable = ""
+	fitFits        = "fits"
+	fitDecide      = "decide_yourself"
+)
+
 var fitOptions = map[string]string{
-	"fits":            "It is of its tagged kind (scope, change_question, ethics, cost or access), and only the researcher can settle it.",
-	"decide_yourself": "It is not of its tagged kind, or it is a choice of method, tools, analysis, evidence or a retry that the agent can make itself.",
+	fitFits:   "It is of its tagged kind (scope, change_question, ethics, cost or access), and only the researcher can settle it.",
+	fitDecide: "It is not of its tagged kind, or it is a choice of method, tools, analysis, evidence or a retry that the agent can make itself.",
+}
+
+// fitCheck asks Jev whether an agent's question is the researcher's to
+// answer. It runs with no transaction open.
+func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.DecisionIn) string {
+	a, err := e.Jev.Choice(ctx, decisionState(d), fitQuestion, fitOptions)
+	if err != nil {
+		slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)
+		return fitUnavailable
+	}
+	return a.Choice
 }
 
 // raiseAgentDecision puts a lead's question to the study's owner: the study
 // is blocked on it in the same round, so the lead resumes its session once
 // it is answered. A study waits on one question at a time, so a second ask
-// fails the hand-in. When Jev judges the question not the researcher's, the
-// lead runs again in the same round and decides it itself.
-func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card, run db.AgentRun, d handin.DecisionIn, now time.Time) error {
+// fails the hand-in. When Jev judged the question not the researcher's, the
+// lead runs again in the same round and decides it itself; a second such
+// question in the round fails the hand-in.
+func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card, run db.AgentRun, d handin.DecisionIn, fit string, now time.Time) error {
 	open, err := tx.Q.HasOpenAgentDecision(ctx, db.HasOpenAgentDecisionParams{WorkspaceID: tx.WS, CardID: c.ID})
 	if err != nil {
 		return err
@@ -196,20 +223,22 @@ func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card
 		run.Error = errDecisionOpen
 		return e.runFailed(ctx, tx, c, run)
 	}
-	if e.Jev != nil {
-		a, err := e.Jev.Choice(ctx, decisionState(d), fitQuestion, fitOptions)
-		switch {
-		case err != nil:
-			// As with no Jev at all, the server's checks alone apply.
-			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", c.ID, "err", err)
-		case a.Choice == "decide_yourself":
-			role, m, ag, err := e.worker(ctx, tx, c)
-			if err != nil {
-				return err
-			}
-			_, err = e.enqueue(ctx, tx, c, role, m, ag, "Decide this yourself: "+d.Title)
+	if fit == fitDecide {
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+		if err != nil {
 			return err
 		}
+		// The runs a question was sent back by carry the note as their assignment.
+		if slices.ContainsFunc(runs, func(r db.AgentRun) bool { return leads(r.Role) && strings.HasPrefix(r.Assignment, decideYourself) }) {
+			run.Error = errDecideTwice
+			return e.runFailed(ctx, tx, c, run)
+		}
+		role, m, ag, err := e.worker(ctx, tx, c)
+		if err != nil {
+			return err
+		}
+		_, err = e.enqueue(ctx, tx, c, role, m, ag, decideYourself+d.Title)
+		return err
 	}
 	options := make([]service.Option, len(d.Options))
 	for i, o := range d.Options {

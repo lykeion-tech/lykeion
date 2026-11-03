@@ -212,3 +212,62 @@ func TestAskFromMemberMustBeOnTheTeam(t *testing.T) {
 		t.Fatalf("a one-agent study: %q", p)
 	}
 }
+
+func TestJevSaysItFits(t *testing.T) {
+	l := newLab(t)
+	s := l.jev(t, 200, levels(nil))
+	s.choose = "fits"
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	l.askBy(t, l.latestRun(t, c.ID, "leader"), "")
+	if len(s.calls()) != 1 {
+		t.Fatalf("%d Jev calls", len(s.calls()))
+	}
+	if n := l.agentDecisions(t, c.ID); n != 1 {
+		t.Fatalf("%d agent decisions", n)
+	}
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "decision" {
+		t.Fatalf("after the ask: %s %q", got.State, got.BlockKind)
+	}
+}
+
+// Jev's decide_yourself sends a Team's question back to its leader once; a
+// second in the same round fails the hand-in, so the two cannot loop.
+func TestDecideYourselfTwiceFailsTheHandIn(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil)) // decide_yourself, the first option by name
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	first := l.latestRun(t, c.ID, "leader")
+	l.askBy(t, first, "")
+	q := l.runs(t, c.ID)
+	if len(q) != 1 || q[0].Role != "leader" || !strings.Contains(q[0].Prompt, "Decide this yourself: Which population?") || q[0].Scope != first.ContinuityScope {
+		t.Fatalf("the leader's next run: %+v", q)
+	}
+	if got := l.card(t, c.ID); got.State != "working" || got.Round != c.Round || got.Redos != c.Redos {
+		t.Fatalf("after the first decide_yourself: %s round %d redos %d", got.State, got.Round, got.Redos)
+	}
+	l.askBy(t, l.latestRun(t, c.ID, "leader"), "")
+	if n := l.agentDecisions(t, c.ID); n != 0 {
+		t.Fatalf("%d agent decisions", n)
+	}
+	got := l.card(t, c.ID)
+	if got.State != "working" || got.Redos != 1 || got.Round != c.Round+1 {
+		t.Fatalf("after the second decide_yourself: %s redos %d round %d", got.State, got.Redos, got.Round)
+	}
+	if q := l.runs(t, c.ID); len(q) != 1 || !strings.Contains(q[0].Prompt, "Jev judged two questions in a row as the agent's own to decide") {
+		t.Fatalf("the redo's run: %+v", q)
+	}
+}
+
+// A Jev that fails leaves the server's checks alone, as with no Jev.
+func TestJevUnavailableRaisesOnServerChecks(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 503, levels(nil))
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	l.askBy(t, l.latestRun(t, c.ID, "leader"), "")
+	if n := l.agentDecisions(t, c.ID); n != 1 {
+		t.Fatalf("%d agent decisions", n)
+	}
+}

@@ -164,33 +164,58 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if accessInterrupted(t) || !leads(t.Role) || t.Status == "cancelled" {
 		return nil
 	}
+	// Jev is asked before the study is locked: an answer can take a minute.
+	fit := fitUnavailable
+	if e.Jev != nil && t.Status == "completed" {
+		var h *handInBody
+		err := e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) (err error) {
+			h, _, err = runHandIn(ctx, tx, t.ID)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if h != nil && h.Status == "ask" && h.Decision != nil {
+			fit = e.fitCheck(ctx, *t.CardID, *h.Decision)
+		}
+	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, *t.CardID)
 		if err != nil || !current(c, t.BoardColumn, t.Round) {
 			return err
 		}
-		recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &t.ID})
-		if err != nil {
+		h, summary, err := runHandIn(ctx, tx, t.ID)
+		if err != nil || summary {
 			return err
-		}
-		var h *handInBody
-		for _, r := range recs {
-			switch r.Kind {
-			case "summary":
-				return nil
-			case "hand_in":
-				b := records.Body[handInRecord](r).HandIn
-				h = &b
-			}
 		}
 		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
 			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
 		if t.Status == "completed" && h != nil && h.Status == "ask" && h.Decision != nil {
-			return e.raiseAgentDecision(ctx, tx, c, t, *h.Decision, e.now())
+			return e.raiseAgentDecision(ctx, tx, c, t, *h.Decision, fit, e.now())
 		}
 		return e.runFailed(ctx, tx, c, t)
 	})
+}
+
+// runHandIn is the hand-in a run recorded, and whether the run already
+// declared its column done.
+func runHandIn(ctx context.Context, tx *store.Tx, run uuid.UUID) (*handInBody, bool, error) {
+	recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &run})
+	if err != nil {
+		return nil, false, err
+	}
+	var h *handInBody
+	for _, r := range recs {
+		switch r.Kind {
+		case "summary":
+			return h, true, nil
+		case "hand_in":
+			b := records.Body[handInRecord](r).HandIn
+			h = &b
+		}
+	}
+	return h, false, nil
 }
 
 // handInRecord is the part of a hand_in record the engine reads.

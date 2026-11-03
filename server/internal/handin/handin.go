@@ -290,7 +290,7 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 			now := time.Now()
 			add(e.After(now) && !e.After(now.Add(MaxDecisionWait)), "decision: expires_at must be after now and at most 30 days ahead")
 		}
-		add(d.FromMember == nil || strings.TrimSpace(*d.FromMember) != "", "decision: from_member names a Team member, or is null")
+		add(d.FromMember == nil || strings.TrimSpace(*d.FromMember) != "", "decision: from_member must name a Team member, or be null")
 	}
 	for i, r := range h.Replies {
 		add(r.Item != "", "replies %d: item must name the item replied to", i+1)

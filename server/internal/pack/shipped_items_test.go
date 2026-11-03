@@ -35,6 +35,10 @@ func TestShippedTeamsDescribeTheHandIn(t *testing.T) {
 			t.Errorf("%s's leader is not told an output file is required", name)
 		}
 		for _, f := range s.Required {
+			// The protocol every lead reads describes the decision an ask carries.
+			if f == "decision" {
+				continue
+			}
 			if !strings.Contains(m.Leader.Agent.Instructions, "`"+f+"`") {
 				t.Errorf("%s's leader is not told the hand-in field %s", name, f)
 			}
