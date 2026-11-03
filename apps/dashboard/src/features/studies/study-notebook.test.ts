@@ -182,6 +182,22 @@ it('marks shortened stored output without claiming to have its unrecorded remain
   expect(textOf(root)).toContain('Recorded error was truncated');
 });
 
+it('keeps the normal opening position for orphan cells, including after history refreshes', async () => {
+  const { root, client } = setup([script('orphan', { agent_run_id: null })]);
+  const scroll = vi.fn();
+  Object.assign(cells(root)[0]!, { scrollIntoView: scroll });
+  await nextTick();
+  await nextTick();
+  expect(scroll).not.toHaveBeenCalled();
+  client.setQueryData(
+    [...keys.recordsAll('w', 'c'), 'notebook'],
+    [script('orphan', { agent_run_id: null }), script('later')],
+  );
+  await nextTick();
+  await nextTick();
+  expect(scroll).not.toHaveBeenCalled();
+});
+
 it('scrolls to the first cell for a run, including after history arrives', async () => {
   const { root, selectedRun, client } = setup([script('x1'), script('x2')]);
   await nextTick();

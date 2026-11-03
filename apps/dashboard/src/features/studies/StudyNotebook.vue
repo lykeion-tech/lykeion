@@ -59,7 +59,7 @@ watch(
 watch(
   [() => props.runId, () => props.scrollRequest, groups],
   async (_, __, onCleanup) => {
-    if (!scrollPending) return;
+    if (!scrollPending || !props.runId) return;
     let cancelled = false;
     onCleanup(() => {
       cancelled = true;
