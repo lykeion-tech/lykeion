@@ -72,6 +72,14 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 		}
 		return []NewRecord{{Kind: "audit", Body: a}}, nil
 	}
+	if k == Objector {
+		// Filed, not yet judged: the review resolves each target and checks it.
+		recs := []NewRecord{}
+		for _, o := range h.Objections {
+			recs = append(recs, NewRecord{Kind: "objection", Body: review.Objection{Label: o.Target, Type: o.Type, Quote: o.Quote, Problem: o.Problem, Checks: []review.Check{}}})
+		}
+		return recs, nil
+	}
 	if !lead {
 		return nil, nil
 	}

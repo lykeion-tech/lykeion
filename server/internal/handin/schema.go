@@ -74,6 +74,11 @@ var schemas = map[Kind]string{
 		"verdicts", list(object("claim", str(), "verdict", enum("supported", "refuted", "not_enough_info"), "source", str(), "quote", str())),
 		"flagged_errors", list(object("source", str(), "quote", str(), "problem", str())),
 		"replies", list(reply())),
+	Objector: build(
+		"objections", list(object(
+			"target", str(),
+			"type", enum("wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"),
+			"quote", nullStr(), "problem", str()))),
 	Autoresearch: build(
 		"report", nullStr(),
 		"new_studies", list(object("title", str(), "question", str()))),

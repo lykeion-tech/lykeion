@@ -298,3 +298,24 @@ func TestValidationReplies(t *testing.T) {
 		t.Fatalf("kinds %v", kinds(recs))
 	}
 }
+
+func TestConvertObjector(t *testing.T) {
+	h := parsed(t, Objector, `{"status":"done","answer":"Two problems.","reason":null,"objections":[
+		{"target":"Rival B","type":"leakage","quote":"split after scaling","problem":"the test set was scaled with the train set"},
+		{"target":"fit.txt","type":"overreach","quote":null,"problem":"one seed"}]}`)
+	recs, probs := Convert(Objector, false, h, studyEvidence(), Review{})
+	if len(probs) > 0 || !slices.Equal(kinds(recs), []string{"objection", "objection"}) {
+		t.Fatalf("%v %v", kinds(recs), probs)
+	}
+	a := body(t, recs[0])
+	if a["label"] != "Rival B" || a["type"] != "leakage" || a["quote"] != "split after scaling" || a["upheld"] != false || a["server"] != "" {
+		t.Errorf("objection %v", a)
+	}
+	if b := body(t, recs[1]); b["quote"] != nil || b["label"] != "fit.txt" {
+		t.Errorf("objection %v", b)
+	}
+	none := parsed(t, Objector, `{"status":"could_not_do","answer":"a","reason":"no files","objections":[]}`)
+	if recs, probs := Convert(Objector, false, none, studyEvidence(), Review{}); len(recs) != 0 || len(probs) != 0 {
+		t.Errorf("could_not_do: %v %v", recs, probs)
+	}
+}

@@ -243,3 +243,39 @@ func TestParseValidationKeepsNumberText(t *testing.T) {
 		}
 	}
 }
+
+func TestObjectorHandIn(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(Schema(Objector)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	walk(t, "objector", doc)
+	defer func(v bool) { validationHandsIn = v }(validationHandsIn)
+	validationHandsIn = false
+	if got, ok := KindFor("role", "objector", "validation"); ok || got != "" {
+		t.Errorf("gated objector: %q %v", got, ok)
+	}
+	validationHandsIn = true
+	if got, ok := KindFor("role", "objector", "validation"); !ok || got != Objector {
+		t.Errorf("objector: %q %v", got, ok)
+	}
+	raw := `{"status":"done","answer":"a","reason":null,"objections":[
+		{"target":"Rival A","type":"overreach","quote":null,"problem":"one run"},
+		{"target":"slope","type":"guess","quote":"","problem":""}]}`
+	_, probs := Parse(Objector, []byte(raw))
+	for _, want := range []string{
+		"objections 2: type must be wrong_test, leakage, unit_mismatch, missing_control or overreach",
+		"objections 2: quote must be null or 1 to 2000 characters",
+		"objections 2: target and problem must each be 1 to 2000 characters",
+	} {
+		if !contains(probs, want) {
+			t.Errorf("want %q in %q", want, probs)
+		}
+	}
+	if len(probs) != 3 {
+		t.Errorf("problems %q", probs)
+	}
+	if _, probs := Parse(Objector, []byte(`{"status":"done","answer":"a","replies":[]}`)); !contains(probs, "replies: not a field of this hand-in") {
+		t.Errorf("replies accepted: %q", probs)
+	}
+}

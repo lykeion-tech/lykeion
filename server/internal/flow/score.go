@@ -774,11 +774,12 @@ func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string
 
 // bookkeeping says whether a record kind is the run's own bookkeeping rather
 // than its work: the calls and runs the daemon recorded, the raw hand-in, a
-// declined reply and a comment's delivery. None of it is shown to Jev as work;
-// review reads a declined reply as the Team's reason for leaving a paper out.
+// declined reply, a comment's delivery and the objector's objections. None of
+// it is shown to Jev as work; review reads a declined reply as the Team's
+// reason for leaving a paper out, and judges objections on their own.
 func bookkeeping(kind string) bool {
 	switch kind {
-	case "call", "run", "hand_in", "declined", "comment_delivery":
+	case "call", "run", "hand_in", "declined", "comment_delivery", "objection":
 		return true
 	}
 	return false

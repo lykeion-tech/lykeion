@@ -25,6 +25,7 @@ const (
 	Auditor         Kind = "auditor"
 	Autoresearch    Kind = "autoresearch"
 	Validation      Kind = "validation"
+	Objector        Kind = "objector"
 )
 
 // validationHandsIn says whether Validation's runs, its auditor's included,
@@ -38,6 +39,8 @@ func KindFor(runKind, role, column string) (Kind, bool) {
 		return Autoresearch, true
 	case role == "auditor" && (column != board.Validation || validationHandsIn):
 		return Auditor, true
+	case role == "objector" && column == board.Validation && validationHandsIn:
+		return Objector, true
 	}
 	switch column {
 	case board.Validation:
@@ -156,6 +159,18 @@ func digits(n json.Number) int {
 	return max(d, 0)
 }
 
+// ObjectionIn is one objection as the objector files it: target is a label
+// from its brief, a value name or a saved file's name.
+type ObjectionIn struct {
+	Target  string  `json:"target"`
+	Type    string  `json:"type"`
+	Quote   *string `json:"quote"`
+	Problem string  `json:"problem"`
+}
+
+// ObjectionTypes are the kinds of error an objection can name.
+var ObjectionTypes = []string{"wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"}
+
 type NewStudy struct {
 	Title    string `json:"title"`
 	Question string `json:"question"`
@@ -180,6 +195,7 @@ type HandIn struct {
 	Assessments  []Assessment   `json:"assessments"`
 	Verdicts     []Verdict      `json:"verdicts"`
 	FlaggedErrs  []FlaggedError `json:"flagged_errors"`
+	Objections   []ObjectionIn  `json:"objections"`
 }
 
 // Body is the review item this hypothesis becomes, citing cites.
@@ -301,6 +317,11 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	}
 	for i, f := range h.FlaggedErrs {
 		add(within(f.Source, 2000) && within(f.Quote, 2000) && within(f.Problem, 2000), "flagged_errors %d: source, quote and problem must each be 1 to 2000 characters", i+1)
+	}
+	for i, o := range h.Objections {
+		add(slices.Contains(ObjectionTypes, o.Type), "objections %d: type must be wrong_test, leakage, unit_mismatch, missing_control or overreach", i+1)
+		add(o.Quote == nil || within(*o.Quote, 2000), "objections %d: quote must be null or 1 to 2000 characters", i+1)
+		add(within(o.Target, 2000) && within(o.Problem, 2000), "objections %d: target and problem must each be 1 to 2000 characters", i+1)
 	}
 	return h, probs
 }
