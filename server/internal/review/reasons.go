@@ -38,6 +38,8 @@ func Reasons(r Result) []string {
 			out = append(out, "The Team handed in no papers and no 'nothing qualifies' statement.")
 		case "hypotheses":
 			out = append(out, "The Team handed in no hypotheses.")
+		case "validation":
+			out = append(out, "The Team handed in no verdicts or flagged errors.")
 		default:
 			out = append(out, "The Team handed in no outputs or values.")
 		}

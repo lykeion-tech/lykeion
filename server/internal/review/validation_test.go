@@ -1,10 +1,13 @@
 package review
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/statcheck"
+	db "lykeion/server/pkg/db/generated"
 )
 
 func fp(f float64) *float64 { return &f }
@@ -220,5 +223,128 @@ func TestStatusesBlankControlNoneIsNoCap(t *testing.T) {
 	h := HypothesisBody{Text: "h", Prediction: Prediction{Shape: "range", Low: fp(0), High: fp(1)}, Control: Control{None: "  "}}
 	if r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m"}, map[string]Measured{"m": good(0.5)}); r.Status != Supported {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func claimSources() map[string]string {
+	return map[string]string{"s1": "The drug lowered blood pressure by 10 mmHg in all arms."}
+}
+
+func verdictRec(t *testing.T, key, verdict, quote string) db.Record {
+	return rec(t, key, KindVerdict, VerdictBody{Claim: "The drug lowers pressure", Verdict: verdict, Source: "s1", Quote: quote})
+}
+
+func TestClaimsVerdicts(t *testing.T) {
+	const q = "lowered blood pressure by 10 mmHg"
+	cases := []struct {
+		name, verdict, jev string
+		p                  float64
+		want               string
+	}{
+		{"same pick", "supported", "supported", 0.9, Pass},
+		{"same pick barely leaning", "supported", "supported", 0.3, Unclear},
+		{"different at 0.70", "refuted", "supported", 0.70, Fail},
+		{"different at 0.69", "refuted", "supported", 0.69, Unclear},
+		{"different at 0.35", "refuted", "supported", 0.35, Unclear},
+		{"different below 0.35", "refuted", "supported", 0.34, Unclear},
+	}
+	for _, c := range cases {
+		a := &fakeAsker{choice: c.jev, choiceP: c.p}
+		r, err := Claims(context.Background(), a, ClaimsInput{Items: []db.Record{verdictRec(t, "r1", c.verdict, q)}, Sources: claimSources()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Items[0].Status; got != c.want {
+			t.Errorf("%s: %s want %s", c.name, got, c.want)
+		}
+		// Jev is blind to the Team's verdict.
+		if len(a.choices) != 1 || strings.Contains(a.choices[0].State, "Team") {
+			t.Errorf("%s: %+v", c.name, a.choices)
+		}
+	}
+}
+
+func TestClaimsQuoteNotInSourceIsNotAsked(t *testing.T) {
+	a := &fakeAsker{choice: "supported", choiceP: 0.9}
+	bad := rec(t, "r2", KindVerdict, VerdictBody{Claim: "c", Verdict: "supported", Source: "nope", Quote: "lowered"})
+	r, err := Claims(context.Background(), a, ClaimsInput{
+		Items:   []db.Record{verdictRec(t, "r1", "supported", "raised blood pressure"), bad},
+		Sources: claimSources(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range r.Items {
+		if it.Status != Fail || it.Checks[0].By != "server" {
+			t.Errorf("%s: %+v", it.Key, it)
+		}
+	}
+	if len(a.choices)+len(a.noul) != 0 || r.Weakest != nil {
+		t.Fatalf("jev was asked: %+v %+v", a.choices, a.noul)
+	}
+}
+
+func TestClaimsFlaggedError(t *testing.T) {
+	fe := rec(t, "r1", KindFlaggedError, FlaggedErrorBody{Source: "s1", Quote: "by 10 mmHg", Problem: "wrong unit"})
+	a := &fakeAsker{p: func(_, k string) float64 {
+		if k == "specific" {
+			return 0.5
+		}
+		return 0.9
+	}}
+	r, err := Claims(context.Background(), a, ClaimsInput{Items: []db.Record{fe}, Sources: claimSources(), Attempt: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Attempt != 2 || r.Items[0].Status != Unclear || len(a.noul) != 1 || len(a.noul[0].Questions) != 2 {
+		t.Fatalf("%+v %+v", r, a.noul)
+	}
+	a = &fakeAsker{p: func(_, k string) float64 { return map[string]float64{"wrong": 0.1, "specific": 0.9}[k] }}
+	r, _ = Claims(context.Background(), a, ClaimsInput{Items: []db.Record{fe}, Sources: claimSources()})
+	if r.Items[0].Status != Fail {
+		t.Fatalf("one failed question must fail the item: %+v", r.Items[0])
+	}
+	fe = rec(t, "r1", KindFlaggedError, FlaggedErrorBody{Source: "s1", Quote: "not there", Problem: "p"})
+	a = &fakeAsker{}
+	r, _ = Claims(context.Background(), a, ClaimsInput{Items: []db.Record{fe}, Sources: claimSources()})
+	if r.Items[0].Status != Fail || len(a.noul) != 0 {
+		t.Fatalf("passage is checked first: %+v", r.Items[0])
+	}
+}
+
+// byInstructions answers the verdict question with one pick and the
+// weakest-item question with another.
+type byInstructions struct {
+	fakeAsker
+	verdict, weakest string
+}
+
+func (b *byInstructions) Choice(ctx context.Context, state, instr string, opts map[string]string) (jev.Answer, error) {
+	pick := b.verdict
+	if instr == claimsWeakest {
+		pick = b.weakest
+	}
+	b.choices = append(b.choices, choiceCall{state, instr, opts})
+	return jev.Answer{Choice: pick, Probabilities: map[string]float64{pick: 0.8}}, nil
+}
+
+func TestClaimsWeakest(t *testing.T) {
+	a := &byInstructions{verdict: "supported", weakest: "claim:2"}
+	r, err := Claims(context.Background(), a, ClaimsInput{
+		Items:   []db.Record{verdictRec(t, "r1", "supported", "lowered"), verdictRec(t, "r2", "supported", "blood pressure")},
+		Sources: claimSources(),
+		Carried: []Item{{Key: "r9", Status: Unclear}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Weakest == nil || r.Weakest.Key != "r2" || r.Weakest.P != 0.8 {
+		t.Fatalf("%+v", r.Weakest)
+	}
+	if len(r.Items) != 3 || !r.Items[2].Carried {
+		t.Fatalf("%+v", r.Items)
+	}
+	if last := a.choices[len(a.choices)-1]; last.Instructions != claimsWeakest || strings.Contains(last.State, "r2") {
+		t.Fatalf("%+v", last)
 	}
 }

@@ -29,6 +29,7 @@ func TestReasonsNeverEmpty(t *testing.T) {
 		{"no items grounding", Result{Column: board.Grounding}},
 		{"no items hypotheses", Result{Column: board.Hypotheses}},
 		{"no items experimentation", Result{Column: board.Experimentation}},
+		{"no items validation", Result{Column: board.Validation}},
 		{"only withdrawn", Result{Column: board.Grounding, Items: []Item{it("w", Withdrawn)}}},
 		{"failed item without a failed check", Result{Column: board.Grounding, Items: []Item{it("odd", Fail)}}},
 	}
@@ -50,6 +51,9 @@ func TestReasonsNeverEmpty(t *testing.T) {
 	}
 	if got := Reasons(Result{Column: board.Experimentation}); got[0] != "The Team handed in no outputs or values." {
 		t.Errorf("experimentation: %q", got)
+	}
+	if got := Reasons(Result{Column: board.Validation}); got[0] != "The Team handed in no verdicts or flagged errors." {
+		t.Errorf("validation: %q", got)
 	}
 	if got := Reasons(Result{Items: []Item{it("a", Pass)}}); len(got) != 0 {
 		t.Errorf("a passing review has reasons: %q", got)
