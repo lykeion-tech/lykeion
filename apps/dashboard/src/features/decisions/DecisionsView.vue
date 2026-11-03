@@ -114,7 +114,7 @@ watch(
             <h1>{{ question.title }}</h1>
             <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
             <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
-            <DecisionOptions v-if="display.options?.length" :key="display.id" :item="display" />
+            <DecisionOptions v-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
           <p v-if="display.card_id" class="study-link"><RouterLink :to="'/studies/' + display.card_id">Open {{ study?.title || 'study' }} and activity →</RouterLink></p>

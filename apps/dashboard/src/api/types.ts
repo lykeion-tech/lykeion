@@ -280,6 +280,8 @@ export interface DecisionItem {
   resolved_at: string | null;
   created_at: string;
   options: DecisionOption[] | null;
+  question_set?: DecisionQuestionSet | null;
+  answers?: DecisionQuestionAnswer[] | null;
   default_option: string;
   status: 'open' | 'decided' | 'expired' | 'dismissed' | string;
   expires_at: string | null;
@@ -305,6 +307,18 @@ export interface DecisionOption {
   label: string;
   consequence: string;
 }
+
+export interface DecisionQuestion {
+  id: string;
+  prompt: string;
+  help_text: string | null;
+  required: boolean;
+  mode: 'single' | 'multiple' | 'text';
+  options: DecisionOption[];
+  allow_other: boolean;
+}
+export interface DecisionQuestionSet { questions: DecisionQuestion[] }
+export interface DecisionQuestionAnswer { question_id: string; option_ids: string[]; text: string | null }
 
 export interface RuntimeModel {
   value: string;

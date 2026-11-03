@@ -306,3 +306,95 @@ it('drops a decided row from the Open list once the list refreshes', async () =>
   await new Promise((r) => setTimeout(r));
   expect(rowLinks().map((n) => n.props.to)).toEqual(['/decisions/d2']);
 });
+
+const questionSet = {
+  questions: [
+    { id: 'single', prompt: 'Which group?', help_text: 'Choose one', required: true, mode: 'single', allow_other: true, options: [
+      { id: 'a', label: 'Children', consequence: 'Study children.' }, { id: 'b', label: 'Adults', consequence: 'Study adults.' },
+    ] },
+    { id: 'multi', prompt: 'Which outcomes?', help_text: null, required: true, mode: 'multiple', allow_other: true, options: [
+      { id: 'x', label: 'Recall', consequence: 'Measure recall.' }, { id: 'y', label: 'Attention', consequence: 'Measure attention.' },
+    ] },
+    { id: 'note', prompt: 'Additional context?', help_text: null, required: false, mode: 'text', allow_other: false, options: [] },
+  ],
+};
+
+it('stages a complete question set, with custom answer replacing multiple selections, and submits atomically', async () => {
+  api.mockResolvedValue(undefined);
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: questionSet } as never) });
+  expect(textOf(root)).toContain('Which group?');
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  await click(buttonFor(root, 'Children')); await click(buttonFor(root, 'Recall')); await click(buttonFor(root, 'Attention'));
+  await new Promise((r) => setTimeout(r));
+  expect(api).not.toHaveBeenCalled();
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(false);
+  const custom = buttons(root).filter((n) => textOf(n).includes('Something else'))[1];
+  await click(custom); await new Promise((r) => setTimeout(r));
+  const customBox = all(root).find((n) => n.props['aria-label'] === 'Custom answer for Which outcomes?')!;
+  (customBox.props.onInput as (e: unknown) => void)({ target: { value: 'Another outcome' } });
+  await new Promise((r) => setTimeout(r));
+  await click(buttonFor(root, 'Submit'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/answers', { answers: [
+    { question_id: 'single', option_ids: ['a'], text: null },
+    { question_id: 'multi', option_ids: [], text: 'Another outcome' },
+  ] });
+});
+
+it('keeps question set input after a failed submit and shows history to non-answerers', async () => {
+  api.mockRejectedValueOnce(new Error('Save failed'));
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: { questions: [questionSet.questions[2]] } } as never) });
+  const box = all(root).find((n) => n.props['aria-label'] === 'Additional context?')!;
+  (box.props.onInput as (e: unknown) => void)({ target: { value: 'Some context' } });
+  await new Promise((r) => setTimeout(r)); await click(buttonFor(root, 'Submit')); await new Promise((r) => setTimeout(r));
+  expect(textOf(root)).toContain('Save failed');
+  expect(all(root).find((n) => n.props['aria-label'] === 'Additional context?')?.props.value).toBe('Some context');
+  const history = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], can_answer: false, status: 'decided', question_set: questionSet, answers: [{ question_id: 'single', option_ids: ['a'], text: null }, { question_id: 'multi', option_ids: [], text: 'Another outcome' }] } as never) });
+  expect(textOf(history)).toContain('Children'); expect(textOf(history)).toContain('Another outcome'); expect(textOf(history)).toContain('Not answered');
+});
+
+it('does not offer archive for an open text-only question set', async () => {
+  rows.value = [item({ kind: 'agent_decision', options: [], question_set: { questions: [questionSet.questions[2]] } } as never)];
+  const root = mount(DecisionRail, {}); await click(buttons(root).find((n) => n.props['aria-label'] === 'Organise')); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Archive')).toBeUndefined();
+});
+
+it('requires a text answer, permits skipped optional questions and disables controls for non-answerers', async () => {
+  const set = { questions: [{ ...questionSet.questions[2], required: true }] };
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: set } as never) });
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  const box = all(root).find((n) => n.props['aria-label'] === 'Additional context?')!;
+  (box.props.onInput as (e: unknown) => void)({ target: { value: '  Answer with spaces  ' } });
+  await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(false);
+  api.mockResolvedValue(undefined); await click(buttonFor(root, 'Submit'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/answers', { answers: [{ question_id: 'note', option_ids: [], text: '  Answer with spaces  ' }] });
+  const other = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: questionSet, can_answer: false } as never) });
+  expect(textOf(other)).toContain('Only the study owner');
+  expect(buttonFor(other, 'Children')?.props.disabled).toBe(true);
+  expect(buttonFor(other, 'Submit')).toBeUndefined();
+});
+
+it('renders question sets in the central view and attributes answered history', () => {
+  rows.value = [item({ kind: 'agent_decision', text: 'Choose\n\nPlease answer.', options: [], question_set: questionSet,
+    answers: [{ question_id: 'single', option_ids: ['a'], text: null }], status: 'decided', decided_by: 'u1' } as never)];
+  const root = mount(DecisionsView, { itemId: 'd1' });
+  expect(textOf(root)).toContain('Which group?'); expect(textOf(root)).toContain('Children');
+  expect(textOf(root)).toContain('by Ada');
+});
+
+it('switches multiple selections and custom answers exclusively and enforces the text limit', async () => {
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: { questions: [questionSet.questions[1]] } } as never) });
+  await click(buttonFor(root, 'Recall')); await click(buttonFor(root, 'Attention')); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Recall')?.props['aria-pressed']).toBe(true);
+  expect(buttonFor(root, 'Attention')?.props['aria-pressed']).toBe(true);
+  await click(buttonFor(root, 'Something else')); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Recall')?.props['aria-pressed']).toBe(false);
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  const custom = all(root).find((n) => n.props['aria-label'] === 'Custom answer for Which outcomes?')!;
+  (custom.props.onInput as (e: unknown) => void)({ target: { value: 'x'.repeat(100001) } }); await new Promise((r) => setTimeout(r));
+  expect(textOf(root)).toContain('100,000 characters'); expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  await click(buttonFor(root, 'Attention')); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Attention')?.props['aria-pressed']).toBe(true);
+  expect(buttonFor(root, 'Something else')?.props['aria-pressed']).toBe(false);
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(false);
+});

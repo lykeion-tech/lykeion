@@ -41,7 +41,7 @@ const decideByText = (item: DecisionItem) =>
 // Only the item's addressee has it unread; others who can see it never do.
 const unread = (item: DecisionItem) => !item.read_at && item.user_id === me.data.value?.id;
 // An open decision is answered, not archived.
-const archivable = (item: DecisionItem) => item.status !== 'open' || !item.options?.length;
+const archivable = (item: DecisionItem) => item.status !== 'open' || (!item.options?.length && !item.question_set?.questions?.length);
 // The reminder went out: the item expires within a day.
 const expiresSoon = (item: DecisionItem) => item.status === 'open' && !!item.reminded_at;
 const snoozed = (item: DecisionItem) =>

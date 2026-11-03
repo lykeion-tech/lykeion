@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
+import QuestionSetOptions from './QuestionSetOptions.vue';
 import { keys } from '../../api/keys';
 import { useMembers } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
@@ -63,7 +64,13 @@ async function submit() {
       {{ decisionRaiser(item) }} · {{ decisionKindLabel[item.decision_kind] ?? decisionKindOf(item.kind).label }}
       <template v-if="expires && item.status === 'open'"> · {{ expires }}</template>
     </p>
-    <template v-if="item.status === 'open'">
+    <template v-if="item.question_set?.questions?.length">
+      <QuestionSetOptions :item="item" />
+      <p v-if="item.status !== 'open'" class="decision-outcome">
+        {{ item.status === 'decided' ? 'Answered' : decisionOutcome(item) }}<template v-if="decider"> · by {{ decider }}</template><template v-if="item.decided_at"> · {{ timeAgo(item.decided_at) }}</template>
+      </p>
+    </template>
+    <template v-else-if="item.status === 'open'">
       <p v-if="!item.can_answer" class="permission-note">Only the study owner or a workspace owner or admin can answer this decision.</p>
       <p v-if="item.default_option && expires" class="default-note">If no one answers, the default is {{ options.find((o) => o.id === item.default_option)?.label ?? item.default_option }}.</p>
       <div class="decision-buttons" role="group" aria-label="Decision options">
