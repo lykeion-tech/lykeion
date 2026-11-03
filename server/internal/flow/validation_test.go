@@ -503,14 +503,11 @@ func TestARerunRefusedAtClaimIsQueuedAgain(t *testing.T) {
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun' AND status = 'queued' AND id <> $2", c.ID, first.ID); n != 1 {
 		t.Fatalf("%d new reruns queued after the first was refused", n)
 	}
-	// A failure the daemon reports after starting the rerun is recorded.
-	second := l.latestRun(t, c.ID, "rerun")
-	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET started_at = now() WHERE id = $1", second.ID); err != nil {
-		t.Fatal(err)
-	}
-	l.settle(t, l.latestRun(t, c.ID, "rerun"), "failed", "agent_error", "crashed")
+	// A failure the daemon reports, even before it started the rerun, is
+	// recorded: queuing it again would only fail the same way.
+	l.settle(t, l.latestRun(t, c.ID, "rerun"), "failed", "agent_error", "unknown runtime owner")
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'rerun' AND body->'notes'->>'auc' = $2", c.ID, rerunFailedNote); n != 1 {
-		t.Fatalf("a rerun that failed after it started wrote %d records", n)
+		t.Fatalf("a rerun the daemon failed wrote %d records", n)
 	}
 }
 

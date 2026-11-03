@@ -200,9 +200,13 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 	return err
 }
 
-// refusedAtClaim says whether a rerun failed before its daemon started it:
-// refused when claimed, its machine no longer shared, it never ran.
-func refusedAtClaim(r db.AgentRun) bool { return r.Status == "failed" && r.StartedAt == nil }
+// refusedAtClaim says whether the server refused a rerun when a machine
+// claimed it, before any daemon started it: its machine no longer shared,
+// or another claim refusal. It never ran.
+func refusedAtClaim(r db.AgentRun) bool {
+	return r.Status == "failed" && r.StartedAt == nil &&
+		(ptrOr(r.FailureReason) == "runtime_access_denied" || strings.HasPrefix(r.Error, "refused at claim: "))
+}
 
 // afterRerun records, for a rerun that failed without a result once its
 // daemon had started it, every value of its round not reproduced, so its
