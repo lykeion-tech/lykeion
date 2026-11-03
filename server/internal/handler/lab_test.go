@@ -194,7 +194,20 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 	chat := newLabChat(t, s, a, ws)
 	card := s.idleCard(t, a, ws, "source")
 	who := uuid.MustParse(s.userID(t, a))
-	ref := labmemory.Ref{Kind: "study", ID: uuid.MustParse(card.ID)}
+	id := uuid.New()
+	var v string
+	if err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws), who, func(tx *store.Tx) error {
+		var err error
+		v, err = labmemory.Version(t.Context(), tx, labmemory.Ref{Kind: "study", ID: uuid.MustParse(card.ID)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cites, _ := json.Marshal([]labmemory.Citation{{Ref: "study:" + card.ID, Version: v}})
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO lesson(id,workspace_id,kind,text,cites,checked_at,model) VALUES($1,$2,'lab','active lesson',$3,now(),'test')`, id, ws, cites); err != nil {
+		t.Fatal(err)
+	}
+	ref := labmemory.Ref{Kind: "lesson", ID: id}
 	var version string
 	if err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws), who, func(tx *store.Tx) error {
 		f, err := labmemory.Read(t.Context(), tx, who, ref)
@@ -227,7 +240,7 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 		return id
 	}
 	cite := map[string]string{"ref": ref.String(), "title": "source", "version": version, "via": "read"}
-	aID := seed("A", []uuid.UUID{}, []any{cite}, []any{map[string]any{"kind": "fact", "text": "earlier secret", "cites": []any{cite}}})
+	aID := seed("A", []uuid.UUID{}, []any{cite}, []any{map[string]any{"kind": "lesson", "text": "earlier secret", "cites": []any{cite}}})
 	gap := func(q, text string, src []uuid.UUID) uuid.UUID {
 		return seed(q, src, []any{}, []any{map[string]any{"kind": "gap", "text": text, "cites": []any{}}})
 	}
@@ -250,6 +263,10 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 			t.Fatalf("private gap leaked: %+v", b)
 		}
 	}
+	read("answer")
+	s.H.Store.LessonsEnabled = false
+	read("failure")
+	s.H.Store.LessonsEnabled = true
 	read("answer")
 	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE card SET title='changed' WHERE id=$1", card.ID); err != nil {
 		t.Fatal(err)

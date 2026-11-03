@@ -2,13 +2,18 @@ package lessons
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/store"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakeBatch struct {
@@ -226,5 +231,126 @@ func TestWriterBatchLimitAndJevRetry(t *testing.T) {
 	f.run()
 	if f.count(`SELECT count(*) FROM lesson`) != 1 {
 		t.Fatal("failed Jev guard did not retry")
+	}
+}
+
+func (f *writingFixture) rewrite(refs []string) uuid.UUID {
+	f.t.Helper()
+	cites := []labmemory.Citation{}
+	for _, ref := range refs {
+		cites = append(cites, labmemory.Citation{Ref: ref, Version: "live"})
+	}
+	raw, err := json.Marshal(cites)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	id := uuid.New()
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,status,model,checked_at) VALUES($1,$2,'lab','Previous lesson',$3,'set_aside','test',now())`, id, f.ws, raw)
+	f.exec(`INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at) VALUES($1,$2,ARRAY['flag'],now())`, f.ws, id)
+	return id
+}
+func TestRewriteTracksFactsBeyondPromptBudget(t *testing.T) {
+	f := writing(t)
+	refs := []string{}
+	for range 13 {
+		id := uuid.New()
+		f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses',jsonb_build_object('text',repeat('x',10000)))`, id, f.ws, f.card)
+		refs = append(refs, "record:"+id.String())
+	}
+	target := f.rewrite(refs)
+	f.b.output = Output{}
+	f.run()
+	var included, observed int
+	if err := f.env.Owner.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM jsonb_object_keys(versions->'included')),(SELECT count(*) FROM jsonb_object_keys(versions->'observed')) FROM lesson_job_input`).Scan(&included, &observed); err != nil || included != 12 || observed != 13 {
+		t.Fatal(included, observed, err)
+	}
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1`, target) != 0 || len(f.b.requests) != 1 {
+		t.Fatal("stable clipped input triggered resubmission")
+	}
+}
+func TestRestoredCounterInvalidatesPendingRewrite(t *testing.T) {
+	f := writing(t)
+	target := f.rewrite(f.draft.Cites)
+	counter := uuid.New()
+	ref := "record:" + counter.String()
+	f.exec(`INSERT INTO lesson_counter(workspace_id,lesson_id,ref) VALUES($1,$2,$3)`, f.ws, target, ref)
+	f.b.output = Output{}
+	f.run()
+	f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses','{"text":"restored counter"}')`, counter, f.ws, f.card)
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 || len(f.b.requests) != 2 || !strings.Contains(f.b.requests[1][0].Prompt, "restored counter") {
+		t.Fatal("obsolete deletion accepted")
+	}
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson`) != 0 {
+		t.Fatal("current deletion not accepted")
+	}
+}
+func TestPermanentJevFailuresStopJob(t *testing.T) {
+	for _, body := range []string{"max_tokens_exceeded", "refused"} {
+		t.Run(body, func(t *testing.T) {
+			f := writing(t)
+			f.queue()
+			f.run()
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, body, 400) }))
+			defer s.Close()
+			f.w.Jev.BaseURL = s.URL
+			if err := f.w.Tick(t.Context()); err == nil {
+				t.Fatal("missing permanent failure")
+			}
+			if f.count(`SELECT count(*) FROM lesson_job WHERE status='failed' AND failures=1`) != 1 || f.count(`SELECT count(*) FROM lesson`) != 0 {
+				t.Fatal("permanent failure retried")
+			}
+		})
+	}
+}
+func TestTransientFailuresExhaustPersistedBudget(t *testing.T) {
+	f := writing(t)
+	job := f.queue()
+	f.b.err = errors.New("temporary outage")
+	for range 3 {
+		f.exec(`UPDATE lesson_job SET due_at=now() WHERE id=$1`, job)
+		if err := f.w.Tick(t.Context()); err == nil {
+			t.Fatal("missing transient failure")
+		}
+	}
+	if f.count(`SELECT count(*) FROM lesson_job WHERE id=$1 AND failures=3 AND status='failed'`, job) != 1 {
+		t.Fatal("exhausted job not terminal")
+	}
+	f.run()
+	if len(f.b.requests) != 3 {
+		t.Fatal("submitted failed job")
+	}
+}
+
+func TestLegacySubmittedSnapshotRebuildsBeforeApplying(t *testing.T) {
+	f := writing(t)
+	f.queue()
+	f.run()
+	f.exec(`UPDATE lesson_job_input SET versions=versions->'included'`)
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson`) != 0 || len(f.b.requests) != 2 {
+		t.Fatal("applied legacy snapshot without a scoped allowlist")
+	}
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson`) != 1 {
+		t.Fatal("fresh snapshot did not apply")
+	}
+}
+func TestGuardTimeoutConsumesRetryBudget(t *testing.T) {
+	f := writing(t)
+	f.queue()
+	f.run()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { time.Sleep(180 * time.Millisecond) }))
+	defer s.Close()
+	f.w.Jev.BaseURL = s.URL
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if err := f.w.collect(ctx); err == nil {
+		t.Fatal("expected guard deadline")
+	}
+	if f.count(`SELECT count(*) FROM lesson_job WHERE failures=1 AND status='submitted'`) != 1 {
+		t.Fatal("failed to persist timeout receipt")
 	}
 }

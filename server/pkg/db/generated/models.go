@@ -794,6 +794,7 @@ type LessonJob struct {
 	BatchID     string     `json:"batch_id"`
 	Status      string     `json:"status"`
 	CreatedAt   time.Time  `json:"created_at"`
+	Failures    int32      `json:"failures"`
 }
 
 type LessonJobInput struct {

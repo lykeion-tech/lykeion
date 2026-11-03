@@ -70,6 +70,9 @@ func load(ctx context.Context, tx *store.Tx, r Ref) (db.LabFactRow, error) {
 }
 
 func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
+	if r.Kind == "lesson" && !tx.LessonsEnabled {
+		return Fact{}, ErrNotFound
+	}
 	row, err := load(ctx, tx, r)
 	if err != nil {
 		return Fact{}, err

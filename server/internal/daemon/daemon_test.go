@@ -72,7 +72,7 @@ func fixture(t *testing.T) *daemonFixture {
 	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "config"))
 	f := &daemonFixture{env: testutil.Setup(t), ws: uuid.New()}
 	ctx := context.Background()
-	st := &store.Store{Pool: f.env.App}
+	st := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	hub := &realtime.Hub{Store: st, Redis: f.env.Redis}
 	st.Publish = hub.Publish
 	f.runs = &service.AgentRuns{Store: st}

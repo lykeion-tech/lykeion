@@ -285,7 +285,7 @@ func TestAnswerFailureRecoversAfterInterruptedDelivery(t *testing.T) {
 	if e = x.env.Owner.QueryRow(ctx, "SELECT delivered_at IS NULL AND delivery_id IS NOT NULL AND lease_expires_at>now() FROM agent_run_settlement WHERE agent_run_id=$1", x.run.ID).Scan(&claimed); e != nil || !claimed {
 		t.Fatal(e, claimed)
 	}
-	fresh := &service.AgentRuns{Store: &store.Store{Pool: x.env.App}}
+	fresh := &service.AgentRuns{Store: &store.Store{LessonsEnabled: true, Pool: x.env.App}}
 	fresh.OnSettlement = (Answers{Store: fresh.Store}).OnSettlement
 	count := func(want int) {
 		t.Helper()
@@ -361,7 +361,7 @@ func TestAcceptedAnswerSurvivesFailureAndSweep(t *testing.T) {
 }
 
 func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
-	for _, change := range []string{"unchanged", "lesson set aside", "team unshared"} {
+	for _, change := range []string{"unchanged", "lesson set aside", "team unshared", "lessons disabled"} {
 		t.Run(change, func(t *testing.T) {
 			x := runningTurn(t)
 			ctx := t.Context()
@@ -375,6 +375,9 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 			} else {
 				r = x.lessonFor(Ref{"record", x.record})
 				hide = func() { x.exec("UPDATE lesson SET status='set_aside' WHERE id=$1", r.ID) }
+				if change == "lessons disabled" {
+					hide = func() { x.runs.Store = &store.Store{Pool: x.env.App} }
+				}
 			}
 			kind := "fact"
 			if r.Kind == "lesson" {
@@ -594,5 +597,15 @@ func TestDaemonCannotRequestUnverifiedContextRestart(t *testing.T) {
 	x := runningTurn(t)
 	if _, e := x.runs.Fail(t.Context(), x.user, x.ref, x.run.ID, service.Report{FailureReason: agent.ReasonLabContextChanged, Error: FreshTurnProblem}); !errors.Is(e, service.ErrBadReport) {
 		t.Fatal(e)
+	}
+}
+
+func TestFactsOnlyRestartRejectsHandInFromEarlierLessonRead(t *testing.T) {
+	x := runningTurn(t)
+	lesson := x.lessonFor(Ref{"record", x.record})
+	x.log(lesson.String(), "read")
+	x.runs.Store = &store.Store{Pool: x.env.App}
+	if p, err := x.submit(t.Context(), "lesson", lesson.String()); err != nil || len(p) != 1 || p[0] != FreshTurnProblem {
+		t.Fatal(p, err)
 	}
 }

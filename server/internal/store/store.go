@@ -26,18 +26,20 @@ func User(id uuid.UUID) Actor { return Actor{Type: "user", ID: id} }
 var System = Actor{Type: "system"}
 
 type Store struct {
-	Pool    *pgxpool.Pool
-	Publish func(context.Context, []db.Event) // nil: no realtime
+	LessonsEnabled bool // Server configuration, fixed before workers start.
+	Pool           *pgxpool.Pool
+	Publish        func(context.Context, []db.Event) // nil: no realtime
 }
 
 type Tx struct {
-	maintenance  bool
-	raw          pgx.Tx
-	Q            *db.Queries
-	WS           uuid.UUID
-	events       []db.Event
-	after        []func()
-	afterPublish []func()
+	LessonsEnabled bool
+	maintenance    bool
+	raw            pgx.Tx
+	Q              *db.Queries
+	WS             uuid.UUID
+	events         []db.Event
+	after          []func()
+	afterPublish   []func()
 }
 
 type AgentCapabilities struct {
@@ -152,7 +154,7 @@ func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 	if err != nil {
 		return err
 	}
-	inner := &Tx{Q: db.New(sp), WS: t.WS, raw: sp, maintenance: t.maintenance}
+	inner := &Tx{Q: db.New(sp), WS: t.WS, raw: sp, maintenance: t.maintenance, LessonsEnabled: t.LessonsEnabled}
 	if err := fn(inner); err != nil {
 		_ = sp.Rollback(ctx)
 		return err
@@ -235,7 +237,7 @@ func (s *Store) runWith(ctx context.Context, ws uuid.UUID, settings map[string]s
 			return err
 		}
 	}
-	t := &Tx{Q: db.New(tx), WS: ws, raw: tx}
+	t := &Tx{Q: db.New(tx), WS: ws, raw: tx, LessonsEnabled: s.LessonsEnabled}
 	if err := fn(t); err != nil {
 		return err
 	}

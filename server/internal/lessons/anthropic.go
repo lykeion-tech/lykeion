@@ -19,9 +19,10 @@ type Request struct {
 	Prompt string
 }
 type Result struct {
-	JobID  uuid.UUID
-	Output Output
-	Err    string
+	JobID     uuid.UUID
+	Output    Output
+	Err       string
+	Permanent bool
 }
 type Batcher interface {
 	Submit(context.Context, []Request) (string, error)
@@ -70,6 +71,11 @@ func (b *AnthropicBatcher) Submit(ctx context.Context, reqs []Request) (string, 
 	}
 	return batch.ID, nil
 }
+func permanentProviderError(err error) bool {
+	var api *anthropic.Error
+	return errors.As(err, &api) && api.StatusCode >= 400 && api.StatusCode < 500 && api.StatusCode != 408 && api.StatusCode != 409 && api.StatusCode != 429
+}
+
 func (b *AnthropicBatcher) Collect(ctx context.Context, id string) ([]Result, bool, error) {
 	batch, err := b.Client.Messages.Batches.Get(ctx, id, anthropic.MessageBatchGetParams{})
 	if err != nil {
@@ -91,6 +97,15 @@ func (b *AnthropicBatcher) Collect(ctx context.Context, id string) ([]Result, bo
 		m := row.Result.Message
 		if row.Result.Type != "succeeded" || string(m.Model) != Model || m.StopReason != "end_turn" {
 			r.Err = "incomplete batch result"
+			switch row.Result.Type {
+			case "succeeded":
+				r.Permanent = true // refusal, truncation or unexpected model
+			case "errored":
+				switch row.Result.Error.Error.Type {
+				case "invalid_request_error", "authentication_error", "permission_error", "not_found_error", "request_too_large":
+					r.Permanent = true
+				}
+			}
 		} else {
 			var txt strings.Builder
 			for _, block := range m.Content {
@@ -101,8 +116,10 @@ func (b *AnthropicBatcher) Collect(ctx context.Context, id string) ([]Result, bo
 			var fields map[string]json.RawMessage
 			if err = json.Unmarshal([]byte(txt.String()), &fields); err != nil || fields["lessons"] == nil || fields["counters"] == nil || fields["replacement"] == nil {
 				r.Err = "invalid batch output"
+				r.Permanent = true
 			} else if err = json.Unmarshal([]byte(txt.String()), &r.Output); err != nil || r.Output.Lessons == nil || r.Output.Counters == nil {
 				r.Err = "invalid batch output"
+				r.Permanent = true
 			}
 		}
 		results = append(results, r)

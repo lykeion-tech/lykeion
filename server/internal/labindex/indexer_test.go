@@ -47,7 +47,7 @@ func indexerFixture(t *testing.T) (*Indexer, *testutil.Env, uuid.UUID, uuid.UUID
 			t.Fatal(err)
 		}
 	}
-	return &Indexer{Store: &store.Store{Pool: env.App}, Index: New(env.Redis, embed.Fake{}, embed.Model)}, env, ws, card
+	return &Indexer{Store: &store.Store{LessonsEnabled: true, Pool: env.App}, Index: New(env.Redis, embed.Fake{}, embed.Model)}, env, ws, card
 }
 func emitIndexEvent(t *testing.T, x *Indexer, ws, card uuid.UUID, typ string) {
 	t.Helper()

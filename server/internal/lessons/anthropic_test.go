@@ -60,3 +60,30 @@ func TestAnthropicBatchProtocol(t *testing.T) {
 		t.Fatalf("results=%+v done=%v err=%v", results, done, err)
 	}
 }
+
+func TestHaikuRefusalAndTruncationAreTerminal(t *testing.T) {
+	for _, stop := range []string{"refusal", "max_tokens"} {
+		t.Run(stop, func(t *testing.T) {
+			f := writing(t)
+			job := f.queue()
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v1/messages/batches", "/v1/messages/batches/batch":
+					fmt.Fprint(w, `{"id":"batch","processing_status":"ended"}`)
+				case "/v1/messages/batches/batch/results":
+					fmt.Fprintf(w, `{"custom_id":"%s","result":{"type":"succeeded","message":{"model":"%s","stop_reason":"%s","content":[]}}}`, job, Model, stop)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer s.Close()
+			f.w.Batcher = &AnthropicBatcher{Client: anthropic.NewClient(option.WithAPIKey("fake"), option.WithBaseURL(s.URL)), Model: Model}
+			f.run()
+			f.run()
+			if f.count(`SELECT count(*) FROM lesson_job WHERE status='failed' AND failures=1`) != 1 {
+				t.Fatal("deterministic response retried")
+			}
+		})
+	}
+}

@@ -100,6 +100,9 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 		}
 		return refs, "", nil
 	case "lessons":
+		if !tx.LessonsEnabled {
+			return nil, "", nil
+		}
 		// Each cursor is a random navigation key independent of the lesson
 		// reference and insertions in every other workspace.
 		after := uuid.Nil

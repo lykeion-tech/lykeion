@@ -37,7 +37,7 @@ func (f *fixture) exec(q string, args ...any) {
 }
 func (f *fixture) read(r Ref) (Fact, error) {
 	var fact Fact
-	err := (&store.Store{Pool: f.env.App}).InWorkspace(context.Background(), f.ws, f.user, func(tx *store.Tx) error {
+	err := (&store.Store{LessonsEnabled: true, Pool: f.env.App}).InWorkspace(context.Background(), f.ws, f.user, func(tx *store.Tx) error {
 		var err error
 		fact, err = Read(context.Background(), tx, f.user, r)
 		return err
@@ -202,7 +202,7 @@ func TestStudyAndRecordFactProjections(t *testing.T) {
 func TestCanOpenAndInternalVersion(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	s := &store.Store{Pool: f.env.App}
+	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	err := s.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
 		yes, err := CanOpen(ctx, tx, f.user, Ref{"record", f.record})
 		if err != nil || !yes {
@@ -246,7 +246,7 @@ func (f *fixture) member() uuid.UUID {
 }
 func (f *fixture) readAs(user uuid.UUID, r Ref) (Fact, error) {
 	var fact Fact
-	err := (&store.Store{Pool: f.env.App}).InWorkspace(context.Background(), f.ws, user, func(tx *store.Tx) error {
+	err := (&store.Store{LessonsEnabled: true, Pool: f.env.App}).InWorkspace(context.Background(), f.ws, user, func(tx *store.Tx) error {
 		var err error
 		fact, err = Read(context.Background(), tx, user, r)
 		return err
@@ -273,7 +273,7 @@ func TestPublicReadsBindTransactionIdentity(t *testing.T) {
 	f := setup(t)
 	other := f.member()
 	ctx := context.Background()
-	s := &store.Store{Pool: f.env.App}
+	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	r := Ref{"study", f.study}
 	check := func(tx *store.Tx) error {
 		if _, err := Read(ctx, tx, f.user, r); !errors.Is(err, ErrNotFound) {
@@ -403,7 +403,7 @@ func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
 	f.exec(`INSERT INTO field_pack(id,workspace_id,name,version,sha256,manifest,blob_key,source,uploaded_by,visibility) VALUES($1,$2,'Shared Team','1','hash','{"method":"shared-method"}','blob','uploaded',$3,'workspace')`, sharedTeam, f.ws, f.user)
 	f.exec(`INSERT INTO card_team(workspace_id,card_id,board_column,pack_id) VALUES($1,$2,'hypotheses',$3)`, f.ws, f.study, sharedTeam)
 	ctx := context.Background()
-	s := &store.Store{Pool: f.env.App}
+	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	for _, ref := range []Ref{{"study", f.study}, {Kind: "workspace"}} {
 		shared, err := f.readAs(other, ref)
 		if err != nil {
@@ -467,7 +467,7 @@ func TestPrivateTeamAssignmentMetadataIsSharedAndVersioned(t *testing.T) {
 	team := f.team()
 	ref := Ref{"study", f.study}
 	ctx := context.Background()
-	s := &store.Store{Pool: f.env.App}
+	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	f.exec(`UPDATE field_pack SET stage='grounding' WHERE id=$1`, team)
 	assertBaseline := func(wantName, wantStage string) string {
 		t.Helper()
@@ -563,7 +563,7 @@ func TestPrivateTeamAssignmentMetadataIsSharedAndVersioned(t *testing.T) {
 func TestReadMaintenanceRequiresInternalScopedTransaction(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	st := &store.Store{Pool: f.env.App}
+	st := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	ref := Ref{"study", f.study}
 	if err := st.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
 		_, err := ReadMaintenance(ctx, tx, ref)

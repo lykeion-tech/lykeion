@@ -65,7 +65,7 @@ func newServer(t *testing.T) *server {
 }
 
 func newServerOn(t *testing.T, env *testutil.Env) *server {
-	st := &store.Store{Pool: env.App}
+	st := &store.Store{LessonsEnabled: true, Pool: env.App}
 	hub := &realtime.Hub{Store: st, Redis: env.Redis, Poll: 2 * time.Second}
 	st.Publish = hub.Publish
 	mail := &fakeMail{}

@@ -23,7 +23,7 @@ type fixture struct {
 func setup(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{t: t, env: testutil.Setup(t), ws: uuid.New(), card: uuid.New(), user: uuid.New(), now: time.Now().UTC().Truncate(time.Second)}
-	f.x = &Triggers{Store: &store.Store{Pool: f.env.App}, Now: func() time.Time { return f.now }}
+	f.x = &Triggers{Store: &store.Store{LessonsEnabled: true, Pool: f.env.App}, Now: func() time.Time { return f.now }}
 	f.exec(`INSERT INTO "user"(id,email,name) VALUES($1,'lesson@example.org','Researcher')`, f.user)
 	f.workspace(f.ws, f.card)
 	return f

@@ -50,9 +50,12 @@ type toolFixture struct {
 }
 
 func newTools(t *testing.T, f *fixture, index Searcher, stores ...storage.Storage) *toolFixture {
+	return newToolsWithPolicy(t, f, index, true, stores...)
+}
+func newToolsWithPolicy(t *testing.T, f *fixture, index Searcher, enabled bool, stores ...storage.Storage) *toolFixture {
 	t.Helper()
 	ctx := context.Background()
-	st := &store.Store{Pool: f.env.App}
+	st := &store.Store{LessonsEnabled: enabled, Pool: f.env.App}
 	run, chat := uuid.New(), uuid.New()
 	token := "ltk_" + run.String()
 	f.exec(`INSERT INTO lab_chat(id,workspace_id,owner_id) VALUES($1,$2,$3)`, chat, f.ws, f.user)
@@ -456,5 +459,25 @@ func TestLabLessonCursorIndependentOfOtherWorkspace(t *testing.T) {
 		if err != nil || !local {
 			t.Fatalf("replayed foreign cursor returned a nonlocal lesson: %+v %v", hit, err)
 		}
+	}
+}
+
+func TestRestartFactsOnlyTools(t *testing.T) {
+	f := setup(t)
+	lesson := f.lessonFor(Ref{"record", f.record})
+	fact := Ref{"record", f.record}
+	for _, enabled := range []bool{true, false, true} {
+		tf := newToolsWithPolicy(t, f, searchStub{f.ws, []Ref{lesson, fact}, nil}, enabled)
+		tf.call("read", map[string]any{"ref": lesson.String()}, !enabled)
+		tf.call("links", map[string]any{"ref": lesson.String()}, !enabled)
+		out := tf.call("search", map[string]any{"query": "Lesson"}, false)
+		if strings.Contains(out, lesson.String()) != enabled || !strings.Contains(out, fact.String()) {
+			t.Fatal(out)
+		}
+		page := tf.page(map[string]any{"ref": "workspace:context", "directory": "lessons", "limit": 1})
+		if (len(page.Results) > 0) != enabled || page.NextAfter != "" {
+			t.Fatal(page)
+		}
+		tf.call("read", map[string]any{"ref": fact.String()}, false)
 	}
 }

@@ -188,6 +188,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			slog.Warn("lab search unavailable; using live record tools")
 		}
 	}
+	writer := buildLessonWriter(st, labIndex, getenv("ANTHROPIC_API_KEY"), getenv("TYPESAFE_API_KEY"))
 	labTools := labmemory.Tools{Store: st, Blobs: blobs}
 	if labIndex != nil {
 		labTools.Index = labIndex
@@ -224,7 +225,6 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
 	}
-	writer := buildLessonWriter(st, labIndex, getenv("ANTHROPIC_API_KEY"), getenv("TYPESAFE_API_KEY"))
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
@@ -375,7 +375,8 @@ func shutdown(srv *http.Server, hub *realtime.Hub) error {
 
 func buildLessonWriter(st *store.Store, index *labindex.Index, anthropicKey, jevKey string) *lessons.Writer {
 	anthropicKey, jevKey = strings.TrimSpace(anthropicKey), strings.TrimSpace(jevKey)
-	if anthropicKey == "" || jevKey == "" {
+	st.LessonsEnabled = anthropicKey != "" && jevKey != ""
+	if !st.LessonsEnabled {
 		return nil
 	}
 	return &lessons.Writer{Store: st, Index: index, Batcher: lessons.NewAnthropicBatcher(anthropicKey), Jev: &jev.Client{BaseURL: "https://api.typesafe.ai", Key: jevKey, Model: jev.Model}}

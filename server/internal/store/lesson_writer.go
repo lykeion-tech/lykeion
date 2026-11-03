@@ -45,8 +45,14 @@ func (t *Tx) DueWriterJobs(ctx context.Context, token string) ([]WriterJob, erro
 	}
 	return claimed, nil
 }
-func (t *Tx) SaveWriterInput(ctx context.Context, j uuid.UUID, token string, versions map[string]string, rewrite string) error {
-	raw, err := json.Marshal(versions)
+
+type WriterInput struct {
+	Versions map[string]string `json:"included"`
+	Observed map[string]string `json:"observed"`
+}
+
+func (t *Tx) SaveWriterInput(ctx context.Context, j uuid.UUID, token string, input WriterInput, rewrite string) error {
+	raw, err := json.Marshal(input)
 	if err != nil {
 		return err
 	}
@@ -88,17 +94,17 @@ func (t *Tx) PollWriterJobs(ctx context.Context) ([]BatchJob, error) {
 	}
 	return jobs, nil
 }
-func (t *Tx) LockWriterResult(ctx context.Context, id uuid.UUID, batch string) (*uuid.UUID, map[string]string, string, error) {
+func (t *Tx) LockWriterResult(ctx context.Context, id uuid.UUID, batch string) (*uuid.UUID, WriterInput, string, error) {
 	var lesson *uuid.UUID
 	var raw []byte
 	var version string
 	err := t.raw.QueryRow(ctx, `SELECT j.lesson_id,i.versions,i.rewrite_version FROM lesson_job j JOIN lesson_job_input i ON (i.workspace_id,i.job_id)=(j.workspace_id,j.id) WHERE j.workspace_id=app_workspace() AND j.id=$1 AND j.status='submitted' AND j.batch_id=$2 FOR UPDATE OF j`, id, batch).Scan(&lesson, &raw, &version)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, WriterInput{}, "", err
 	}
-	var versions map[string]string
-	err = json.Unmarshal(raw, &versions)
-	return lesson, versions, version, err
+	var input WriterInput
+	err = json.Unmarshal(raw, &input)
+	return lesson, input, version, err
 }
 func (t *Tx) ColumnRecords(ctx context.Context, card uuid.UUID, column string) ([]uuid.UUID, error) {
 	rows, err := t.raw.Query(ctx, `SELECT id FROM record WHERE workspace_id=app_workspace() AND card_id=$1 AND board_column=$2 AND superseded_at IS NULL ORDER BY created_at DESC,id LIMIT 48`, card, column)
@@ -165,4 +171,16 @@ func (t *Tx) CounterSetAside(ctx context.Context, id uuid.UUID) error {
 func (t *Tx) LockActiveLesson(ctx context.Context, id uuid.UUID) error {
 	var locked uuid.UUID
 	return t.raw.QueryRow(ctx, `SELECT id FROM lesson WHERE workspace_id=app_workspace() AND id=$1 AND status='active' FOR UPDATE`, id).Scan(&locked)
+}
+
+// FailWriterAttempt fences on the same batch/claim as the failed attempt.
+// The retry budget spans provider submit, collect and guard failures and is
+// persisted independently of prompt snapshots (including across restarts).
+func (t *Tx) FailWriterAttempt(ctx context.Context, id uuid.UUID, batch, retryStatus string, permanent bool) error {
+	_, err := t.raw.Exec(ctx, `UPDATE lesson_job SET failures=failures+1,
+ status=CASE WHEN $4 OR failures>=2 THEN 'failed' ELSE $3 END,
+ batch_id=CASE WHEN $4 OR failures>=2 OR $3='queued' THEN '' ELSE batch_id END,
+ due_at=clock_timestamp()+interval '5 minutes'
+ WHERE workspace_id=app_workspace() AND id=$1 AND batch_id=$2 AND status IN ('queued','submitted')`, id, batch, retryStatus, permanent)
+	return err
 }

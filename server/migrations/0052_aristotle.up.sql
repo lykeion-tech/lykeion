@@ -411,7 +411,7 @@ GRANT EXECUTE ON FUNCTION lab_next_lesson_workspace(uuid) TO lykeion_app;
 
 -- The global due-job function exposes routing metadata only. Submitted evidence
 -- snapshots remain in tenant scope and contain versions, never prompt text.
-ALTER TABLE lesson_job ADD UNIQUE(workspace_id,id);
+ALTER TABLE lesson_job ADD UNIQUE(workspace_id,id), ADD COLUMN failures integer NOT NULL DEFAULT 0;
 CREATE TABLE lesson_job_input (
  workspace_id uuid NOT NULL, job_id uuid PRIMARY KEY, versions jsonb NOT NULL, rewrite_version text NOT NULL,
  FOREIGN KEY(workspace_id,job_id) REFERENCES lesson_job(workspace_id,id) ON DELETE CASCADE

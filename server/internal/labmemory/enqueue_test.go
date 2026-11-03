@@ -15,7 +15,7 @@ import (
 
 func labQueue(t *testing.T) (*fixture, *service.AgentRuns, db.LabChat) {
 	f := setup(t)
-	runs := &service.AgentRuns{Store: &store.Store{Pool: f.env.App}, MCPURL: "sources", LabMCPURL: "lab"}
+	runs := &service.AgentRuns{Store: &store.Store{LessonsEnabled: true, Pool: f.env.App}, MCPURL: "sources", LabMCPURL: "lab"}
 	chat := db.LabChat{ID: uuid.New(), WorkspaceID: f.ws, OwnerID: f.user}
 	f.exec("INSERT INTO lab_chat(id,workspace_id,owner_id) VALUES($1,$2,$3)", chat.ID, f.ws, f.user)
 	return f, runs, chat
