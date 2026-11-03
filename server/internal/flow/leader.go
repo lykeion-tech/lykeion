@@ -183,9 +183,9 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 			}
 		}
 		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
-			return askOwner(ctx, tx, c, ptrOr(h.Reason))
+			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
-		return runFailed(ctx, tx, c, t)
+		return e.runFailed(ctx, tx, c, t)
 	})
 }
 
@@ -202,13 +202,12 @@ type handInBody struct {
 // askOwner holds a study whose lead could not do its column, as a block
 // holds it but with the redo count unchanged, and asks its owner once; the
 // owner's comment restarts the column through unblock.
-func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
+func (e *Engine) askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
 		Round: c.Round, Redos: c.Redos}); err != nil {
 		return err
 	}
-	if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Cause: "could_not_do",
-		Text: couldNotDoText(c.Number, reason)}); err != nil {
+	if err := holdForDecision(ctx, tx, c, "needs_decision", "could_not_do", couldNotDoText(c.Number, reason), e.now()); err != nil {
 		return err
 	}
 	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
@@ -220,7 +219,7 @@ func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error
 // runFailed redoes a column whose lead's run failed, or ended without a
 // hand-in, telling the redo what went wrong; a column already redone once is
 // blocked instead, and its owner told why.
-func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) error {
+func (e *Engine) runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) error {
 	detail := strings.TrimSpace(t.Error)
 	if detail == "" {
 		detail = "the run ended without a hand-in"
@@ -236,8 +235,7 @@ func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) erro
 		return err
 	}
 	if next.State == "blocked" {
-		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "blocked",
-			Text: runFailedText(c.Number, c.BoardColumn, ptrOr(t.FailureReason), detail)}); err != nil {
+		if err := holdForDecision(ctx, tx, c, "blocked", "run_failed", runFailedText(c.Number, c.BoardColumn, ptrOr(t.FailureReason), detail), e.now()); err != nil {
 			return err
 		}
 	}

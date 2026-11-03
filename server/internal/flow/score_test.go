@@ -349,6 +349,7 @@ func TestLowRedoesOnceThenBlocks(t *testing.T) {
 	if items := l.inbox(t, c.ID, "blocked"); len(items) != 1 {
 		t.Fatalf("blocked items: %v", items)
 	}
+	l.wantStopDecision(t, c.ID)
 	l.e.Kick(l.ws, c.ID)
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND round > $2", c.ID, got.Round); n != 0 {
 		t.Fatalf("a blocked study started %d runs", n)

@@ -335,6 +335,7 @@ func TestInvalidRoutesBackOnceThenAsks(t *testing.T) {
 	if !strings.Contains(text, supportedText+": the measurement \"auc\" was not reproduced") {
 		t.Fatalf("decision text %q", text)
 	}
+	l.wantStopDecision(t, c.ID)
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'route_back'", c.ID); n != 1 {
 		t.Fatalf("routed back %d times", n)
 	}

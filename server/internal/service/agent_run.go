@@ -457,6 +457,9 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 			if err != nil {
 				return err
 			}
+			if err := tx.Q.ResolveMachineOffline(ctx, db.ResolveMachineOfflineParams{WorkspaceID: ws, RuntimeID: &r.ID}); err != nil {
+				return err
+			}
 			out = append(out, r)
 		}
 		if err := team.AddBuiltIn(ctx, tx, user); err != nil {
@@ -529,6 +532,11 @@ func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []Runtim
 			k, err := tx.Q.TouchRuntime(ctx, db.TouchRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
 			if err != nil {
 				return err
+			}
+			if k > 0 {
+				if err := tx.Q.ResolveMachineOffline(ctx, db.ResolveMachineOfflineParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID}); err != nil {
+					return err
+				}
 			}
 			if len(telemetry) > 0 {
 				rt, e := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
@@ -1590,6 +1598,25 @@ func CancelCardRuns(ctx context.Context, tx *store.Tx, user, card uuid.UUID) err
 	return nil
 }
 
+// tellOfflineOwners tells the owner of each machine that is offline with
+// studies queued for it, once until it comes back.
+func tellOfflineOwners(ctx context.Context, tx *store.Tx) error {
+	offline, err := tx.Q.OfflineRuntimesWithQueuedRuns(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	for _, m := range offline {
+		text := fmt.Sprintf("%s is offline and %d queued runs wait for it. They continue once it is back online.", m.Machine, m.Queued)
+		if m.Queued == 1 {
+			text = fmt.Sprintf("%s is offline and a queued run waits for it. It continues once the machine is back online.", m.Machine)
+		}
+		if err := tx.Q.InsertMachineOffline(ctx, db.InsertMachineOfflineParams{WorkspaceID: tx.WS, UserID: m.OwnerID, RuntimeID: &m.ID, Text: text}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Sweep commits runtime status, lost attempts, receipts, events and settlement
 // notifications together. Any failure rolls the entire maintenance pass back.
 func (s *AgentRuns) Sweep(ctx context.Context) error {
@@ -1657,6 +1684,9 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 				if err := tx.Emit(ctx, "runtime.updated", nil, store.System, map[string]any{"action": "stale_sweep"}); err != nil {
 					return err
 				}
+			}
+			if err := tellOfflineOwners(ctx, tx); err != nil {
+				return err
 			}
 		}
 		candidates, err := tx.Q.SweepCandidates(ctx)

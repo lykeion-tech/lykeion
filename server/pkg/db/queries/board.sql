@@ -82,6 +82,27 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @bo
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text);
 
+-- A study's stop is a decision: one open item per study and cause (a needs_decision
+-- item), carrying its options, its default and the moment the default applies.
+-- name: UpsertStopDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, options, default_option, expires_at)
+VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text, @cause::text, @options::jsonb, @default_option, @expires_at)
+ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
+DO UPDATE SET text = EXCLUDED.text, options = EXCLUDED.options, default_option = EXCLUDED.default_option,
+  expires_at = EXCLUDED.expires_at;
+
+-- One open offline notice per machine; there is no unique index for it, so the
+-- sweep, which runs alone, checks first.
+-- name: InsertMachineOffline :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
+SELECT @workspace_id, @user_id, 'machine_offline', @text, @runtime_id, 'offline'
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id
+  AND kind = 'machine_offline' AND resolved_at IS NULL);
+
+-- name: ResolveMachineOffline :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now()
+WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'machine_offline' AND resolved_at IS NULL;
+
 -- name: BoardCandidates :many
 SELECT workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, board_column::text AS board_column
 FROM board_candidates();
@@ -140,18 +161,6 @@ WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND resol
   AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
 RETURNING *;
 
--- name: UpsertParkedRunDecision :exec
-INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'machine_failures')
-ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
-DO UPDATE SET text = EXCLUDED.text;
-
--- name: UpsertCardDecision :exec
-INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, @cause::text)
-ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
-DO UPDATE SET text = EXCLUDED.text;
-
 -- name: ResolveCardDecision :many
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'needs_decision' AND cause = @cause::text
@@ -162,3 +171,15 @@ RETURNING id;
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
   AND cause IS DISTINCT FROM @keep::text;
+
+-- The workspace's offline machines with queued runs that only they can take,
+-- and the number of those runs.
+-- name: OfflineRuntimesWithQueuedRuns :many
+SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
+FROM runtime r
+JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
+  AND (t.harness = r.harness OR t.kind = 'rerun')
+JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+  AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
+WHERE r.workspace_id = @workspace_id AND r.status = 'offline'
+GROUP BY r.id;

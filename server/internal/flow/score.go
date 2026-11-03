@@ -700,7 +700,9 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		case verdict == "low":
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
+			if err := holdForDecision(ctx, tx, c, "blocked", "low_score", blockedText(c.Number, c.BoardColumn, weak), e.now()); err != nil {
+				return err
+			}
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)

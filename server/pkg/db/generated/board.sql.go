@@ -316,6 +316,32 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 	return err
 }
 
+const insertMachineOffline = `-- name: InsertMachineOffline :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
+SELECT $1, $2, 'machine_offline', $3, $4, 'offline'
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND runtime_id = $4
+  AND kind = 'machine_offline' AND resolved_at IS NULL)
+`
+
+type InsertMachineOfflineParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	UserID      uuid.UUID  `json:"user_id"`
+	Text        string     `json:"text"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+}
+
+// One open offline notice per machine; there is no unique index for it, so the
+// sweep, which runs alone, checks first.
+func (q *Queries) InsertMachineOffline(ctx context.Context, arg InsertMachineOfflineParams) error {
+	_, err := q.db.Exec(ctx, insertMachineOffline,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Text,
+		arg.RuntimeID,
+	)
+	return err
+}
+
 const liveCardRecord = `-- name: LiveCardRecord :one
 SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND id = $3
   AND superseded_at IS NULL
@@ -443,6 +469,51 @@ func (q *Queries) MarkQueueOffline(ctx context.Context) error {
 	return err
 }
 
+const offlineRuntimesWithQueuedRuns = `-- name: OfflineRuntimesWithQueuedRuns :many
+SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
+FROM runtime r
+JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
+  AND (t.harness = r.harness OR t.kind = 'rerun')
+JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
+  AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
+WHERE r.workspace_id = $1 AND r.status = 'offline'
+GROUP BY r.id
+`
+
+type OfflineRuntimesWithQueuedRunsRow struct {
+	ID      uuid.UUID `json:"id"`
+	OwnerID uuid.UUID `json:"owner_id"`
+	Machine string    `json:"machine"`
+	Queued  int32     `json:"queued"`
+}
+
+// The workspace's offline machines with queued runs that only they can take,
+// and the number of those runs.
+func (q *Queries) OfflineRuntimesWithQueuedRuns(ctx context.Context, workspaceID uuid.UUID) ([]OfflineRuntimesWithQueuedRunsRow, error) {
+	rows, err := q.db.Query(ctx, offlineRuntimesWithQueuedRuns, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OfflineRuntimesWithQueuedRunsRow
+	for rows.Next() {
+		var i OfflineRuntimesWithQueuedRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.Machine,
+			&i.Queued,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resolveCardDecision = `-- name: ResolveCardDecision :many
 UPDATE inbox_item SET resolved_at = now()
 WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'needs_decision' AND cause = $3::text
@@ -474,6 +545,21 @@ func (q *Queries) ResolveCardDecision(ctx context.Context, arg ResolveCardDecisi
 		return nil, err
 	}
 	return items, nil
+}
+
+const resolveMachineOffline = `-- name: ResolveMachineOffline :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now()
+WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'machine_offline' AND resolved_at IS NULL
+`
+
+type ResolveMachineOfflineParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RuntimeID   *uuid.UUID `json:"runtime_id"`
+}
+
+func (q *Queries) ResolveMachineOffline(ctx context.Context, arg ResolveMachineOfflineParams) error {
+	_, err := q.db.Exec(ctx, resolveMachineOffline, arg.WorkspaceID, arg.RuntimeID)
+	return err
 }
 
 const resolveMachineWaits = `-- name: ResolveMachineWaits :exec
@@ -868,32 +954,6 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	return ok, err
 }
 
-const upsertCardDecision = `-- name: UpsertCardDecision :exec
-INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES ($1, $2::uuid, $3, 'needs_decision', $4, $5::text)
-ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
-DO UPDATE SET text = EXCLUDED.text
-`
-
-type UpsertCardDecisionParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	Text        string    `json:"text"`
-	Cause       string    `json:"cause"`
-}
-
-func (q *Queries) UpsertCardDecision(ctx context.Context, arg UpsertCardDecisionParams) error {
-	_, err := q.db.Exec(ctx, upsertCardDecision,
-		arg.WorkspaceID,
-		arg.CardID,
-		arg.UserID,
-		arg.Text,
-		arg.Cause,
-	)
-	return err
-}
-
 const upsertMachineWait = `-- name: UpsertMachineWait :exec
 INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
 VALUES ($1, $2, 'waiting_for_machine', $3, $4, $5)
@@ -920,26 +980,39 @@ func (q *Queries) UpsertMachineWait(ctx context.Context, arg UpsertMachineWaitPa
 	return err
 }
 
-const upsertParkedRunDecision = `-- name: UpsertParkedRunDecision :exec
-INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES ($1, $2::uuid, $3, 'needs_decision', $4, 'machine_failures')
+const upsertStopDecision = `-- name: UpsertStopDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, options, default_option, expires_at)
+VALUES ($1, $2::uuid, $3, $4, $5, $6::text, $7::jsonb, $8, $9)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
-DO UPDATE SET text = EXCLUDED.text
+DO UPDATE SET text = EXCLUDED.text, options = EXCLUDED.options, default_option = EXCLUDED.default_option,
+  expires_at = EXCLUDED.expires_at
 `
 
-type UpsertParkedRunDecisionParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	Text        string    `json:"text"`
+type UpsertStopDecisionParams struct {
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	CardID        uuid.UUID       `json:"card_id"`
+	UserID        uuid.UUID       `json:"user_id"`
+	Kind          string          `json:"kind"`
+	Text          string          `json:"text"`
+	Cause         string          `json:"cause"`
+	Options       json.RawMessage `json:"options"`
+	DefaultOption string          `json:"default_option"`
+	ExpiresAt     *time.Time      `json:"expires_at"`
 }
 
-func (q *Queries) UpsertParkedRunDecision(ctx context.Context, arg UpsertParkedRunDecisionParams) error {
-	_, err := q.db.Exec(ctx, upsertParkedRunDecision,
+// A study's stop is a decision: one open item per study and cause (a needs_decision
+// item), carrying its options, its default and the moment the default applies.
+func (q *Queries) UpsertStopDecision(ctx context.Context, arg UpsertStopDecisionParams) error {
+	_, err := q.db.Exec(ctx, upsertStopDecision,
 		arg.WorkspaceID,
 		arg.CardID,
 		arg.UserID,
+		arg.Kind,
 		arg.Text,
+		arg.Cause,
+		arg.Options,
+		arg.DefaultOption,
+		arg.ExpiresAt,
 	)
 	return err
 }

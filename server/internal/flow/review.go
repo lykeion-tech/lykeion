@@ -630,8 +630,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			// Nothing is left to review or redo: the owner decides, and the
 			// redo count stays.
 			next.State = "blocked"
-			if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
-				Cause: "all_withdrawn", Text: allWithdrawnText(c.BoardColumn, review.WithdrawalReasons(res))}); err != nil {
+			if err := holdForDecision(ctx, tx, c, "needs_decision", "all_withdrawn", allWithdrawnText(c.BoardColumn, review.WithdrawalReasons(res)), e.now()); err != nil {
 				return err
 			}
 			if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
@@ -645,7 +644,9 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		case res.Decision == review.DecideBlock:
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res))})
+			if err := holdForDecision(ctx, tx, c, "blocked", "low_score", reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res)), e.now()); err != nil {
+				return err
+			}
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			if doubts := review.OpenDoubts(res); len(doubts) > 0 {

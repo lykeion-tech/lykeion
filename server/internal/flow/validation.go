@@ -605,7 +605,7 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 		case review.DecideAsk:
 			// Held like a block, it is offered for rating as a block is.
 			e.drawRatingSafely(ctx, tx, c)
-			return holdInvalid(ctx, tx, c, invalid)
+			return e.holdInvalid(ctx, tx, c, invalid)
 		}
 		e.drawRatingSafely(ctx, tx, c)
 		if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "done",
@@ -638,13 +638,12 @@ func (e *Engine) routeBack(ctx context.Context, tx *store.Tx, c db.Card, column,
 // holdInvalid holds a study whose Validation found invalid statuses after
 // it had already been routed back once, and asks its owner; the owner's
 // comment restarts Validation through unblock.
-func holdInvalid(ctx context.Context, tx *store.Tx, c db.Card, invalid []string) error {
+func (e *Engine) holdInvalid(ctx context.Context, tx *store.Tx, c db.Card, invalid []string) error {
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
 		Round: c.Round, Redos: c.Redos}); err != nil {
 		return err
 	}
-	if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
-		Cause: "validation_invalid", Text: validationInvalidText(c.Number, invalid)}); err != nil {
+	if err := holdForDecision(ctx, tx, c, "needs_decision", "validation_invalid", validationInvalidText(c.Number, invalid), e.now()); err != nil {
 		return err
 	}
 	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {

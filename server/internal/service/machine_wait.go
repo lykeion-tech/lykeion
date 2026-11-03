@@ -61,7 +61,7 @@ func holdForOwner(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, de
 		text += " (" + detail + ")"
 	}
 	text += ". Resolve this item to try again."
-	if err := tx.Q.UpsertParkedRunDecision(ctx, db.UpsertParkedRunDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Text: text}); err != nil {
+	if err := HoldForDecision(ctx, tx, c, "needs_decision", "machine_failures", text, time.Now()); err != nil {
 		return err
 	}
 	return tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID})
