@@ -42,6 +42,7 @@ import (
 // autoresearch agent run's token may only post its run's report and open
 // cards.
 const (
+	ScopeAristotle           = "aristotle:ask"
 	ScopeCoresearch          = "coresearch:chat"
 	ScopeCoresearchConnector = "coresearch:connector"
 	ScopeRole                = "card:role"
@@ -55,8 +56,35 @@ const (
 	ScopeCall = "call:record"
 )
 
+// issueClaimTokens keeps the daemon's connector token separate from the CLI
+// token. Aristotle has only lab read tools, even if a claim is misconfigured
+// with workspace connectors.
+func issueClaimTokens(ctx context.Context, tx *store.Tx, t db.AgentRun, workspaceConnectors bool) (string, string, error) {
+	mint := func(scopes []string) (string, error) {
+		plain, hash, _ := auth.NewToken(AgentRunPrefix)
+		err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: t.WorkspaceID, AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: scopes, ExpiresAt: time.Now().Add(tokenTTL)})
+		return plain, err
+	}
+	plain, err := mint(Scopes(t.Kind))
+	if err != nil {
+		return "", "", err
+	}
+	if t.Kind == "aristotle" || ((t.Kind == "coresearch" || t.Kind == "rerun") && !workspaceConnectors) {
+		return plain, "", nil
+	}
+	scope := ScopeCall
+	if t.Kind == "coresearch" {
+		scope = ScopeCoresearchConnector
+	}
+	call, err := mint([]string{scope})
+	return plain, call, err
+}
+
 // Scopes are the powers an agent run's token carries, by the agent run's kind.
 func Scopes(kind string) []string {
+	if kind == "aristotle" {
+		return []string{ScopeAristotle}
+	}
 	if kind == "coresearch" {
 		return []string{ScopeCoresearch}
 	}
@@ -821,7 +849,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					// A rerun runs only recorded scripts: no tool servers or connectors.
 					var mcp []agent.MCPServer
-					if t.Kind != "coresearch" && t.Kind != "rerun" {
+					if t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
 						mcp, err = addon.Servers(t.AddonMcp)
 					}
 					if accessErr != nil {
@@ -830,7 +858,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var conns []pack.Connector
 					var team *TeamClaim
 					var workspace []WorkspaceConnectorClaim
-					if err == nil && t.Kind != "coresearch" && t.Kind != "rerun" {
+					if err == nil && t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
 						conns, team, err = ClaimConnectors(ctx, tx, t)
 						if err != nil {
 							return err
@@ -885,23 +913,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}); err != nil {
 						return err
 					}
-					plain, hash, _ := auth.NewToken(AgentRunPrefix)
-					if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: hash, WorkspaceID: ref.WorkspaceID,
-						AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: Scopes(t.Kind), ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
+					plain, callPlain, err := issueClaimTokens(ctx, tx, t, len(workspace) > 0)
+					if err != nil {
 						return err
-					}
-					callPlain := ""
-					if (t.Kind != "coresearch" && t.Kind != "rerun") || len(workspace) > 0 {
-						var callHash string
-						callPlain, callHash, _ = auth.NewToken(AgentRunPrefix)
-						callScope := ScopeCall
-						if t.Kind == "coresearch" {
-							callScope = ScopeCoresearchConnector
-						}
-						if err := tx.Q.InsertAgentRunToken(ctx, db.InsertAgentRunTokenParams{TokenHash: callHash, WorkspaceID: ref.WorkspaceID,
-							AgentRunID: t.ID, CardID: t.CardID, Role: t.Role, Attempt: t.Attempt, Scopes: []string{callScope}, ExpiresAt: time.Now().Add(tokenTTL)}); err != nil {
-							return err
-						}
 					}
 					if team != nil {
 						teams[t.ID] = *team

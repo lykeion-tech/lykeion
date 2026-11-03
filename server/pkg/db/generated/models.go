@@ -694,6 +694,24 @@ type LabCursor struct {
 	LastEventID int64  `json:"last_event_id"`
 }
 
+type LabEventConsumer struct {
+	Consumer string `json:"consumer"`
+}
+
+type LabEventDelivery struct {
+	Consumer    string    `json:"consumer"`
+	EventID     int64     `json:"event_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+type LabFactDirty struct {
+	Consumer    string     `json:"consumer"`
+	ID          int64      `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	Ref         string     `json:"ref"`
+	CardID      *uuid.UUID `json:"card_id"`
+}
+
 type LabMessage struct {
 	ID            uuid.UUID       `json:"id"`
 	WorkspaceID   uuid.UUID       `json:"workspace_id"`
@@ -713,6 +731,7 @@ type LabRead struct {
 	Ref         string    `json:"ref"`
 	Via         string    `json:"via"`
 	CreatedAt   time.Time `json:"created_at"`
+	ID          int64     `json:"id"`
 }
 
 type Lesson struct {

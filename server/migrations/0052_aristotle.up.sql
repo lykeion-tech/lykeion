@@ -45,9 +45,11 @@ CREATE TABLE lab_read (
   ref text NOT NULL,
   via text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (agent_run_id, ref),
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE
 );
+
+CREATE INDEX lab_read_run_ref ON lab_read (agent_run_id, ref);
 
 CREATE TABLE lesson (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

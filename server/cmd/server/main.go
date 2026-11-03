@@ -30,6 +30,7 @@ import (
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/labindex"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/realtime"
@@ -184,6 +185,10 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			slog.Warn("lab search unavailable; using live record tools")
 		}
 	}
+	labTools := labmemory.Tools{Store: st, Blobs: blobs}
+	if labIndex != nil {
+		labTools.Index = labIndex
+	}
 	labIndexer := &labindex.Indexer{Store: st, Index: labIndex}
 	indexCtx, stopIndex := context.WithCancel(ctx)
 	indexDone := make(chan struct{})
@@ -218,7 +223,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
-		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Connectors: conn,
+		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
 	if err := runs.RecoverSettlements(ctx); err != nil {

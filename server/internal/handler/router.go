@@ -52,6 +52,9 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google", h.googleStart)
 	r.Get("/auth/google/callback", h.googleCallback)
 
+	if h.Lab != nil {
+		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeAristotle)).Handle("/mcp/lab", h.Lab)
+	}
 	if h.Sources != nil {
 		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport, service.ScopeCoresearch)).Handle("/mcp/sources", h.Sources)
 	}

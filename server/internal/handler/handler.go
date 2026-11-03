@@ -44,6 +44,7 @@ type H struct {
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
 	Sources      http.Handler
+	Lab          http.Handler
 	PublicURL    string // where people reach the dashboard, without a trailing slash
 	Shipped      fs.FS  // the packs Lykeion ships, one folder per name; nil ships none
 	// ExtractText reads an upload's text, records.ExtractText when nil, within

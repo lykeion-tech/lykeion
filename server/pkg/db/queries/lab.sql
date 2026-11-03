@@ -7,13 +7,21 @@
 -- the same evidence. Private definitions need a separate future scope/reference
 -- contract and must never feed workspace-shared lessons.
 -- name: LabFact :one
+WITH readable_records AS NOT MATERIALIZED (
+ SELECT r.* FROM record r
+ WHERE r.workspace_id=sqlc.arg(workspace_id)::uuid AND
+ (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
+   SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
+   AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
+   AND (r.blob_key='' OR r.blob_key=a.blob_key||'.text')))
+)
 SELECT c.title::text AS title, jsonb_build_object('study',jsonb_build_object('id',c.id,'number',c.number,'title',c.title,'question',c.question,'owner_id',c.owner_id,'deadline',c.deadline,'start_date',c.start_date,'board_column',c.board_column,'state',c.state,'flag',c.flag,'ending',c.ending,'end_reason',c.end_reason,'rounds',c.rounds,'round',c.round,'version',c.version,'created_at',c.created_at,'handoff_note',c.handoff_note,'research_id',c.research_id,'assignee_type',c.assignee_type,'assignee_id',c.assignee_id,'origin',c.origin,'block_kind',c.block_kind,'scope_from',c.scope_from,'scope_to',c.scope_to,'redos',c.redos,'workflow',c.workflow,'workflow_release',c.workflow_release),
- 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id),'[]'::jsonb),
+ 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id AND a.kind='file' AND a.blob_key NOT LIKE c.workspace_id::text||'/coresearch-%'),'[]'::jsonb),
  'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'kind',r.kind,'role',r.role,'board_column',r.board_column,'round',r.round,'status',r.status,'created_at',r.created_at) ORDER BY r.id) FROM agent_run r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id AND r.kind IN ('role','rerun')),'[]'::jsonb),
  'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'column',ct.board_column,'name',p.name,'stage',p.stage) || CASE WHEN p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace') THEN jsonb_build_object('manifest',p.manifest) ELSE '{}'::jsonb END ORDER BY ct.board_column,p.id) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id),'[]'::jsonb))::text AS text,
  c.version::text AS version, false AS superseded,
  COALESCE((SELECT jsonb_agg(x.ref ORDER BY x.ref) FROM (
- SELECT 'record:'||r.id::text AS ref FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
+ SELECT 'record:'||r.id::text AS ref FROM readable_records r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
  UNION ALL SELECT 'comment:'||m.id::text FROM comment m WHERE m.workspace_id=c.workspace_id AND m.card_id=c.id
  UNION ALL SELECT 'decision:'||i.id::text FROM inbox_item i WHERE i.workspace_id=c.workspace_id AND i.card_id=c.id AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
  ) x),'[]'::jsonb)::jsonb AS links, '[]'::jsonb AS cites
@@ -21,7 +29,7 @@ FROM card c WHERE @kind::text='study' AND c.workspace_id=sqlc.arg(workspace_id):
 UNION ALL
 SELECT r.kind, to_jsonb(r)::text, CASE WHEN r.superseded_at IS NULL THEN 'live' ELSE 'superseded' END, r.superseded_at IS NOT NULL,
  jsonb_build_array('study:'||r.card_id::text), '[]'::jsonb
-FROM record r JOIN card c ON c.workspace_id=r.workspace_id AND c.id=r.card_id
+FROM readable_records r JOIN card c ON c.workspace_id=r.workspace_id AND c.id=r.card_id
 WHERE @kind='record' AND r.workspace_id=sqlc.arg(workspace_id)::uuid AND r.id=sqlc.arg(id)::uuid
 UNION ALL
 SELECT 'Study comment', to_jsonb(c)::text, CASE WHEN EXISTS(SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id) THEN 'cancelled' ELSE 'live' END,
@@ -46,3 +54,17 @@ FROM workspace w WHERE @kind='workspace' AND w.id=sqlc.arg(workspace_id)::uuid A
 -- name: LabAsker :one
 SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=sqlc.arg(workspace_id)::uuid
  AND workspace_id=app_workspace() AND user_id=sqlc.arg(user_id)::uuid AND user_id=app_user())::boolean;
+
+-- name: AppendLabRead :exec
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via) VALUES(@workspace_id,@agent_run_id,@ref,@via);
+
+-- The run may discover only its own requester before switching identity.
+-- name: LabRunRequester :one
+SELECT r.requester_id FROM agent_run r JOIN lab_chat c
+  ON c.workspace_id=r.workspace_id AND c.id=r.lab_chat_id AND c.owner_id=r.requester_id
+WHERE r.workspace_id = @workspace_id AND r.id = @id AND r.kind='aristotle' AND r.status='running';
+
+-- Navigation only. This directory is not part of the workspace fact or its
+-- citation version. Each candidate is re-read and logged under the asker.
+-- name: LabStudyDirectory :many
+SELECT id FROM card WHERE workspace_id = @workspace_id AND id > @after_id::uuid ORDER BY id LIMIT 21;

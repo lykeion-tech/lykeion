@@ -12,6 +12,27 @@ import (
 	"github.com/google/uuid"
 )
 
+const appendLabRead = `-- name: AppendLabRead :exec
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via) VALUES($1,$2,$3,$4)
+`
+
+type AppendLabReadParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Ref         string    `json:"ref"`
+	Via         string    `json:"via"`
+}
+
+func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) error {
+	_, err := q.db.Exec(ctx, appendLabRead,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Ref,
+		arg.Via,
+	)
+	return err
+}
+
 const labAsker = `-- name: LabAsker :one
 SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=$1::uuid
  AND workspace_id=app_workspace() AND user_id=$2::uuid AND user_id=app_user())::boolean
@@ -31,45 +52,53 @@ func (q *Queries) LabAsker(ctx context.Context, arg LabAskerParams) (bool, error
 }
 
 const labFact = `-- name: LabFact :one
+WITH readable_records AS NOT MATERIALIZED (
+ SELECT r.id, r.workspace_id, r.card_id, r.board_column, r.round, r.kind, r.role, r.key, r.body, r.blob_key, r.agent_run_id, r.superseded_at, r.created_at FROM record r
+ WHERE r.workspace_id=$1::uuid AND
+ (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
+   SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
+   AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
+   AND (r.blob_key='' OR r.blob_key=a.blob_key||'.text')))
+)
 SELECT c.title::text AS title, jsonb_build_object('study',jsonb_build_object('id',c.id,'number',c.number,'title',c.title,'question',c.question,'owner_id',c.owner_id,'deadline',c.deadline,'start_date',c.start_date,'board_column',c.board_column,'state',c.state,'flag',c.flag,'ending',c.ending,'end_reason',c.end_reason,'rounds',c.rounds,'round',c.round,'version',c.version,'created_at',c.created_at,'handoff_note',c.handoff_note,'research_id',c.research_id,'assignee_type',c.assignee_type,'assignee_id',c.assignee_id,'origin',c.origin,'block_kind',c.block_kind,'scope_from',c.scope_from,'scope_to',c.scope_to,'redos',c.redos,'workflow',c.workflow,'workflow_release',c.workflow_release),
- 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id),'[]'::jsonb),
+ 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id AND a.kind='file' AND a.blob_key NOT LIKE c.workspace_id::text||'/coresearch-%'),'[]'::jsonb),
  'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'kind',r.kind,'role',r.role,'board_column',r.board_column,'round',r.round,'status',r.status,'created_at',r.created_at) ORDER BY r.id) FROM agent_run r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id AND r.kind IN ('role','rerun')),'[]'::jsonb),
  'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'column',ct.board_column,'name',p.name,'stage',p.stage) || CASE WHEN p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace') THEN jsonb_build_object('manifest',p.manifest) ELSE '{}'::jsonb END ORDER BY ct.board_column,p.id) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id),'[]'::jsonb))::text AS text,
  c.version::text AS version, false AS superseded,
  COALESCE((SELECT jsonb_agg(x.ref ORDER BY x.ref) FROM (
- SELECT 'record:'||r.id::text AS ref FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
+ SELECT 'record:'||r.id::text AS ref FROM readable_records r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
  UNION ALL SELECT 'comment:'||m.id::text FROM comment m WHERE m.workspace_id=c.workspace_id AND m.card_id=c.id
  UNION ALL SELECT 'decision:'||i.id::text FROM inbox_item i WHERE i.workspace_id=c.workspace_id AND i.card_id=c.id AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
  ) x),'[]'::jsonb)::jsonb AS links, '[]'::jsonb AS cites
-FROM card c WHERE $1::text='study' AND c.workspace_id=$2::uuid AND c.id=$3::uuid
+FROM card c WHERE $2::text='study' AND c.workspace_id=$1::uuid AND c.id=$3::uuid
 UNION ALL
 SELECT r.kind, to_jsonb(r)::text, CASE WHEN r.superseded_at IS NULL THEN 'live' ELSE 'superseded' END, r.superseded_at IS NOT NULL,
  jsonb_build_array('study:'||r.card_id::text), '[]'::jsonb
-FROM record r JOIN card c ON c.workspace_id=r.workspace_id AND c.id=r.card_id
-WHERE $1='record' AND r.workspace_id=$2::uuid AND r.id=$3::uuid
+FROM readable_records r JOIN card c ON c.workspace_id=r.workspace_id AND c.id=r.card_id
+WHERE $2='record' AND r.workspace_id=$1::uuid AND r.id=$3::uuid
 UNION ALL
 SELECT 'Study comment', to_jsonb(c)::text, CASE WHEN EXISTS(SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id) THEN 'cancelled' ELSE 'live' END,
  EXISTS(SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id), jsonb_build_array('study:'||c.card_id::text), '[]'::jsonb
 FROM comment c JOIN card s ON s.workspace_id=c.workspace_id AND s.id=c.card_id
-WHERE $1='comment' AND c.workspace_id=$2::uuid AND c.id=$3::uuid
+WHERE $2='comment' AND c.workspace_id=$1::uuid AND c.id=$3::uuid
 UNION ALL
 SELECT 'Decision', to_jsonb(i)::text, i.status, false, jsonb_build_array('study:'||i.card_id::text), '[]'::jsonb
 FROM inbox_item i JOIN card c ON c.workspace_id=i.workspace_id AND c.id=i.card_id
-WHERE $1='decision' AND i.workspace_id=$2::uuid AND i.id=$3::uuid AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+WHERE $2='decision' AND i.workspace_id=$1::uuid AND i.id=$3::uuid AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
 UNION ALL
 SELECT 'Lab lesson', l.text, l.written_at::text, false, '[]'::jsonb, l.cites
-FROM lesson l WHERE $1='lesson' AND l.workspace_id=$2::uuid AND l.id=$3::uuid AND l.status='active'
+FROM lesson l WHERE $2='lesson' AND l.workspace_id=$1::uuid AND l.id=$3::uuid AND l.status='active'
 UNION ALL
 SELECT w.name, jsonb_build_object('research_context',w.research_context,
  'workflows',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('workflow',c.workflow,'release',c.workflow_release) ORDER BY jsonb_build_object('workflow',c.workflow,'release',c.workflow_release)) FROM card c WHERE c.workspace_id=w.id AND c.workflow IS NOT NULL),'[]'::jsonb),
  'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'manifest',p.manifest) ORDER BY p.id) FROM field_pack p WHERE p.workspace_id=w.id AND p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace') AND EXISTS(SELECT 1 FROM card_team ct WHERE ct.workspace_id=p.workspace_id AND ct.pack_id=p.id)),'[]'::jsonb))::text,
  md5(w.research_context), false, '[]'::jsonb, '[]'::jsonb
-FROM workspace w WHERE $1='workspace' AND w.id=$2::uuid AND ($3::uuid='00000000-0000-0000-0000-000000000000'::uuid OR w.id=$3::uuid)
+FROM workspace w WHERE $2='workspace' AND w.id=$1::uuid AND ($3::uuid='00000000-0000-0000-0000-000000000000'::uuid OR w.id=$3::uuid)
 `
 
 type LabFactParams struct {
-	Kind        string    `json:"kind"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Kind        string    `json:"kind"`
 	ID          uuid.UUID `json:"id"`
 }
 
@@ -91,7 +120,7 @@ type LabFactRow struct {
 // the same evidence. Private definitions need a separate future scope/reference
 // contract and must never feed workspace-shared lessons.
 func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, error) {
-	row := q.db.QueryRow(ctx, labFact, arg.Kind, arg.WorkspaceID, arg.ID)
+	row := q.db.QueryRow(ctx, labFact, arg.WorkspaceID, arg.Kind, arg.ID)
 	var i LabFactRow
 	err := row.Scan(
 		&i.Title,
@@ -102,4 +131,54 @@ func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, e
 		&i.Cites,
 	)
 	return i, err
+}
+
+const labRunRequester = `-- name: LabRunRequester :one
+SELECT r.requester_id FROM agent_run r JOIN lab_chat c
+  ON c.workspace_id=r.workspace_id AND c.id=r.lab_chat_id AND c.owner_id=r.requester_id
+WHERE r.workspace_id = $1 AND r.id = $2 AND r.kind='aristotle' AND r.status='running'
+`
+
+type LabRunRequesterParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+// The run may discover only its own requester before switching identity.
+func (q *Queries) LabRunRequester(ctx context.Context, arg LabRunRequesterParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, labRunRequester, arg.WorkspaceID, arg.ID)
+	var requester_id *uuid.UUID
+	err := row.Scan(&requester_id)
+	return requester_id, err
+}
+
+const labStudyDirectory = `-- name: LabStudyDirectory :many
+SELECT id FROM card WHERE workspace_id = $1 AND id > $2::uuid ORDER BY id LIMIT 21
+`
+
+type LabStudyDirectoryParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AfterID     uuid.UUID `json:"after_id"`
+}
+
+// Navigation only. This directory is not part of the workspace fact or its
+// citation version. Each candidate is re-read and logged under the asker.
+func (q *Queries) LabStudyDirectory(ctx context.Context, arg LabStudyDirectoryParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, labStudyDirectory, arg.WorkspaceID, arg.AfterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
