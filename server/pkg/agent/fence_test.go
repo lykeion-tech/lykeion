@@ -157,7 +157,7 @@ func TestLabCodexRefusesBeforeLoadingHostileConfigOrLaunching(t *testing.T) {
 }
 
 func TestLabClaudeRefusesUnverifiedVersions(t *testing.T) {
-	for _, version := range []string{"2.1.316", "3.0.0", "unknown"} {
+	for _, version := range []string{"2.1.316", "2.1.318", "2.2.0", "3.0.0", "unknown"} {
 		o := ExecOptions{Lab: true, Dir: t.TempDir(), Sandbox: func(ctx context.Context, _ CLIPaths, _ string, args ...string) (*exec.Cmd, error) {
 			if len(args) != 1 || args[0] != "--version" {
 				t.Fatal("launched unverified CLI")

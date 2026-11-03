@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,10 +32,7 @@ const ScriptLimit = 2 * time.Hour
 // Code the per-server timeout also lifts its request and idle timeouts.
 const doorCallTimeout = ScriptLimit + 5*time.Minute
 
-// The host-managed provider guard is verified with Claude Code 2.1.317.
-// Unknown versions must not receive a private prompt.
-var labClaudeVersion = regexp.MustCompile(`^2\.([0-9]+)\.([0-9]+)(?: |$)`)
-
+// A new CLI release must pass the lab provider and native tool inventory probes.
 func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
 	probe, cancel := context.WithTimeout(ctx, VersionTimeout)
 	defer cancel()
@@ -54,15 +50,11 @@ func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
 	data, err := io.ReadAll(io.LimitReader(out, 256))
 	out.Close()
 	waitErr := cmd.Wait()
-	m := labClaudeVersion.FindStringSubmatch(strings.TrimSpace(string(data)))
-	if err == nil && waitErr == nil && len(m) == 3 {
-		minor, e1 := strconv.Atoi(m[1])
-		patch, e2 := strconv.Atoi(m[2])
-		if e1 == nil && e2 == nil && (minor > 1 || minor == 1 && patch >= 317) {
-			return nil
-		}
+	version, _, _ := strings.Cut(strings.TrimSpace(string(data)), " ")
+	if err == nil && waitErr == nil && version == "2.1.317" {
+		return nil
 	}
-	return errors.New("lab questions require Claude Code 2.1.317 or later in the verified 2.x series")
+	return errors.New("lab questions require verified Claude Code version 2.1.317")
 }
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
