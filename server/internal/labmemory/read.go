@@ -2,6 +2,7 @@ package labmemory
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,11 +41,12 @@ func Read(ctx context.Context, tx *store.Tx, user uuid.UUID, r Ref) (Fact, error
 	if tx == nil || tx.Q == nil || tx.WS == uuid.Nil || user == uuid.Nil {
 		return Fact{}, ErrNotFound
 	}
-	if _, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: tx.WS, UserID: user}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Fact{}, ErrNotFound
-		}
+	allowed, err := tx.Q.LabAsker(ctx, db.LabAskerParams{WorkspaceID: tx.WS, UserID: user})
+	if err != nil {
 		return Fact{}, err
+	}
+	if !allowed {
+		return Fact{}, ErrNotFound
 	}
 	return read(ctx, tx, r)
 }
@@ -78,6 +80,17 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 		}
 		f.Links = append(f.Links, link)
 	}
+	// Projection versions cover every exposed field and link. Access-dependent
+	// Team visibility is part of the projection, so a lesson cannot carry private
+	// evidence into another member's answer.
+	if r.Kind == "study" || r.Kind == "workspace" || r.Kind == "decision" {
+		evidence, _ := json.Marshal(struct {
+			Title, Text, Version string
+			Links                []Ref
+		}{f.Title, f.Text, f.Version, f.Links})
+		f.Version = fmt.Sprintf("sha256:%x", sha256.Sum256(evidence))
+	}
+
 	if r.Kind == "lesson" {
 		var cites []Citation
 		if err := json.Unmarshal(row.Cites, &cites); err != nil || len(cites) == 0 {
@@ -109,9 +122,9 @@ func Version(ctx context.Context, tx *store.Tx, r Ref) (string, error) {
 	if tx == nil || tx.Q == nil || tx.WS == uuid.Nil {
 		return "", ErrNotFound
 	}
-	row, err := load(ctx, tx, r)
+	fact, err := read(ctx, tx, r)
 	if err != nil {
 		return "", err
 	}
-	return row.Version, nil
+	return fact.Version, nil
 }

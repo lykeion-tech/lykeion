@@ -1,10 +1,10 @@
 -- All relations are explicitly workspace-scoped in addition to RLS. These are
 -- lab facts only: no Coresearch relation or run transcript is read.
 -- name: LabFact :one
-SELECT c.title::text AS title, jsonb_build_object('study',to_jsonb(c),
- 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key)) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id),'[]'::jsonb),
- 'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'kind',r.kind,'role',r.role,'board_column',r.board_column,'round',r.round,'status',r.status,'created_at',r.created_at)) FROM agent_run r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id AND r.kind IN ('role','rerun')),'[]'::jsonb),
- 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('column',ct.board_column,'name',p.name,'manifest',p.manifest)) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id),'[]'::jsonb))::text AS text,
+SELECT c.title::text AS title, jsonb_build_object('study',jsonb_build_object('id',c.id,'number',c.number,'title',c.title,'question',c.question,'owner_id',c.owner_id,'deadline',c.deadline,'start_date',c.start_date,'board_column',c.board_column,'state',c.state,'flag',c.flag,'ending',c.ending,'end_reason',c.end_reason,'rounds',c.rounds,'round',c.round,'version',c.version,'created_at',c.created_at,'handoff_note',c.handoff_note,'research_id',c.research_id,'assignee_type',c.assignee_type,'assignee_id',c.assignee_id,'origin',c.origin,'block_kind',c.block_kind,'scope_from',c.scope_from,'scope_to',c.scope_to,'redos',c.redos,'workflow',c.workflow,'workflow_release',c.workflow_release),
+ 'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id),'[]'::jsonb),
+ 'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'kind',r.kind,'role',r.role,'board_column',r.board_column,'round',r.round,'status',r.status,'created_at',r.created_at) ORDER BY r.id) FROM agent_run r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id AND r.kind IN ('role','rerun')),'[]'::jsonb),
+ 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('column',ct.board_column,'name',p.name,'manifest',p.manifest) ORDER BY ct.board_column,p.id) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id AND p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace' OR p.uploaded_by=app_user())),'[]'::jsonb))::text AS text,
  c.version::text AS version, false AS superseded,
  COALESCE((SELECT jsonb_agg(x.ref ORDER BY x.ref) FROM (
  SELECT 'record:'||r.id::text AS ref FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
@@ -31,7 +31,12 @@ SELECT 'Lab lesson', l.text, l.written_at::text, false, '[]'::jsonb, l.cites
 FROM lesson l WHERE @kind='lesson' AND l.workspace_id=sqlc.arg(workspace_id)::uuid AND l.id=sqlc.arg(id)::uuid AND l.status='active'
 UNION ALL
 SELECT w.name, jsonb_build_object('research_context',w.research_context,
- 'workflows',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('workflow',c.workflow,'release',c.workflow_release)) FROM card c WHERE c.workspace_id=w.id AND c.workflow IS NOT NULL),'[]'::jsonb),
- 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'manifest',p.manifest)) FROM field_pack p WHERE p.workspace_id=w.id AND EXISTS(SELECT 1 FROM card_team ct WHERE ct.workspace_id=p.workspace_id AND ct.pack_id=p.id)),'[]'::jsonb))::text,
+ 'workflows',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('workflow',c.workflow,'release',c.workflow_release) ORDER BY jsonb_build_object('workflow',c.workflow,'release',c.workflow_release)) FROM card c WHERE c.workspace_id=w.id AND c.workflow IS NOT NULL),'[]'::jsonb),
+ 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'manifest',p.manifest) ORDER BY p.id) FROM field_pack p WHERE p.workspace_id=w.id AND p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace' OR p.uploaded_by=app_user()) AND EXISTS(SELECT 1 FROM card_team ct WHERE ct.workspace_id=p.workspace_id AND ct.pack_id=p.id)),'[]'::jsonb))::text,
  md5(w.research_context), false, '[]'::jsonb, '[]'::jsonb
 FROM workspace w WHERE @kind='workspace' AND w.id=sqlc.arg(workspace_id)::uuid AND (sqlc.arg(id)::uuid='00000000-0000-0000-0000-000000000000'::uuid OR w.id=sqlc.arg(id)::uuid);
+
+-- Bind the claimed asker to the actual transaction identity and workspace.
+-- name: LabAsker :one
+SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=sqlc.arg(workspace_id)::uuid
+ AND workspace_id=app_workspace() AND user_id=sqlc.arg(user_id)::uuid AND user_id=app_user())::boolean;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -95,7 +96,11 @@ func TestNonMemberCannotRead(t *testing.T) {
 func TestLessonOpensOnlyWhenEveryCiteOpens(t *testing.T) {
 	f := setup(t)
 	id := uuid.New()
-	cites, _ := json.Marshal([]Citation{{Ref: Ref{"record", f.record}.String(), Version: "live"}, {Ref: Ref{"study", f.study}.String(), Version: "1"}})
+	study, err := f.read(Ref{"study", f.study})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cites, _ := json.Marshal([]Citation{{Ref: Ref{"record", f.record}.String(), Version: "live"}, {Ref: Ref{"study", f.study}.String(), Version: study.Version}})
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson',$3,'test')`, id, f.ws, cites)
 	r := Ref{"lesson", id}
 	fact, err := f.read(r)
@@ -230,5 +235,161 @@ func TestCanOpenAndInternalVersion(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func (f *fixture) member() uuid.UUID {
+	id := uuid.New()
+	f.exec(`INSERT INTO "user"(id,email,name) VALUES($1,$2,'Other')`, id, id.String()+"@example.org")
+	f.exec(`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'member')`, f.ws, id)
+	return id
+}
+func (f *fixture) readAs(user uuid.UUID, r Ref) (Fact, error) {
+	var fact Fact
+	err := (&store.Store{Pool: f.env.App}).InWorkspace(context.Background(), f.ws, user, func(tx *store.Tx) error {
+		var err error
+		fact, err = Read(context.Background(), tx, user, r)
+		return err
+	})
+	return fact, err
+}
+func (f *fixture) team() uuid.UUID {
+	id := uuid.New()
+	f.exec(`INSERT INTO field_pack(id,workspace_id,name,version,sha256,manifest,blob_key,source,uploaded_by) VALUES($1,$2,'Private Team','1','hash','{"secret":"private-method"}','blob','uploaded',$3)`, id, f.ws, f.user)
+	f.exec(`INSERT INTO card_team(workspace_id,card_id,board_column,pack_id) VALUES($1,$2,'grounding',$3)`, f.ws, f.study, id)
+	return id
+}
+func (f *fixture) lessonFor(ref Ref) Ref {
+	fact, err := f.read(ref)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: fact.Version}})
+	id := uuid.New()
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson from private-method',$3,'test')`, id, f.ws, cites)
+	return Ref{"lesson", id}
+}
+func TestPublicReadsBindTransactionIdentity(t *testing.T) {
+	f := setup(t)
+	other := f.member()
+	ctx := context.Background()
+	s := &store.Store{Pool: f.env.App}
+	r := Ref{"study", f.study}
+	check := func(tx *store.Tx) error {
+		if _, err := Read(ctx, tx, f.user, r); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("borrowed identity read: %v", err)
+		}
+		yes, err := CanOpen(ctx, tx, f.user, r)
+		if err != nil || yes {
+			t.Fatalf("borrowed identity open: %v %v", yes, err)
+		}
+		return nil
+	}
+	for _, identity := range []uuid.UUID{other, uuid.New(), uuid.Nil} {
+		if err := s.InWorkspace(ctx, f.ws, identity, check); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Maintenance(ctx, func(tx *store.Tx) error {
+		if err := tx.Workspace(ctx, f.ws); err != nil {
+			return err
+		}
+		return check(tx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestTeamVisibilityAndLessonsFollowAsker(t *testing.T) {
+	f := setup(t)
+	other := f.member()
+	team := f.team()
+	for _, r := range []Ref{{"study", f.study}, {Kind: "workspace"}} {
+		own, err := f.read(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		peer, err := f.readAs(other, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(own.Text, "private-method") || strings.Contains(peer.Text, "private-method") {
+			t.Fatalf("visibility: owner=%s peer=%s", own.Text, peer.Text)
+		}
+		lesson := f.lessonFor(r)
+		if _, err := f.readAs(other, lesson); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("private evidence lesson exposed: %v", err)
+		}
+		f.exec(`UPDATE field_pack SET visibility='workspace' WHERE id=$1`, team)
+		shared, err := f.readAs(other, r)
+		if err != nil || !strings.Contains(shared.Text, "private-method") {
+			t.Fatalf("shared: %s %v", shared.Text, err)
+		}
+		sharedLesson := f.lessonFor(r)
+		if _, err := f.readAs(other, sharedLesson); err != nil {
+			t.Fatalf("shared lesson: %v", err)
+		}
+		f.exec(`UPDATE field_pack SET visibility='private' WHERE id=$1`, team)
+		if _, err := f.readAs(other, sharedLesson); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("unshared lesson: %v", err)
+		}
+		f.exec(`UPDATE field_pack SET deleted_at=now() WHERE id=$1`, team)
+		for _, user := range []uuid.UUID{f.user, other} {
+			fact, err := f.readAs(user, r)
+			if err != nil || strings.Contains(fact.Text, "private-method") {
+				t.Fatalf("deleted team: %s %v", fact.Text, err)
+			}
+		}
+		if _, err := f.read(lesson); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("deleted lesson evidence: %v", err)
+		}
+		f.exec(`UPDATE field_pack SET deleted_at=NULL WHERE id=$1`, team)
+	}
+}
+func TestProjectionVersionsTrackSubstantiveChanges(t *testing.T) {
+	f := setup(t)
+	team := f.team()
+	check := func(r Ref, mutation string, args ...any) {
+		t.Helper()
+		before, err := f.read(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lesson := f.lessonFor(r)
+		f.exec(mutation, args...)
+		after, err := f.read(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before.Version == after.Version {
+			t.Fatalf("version unchanged for %v", r)
+		}
+		if _, err := f.read(lesson); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("lesson survived changed %v: %v", r, err)
+		}
+	}
+	check(Ref{"decision", f.decision}, `INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,options) VALUES($1,$2,$3,$4,'agent_decision','New open question','[{"id":"b"}]') ON CONFLICT(id) DO UPDATE SET text=excluded.text,options=excluded.options`, f.decision, f.ws, f.study, f.user)
+	check(Ref{Kind: "workspace"}, `UPDATE field_pack SET manifest='{"method":"updated"}' WHERE id=$1`, team)
+	check(Ref{Kind: "workspace"}, `UPDATE card SET workflow='new-workflow' WHERE id=$1`, f.study)
+	check(Ref{"study", f.study}, `INSERT INTO attachment(workspace_id,uploader_id,card_id,name,content_type,size_bytes,sha256,blob_key) VALUES($1,$2,$3,'new.txt','text/plain',1,'hash','blob')`, f.ws, f.user, f.study)
+	check(Ref{"study", f.study}, `UPDATE field_pack SET manifest='{"method":"revised"}' WHERE id=$1`, team)
+	check(Ref{"study", f.study}, `UPDATE card SET handoff_note='New hand-in' WHERE id=$1`, f.study)
+	// Repeated reads must stay stable, rather than hashing non-deterministic arrays.
+	a, _ := f.read(Ref{Kind: "workspace"})
+	b, _ := f.read(Ref{Kind: "workspace"})
+	if a.Version != b.Version {
+		t.Fatal("unstable hash")
+	}
+}
+func TestStudyProjectionExcludesInternalColumns(t *testing.T) {
+	f := setup(t)
+	f.exec(`UPDATE card SET grounding_criteria='[{"private":"legacy-secret"}]',legacy_column='grounding' WHERE id=$1`, f.study)
+	fact, err := f.read(Ref{"study", f.study})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"grounding_criteria", "legacy_column", "legacy-secret"} {
+		if strings.Contains(fact.Text, key) {
+			t.Fatalf("internal field %s in %s", key, fact.Text)
+		}
 	}
 }
