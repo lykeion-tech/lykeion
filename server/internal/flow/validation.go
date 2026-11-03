@@ -386,31 +386,30 @@ func (v *validating) read(ctx context.Context, tx *store.Tx, c db.Card, study []
 		v.assessments[strings.TrimSpace(a.Hypothesis)] = a
 		as = append(as, a)
 	}
-	exp, err := service.ExperimentationRound(ctx, tx, c.ID)
+	st, err := service.StandingExperimentation(ctx, tx, c.ID)
 	if err != nil {
 		return nil, written, err
 	}
-	for _, r := range exp {
-		switch r.Kind {
-		case "value":
-			v.values = append(v.values, r)
-		case "output":
+	v.values = st.Values
+	for _, r := range st.Records {
+		if r.Kind == "output" {
 			v.outputs = append(v.outputs, r)
 		}
 	}
-	v.statuses = review.Statuses(v.hs, as, measured(v.values, *rerun))
+	v.statuses = review.Statuses(v.hs, as, measured(v.values, *rerun), records.Body[rerunBody](*rerun).Tests)
 	return rerun, written, nil
 }
 
-// measured is each value as the status rules read it: its number, whether
-// a script run made it, and whether the rerun reproduced it.
+// measured is each standing value as the status rules read it: its number,
+// if it is one, whether a script run made it, and whether the rerun
+// reproduced it.
 func measured(values []db.Record, rerun db.Record) map[string]review.Measured {
 	rb := records.Body[rerunBody](rerun)
 	m := map[string]review.Measured{}
 	for _, r := range values {
 		v := valueOf(r)
-		n, _ := strconv.ParseFloat(strings.TrimSpace(v.Value), 64)
-		m[v.Name] = review.Measured{Value: n, Text: v.Value, FromScript: len(v.Cites) > 0, Reproduced: rb.Reproduced[v.Name],
+		n, err := strconv.ParseFloat(strings.TrimSpace(v.Value), 64)
+		m[v.Name] = review.Measured{Value: n, Number: err == nil, Text: v.Value, FromScript: len(v.Cites) > 0, Reproduced: rb.Reproduced[v.Name],
 			RerunNote: rb.Notes[v.Name], Key: r.Key, RerunKey: rerun.Key}
 	}
 	return m

@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ func fp(f float64) *float64 { return &f }
 func sp(s string) *string   { return &s }
 
 func good(v float64) Measured {
-	return Measured{Value: v, FromScript: true, Reproduced: true, Key: "v", RerunKey: "r"}
+	return Measured{Value: v, Number: true, Text: strconv.FormatFloat(v, 'f', -1, 64), FromScript: true, Reproduced: true, Key: "v", RerunKey: "r"}
 }
 
 func dirHyp(dir string) HypothesisBody {
@@ -29,12 +30,18 @@ func nsT() *statcheck.Test {
 	return &statcheck.Test{Kind: "t", Statistic: 1.0, StatDigits: 2, DF1: 28, P: 0.33, PDigits: 2, PBound: "="}
 }
 
+// run sets h's status with the rerun having printed its reported test.
 func run(t *testing.T, h HypothesisBody, a *Assessment, m map[string]Measured) StatusResult {
+	t.Helper()
+	return runPrinted(t, h, a, m, true)
+}
+
+func runPrinted(t *testing.T, h HypothesisBody, a *Assessment, m map[string]Measured, printed bool) StatusResult {
 	var as []Assessment
 	if a != nil {
 		as = []Assessment{*a}
 	}
-	r := Statuses([]HypothesisBody{h}, as, m)
+	r := Statuses([]HypothesisBody{h}, as, m, map[string]bool{strings.TrimSpace(h.Text): printed})
 	t.Helper()
 	if len(r) != 1 || len(r[0].Reasons) == 0 {
 		t.Fatalf("one result with reasons expected, got %+v", r)
@@ -111,14 +118,69 @@ func TestStatusesDirection(t *testing.T) {
 
 func TestStatusesOutcomes(t *testing.T) {
 	h := HypothesisBody{Text: "h", Prediction: Prediction{Shape: "outcomes", Outcomes: []string{"A", "B"}, Chosen: "A"}, Control: Control{Text: "c"}}
-	for obs, want := range map[string]string{" a ": Supported, "B": Refuted, "C": Inconclusive} {
-		r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m", Observed: sp(obs)}, map[string]Measured{"m": good(1)})
+	text := func(s string) Measured {
+		return Measured{Text: s, FromScript: true, Reproduced: true, Key: "w", RerunKey: "r"}
+	}
+	m := map[string]Measured{"m": good(1), "seen": text(" a "), "other": text("B"), "neither": text("C")}
+	for obs, want := range map[string]string{"seen": Supported, "other": Refuted, "neither": Inconclusive} {
+		r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m", Observed: sp(obs)}, m)
 		if r.Status != want {
 			t.Fatalf("%q: %+v", obs, r)
 		}
 	}
-	if r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m"}, map[string]Measured{"m": good(1)}); r.Status != Inconclusive {
+	if r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m"}, m); r.Status != Inconclusive {
 		t.Fatalf("nil observed: %+v", r)
+	}
+	// The outcome is a recorded value, never the lead's own words.
+	if r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m", Observed: sp("A")}, m); r.Status != Inconclusive ||
+		r.Reasons[0] != `the observed outcome "A" names no recorded value` {
+		t.Fatalf("free-text observed: %+v", r)
+	}
+	gone := text("A")
+	gone.Reproduced = false
+	m["gone"] = gone
+	if r := run(t, h, &Assessment{Hypothesis: "h", Measurement: "m", Observed: sp("gone")}, m); r.Status != Inconclusive {
+		t.Fatalf("observed value not reproduced: %+v", r)
+	}
+}
+
+func TestATestNoRunPrintedIsInvalid(t *testing.T) {
+	r := runPrinted(t, dirHyp("increase"), dirAssess(sigT()), sigMeasured(), false)
+	if r.Status != Invalid || r.Reasons[0] != "the reported test was not found in any recorded run" {
+		t.Fatalf("an invented, self-consistent t-test: %+v", r)
+	}
+}
+
+func TestAMeasurementThatIsAlreadyTheEffect(t *testing.T) {
+	diff := good(4.465)
+	diff.Text = "4.465"
+	m := map[string]Measured{"diff": diff, "control mean": good(19.737)}
+	pos := &statcheck.Test{Kind: "t", Statistic: 8.698, StatDigits: 3, DF1: 36.88, P: 1.83e-10, PDigits: 12, PBound: "="}
+	r := run(t, dirHyp("increase"), &Assessment{Hypothesis: "h", Measurement: "diff", Test: pos}, m)
+	if r.Status != Supported || r.Reasons[0] != "the effect 4.465 is in the predicted direction (increase) and significant (p < 0.05)" {
+		t.Fatalf("the difference as the measurement: %+v", r)
+	}
+	neg := *pos
+	neg.Statistic = -8.698
+	if r := run(t, dirHyp("increase"), &Assessment{Hypothesis: "h", Measurement: "diff", Test: &neg}, m); r.Status != Inconclusive {
+		t.Fatalf("a statistic against the direction, read without the control: %+v", r)
+	}
+	// With the control's raw value named, the effect is the difference,
+	// written to the measurement's digits.
+	treated := good(24.2025)
+	treated.Text = "24.203"
+	r = run(t, dirHyp("increase"), &Assessment{Hypothesis: "h", Measurement: "treated", Control: sp("control mean"), Test: pos},
+		map[string]Measured{"treated": treated, "control mean": good(19.737)})
+	if r.Status != Supported || r.Reasons[0] != "the effect 4.466 is in the predicted direction (increase) and significant (p < 0.05)" {
+		t.Fatalf("treated less control: %+v", r)
+	}
+}
+
+func TestAMeasurementThatIsNotANumberIsInvalid(t *testing.T) {
+	word := Measured{Text: "large", FromScript: true, Reproduced: true}
+	r := run(t, dirHyp("increase"), dirAssess(sigT()), map[string]Measured{"m": word, "c": good(1)})
+	if r.Status != Invalid || r.Reasons[0] != `the measurement "m" is "large", which is not a number` {
+		t.Fatalf("%+v", r)
 	}
 }
 

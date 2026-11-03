@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"mime/multipart"
 	"net/http"
@@ -158,6 +159,12 @@ func TestRerunClaimCarriesScriptsInOrder(t *testing.T) {
 	l.record(t, "experimentation", "run", "x2", map[string]any{"tool": "run_code", "language": "python", "code": "print(1)", "exit_status": 0, "output": "1"}, nil)
 	l.script(t, "x3", "fit.py", 0, "# python base\nnumpy==2.0\n# python study\nscipy==1.14\n")
 	l.script(t, "x4", "broken.py", 1, "")
+	l.script(t, "x5", "unused.py", 0, "")
+	// Only the scripts the standing values rest on are replayed, and only
+	// the runs of them that exited 0.
+	for i, run := range []string{"x1", "x3", "x4"} {
+		l.record(t, "experimentation", "value", fmt.Sprintf("r%d", i+1), map[string]any{"name": run, "value": "1", "file": "f", "cites": []string{"run:" + run}}, nil)
+	}
 	l.enqueue(t)
 	cl := l.claim(t)
 	if cl.AgentRun.Kind != "rerun" || cl.Rerun == nil {

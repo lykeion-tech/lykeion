@@ -177,3 +177,36 @@ func TestThePromptSaysHowToWriteFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestTheValidationHandInNamesValuesAsTheReviewReadsThem(t *testing.T) {
+	p := itemsPrompt(board.Validation)
+	for _, want := range []string{
+		"null when `measurement` is already the effect",
+		"`df2` (null when the test has none)",
+		"the name of the recorded value whose text is the outcome seen",
+		"a test no run printed makes the hypothesis invalid",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the Validation hand-in does not say %q:\n%s", want, p)
+		}
+	}
+	var s struct {
+		Properties struct {
+			Assessments struct {
+				Items struct {
+					Properties map[string]struct {
+						Description string
+					}
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(handin.Schema(handin.Validation)), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"measurement", "control", "test", "observed"} {
+		if s.Properties.Assessments.Items.Properties[f].Description == "" {
+			t.Errorf("the schema does not describe %s", f)
+		}
+	}
+}

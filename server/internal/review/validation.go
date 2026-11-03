@@ -3,6 +3,7 @@ package review
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"lykeion/server/internal/statcheck"
@@ -18,8 +19,9 @@ const (
 )
 
 // Assessment is the lead's declaration for one hypothesis: which recorded
-// values are its measurement and control, the reported test, and the observed
-// named outcome.
+// values are its measurement and its control group's raw value (null when
+// the measurement is already the effect), the reported test, and, for a
+// hypothesis that names outcomes, the recorded value that shows the outcome.
 type Assessment struct {
 	Hypothesis  string          `json:"hypothesis"`
 	Measurement string          `json:"measurement"`
@@ -29,8 +31,10 @@ type Assessment struct {
 }
 
 // Measured is a value recomputed by a script run, keyed by value name.
+// Number says whether its text is a number, read into Value.
 type Measured struct {
 	Value      float64
+	Number     bool
 	Text       string
 	FromScript bool
 	Reproduced bool
@@ -48,9 +52,11 @@ type StatusResult struct {
 	Cites      []string
 }
 
-// Statuses sets each hypothesis's status from its assessment and the measured
-// values. Invalid rules come first, then the shape rule, then the no-control cap.
-func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured) []StatusResult {
+// Statuses sets each hypothesis's status from its assessment, the measured
+// values and, by hypothesis text, trimmed, whether the rerun printed the
+// test its assessment reports. Invalid rules come first, then the shape
+// rule, then the no-control cap.
+func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured, tests map[string]bool) []StatusResult {
 	byText := map[string]Assessment{}
 	for _, a := range as {
 		byText[strings.TrimSpace(a.Hypothesis)] = a
@@ -64,16 +70,16 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured) []Sta
 			out = append(out, r)
 			continue
 		}
-		if bad := invalidReasons(a, m); len(bad) > 0 {
+		if bad := invalidReasons(h, a, m, tests[strings.TrimSpace(h.Text)]); len(bad) > 0 {
 			r.Status, r.Reasons = Invalid, bad
 		} else {
-			r.Status, r.Reasons = byShape(h.Prediction, a, m)
+			r.Status, r.Reasons = byShape(h, a, m)
 		}
 		if none := strings.TrimSpace(h.Control.None); r.Status == Supported && none != "" {
 			r.Status = Caveated
 			r.Reasons = append(r.Reasons, "no control: "+none)
 		}
-		for _, name := range []*string{&a.Measurement, a.Control} {
+		for _, name := range []*string{&a.Measurement, a.Control, a.Observed} {
 			if name == nil {
 				continue
 			}
@@ -89,7 +95,7 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured) []Sta
 	return out
 }
 
-func invalidReasons(a Assessment, m map[string]Measured) []string {
+func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testPrinted bool) []string {
 	var bad []string
 	names := map[string]string{"measurement": a.Measurement}
 	order := []string{"measurement"}
@@ -110,7 +116,12 @@ func invalidReasons(a Assessment, m map[string]Measured) []string {
 				s += ": " + v.RerunNote
 			}
 			bad = append(bad, s)
+		case !v.Number && h.Prediction.Shape != "outcomes":
+			bad = append(bad, fmt.Sprintf("the %s %q is %q, which is not a number", role, names[role], strings.TrimSpace(v.Text)))
 		}
+	}
+	if a.Test != nil && !testPrinted {
+		bad = append(bad, "the reported test was not found in any recorded run")
 	}
 	if a.Test != nil {
 		ok, p, err := statcheck.Consistent(*a.Test)
@@ -139,7 +150,8 @@ func significant(t statcheck.Test) bool {
 	return false
 }
 
-func byShape(p Prediction, a Assessment, m map[string]Measured) (string, []string) {
+func byShape(h HypothesisBody, a Assessment, m map[string]Measured) (string, []string) {
+	p := h.Prediction
 	meas := m[a.Measurement].Value
 	switch p.Shape {
 	case "range":
@@ -151,26 +163,44 @@ func byShape(p Prediction, a Assessment, m map[string]Measured) (string, []strin
 		}
 		return Refuted, []string{fmt.Sprintf("measured %g is outside the predicted range %g–%g", meas, *p.Low, *p.High)}
 	case "outcomes":
+		// The outcome is a recorded value the rerun reproduced, never the
+		// lead's own words.
 		if a.Observed == nil {
 			return Inconclusive, []string{"no outcome was observed"}
 		}
-		obs := strings.TrimSpace(*a.Observed)
+		name := strings.TrimSpace(*a.Observed)
+		v, ok := m[name]
+		switch {
+		case !ok:
+			return Inconclusive, []string{fmt.Sprintf("the observed outcome %q names no recorded value", name)}
+		case !v.FromScript || !v.Reproduced:
+			return Inconclusive, []string{fmt.Sprintf("the observed value %q was not reproduced by a script run", name)}
+		}
+		obs := strings.TrimSpace(v.Text)
 		if strings.EqualFold(obs, strings.TrimSpace(p.Chosen)) {
-			return Supported, []string{fmt.Sprintf("the observed outcome %q is the predicted one", obs)}
+			return Supported, []string{fmt.Sprintf("the observed value %q is %q, the predicted outcome", name, obs)}
 		}
 		for _, o := range p.Outcomes {
 			if strings.EqualFold(obs, strings.TrimSpace(o)) {
-				return Refuted, []string{fmt.Sprintf("the observed outcome %q is not the predicted %q", obs, p.Chosen)}
+				return Refuted, []string{fmt.Sprintf("the observed value %q is %q, not the predicted %q", name, obs, p.Chosen)}
 			}
 		}
-		return Inconclusive, []string{fmt.Sprintf("the observed outcome %q is not one of the listed outcomes", obs)}
+		return Inconclusive, []string{fmt.Sprintf("the observed value %q is %q, which is not one of the named outcomes", name, obs)}
 	case "direction":
-		return byDirection(p.Direction, a, meas, m)
+		return byDirection(h, a, meas, m)
 	}
 	return Inconclusive, []string{fmt.Sprintf("unknown prediction shape %q", p.Shape)}
 }
 
-func byDirection(dir string, a Assessment, meas float64, m map[string]Measured) (string, []string) {
+// signed are the tests whose statistic's sign gives the effect's direction.
+var signed = map[string]bool{"t": true, "z": true, "r": true}
+
+// byDirection reads the effect as the measurement less the control's raw
+// value, or as the measurement itself when the assessment names no control
+// value. A hypothesis that has a control but whose effect is read alone
+// must have a signed test agree with the predicted direction.
+func byDirection(h HypothesisBody, a Assessment, meas float64, m map[string]Measured) (string, []string) {
+	dir := h.Prediction.Direction
 	if a.Test == nil {
 		return Inconclusive, []string{"no test reported"}
 	}
@@ -191,10 +221,27 @@ func byDirection(dir string, a Assessment, meas float64, m map[string]Measured) 
 	if effect == 0 || math.IsNaN(effect) {
 		return Inconclusive, []string{"the measured effect is zero"}
 	}
-	if (dir == "increase") == (effect > 0) {
-		return Supported, []string{fmt.Sprintf("the effect %g is in the predicted direction (%s) and significant (p < 0.05)", effect, dir)}
+	shown := roundedLike(effect, m[a.Measurement].Text)
+	if a.Control == nil && strings.TrimSpace(h.Control.Text) != "" && signed[a.Test.Kind] && (a.Test.Statistic > 0) != (dir == "increase") {
+		return Inconclusive, []string{fmt.Sprintf("the effect %s was read without its control value, and the test statistic %g does not agree with the predicted direction (%s)", shown, a.Test.Statistic, dir)}
 	}
-	return Refuted, []string{fmt.Sprintf("the effect %g is opposite to the predicted direction (%s) and significant (p < 0.05)", effect, dir)}
+	if (dir == "increase") == (effect > 0) {
+		return Supported, []string{fmt.Sprintf("the effect %s is in the predicted direction (%s) and significant (p < 0.05)", shown, dir)}
+	}
+	return Refuted, []string{fmt.Sprintf("the effect %s is opposite to the predicted direction (%s) and significant (p < 0.05)", shown, dir)}
+}
+
+// roundedLike writes x to the decimals the reported text states.
+func roundedLike(x float64, text string) string {
+	text = strings.TrimSpace(text)
+	if strings.ContainsAny(text, "eE") {
+		return fmt.Sprintf("%g", x)
+	}
+	places := 0
+	if _, frac, ok := strings.Cut(text, "."); ok {
+		places = len(frac)
+	}
+	return strconv.FormatFloat(x, 'f', places, 64)
 }
 
 // Lower applies an objection to a status. It never raises one.

@@ -18,7 +18,9 @@ description: a claim is checked against a table, text or numbers the study holds
      a wrong entity, an overstatement such as "all" when one is not);
    - `not_enough_info` when the evidence does not contain what is needed to decide (the entity, the
      measure, or the condition is absent), however plausible the claim sounds.
-5. Give the passage the verdict rests on, copied word for word, with its source. Use the
-   researcher's label words in the answer (for example true / false / unverifiable) when they
-   gave them.
+5. Give the passage the verdict rests on, copied word for word, with its source: an attached
+   file, a file Experimentation saved, or a source looked up through Lykeion's sources. The
+   verdict the hand-in carries is always `supported`, `refuted` or `not_enough_info`; use the
+   researcher's label words (for example true / false / unverifiable) only in the answer's prose,
+   when they gave them.
 Do not bring in outside knowledge to fill a gap in the evidence; that gap is the verdict.

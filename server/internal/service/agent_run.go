@@ -952,7 +952,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					var rerun *ClaimedRerun
 					if t.Kind == "rerun" {
-						recs, err := ExperimentationRound(ctx, tx, *t.CardID)
+						st, err := StandingExperimentation(ctx, tx, *t.CardID)
 						if err != nil {
 							return err
 						}
@@ -969,7 +969,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 								}
 							}
 						}
-						rerun = &ClaimedRerun{Steps: RerunSteps(recs), Python: python, Attachments: files, Saved: saved}
+						rerun = &ClaimedRerun{Steps: st.RerunSteps(), Python: python, Attachments: files, Saved: saved}
 						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
 					}
 					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {

@@ -317,7 +317,9 @@ func TestInvalidRoutesBackOnceThenAsks(t *testing.T) {
 	}) {
 		t.Fatalf("Experimentation did not restart with the note: %+v", q)
 	}
-	// Experimentation comes back with the same work, and Validation finds it invalid again.
+	// Experimentation hands the same work in again, and Validation finds it invalid again.
+	run := l.put(t, c.ID, "experimentation", got.Round, "run", "leader", script(0))
+	l.put(t, c.ID, "experimentation", got.Round, "value", "leader", map[string]any{"name": "auc", "value": "0.873", "file": "fit.py", "cites": []string{"run:" + run}})
 	c = l.move(t, c.ID, "validation", got.Round+1)
 	l.putRerun(t, c, false)
 	l.assess(t, c.ID)

@@ -143,9 +143,10 @@ func itemsPrompt(column string) string {
 			"Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
 	case board.Validation:
 		return "- `assessments`, when the study has hypotheses and recorded script runs in Experimentation: one for every hypothesis of the study, with `hypothesis` (its text, exactly as it was handed in), " +
-			"`measurement` (the name of the recorded value that measures it), `control` (the name of the control's recorded value, or null), " +
-			"`test` (the statistical test as the study reported it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2`, `p` and `p_bound` (=, < or >); null when there is none) " +
-			"and `observed` (the outcome seen, for a hypothesis that names outcomes; null otherwise). " +
+			"`measurement` (the name of the recorded value that measures it: the effect itself, such as a difference, or the treated group's raw value), " +
+			"`control` (the name of the recorded value holding the control group's raw value, when `measurement` is the treated group's raw value; null when `measurement` is already the effect), " +
+			"`test` (the statistical test exactly as a recorded script run printed it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2` (null when the test has none), `p` and `p_bound` (=, < or >); null when there is none. Lykeion looks for its statistic and p in the rerun's output, so a test no run printed makes the hypothesis invalid) " +
+			"and `observed` (for a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise). " +
 			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the numbers itself; you set no status.\n" +
 			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
 			"`source` (an attached file's name, the name of a file the study saved in Experimentation, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +

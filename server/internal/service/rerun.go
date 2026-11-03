@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -29,25 +31,160 @@ func (s *AgentRuns) OnRerun(ctx context.Context, user uuid.UUID, ref RuntimeRef,
 	return err
 }
 
-// ExperimentationRound is the live records of the study's newest
-// Experimentation round, in the order they were written: the round a
-// Validation rerun replays.
-func ExperimentationRound(ctx context.Context, tx *store.Tx, card uuid.UUID) ([]db.Record, error) {
+// Standing is the study's Experimentation as Validation checks it: the
+// live records of the Experimentation rounds since Validation last sent the
+// study back, in the order they were written, and the values that stand.
+type Standing struct {
+	Records []db.Record
+	// Values are the value records that stand: the latest declaration of
+	// each name, unless withdrawn, so a targeted redo keeps the values it
+	// carried. Each one's cites are the script runs it rests on (ValueRuns).
+	Values []db.Record
+}
+
+// StandingExperimentation reads the study's Standing.
+func StandingExperimentation(ctx context.Context, tx *store.Tx, card uuid.UUID) (Standing, error) {
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: card, BoardColumn: board.Experimentation})
 	if err != nil {
-		return nil, err
+		return Standing{}, err
 	}
-	var round int32
-	for _, r := range recs {
-		round = max(round, r.Round)
+	back, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: card, BoardColumn: board.Validation})
+	if err != nil {
+		return Standing{}, err
 	}
-	var out []db.Record
-	for _, r := range recs {
-		if r.Round == round {
-			out = append(out, r)
+	return NewStanding(append(recs, back...)), nil
+}
+
+// NewStanding is the Standing among a study's live records.
+func NewStanding(study []db.Record) Standing {
+	since := int32(-1)
+	for _, r := range study {
+		if r.BoardColumn == board.Validation && r.Kind == "route_back" {
+			since = max(since, r.Round)
 		}
 	}
-	return out, nil
+	var st Standing
+	gone := map[string]bool{}
+	for _, r := range study {
+		if r.BoardColumn != board.Experimentation || r.Round <= since || r.SupersededAt != nil {
+			continue
+		}
+		st.Records = append(st.Records, r)
+		if r.Kind == "withdrawn" {
+			var b struct{ Item string }
+			if json.Unmarshal(r.Body, &b) == nil {
+				gone[b.Item] = true
+			}
+		}
+	}
+	latest := map[string]int{}
+	var order []string
+	for i, r := range st.Records {
+		if r.Kind != "value" {
+			continue
+		}
+		name := valueOf(r).Name
+		if _, ok := latest[name]; !ok {
+			order = append(order, name)
+		}
+		latest[name] = i
+	}
+	for _, name := range order {
+		r := st.Records[latest[name]]
+		if gone[r.Key] {
+			continue
+		}
+		v := valueOf(r)
+		v.Cites = st.ValueRuns(v.File, v.Cites)
+		if v.Cites == nil {
+			v.Cites = []string{}
+		}
+		if b, err := json.Marshal(v); err == nil {
+			r.Body = b
+		}
+		st.Values = append(st.Values, r)
+	}
+	return st
+}
+
+type standingValue struct {
+	Name  string   `json:"name"`
+	Value string   `json:"value"`
+	File  string   `json:"file"`
+	Cites []string `json:"cites"`
+}
+
+func valueOf(r db.Record) standingValue {
+	var v standingValue
+	_ = json.Unmarshal(r.Body, &v)
+	return v
+}
+
+// ValueRuns are the script runs, run:KEY, a value shown in file rests on:
+// cites, when the value names any; else ScriptRuns.
+func (st Standing) ValueRuns(file string, cites []string) []string {
+	if len(cites) > 0 {
+		return cites
+	}
+	return ScriptRuns(st.Records, file)
+}
+
+// ScriptRuns are the script runs, run:KEY, behind file among a study's
+// Experimentation records: the run_script runs of the script at that path;
+// else, when file is a saved output, the run_script runs that exited 0 made
+// by the run that saved it, in the round it saved it. Nil when none.
+func ScriptRuns(exp []db.Record, file string) []string {
+	type run struct {
+		Tool       string `json:"tool"`
+		Path       string `json:"path"`
+		ExitStatus *int   `json:"exit_status"`
+	}
+	var out []string
+	for _, r := range exp {
+		var b run
+		if r.Kind == "run" && json.Unmarshal(r.Body, &b) == nil && b.Tool == "run_script" && b.Path == file {
+			out = append(out, "run:"+r.Key)
+		}
+	}
+	if out != nil {
+		return out
+	}
+	for _, o := range exp {
+		var saved struct{ Name string }
+		if o.Kind != "output" || o.AgentRunID == nil || json.Unmarshal(o.Body, &saved) != nil || saved.Name != file {
+			continue
+		}
+		for _, r := range exp {
+			var b run
+			if r.Kind == "run" && r.Round == o.Round && r.AgentRunID != nil && *r.AgentRunID == *o.AgentRunID &&
+				json.Unmarshal(r.Body, &b) == nil && b.Tool == "run_script" && b.ExitStatus != nil && *b.ExitStatus == 0 &&
+				!slices.Contains(out, "run:"+r.Key) {
+				out = append(out, "run:"+r.Key)
+			}
+		}
+	}
+	return out
+}
+
+// RerunSteps are the script runs the standing values rest on that exited
+// 0, in the order they ran, each with the sha256 of the package list it
+// saved, empty when it saved none. Code run with run_code is never replayed.
+func (st Standing) RerunSteps() []RerunStep {
+	cited := map[string]bool{}
+	for _, v := range st.Values {
+		for _, c := range valueOf(v).Cites {
+			if k, ok := strings.CutPrefix(c, "run:"); ok {
+				cited[k] = true
+			}
+		}
+	}
+	var runs []db.Record
+	for _, r := range st.Records {
+		if cited[r.Key] {
+			runs = append(runs, r)
+		}
+	}
+	return RerunSteps(runs)
 }
 
 // RerunSteps are the script runs in recs that exited 0, in order, each with

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,6 +19,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
@@ -54,13 +57,16 @@ type RerunResult struct {
 	Failure *string           `json:"failure"`
 }
 
-// rerunBody is the server's `rerun` record: what each replayed step did,
-// and, per value name, whether the rerun reproduced it and, if not, why.
+// rerunBody is the server's `rerun` record: what each replayed step did;
+// per value name, whether the rerun reproduced it and, if not, why; and per
+// assessed hypothesis's text, trimmed, whether the rerun printed the test
+// its assessment reports.
 type rerunBody struct {
 	Steps      []rerunStep       `json:"steps"`
 	Outputs    []RerunOutput     `json:"outputs"`
 	Reproduced map[string]bool   `json:"reproduced"`
 	Notes      map[string]string `json:"notes"`
+	Tests      map[string]bool   `json:"tests"`
 	Failure    *string           `json:"failure"`
 }
 
@@ -91,15 +97,15 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 	if slices.ContainsFunc(recs, func(r db.Record) bool { return r.Kind == "rerun" && r.Round == c.Round }) {
 		return nil
 	}
-	exp, err := service.ExperimentationRound(ctx, tx, c.ID)
+	st, err := service.StandingExperimentation(ctx, tx, c.ID)
 	if err != nil {
 		return err
 	}
-	if steps := service.RerunSteps(exp); len(steps) > 0 {
+	if steps := st.RerunSteps(); len(steps) > 0 {
 		_, err = e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
 		return err
 	}
-	ok, notes := noneReproduced(exp, noScriptNote)
+	ok, notes := noneReproduced(st.Values, noScriptNote)
 	return writeRerun(ctx, tx, c.ID, c.BoardColumn, c.Round, nil, rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Reproduced: ok, Notes: notes})
 }
 
@@ -127,7 +133,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		_, err := e.AgentRuns.Fail(ctx, user, ref, id, service.Report{FailureReason: infra, Error: "the rerun could not run: " + *in.Failure})
 		return err
 	}
-	var exp, saved []db.Record
+	var exp, saved, assessed []db.Record
 	var claimed []service.RerunStep
 	done := false
 	tolerance := 0.0
@@ -144,10 +150,21 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 				saved = append(saved, r)
 			}
 		}
-		if exp, err = service.ExperimentationRound(ctx, tx, *t.CardID); err != nil {
+		st, err := service.StandingExperimentation(ctx, tx, *t.CardID)
+		if err != nil {
 			return err
 		}
-		claimed = service.RerunSteps(exp)
+		exp, claimed = st.Values, st.RerunSteps()
+		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: board.Validation})
+		if err != nil {
+			return err
+		}
+		for _, r := range recs {
+			if r.Round == t.Round && r.Kind == review.KindAssessment {
+				assessed = append(assessed, r)
+			}
+		}
+		assessed = latestItems(assessed)
 		_, m, err := columnTeam(ctx, tx, *t.CardID, board.Experimentation)
 		if err == nil {
 			tolerance = m.Validation.Tolerance
@@ -164,7 +181,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		in.Steps = slices.DeleteFunc(in.Steps, func(s RerunStepResult) bool {
 			return !slices.ContainsFunc(claimed, func(c service.RerunStep) bool { return c.Key == s.Key })
 		})
-		body, err := e.rerunRecord(ctx, exp, saved, in, tolerance)
+		body, err := e.rerunRecord(ctx, exp, saved, assessed, in, tolerance)
 		if err != nil {
 			return err
 		}
@@ -199,19 +216,20 @@ func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
 		if err != nil || slices.ContainsFunc(recs, func(r db.Record) bool { return r.Kind == "rerun" && r.Round == t.Round }) {
 			return err
 		}
-		exp, err := service.ExperimentationRound(ctx, tx, *t.CardID)
+		st, err := service.StandingExperimentation(ctx, tx, *t.CardID)
 		if err != nil {
 			return err
 		}
-		ok, notes := noneReproduced(exp, rerunFailedNote)
+		ok, notes := noneReproduced(st.Values, rerunFailedNote)
 		return writeRerun(ctx, tx, *t.CardID, t.BoardColumn, t.Round, &t.ID, rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Reproduced: ok, Notes: notes})
 	})
 }
 
-// rerunRecord turns a result into the record's body. The saved files it
-// names must be outputs this rerun uploaded, with the text it names.
-func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in RerunResult, tolerance float64) (rerunBody, error) {
-	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Failure: in.Failure}
+// rerunRecord turns a result into the record's body, checking the standing
+// values in exp and the tests the round's assessments report. The saved
+// files it names must be outputs this rerun uploaded, with the text it names.
+func (e *Engine) rerunRecord(ctx context.Context, exp, saved, assessed []db.Record, in RerunResult, tolerance float64) (rerunBody, error) {
+	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Tests: map[string]bool{}, Failure: in.Failure}
 	steps := map[string]RerunStepResult{}
 	for _, s := range in.Steps {
 		steps[s.Key] = s
@@ -245,7 +263,66 @@ func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in Rer
 		}
 	}
 	body.Reproduced, body.Notes = reproduce(exp, steps, files, tolerance)
+	body.Tests = testsPrinted(assessed, steps, files, tolerance)
 	return body, nil
+}
+
+// testsPrinted says, per assessment's hypothesis, trimmed, whether a step
+// the rerun replayed or a file it saved printed the test the assessment
+// reports: its statistic and, when p is given exactly, its p, each by the
+// rule a value is reproduced by. An assessment with no test is left out.
+func testsPrinted(assessed []db.Record, steps map[string]RerunStepResult, files map[string]string, tolerance float64) map[string]bool {
+	var texts []string
+	for _, k := range slices.Sorted(maps.Keys(steps)) {
+		if steps[k].ExitStatus == 0 {
+			texts = append(texts, steps[k].Output)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		texts = append(texts, files[name])
+	}
+	out := map[string]bool{}
+	for _, r := range assessed {
+		a := records.Body[review.Assessment](r)
+		if a.Test == nil {
+			continue
+		}
+		numbers := []string{strconv.FormatFloat(a.Test.Statistic, 'f', max(a.Test.StatDigits, 0), 64)}
+		if a.Test.PBound == "=" {
+			numbers = append(numbers, strconv.FormatFloat(a.Test.P, 'f', max(a.Test.PDigits, 0), 64))
+		}
+		found := true
+		for _, n := range numbers {
+			found = found && printed(texts, n, tolerance)
+		}
+		out[strings.TrimSpace(a.Hypothesis)] = found
+	}
+	return out
+}
+
+// printed says whether a number in texts equals value rounded to the
+// digits value states, or lies within tolerance of it, relative to it.
+func printed(texts []string, value string, tolerance float64) bool {
+	n, ok := parseNumber(value)
+	if !ok {
+		return false
+	}
+	tol := new(big.Rat).Mul(new(big.Rat).SetFloat64(tolerance), new(big.Rat).Abs(n.r))
+	for _, text := range texts {
+		found := false
+		eachToken(text, func(_ int, t *big.Rat) bool {
+			at := t
+			if !n.integer {
+				at = roundTo(t, n.places)
+			}
+			found = at.Cmp(n.r) == 0 || new(big.Rat).Abs(new(big.Rat).Sub(t, n.r)).Cmp(tol) <= 0
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 // noneReproduced marks every value in recs not reproduced, for note.
@@ -319,7 +396,11 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	case len(texts) == 0:
 		return false, noScriptNote
 	case !isNumber:
-		return false, fmt.Sprintf("reported %s, which is not a number", v.Value)
+		// A named outcome is reproduced when the rerun prints its words.
+		if wordsIn(texts, v.Value) {
+			return true, ""
+		}
+		return false, fmt.Sprintf("rerun did not print %s", strings.TrimSpace(v.Value))
 	}
 	tol := new(big.Rat).Mul(new(big.Rat).SetFloat64(tolerance), new(big.Rat).Abs(n.r))
 	var gap *big.Rat
@@ -349,6 +430,17 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 		return false, fmt.Sprintf("rerun printed no number, reported %s", v.Value)
 	}
 	return false, fmt.Sprintf("rerun printed %s, reported %s", nearest, v.Value)
+}
+
+// wordsIn says whether text, trimmed, is printed in texts as whole words,
+// in any case.
+func wordsIn(texts []string, text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	re := regexp.MustCompile(`(?i)(^|[^\pL\pN_])` + regexp.QuoteMeta(text) + `($|[^\pL\pN_])`)
+	return slices.ContainsFunc(texts, re.MatchString)
 }
 
 // writeRerun stores the server's `rerun` record for a Validation round,

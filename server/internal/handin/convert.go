@@ -171,8 +171,9 @@ func (c *converter) grounding(h HandIn) {
 	}
 }
 
-// hypotheses cite the study's Grounding items by their record key and other
-// recorded sources by the calls that returned them.
+// hypotheses cite the study's Grounding items by their record key, the
+// study's attached files by the calls that read them, and other recorded
+// sources by the calls that returned them.
 func (c *converter) hypotheses(h HandIn) {
 	for i, x := range h.Hypotheses {
 		cites, ok := []string{}, true
@@ -182,8 +183,11 @@ func (c *converter) hypotheses(h HandIn) {
 				continue
 			}
 			calls, found := c.calls(id)
+			if read := c.ev.AttachmentCalls(id); len(read) > 0 {
+				calls, found = read, true
+			}
 			if !found {
-				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset nor a source recorded in this study", i+1, id)
+				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset, a file attached to the study, nor a source recorded in this study", i+1, id)
 				ok = false
 				continue
 			}
@@ -199,7 +203,7 @@ func (c *converter) hypotheses(h HandIn) {
 		c.declared[identity(x.Text)] = true
 		if len(cites) == 0 {
 			// Hosted search and fetch hits are no record a hypothesis can cite.
-			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, or a source you looked up through Lykeion's tools", i+1)
+			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, a file attached to it, or a source you looked up through Lykeion's tools", i+1)
 			continue
 		}
 		c.item("hypothesis", i+1, review.KindHypothesis, x.Body(cites))
@@ -266,7 +270,7 @@ func (c *converter) validation(h HandIn) {
 		for _, v := range []struct {
 			what string
 			name *string
-		}{{"measurement", &a.Measurement}, {"control", a.Control}} {
+		}{{"measurement", &a.Measurement}, {"control", a.Control}, {"observed", a.Observed}} {
 			if v.name != nil && !c.ev.Value(*v.name) {
 				c.problem("assessment %d: %s %s matches no recorded value of this study", i+1, v.what, *v.name)
 				ok = false
