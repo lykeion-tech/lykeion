@@ -420,106 +420,9 @@ export function activitySteps(messages: readonly RunMessage[]): ActivityStep[] {
   return steps;
 }
 
-const codeLanguages: Record<string, string> = {
-  py: 'python',
-  r: 'r',
-  jl: 'julia',
-  js: 'javascript',
-  ts: 'typescript',
-  sh: 'shell',
-  sql: 'sql',
-};
-export interface RecordedCode {
-  key: string;
-  name: string;
-  language: string;
-  code: string;
-}
-const extension = (path: string) => path.split('.').pop()?.toLowerCase() ?? '';
-// Code a tool call ran: what an MCP execution tool or a notebook cell was given.
+// Code an execution tool or notebook cell was given.
 function executed(input: Record<string, unknown>) {
   return string(input.code, input.source, input.cell, input.script, input.new_source);
-}
-// Code a tool call wrote into a source file. Edits record fragments, not files.
-function written(input: Record<string, unknown>) {
-  return codeLanguages[extension(filePath(input))]
-    ? string(input.content, input.fileText, input.CodeContent)
-    : '';
-}
-function language(input: Record<string, unknown>) {
-  return (
-    string(input.language, input.kernel) ||
-    codeLanguages[extension(filePath(input))] ||
-    (extension(filePath(input)) === 'ipynb' ? 'python' : '')
-  );
-}
-// Code a run executed or wrote: notebook and script inputs, and source files
-// it wrote. Shell commands stay in the execution log. Nothing is recorded as
-// code unless a call carried it.
-export function recordedCode(messages: readonly RunMessage[]): RecordedCode[] {
-  const out: RecordedCode[] = [];
-  for (const message of sorted(messages)) {
-    if (message.type !== 'tool_use') continue;
-    const call = toolCall(message);
-    const code = executed(call.input) || written(call.input);
-    if (!code) continue;
-    out.push({
-      key: `${message.attempt}:${message.seq}`,
-      name: filePath(call.input) || toolName(call.tool) || 'Script',
-      language: language(call.input) || 'text',
-      code,
-    });
-  }
-  return out;
-}
-export interface ExecutionCell {
-  key: string;
-  label: string;
-  detail: string;
-  language: string;
-  source: string;
-  output: string;
-  error: boolean;
-}
-// Each recorded call with the result that answers it: by its id where the
-// adapter records one, otherwise the next
-// result no call claims by id (Claude runs recorded before ids were kept).
-// A Codex call holds its own output.
-export function executionCells(messages: readonly RunMessage[]): ExecutionCell[] {
-  const ordered = sorted(messages);
-  const used = new Set<RunMessage>();
-  const claimed = new Set(
-    ordered.filter((m) => m.type === 'tool_use').map((m) => `${m.attempt}:${toolCall(m).id}`),
-  );
-  const cells: ExecutionCell[] = [];
-  ordered.forEach((message, index) => {
-    if (message.type !== 'tool_use') return;
-    const call = toolCall(message);
-    const later = ordered.slice(index + 1).filter((m) => m.attempt === message.attempt);
-    const result = call.id
-      ? later.find((m) => m.type === 'tool_result' && !used.has(m) && toolCall(m).id === call.id)
-      : later.find(
-          (m) =>
-            m.type === 'tool_result' &&
-            !used.has(m) &&
-            !(toolCall(m).id && claimed.has(`${m.attempt}:${toolCall(m).id}`)),
-        );
-    if (result) used.add(result);
-    const answer = result ? toolCall(result) : undefined;
-    const step = activityStep(message);
-    const code = executed(call.input) || written(call.input);
-    const run = command(call.input);
-    cells.push({
-      key: `${message.attempt}:${message.seq}`,
-      label: step.label,
-      detail: step.detail,
-      language: code ? language(call.input) || 'text' : run ? 'shell' : 'json',
-      source: code || run || recordedContent(call.input),
-      output: answer?.output || call.output,
-      error: call.error || Boolean(answer?.error),
-    });
-  });
-  return cells;
 }
 
 // What a live run is doing, as its latest recorded message says: a call
@@ -555,35 +458,6 @@ export function liveStatus(messages: readonly RunMessage[]): string {
   }
   return '';
 }
-// A minimal nbformat 4 notebook of the recorded cells, for download.
-export function notebookJson(cells: readonly ExecutionCell[]): string {
-  const lines = (text: string) => text.split(/(?<=\n)/);
-  return JSON.stringify(
-    {
-      nbformat: 4,
-      nbformat_minor: 5,
-      metadata: {},
-      cells: cells.map((cell) => ({
-        cell_type: 'code',
-        metadata: { lykeion_label: cell.label },
-        source: lines(cell.source),
-        execution_count: null,
-        outputs: cell.output
-          ? [
-              {
-                output_type: 'stream',
-                name: cell.error ? 'stderr' : 'stdout',
-                text: lines(cell.output),
-              },
-            ]
-          : [],
-      })),
-    },
-    null,
-    1,
-  );
-}
-
 // The divider above a retried run's next attempt: how the earlier one ended.
 export function attemptDivider(attempt: number, end: AttemptEnd | undefined): string {
   const on = end?.machine || 'the machine';

@@ -18,7 +18,6 @@ import StudyReview from './StudyReview.vue';
 import StudyNotebook from './StudyNotebook.vue';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
-import AgentRunDialog from '../runs/AgentRunDialog.vue';
 import ExecutionLog from '../runs/ExecutionLog.vue';
 import ColumnRating from './ColumnRating.vue';
 import { api } from '../../api/client';
@@ -238,7 +237,6 @@ const roleNames = computed(
 );
 const working = computed(() => !!c.value && !c.value.ending && c.value.state === 'working');
 const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
-const openRun = ref('');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
 function openNotebookAt(run: string) {
@@ -428,17 +426,11 @@ function pin() {
               :run="run"
               :study="studyDisplayTitle(c.title)"
               :position="index + 1"
-              @open="openRun = run.id"
+              :runtime="runtime(run.runtime_id)"
+              :study-id="id"
+              @notebook="openNotebookAt"
             />
           </section>
-          <AgentRunDialog
-            v-if="openRun && agentRuns.some((r) => r.id === openRun)"
-            v-model="openRun"
-            :runs="agentRuns"
-            :runtime="runtime"
-            :study-id="id"
-            @close="openRun = ''"
-          />
           <div
             v-for="read in readErrors"
             :key="read.label"
@@ -1421,7 +1413,7 @@ function pin() {
 }
 .agent-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin: 24px 0;
 }

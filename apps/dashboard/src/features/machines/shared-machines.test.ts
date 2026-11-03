@@ -6,7 +6,7 @@ import MachinesView from './MachinesView.vue';
 import SettingsView from '../workspace/SettingsView.vue';
 import CreateStudy from '../studies/CreateStudy.vue';
 import StudyDetail from '../studies/StudyDetail.vue';
-import AgentRunDialog from '../runs/AgentRunDialog.vue';
+import AgentRunCard from '../runs/AgentRunCard.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import type { AgentRun, Runtime } from '../../api/types';
@@ -571,29 +571,32 @@ describe('Shared machines', () => {
     [null, 'Owner'],
   ])('shows recorded or current owner for a live runtime (%s)', async (owner, label) => {
     fetching();
-    const t = await mount(AgentRunDialog, () => ({
-      runs: [
-        {
-          id: 'run',
-          assignment: '',
-          board_column: 'grounding',
-          runtime_id: 'r1',
-          machine_name: 'Old bench',
-          machine_owner_id: owner,
-          role: 'leader',
-          harness: 'claude',
-          attempt: 1,
-          max_attempts: 1,
-          status: 'completed',
-        } as AgentRun,
-      ],
-      runtime: () => runtime() as unknown as Runtime,
+    const t = await mount(AgentRunCard, () => ({
+      study: 'Study',
+      position: 1,
+      run: {
+        id: 'run',
+        assignment: '',
+        board_column: 'grounding',
+        runtime_id: 'r1',
+        machine_name: 'Old bench',
+        machine_owner_id: owner,
+        role: 'leader',
+        harness: 'claude',
+        attempt: 1,
+        max_attempts: 1,
+        status: 'completed',
+      } as AgentRun,
+      runtime: runtime() as unknown as Runtime,
       studyId: 'c',
-      modelValue: 'run',
     }));
     try {
-      await t.click(/^Environment$/);
+      await t.click(/Run 1/);
       expect(t.text()).toContain(`Bench (${label})`);
+      expect(t.text()).toContain('Runs on: Bench');
+      expect(t.text()).toContain(
+        "This study's machine is no longer shared with you; choose another.",
+      );
     } finally {
       t.unmount();
     }
@@ -793,28 +796,27 @@ describe('Shared machines', () => {
   });
   it('shows a deleted runtime snapshot and owner in the run environment', async () => {
     fetching();
-    const t = await mount(AgentRunDialog, () => ({
-      runs: [
-        {
-          id: 'run',
-          assignment: '',
-          board_column: 'grounding',
-          runtime_id: null,
-          machine_name: 'Old bench',
-          machine_owner_id: 'u2',
-          role: 'leader',
-          harness: 'claude',
-          attempt: 0,
-          max_attempts: 1,
-          status: 'completed',
-        } as AgentRun,
-      ],
-      runtime: () => undefined,
+    const t = await mount(AgentRunCard, () => ({
+      study: 'Study',
+      position: 1,
+      run: {
+        id: 'run',
+        assignment: '',
+        board_column: 'grounding',
+        runtime_id: null,
+        machine_name: 'Old bench',
+        machine_owner_id: 'u2',
+        role: 'leader',
+        harness: 'claude',
+        attempt: 0,
+        max_attempts: 1,
+        status: 'completed',
+      } as AgentRun,
+      runtime: null,
       studyId: 'c',
-      modelValue: 'run',
     }));
     try {
-      await t.click(/^Environment$/);
+      await t.click(/Run 1/);
       expect(t.text()).toContain('Old bench (Ada)');
     } finally {
       t.unmount();

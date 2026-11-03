@@ -8,13 +8,7 @@ import RunTurn from './RunTurn.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import type { AgentRun, RunMessage } from '../../api/types';
-import {
-  executionCells,
-  liveStatus,
-  notebookJson,
-  recordedCode,
-  transcriptBlocks,
-} from './run-transcript';
+import { liveStatus, transcriptBlocks } from './run-transcript';
 
 const run = {
   id: 'r',
@@ -57,6 +51,24 @@ async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {},
   client.setQueryData(keys.runMessages('w', 'r', attempt), messages);
   const app = createSSRApp({
     render: () => h(RunTurn, { run: { ...run, ...overrides } }),
+  });
+  app.use(VueQueryPlugin, { queryClient: client });
+  try {
+    return await renderToString(app);
+  } finally {
+    client.clear();
+  }
+}
+async function renderCard(overrides: Partial<AgentRun>, position = 1) {
+  const client = new QueryClient();
+  const app = createSSRApp({
+    render: () =>
+      h(AgentRunCard, {
+        run: { ...run, ...overrides },
+        study: 'Insulin evidence',
+        position,
+        studyId: 'c',
+      }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
   try {
@@ -386,264 +398,7 @@ describe('reading-first recorded run', () => {
     expect(later).not.toContain('data-source');
   });
 });
-// Message contents below are what the daemon adapters in server/pkg/agent
-// store: Claude content blocks, Codex item.completed events, Cursor tool_call
-// events and Antigravity step_update events (see server/pkg/agent/testdata).
-describe('run dialog views from recorded adapter shapes', () => {
-  it('pairs Claude calls with their results by tool_use id and collects written code', () => {
-    const messages = [
-      msg(
-        1,
-        'tool_use',
-        { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls data' } },
-        'Bash',
-      ),
-      msg(
-        2,
-        'tool_use',
-        {
-          type: 'tool_use',
-          id: 'toolu_2',
-          name: 'Write',
-          input: { file_path: 'scripts/area.py', content: 'import csv\n' },
-        },
-        'Write',
-      ),
-      msg(3, 'tool_result', {
-        type: 'tool_result',
-        tool_use_id: 'toolu_2',
-        content: 'File created',
-      }),
-      msg(4, 'tool_result', {
-        type: 'tool_result',
-        tool_use_id: 'toolu_1',
-        content: [{ type: 'text', text: 'a.tif' }],
-        is_error: true,
-      }),
-      msg(
-        5,
-        'tool_use',
-        {
-          type: 'tool_use',
-          id: 'toolu_3',
-          name: 'Write',
-          input: { file_path: 'notes.md', content: '# Notes' },
-        },
-        'Write',
-      ),
-      msg(
-        6,
-        'tool_use',
-        {
-          type: 'tool_use',
-          id: 'toolu_4',
-          name: 'NotebookEdit',
-          input: { notebook_path: 'fit.ipynb', new_source: 'print(1)\n' },
-        },
-        'NotebookEdit',
-      ),
-    ];
-    expect(recordedCode(messages).map((c) => [c.name, c.language, c.code])).toEqual([
-      ['scripts/area.py', 'python', 'import csv\n'],
-      ['fit.ipynb', 'python', 'print(1)\n'],
-    ]);
-    const cells = executionCells(messages);
-    expect(cells.map((c) => [c.label, c.source, c.language, c.output, c.error])).toEqual([
-      ['Run command', 'ls data', 'shell', 'a.tif', true],
-      ['Write file', 'import csv\n', 'python', 'File created', false],
-      ['Write file', expect.stringContaining('notes.md'), 'json', '', false],
-      ['Edit file', 'print(1)\n', 'python', '', false],
-    ]);
-    const notebook = JSON.parse(notebookJson(cells));
-    expect(notebook.nbformat).toBe(4);
-    expect(notebook.cells[0].outputs[0]).toMatchObject({ name: 'stderr', text: ['a.tif'] });
-  });
-  it('pairs Claude calls recorded before ids were kept with results in order', () => {
-    const cells = executionCells([
-      msg(1, 'tool_use', { command: 'lyk records' }, 'Bash'),
-      msg(2, 'tool_use', { pattern: 'TODO' }, 'Grep'),
-      msg(3, 'tool_result', { type: 'tool_result', tool_use_id: 'toolu_a', content: 'r1, r2' }),
-      msg(4, 'tool_result', { type: 'tool_result', tool_use_id: 'toolu_b', content: 'none' }),
-    ]);
-    expect(cells.map((c) => [c.label, c.detail, c.output])).toEqual([
-      ['Run command', 'lyk records', 'r1, r2'],
-      ['Search', 'TODO', 'none'],
-    ]);
-  });
-  it('reads Codex items, which carry their own output, and records no code they did not carry', () => {
-    const messages = [
-      msg(
-        1,
-        'tool_use',
-        {
-          type: 'item.completed',
-          item: {
-            id: 'item_1',
-            type: 'command_execution',
-            command: 'python fit.py',
-            aggregated_output: 'r2=0.91\n',
-            exit_code: 0,
-            status: 'completed',
-          },
-        },
-        'shell',
-      ),
-      msg(
-        2,
-        'tool_use',
-        {
-          type: 'item.completed',
-          item: {
-            id: 'item_2',
-            type: 'mcp_tool_call',
-            server: 'lyk_door',
-            tool: 'call_tool',
-            arguments: { name: 'pubmed_search', arguments: { query: 'senescence' } },
-            result: { content: [{ type: 'text', text: '12 hits' }] },
-            status: 'completed',
-          },
-        },
-        'call_tool',
-      ),
-      msg(3, 'log', {
-        type: 'item.completed',
-        item: {
-          id: 'item_3',
-          type: 'file_change',
-          changes: [{ path: 'fit.py', kind: 'add' }],
-          status: 'completed',
-        },
-      }),
-      msg(
-        4,
-        'tool_use',
-        {
-          type: 'item.completed',
-          item: {
-            id: 'item_4',
-            type: 'command_execution',
-            command: 'pytest',
-            aggregated_output: '1 failed',
-            exit_code: 1,
-            status: 'failed',
-          },
-        },
-        'shell',
-      ),
-    ];
-    expect(recordedCode(messages)).toEqual([]);
-    expect(
-      executionCells(messages).map((c) => [c.label, c.source, c.language, c.output, c.error]),
-    ).toEqual([
-      ['Run command', 'python fit.py', 'shell', 'r2=0.91\n', false],
-      ['call_tool', expect.stringContaining('pubmed_search'), 'json', '12 hits', false],
-      ['Run command', 'pytest', 'shell', '1 failed', true],
-    ]);
-  });
-  it('pairs Cursor calls by call_id and reads their nested results', () => {
-    const messages = [
-      msg(
-        1,
-        'tool_use',
-        {
-          type: 'tool_call',
-          subtype: 'started',
-          call_id: 't1',
-          tool_call: { mcpToolCall: { args: { name: 'search_literature', args: { q: 'x' } } } },
-          session_id: 'c-1',
-        },
-        'mcpToolCall',
-      ),
-      msg(
-        2,
-        'tool_use',
-        {
-          type: 'tool_call',
-          subtype: 'started',
-          call_id: 't2',
-          tool_call: { writeToolCall: { args: { path: 'fit.py', fileText: 'print(2)\n' } } },
-        },
-        'writeToolCall',
-      ),
-      msg(
-        3,
-        'tool_result',
-        {
-          type: 'tool_call',
-          subtype: 'completed',
-          call_id: 't1',
-          tool_call: {
-            mcpToolCall: {
-              args: { name: 'search_literature' },
-              result: { success: { content: '3 hits' } },
-            },
-          },
-          session_id: 'c-1',
-        },
-        'mcpToolCall',
-      ),
-      msg(
-        4,
-        'tool_use',
-        {
-          type: 'tool_call',
-          subtype: 'started',
-          call_id: 't3',
-          tool_call: { shellToolCall: { args: { command: 'python fit.py' } } },
-        },
-        'shellToolCall',
-      ),
-      msg(
-        5,
-        'tool_result',
-        {
-          type: 'tool_call',
-          subtype: 'completed',
-          call_id: 't3',
-          tool_call: {
-            shellToolCall: {
-              args: { command: 'python fit.py' },
-              result: { success: { stdout: '2\n', stderr: '', exitCode: 0 } },
-            },
-          },
-        },
-        'shellToolCall',
-      ),
-    ];
-    expect(recordedCode(messages).map((c) => [c.name, c.language, c.code])).toEqual([
-      ['fit.py', 'python', 'print(2)\n'],
-    ]);
-    expect(executionCells(messages).map((c) => [c.label, c.source, c.output, c.error])).toEqual([
-      ['search_literature', expect.stringContaining('"q": "x"'), '3 hits', false],
-      ['Write file', 'print(2)\n', '', false],
-      ['Run command', 'python fit.py', '2\n', false],
-    ]);
-  });
-  it('pairs Antigravity steps by index', () => {
-    const step = (state: string, info: Record<string, unknown>) => ({
-      event: 'step_update',
-      step_update: {
-        conversation_id: 'a-1',
-        step_index: 1,
-        state,
-        step_type: 'tool',
-        tool_name: 'run_command',
-        tool_info: { name: 'run_command', ...info },
-      },
-    });
-    const cells = executionCells([
-      msg(
-        1,
-        'tool_use',
-        step('ACTIVE', { parameters: { CommandLine: 'lyk ground question' } }),
-        'run_command',
-      ),
-      msg(2, 'tool_result', step('DONE', { output: 'recorded' }), 'run_command'),
-    ]);
-    expect(cells.map((c) => [c.label, c.source, c.language, c.output, c.error])).toEqual([
-      ['Run command', 'lyk ground question', 'shell', 'recorded', false],
-    ]);
-  });
+describe('recorded adapter text', () => {
   it('joins Antigravity text pieces and keeps other harnesses’ text records apart', () => {
     const messages = [msg(1, 'text', 'Scoped'), msg(2, 'text', ' the question.')];
     expect(transcriptBlocks(messages, { joinText: true }).map((b) => b.text)).toEqual([
@@ -654,36 +409,17 @@ describe('run dialog views from recorded adapter shapes', () => {
 });
 describe('hand-in answers and re-asks', () => {
   it('previews the hand-in answer ahead of the latest text', async () => {
-    const html = await renderToString(
-      createSSRApp({
-        render: () =>
-          h(AgentRunCard, {
-            run: { ...run, latest_text: 'working on it', answer: 'Two papers fit.' },
-            study: 'Insulin evidence',
-            position: 1,
-          }),
-      }),
-    );
+    const html = await renderCard({ latest_text: 'working on it', answer: 'Two papers fit.' });
     expect(html).toContain('Two papers fit.');
     expect(html).not.toContain('working on it');
   });
   it("tells a failed objector plainly, never with the harness's raw error", async () => {
-    const html = await renderToString(
-      createSSRApp({
-        render: () =>
-          h(AgentRunCard, {
-            run: {
-              ...run,
-              role: 'objector',
-              status: 'failed',
-              failure_reason: 'runtime_offline',
-              error: 'invalid continuity scope "card:x/role:objector/y"',
-            },
-            study: 'Insulin evidence',
-            position: 2,
-          }),
-      }),
-    );
+    const html = await renderCard({
+      role: 'objector',
+      status: 'failed',
+      failure_reason: 'runtime_offline',
+      error: 'invalid continuity scope "card:x/role:objector/y"',
+    });
     expect(html).toContain('Did not run (runtime offline)');
     expect(html).not.toContain('continuity scope');
   });
@@ -780,16 +516,7 @@ describe('run assignment and agent name', () => {
 
 describe('readable run identity and assignments', () => {
   it('keeps the full agent name and identifies the separate run', async () => {
-    const html = await renderToString(
-      createSSRApp({
-        render: () =>
-          h(AgentRunCard, {
-            run: { ...run, agent_name: 'coordinator · transcript-inspection' },
-            study: 'Insulin evidence',
-            position: 3,
-          }),
-      }),
-    );
+    const html = await renderCard({ agent_name: 'coordinator · transcript-inspection' }, 3);
     expect(html).toContain('Coordinator · transcript-inspection');
     expect(html).not.toContain('<h3 class="truncate"');
     expect(html).toContain('Run 3');

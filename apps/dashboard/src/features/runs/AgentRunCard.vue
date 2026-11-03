@@ -1,12 +1,46 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import Icon from '../../ui/Icon.vue';
-import type { AgentRun } from '../../api/types';
-import { roleLabel, systemRun, timeAgo } from '../../lib/studies';
+import { computed, ref } from 'vue';
+import type { AgentRun, Runtime } from '../../api/types';
+import { useCard, useMembers } from '../../api/queries';
+import { backendLabel } from '../../lib/backends';
+import RunTurn from './RunTurn.vue';
+import { columnName, roleLabel, systemRun, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
-const props = defineProps<{ run: AgentRun; study: string; position: number }>();
-const emit = defineEmits<{ open: [] }>();
+const props = defineProps<{
+  run: AgentRun;
+  study: string;
+  position: number;
+  runtime?: Runtime | null;
+  studyId: string;
+}>();
+const emit = defineEmits<{ notebook: [run: string] }>();
+const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
+const open = ref(active.value);
+const members = useMembers();
+const studyCard = useCard(() => props.studyId);
+// Only what the run and its machine's daemon recorded; nothing is filled in.
+const environment = computed(() => {
+  const r = props.run;
+  const machine = props.runtime;
+  const ownerId = r.machine_owner_id || machine?.owner_id;
+  const owner = members.data.value?.find((m) => m.user_id === ownerId);
+  const ownerName = owner?.name || owner?.email || (ownerId ? 'Former member' : '');
+  const machineName = machine ? machine.custom_name || machine.device_name : r.machine_name;
+  const machineLabel = machineName ? `${machineName}${ownerName ? ` (${ownerName})` : ''}` : '';
+  return [
+    { key: 'Machine', value: machineLabel },
+    { key: 'Runtime', value: backendLabel(r.harness) },
+    { key: 'Model', value: r.model },
+    { key: 'Language', value: machine?.language ?? '' },
+    {
+      key: 'Platform',
+      value: machine?.os && machine.arch ? `${machine.os} / ${machine.arch}` : (machine?.os ?? ''),
+    },
+    { key: 'Kernel', value: machine?.kernel ?? '' },
+    { key: 'Stage', value: columnName(r.board_column) },
+  ].filter((e) => e.value);
+});
 const name = computed(() => agentDisplayName(props.run.agent_name || roleLabel(props.run.role)));
 const state = computed(
   () =>
@@ -47,95 +81,115 @@ const lastActive = computed(
 </script>
 <template>
   <article class="agent-card" :data-status="run.status">
-    <header>
-      <span class="status-dot" :title="state" />
-      <span class="avatar agent">{{ name[0] }}</span>
-      <h3>{{ agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness) }}</h3>
-      <button
-        class="icon-button open-run"
-        aria-haspopup="dialog"
-        :aria-label="`Open transcript: ${name} (${state}), Run ${position}`"
-        @click="emit('open')"
-      >
-        <Icon name="external" :size="15" />
+    <button
+      class="run-header"
+      :aria-label="`${name} (${state}), Run ${position}`"
+      :aria-expanded="open"
+      :aria-controls="`run-transcript-${run.id}`"
+      @click="open = !open"
+    >
+      <span class="fold-caret" aria-hidden="true">{{ open ? '⌄' : '›' }}</span>
+      <span class="avatar agent">
+        {{ name[0] }}
+        <span v-if="active" class="live-dot" :title="state" />
+      </span>
+      <span class="run-identity">
+        <span class="agent-name">{{
+          agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
+        }}</span>
+        <span class="run-meta"
+          ><template v-if="run.model">{{ run.model }} · </template
+          ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
+        >
+      </span>
+    </button>
+    <template v-if="!open">
+      <p class="preview">{{ preview }}</p>
+      <button class="show-transcript" @click="open = true">▸ show transcript</button>
+    </template>
+    <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
+      <RunTurn :run="run" />
+      <p class="run-environment" aria-label="Run environment">
+        <span v-for="e in environment" :key="e.key"
+          ><span class="environment-label">{{ e.key }}:</span> {{ e.value }}</span
+        >
+      </p>
+      <p v-if="studyCard.data.value?.machine_label" class="study-machine">
+        Runs on: {{ studyCard.data.value.machine_label }}
+      </p>
+      <p v-if="studyCard.data.value?.machine_notice" class="machine-notice" role="status">
+        {{ studyCard.data.value.machine_notice }}
+      </p>
+      <button class="text-button notebook-link" @click="emit('notebook', run.id)">
+        Open in Notebook
       </button>
-    </header>
-    <p class="preview">{{ preview }}</p>
-    <footer>
-      <time :datetime="lastActive">{{ timeAgo(lastActive) }}</time>
-    </footer>
+    </div>
   </article>
 </template>
 <style scoped>
 .agent-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 176px;
-  padding: 14px 12px;
+  min-width: 0;
+  padding: 14px 16px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
   box-shadow: 0 1px 2px #00000014;
   background: #ffffff16;
   font-size: 14px;
   line-height: 19px;
-  min-width: 0;
 }
-header {
+.run-header {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
   min-width: 0;
+  text-align: left;
+  border-radius: 4px;
 }
-h3 {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-  line-height: 20px;
+.run-header:focus-visible,
+.show-transcript:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
 }
-.status-dot {
-  margin-top: 6px;
+.fold-caret {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--icon-faint);
-}
-[data-status='running'] .status-dot,
-[data-status='dispatched'] .status-dot {
-  margin-top: 6px;
-  background: var(--primary);
-}
-[data-status='completed'] .status-dot {
-  margin-top: 6px;
-  background: var(--stage-validation-dot);
-}
-[data-status='failed'] .status-dot {
-  margin-top: 6px;
-  background: var(--error-text);
-}
-[data-status='queued'] .status-dot,
-[data-status='cancelled'] .status-dot {
-  margin-top: 6px;
-  background: none;
-  box-shadow: inset 0 0 0 1.5px var(--control-border);
+  width: 12px;
+  color: var(--muted);
+  font-size: 20px;
 }
 .avatar.agent {
+  position: relative;
+  flex: none;
   background: #fff3d6;
   color: #b5841b;
 }
-.open-run:hover {
-  background: var(--hover);
-  color: var(--text);
+.live-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--primary);
 }
-small {
+.run-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-name {
+  font-weight: 500;
+}
+.run-meta {
   color: var(--muted);
   font-size: 12px;
 }
 .preview {
-  flex: 1;
+  margin-top: 12px;
   color: var(--muted);
   font-size: 12px;
   line-height: 18px;
@@ -144,10 +198,40 @@ small {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-footer {
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 11px;
+.show-transcript {
+  margin-top: 10px;
   color: var(--muted);
+  font-size: 12px;
+}
+.show-transcript:hover {
+  color: var(--text);
+}
+.open-transcript {
+  margin-top: 20px;
+  min-width: 0;
+}
+.run-environment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.environment-label {
+  color: var(--text);
+}
+.study-machine,
+.machine-notice {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.notebook-link {
+  margin-top: 12px;
+  font-size: 12px;
 }
 </style>
