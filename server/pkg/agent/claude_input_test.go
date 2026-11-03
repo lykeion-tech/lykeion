@@ -54,3 +54,57 @@ cat >/dev/null; echo closed >> `+seen)
 		}
 	}
 }
+
+// An installer may switch its entry-point symlink immediately after --version.
+// The private turn must still execute the exact target that answered the probe.
+func TestLabClaudeUpdateBetweenProbeAndLaunch(t *testing.T) {
+	for _, viaPath := range []bool{false, true} {
+		name := "configured symlink"
+		if viaPath {
+			name = "PATH lookup"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := filepath.Join(dir, "2.1.317")
+			next := filepath.Join(dir, "2.1.318")
+			link := filepath.Join(dir, "claude")
+			if err := os.WriteFile(old, []byte(`#!/bin/sh
+if [ "$1" = "--version" ]; then
+  dir=${0%/*}
+  /bin/ln -sf "$dir/2.1.318" "$dir/claude" || exit 2
+  echo '2.1.317 (Claude Code)'
+  exit 0
+fi
+read -r prompt
+echo '{"type":"result","subtype":"success","is_error":false,"result":"verified target"}'
+`), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(next, []byte("#!/bin/sh\nread -r prompt\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"unverified target\"}'\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(old, link); err != nil {
+				t.Fatal(err)
+			}
+			c := Claude{Bin: link}
+			if viaPath {
+				c.Bin = ""
+				t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
+			session, err := c.Execute(t.Context(), "synthetic lab prompt", ExecOptions{Lab: true, ReadOnly: true, Dir: t.TempDir(), Sandbox: testSandbox})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, res := collectWithin(t, session, 10*time.Second)
+			if target, err := os.Readlink(link); err != nil || target != next {
+				t.Fatalf("update did not occur: %s %v", target, err)
+			}
+			if res.Err != nil || res.Output != "verified target" {
+				t.Fatalf("unexpected launch: %q, %v", res.Output, res.Err)
+			}
+		})
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -31,6 +32,20 @@ const ScriptLimit = 2 * time.Hour
 // limit ends a long script and not the CLI's own tool-call timeout. In Claude
 // Code the per-server timeout also lifts its request and idle timeouts.
 const doorCallTimeout = ScriptLimit + 5*time.Minute
+
+// The installer's entry point can move to a new release between commands.
+// Resolve it once, so the probe and private turn use the same versioned path.
+func resolveLabClaude(bin string) (string, error) {
+	path, err := exec.LookPath(bin)
+	if err != nil {
+		return "", err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
+}
 
 // A new CLI release must pass the lab provider and native tool inventory probes.
 func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
@@ -194,6 +209,11 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		bin = "claude"
 	}
 	if o.Lab {
+		bin, err = resolveLabClaude(bin)
+		if err != nil {
+			cleanup(true)
+			return nil, fmt.Errorf("resolve lab Claude executable: %w", err)
+		}
 		if err = checkLabClaude(ctx, bin, o); err != nil {
 			cleanup(true)
 			return nil, err
