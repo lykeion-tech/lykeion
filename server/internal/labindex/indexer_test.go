@@ -685,8 +685,9 @@ func TestIndexerTracksUserAndAutomaticDecisionMutations(t *testing.T) {
 }
 
 func TestIndexerSchedulingMigrationReversible(t *testing.T) {
-	_, env, _, _ := indexerFixture(t)
-	for _, name := range []string{"0055_lab_fact_dirty.down.sql", "0054_lab_index_scheduling.down.sql", "0054_lab_index_scheduling.up.sql", "0055_lab_fact_dirty.up.sql"} {
+	x, env, ws, card := indexerFixture(t)
+	emitIndexEvent(t, x, ws, card, "card.updated")
+	for _, name := range []string{"0052_aristotle.down.sql", "0052_aristotle.up.sql"} {
 		sql, err := migrations.FS.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -694,6 +695,10 @@ func TestIndexerSchedulingMigrationReversible(t *testing.T) {
 		if _, err := env.Owner.Exec(context.Background(), string(sql)); err != nil {
 			t.Fatal(name, err)
 		}
+	}
+	var n int
+	if err := env.App.QueryRow(t.Context(), `SELECT count(*) FROM lab_pending_workspace_work('indexer',$1,200) WHERE card_id=$2`, uuid.Nil, card).Scan(&n); err != nil || n == 0 {
+		t.Fatalf("pre-existing card events pending after reapply=%d, err=%v", n, err)
 	}
 }
 

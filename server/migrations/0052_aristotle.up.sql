@@ -160,3 +160,118 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
 $$;
 REVOKE ALL ON FUNCTION lab_events_after(text, int), lab_advance(text, bigint), due_lesson_jobs(int) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lab_events_after(text, int), lab_advance(text, bigint), due_lesson_jobs(int) TO lykeion_app;
+
+-- Delivery rows are inserted in the producer's transaction. Unlike a high-water
+-- event ID, their presence cannot skip a lower ID that commits later. Acknowledged
+-- rows are removed; pending rows also disappear with their source event.
+CREATE TABLE lab_event_consumer (consumer text PRIMARY KEY);
+INSERT INTO lab_event_consumer VALUES ('indexer');
+CREATE TABLE lab_event_delivery (
+ consumer text NOT NULL REFERENCES lab_event_consumer ON DELETE CASCADE,
+ event_id bigint NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+ workspace_id uuid NOT NULL,
+ PRIMARY KEY (consumer,event_id)
+);
+CREATE INDEX lab_event_delivery_workspace ON lab_event_delivery(consumer,workspace_id,event_id);
+REVOKE ALL ON lab_event_consumer, lab_event_delivery FROM PUBLIC, lykeion_app;
+CREATE FUNCTION lab_enqueue_event() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ INSERT INTO public.lab_event_delivery(consumer,event_id,workspace_id)
+ SELECT c.consumer,NEW.id,NEW.workspace_id FROM public.lab_event_consumer c;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION lab_enqueue_event() FROM PUBLIC;
+CREATE TRIGGER lab_enqueue_event AFTER INSERT ON event FOR EACH ROW EXECUTE FUNCTION lab_enqueue_event();
+INSERT INTO lab_event_delivery(consumer,event_id,workspace_id) SELECT c.consumer,e.id,e.workspace_id FROM lab_event_consumer c CROSS JOIN event e;
+
+CREATE FUNCTION lab_pending_events(consumer text, lim int) RETURNS TABLE(id bigint, workspace_id uuid, type text, card_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT e.id,e.workspace_id,e.type,e.card_id FROM public.lab_event_delivery d JOIN public.event e ON e.id=d.event_id
+ WHERE d.consumer=$1 ORDER BY e.id LIMIT LEAST(200,GREATEST(0,$2))
+$$;
+CREATE FUNCTION lab_ack_event(consumer text, event_id bigint) RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path=public AS $$
+ DELETE FROM public.lab_event_delivery d WHERE d.consumer=$1 AND d.event_id=$2
+$$;
+CREATE FUNCTION lab_index_workspaces_after(after_id uuid, lim int) RETURNS SETOF uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT w.id FROM public.workspace w WHERE w.id>$1 ORDER BY w.id LIMIT LEAST(20,GREATEST(0,$2))
+$$;
+CREATE FUNCTION lab_index_workspace_exists(workspace_id uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT EXISTS(SELECT 1 FROM public.workspace w WHERE w.id=$1)
+$$;
+REVOKE ALL ON FUNCTION lab_pending_events(text,int), lab_ack_event(text,bigint), lab_index_workspaces_after(uuid,int), lab_index_workspace_exists(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_pending_events(text,int), lab_ack_event(text,bigint), lab_index_workspaces_after(uuid,int), lab_index_workspace_exists(uuid) TO lykeion_app;
+
+CREATE FUNCTION lab_pending_workspace_events(consumer text, after_workspace uuid, lim int)
+RETURNS TABLE(id bigint,workspace_id uuid,type text,card_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ WITH chosen AS (SELECT COALESCE(
+  (SELECT d.workspace_id FROM public.lab_event_delivery d WHERE d.consumer=$1 AND d.workspace_id>$2 ORDER BY d.workspace_id LIMIT 1),
+  (SELECT d.workspace_id FROM public.lab_event_delivery d WHERE d.consumer=$1 ORDER BY d.workspace_id LIMIT 1)) AS ws)
+ SELECT e.id,e.workspace_id,e.type,e.card_id FROM public.lab_event_delivery d
+ JOIN chosen c ON c.ws=d.workspace_id JOIN public.event e ON e.id=d.event_id
+ WHERE d.consumer=$1 ORDER BY d.event_id LIMIT LEAST(200,GREATEST(0,$3))
+$$;
+REVOKE ALL ON FUNCTION lab_pending_workspace_events(text,uuid,int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_pending_workspace_events(text,uuid,int) TO lykeion_app;
+
+-- Appending dirty refs under an inbox row lock must never acquire the workspace
+-- event lock: card deletion takes that event lock before cascading inbox rows.
+CREATE TABLE lab_fact_dirty (
+ consumer text NOT NULL REFERENCES lab_event_consumer ON DELETE CASCADE,
+ id bigserial NOT NULL,
+ workspace_id uuid NOT NULL,
+ ref text NOT NULL,
+ card_id uuid,
+ PRIMARY KEY(consumer,id)
+);
+CREATE INDEX lab_fact_dirty_workspace ON lab_fact_dirty(consumer,workspace_id,id);
+REVOKE ALL ON lab_fact_dirty FROM PUBLIC,lykeion_app;
+CREATE FUNCTION lab_decision_changed() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ IF (NEW.card_id IS NOT NULL OR OLD.card_id IS NOT NULL)
+  AND (jsonb_array_length(NEW.options)>0 OR NEW.question_set IS NOT NULL
+   OR jsonb_array_length(OLD.options)>0 OR OLD.question_set IS NOT NULL)
+  AND NEW IS DISTINCT FROM OLD THEN
+  INSERT INTO public.lab_fact_dirty(consumer,workspace_id,ref,card_id)
+  SELECT c.consumer,NEW.workspace_id,'decision:'||NEW.id::text,COALESCE(NEW.card_id,OLD.card_id)
+  FROM public.lab_event_consumer c;
+ END IF;
+ RETURN NEW;
+END $$;
+
+REVOKE ALL ON FUNCTION lab_decision_changed() FROM PUBLIC;
+CREATE TRIGGER lab_decision_changed AFTER UPDATE ON inbox_item FOR EACH ROW EXECUTE FUNCTION lab_decision_changed();
+
+CREATE FUNCTION lab_pending_workspace_work(consumer text,after_workspace uuid,lim int)
+RETURNS TABLE(source text,id bigint,workspace_id uuid,type text,card_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ WITH candidates AS (
+  (SELECT d.workspace_id FROM public.lab_event_delivery d WHERE d.consumer=$1 AND d.workspace_id>$2 ORDER BY d.workspace_id LIMIT 1)
+  UNION ALL (SELECT d.workspace_id FROM public.lab_fact_dirty d WHERE d.consumer=$1 AND d.workspace_id>$2 ORDER BY d.workspace_id LIMIT 1)
+ ), fallback AS (
+  (SELECT d.workspace_id FROM public.lab_event_delivery d WHERE d.consumer=$1 ORDER BY d.workspace_id LIMIT 1)
+  UNION ALL (SELECT d.workspace_id FROM public.lab_fact_dirty d WHERE d.consumer=$1 ORDER BY d.workspace_id LIMIT 1)
+ ), chosen AS (SELECT COALESCE((SELECT c.workspace_id FROM candidates c ORDER BY c.workspace_id LIMIT 1),
+  (SELECT f.workspace_id FROM fallback f ORDER BY f.workspace_id LIMIT 1)) AS ws), work AS (
+  (SELECT 'event'::text AS source,e.id,e.workspace_id,e.type,e.card_id FROM public.lab_event_delivery d
+   JOIN chosen c ON c.ws=d.workspace_id JOIN public.event e ON e.id=d.event_id WHERE d.consumer=$1
+   ORDER BY d.event_id LIMIT LEAST(200,GREATEST(0,$3)))
+  UNION ALL
+  (SELECT 'dirty'::text,d.id,d.workspace_id,'decision.updated'::text,d.card_id FROM public.lab_fact_dirty d
+   JOIN chosen c ON c.ws=d.workspace_id WHERE d.consumer=$1 ORDER BY d.id LIMIT LEAST(200,GREATEST(0,$3)))
+ ) SELECT * FROM work ORDER BY id,source LIMIT LEAST(200,GREATEST(0,$3))
+$$;
+CREATE FUNCTION lab_ack_work(consumer text,event_ids bigint[],dirty_ids bigint[]) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+ IF COALESCE(cardinality($2),0)+COALESCE(cardinality($3),0)>200 THEN
+  RAISE EXCEPTION 'at most 200 captured work IDs may be acknowledged';
+ END IF;
+ DELETE FROM public.lab_event_delivery d WHERE d.consumer=$1 AND d.event_id=ANY($2);
+ DELETE FROM public.lab_fact_dirty d WHERE d.consumer=$1 AND d.id=ANY($3);
+END $$;
+REVOKE ALL ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(text,bigint[],bigint[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(text,bigint[],bigint[]) TO lykeion_app;
