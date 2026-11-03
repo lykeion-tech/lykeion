@@ -172,6 +172,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	var labIndex *labindex.Index
 	if endpoint := getenv("EMBEDDINGS_URL"); endpoint != "" {
 		candidate := labindex.New(rdb, embed.TEI{URL: endpoint}, embed.Model)
+		labIndex = candidate // Keep retrying optional Search after startup outages.
 		readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := candidate.Ensure(readyCtx)
 		if err == nil {
@@ -184,6 +185,17 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		}
 	}
 	labIndexer := &labindex.Indexer{Store: st, Index: labIndex}
+	indexCtx, stopIndex := context.WithCancel(ctx)
+	indexDone := make(chan struct{})
+	go func() {
+		defer close(indexDone)
+		if labIndex == nil {
+			return
+		}
+		labIndexer.Run(indexCtx, 5*time.Second, func(error) { slog.Warn("lab index tick failed; will retry") })
+	}()
+	defer func() { stopIndex(); <-indexDone }()
+
 	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
 	if err != nil {
 		return err
@@ -223,11 +235,6 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			case <-engineCtx.Done():
 				return
 			case <-ticker.C:
-				if labIndex != nil {
-					if err := labIndexer.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
-						slog.Warn("lab index tick failed; will retry")
-					}
-				}
 				if err := engine.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
 					slog.Error("engine tick", "err", err)
 				}
