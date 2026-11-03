@@ -237,6 +237,39 @@ it('bounds long fingerprint labels and their weakest marker within the chart', a
   expect(textOf(labels[1]!)).toContain('· weakest');
 });
 
+it('keeps eight long item labels, weakest markers and indexes from overlapping', async () => {
+  const a = grounding();
+  a.items = Array.from({ length: 8 }, (_, i) => ({
+    ...a.items[0]!,
+    key: `p${i + 1}`,
+    label: 'WWWWWWWWWWWWWWWWWWWWWWWWextra',
+  }));
+  const { root } = setup(columns(a));
+  await nextTick();
+  const labels = all(root).filter((n) => n.tag === 'foreignObject');
+  expect(labels).toHaveLength(8);
+  for (const [i, label] of labels.entries()) {
+    const x = Number(label.props.x),
+      y = Number(label.props.y);
+    const width = Number(label.props.width),
+      height = Number(label.props.height);
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(x + width).toBeLessThanOrEqual(430);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(y + height).toBeLessThanOrEqual(330);
+    expect(textOf(label)).toContain('WWWWWWWWWWWWWWWWWWWWWWWW');
+    for (const other of labels.slice(i + 1)) {
+      expect(
+        x + width <= Number(other.props.x) ||
+          Number(other.props.x) + Number(other.props.width) <= x ||
+          y + height <= Number(other.props.y) ||
+          Number(other.props.y) + Number(other.props.height) <= y,
+      ).toBe(true);
+    }
+  }
+  expect(labels.some((label) => textOf(label).includes('· weakest'))).toBe(true);
+});
+
 it('shows an empty review and the current stage before any attempts', async () => {
   const { root } = setup(columns().map((column) => ({ ...column, attempts: [] })));
   await nextTick();

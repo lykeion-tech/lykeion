@@ -82,7 +82,7 @@ const point = (angle: number, radius: number) => ({
   x: 215 + Math.cos(angle) * radius,
   y: 165 + Math.sin(angle) * radius,
 });
-const fingerprint = computed(() => {
+const angledSpokes = computed(() => {
   const groups = [...new Set(checks.value.map((s) => s.item))];
   const gap = Math.min(0.22, Math.PI / Math.max(1, groups.length));
   const per = (2 * Math.PI - groups.length * gap) / Math.max(1, checks.value.length);
@@ -92,23 +92,53 @@ const fingerprint = computed(() => {
     return {
       ...spoke,
       angle,
-      start: point(angle, 62),
-      end: point(angle, 62 + 66 * spoke.p),
-      outer: point(angle, 128),
       label: `${items.value[spoke.item]!.label} · ${checkLabel(items.value[spoke.item]!.checks[spoke.check]!.id)} · ${pct(spoke.p)}%`,
     };
   });
 });
-const labels = computed(() =>
-  [...new Set(fingerprint.value.map((s) => s.item))].map((i) => {
-    const group = fingerprint.value.filter((s) => s.item === i);
+const labelGroups = computed(() =>
+  [...new Set(angledSpokes.value.map((s) => s.item))].map((item) => {
+    const group = angledSpokes.value.filter((s) => s.item === item);
     const angle = (group[0]!.angle + group.at(-1)!.angle) / 2;
+    return { item, angle, right: Math.cos(angle) >= 0 };
+  }),
+);
+const chart = computed(() => {
+  const right = labelGroups.value.filter((g) => g.right).length;
+  return Math.max(right, labelGroups.value.length - right) > 3
+    ? { inner: 44, outer: 88, labelWidth: 112, labelHeight: 72 }
+    : { inner: 58, outer: 128, labelWidth: 72, labelHeight: 90 };
+});
+const fingerprint = computed(() =>
+  angledSpokes.value.map((spoke) => ({
+    ...spoke,
+    start: point(spoke.angle, chart.value.inner + 4),
+    end: point(
+      spoke.angle,
+      chart.value.inner + 4 + (chart.value.outer - chart.value.inner - 4) * spoke.p,
+    ),
+    outer: point(spoke.angle, chart.value.outer),
+  })),
+);
+const labels = computed(() =>
+  labelGroups.value.map(({ item: i, right }) => {
+    const group = fingerprint.value.filter((s) => s.item === i);
     const item = items.value[i]!;
-    const right = Math.cos(angle) >= 0;
+    const side = labelGroups.value
+      .filter((g) => g.right === right)
+      .sort((a, b) => Math.sin(a.angle) - Math.sin(b.angle));
+    const slot = 314 / side.length;
+    const height = Math.min(chart.value.labelHeight, slot - 8);
+    const lines = Math.ceil((24 * 11.5) / chart.value.labelWidth) + 2;
+    const scale = Math.min(1, height / (lines * 14));
     return {
       item: i,
-      x: right ? 350 : 8,
-      y: Math.max(8, Math.min(232, point(angle, 148).y - 14)),
+      x: right ? 422 - chart.value.labelWidth : 8,
+      y: 8 + side.findIndex((g) => g.item === i) * slot + (slot - height) / 2,
+      width: chart.value.labelWidth,
+      height,
+      fontSize: `${11.5 * scale}px`,
+      lineHeight: `${14 * scale}px`,
       align: right ? ('left' as const) : ('right' as const),
       label: item.label.slice(0, 24),
       weakest: !!attempt.value?.weakest && attempt.value.weakest.key === item.key,
@@ -168,12 +198,18 @@ const tiles = computed(() =>
             <circle
               cx="215"
               cy="165"
-              :r="58 + ring * 70"
+              :r="chart.inner + ring * (chart.outer - chart.inner)"
               fill="none"
               stroke="var(--border)"
               :stroke-dasharray="ring ? '2 4' : undefined"
             />
-            <text x="218" :y="105 - ring * 70" class="ring-label">{{ pct(ring) }}%</text>
+            <text
+              x="218"
+              :y="163 - chart.inner - ring * (chart.outer - chart.inner)"
+              class="ring-label"
+            >
+              {{ pct(ring) }}%
+            </text>
           </g>
           <g v-for="spoke in fingerprint" :key="spoke.id">
             <line
@@ -226,13 +262,17 @@ const tiles = computed(() =>
             :key="label.item"
             :x="label.x"
             :y="label.y"
-            width="72"
-            height="90"
+            :width="label.width"
+            :height="label.height"
           >
             <div
               xmlns="http://www.w3.org/1999/xhtml"
               class="item-label"
-              :style="{ textAlign: label.align }"
+              :style="{
+                textAlign: label.align,
+                fontSize: label.fontSize,
+                lineHeight: label.lineHeight,
+              }"
             >
               <span>{{ label.label }}</span>
               <span v-if="label.weakest">· weakest</span>
@@ -347,7 +387,6 @@ const tiles = computed(() =>
   display: block;
 }
 .item-index {
-  font-size: 11.5px;
   font-weight: 700;
   fill: var(--text);
 }
