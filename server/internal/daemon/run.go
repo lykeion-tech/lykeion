@@ -113,6 +113,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if c.AgentRun.ResponsibleUserID != owner {
 		guest = c.AgentRun.ResponsibleUserID.String()
 	}
+	lab := c.AgentRun.Kind == "aristotle"
+	if lab && (guest != "" || c.OutputSchema == "") {
+		fail(errors.New("A lab question requires the asker's own machine and a structured hand-in."))
+		return nil
+	}
 	if guest != "" && runtime.GOOS != "linux" {
 		message := "shared runs require Linux: process environment isolation is not enforced"
 		if runtime.GOOS == "darwin" {
@@ -140,6 +145,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	prompt := c.AgentRun.Prompt
+	if lab {
+		// Both adapters suppress personal instruction files. Carry this turn's
+		// frozen protocol explicitly, including when resuming a CLI session.
+		prompt = c.AgentRun.Skill + "\n\n" + prompt
+	}
 	if c.AgentRun.Skill != "" {
 		if err := os.WriteFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), []byte(c.AgentRun.Skill), 0600); err != nil {
 			fail(err)
@@ -207,6 +217,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// shell can read it from its MCP config or environment, and a transcript
 	// is read by the whole workspace.
 	var doorToken []byte
+	fence := agent.Fenced
+	if lab {
+		fence = agent.LabFenced
+	}
 	sink := func(m agent.Message) error {
 		if len(doorToken) > 0 {
 			m.Content = bytes.ReplaceAll(m.Content, doorToken, []byte("[door token]"))
@@ -219,7 +233,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if namer != nil {
 			namer.saw(seq, m)
 		}
-		if fenced, what := agent.Fenced(c.AgentRun.Harness, m); fenced {
+		if fenced, what := fence(c.AgentRun.Harness, m); fenced {
 			breach = what
 			return errFenceBreach
 		}
@@ -255,7 +269,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer services.Stop()
-	opts := agent.ExecOptions{Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
+	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab, Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
 	if c.OutputSchema == "" {
 		opts.MCPToken = c.Token
 	}
@@ -290,7 +304,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{Lab: lab, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)
@@ -330,11 +344,13 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		opts.Resume, opts.ClaudeBaseline = "", nil
 	}
 
-	namer = newStepNamer(runCtx, func(ctx context.Context) (toolNamingSession, error) { return d.openToolNamer(ctx, c, opts) }, func(titles agent.StepTitles) error {
-		_, err := appendMessage(agent.Message{Type: "status", Content: rawJSON(titles)})
-		return err
-	})
-	defer func() { usage, err := namer.finish(); r.NamingUsage = usage; localErr = errors.Join(localErr, err) }()
+	if !lab {
+		namer = newStepNamer(runCtx, func(ctx context.Context) (toolNamingSession, error) { return d.openToolNamer(ctx, c, opts) }, func(titles agent.StepTitles) error {
+			_, err := appendMessage(agent.Message{Type: "status", Content: rawJSON(titles)})
+			return err
+		})
+		defer func() { usage, err := namer.finish(); r.NamingUsage = usage; localErr = errors.Join(localErr, err) }()
+	}
 	sandboxNoted := false
 	sandboxNote := func(runErr error) error {
 		if runErr == nil || sandboxNoted {

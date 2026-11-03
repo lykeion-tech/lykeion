@@ -115,9 +115,7 @@ func (s *AgentRuns) EnqueueAutoresearch(ctx context.Context, tx *store.Tx, reque
 	if err != nil {
 		return t, err
 	}
-	p := agentRunEvent(t)
-	p["owner_id"] = requester
-	return t, tx.Emit(ctx, "agent_run.queued", nil, store.System, p)
+	return t, s.NotifyQueued(ctx, tx, t)
 }
 
 const (
@@ -403,6 +401,14 @@ func agentRunEvent(t db.AgentRun) map[string]any {
 	return map[string]any{"agent_run_id": t.ID, "role": t.Role, "column": t.BoardColumn, "round": t.Round, "status": t.Status, "attempt": t.Attempt}
 }
 
+// NotifyQueued wakes the responsible user's daemons after this transaction
+// commits. The event carries run metadata only.
+func (s *AgentRuns) NotifyQueued(ctx context.Context, tx *store.Tx, t db.AgentRun) error {
+	p := agentRunEvent(t)
+	p["owner_id"] = t.ResponsibleUserID
+	return tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p)
+}
+
 // Enqueue adds an agent run in the caller's transaction. The owner is responsible
 // for the run, and their id rides on the event so their daemons can be woken.
 func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, n NewAgentRun) (db.AgentRun, error) {
@@ -435,9 +441,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	if err != nil {
 		return t, err
 	}
-	p := agentRunEvent(t)
-	p["owner_id"] = owner
-	if err := tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p); err != nil {
+	if err := s.NotifyQueued(ctx, tx, t); err != nil {
 		return t, err
 	}
 	if t.Harness == "cursor" || t.Harness == "antigravity" {
@@ -773,7 +777,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					denied := current.OwnerID != t.ResponsibleUserID && (!guestIsolation || current.Os != "linux")
-					if t.Kind == "autoresearch" {
+					if t.Kind == "autoresearch" || t.Kind == "aristotle" {
 						denied = t.RequesterID == nil || *t.RequesterID != current.OwnerID || t.ResponsibleUserID != current.OwnerID
 					}
 					var accessErr error
@@ -1002,7 +1006,13 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						rerun = &ClaimedRerun{Steps: st.RerunSteps(), Python: python, Attachments: files, Saved: saved}
 						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
 					}
-					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
+					if t.Kind == "aristotle" {
+						t, err = tx.Q.RefreshLabRunPrompt(ctx, t.ID)
+						if err != nil {
+							return err
+						}
+					}
+					if (core != nil || t.Kind == "aristotle") && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
 						// No CLI offers the frozen model any longer: run on the CLI's default.
 						t.RequestedModel = ""
 					}

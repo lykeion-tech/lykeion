@@ -27,9 +27,22 @@ var claudeAllowed = map[string]bool{
 // and names the call for the person.
 func Fenced(harness string, m Message) (breach bool, what string) {
 	if harness == "codex" {
-		return codexFenced(m)
+		return codexFenced(m, false)
 	}
 	if m.Type != "tool_use" || m.Server == doorServer || (harness == "claude" && m.Server == "" && claudeAllowed[m.Tool]) {
+		return false, ""
+	}
+	return true, m.Tool
+}
+
+// LabFenced permits only the private lab door and the CLI machinery used
+// to discover it and produce the structured answer.
+func LabFenced(harness string, m Message) (bool, string) {
+	if harness == "codex" {
+		return codexFenced(m, true)
+	}
+	if m.Type != "tool_use" || m.Server == doorServer && m.Tool == "mcp__lyk_door__call_tool" ||
+		m.Server == "" && (m.Tool == "ToolSearch" || m.Tool == "StructuredOutput") {
 		return false, ""
 	}
 	return true, m.Tool
@@ -38,7 +51,7 @@ func Fenced(harness string, m Message) (breach bool, what string) {
 // codexFenced judges Codex's own event, so an item type the parser doesn't
 // know is a breach rather than a log. A call to another server is caught
 // when it starts, before its result reaches the agent.
-func codexFenced(m Message) (bool, string) {
+func codexFenced(m Message, lab bool) (bool, string) {
 	var ev struct {
 		Type string
 		Item struct{ Type, Server, Tool string }
@@ -48,15 +61,18 @@ func codexFenced(m Message) (bool, string) {
 	}
 	switch {
 	case m.Type == "tool_use":
-	case m.Type == "log" && ev.Type == "item.started" && (ev.Item.Type == "mcp_tool_call" || ev.Item.Type == "web_search"):
+	case m.Type == "log" && ev.Type == "item.started" && (ev.Item.Type == "mcp_tool_call" || ev.Item.Type == "web_search" || lab && (ev.Item.Type == "command_execution" || ev.Item.Type == "file_change")):
 	default:
 		return false, ""
 	}
 	switch ev.Item.Type {
 	case "command_execution", "file_change":
+		if lab {
+			return true, ev.Item.Type
+		}
 		return false, ""
 	case "mcp_tool_call":
-		if ev.Item.Server == doorServer {
+		if ev.Item.Server == doorServer && (!lab || ev.Item.Tool == "call_tool") {
 			return false, ""
 		}
 		return true, ev.Item.Server + "/" + ev.Item.Tool

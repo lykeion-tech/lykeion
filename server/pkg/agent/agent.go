@@ -21,6 +21,8 @@ type Message struct {
 	Content json.RawMessage `json:"content"`
 }
 type ExecOptions struct {
+	// Lab exposes the read-only lab door to a private Aristotle turn.
+	Lab bool
 	// Coresearch uses scoped sources and any connector selected for this turn.
 	Coresearch bool
 	// Aristotle permits the server-frozen model for a personal conversation.

@@ -31,6 +31,7 @@ import (
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/handler"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
@@ -76,6 +77,7 @@ func fixture(t *testing.T) *daemonFixture {
 	f.runs = &service.AgentRuns{Store: st}
 	issuer := auth.Issuer{Secret: []byte("test"), TTL: time.Hour}
 	h := &handler.H{Connectors: &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}, Store: st, JWT: issuer, Limit: auth.Limiter{R: f.env.Redis}, Hub: hub, AgentRuns: f.runs, Blobs: storage.Local{Dir: t.TempDir()}}
+	h.Lab = (labmemory.Tools{Store: st, Blobs: h.Blobs}).Handler()
 	router := handler.NewRouter(h)
 	f.h = h
 	t.Cleanup(h.MCPBroker.Close)

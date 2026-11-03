@@ -697,3 +697,49 @@ func TestTheCallTokenNeverReachesTheCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestLabDoorForwardsOnlyLab(t *testing.T) {
+	lab := mcp.NewServer(&mcp.Implementation{Name: "lyk_lab", Version: "1"}, nil)
+	mcp.AddTool(lab, &mcp.Tool{Name: "read"}, func(_ context.Context, _ *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, any, error) {
+		return cited("", fmt.Sprint(in["ref"])), nil, nil
+	})
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return lab }, &mcp.StreamableHTTPOptions{Stateless: true})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp/lab" || r.Header.Get("Authorization") != "Bearer private-run" {
+			t.Errorf("wrong upstream path or credential")
+			http.Error(w, "refused", 403)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	d := &Door{Lab: true, HandIn: true, Leader: true, Coresearch: true, labURL: server.URL + "/mcp/lab", RunToken: "private-run", Addons: []agent.MCPServer{{Name: "other", URL: server.URL}}}
+	if err := d.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var names []string
+	for tool, err := range s.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	if !slices.Equal(names, []string{"call_tool"}) {
+		t.Fatal(names)
+	}
+	for _, tc := range []struct {
+		server, tool string
+		allow        bool
+	}{{"sources", "search_literature", false}, {"other", "read", false}, {"lab", "exec", false}, {"lab", "read", true}} {
+		res, err := s.CallTool(t.Context(), &mcp.CallToolParams{Name: "call_tool", Arguments: callIn{Server: tc.server, Tool: tc.tool, Args: map[string]any{"ref": "workspace:context"}}})
+		if err != nil || res.IsError == tc.allow || tc.allow && text(res) != "workspace:context" {
+			t.Fatal(tc, res, err)
+		}
+	}
+}

@@ -18,9 +18,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/labmemory"
+	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
+	db "lykeion/server/pkg/db/generated"
 )
 
 // execCall is what the fake backend was started with.
@@ -408,6 +412,56 @@ func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
 	}, func(agent.Message) error { return nil })
 	if err != nil || probs != nil || handIns != 1 {
 		t.Fatalf("err %v, problems %q, %d hand-ins", err, probs, handIns)
+	}
+}
+
+func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
+	f := fixture(t)
+	// Remove the fixture's ordinary study run to exercise just the private turn.
+	_, err := f.env.Owner.Exec(t.Context(), "DELETE FROM agent_run WHERE id=$1", f.id)
+	must(t, err)
+	chat := db.LabChat{ID: uuid.New(), WorkspaceID: f.ws, OwnerID: f.user}
+	_, err = f.env.Owner.Exec(t.Context(), "INSERT INTO lab_chat(id,workspace_id,owner_id) VALUES($1,$2,$3)", chat.ID, f.ws, f.user)
+	must(t, err)
+	must(t, f.runs.Store.InWorkspace(t.Context(), f.ws, f.user, func(tx *store.Tx) error {
+		run, err := labmemory.Enqueue(t.Context(), tx, f.runs, chat, f.user, "Why?", &f.card, "claude", "")
+		f.id = run.ID
+		return err
+	}))
+	calls, paths, failed := handInRun(t, f, func(o agent.ExecOptions) {
+		if !o.Lab || !o.ReadOnly || o.MCPToken != "" || o.DoorURL == "" || o.DoorToken == "" || !strings.Contains(o.OutputSchema, "statements") {
+			t.Error("missing private lab-only launch options")
+		}
+		client, err := mcp.NewClient(&mcp.Implementation{Name: "test-cli", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: o.DoorURL, HTTPClient: &http.Client{Transport: bearer(o.DoorToken)}}, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer client.Close()
+		result, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "call_tool", Arguments: callIn{Server: "lab", Tool: "read", Args: map[string]any{"ref": "study:" + f.card.String()}}})
+		if err != nil || result.IsError || !strings.Contains(text(result), f.card.String()) {
+			t.Errorf("private lab read: %v, %v", result, err)
+		}
+		out := filepath.Join(o.Dir, "outputs")
+		if err := os.MkdirAll(out, 0700); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(filepath.Join(out, "private.txt"), []byte("private"), 0600); err != nil {
+			t.Error(err)
+		}
+	}, func(int) (int, string) { return 200, `{"accepted":true}` })
+	if len(calls) != 1 || !strings.Contains(calls[0].prompt, labmemory.Protocol()) || !strings.Contains(calls[0].prompt, "Context study: study:"+f.card.String()) || f.status(t) != "completed" {
+		t.Fatalf("failed to launch and submit: calls=%v failure=%v", calls, failed)
+	}
+	var reads int
+	must(t, f.env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_read WHERE workspace_id=$1 AND agent_run_id=$2 AND ref=$3 AND via='read'", f.ws, f.id, "study:"+f.card.String()).Scan(&reads))
+	if reads != 1 {
+		t.Fatal("unexpected recorded evidence reads", reads)
+	}
+	for _, p := range paths {
+		if strings.HasPrefix(p, "/api/role/") {
+			t.Fatalf("cardless hand-in accessed %s", p)
+		}
 	}
 }
 

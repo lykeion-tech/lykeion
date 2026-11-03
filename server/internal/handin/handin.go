@@ -21,6 +21,7 @@ import (
 type Kind string
 
 const (
+	Aristotle       Kind = "aristotle"
 	Grounding       Kind = "grounding"
 	Hypotheses      Kind = "hypotheses"
 	Experimentation Kind = "experimentation"
@@ -33,6 +34,8 @@ const (
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
 func KindFor(runKind, role, column string) (Kind, bool) {
 	switch {
+	case runKind == "aristotle":
+		return Aristotle, true
 	case runKind == "autoresearch":
 		return Autoresearch, true
 	case role == "auditor":
@@ -217,9 +220,16 @@ type NewStudy struct {
 	Question string `json:"question"`
 }
 
-// HandIn holds every field of every kind; Parse refuses the ones a kind does
-// not have.
+// Statement is one marked claim or gap in a lab answer.
+type Statement struct {
+	Kind  string   `json:"kind"`
+	Text  string   `json:"text"`
+	Cites []string `json:"cites"`
+}
+
+// HandIn holds every field of every kind; Parse refuses fields outside the chosen schema.
 type HandIn struct {
+	Statements   []Statement    `json:"statements"`
 	Status       string         `json:"status"` // done | could_not_do | ask
 	Decision     *DecisionIn    `json:"decision"`
 	Answer       string         `json:"answer"`
@@ -287,6 +297,15 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		if !ok {
 			probs = append(probs, fmt.Sprintf(format, a...))
 		}
+	}
+	if k == Aristotle {
+		add(len(h.Statements) >= 1 && len(h.Statements) <= 40, "statements: give 1 to 40 statements")
+		for i, s := range h.Statements {
+			add(slices.Contains([]string{"fact", "lesson", "gap"}, s.Kind), "statement %d: kind must be fact, lesson or gap", i+1)
+			add(within(s.Text, 2000), "statement %d: text must be 1 to 2000 characters", i+1)
+			add(s.Cites != nil && !slices.Contains(s.Cites, ""), "statement %d: cites must be an array of references", i+1)
+		}
+		return h, probs
 	}
 	// The auditor, the objector and Autoresearch work alone, with no lead to
 	// ask for them, so they never ask.

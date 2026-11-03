@@ -104,9 +104,7 @@ type claimed struct {
 		// CardID is the run's study; nil for a run on no card.
 		CardID      *uuid.UUID `json:"card_id"`
 		BoardColumn string     `json:"board_column"`
-		// Kind is "role" (a study's), "autoresearch", "coresearch" or
-		// "rerun"; the daemon branches on "autoresearch", whose hand-in has
-		// no outputs, and on "rerun", which runs no agent CLI.
+		// Kind selects the study, Autoresearch, Coresearch, Aristotle, or rerun execution path.
 		Kind string `json:"kind"`
 	} `json:"agent_run"`
 	Token string `json:"token"`

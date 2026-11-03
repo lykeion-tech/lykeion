@@ -25,6 +25,8 @@ func (d *daemon) cacheDir() string { return filepath.Join(d.cfg.Home, ".caches")
 // sourcesURL is the sources server on the API this daemon reaches. The URL the
 // server names is built from the dashboard's public origin, which need not
 // serve the API (a separate dev server, a static host).
+func (d *daemon) labURL() string { return strings.TrimRight(d.cfg.Server, "/") + "/mcp/lab" }
+
 func (d *daemon) sourcesURL() string { return strings.TrimRight(d.cfg.Server, "/") + "/mcp/sources" }
 
 // privatePaths remain excluded even when this run starts no services: another

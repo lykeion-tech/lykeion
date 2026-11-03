@@ -55,3 +55,19 @@ func TestGuestChildEnvKeepsOnlyApprovedAmbientSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestAristotleLabEnvExcludesProviderKeys(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "ambient")
+	t.Setenv("TYPESAFE_API_KEY", "ambient")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "owner-sign-in")
+	env := ChildEnv(ExecOptions{Lab: true, Env: []string{"ANTHROPIC_API_KEY=explicit", "typesafe_api_key=explicit"}})
+	for _, v := range env {
+		k, _, _ := strings.Cut(v, "=")
+		if strings.EqualFold(k, "ANTHROPIC_API_KEY") || strings.EqualFold(k, "TYPESAFE_API_KEY") {
+			t.Fatal("provider key inherited")
+		}
+	}
+	if !slices.Contains(env, "CLAUDE_CODE_OAUTH_TOKEN=owner-sign-in") {
+		t.Fatal("CLI sign-in missing")
+	}
+}

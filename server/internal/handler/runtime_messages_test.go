@@ -201,3 +201,22 @@ func (s *server) waiting(t *testing.T, tok, wsID, cardID string) (card, study st
 	}
 	return card, runs[0].Waiting
 }
+
+func TestPrivateAristotleRunIsHiddenFromGenericRunEndpoints(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "asker@lab.org")
+	ws := s.workspace(t, a, "lab")
+	other := s.member(t, a, ws.ID, "other@lab.org", "member")
+	var id string
+	err := s.Env.Owner.QueryRow(t.Context(), `WITH c AS (INSERT INTO lab_chat(workspace_id,owner_id) SELECT $1,id FROM "user" WHERE email='asker@lab.org' RETURNING *)
+ INSERT INTO agent_run(workspace_id,lab_chat_id,responsible_user_id,requester_id,board_column,round,role,kind,harness,prompt)
+ SELECT workspace_id,id,owner_id,owner_id,'',0,'aristotle','aristotle','claude','private question' FROM c RETURNING id::text`, ws.ID).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []struct{ method, path string }{{"GET", ""}, {"GET", "/messages"}, {"POST", "/cancel"}} {
+		if code := s.call(t, route.method, "/api/agent-runs/"+id+route.path, other, ws.ID, nil, nil); code != 404 {
+			t.Fatal(route, code)
+		}
+	}
+}

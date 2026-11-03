@@ -183,7 +183,7 @@ func (h *H) getAgentRun(w http.ResponseWriter, r *http.Request) {
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		var err error
 		t, err = tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: id, WorkspaceID: ws})
-		if err == nil && t.Kind == "coresearch" {
+		if err == nil && (t.Kind == "coresearch" || t.Kind == "aristotle") {
 			return pgx.ErrNoRows
 		}
 		return err
@@ -215,7 +215,7 @@ func (h *H) agentRunMessages(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if run.Kind == "coresearch" {
+		if run.Kind == "coresearch" || run.Kind == "aristotle" {
 			return pgx.ErrNoRows
 		}
 		q := r.URL.Query()
@@ -287,7 +287,7 @@ func (h *H) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if run.Kind == "coresearch" {
+		if run.Kind == "coresearch" || run.Kind == "aristotle" {
 			return pgx.ErrNoRows
 		}
 		return nil

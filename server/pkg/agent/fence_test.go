@@ -116,3 +116,22 @@ func TestClaudeStructuredOutputIsNotABreach(t *testing.T) {
 		t.Fatalf("StructuredOutput fenced as %q", tool)
 	}
 }
+
+func TestAristotleNativeToolFence(t *testing.T) {
+	for _, tc := range []struct {
+		h     string
+		m     Message
+		allow bool
+	}{
+		{"claude", Message{Type: "tool_use", Tool: "Skill"}, false},
+		{"claude", Message{Type: "tool_use", Tool: "Read"}, false},
+		{"claude", Message{Type: "tool_use", Tool: "StructuredOutput"}, true},
+		{"claude", Message{Type: "tool_use", Server: "lyk_door", Tool: "mcp__lyk_door__call_tool"}, true},
+		{"codex", Message{Type: "log", Content: []byte(`{"type":"item.started","item":{"type":"command_execution"}}`)}, false},
+		{"codex", Message{Type: "tool_use", Content: []byte(`{"item":{"type":"mcp_tool_call","server":"lyk_door","tool":"call_tool"}}`)}, true},
+	} {
+		if b, _ := LabFenced(tc.h, tc.m); b == tc.allow {
+			t.Fatal(tc)
+		}
+	}
+}

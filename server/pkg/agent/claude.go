@@ -140,6 +140,9 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
 	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
+	if o.Lab {
+		args = append(args, "--tools", "StructuredOutput,ToolSearch", "--disable-slash-commands")
+	}
 	if o.Coresearch {
 		args = append(args, "--setting-sources", "project")
 		o.CLIPaths.ManagedSkills, err = SkillsDir("claude", o.Dir)

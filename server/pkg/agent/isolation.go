@@ -232,6 +232,13 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 			values[k] = filepath.Join(cacheDir, sub)
 		}
 	}
+	if o.Lab {
+		for k := range values {
+			if strings.EqualFold(k, "ANTHROPIC_API_KEY") || strings.EqualFold(k, "TYPESAFE_API_KEY") {
+				delete(values, k)
+			}
+		}
+	}
 	return envList(values)
 }
 
