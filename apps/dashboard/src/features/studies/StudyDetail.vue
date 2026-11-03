@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
+import StudyReview from './StudyReview.vue';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
 import AgentRunDialog from '../runs/AgentRunDialog.vue';
@@ -107,6 +108,7 @@ const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
 const studySurfaces = [
   { id: 'execution', label: 'Timeline', icon: 'chart' },
+  { id: 'review', label: 'Review', icon: 'shield' },
   { id: 'files', label: 'Files', icon: 'file' },
   { id: 'properties', label: 'Properties', icon: 'settings' },
 ];
@@ -665,6 +667,7 @@ function pin() {
         <div v-else-if="active === 'execution'" class="study-meta surface-content">
           <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
+        <StudyReview v-else-if="active === 'review'" :card-id="id" />
         <StudyOutputs v-else-if="active === 'files'" :card-id="id" />
       </template>
     </SurfacePane>
