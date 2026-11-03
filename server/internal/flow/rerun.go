@@ -79,7 +79,9 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 	if err != nil {
 		return err
 	}
-	if slices.ContainsFunc(runs, func(r db.AgentRun) bool { return r.Kind == "rerun" }) {
+	// A cancelled rerun, its machine withdrawn, left no record: the round
+	// gets another.
+	if slices.ContainsFunc(runs, func(r db.AgentRun) bool { return r.Kind == "rerun" && r.Status != "cancelled" }) {
 		return nil
 	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})

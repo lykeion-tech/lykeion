@@ -234,7 +234,7 @@ func TestConvertModeRules(t *testing.T) {
 		{"flagged in runs mode", "runs", assessOK, "", flaggedOK, []string{"this study has recorded runs: hand in assessments, not verdicts"}},
 		{"assessments in claims mode", "claims", assessOK, verdictOK, "", []string{"this study has no recorded runs: hand in verdicts, not assessments"}},
 		{"unknown hypothesis", "runs", `{"hypothesis":"Slope falls","measurement":"slope","control":null,"observed":null,"test":null}`, "", "",
-			[]string{"assessment 1: hypothesis Slope falls matches no hypothesis of this study"}},
+			[]string{"assessment 1: hypothesis Slope falls matches no hypothesis of this study", "hypothesis \"Slope rises with dose\" has no assessment"}},
 		{"unknown measurement", "runs", `{"hypothesis":"Slope rises with dose","measurement":"intercept","control":"none","observed":null,"test":null}`, "", "",
 			[]string{"assessment 1: measurement intercept matches no recorded value of this study", "assessment 1: control none matches no recorded value of this study"}},
 		{"done empty runs", "runs", "", "", "", []string{"a done Validation hand-in needs at least one assessment"}},
@@ -317,5 +317,53 @@ func TestConvertObjector(t *testing.T) {
 	none := parsed(t, Objector, `{"status":"could_not_do","answer":"a","reason":"no files","objections":[]}`)
 	if recs, probs := Convert(Objector, false, none, studyEvidence(), Review{}); len(recs) != 0 || len(probs) != 0 {
 		t.Errorf("could_not_do: %v %v", recs, probs)
+	}
+}
+
+func TestModeAAssessesEveryStandingHypothesis(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Hypotheses, "hypothesis", "r3", map[string]any{"text": "Slope rises with dose"}),
+		rec(board.Hypotheses, "hypothesis", "r4", map[string]any{"text": "Intercept falls with age"}),
+		rec(board.Hypotheses, "hypothesis", "r7", map[string]any{"text": "Sex changes the slope"}),
+		rec(board.Hypotheses, "withdrawn", "r8", map[string]any{"item": "r7", "reason": "no data"}),
+		rec(board.Experimentation, "value", "r5", map[string]any{"name": "slope", "value": "0.4"}),
+		rec(board.Experimentation, "value", "r6", map[string]any{"name": "baseline", "value": "0.1"}),
+	})
+	e.Mode = "runs"
+	_, probs := Convert(Validation, true, vHandIn(t, assessOK, "", ""), e, Review{})
+	if want := []string{"hypothesis \"Intercept falls with age\" has no assessment"}; !slices.Equal(probs, want) {
+		t.Fatalf("got %q, want %q", probs, want)
+	}
+}
+
+func TestModeOf(t *testing.T) {
+	summary := rec(board.Experimentation, "summary", "r9", map[string]any{"text": "ran"})
+	summary.Role = "leader"
+	hyp := rec(board.Hypotheses, "hypothesis", "r3", map[string]any{"text": "Slope rises with dose"})
+	gone := rec(board.Hypotheses, "withdrawn", "r4", map[string]any{"item": "r3", "reason": "x"})
+	for name, c := range map[string]struct {
+		recs []db.Record
+		want string
+	}{
+		"runs and hypotheses": {[]db.Record{hyp, summary}, "runs"},
+		"runs, no hypotheses": {[]db.Record{summary}, "claims"},
+		"runs, all withdrawn": {[]db.Record{hyp, gone, summary}, "claims"},
+		"hypotheses, no runs": {[]db.Record{hyp}, "claims"},
+	} {
+		if got := ModeOf(c.recs); got != c.want {
+			t.Errorf("%s: %s, want %s", name, got, c.want)
+		}
+	}
+}
+
+func TestAVerdictMayCiteAnExperimentationOutput(t *testing.T) {
+	recs := []db.Record{rec(board.Experimentation, "output", "o1", map[string]any{"name": "results.csv"}),
+		rec(board.Validation, "output", "o2", map[string]any{"name": "notes.txt"})}
+	e := NewEvidence(recs)
+	e.Mode = "claims"
+	vs := `{"claim":"c","verdict":"supported","source":"results.csv","quote":"q"},{"claim":"d","verdict":"supported","source":"notes.txt","quote":"q"}`
+	_, probs := Convert(Validation, true, vHandIn(t, "", vs, ""), e, Review{})
+	if want := []string{"verdict 2: source not found among the study's attachments or recorded sources"}; !slices.Equal(probs, want) {
+		t.Fatalf("got %q, want %q", probs, want)
 	}
 }

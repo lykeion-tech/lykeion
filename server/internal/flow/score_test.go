@@ -179,8 +179,8 @@ func (l *lab) done(t *testing.T, id uuid.UUID, cites ...string) {
 	}
 }
 
-// declare has the column's leader or agent declare it done and returns
-// Finish's answer.
+// declare has the column's leader or agent declare it done, as a done
+// hand-in does: a summary citing the given record keys.
 func (l *lab) declare(t *testing.T, id uuid.UUID, cites ...string) error {
 	t.Helper()
 	ctx := context.Background()
@@ -205,8 +205,12 @@ func (l *lab) declare(t *testing.T, id uuid.UUID, cites ...string) error {
 		if run.ID == uuid.Nil {
 			return fmt.Errorf("no leader or agent run in %s round %d", c.BoardColumn, c.Round)
 		}
-		_, err = l.e.Finish(ctx, tx, service.Writer{Card: id, AgentRun: run.ID, Column: c.BoardColumn, Role: run.Role, Round: c.Round},
-			"The column is done; see the cited records.", cites)
+		keys := []string{}
+		for _, k := range cites {
+			keys = append(keys, strings.TrimPrefix(strings.TrimPrefix(k, "call:"), "run:"))
+		}
+		_, err = records.WriteAs(ctx, tx, service.Writer{Card: id, AgentRun: run.ID, Column: c.BoardColumn, Role: run.Role, Round: c.Round},
+			"summary", map[string]any{"text": "The column is done; see the cited records.", "cites": keys})
 		return err
 	})
 }

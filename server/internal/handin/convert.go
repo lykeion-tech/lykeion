@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 )
 
@@ -294,12 +295,23 @@ func (c *converter) validation(h HandIn) {
 			c.problem("flagged error %d: source not found among the study's attachments or recorded sources", i+1)
 		}
 	}
+	// Every hypothesis that stands is assessed: a missing one is the lead's
+	// to add, not Experimentation's to redo.
+	if c.ev.Mode == "runs" {
+		for _, r := range c.ev.Standing() {
+			text := strings.TrimSpace(records.Body[review.HypothesisBody](r).Text)
+			if !slices.ContainsFunc(h.Assessments, func(a Assessment) bool { return strings.TrimSpace(a.Hypothesis) == text }) {
+				c.problem("hypothesis %q has no assessment", review.LabelOf(r))
+			}
+		}
+	}
 }
 
-// source is s as a verdict cites it: an attached file's name as given, or a
-// source id a call of the study returned, in its normalised spelling.
+// source is s as a verdict cites it: an attached file's or a file
+// Experimentation saved's name as given, or a source id a call of the study
+// returned, in its normalised spelling.
 func (c *converter) source(s string) (string, bool) {
-	if c.ev.Attached(s) {
+	if c.ev.Attached(s) || c.ev.ExperimentationOutput(s) {
 		return s, true
 	}
 	if cites, _ := c.calls(s); len(cites) > 0 {

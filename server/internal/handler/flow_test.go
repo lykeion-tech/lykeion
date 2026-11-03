@@ -121,16 +121,18 @@ func (l *teamLab) queued(t *testing.T) int {
 }
 
 type stepOut struct {
-	Key        string
-	AgentRunID string `json:"agent_run_id"`
+	AgentRunID string
 	Error      string
 }
 
+// step has the leader ask a member for a task with ask_member; the answer's
+// ticket is the member's run.
 func (l *teamLab) step(t *testing.T, tok string, in map[string]any) (int, stepOut) {
 	t.Helper()
-	var out stepOut
-	c := l.s.call(t, "POST", "/api/role/steps", tok, "", in, &out)
-	return c, out
+	member, _ := in["member"].(string)
+	task, _ := in["content"].(string)
+	c, out := l.ask(t, tok, member, task)
+	return c, stepOut{AgentRunID: out.Ticket, Error: out.Error}
 }
 
 func TestALeaderNamesADeclaredMember(t *testing.T) {
@@ -140,7 +142,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 		t.Fatalf("first run %q", leader.role)
 	}
 	c, out := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "List three rival explanations."})
-	if c != 201 || out.Key == "" || out.AgentRunID == "" {
+	if c != 201 || out.AgentRunID == "" {
 		t.Fatalf("step %d %+v", c, out)
 	}
 	var recs []struct {
@@ -151,7 +153,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 		t.Fatalf("records %d %+v", c, recs)
 	}
 	r := recs[0]
-	if r.Kind != "delegation" || r.Key != out.Key || r.Role != "leader" || r.Body["member"] != "member-1" ||
+	if r.Kind != "delegation" || r.Key == "" || r.Role != "leader" || r.Body["member"] != "member-1" ||
 		r.Body["step"] != "List three rival explanations." || r.Body["agent_run_id"] != out.AgentRunID {
 		t.Fatalf("delegation %+v", r)
 	}
@@ -180,55 +182,6 @@ func TestAnUndeclaredMemberIsRefused(t *testing.T) {
 	}
 }
 
-func TestAtTheCapTheLeaderCanStillFinish(t *testing.T) {
-	l := newTeamLab(t, 1)
-	leader := l.claim(t)
-	c, first := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	if c != 201 {
-		t.Fatalf("first step %d", c)
-	}
-	c, out := l.step(t, leader.token, map[string]any{"member": "member-2", "content": "two"})
-	if c != 409 || out.Error != "this Team has used all its steps for this column: finish the column with what you have, or do the remaining work yourself" {
-		t.Fatalf("over the cap: %d %+v", c, out)
-	}
-	if c, out := l.step(t, leader.token, map[string]any{"self": true, "content": "I compare the rivals myself."}); c != 201 || out.Key == "" {
-		t.Fatalf("self step %d %+v", c, out)
-	}
-	l.complete(t, l.claim(t)) // the member's run
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Done.", "cites": []string{"r99"}}, nil); c != 400 {
-		t.Fatalf("unknown cite: %d", c)
-	}
-	var done struct{ Key string }
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Two rivals stand.", "cites": []string{first.Key}}, &done); c != 201 || done.Key == "" {
-		t.Fatalf("done %d %+v", c, done)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'summary' AND body->>'text' = 'Two rivals stand.' AND body->'cites'->>0 = $2", l.card.ID, first.Key); n != 1 {
-		t.Fatalf("%d summaries", n)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'self_step' AND body->>'step' = 'I compare the rivals myself.'", l.card.ID); n != 1 {
-		t.Fatalf("%d self steps", n)
-	}
-}
-
-func TestDoneWaitsForInFlightWork(t *testing.T) {
-	l := newTeamLab(t, 0)
-	leader := l.claim(t)
-	if c, _ := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"}); c != 201 {
-		t.Fatalf("step %d", c)
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Too soon."}, nil); c != 409 {
-		t.Fatalf("done with a member in flight: %d", c)
-	}
-	m := l.claim(t)
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Too soon."}, nil); c != 409 {
-		t.Fatalf("done with a member running: %d", c)
-	}
-	l.complete(t, m)
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Now."}, nil); c != 201 {
-		t.Fatalf("done after the member: %d", c)
-	}
-}
-
 func TestMembersCannotWriteServerKinds(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
@@ -246,7 +199,7 @@ func TestMembersCannotWriteServerKinds(t *testing.T) {
 	if c := l.s.call(t, "POST", "/api/role/records", m.token, "", map[string]any{"kind": "rival", "body": map[string]any{"text": "a batch effect"}}, &rec); c != 201 || rec.Key == "" {
 		t.Fatalf("work record %d %+v", c, rec)
 	}
-	// The leader writes work when it does a step itself.
+	// The leader writes work when it does a task itself.
 	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "comparison", "body": map[string]any{}}, nil); c != 201 {
 		t.Fatalf("leader work record: %d", c)
 	}
@@ -296,13 +249,7 @@ func TestOnlyTheLeaderNamesMembers(t *testing.T) {
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	m := l.claim(t)
 	if c, _ := l.step(t, m.token, map[string]any{"member": "member-2", "content": "two"}); c != 403 {
-		t.Fatalf("member steps: %d", c)
-	}
-	if c, _ := l.step(t, m.token, map[string]any{"self": true, "content": "two"}); c != 403 {
-		t.Fatalf("member self-steps: %d", c)
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", m.token, "", map[string]any{"summary": "x"}, nil); c != 403 {
-		t.Fatalf("member done: %d", c)
+		t.Fatalf("member asks: %d", c)
 	}
 }
 
@@ -512,8 +459,13 @@ func TestAnObjectorClaimHandsIn(t *testing.T) {
 	}
 	l.complete(t, leader)
 	var obj teamRun
-	for obj.role != "objector" {
-		obj = l.claim(t)
+	for range 3 {
+		if obj = l.claim(t); obj.role == "objector" {
+			break
+		}
+	}
+	if obj.role != "objector" {
+		t.Fatalf("no objector claimed; last claim %+v", obj)
 	}
 	if obj.outputSchema != handin.Schema(handin.Objector) || obj.lead || obj.leader {
 		t.Fatalf("objector claim: lead %v leader %v schema %q", obj.lead, obj.leader, obj.outputSchema)

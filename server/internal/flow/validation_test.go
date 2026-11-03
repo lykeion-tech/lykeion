@@ -3,6 +3,8 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,8 +14,10 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
@@ -432,5 +436,219 @@ func TestNoProtocolLeft(t *testing.T) {
 				t.Errorf("%s still holds %q", f, gone)
 			}
 		}
+	}
+}
+
+// judgedObjections are the study's live server-judged objections.
+func (l *lab) judgedObjections(t *testing.T, id uuid.UUID) []review.Objection {
+	t.Helper()
+	rows, err := l.env.Owner.Query(context.Background(), "SELECT body FROM record WHERE card_id = $1 AND kind = 'objection' AND role = 'server' AND superseded_at IS NULL ORDER BY created_at", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []review.Objection
+	for rows.Next() {
+		var b []byte
+		var o review.Objection
+		if err := rows.Scan(&b); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(b, &o); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func TestACancelledRerunIsQueuedAgain(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	c := modeAStudy(t, l, nil)
+	l.assess(t, c.ID)
+	first := l.latestRun(t, c.ID, "rerun")
+	l.settle(t, first, "cancelled", "", "")
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun' AND status = 'queued' AND id <> $2", c.ID, first.ID); n != 1 {
+		t.Fatalf("%d new reruns queued after the first was cancelled", n)
+	}
+	l.e.Kick(l.ws, c.ID)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun'", c.ID); n != 2 {
+		t.Fatalf("%d reruns in all, want 2", n)
+	}
+}
+
+func TestUpheldObjectionsDoNotStack(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	l.object(t, c.ID,
+		review.Objection{Label: "Rival A", Type: "overreach", Problem: "One cohort.", Checks: []review.Check{}},
+		review.Objection{Label: "Rival A", Type: "overreach", Problem: "One seed.", Checks: []review.Check{}})
+	if final := l.statuses(t, c.ID, true); len(final) != 1 || final[0].Status != review.Caveated {
+		t.Fatalf("two overreach objections: %+v", final)
+	}
+}
+
+func TestAValueObjectionLowersTheStatusesUsingIt(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	c := modeAStudy(t, l, nil)
+	const second, third = "The drug keeps the AUC above 0.85.", "The F1 sits near one half."
+	for _, h := range []struct {
+		text      string
+		low, high float64
+	}{{second, 0.85, 0.95}, {third, 0.4, 0.6}} {
+		l.put(t, c.ID, "hypotheses", 1, review.KindHypothesis, "leader", review.HypothesisBody{Text: h.text,
+			Prediction: review.Prediction{Shape: "range", Low: &h.low, High: &h.high}, Control: review.Control{Text: controlText}, Cites: []string{"r1"}})
+	}
+	run := l.put(t, c.ID, "experimentation", 1, "run", "leader", script(0))
+	l.put(t, c.ID, "experimentation", 1, "value", "leader", map[string]any{"name": "f1", "value": "0.5", "file": "fit.py", "cites": []string{"run:" + run}})
+	l.put(t, c.ID, "validation", 1, "rerun", "server", map[string]any{"steps": []any{}, "outputs": []any{}, "reproduced": map[string]bool{"auc": true, "f1": true}, "notes": map[string]string{}, "failure": nil})
+	l.e.Kick(l.ws, c.ID)
+	l.item(t, c.ID, review.KindAssessment, review.Assessment{Hypothesis: second, Measurement: "auc"})
+	l.item(t, c.ID, review.KindAssessment, review.Assessment{Hypothesis: third, Measurement: "f1"})
+	l.assess(t, c.ID)
+	var auc string
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT key FROM record WHERE card_id = $1 AND kind = 'value' AND body->>'name' = 'auc'", c.ID).Scan(&auc); err != nil {
+		t.Fatal(err)
+	}
+	l.object(t, c.ID, review.Objection{Label: "auc", Type: "overreach", Problem: "One AUC on one split.", Checks: []review.Check{}})
+	got := map[string]string{}
+	for _, s := range l.statuses(t, c.ID, true) {
+		got[s.Hypothesis] = s.Status
+	}
+	want := map[string]string{supportedText: review.Caveated, second: review.Caveated, third: review.Supported}
+	if !maps.Equal(got, want) {
+		t.Fatalf("final statuses %v, want %v", got, want)
+	}
+	if os := l.judgedObjections(t, c.ID); len(os) != 1 || !os[0].Upheld || os[0].TargetKey != auc {
+		t.Fatalf("judged objection %+v, want upheld on %s", os, auc)
+	}
+}
+
+func TestAFailedObjectorFindsNothing(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	l.settle(t, l.latestRun(t, c.ID, "objector"), "failed", "agent_error", "crashed")
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("after a failed objector: %s", got.State)
+	}
+	if final := l.statuses(t, c.ID, true); len(final) != 1 || final[0].Status != review.Supported {
+		t.Fatalf("final statuses: %+v", final)
+	}
+	if len(stub.calls()) != 0 || len(l.judgedObjections(t, c.ID)) != 0 {
+		t.Fatalf("objections judged without an objector: %d Jev calls", len(stub.calls()))
+	}
+}
+
+func TestASameFamilyObjectorIsRecorded(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	lead := l.latestHarness(t)
+	l.online(t, "d1", lead)
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	if obj := l.latestRun(t, c.ID, "objector"); obj.Harness != lead {
+		t.Fatalf("objector on %s with only %s online", obj.Harness, lead)
+	}
+	l.object(t, c.ID, review.Objection{Label: "Rival A", Type: "overreach", Problem: "One cohort.", Checks: []review.Check{}})
+	if os := l.judgedObjections(t, c.ID); len(os) != 1 || !os[0].SameFamily {
+		t.Fatalf("judged objections %+v, want same_family", os)
+	}
+}
+
+// latestHarness is the harness the lab's Team leader runs on.
+func (l *lab) latestHarness(t *testing.T) string {
+	t.Helper()
+	var h string
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT harness FROM agent WHERE id = $1", l.team["pi"]).Scan(&h); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestModeAWithoutJevStaysAndRetries(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	stub.mu.Lock()
+	stub.status = 503
+	stub.mu.Unlock()
+	l.object(t, c.ID, review.Objection{Label: "Rival A", Type: "overreach", Problem: "One cohort.", Checks: []review.Check{}})
+	l.e.Kick(l.ws, c.ID)
+	got := l.card(t, c.ID)
+	if got.State != "working" || got.BoardColumn != "validation" || got.Round != c.Round || got.GatingUntil != nil {
+		t.Fatalf("Jev unreachable moved the study: %s %s round %d lease %v", got.BoardColumn, got.State, got.Round, got.GatingUntil)
+	}
+	if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 1 {
+		t.Fatalf("scoring_unavailable items: %v", items)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind IN ('outcome', 'review') OR card_id = $1 AND kind = 'validation_status' AND (body->>'final')::bool", c.ID); n != 0 {
+		t.Fatalf("%d outcome, review or final status records without Jev", n)
+	}
+	stub.mu.Lock()
+	stub.status = 200
+	stub.mu.Unlock()
+	l.e.Kick(l.ws, c.ID)
+	if got = l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("the next pass did not judge: %s", got.State)
+	}
+	if final := l.statuses(t, c.ID, true); len(final) != 1 || final[0].Status != review.Caveated {
+		t.Fatalf("final statuses: %+v", final)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'scoring_unavailable' AND resolved_at IS NULL", c.ID); n != 0 {
+		t.Fatalf("%d scoring_unavailable items left open", n)
+	}
+}
+
+func TestAStudyWithoutHypothesesChecksClaimsAndMayCiteAnOutput(t *testing.T) {
+	l := newLab(t)
+	l.e.Blobs = storage.Local{Dir: t.TempDir()}
+	l.jev(t, 200, levels(nil))
+	c := l.study(t, "validation", true, nil)
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET scope_from = 'experimentation' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	file := "group,auc\ntreated,0.873\n"
+	blob := l.ws.String() + "/outputs/results"
+	if err := l.e.Blobs.Put(ctx, blob, strings.NewReader(file), int64(len(file))); err != nil {
+		t.Fatal(err)
+	}
+	l.put(t, c.ID, "experimentation", 1, "summary", "leader", map[string]any{"text": "Ran the fit.", "cites": []string{}})
+	l.in(t, func(tx *store.Tx) error {
+		key, err := records.NextRecordKey(ctx, tx, c.ID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: 1, Kind: "output", Role: "leader",
+			Key: key, BlobKey: blob, Body: []byte(fmt.Sprintf(`{"name":"results.csv","size_bytes":%d,"content_type":"text/csv"}`, len(file)))})
+		return err
+	})
+	l.e.Kick(l.ws, c.ID)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun'", c.ID); n != 0 {
+		t.Fatalf("a study with no hypotheses queued %d reruns", n)
+	}
+	if p := l.latestRun(t, c.ID, "leader").Prompt; !strings.Contains(p, modeLines["claims"]) {
+		t.Fatalf("the lead is not told to check claims:\n%s", p)
+	}
+	l.item(t, c.ID, review.KindVerdict, review.VerdictBody{Claim: "The AUC is 0.873.", Verdict: "not_enough_info", Source: "results.csv", Quote: "treated,0.873"})
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	rs := l.reviews(t, c.ID, "validation")
+	if len(rs) != 1 || rs[0].Decision != review.DecidePass || rs[0].Items[0].Checks[0].Status != review.Pass {
+		t.Fatalf("reviews: %+v", rs)
+	}
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("after the claims review: %s", got.State)
 	}
 }

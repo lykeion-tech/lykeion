@@ -58,68 +58,6 @@ func emit(cmd *cobra.Command, e *env, v any, text string) error {
 	return nil
 }
 
-func teamStepCmd(e *env) *cobra.Command {
-	var self bool
-	c := &cobra.Command{Use: "step [MEMBER]", Short: "Name the member for the next step; you are woken when its work lands", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, a []string) error {
-			rc, err := roleClient()
-			if err != nil {
-				return err
-			}
-			text, err := content(cmd, e)
-			if err != nil {
-				return err
-			}
-			in := map[string]any{"content": text}
-			switch {
-			case self && len(a) == 0:
-				in["self"] = true
-			case !self && len(a) == 1:
-				in["member"] = a[0]
-			default:
-				return errors.New("name one member, or pass --self for a step you do yourself")
-			}
-			var out struct {
-				Key        string `json:"key"`
-				AgentRunID string `json:"agent_run_id,omitempty"`
-			}
-			if err := rc.Do(cmd.Context(), "POST", "/api/role/steps", in, &out); err != nil {
-				return err
-			}
-			return emit(cmd, e, out, out.Key)
-		}}
-	c.Flags().BoolVar(&self, "self", false, "announce a step you do yourself")
-	contentFlags(c, "what the member should do")
-	outputFlag(c)
-	return c
-}
-
-func teamDoneCmd(e *env) *cobra.Command {
-	var cites []string
-	c := &cobra.Command{Use: "done", Short: "Declare the column done with a summary naming the record keys it relies on", Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			rc, err := roleClient()
-			if err != nil {
-				return err
-			}
-			text, err := content(cmd, e)
-			if err != nil {
-				return err
-			}
-			var out struct {
-				Key string `json:"key"`
-			}
-			if err := rc.Do(cmd.Context(), "POST", "/api/role/done", map[string]any{"summary": text, "cites": cites}, &out); err != nil {
-				return err
-			}
-			return emit(cmd, e, out, out.Key)
-		}}
-	c.Flags().StringSliceVar(&cites, "cites", nil, "the records, calls and runs the summary rests on, as KEY, call:KEY or run:KEY")
-	contentFlags(c, "the summary")
-	outputFlag(c)
-	return c
-}
-
 func recordCmd(e *env) *cobra.Command {
 	r := &cobra.Command{Use: "record", Short: "Write your work as a record of the study"}
 	var cites []string

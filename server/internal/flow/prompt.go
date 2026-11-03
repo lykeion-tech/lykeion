@@ -142,14 +142,14 @@ func itemsPrompt(column string) string {
 			replies +
 			"Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
 	case board.Validation:
-		return "- `assessments`, when the study recorded script runs in Experimentation: one per hypothesis of the study, with `hypothesis` (its text, exactly as it was handed in), " +
+		return "- `assessments`, when the study has hypotheses and recorded script runs in Experimentation: one for every hypothesis of the study, with `hypothesis` (its text, exactly as it was handed in), " +
 			"`measurement` (the name of the recorded value that measures it), `control` (the name of the control's recorded value, or null), " +
 			"`test` (the statistical test as the study reported it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2`, `p` and `p_bound` (=, < or >); null when there is none) " +
 			"and `observed` (the outcome seen, for a hypothesis that names outcomes; null otherwise). " +
 			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the numbers itself; you set no status.\n" +
-			"- `verdicts`, when the study has no recorded runs: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
-			"`source` (an attached file's name, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +
-			"- `flagged_errors`, when the study has no recorded runs: each passage that is wrong, with its `source`, the `quote` copied word for word, and the `problem`.\n" +
+			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
+			"`source` (an attached file's name, the name of a file the study saved in Experimentation, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +
+			"- `flagged_errors`, otherwise: each passage that is wrong, with its `source`, the `quote` copied word for word, and the `problem`.\n" +
 			replies +
 			"Jev reads each quote alone and checks that it bears out the verdict, or that the passage is wrong in the way stated.\n"
 	}

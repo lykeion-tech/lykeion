@@ -3,7 +3,6 @@ package flow
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -23,7 +22,6 @@ import (
 var (
 	ErrUndeclaredMember = errors.New("the Team's manifest declares no such member")
 	ErrStepCap          = errors.New("this Team has used all its steps for this column: finish the column with what you have, or do the remaining work yourself")
-	ErrInFlight         = errors.New("a member's run is still in flight: wait until its work lands")
 	ErrMovedOn          = errors.New("the study is no longer working this run's column")
 	ErrDeclaredDone     = errors.New("this column was already declared done")
 	ErrBusy             = errors.New("a member is still working on this column: wait for its result first")
@@ -87,14 +85,6 @@ func openColumn(ctx context.Context, tx *store.Tx, w service.Writer) (db.Card, e
 	return c, err
 }
 
-// SelfStep records that the leader does a step itself.
-func (e *Engine) SelfStep(ctx context.Context, tx *store.Tx, w service.Writer, step string) (db.Record, error) {
-	if _, err := openColumn(ctx, tx, w); err != nil {
-		return db.Record{}, err
-	}
-	return records.WriteAs(ctx, tx, w, "self_step", map[string]string{"step": step})
-}
-
 // Delegate starts the run of the column Team's member for one step the
 // leader names and records the delegation, and returns the member's run. w
 // is the leader's run, whose card lock the caller holds. One member works a
@@ -144,80 +134,6 @@ func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, m
 	}
 	rec, err := records.WriteAs(ctx, tx, w, "delegation", map[string]any{"member": member, "step": step, "agent_run_id": run.ID})
 	return rec, run.ID, err
-}
-
-// Finish stores the summary with which the leader, or a study's single
-// agent, declares its column done. Every cited key must name a live record
-// of the study, and no member's run may still be in flight.
-func (e *Engine) Finish(ctx context.Context, tx *store.Tx, w service.Writer, summary string, cites []string) (db.Record, error) {
-	c, err := openColumn(ctx, tx, w)
-	if err != nil {
-		return db.Record{}, err
-	}
-	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
-	if err != nil {
-		return db.Record{}, err
-	}
-	for _, r := range runs {
-		if IsMember(r.Role) && inFlight(r.Status) {
-			return db.Record{}, ErrInFlight
-		}
-	}
-	if cites == nil {
-		cites = []string{}
-	}
-	keys := make([]string, len(cites))
-	for i, k := range cites {
-		keys[i] = strings.TrimPrefix(strings.TrimPrefix(k, "call:"), "run:")
-	}
-	found, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
-	if err != nil {
-		return db.Record{}, err
-	}
-	kinds := map[string]string{}
-	for _, r := range found {
-		kinds[r.Key] = r.Kind
-	}
-	for i, k := range cites {
-		kind, ok := kinds[keys[i]]
-		if !ok || (strings.HasPrefix(k, "call:") && kind != "call") || (strings.HasPrefix(k, "run:") && kind != "run") {
-			return db.Record{}, service.Invalid(fmt.Sprintf("no record of this study has the key %q", k))
-		}
-	}
-	cites = keys
-	return records.WriteAs(ctx, tx, w, "summary", map[string]any{"text": summary, "cites": cites})
-}
-
-// DropWakes cancels the leader (or single agent) runs still waiting to start on the column and
-// attempt a study declared done: work that landed during the leader's last
-// turn queued them, and the column takes no more steps. column and round are
-// the declaring run's, since scoring may already have moved the study.
-func (e *Engine) DropWakes(ctx context.Context, ws, card uuid.UUID, column string, round int32) error {
-	var owner uuid.UUID
-	var waiting []uuid.UUID
-	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
-		c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ws, ID: card})
-		if err != nil {
-			return err
-		}
-		owner = c.OwnerID
-		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: column, Round: round})
-		for _, r := range runs {
-			if leads(r.Role) && waitingToStart(r.Status) {
-				waiting = append(waiting, r.ID)
-			}
-		}
-		return err
-	})
-	if err != nil {
-		return err
-	}
-	for _, id := range waiting {
-		if err := e.AgentRuns.Cancel(ctx, ws, owner, id); err != nil && !errors.Is(err, service.ErrConflict) {
-			return err
-		}
-	}
-	return nil
 }
 
 // lockCard takes the locks Advance takes, waiting for the card's, and reads

@@ -24,9 +24,12 @@ const modeRuns = "runs"
 
 // modeLines tell a Validation run which items its hand-in holds.
 var modeLines = map[string]string{
-	modeRuns: "This study recorded script runs in Experimentation: hand in `assessments`, not verdicts or flagged errors.",
-	"claims": "This study has no recorded runs: hand in `verdicts` and `flagged_errors`, not assessments.",
+	modeRuns: "This study has hypotheses and recorded script runs in Experimentation: hand in an `assessments` entry for every hypothesis, not verdicts or flagged errors.",
+	"claims": "This study's hypotheses are not checked against recorded runs: hand in `verdicts` and `flagged_errors`, not assessments.",
 }
+
+// statusRank orders the statuses an objection can leave, lowest first.
+var statusRank = map[string]int{review.Invalid: 0, review.Inconclusive: 1, review.Caveated: 2, review.Supported: 3, review.Refuted: 3}
 
 // decideRouteBack is the decision of a Validation round that sends the
 // study back to Experimentation.
@@ -115,9 +118,10 @@ func validationMode(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, 
 	return handin.ModeOf(study), err
 }
 
-// claimSources are the call records holding each source the verdicts and
-// flagged errors among items cite: an attached file's, or the calls that
-// returned a source id, oldest first. A source no call holds is left out.
+// claimSources are the records holding each source the verdicts and
+// flagged errors among items cite: an attached file's call, a file
+// Experimentation saved, or the calls that returned a source id, oldest
+// first. A source no record holds is left out.
 func claimSources(ctx context.Context, tx *store.Tx, card uuid.UUID, items []db.Record) (map[string][]db.Record, error) {
 	study, err := studyRecords(ctx, tx, card)
 	if err != nil {
@@ -147,6 +151,13 @@ func claimSources(ctx context.Context, tx *store.Tx, card uuid.UUID, items []db.
 			}
 		}
 		if len(held) == 0 {
+			for _, r := range study {
+				if r.BoardColumn == board.Experimentation && r.Kind == "output" && records.Body[struct{ Name string }](r).Name == src {
+					held = append(held, r)
+				}
+			}
+		}
+		if len(held) == 0 {
 			refs := ev.Sources(src)
 			for _, r := range calls {
 				if slices.Contains(refs, "call:"+r.Key) {
@@ -161,7 +172,8 @@ func claimSources(ctx context.Context, tx *store.Tx, card uuid.UUID, items []db.
 	return out, nil
 }
 
-// sourceTexts reads each source's calls into its text.
+// sourceTexts reads each source's records into its text: a call's answer,
+// a saved file's text.
 func (e *Engine) sourceTexts(ctx context.Context, sources map[string][]db.Record) (map[string]string, error) {
 	out := map[string]string{}
 	for src, recs := range sources {
@@ -169,10 +181,16 @@ func (e *Engine) sourceTexts(ctx context.Context, sources map[string][]db.Record
 		if err != nil {
 			return nil, err
 		}
+		files, err := e.outputTexts(ctx, recs)
+		if err != nil {
+			return nil, err
+		}
 		var parts []string
 		for _, r := range recs {
 			if c, ok := calls[r.Key]; ok {
 				parts = append(parts, c.Answer)
+			} else if f, ok := files[r.Key]; ok {
+				parts = append(parts, f)
 			}
 		}
 		out[src] = strings.Join(parts, "\n\n")
@@ -216,8 +234,11 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 	claims, judge := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
-		if err != nil || !current(c, in.card.BoardColumn, in.card.Round) {
+		if err != nil || c.ID == uuid.Nil {
 			return err
+		}
+		if !current(c, in.card.BoardColumn, in.card.Round) {
+			return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS})
 		}
 		study, err := studyRecords(ctx, tx, c.ID)
 		if err != nil {
@@ -297,13 +318,11 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 // read fills v from the study's records and says which rerun record the
 // round has, if any, and whether its code statuses were written already.
 func (v *validating) read(ctx context.Context, tx *store.Tx, c db.Card, study []db.Record) (*db.Record, bool, error) {
-	var hyps, assessments []db.Record
+	var assessments []db.Record
 	var rerun *db.Record
 	written := false
 	for _, r := range study {
 		switch {
-		case r.BoardColumn == board.Hypotheses:
-			hyps = append(hyps, r)
 		case r.BoardColumn != board.Validation || r.Round != c.Round:
 		case r.Kind == review.KindAssessment:
 			assessments = append(assessments, r)
@@ -318,11 +337,9 @@ func (v *validating) read(ctx context.Context, tx *store.Tx, c db.Card, study []
 	if rerun == nil {
 		return nil, written, nil
 	}
-	for _, r := range standing(hyps) {
-		if r.Kind == review.KindHypothesis {
-			v.hyps = append(v.hyps, r)
-			v.hs = append(v.hs, records.Body[review.HypothesisBody](r))
-		}
+	for _, r := range handin.StandingHypotheses(study) {
+		v.hyps = append(v.hyps, r)
+		v.hs = append(v.hs, records.Body[review.HypothesisBody](r))
 	}
 	v.assessments = map[string]review.Assessment{}
 	var as []review.Assessment
@@ -499,10 +516,14 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			if !o.Upheld {
 				continue
 			}
+			// Upheld objections don't stack: each lowers the code's status
+			// on its own, and the lowest result stands.
 			for _, j := range on {
 				s := &statuses[j]
-				if lower := review.Lower(s.Status, o.Type); lower != s.Status {
-					s.Status = lower
+				if lower := review.Lower(v.statuses[j].Status, o.Type); lower != v.statuses[j].Status {
+					if statusRank[lower] < statusRank[s.Status] {
+						s.Status = lower
+					}
 					s.Reasons = append(s.Reasons, "an upheld "+strings.ReplaceAll(o.Type, "_", " ")+" objection")
 					s.Cites = append(s.Cites, key)
 				}
@@ -544,6 +565,8 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			moved = true
 			return e.routeBack(ctx, tx, c, board.Experimentation, "Validation sent this back: "+strings.Join(invalid, "; "), invalid)
 		case review.DecideAsk:
+			// Held like a block, it is offered for rating as a block is.
+			e.drawRatingSafely(ctx, tx, c)
 			return holdInvalid(ctx, tx, c, invalid)
 		}
 		e.drawRatingSafely(ctx, tx, c)
