@@ -559,3 +559,41 @@ func TestPrivateTeamAssignmentMetadataIsSharedAndVersioned(t *testing.T) {
 		t.Fatalf("removed assignment lesson: %v", err)
 	}
 }
+
+func TestReadMaintenanceRequiresInternalScopedTransaction(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	st := &store.Store{Pool: f.env.App}
+	ref := Ref{"study", f.study}
+	if err := st.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
+		_, err := ReadMaintenance(ctx, tx, ref)
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("public transaction accepted: %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Maintenance(ctx, func(tx *store.Tx) error {
+		if _, err := ReadMaintenance(ctx, tx, ref); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("unscoped read accepted: %v", err)
+		}
+		if err := tx.Workspace(ctx, f.ws); err != nil {
+			return err
+		}
+		fact, err := ReadMaintenance(ctx, tx, ref)
+		if err != nil {
+			return err
+		}
+		member, err := f.read(ref)
+		if err != nil {
+			return err
+		}
+		if fact.Version != member.Version || fact.Text != member.Text {
+			t.Fatal("maintenance projection differs")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -135,3 +135,13 @@ func Version(ctx context.Context, tx *store.Tx, r Ref) (string, error) {
 	}
 	return fact.Version, nil
 }
+
+// ReadMaintenance is an internal privileged shared-fact read. It requires an
+// explicit workspace selected by the maintenance caller; no asker is impersonated.
+// It deliberately uses exactly the same projection as public member reads.
+func ReadMaintenance(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
+	if tx == nil || !tx.IsMaintenance() || tx.Q == nil || tx.WS == uuid.Nil {
+		return Fact{}, ErrNotFound
+	}
+	return read(ctx, tx, r)
+}

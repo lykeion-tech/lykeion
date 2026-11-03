@@ -29,6 +29,7 @@ type Store struct {
 }
 
 type Tx struct {
+	maintenance  bool
 	raw          pgx.Tx
 	Q            *db.Queries
 	WS           uuid.UUID
@@ -149,7 +150,7 @@ func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 	if err != nil {
 		return err
 	}
-	inner := &Tx{Q: db.New(sp), WS: t.WS, raw: sp}
+	inner := &Tx{Q: db.New(sp), WS: t.WS, raw: sp, maintenance: t.maintenance}
 	if err := fn(inner); err != nil {
 		_ = sp.Rollback(ctx)
 		return err
@@ -237,7 +238,7 @@ func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]strin
 // Maintenance runs narrowly scoped global maintenance helpers and all resulting
 // tenant mutations in one commit. Call Workspace before accessing tenant rows.
 func (s *Store) Maintenance(ctx context.Context, fn func(*Tx) error) error {
-	return s.run(ctx, uuid.Nil, map[string]string{"app.workspace_id": uuid.Nil.String(), "app.user_id": uuid.Nil.String()}, fn)
+	return s.run(ctx, uuid.Nil, map[string]string{"app.workspace_id": uuid.Nil.String(), "app.user_id": uuid.Nil.String()}, func(tx *Tx) error { tx.maintenance = true; return fn(tx) })
 }
 
 // Workspace changes tenant scope inside a maintenance transaction. It preserves
@@ -249,3 +250,6 @@ func (t *Tx) Workspace(ctx context.Context, ws uuid.UUID) error {
 	t.WS = ws
 	return nil
 }
+
+// IsMaintenance identifies internal maintenance transactions; it is never set by request-scoped entrypoints.
+func (t *Tx) IsMaintenance() bool { return t != nil && t.maintenance }

@@ -183,7 +183,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			slog.Warn("lab search unavailable; using live record tools")
 		}
 	}
-	_ = labIndex // Attached to lab tools and the event consumer in their wiring tasks.
+	labIndexer := &labindex.Indexer{Store: st, Index: labIndex}
 	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
 	if err != nil {
 		return err
@@ -223,6 +223,11 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			case <-engineCtx.Done():
 				return
 			case <-ticker.C:
+				if labIndex != nil {
+					if err := labIndexer.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
+						slog.Warn("lab index tick failed; will retry")
+					}
+				}
 				if err := engine.Tick(engineCtx); err != nil && engineCtx.Err() == nil {
 					slog.Error("engine tick", "err", err)
 				}
