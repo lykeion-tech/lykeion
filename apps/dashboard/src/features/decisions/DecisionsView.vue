@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import DecisionOptions from './DecisionOptions.vue';
+import DecisionFilters from './DecisionFilters.vue';
+import { matchesDecisionFilters } from './decisionFilters';
 import MachineWait from './MachineWait.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -23,6 +25,7 @@ const selected = computed(() =>
 );
 const selectedReport = ref<DecisionItem>();
 const display = computed(() => selected.value ?? selectedReport.value);
+const filteredOut = computed(() => !!display.value && !matchesDecisionFilters(display.value));
 const study = computed(() => cards.data.value?.find((card) => card.id === display.value?.card_id));
 const question = computed(() => {
   const item = display.value;
@@ -102,28 +105,31 @@ watch(
 <template>
   <section class="resources resource-decisions">
     <main class="decision-activity">
+      <DecisionFilters />
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
-      <article v-if="display" class="activity-card">
-        <header class="activity-card-header">
-          <span>{{ decisionKindOf(display.kind).label }}</span>
-          <span class="card-time">{{ timeAgo(display.created_at) }}</span>
-        </header>
+      <article v-if="display && !filteredOut" class="activity-card">
         <div class="card-body">
           <div class="question-panel">
-            <div class="status-line"><span class="status-pill">{{ display.status === 'open' ? 'Pending' : display.status }}</span></div>
-            <h1>{{ question.title }}</h1>
+            <div class="status-line">
+              <span class="status-pill">{{ display.status === 'open' ? 'Pending' : display.status }}</span>
+              <div class="status-actions">
+                <span class="card-time">{{ timeAgo(display.created_at) }}</span>
+                <RouterLink v-if="display.card_id" class="study-link" :to="'/studies/' + display.card_id">Open study →</RouterLink>
+              </div>
+            </div>
+            <h2>{{ question.title }}</h2>
             <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
             <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
             <DecisionOptions v-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
-          <p v-if="display.card_id" class="study-link"><RouterLink :to="'/studies/' + display.card_id">Open {{ study?.title || 'study' }} and activity →</RouterLink></p>
           <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>
         </div>
       </article>
       <div v-else class="conversation-empty">
         <Icon name="inbox" :size="38" />
-        <p v-if="!itemId">Select a decision to open its study</p>
+        <p v-if="filteredOut">This decision does not match the current filters.</p>
+        <p v-else-if="!itemId">Select a decision to open its study</p>
         <p v-else-if="open.error.value || resolved.error.value" role="alert">Unable to load decisions. Please try again.</p>
         <p v-else-if="open.isLoading.value || resolved.isLoading.value" role="status">Loading decision…</p>
         <p v-else>Decision not found or no longer available.</p>
@@ -135,19 +141,20 @@ watch(
 </template>
 <style scoped src="../../ui/resources.css"></style>
 <style scoped>
-.decision-activity { padding:28px 32px 64px; max-width:1000px; width:100%; margin:0 auto; }
+.decision-activity { padding:4px 24px 32px; width:100%; }
 .activity-card { border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); overflow:hidden; }
-.activity-card-header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; }
-.card-time { margin-left:auto; }
+.card-time { color:var(--muted); font-size:12px; }
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
 .question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
-.card-body h1 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
+.card-body h2 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
 .question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
 .study-context { color:var(--muted); }
+.status-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.status-actions { display:flex; align-items:center; gap:16px; margin-left:auto; }
 .status-pill { display:inline-flex; padding:4px 8px; border:1px solid var(--primary); border-radius:5px; color:var(--primary-text); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
 .report-button { align-self:flex-start; }
 .study-link { font-size:13px; color:var(--primary-text); }
-.study-link a:hover { text-decoration:underline; }
+.study-link:hover { text-decoration:underline; }
 .conversation-empty { min-height:300px; }
 @media (max-width:700px) { .decision-activity { padding:16px 12px 40px; } .card-body { padding:12px; } .question-panel { padding:16px; } }
 </style>

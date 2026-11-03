@@ -47,7 +47,9 @@ const railView = ref<'nav' | 'context'>('context');
 watch(
   railStorageKey,
   (key) => {
-    railView.value = readText(key) === 'nav' ? 'nav' : 'context';
+    railView.value = inboxShell.value || aristotleShell.value
+      ? 'context'
+      : readText(key) === 'nav' ? 'nav' : 'context';
   },
   { immediate: true },
 );
@@ -169,6 +171,15 @@ const headingIcon = computed(
 );
 const rail = usePaneResize('lykeion.sidebar-width', 224, 200, 360);
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
+// Entering either workspace starts with its own history; the toggle remains
+// available while navigating within that workspace.
+watch(
+  () => (inboxShell.value ? 'decisions' : aristotleShell.value ? 'coresearch' : ''),
+  (shell, previous) => {
+    if (shell && shell !== previous) changeRail('context');
+  },
+  { immediate: true, flush: 'post' },
+);
 const { pins: pinnedIds } = usePins();
 const pinnedExpanded = ref(readText('lykeion.pinned-expanded') !== 'false');
 const pinnedCards = computed(() =>
@@ -576,6 +587,7 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ selected: current === item.id }"
               :aria-current="current === item.id ? 'page' : undefined"
+              @click="item.id === current && ['coresearch', 'decisions'].includes(item.id) && changeRail('context')"
               ><Icon :name="item.icon" />{{ item.name
               }}<DecisionBadge v-if="item.id === 'decisions'"
             /></RouterLink></section
@@ -602,7 +614,7 @@ onUnmounted(() => {
     />
     <main class="main-pane">
       <header
-        v-if="!['settings', 'decisions'].includes(current ?? '') && !route.meta.ownHeader"
+        v-if="current !== 'settings' && !route.meta.ownHeader"
         class="page-header"
         :class="{
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,

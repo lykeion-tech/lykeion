@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import DecisionBadge from './DecisionBadge.vue';
 import DecisionRail from './DecisionRail.vue';
+import { decisionFilters } from './decisionFilters';
 import DecisionOptions from './DecisionOptions.vue';
 import DecisionsView from './DecisionsView.vue';
 import { invalidationsFor } from '../../api/realtime';
@@ -38,6 +39,7 @@ vi.mock('../autoresearch/AutoresearchRunDialog.vue', () => ({ default: { render:
 const apps: ReturnType<typeof createTreeApp>[] = [];
 afterEach(() => {
   apps.splice(0).forEach((app) => app.unmount());
+  Object.assign(decisionFilters, { type: 'all', date: 'all', from: '', to: '' });
   api.mockReset();
   invalidateQueries.mockReset();
   count.value = { open: 3, due_soon: 0 };
@@ -262,7 +264,7 @@ it('shows the study context and a link to its activity without embedding its sid
   rows.value = [item({ kind: 'agent_decision', text: 'Choose a population\n\nTwo readings.' })];
   cards.value = [{ id: 'c1', number: 4, title: 'Memory study', question: 'Does sleep help?' }];
   const root = mount(DecisionsView, { itemId: 'd1' });
-  expect(textOf(root)).toContain('Memory study');
+  expect(textOf(root)).toContain('Open study');
   expect(textOf(root)).toContain('Does sleep help?');
   expect(all(root).some((n) => n.props.to === '/studies/c1')).toBe(true);
   expect(all(root).some((n) => n.tag === 'StudyDetail')).toBe(false);
@@ -436,4 +438,16 @@ it('distinguishes a requested decision loading, query failure, missing item and 
   expect(textOf(requested)).toContain('Decision not found');
   const empty = mount(DecisionsView, {});
   expect(textOf(empty)).toContain('Select a decision');
+});
+
+it('applies the same date filter to the rail and selected activity', async () => {
+  rows.value = [item({ created_at: new Date().toISOString() })];
+  const rail = mount(DecisionRail, {});
+  const activity = mount(DecisionsView, { itemId: 'd1' });
+  expect(textOf(rail)).toContain('Study');
+  expect(textOf(activity)).toContain('scored low twice');
+  decisionFilters.date = 'yesterday';
+  await new Promise((r) => setTimeout(r));
+  expect(textOf(rail)).toContain('No decisions match these filters');
+  expect(textOf(activity)).toContain('does not match the current filters');
 });

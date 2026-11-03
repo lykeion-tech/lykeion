@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
+import { decisionFilters, matchesDecisionFilters } from './decisionFilters';
 import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -18,15 +19,17 @@ import {
 
 const route = useRoute();
 const client = useQueryClient();
-const history = ref(false);
 const open = useDecisions(false);
 const past = useDecisions(true);
 const cards = useCards();
 const me = useMe();
 const menu = ref('');
 const error = ref('');
-const shown = computed(() => (history.value ? past.data.value : open.data.value) ?? []);
-const listError = computed(() => (history.value ? past.error.value : open.error.value));
+const shown = computed(() => {
+  const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
+  return [...items.values()].filter((item) => matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+});
+const listError = computed(() => open.error.value ?? past.error.value);
 const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
 const titleOf = (item: DecisionItem) =>
   item.kind === 'agent_decision'
@@ -84,15 +87,8 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
 <template>
   <aside class="sidebar decision-rail">
     <header>
-      <span>Decisions</span>
-      <span class="decision-views" role="group" aria-label="View">
-        <button :class="{ on: !history }" :aria-pressed="!history" @click="history = false">
-          Open
-        </button>
-        <button :class="{ on: history }" :aria-pressed="history" @click="history = true">
-          History
-        </button>
-      </span>
+      <span class="rail-title">Decisions</span>
+      <button class="icon-button add-decision" aria-label="Add decision (coming soon)" title="Add decision (coming soon)" disabled><Icon name="plus" :size="16" /></button>
     </header>
     <nav aria-label="Decisions">
       <p v-if="listError || error" role="alert" class="inline-error">
@@ -155,7 +151,7 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
         </div>
       </div>
       <p v-if="!shown.length" class="decision-empty">
-        {{ history ? 'No history yet' : 'Nothing needs you right now' }}
+        {{ decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
       </p>
     </nav>
     <slot name="footer" />
@@ -167,6 +163,7 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
   overflow: hidden;
 }
 .decision-rail header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -175,6 +172,8 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
   padding: 0 8px;
   margin-bottom: 8px;
   font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
 }
 .decision-rail nav {
   flex: 1;
@@ -232,21 +231,8 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
   color: var(--muted);
   padding: 8px;
 }
-.decision-views {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-}
-.decision-views button {
-  padding: 2px 8px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.decision-views button.on {
-  background: var(--selected);
-  color: var(--text);
-}
+.add-decision { margin-left: auto; }
+.rail-title { font-weight: 700; }
 .decision-row-wrap {
   position: relative;
 }

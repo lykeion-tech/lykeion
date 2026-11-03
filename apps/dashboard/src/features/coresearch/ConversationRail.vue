@@ -161,7 +161,7 @@ async function startDraft(
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text);
   height: 32px;
   line-height: 20px;
   flex: none;
@@ -170,7 +170,7 @@ async function startDraft(
 }
 .conversation-rail header > a:first-child {
   font-size: 14px;
-  font-weight: 400;
+  font-weight: 700;
 }
 .conversation-rail > nav {
   flex: 1;

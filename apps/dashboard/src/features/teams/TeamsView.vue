@@ -77,7 +77,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   <section class="directory-page directory-table-page team-directory">
     <Teleport to="#page-header-actions">
       <RouterLink to="/teams/new" class="button primary directory-header-action"
-        ><Icon name="plus" :size="14" />New Team</RouterLink
+        ><Icon name="plus" :size="14" />New team</RouterLink
       >
     </Teleport>
     <p v-if="teams.error.value" class="inline-error" role="alert">
@@ -204,9 +204,6 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-directory {
   padding: 4px 4px 32px 20px;
   scrollbar-gutter: stable;
-}
-.team-toolbar {
-  margin-right: 16px;
 }
 .team-toolbar .agent-sort {
   margin-left: 0;

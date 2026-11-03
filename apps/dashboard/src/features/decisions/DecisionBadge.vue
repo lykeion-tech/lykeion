@@ -20,11 +20,12 @@ const dueSoon = computed(() => count.data.value?.due_soon ?? 0);
 <style scoped>
 .decision-badge {
   margin-left: auto;
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--primary);
-  color: var(--on-primary);
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary-text);
+  font-size: 10px;
   text-align: center;
 }
 .decision-badge.due {
