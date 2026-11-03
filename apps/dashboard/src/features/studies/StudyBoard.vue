@@ -662,8 +662,8 @@ onUnmounted(() => {
   right: 4px;
 }
 .filter-submenu {
-  left: 100%;
-  right: auto;
+  left: auto;
+  right: 100%;
   top: -5px;
   min-width: 194px;
 }
