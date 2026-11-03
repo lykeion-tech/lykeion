@@ -23,7 +23,10 @@ type fakeBatch struct {
 	err      error
 }
 
-func (b *fakeBatch) Submit(_ context.Context, r []Request) (string, error) {
+func (b *fakeBatch) Submit(ctx context.Context, r []Request) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.requests = append(b.requests, r)
@@ -249,24 +252,43 @@ func (f *writingFixture) rewrite(refs []string) uuid.UUID {
 	f.exec(`INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at) VALUES($1,$2,ARRAY['flag'],now())`, f.ws, id)
 	return id
 }
-func TestRewriteTracksFactsBeyondPromptBudget(t *testing.T) {
-	f := writing(t)
-	refs := []string{}
-	for range 13 {
-		id := uuid.New()
-		f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses',jsonb_build_object('text',repeat('x',10000)))`, id, f.ws, f.card)
-		refs = append(refs, "record:"+id.String())
-	}
-	target := f.rewrite(refs)
-	f.b.output = Output{}
-	f.run()
-	var included, observed int
-	if err := f.env.Owner.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM jsonb_object_keys(versions->'included')),(SELECT count(*) FROM jsonb_object_keys(versions->'observed')) FROM lesson_job_input`).Scan(&included, &observed); err != nil || included != 12 || observed != 13 {
-		t.Fatal(included, observed, err)
-	}
-	f.run()
-	if f.count(`SELECT count(*) FROM lesson WHERE id=$1`, target) != 0 || len(f.b.requests) != 1 {
-		t.Fatal("stable clipped input triggered resubmission")
+func TestLargeRewriteCannotReplaceOrDelete(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(fmt.Sprint("replace-", replace), func(t *testing.T) {
+			f := writing(t)
+			refs := []string{}
+			for range 13 {
+				id := uuid.New()
+				f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses','{"text":"positive"}')`, id, f.ws, f.card)
+				refs = append(refs, "record:"+id.String())
+			}
+			target := f.rewrite(refs)
+			counter := uuid.New()
+			f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses','{"text":"sole-contradiction"}')`, counter, f.ws, f.card)
+			f.exec(`INSERT INTO lesson_counter(workspace_id,lesson_id,ref) VALUES($1,$2,$3)`, f.ws, target, "record:"+counter.String())
+			f.b.output = Output{}
+			if replace {
+				d := f.draft
+				d.Cites = refs[:1]
+				f.b.output.Replacement = &d
+			}
+			f.run()
+			if len(f.b.requests) != 1 || !strings.Contains(f.b.requests[0][0].Prompt, "sole-contradiction") {
+				t.Fatal("counter missing")
+			}
+			// Simulate an already-submitted batch whose dependencies now exceed the
+			// budget. Both output shapes must fail closed on collection as well.
+			f.exec(`UPDATE record SET body=jsonb_build_object('text',repeat('positive',1400)) WHERE workspace_id=$1 AND id<>$2`, f.ws, counter)
+			f.run()
+			if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 || f.count(`SELECT count(*) FROM lesson_job WHERE status='failed'`) != 1 {
+				t.Fatal("oversized rewrite applied")
+			}
+			f.exec(`UPDATE lesson_job SET status='queued',due_at=now() WHERE lesson_id=$1`, target)
+			f.run()
+			if len(f.b.requests) != 1 || f.count(`SELECT count(*) FROM lesson_job WHERE status='failed'`) != 1 {
+				t.Fatal("submitted truncated evidence")
+			}
+		})
 	}
 }
 func TestRestoredCounterInvalidatesPendingRewrite(t *testing.T) {
@@ -277,9 +299,13 @@ func TestRestoredCounterInvalidatesPendingRewrite(t *testing.T) {
 	f.exec(`INSERT INTO lesson_counter(workspace_id,lesson_id,ref) VALUES($1,$2,$3)`, f.ws, target, ref)
 	f.b.output = Output{}
 	f.run()
+	if len(f.b.requests) != 0 {
+		t.Fatal("sent incomplete counter evidence")
+	}
+	f.exec(`UPDATE lesson_job SET due_at=now() WHERE lesson_id=$1`, target)
 	f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,$3,'hypotheses',1,'hypothesis','hypotheses','{"text":"restored counter"}')`, counter, f.ws, f.card)
 	f.run()
-	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 || len(f.b.requests) != 2 || !strings.Contains(f.b.requests[1][0].Prompt, "restored counter") {
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 || len(f.b.requests) != 1 || !strings.Contains(f.b.requests[0][0].Prompt, "restored counter") {
 		t.Fatal("obsolete deletion accepted")
 	}
 	f.run()
@@ -352,5 +378,86 @@ func TestGuardTimeoutConsumesRetryBudget(t *testing.T) {
 	}
 	if f.count(`SELECT count(*) FROM lesson_job WHERE failures=1 AND status='submitted'`) != 1 {
 		t.Fatal("failed to persist timeout receipt")
+	}
+}
+
+func TestGuardEvaluatesCompleteRewriteIncludingCounter(t *testing.T) {
+	f := writing(t)
+	target := f.rewrite(f.draft.Cites)
+	ref := "comment:" + uuid.NewString()
+	c, _ := labmemory.ParseRef(ref)
+	f.exec(`INSERT INTO comment(id,workspace_id,card_id,author_id,body) VALUES($1,$2,$3,$4,repeat('context ',1500)||'negative verdict at end of evidence')`, c.ID, f.ws, f.card, f.user)
+	f.exec(`INSERT INTO lesson_counter(workspace_id,lesson_id,ref) VALUES($1,$2,$3)`, f.ws, target, ref)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ State string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		var st struct {
+			Rewrite promptData `json:"rewrite_evidence"`
+		}
+		if err := json.Unmarshal([]byte(body.State), &st); err != nil {
+			t.Error(err)
+		}
+		choice := "supported"
+		if len(st.Rewrite.Counters) == 1 && st.Rewrite.Counters[0] == ref && strings.Contains(body.State, "negative verdict at end of evidence") {
+			choice = "not_supported"
+		}
+		fmt.Fprintf(w, `{"model":"jev-1.13.0","answers":{"q":{"choice":"%s"}}}`, choice)
+	}))
+	defer s.Close()
+	f.w.Jev.BaseURL = s.URL
+	f.b.output = Output{Replacement: &f.draft}
+	f.run()
+	f.run()
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 {
+		t.Fatal("accepted claim without evaluating contradiction")
+	}
+}
+func TestSlowPreparationLeavesHealthyJobsProviderBudgetIntact(t *testing.T) {
+	f := writing(t)
+	before := f.queue()
+	target := f.rewrite(f.draft.Cites)
+	after := f.queue()
+	f.exec(`UPDATE lesson_job SET due_at=now()-interval '3 hours' WHERE id=$1`, before)
+	f.exec(`UPDATE lesson_job SET due_at=now()-interval '2 hours' WHERE lesson_id=$1`, target)
+	f.exec(`UPDATE lesson_job SET due_at=now()-interval '1 hour' WHERE id=$1`, after)
+	blocker, err := f.env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(t.Context())
+	if _, err = blocker.Exec(t.Context(), `LOCK TABLE lesson_flag IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.w.submitPrepared(t.Context(), t.Context(), 150*time.Millisecond); err == nil {
+		t.Fatal("expected slow rewrite timeout")
+	}
+	if len(f.b.requests) != 1 || len(f.b.requests[0]) != 2 || f.count(`SELECT count(*) FROM lesson_job WHERE failures=0 AND status='submitted' AND id IN($1,$2)`, before, after) != 2 || f.count(`SELECT count(*) FROM lesson_job WHERE lesson_id=$1 AND status='queued' AND failures=0`, target) != 1 {
+		t.Fatal("slow preparation consumed healthy jobs' retries")
+	}
+}
+
+func TestPreparationDeadlineAllowsPreparedBatchToSubmit(t *testing.T) {
+	f := writing(t)
+	healthy := f.queue()
+	target := f.rewrite(f.draft.Cites)
+	f.exec(`UPDATE lesson_job SET due_at=now()-interval '2 hours' WHERE id=$1`, healthy)
+	f.exec(`UPDATE lesson_job SET due_at=now()-interval '1 hour' WHERE lesson_id=$1`, target)
+	blocker, err := f.env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(t.Context())
+	if _, err = blocker.Exec(t.Context(), `LOCK TABLE lesson_flag IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	prep, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if err = f.w.submitPrepared(t.Context(), prep, time.Second); err == nil {
+		t.Fatal("expected preparation deadline")
+	}
+	if !errors.Is(prep.Err(), context.DeadlineExceeded) || len(f.b.requests) != 1 || len(f.b.requests[0]) != 1 || f.b.requests[0][0].JobID != healthy || f.count(`SELECT count(*) FROM lesson_job WHERE failures>0`) != 0 {
+		t.Fatal("preparation deadline spent provider attempts")
 	}
 }

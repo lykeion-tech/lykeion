@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"time"
 
@@ -48,28 +49,20 @@ type promptBuilder struct {
 }
 
 func (p *promptBuilder) add(ctx context.Context, tx *store.Tx, r labmemory.Ref) (labmemory.Fact, error) {
-	// Rewrites track every dependency's live version even when its body does
-	// not fit in the prompt. Only included refs can support a returned draft.
 	key := r.String()
 	if _, seen := p.Versions[key]; seen {
 		return labmemory.Fact{}, nil
 	}
 	full := r.Kind != "lesson" && (p.bytes >= 96*1024 || len(p.Facts) >= 96)
-	if full && p.Observed == nil {
+	if full {
 		return labmemory.Fact{}, nil
 	}
 	f, err := labmemory.ReadMaintenance(ctx, tx, r)
-	if err != nil && !errors.Is(err, labmemory.ErrNotFound) {
+	if errors.Is(err, labmemory.ErrNotFound) || f.Superseded {
+		return labmemory.Fact{}, nil
+	}
+	if err != nil {
 		return f, err
-	}
-	if f.Superseded {
-		f = labmemory.Fact{}
-	}
-	if p.Observed != nil {
-		p.Observed[key] = f.Version
-	}
-	if f.Version == "" || full {
-		return f, nil
 	}
 	limit := 8192
 	if r.Kind != "lesson" {
@@ -85,10 +78,95 @@ func (p *promptBuilder) add(ctx context.Context, tx *store.Tx, r labmemory.Ref) 
 	p.Versions[e.Ref] = f.Version
 	return f, nil
 }
+
+var errRewriteChanged = errors.New("rewrite input changed during guard")
+var errRewriteCapacity = errors.New("rewrite evidence exceeds the complete-input budget")
+var errRewriteUnavailable = errors.New("required rewrite evidence unavailable")
+
+// Admit complete rewrite inputs only. Reserve space for counter-facts before
+// considering the old supporting facts. Never send an excerpt as a complete
+// fact or omit an overflow row. Jev later receives this same full projection.
+func rewritePrompt(ctx context.Context, tx *store.Tx, source store.RewriteSource, triggers []string) (*promptBuilder, error) {
+	if len(source.Counters) > 32 || len(source.Flags) > 32 {
+		return nil, errRewriteCapacity
+	}
+	p := &promptBuilder{promptData: promptData{Triggers: triggers, Flags: source.Flags}, WriterInput: store.WriterInput{Versions: map[string]string{}, Observed: map[string]string{}, CompleteRewrite: true}}
+	for _, flag := range source.Flags {
+		p.bytes += len(flag)
+	}
+	var cites []labmemory.Citation
+	if json.Unmarshal(source.Cites, &cites) != nil || len(cites) == 0 {
+		return nil, errRewriteUnavailable
+	}
+	if len(cites) > 32 {
+		return nil, errRewriteCapacity
+	}
+	add := func(s string) (string, error) {
+		r, err := labmemory.ParseRef(s)
+		if err != nil || r.Kind == "lesson" {
+			return "", errRewriteUnavailable
+		}
+		if version, seen := p.Observed[r.String()]; seen {
+			return version, nil
+		}
+		f, err := labmemory.ReadMaintenance(ctx, tx, r)
+		if errors.Is(err, labmemory.ErrNotFound) || f.Superseded {
+			return "", errRewriteUnavailable
+		}
+		if err != nil {
+			return "", err
+		}
+		if f.Version == "" {
+			return "", errRewriteUnavailable
+		}
+		if p.bytes+len(f.Text) > 96*1024 {
+			return "", errRewriteCapacity
+		}
+		p.Facts = append(p.Facts, evidence{r.String(), f.Text})
+		p.bytes += len(f.Text)
+		p.Versions[r.String()] = f.Version
+		p.Observed[r.String()] = f.Version
+		return f.Version, nil
+	}
+	for _, s := range source.Counters {
+		if _, err := add(s); err != nil {
+			return nil, err
+		}
+		p.Counters = append(p.Counters, s)
+	}
+	current := true
+	for _, c := range cites {
+		v, err := add(c.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if v != c.Version {
+			current = false
+		}
+	}
+	if current {
+		if p.bytes+len(source.Text) > 96*1024 {
+			return nil, errRewriteCapacity
+		}
+		p.Rewrite = source.Text
+	} else {
+		p.Rewrite = "Rewrite from currently available facts."
+	}
+	return p, nil
+}
+func deferIncompleteRewrite(ctx context.Context, tx *store.Tx, id uuid.UUID, token string, err error) error {
+	switch {
+	case errors.Is(err, errRewriteUnavailable):
+		return tx.ChangeWriterJob(ctx, id, token, "", "queued", 300)
+	case errors.Is(err, errRewriteCapacity):
+		return tx.ChangeWriterJob(ctx, id, token, "", "failed", 0)
+	default:
+		return err
+	}
+}
 func (w *Writer) prompt(ctx context.Context, tx *store.Tx, j store.WriterJob) (*promptBuilder, string, error) {
 	p := &promptBuilder{promptData: promptData{Triggers: j.Triggers}, WriterInput: store.WriterInput{Versions: map[string]string{}}}
 	if j.Lesson != nil {
-		p.Observed = map[string]string{}
 		source, err := tx.RewriteSource(ctx, *j.Lesson, false)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", nil
@@ -96,44 +174,10 @@ func (w *Writer) prompt(ctx context.Context, tx *store.Tx, j store.WriterJob) (*
 		if err != nil {
 			return nil, "", err
 		}
-		var cites []labmemory.Citation
-		current := json.Unmarshal(source.Cites, &cites) == nil && len(cites) > 0
-		for _, c := range cites {
-			r, err := labmemory.ParseRef(c.Ref)
-			if err != nil || r.Kind == "lesson" {
-				current = false
-				continue
-			}
-			if _, err := p.add(ctx, tx, r); err != nil {
-				return nil, "", err
-			}
-			if p.Observed[r.String()] != c.Version || c.Version == "" {
-				current = false
-			}
-		}
-		// Historical wording may itself contain withdrawn evidence. Only send it
-		// when its original evidence remains shared and current.
-		if current {
-			p.Rewrite = clip(source.Text, 8192)
-		} else {
-			p.Rewrite = "Rewrite from currently available facts."
-		}
-		p.Flags = source.Flags
-		for _, ref := range source.Counters {
-			r, err := labmemory.ParseRef(ref)
-			if err != nil || r.Kind == "lesson" {
-				continue
-			}
-			_, err = p.add(ctx, tx, r)
-			if err != nil {
-				return nil, "", err
-			}
-			if p.Versions[r.String()] != "" {
-				p.Counters = append(p.Counters, r.String())
-			}
-		}
-		return p, source.Revision, nil
+		p, err := rewritePrompt(ctx, tx, source, j.Triggers)
+		return p, source.Revision, err
 	}
+
 	if j.Card == nil {
 		return nil, "", nil
 	}
@@ -245,9 +289,20 @@ func (w *Writer) recordFailure(ctx context.Context, ws, id uuid.UUID, batch, sta
 	return w.scoped(receipt, ws, func(tx *store.Tx) error { return tx.FailWriterAttempt(receipt, id, batch, status, permanent) })
 }
 func (w *Writer) submit(ctx context.Context) error {
+	// Stop preparing before the phase deadline, leaving an independent window
+	// for provider creation. A slow tenant cannot consume another job's retries.
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(90 * time.Second)
+	}
+	prep, cancel := context.WithDeadline(ctx, deadline.Add(-30*time.Second))
+	defer cancel()
+	return w.submitPrepared(ctx, prep, 3*time.Second)
+}
+func (w *Writer) submitPrepared(ctx, prep context.Context, perJob time.Duration) error {
 	token := "claim:" + uuid.NewString()
 	var jobs []store.WriterJob
-	err := w.Store.Maintenance(ctx, func(tx *store.Tx) error { var err error; jobs, err = tx.DueWriterJobs(ctx, token); return err })
+	err := w.Store.Maintenance(prep, func(tx *store.Tx) error { var err error; jobs, err = tx.DueWriterJobs(prep, token); return err })
 	if err != nil {
 		return err
 	}
@@ -255,22 +310,27 @@ func (w *Writer) submit(ctx context.Context) error {
 	var started []store.WriterJob
 	var errs []error
 	for _, j := range jobs {
+		if prep.Err() != nil {
+			break
+		}
+		jobCtx, cancel := context.WithTimeout(prep, perJob)
 		var req Request
-		err := w.scoped(ctx, j.Workspace, func(tx *store.Tx) error {
-			p, revision, err := w.prompt(ctx, tx, j)
+		err := w.scoped(jobCtx, j.Workspace, func(tx *store.Tx) error {
+			p, revision, err := w.prompt(jobCtx, tx, j)
 			if err != nil {
-				return err
+				return deferIncompleteRewrite(jobCtx, tx, j.ID, token, err)
 			}
 			if p == nil {
-				return tx.ChangeWriterJob(ctx, j.ID, token, "", "done", 0)
+				return tx.ChangeWriterJob(jobCtx, j.ID, token, "", "done", 0)
 			}
 			raw, err := json.Marshal(p.promptData)
 			if err != nil {
 				return err
 			}
 			req = Request{JobID: j.ID, Prompt: string(raw)}
-			return tx.SaveWriterInput(ctx, j.ID, token, p.WriterInput, revision)
+			return tx.SaveWriterInput(jobCtx, j.ID, token, p.WriterInput, revision)
 		})
+		cancel()
 		if err != nil {
 			errs = append(errs, err)
 		} else if req.Prompt != "" {
@@ -279,6 +339,9 @@ func (w *Writer) submit(ctx context.Context) error {
 		}
 	}
 	if len(requests) > 0 {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
 		batch, err := w.Batcher.Submit(ctx, requests)
 		if err == nil && batch == "" {
 			err = errors.New("empty lesson batch ID")
@@ -348,7 +411,7 @@ func (w *Writer) collect(ctx context.Context) error {
 			}
 			// Rebuild an interrupted batch from a server with an older snapshot
 			// shape. An absent allowlist must never behave as an unrestricted guard.
-			if input.Versions == nil || (lesson != nil && input.Observed == nil) {
+			if input.Versions == nil || (lesson != nil && (input.Observed == nil || !input.CompleteRewrite)) {
 				return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "queued", 0)
 			}
 			if !found || r.Err != "" {
@@ -356,6 +419,9 @@ func (w *Writer) collect(ctx context.Context) error {
 			}
 			adjudicating = true
 			err = tx.Savepoint(ctx, func(inner *store.Tx) error { return w.apply(ctx, inner, j, lesson, input, revision, r.Output) })
+			if errors.Is(err, errRewriteChanged) {
+				return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "queued", 0)
+			}
 			var failure judgeFailure
 			if errors.As(err, &failure) {
 				errs = append(errs, failure)
@@ -386,36 +452,43 @@ func (w *Writer) apply(ctx context.Context, tx *store.Tx, j store.BatchJob, less
 		if current.Revision != revision {
 			return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "queued", 0)
 		}
-		// Null is a deletion decision based on this exact evidence snapshot. If
-		// evidence changed while waiting, obtain a fresh model decision first.
-		for ref, v := range input.Observed {
-			r, _ := labmemory.ParseRef(ref)
-			f, err := labmemory.ReadMaintenance(ctx, tx, r)
-			if err != nil && !errors.Is(err, labmemory.ErrNotFound) {
-				return err
-			}
-			now := f.Version
-			if f.Superseded {
-				now = ""
-			}
-			if now != v {
-				return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "queued", 0)
-			}
+		p, err := rewritePrompt(ctx, tx, current, nil)
+		if err != nil {
+			return deferIncompleteRewrite(ctx, tx, j.ID, j.Batch, err)
 		}
+		if !maps.Equal(p.Observed, input.Observed) || !maps.Equal(p.Versions, versions) {
+			return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "queued", 0)
+		}
+
 		if o.Replacement == nil {
 			if err := tx.DeleteRewrite(ctx, *lesson); err != nil {
 				return err
 			}
 			changed = true
 		} else {
-			changed, err = w.save(ctx, tx, lesson, *o.Replacement, versions)
+			changed, err = w.save(ctx, tx, lesson, *o.Replacement, versions, &p.promptData)
 			if err != nil {
 				return err
 			}
+			if changed {
+				// Jev ran outside the database. Check every dependency again, including
+				// counter-facts that are not themselves citations in the new wording.
+				for ref, want := range input.Observed {
+					r, _ := labmemory.ParseRef(ref)
+					v, err := labmemory.Version(ctx, tx, r)
+					if errors.Is(err, labmemory.ErrNotFound) || err == nil && v != want {
+						return errRewriteChanged
+					}
+					if err != nil {
+						return err
+					}
+				}
+			}
+
 		}
 	} else {
 		for _, d := range o.Lessons[:min(4, len(o.Lessons))] {
-			saved, err := w.save(ctx, tx, nil, d, versions)
+			saved, err := w.save(ctx, tx, nil, d, versions, nil)
 			if err != nil {
 				return err
 			}
@@ -438,8 +511,8 @@ func (w *Writer) apply(ctx context.Context, tx *store.Tx, j store.BatchJob, less
 	}
 	return tx.ChangeWriterJob(ctx, j.ID, j.Batch, "", "done", 0)
 }
-func (w *Writer) save(ctx context.Context, tx *store.Tx, target *uuid.UUID, d Draft, versions map[string]string) (bool, error) {
-	checked, reason, err := w.check(ctx, tx, d, versions)
+func (w *Writer) save(ctx context.Context, tx *store.Tx, target *uuid.UUID, d Draft, versions map[string]string, rewrite *promptData) (bool, error) {
+	checked, reason, err := w.check(ctx, tx, d, versions, rewrite)
 	if err != nil || reason != "" {
 		return false, err
 	}

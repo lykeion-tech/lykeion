@@ -47,8 +47,9 @@ func (t *Tx) DueWriterJobs(ctx context.Context, token string) ([]WriterJob, erro
 }
 
 type WriterInput struct {
-	Versions map[string]string `json:"included"`
-	Observed map[string]string `json:"observed"`
+	CompleteRewrite bool              `json:"complete_rewrite,omitempty"`
+	Versions        map[string]string `json:"included"`
+	Observed        map[string]string `json:"observed"`
 }
 
 func (t *Tx) SaveWriterInput(ctx context.Context, j uuid.UUID, token string, input WriterInput, rewrite string) error {
@@ -130,8 +131,8 @@ type RewriteSource struct {
 
 func (t *Tx) RewriteSource(ctx context.Context, id uuid.UUID, lock bool) (RewriteSource, error) {
 	var s RewriteSource
-	query := `SELECT l.text,l.cites,ARRAY(SELECT left(f.reason,2048) FROM lesson_flag f WHERE f.workspace_id=l.workspace_id AND f.lesson_id=l.id ORDER BY f.created_at DESC,f.id LIMIT 32),
- ARRAY(SELECT c.ref FROM lesson_counter c WHERE c.workspace_id=l.workspace_id AND c.lesson_id=l.id ORDER BY c.created_at DESC,c.id LIMIT 32),
+	query := `SELECT l.text,l.cites,ARRAY(SELECT f.reason FROM lesson_flag f WHERE f.workspace_id=l.workspace_id AND f.lesson_id=l.id ORDER BY f.created_at DESC,f.id LIMIT 33),
+ ARRAY(SELECT c.ref FROM lesson_counter c WHERE c.workspace_id=l.workspace_id AND c.lesson_id=l.id ORDER BY c.created_at DESC,c.id LIMIT 33),
  concat_ws('/',l.written_at,l.set_aside_reason,(SELECT count(*) FROM lesson_flag WHERE workspace_id=l.workspace_id AND lesson_id=l.id),(SELECT count(*) FROM lesson_counter WHERE workspace_id=l.workspace_id AND lesson_id=l.id))
  FROM lesson l WHERE l.workspace_id=app_workspace() AND l.id=$1 AND l.status='set_aside'`
 	if lock {
