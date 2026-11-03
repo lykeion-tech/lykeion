@@ -9,7 +9,7 @@ import MachineWait from './MachineWait.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { useDecisions } from '../../api/queries';
+import { useDecisions, useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
 import { agentDecisionParts, isMachineWait } from '../../lib/studies';
 
@@ -17,6 +17,7 @@ const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
 const open = useDecisions(false);
 const resolved = useDecisions(true);
+const me = useMe();
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId),
 );
@@ -60,12 +61,20 @@ watch(
 );
 onUnmounted(() => generation++);
 
-// Read receipts belong to the workspace and item visit that opened them.
+// Read receipts belong to the workspace and item visit that opened them, and
+// only the item's addressee sends one.
 watch(
-  [workspaceId, () => props.itemId, () => selected.value?.id, () => selected.value?.read_at],
+  [
+    workspaceId,
+    () => props.itemId,
+    () => selected.value?.id,
+    () => selected.value?.read_at,
+    () => me.data.value?.id,
+  ],
   async () => {
     const item = selected.value;
     if (!item || item.read_at || item.workspace_id !== workspaceId.value) return;
+    if (!me.data.value || item.user_id !== me.data.value.id) return;
     const workspace = workspaceId.value;
     const id = item.id;
     const visit = generation;
@@ -87,6 +96,12 @@ watch(
     <div class="split-workspace">
       <div class="conversation-content">
         <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
+        <div v-if="selected?.kind === 'agent_decision'" class="agent-question">
+          <p class="type-body">
+            <b>{{ agentDecisionParts(selected.text).title }}</b>
+          </p>
+          <p class="type-body">{{ agentDecisionParts(selected.text).body }}</p>
+        </div>
         <DecisionOptions v-if="selected?.options?.length" :key="selected.id" :item="selected" />
         <MachineWait
           v-if="selected && isMachineWait(selected)"
@@ -99,11 +114,6 @@ watch(
           :key="selected.card_id"
           embedded
         />
-        <div v-else-if="selected?.kind === 'agent_decision'" class="conversation-empty">
-          <Icon name="inbox" :size="38" />
-          <p class="type-body">{{ agentDecisionParts(selected.text).title }}</p>
-          <p class="type-body">{{ agentDecisionParts(selected.text).body }}</p>
-        </div>
         <div v-else-if="selectedReport" class="conversation-empty">
           <Icon name="zap" :size="38" />
           <p>{{ selectedReport.text }}</p>
@@ -124,3 +134,12 @@ watch(
   </section>
 </template>
 <style scoped src="../../ui/resources.css"></style>
+<style scoped>
+.agent-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 0;
+  white-space: pre-wrap;
+}
+</style>

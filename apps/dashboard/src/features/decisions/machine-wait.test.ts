@@ -31,6 +31,7 @@ const item = (over: Partial<DecisionItem>): DecisionItem => ({
   default_option: '',
   status: 'open',
   expires_at: null,
+  reminded_at: null,
   chosen_option: '',
   guidance: '',
   decided_by: null,

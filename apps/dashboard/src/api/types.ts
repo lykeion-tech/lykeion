@@ -146,7 +146,7 @@ export interface Card {
   // What every Grounding source must meet, as the researcher wrote them.
 }
 
-export type BlockKind = '' | 'low_score';
+export type BlockKind = '' | 'low_score' | 'decision' | 'parked';
 
 export interface Comment {
   id: string;
@@ -282,6 +282,8 @@ export interface DecisionItem {
   default_option: string;
   status: 'open' | 'decided' | 'expired' | 'dismissed' | string;
   expires_at: string | null;
+  // Set once the day-before reminder went out: the item expires within a day.
+  reminded_at: string | null;
   chosen_option: string;
   guidance: string;
   decided_by: string | null;

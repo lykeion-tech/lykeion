@@ -85,7 +85,7 @@ export const useDecisions = (history: MaybeRefOrGetter<boolean>) =>
 export const useDecisionCount = () =>
   useQuery({
     queryKey: computed(() => keys.decisionCount(ws.value)),
-    queryFn: async () => (await api<{ open: number }>('GET', '/api/decisions/count')).open,
+    queryFn: () => api<{ open: number; due_soon: number }>('GET', '/api/decisions/count'),
     enabled: inWorkspace,
   });
 

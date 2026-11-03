@@ -229,6 +229,8 @@ export function transcript(
 const blockLabels: Record<BlockKind, string> = {
   '': '',
   low_score: 'low score',
+  decision: 'Waiting on a decision',
+  parked: 'Parked',
 };
 export const blockLabel = (kind: BlockKind): string => blockLabels[kind];
 
@@ -239,6 +241,9 @@ const couldNotDo = /the agent could not do this column: ([\s\S]+)$/;
 export function blockedMessage(card: Card): string {
   if (card.block_kind === 'low_score')
     return 'Scored low twice. Tell the Team what to fix to redo this column.';
+  if (card.block_kind === 'decision')
+    return 'The agent asked you a question: answer it in Decisions.';
+  if (card.block_kind === 'parked') return 'Parked: comment to redo this column.';
   const hold = card.hold_text ?? '';
   const reason = couldNotDo.exec(hold)?.[1];
   if (reason) return `The agent could not do this column: ${reason}`;
@@ -256,11 +261,13 @@ export function blockBadge(card: Card): string {
 
 export type ComposerAction = { kind: 'comment' } | { kind: 'stop' };
 
-// A Blocked study's picker for its owner: Comment, which gives a low-scored
-// study one more redo. Anyone else's comment redoes nothing, so they, and
-// everyone on an unblocked study, get [] and keep the ordinary picker.
+// A Blocked study's picker: Comment, which redoes the column, for its owner,
+// and for anyone on a parked study. A study waiting on its agent's question
+// is answered in Decisions, not by a comment. Everyone else, and everyone on
+// an unblocked study, gets [] and keeps the ordinary picker.
 export function blockedActions(card: Card, viewer: string | undefined): ComposerAction['kind'][] {
-  return card.ending || card.state !== 'blocked' || card.owner_id !== viewer ? [] : ['comment'];
+  if (card.ending || card.state !== 'blocked' || card.block_kind === 'decision') return [];
+  return card.block_kind === 'parked' || card.owner_id === viewer ? ['comment'] : [];
 }
 
 export function actionLabel(a: ComposerAction): string {
@@ -376,6 +383,7 @@ export const isMachineWait = (item: {
   cause?: string | null;
 }): boolean =>
   item.kind === 'waiting_for_machine' ||
+  item.kind === 'machine_offline' ||
   (item.kind === 'needs_decision' && item.cause === 'machine_failures');
 
 // What an agent's decision is about, and the stop kinds a decision can be in.

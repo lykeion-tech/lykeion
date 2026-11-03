@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
-import { useCards, useDecisions } from '../../api/queries';
+import { useCards, useDecisions, useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
 import {
   agentDecisionParts,
@@ -22,6 +22,7 @@ const history = ref(false);
 const open = useDecisions(false);
 const past = useDecisions(true);
 const cards = useCards();
+const me = useMe();
 const menu = ref('');
 const error = ref('');
 const shown = computed(() => (history.value ? past.data.value : open.data.value) ?? []);
@@ -37,6 +38,12 @@ const line = (item: DecisionItem) =>
     : (inboxText(item, titleOf(item)) ?? `${kindOf(item).label}: ${item.text}`);
 const decideByText = (item: DecisionItem) =>
   item.decide_by === 'date' ? (item.decide_by_date ?? '') : (decideByLabel[item.decide_by] ?? '');
+// Only the item's addressee has it unread; others who can see it never do.
+const unread = (item: DecisionItem) => !item.read_at && item.user_id === me.data.value?.id;
+// An open decision is answered, not archived.
+const archivable = (item: DecisionItem) => item.status !== 'open' || !item.options?.length;
+// The reminder went out: the item expires within a day.
+const expiresSoon = (item: DecisionItem) => item.status === 'open' && !!item.reminded_at;
 const snoozed = (item: DecisionItem) =>
   !!item.snoozed_until && Date.parse(item.snoozed_until) > Date.now();
 
@@ -106,7 +113,8 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
             ><small>{{ timeAgo(item.created_at) }}</small
             ><small v-if="decideByText(item)" class="decide-by">{{ decideByText(item) }}</small
             ><small v-if="snoozed(item)" class="snoozed-mark">Snoozed</small
-            ><i v-if="!item.read_at" class="unread"
+            ><small v-if="expiresSoon(item)" class="expires-soon">Expires soon</small
+            ><i v-if="unread(item)" class="unread"
           /></span>
         </RouterLink>
         <button
@@ -143,7 +151,7 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
           </template>
           <button v-if="!item.kept" @click="post(item, 'keep')">Keep</button>
           <button v-if="item.archived_at" @click="post(item, 'revive')">Revive</button>
-          <button v-else @click="post(item, 'archive')">Archive</button>
+          <button v-else-if="archivable(item)" @click="post(item, 'archive')">Archive</button>
         </div>
       </div>
       <p v-if="!shown.length" class="decision-empty">
@@ -248,6 +256,9 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
 .decide-by,
 .snoozed-mark {
   color: var(--primary-text);
+}
+.decision-side .expires-soon {
+  color: var(--danger-text);
 }
 .row-menu {
   position: absolute;

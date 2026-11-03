@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
+import { useMembers } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
 import {
   decisionKindLabel,
@@ -21,6 +22,14 @@ const error = ref('');
 const guidance = ref('');
 const redoing = ref(false);
 const options = computed(() => props.item.options ?? []);
+const members = useMembers();
+// Who answered a decided item, by name, or by email when they set none.
+const decider = computed(() => {
+  const id = props.item.decided_by;
+  if (!id) return '';
+  const m = members.data.value?.find((x) => x.user_id === id);
+  return m ? m.name || m.email : '';
+});
 const answerable = computed(
   () => props.item.can_answer && props.item.status === 'open' && options.value.length > 0,
 );
@@ -88,8 +97,8 @@ function choose(option: string) {
       />
     </template>
     <p v-else-if="item.status !== 'open'" class="decision-outcome">
-      {{ decisionOutcome(item)
-      }}<template v-if="item.decided_at"> · {{ timeAgo(item.decided_at) }}</template
+      {{ decisionOutcome(item) }}<template v-if="decider"> · by {{ decider }}</template
+      ><template v-if="item.decided_at"> · {{ timeAgo(item.decided_at) }}</template
       ><template v-if="item.guidance"> · “{{ item.guidance }}”</template>
     </p>
     <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
