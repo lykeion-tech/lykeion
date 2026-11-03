@@ -27,13 +27,26 @@ const newest = computed(() =>
     .at(-1),
 );
 const shown = ref<Column>('grounding');
+const manuallyShown = ref(false);
+watch(
+  [workspaceId, () => props.cardId],
+  () => {
+    manuallyShown.value = false;
+  },
+  { flush: 'sync' },
+);
 watch(
   [workspaceId, () => props.cardId, newest, () => card.data.value?.board_column],
   () => {
+    if (manuallyShown.value) return;
     shown.value = newest.value?.column ?? card.data.value?.board_column ?? 'grounding';
   },
   { immediate: true },
 );
+function showColumn(column: Column) {
+  manuallyShown.value = true;
+  shown.value = column;
+}
 const attempt = computed(() =>
   columns.value.find((c) => c.column === shown.value)?.attempts.at(-1),
 );
@@ -91,10 +104,12 @@ const labels = computed(() =>
     const group = fingerprint.value.filter((s) => s.item === i);
     const angle = (group[0]!.angle + group.at(-1)!.angle) / 2;
     const item = items.value[i]!;
+    const right = Math.cos(angle) >= 0;
     return {
       item: i,
-      ...point(angle, 148),
-      anchor: Math.cos(angle) > 0.3 ? 'start' : Math.cos(angle) < -0.3 ? 'end' : 'middle',
+      x: right ? 350 : 8,
+      y: Math.max(8, Math.min(232, point(angle, 148).y - 14)),
+      align: right ? ('left' as const) : ('right' as const),
       label: item.label.slice(0, 24),
       weakest: !!attempt.value?.weakest && attempt.value.weakest.key === item.key,
       index: indexOf(group.map((s) => item.checks[s.check]!)),
@@ -206,14 +221,24 @@ const tiles = computed(() =>
               @keydown.space.prevent="picked = spoke.id"
             />
           </g>
-          <g v-for="label in labels" :key="label.item">
-            <text :x="label.x" :y="label.y" :text-anchor="label.anchor" class="item-label">
-              {{ label.label }}{{ label.weakest ? ' · weakest' : '' }}
-            </text>
-            <text :x="label.x" :y="label.y + 14" :text-anchor="label.anchor" class="item-index">
-              {{ label.index ?? '—' }}
-            </text>
-          </g>
+          <foreignObject
+            v-for="label in labels"
+            :key="label.item"
+            :x="label.x"
+            :y="label.y"
+            width="72"
+            height="90"
+          >
+            <div
+              xmlns="http://www.w3.org/1999/xhtml"
+              class="item-label"
+              :style="{ textAlign: label.align }"
+            >
+              <span>{{ label.label }}</span>
+              <span v-if="label.weakest">· weakest</span>
+              <b class="item-index">{{ label.index ?? '—' }}</b>
+            </div>
+          </foreignObject>
           <text
             x="215"
             y="173"
@@ -261,7 +286,7 @@ const tiles = computed(() =>
             class="stage-tile"
             :aria-label="`Show ${columnName(tile.column)} review`"
             :aria-pressed="shown === tile.column"
-            @click="shown = tile.column"
+            @click="showColumn(tile.column)"
           >
             <span class="tile-heading"
               ><span>{{ columnName(tile.column) }}</span
@@ -307,7 +332,6 @@ const tiles = computed(() =>
   display: block;
   margin: 0 auto;
   max-width: 560px;
-  overflow: visible;
 }
 .ring-label {
   font-size: 8px;
@@ -315,7 +339,12 @@ const tiles = computed(() =>
 }
 .item-label {
   font-size: 11.5px;
-  fill: var(--text);
+  line-height: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.item-label > * {
+  display: block;
 }
 .item-index {
   font-size: 11.5px;

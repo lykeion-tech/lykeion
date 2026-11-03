@@ -188,6 +188,55 @@ it('shows the newest attempt by time, including after a review arrives', async (
   );
 });
 
+it('preserves a selected historical stage when the card or review updates', async () => {
+  const reviews = columns();
+  reviews[1]!.attempts[0]!.at = '2026-11-03T11:00:00Z';
+  const { root, client } = setup(reviews);
+  await nextTick();
+  const groundingTile = all(root).find((n) => n.props['aria-label'] === 'Show Grounding review')!;
+  (groundingTile.props.onClick as () => void)();
+  await nextTick();
+  client.setQueryData(keys.card('w', 'c'), { id: 'c', board_column: 'validation' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await nextTick();
+  const caption = () =>
+    textOf(all(root).find((n) => n.props['aria-label'] === 'Fingerprint caption')!);
+  expect(caption()).toContain('Grounding · try 1');
+  client.setQueryData(
+    [...keys.recordsAll('w', 'c'), 'review'],
+    [
+      ...reviews.slice(0, 3),
+      {
+        column: 'validation',
+        attempts: [{ ...grounding(), column: 'validation', at: '2026-11-03T12:00:00Z' }],
+      },
+    ],
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await nextTick();
+  expect(caption()).toContain('Grounding · try 1');
+});
+
+it('bounds long fingerprint labels and their weakest marker within the chart', async () => {
+  const a = grounding();
+  a.items.forEach((item) => {
+    item.label = 'WWWWWWWWWWWWWWWWWWWWWWWWextra';
+  });
+  const { root } = setup(columns(a));
+  await nextTick();
+  const labels = all(root).filter((n) => n.tag === 'foreignObject');
+  expect(labels).toHaveLength(2);
+  for (const label of labels) {
+    expect(Number(label.props.x)).toBeGreaterThanOrEqual(0);
+    expect(Number(label.props.x) + Number(label.props.width)).toBeLessThanOrEqual(430);
+    expect(Number(label.props.y)).toBeGreaterThanOrEqual(0);
+    expect(Number(label.props.y) + Number(label.props.height)).toBeLessThanOrEqual(330);
+    expect(textOf(label)).toContain('WWWWWWWWWWWWWWWWWWWWWWWW');
+    expect(textOf(label)).not.toContain('extra');
+  }
+  expect(textOf(labels[1]!)).toContain('· weakest');
+});
+
 it('shows an empty review and the current stage before any attempts', async () => {
   const { root } = setup(columns().map((column) => ({ ...column, attempts: [] })));
   await nextTick();
