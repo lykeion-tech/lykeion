@@ -442,7 +442,7 @@ func TestDeclinedMissedPaperJudgedByJev(t *testing.T) {
 		p      float64
 		missed bool
 		status string
-	}{{0.8, false, Pass}, {0.5, true, Unclear}, {0.1, true, Fail}} {
+	}{{0.8, false, Pass}, {0.5, false, Unclear}, {0.1, true, Fail}} {
 		s := twoPapers()
 		s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
 		a := &fakeAsker{p: func(_, key string) float64 {
@@ -469,6 +469,36 @@ func TestDeclinedMissedPaperJudgedByJev(t *testing.T) {
 			if m := checkOf(r.Missed[0], "missed"); m == nil || m.Status != c.status {
 				t.Errorf("p=%v: missed check %+v", c.p, m)
 			}
+			continue
+		}
+		// A decline Jev did not reject is in the review, as a passing item or
+		// as an unclear one carried forward.
+		i := slices.IndexFunc(r.Items, func(it Item) bool { return it.Kind == KindDeclined })
+		if i < 0 || r.Items[i].Status != c.status || r.Items[i].Identity != "doi:10.1/missed" || checkOf(r.Items[i], "out_of_scope") == nil {
+			t.Fatalf("p=%v: items %+v", c.p, r.Items)
+		}
+		if want := map[string]string{Pass: DecidePass, Unclear: DecideCarry}[c.status]; Decide(r, 0) != want {
+			t.Errorf("p=%v: decided %s, want %s", c.p, Decide(r, 0), want)
+		}
+	}
+}
+
+func TestADeclineThatStoodIsNotMissedAgain(t *testing.T) {
+	s := twoPapers()
+	s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+	a := &fakeAsker{p: func(string, string) float64 { return 0.9 }}
+	carried := Item{Kind: KindDeclined, Label: "doi:10.1/missed", Identity: "doi:10.1/missed", Status: Pass, Checks: []Check{}}
+	r, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?",
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}, Carried: []Item{carried}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Missed) != 0 || Decide(r, 0) != DecidePass {
+		t.Fatalf("a decline that stood came back missed: %+v", r)
+	}
+	for _, n := range a.noul {
+		if _, ok := n.Questions["out_of_scope"]; ok {
+			t.Fatal("Jev was asked about a decline that stood again")
 		}
 	}
 }

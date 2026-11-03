@@ -228,10 +228,15 @@ func TestSecondFailureBlocks(t *testing.T) {
 	if rs := l.reviews(t, c.ID, "grounding"); len(rs) != 2 || rs[1].Decision != review.DecideBlock {
 		t.Fatalf("review records: %+v", rs)
 	}
-	// The owner's comment still redoes a blocked column.
+	// The owner's comment still redoes a blocked column, and the redo is
+	// sent what still fails, to answer.
 	l.e.OnComment(l.ws, c.ID, l.owner, "Use a paper that exists.")
-	if got := l.card(t, c.ID); got.State != "working" || got.Round != c.Round+2 {
+	got = l.card(t, c.ID)
+	if got.State != "working" || got.Round != c.Round+2 {
 		t.Fatalf("after the owner's comment: %s round %d", got.State, got.Round)
+	}
+	if !strings.HasPrefix(got.HandoffNote, "The researcher asked for this column to be redone:\nUse a paper that exists.\n\nJev's review sent back these items:\n- "+reasons[0]) {
+		t.Fatalf("the restarted round is not told what still fails:\n%s", got.HandoffNote)
 	}
 }
 

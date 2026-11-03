@@ -168,6 +168,11 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	// A carried paper is resolved again so that every identity it has
 	// upstream counts as cited, not only the id the agent wrote.
 	for _, c := range in.Carried {
+		// A missed paper whose decline stood is not found missing again.
+		if c.Kind == KindDeclined {
+			cite([]string{c.Identity})
+			continue
+		}
 		if c.Kind != KindPaper || c.Status == Withdrawn {
 			continue
 		}
@@ -285,10 +290,14 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 				status := StatusOf(p)
 				p = stored(p)
 				cs = append(cs, Check{ID: "out_of_scope", By: "jev", Question: outOfScopeQuestion, P: &p, Status: status})
-				if status == Pass {
+				// A decline Jev accepts stands as a passing item, and one it is
+				// unsure of is carried forward as a note; only a rejected one
+				// leaves the paper missed.
+				if status != Fail {
+					r.Items = append(r.Items, Item{Kind: KindDeclined, Label: label, Identity: hitKeys(h)[i], Status: status, Checks: cs})
 					continue
 				}
-				missed.Detail, missed.Status = "meets every criterion; the declining reason did not convince Jev", status
+				missed.Detail = "meets every criterion; the declining reason did not convince Jev"
 			}
 			cs = append(cs, missed)
 			r.Missed = append(r.Missed, Item{Kind: KindPaper, Label: label, Status: Fail, Checks: cs})

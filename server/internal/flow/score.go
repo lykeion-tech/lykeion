@@ -20,6 +20,7 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -795,8 +796,16 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "") || c.Ending != "" || author != c.OwnerID {
 		return false, nil
 	}
+	note := "The researcher asked for this column to be redone:\n" + comment
+	still, err := stillFailing(ctx, tx, c)
+	if err != nil {
+		return false, err
+	}
+	if still != "" {
+		note += "\n\n" + still
+	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working,
-		Round: c.Round + 1, Redos: c.Redos, HandoffNote: "The researcher asked for this column to be redone:\n" + comment}); err != nil {
+		Round: c.Round + 1, Redos: c.Redos, HandoffNote: note}); err != nil {
 		return false, err
 	}
 	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
@@ -814,6 +823,37 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 		}
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
+}
+
+// stillFailing is what the review that held the study's round sent back,
+// for the run its owner's comment restarts: the failed items and missed
+// papers it may answer in its replies, or the hypotheses Validation found
+// invalid. Empty when the round has no review, or nothing in it failed.
+func stillFailing(ctx context.Context, tx *store.Tx, c db.Card) (string, error) {
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return "", err
+	}
+	res, err := lastReview(recs, c.Round+1)
+	if err != nil || res.Column == "" || review.AllWithdrawn(res) {
+		return "", err
+	}
+	var invalid []string
+	for _, r := range recs {
+		if r.Kind != "validation_status" || r.Round != c.Round {
+			continue
+		}
+		if s := records.Body[statusBody](r); s.Final && s.Status == review.Invalid {
+			invalid = append(invalid, oneLine(s.Hypothesis)+": "+strings.Join(s.Reasons, "; "))
+		}
+	}
+	if len(invalid) > 0 {
+		return "Validation found these hypotheses invalid:\n- " + strings.Join(invalid, "\n- "), nil
+	}
+	if d := review.Decide(res, 0); d != review.DecideRedo {
+		return "", nil
+	}
+	return redoNote(ctx, tx, c, res)
 }
 
 func latestAuditor(runs []db.AgentRun) int {

@@ -343,6 +343,9 @@ func TestInvalidRoutesBackOnceThenAsks(t *testing.T) {
 	if got = l.card(t, c.ID); got.State != "working" || got.BoardColumn != "validation" {
 		t.Fatalf("after the owner's comment: %s %s", got.BoardColumn, got.State)
 	}
+	if !strings.Contains(got.HandoffNote, "Validation found these hypotheses invalid:\n- "+supportedText+": the measurement \"auc\" was not reproduced") {
+		t.Fatalf("the restarted Validation is not told what was invalid:\n%s", got.HandoffNote)
+	}
 	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'validation_invalid' AND resolved_at IS NULL", c.ID); n != 0 {
 		t.Fatalf("the comment left %d decisions open", n)
 	}

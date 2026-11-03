@@ -24,6 +24,9 @@ const (
 	KindAssessment   = "assessment"    // validation: a hypothesis checked against recorded values
 	KindVerdict      = "verdict"       // validation: a claim judged against a source
 	KindFlaggedError = "flagged_error" // validation: an error found in a source
+	// KindDeclined is a review's item for a missed paper the Team declined
+	// and Jev did not reject; it is no record kind an agent declares.
+	KindDeclined = "declined"
 )
 
 type PaperBody struct {
