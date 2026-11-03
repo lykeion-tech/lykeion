@@ -102,6 +102,10 @@ export function roleLabel(role: string): string {
   const words = role.replace(/-/g, ' ');
   return words ? words[0]!.toUpperCase() + words.slice(1) : '';
 }
+// Validation's objector and rerun are runs Lykeion starts itself, with no agent.
+export function systemRun(role: string): boolean {
+  return role === 'objector' || role === 'rerun';
+}
 export function timeAgo(iso: string, now = Date.now()): string {
   const s = (now - Date.parse(iso)) / 1000;
   if (s < 60) return 'just now';

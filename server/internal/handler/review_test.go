@@ -98,7 +98,10 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 		}{
 			{"validation_status", 1, map[string]any{"hypothesis": "H1", "status": "valid", "reasons": []string{}, "cites": []string{}, "final": true}},
 			{"validation_status", 2, map[string]any{"hypothesis": "H1", "status": "invalid", "reasons": []string{"the value did not reproduce"}, "cites": []string{}, "final": true}},
+			{"objection", 1, map[string]any{"target_key": "k", "label": "old", "type": "leakage", "problem": "p", "server": "ok", "checks": []any{}, "upheld": true, "same_family": false}},
 			{"objection", 2, map[string]any{"target_key": "k", "label": "H1", "type": "leakage", "problem": "p", "server": "ok", "checks": []any{}, "upheld": true, "same_family": true}},
+			{"review", 2, map[string]any{"column": "validation", "attempt": 2, "items": []any{}, "decision": "ask",
+				"objector": map[string]any{"ran": false, "reason": "the objector did not run: its run failed (agent error)", "same_family": true}}},
 			{"rerun", 2, map[string]any{"reproduced": map[string]bool{"v": false}, "notes": map[string]string{"v": "off by 3"}}},
 		} {
 			b, _ := json.Marshal(x.body)
@@ -127,6 +130,10 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 				Notes      map[string]string
 			}
 			SameFamily bool `json:"same_family"`
+			Objector   *struct {
+				Ran    bool
+				Reason string
+			}
 		}
 	}
 	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, w.ID, nil, &v); code != 200 {
@@ -137,7 +144,8 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 	}
 	val := v.Columns[3]
 	if val.Mode != "claims" || len(val.Statuses) != 1 || val.Statuses[0].Status != "invalid" || !val.Statuses[0].Final ||
-		len(val.Objections) != 1 || val.Rerun.Notes["v"] != "off by 3" || val.Rerun.Reproduced["v"] || !val.SameFamily {
+		len(val.Objections) != 1 || val.Objections[0].Label != "H1" || val.Rerun.Notes["v"] != "off by 3" || val.Rerun.Reproduced["v"] || !val.SameFamily ||
+		val.Objector == nil || val.Objector.Ran || val.Objector.Reason != "the objector did not run: its run failed (agent error)" {
 		t.Fatalf("validation %+v", val)
 	}
 }

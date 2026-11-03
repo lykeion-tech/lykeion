@@ -10,13 +10,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
 )
 
@@ -35,9 +35,6 @@ const (
 	policyVersion     = 1
 	defaultPolicyHash = "default"
 )
-
-// continuityScope is built only by the server, e.g. card:<id>/role:<role>.
-var continuityScope = regexp.MustCompile(`^[a-z]+:[0-9a-f-]{36}(/[a-z]+:[A-Za-z0-9_.-]{1,64})*$`)
 
 // Policy is a workspace's daemon-local runtime preference. It holds no secrets
 // and cannot add skills or tool servers to a run.
@@ -280,13 +277,19 @@ func contextDigest(pol PolicySnapshot, c claimed) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// errContinuityScope is a run whose continuity scope the daemon refuses: the
+// server built it, so it is the harness's fault, never the agent's.
+type errContinuityScope struct{ error }
+
+func (e errContinuityScope) Unwrap() error { return e.error }
+
 // beginContinuity claims the scope
 // and durably consumes its previous session before any launch, so a crash can
 // never subtract a stale baseline. The daemon alone chooses what to resume.
 func (d *daemon) beginContinuity(c claimed, pol PolicySnapshot) (*continuity, error) {
 	run := c.AgentRun
-	if run.ContinuityScope != "" && !continuityScope.MatchString(run.ContinuityScope) {
-		return nil, fmt.Errorf("invalid continuity scope %q", run.ContinuityScope)
+	if run.ContinuityScope != "" && !service.ValidContinuityScope(run.ContinuityScope) {
+		return nil, errContinuityScope{fmt.Errorf("invalid continuity scope %q", run.ContinuityScope)}
 	}
 	if run.ContinuityScope == "" {
 		// The account's setup applies, but nothing is recorded or resumed.

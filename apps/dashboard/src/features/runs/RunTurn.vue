@@ -10,7 +10,7 @@ import {
 } from './run-transcript';
 import { useRunMessages } from '../../api/queries';
 import type { AgentRun } from '../../api/types';
-import { readableAssignment } from '../../lib/studies';
+import { readableAssignment, systemRun } from '../../lib/studies';
 import { durationLabel } from './run-timeline';
 
 const formattingFailed = ref(false);
@@ -110,7 +110,7 @@ const ending = computed(() => {
         <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
       </template>
     </RunTimeline>
-    <p v-if="run.error" class="run-error">{{ run.error }}</p>
+    <p v-if="run.error && !systemRun(run.role)" class="run-error">{{ run.error }}</p>
   </div>
 </template>
 <style scoped>

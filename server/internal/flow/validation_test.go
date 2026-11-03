@@ -545,6 +545,23 @@ func TestAFailedObjectorFindsNothing(t *testing.T) {
 	if len(stub.calls()) != 0 || len(l.judgedObjections(t, c.ID)) != 0 {
 		t.Fatalf("objections judged without an objector: %d Jev calls", len(stub.calls()))
 	}
+	rs := l.reviews(t, c.ID, "validation")
+	if len(rs) != 1 || rs[0].Objector == nil || rs[0].Objector.Ran || rs[0].Objector.Reason != "the objector did not run: its run failed (agent error)" {
+		t.Fatalf("the review does not say the objector did not run: %+v", rs)
+	}
+}
+
+func TestAnInvalidObjectorHandInIsNamedPlainly(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	l.settle(t, l.latestRun(t, c.ID, "objector"), "failed", agent.ReasonHandInInvalid, "objections 1: type must be …")
+	rs := l.reviews(t, c.ID, "validation")
+	if len(rs) != 1 || rs[0].Objector == nil || rs[0].Objector.Reason != "the objector did not run: its hand-in was not valid" {
+		t.Fatalf("review: %+v", rs)
+	}
 }
 
 func TestASameFamilyObjectorIsRecorded(t *testing.T) {
@@ -650,5 +667,36 @@ func TestAStudyWithoutHypothesesChecksClaimsAndMayCiteAnOutput(t *testing.T) {
 	}
 	if got := l.card(t, c.ID); got.State != "done" {
 		t.Fatalf("after the claims review: %s", got.State)
+	}
+}
+
+func TestEveryScopeTheFlowBuildsPassesTheDaemonsCheck(t *testing.T) {
+	l := newLab(t)
+	l.online(t, "d1", "claude", "codex")
+	c := l.validationLead(t, "claude")
+	run, _ := l.objector(t, c, "brief")
+	for _, scope := range []string{
+		ContinuityScope(c.ID, "leader", c.BoardColumn, c.Round),
+		ContinuityScope(c.ID, "member-1", c.BoardColumn, c.Round),
+		ContinuityScope(c.ID, "auditor", c.BoardColumn, c.Round),
+		run.ContinuityScope,
+	} {
+		if !service.ValidContinuityScope(scope) {
+			t.Errorf("the daemon refuses the scope %q", scope)
+		}
+	}
+}
+
+func TestTheObjectorsFamilyIsOneTheStudysMachineHasOnline(t *testing.T) {
+	l := newLab(t)
+	l.online(t, "d1", "claude", "codex")
+	l.online(t, "d2", "claude")
+	c := l.validationLead(t, "claude")
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET machine = 'd2' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	c = l.card(t, c.ID)
+	if run, same := l.objector(t, c, "brief"); run.Harness != "claude" || !same {
+		t.Fatalf("the study's machine has only claude online: harness %q, same %v", run.Harness, same)
 	}
 }

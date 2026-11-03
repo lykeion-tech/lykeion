@@ -60,14 +60,23 @@ type Recall struct {
 	Screened int    `json:"screened"`
 }
 
+// ObjectorRun is how a Validation round's blind objector went: whether it
+// handed in its objections and, when it did not, why, in plain words.
+type ObjectorRun struct {
+	Ran        bool   `json:"ran"`
+	Reason     string `json:"reason,omitempty"`
+	SameFamily bool   `json:"same_family"`
+}
+
 type Result struct {
-	Column   string   `json:"column"`
-	Attempt  int      `json:"attempt"`
-	Items    []Item   `json:"items"`
-	Missed   []Item   `json:"missed,omitempty"`
-	Recall   *Recall  `json:"recall,omitempty"`
-	Weakest  *Weakest `json:"weakest,omitempty"`
-	Decision string   `json:"decision"`
+	Column   string       `json:"column"`
+	Attempt  int          `json:"attempt"`
+	Items    []Item       `json:"items"`
+	Missed   []Item       `json:"missed,omitempty"`
+	Recall   *Recall      `json:"recall,omitempty"`
+	Weakest  *Weakest     `json:"weakest,omitempty"`
+	Objector *ObjectorRun `json:"objector,omitempty"`
+	Decision string       `json:"decision"`
 }
 
 // stored is p as a review keeps it, to 3 places; statuses are taken from p

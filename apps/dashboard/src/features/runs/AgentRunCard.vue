@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import type { AgentRun } from '../../api/types';
-import { roleLabel, timeAgo } from '../../lib/studies';
+import { roleLabel, systemRun, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
 const props = defineProps<{ run: AgentRun; study: string; position: number }>();
@@ -33,6 +33,12 @@ const preview = computed(() => {
       .trim();
   if (props.run.status === 'queued')
     return props.run.queue_reason ? `Queued: ${props.run.queue_reason.replace(/_/g, ' ')}` : '';
+  // The objector and the rerun are Lykeion's own runs: their failure is
+  // told plainly, never as the harness's raw error.
+  if (systemRun(props.run.role))
+    return props.run.status === 'failed'
+      ? `Did not run${props.run.failure_reason ? ` (${props.run.failure_reason.replace(/_/g, ' ')})` : ''}`
+      : '';
   return props.run.error;
 });
 const lastActive = computed(

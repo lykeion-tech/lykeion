@@ -66,6 +66,9 @@ type validationView struct {
 	Rerun      json.RawMessage   `json:"rerun"`
 	RouteBack  json.RawMessage   `json:"route_back"`
 	SameFamily bool              `json:"same_family"`
+	// Objector says whether the newest round's objector handed in, and why
+	// not when it did not; null before that round is reviewed.
+	Objector json.RawMessage `json:"objector"`
 }
 
 func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validationView, error) {
@@ -77,7 +80,7 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 		}
 		study = append(study, recs...)
 	}
-	var statuses []db.Record
+	var statuses, objections, reviews []db.Record
 	v := &validationView{Mode: handin.ModeOf(study), Statuses: []json.RawMessage{}, Objections: []json.RawMessage{}}
 	for _, rec := range study {
 		if rec.BoardColumn != board.Validation {
@@ -87,13 +90,9 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 		case "validation_status":
 			statuses = append(statuses, rec)
 		case "objection":
-			v.Objections = append(v.Objections, rec.Body)
-			var o struct {
-				SameFamily bool `json:"same_family"`
-			}
-			if json.Unmarshal(rec.Body, &o) == nil && o.SameFamily {
-				v.SameFamily = true
-			}
+			objections = append(objections, rec)
+		case "review":
+			reviews = append(reviews, rec)
 		case "rerun":
 			v.Rerun = rec.Body
 		case "route_back":
@@ -122,6 +121,29 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 	for _, r := range statuses {
 		if r.Round == round {
 			v.Statuses = append(v.Statuses, r.Body)
+		}
+	}
+	// The objections and the objector are the same round's.
+	var sameFamily struct {
+		SameFamily bool `json:"same_family"`
+	}
+	for _, r := range objections {
+		if r.Round == round {
+			v.Objections = append(v.Objections, r.Body)
+			if json.Unmarshal(r.Body, &sameFamily) == nil && sameFamily.SameFamily {
+				v.SameFamily = true
+			}
+		}
+	}
+	for _, r := range reviews {
+		var b struct {
+			Objector json.RawMessage `json:"objector"`
+		}
+		if r.Round == round && json.Unmarshal(r.Body, &b) == nil && len(b.Objector) > 0 {
+			v.Objector = b.Objector
+			if json.Unmarshal(b.Objector, &sameFamily) == nil && sameFamily.SameFamily {
+				v.SameFamily = true
+			}
 		}
 	}
 	return v, nil

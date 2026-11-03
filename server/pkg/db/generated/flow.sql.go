@@ -55,6 +55,30 @@ func (q *Queries) AgentRunRecords(ctx context.Context, arg AgentRunRecordsParams
 	return items, nil
 }
 
+const cardHasOnlineRuntime = `-- name: CardHasOnlineRuntime :one
+SELECT EXISTS (SELECT 1 FROM runtime r JOIN card c ON c.id = $1 AND c.workspace_id = r.workspace_id
+  WHERE r.workspace_id = $2 AND r.harness = $3 AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND ((c.machine IS NULL AND r.owner_id = c.owner_id)
+      OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (r.os = 'linux' AND (r.visibility = 'workspace'
+        OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id))))))) AS ok
+`
+
+type CardHasOnlineRuntimeParams struct {
+	CardID      uuid.UUID `json:"card_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Harness     string    `json:"harness"`
+}
+
+// A runtime of harness that could claim a run of the card now: online and
+// healthy, on the card's chosen machine with its owner's consent, or the
+// card owner's own when the card chose none.
+func (q *Queries) CardHasOnlineRuntime(ctx context.Context, arg CardHasOnlineRuntimeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, cardHasOnlineRuntime, arg.CardID, arg.WorkspaceID, arg.Harness)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
 const countOpenCardInbox = `-- name: CountOpenCardInbox :one
 SELECT count(*) FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
   AND kind = $3 AND resolved_at IS NULL

@@ -15,6 +15,7 @@ import (
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -44,11 +45,11 @@ const objectorAssignment = "Look for errors in the study's Validation statuses."
 // enqueueObjector queues the blind objector on the card's Validation round
 // with brief as its whole prompt: a system run with no agent, the harness's
 // default model and no skill. It runs on the other CLI family from the
-// column's lead run; when that family has no online runtime and the lead's
-// has, it runs on the lead's family, and sameFamily says so. With no lead
-// run it takes whichever family is online, Claude Code first. When nothing
-// that fits is online it waits like any run. Its session is always fresh, so
-// it shares no history with any run.
+// column's lead run; when no runtime that could claim the study's runs has
+// that family online and one has the lead's, it runs on the lead's family,
+// and sameFamily says so. With no lead run it takes whichever family is
+// online, Claude Code first. When nothing that fits is online it waits like
+// any run. Its session is always fresh, so it shares no history with any run.
 func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, brief string) (sameFamily bool, err error) {
 	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 	if err != nil {
@@ -62,7 +63,7 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 		}
 	}
 	online := func(h string) (bool, error) {
-		return tx.Q.HasOnlineRuntime(ctx, db.HasOnlineRuntimeParams{WorkspaceID: tx.WS, OwnerID: c.OwnerID, Harness: h})
+		return tx.Q.CardHasOnlineRuntime(ctx, db.CardHasOnlineRuntimeParams{WorkspaceID: tx.WS, CardID: c.ID, Harness: h})
 	}
 	harness := otherFamily[lead]
 	if harness == "" {
@@ -95,7 +96,7 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 	}
 	_, err = e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: "objector", Harness: harness, Prompt: brief, Assignment: objectorAssignment,
-		ContinuityScope: ContinuityScope(c.ID, "objector", c.BoardColumn, c.Round) + "/" + uuid.NewString()})
+		ContinuityScope: ContinuityScope(c.ID, "objector", c.BoardColumn, c.Round) + "/objector:" + uuid.NewString()})
 	return sameFamily, err
 }
 
@@ -220,6 +221,7 @@ type validating struct {
 	statuses    []review.StatusResult        // the code's, one per hypothesis
 	objections  []db.Record                  // the objector's, not yet judged
 	sameFamily  bool
+	objector    review.ObjectorRun
 }
 
 // reviewValidation reviews the study's Validation round. A study with no
@@ -293,6 +295,10 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 		}
 		lead := slices.IndexFunc(runs, func(r db.AgentRun) bool { return handin.Leads(r.Role) })
 		v.sameFamily = lead >= 0 && runs[lead].Harness == objector.Harness
+		if v.objector, err = objectorRan(ctx, tx, *objector); err != nil {
+			return err
+		}
+		v.objector.SameFamily = v.sameFamily
 		judge = true
 		return nil
 	})
@@ -313,6 +319,38 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 		e.Kick(ws, in.card.ID)
 	}
 	return nil
+}
+
+// objectorRan says whether the settled objector handed in its objections
+// and, when it did not, why, in words a researcher reads; the harness's own
+// error is never shown.
+func objectorRan(ctx context.Context, tx *store.Tx, run db.AgentRun) (review.ObjectorRun, error) {
+	if run.Status == "completed" {
+		recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &run.ID})
+		if err != nil {
+			return review.ObjectorRun{}, err
+		}
+		for _, r := range recs {
+			if r.Kind == "hand_in" {
+				if records.Body[handInRecord](r).HandIn.Status == "done" {
+					return review.ObjectorRun{Ran: true}, nil
+				}
+				return review.ObjectorRun{Reason: "the objector did not run: it said it could not do the review"}, nil
+			}
+		}
+		return review.ObjectorRun{Reason: "the objector did not run: it ended without a hand-in"}, nil
+	}
+	reason := "the objector did not run: its run was cancelled"
+	switch why := ptrOr(run.FailureReason); {
+	case run.Status != "failed":
+	case why == agent.ReasonHandInInvalid:
+		reason = "the objector did not run: its hand-in was not valid"
+	case why != "":
+		reason = "the objector did not run: its run failed (" + strings.ReplaceAll(why, "_", " ") + ")"
+	default:
+		reason = "the objector did not run: its run failed"
+	}
+	return review.ObjectorRun{Reason: reason}, nil
 }
 
 // read fills v from the study's records and says which rerun record the
@@ -529,7 +567,8 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 				}
 			}
 		}
-		res := review.Result{Column: c.BoardColumn, Attempt: in.attempt, Items: []review.Item{}, Decision: review.DecidePass}
+		objector := v.objector
+		res := review.Result{Column: c.BoardColumn, Attempt: in.attempt, Items: []review.Item{}, Objector: &objector, Decision: review.DecidePass}
 		var invalid []string
 		for i, s := range statuses {
 			if err := writeServer(ctx, tx, c, "validation_status", statusBody{Hypothesis: s.Hypothesis, Status: s.Status,

@@ -31,6 +31,12 @@ func classify(harness string, err error, stderr string, _ []agent.Message) strin
 	if errors.Is(err, exec.ErrNotFound) {
 		return agent.ReasonCLIMissing
 	}
+	// A scope the server built and the daemon refuses is retried as the
+	// harness's failure; the machine is not flagged for it.
+	var scope errContinuityScope
+	if errors.As(err, &scope) {
+		return agent.ReasonRuntimeOffline
+	}
 	text := stderr
 	if err != nil {
 		text = err.Error() + "\n" + stderr
