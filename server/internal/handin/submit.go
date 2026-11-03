@@ -29,6 +29,11 @@ type HandIns struct {
 	// Autoresearch applies an Autoresearch run's hand-in. It is a field because
 	// the autoresearch package imports this one.
 	Autoresearch AutoresearchOps
+	Aristotle    AristotleOps
+}
+
+type AristotleOps interface {
+	Answer(context.Context, *store.Tx, db.AgentRun, json.RawMessage) ([]string, error)
 }
 
 // AutoresearchOps are the two things an Autoresearch run's hand-in does.
@@ -51,9 +56,18 @@ type handInBody struct {
 func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage) ([]string, error) {
 	var probs []string
 	err := s.Runs.OnAttempt(ctx, user, ref, run, func(tx *store.Tx, t db.AgentRun) error {
+		probs = nil // A serialization retry starts a fresh validation.
 		k, ok := KindFor(t.Kind, t.Role, t.BoardColumn)
 		if !ok {
 			return service.ErrConflict
+		}
+		if k == Aristotle {
+			if s.Aristotle == nil || t.RequesterID == nil || *t.RequesterID != user {
+				return service.ErrNotYours
+			}
+			var err error
+			probs, err = s.Aristotle.Answer(ctx, tx, t, raw)
+			return err
 		}
 		if k == Autoresearch {
 			// A kept hand-in replayed after the run settled was applied

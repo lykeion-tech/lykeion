@@ -1,3 +1,4 @@
+DROP FUNCTION lab_record_answer(uuid,jsonb);
 DROP INDEX lab_study_record_links, lab_study_comment_links, lab_study_decision_links;
 DROP TRIGGER lab_decision_changed ON inbox_item;
 DROP TRIGGER lab_enqueue_event ON event;

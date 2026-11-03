@@ -143,7 +143,17 @@ CREATE POLICY owner ON lab_message USING (workspace_id = app_workspace() AND own
 CREATE POLICY run_read ON lab_message FOR SELECT USING (workspace_id = app_workspace() AND lab_run_can_read(chat_id, owner_id));
 
 ALTER TABLE lab_read ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant ON lab_read USING (workspace_id = app_workspace()) WITH CHECK (workspace_id = app_workspace());
+-- A read trail belongs to its private turn, even when its facts are shared.
+CREATE POLICY asker_reads ON lab_read FOR SELECT USING (
+ workspace_id=app_workspace() AND EXISTS (
+ SELECT 1 FROM agent_run r JOIN member m ON (m.workspace_id,m.user_id)=(r.workspace_id,r.requester_id)
+ WHERE r.workspace_id=lab_read.workspace_id AND r.id=lab_read.agent_run_id
+ AND r.kind='aristotle' AND r.requester_id=app_user()));
+CREATE POLICY asker_logs ON lab_read FOR INSERT WITH CHECK (
+ workspace_id=app_workspace() AND EXISTS (
+ SELECT 1 FROM agent_run r JOIN member m ON (m.workspace_id,m.user_id)=(r.workspace_id,r.requester_id)
+ WHERE r.workspace_id=lab_read.workspace_id AND r.id=lab_read.agent_run_id
+ AND r.kind='aristotle' AND r.status='running' AND r.requester_id=app_user()));
 ALTER TABLE lesson ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant ON lesson USING (workspace_id = app_workspace()) WITH CHECK (workspace_id = app_workspace());
 ALTER TABLE lesson_flag ENABLE ROW LEVEL SECURITY;
@@ -289,3 +299,22 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(text,bigint[],bigint[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(text,bigint[],bigint[]) TO lykeion_app;
+
+-- Freeze only server-validated, visible evidence alongside the accepted answer.
+ALTER TABLE lab_message ADD COLUMN evidence jsonb NOT NULL DEFAULT '[]';
+CREATE UNIQUE INDEX lab_turn_outcome ON lab_message(agent_run_id,kind)
+ WHERE agent_run_id IS NOT NULL AND kind IN ('answer','failure');
+
+CREATE FUNCTION lab_record_answer(run uuid, statements jsonb) RETURNS SETOF uuid
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ INSERT INTO public.lab_message(workspace_id,chat_id,owner_id,agent_run_id,kind,body,statements,evidence)
+ SELECT r.workspace_id,c.id,c.owner_id,r.id,'answer','',$2->'statements',$2->'evidence'
+ FROM public.agent_run r JOIN public.lab_chat c
+ ON (c.workspace_id,c.id,c.owner_id)=(r.workspace_id,r.lab_chat_id,r.requester_id)
+ JOIN public.member m ON (m.workspace_id,m.user_id)=(r.workspace_id,r.requester_id)
+ WHERE r.id=$1 AND r.workspace_id=public.app_workspace() AND r.requester_id=public.app_user()
+ AND r.kind='aristotle' AND r.status='running'
+ ON CONFLICT DO NOTHING RETURNING id
+$$;
+REVOKE ALL ON FUNCTION lab_record_answer(uuid,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_record_answer(uuid,jsonb) TO lykeion_app;

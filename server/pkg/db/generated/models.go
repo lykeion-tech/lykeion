@@ -723,6 +723,7 @@ type LabMessage struct {
 	ContextCardID *uuid.UUID      `json:"context_card_id"`
 	AgentRunID    *uuid.UUID      `json:"agent_run_id"`
 	CreatedAt     time.Time       `json:"created_at"`
+	Evidence      json.RawMessage `json:"evidence"`
 }
 
 type LabRead struct {

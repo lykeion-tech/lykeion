@@ -1208,7 +1208,11 @@ func (s *AgentRuns) teamTools(ctx context.Context, team TeamClaim) ([]pack.Conne
 }
 
 func (s *AgentRuns) onAgentRun(ctx context.Context, user uuid.UUID, ref RuntimeRef, fn func(tx *store.Tx) error) error {
-	return s.Store.InWorkspace(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
+	return s.onRunIn(ctx, user, ref, s.Store.InWorkspace, fn)
+}
+
+func (s *AgentRuns) onRunIn(ctx context.Context, user uuid.UUID, ref RuntimeRef, in func(context.Context, uuid.UUID, uuid.UUID, func(*store.Tx) error) error, fn func(*store.Tx) error) error {
+	return in(ctx, ref.WorkspaceID, user, func(tx *store.Tx) error {
 		// Match board and role mutations before taking run or card locks.
 		if _, err := tx.Q.LockWorkspaceExecution(ctx, ref.WorkspaceID); err != nil {
 			return err
@@ -1269,7 +1273,11 @@ func (s *AgentRuns) OnAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRe
 // onAttempt is OnAttempt for a run of kind, or of any kind when kind is
 // empty; a run of another kind is not found.
 func (s *AgentRuns) onAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, kind string, fn func(*store.Tx, db.AgentRun) error) error {
-	return s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
+	// Discover the kind under the usual runtime/attempt locks. Only an Aristotle
+	// hand-in needs to re-enter with a single snapshot across all live reads.
+	needSnapshot := errors.New("lab hand-in requires a snapshot")
+	snapshot := false
+	work := func(tx *store.Tx) error {
 		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run})
 		if err != nil {
 			return err
@@ -1285,8 +1293,17 @@ func (s *AgentRuns) onAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRe
 		if t, err = lockAttempt(ctx, tx, ref, run); err != nil {
 			return err
 		}
+		if !snapshot && t.Kind == "aristotle" {
+			return needSnapshot
+		}
 		return fn(tx, t)
-	})
+	}
+	err := s.onRunIn(ctx, user, ref, s.Store.InWorkspace, work)
+	if err != needSnapshot {
+		return err
+	}
+	snapshot = true
+	return s.onRunIn(ctx, user, ref, s.Store.InWorkspaceSnapshot, work)
 }
 
 func runningOn(t db.AgentRun, ref RuntimeRef) bool {

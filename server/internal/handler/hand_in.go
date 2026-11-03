@@ -12,6 +12,7 @@ import (
 
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -63,7 +64,7 @@ func (h *H) daemonHandIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "workspace_id, runtime_id, positive attempt and hand_in required")
 		return
 	}
-	s := handin.HandIns{Runs: h.AgentRuns, Autoresearch: autoresearchOps{h.Autoresearch}}
+	s := handin.HandIns{Runs: h.AgentRuns, Autoresearch: autoresearchOps{h.Autoresearch}, Aristotle: labmemory.Answers{Store: h.Store}}
 	if h.Engine != nil {
 		s.SentBack = h.Engine.SentBack
 	}

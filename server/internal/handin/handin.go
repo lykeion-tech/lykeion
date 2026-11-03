@@ -281,6 +281,10 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	_ = json.Unmarshal([]byte(Schema(k)), &allowed)
 	for key := range keys {
 		if _, ok := allowed.Properties[key]; !ok {
+			if k == Aristotle {
+				probs = append(probs, "only statements are allowed in this hand-in")
+				break
+			}
 			probs = append(probs, key+": not a field of this hand-in")
 		}
 	}

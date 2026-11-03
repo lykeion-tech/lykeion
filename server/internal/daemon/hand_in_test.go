@@ -34,7 +34,7 @@ type execCall struct{ prompt, resume, schema string }
 // with a hand-in, answering the n-th hand-in post with reply(n), a 200 unless
 // it names another status. It returns the backend's calls and the paths the
 // daemon requested, in order, and the body of the daemon's failure report.
-func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), reply func(n int) (int, string)) ([]execCall, []string, map[string]any) {
+func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), reply func(n int) (int, string), ready ...func() bool) ([]execCall, []string, map[string]any) {
 	t.Helper()
 	var mu sync.Mutex
 	var calls []execCall
@@ -86,6 +86,9 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 		s := f.status(t)
 		return s == "completed" || s == "failed" || f.parked(t) || s == "cancelled" && f.lateUsage(t)
 	})
+	for _, check := range ready {
+		waitFor(t, check)
+	}
 	stopDaemon(t, cancel, done)
 	mu.Lock()
 	defer mu.Unlock()
@@ -415,7 +418,8 @@ func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
 	}
 }
 
-func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
+func labHandInFixture(t *testing.T) *daemonFixture {
+	t.Helper()
 	f := fixture(t)
 	// Remove the fixture's ordinary study run to exercise just the private turn.
 	_, err := f.env.Owner.Exec(t.Context(), "DELETE FROM agent_run WHERE id=$1", f.id)
@@ -428,6 +432,11 @@ func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
 		f.id = run.ID
 		return err
 	}))
+	return f
+}
+
+func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
+	f := labHandInFixture(t)
 	calls, paths, failed := handInRun(t, f, func(o agent.ExecOptions) {
 		if !o.Lab || !o.ReadOnly || o.MCPToken != "" || o.DoorURL == "" || o.DoorToken == "" || !strings.Contains(o.OutputSchema, "statements") {
 			t.Error("missing private lab-only launch options")
@@ -463,6 +472,29 @@ func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
 			t.Fatalf("cardless hand-in accessed %s", p)
 		}
 	}
+}
+
+// Exercise the real hand-in route, settlement, and two re-asks with a fake
+// backend whose structured output does not match the Aristotle schema.
+func TestAristotleReasksTwiceThenStoresPlainFailure(t *testing.T) {
+	f := labHandInFixture(t)
+	f.runs.OnSettlement = (labmemory.Answers{Store: f.runs.Store}).SettlementHook(f.runs.OnSettlement)
+	var body string
+	calls, paths, _ := handInRun(t, f, nil, nil, func() bool {
+		return f.env.Owner.QueryRow(t.Context(), "SELECT body FROM lab_message WHERE agent_run_id=$1 AND kind='failure'", f.id).Scan(&body) == nil
+	})
+	if body != "Aristotle could not answer: the answer did not pass its citation checks." {
+		t.Fatal(body)
+	}
+	if len(calls) != 3 || handInPosts(paths) != 3 || len(f.reasks(t)) != 2 || f.status(t) != "failed" {
+		t.Fatal(calls, paths)
+	}
+	for _, call := range calls[1:] {
+		if call.resume != "s1" || !strings.Contains(call.prompt, "could not accept") {
+			t.Fatal(call)
+		}
+	}
+
 }
 
 func handInPosts(paths []string) int {

@@ -6,9 +6,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	db "lykeion/server/pkg/db/generated"
@@ -196,6 +198,19 @@ func (s *Store) InWorkspace(ctx context.Context, ws, user uuid.UUID, fn func(*Tx
 	return s.run(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, fn)
 }
 
+// InWorkspaceSnapshot is used for hand-ins that validate several related facts.
+// Concurrent changes may serialize before or after the hand-in, never between
+// its checks. A rolled-back attempt publishes no events.
+func (s *Store) InWorkspaceSnapshot(ctx context.Context, ws, user uuid.UUID, fn func(*Tx) error) error {
+	for attempt := 1; ; attempt++ {
+		err := s.runWith(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.Serializable}, fn)
+		var e *pgconn.PgError
+		if attempt >= 4 || !errors.As(err, &e) || e.Code != "40001" {
+			return err
+		}
+	}
+}
+
 // AsUser runs without a workspace: only rows visible to the user across
 // workspaces (their memberships, and invitations sent to their email).
 func (s *Store) AsUser(ctx context.Context, user uuid.UUID, email string, fn func(*Tx) error) error {
@@ -206,7 +221,11 @@ func (s *Store) AsUser(ctx context.Context, user uuid.UUID, email string, fn fun
 func (s *Store) Global() *db.Queries { return db.New(s.Pool) }
 
 func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]string, fn func(*Tx) error) error {
-	tx, err := s.Pool.Begin(ctx)
+	return s.runWith(ctx, ws, settings, pgx.TxOptions{}, fn)
+}
+
+func (s *Store) runWith(ctx context.Context, ws uuid.UUID, settings map[string]string, opts pgx.TxOptions, fn func(*Tx) error) error {
+	tx, err := s.Pool.BeginTx(ctx, opts)
 	if err != nil {
 		return err
 	}
