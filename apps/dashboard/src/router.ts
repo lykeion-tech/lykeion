@@ -16,7 +16,7 @@ import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
 import AgentsView from './features/agents/AgentsView.vue';
 import AgentDetail from './features/agents/AgentDetail.vue';
 import StudyDetail from './features/studies/StudyDetail.vue';
-import InboxView from './features/inbox/InboxView.vue';
+import DecisionsView from './features/decisions/DecisionsView.vue';
 import ColleaguesView from './features/workspace/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
 import TeamDetail from './features/teams/TeamDetail.vue';
@@ -78,6 +78,7 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true, conversationRail: true },
   },
+  { path: '/inbox/:itemId?', redirect: (route) => `/decisions/${route.params.itemId ?? ''}` },
   { path: '/updates', redirect: { path: '/settings', query: { tab: 'updates' } } },
   {
     path: '/projects',
@@ -138,9 +139,9 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: '/inbox/:itemId?',
-    component: InboxView,
-    meta: { page: 'inbox', title: 'Inbox' },
+    path: '/decisions/:itemId?',
+    component: DecisionsView,
+    meta: { page: 'decisions', title: 'Decisions' },
     props: (route) => ({ itemId: param(route, 'itemId') }),
   },
   {

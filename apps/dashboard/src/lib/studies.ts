@@ -5,7 +5,7 @@ import type {
   Column,
   AgentRun,
   Comment,
-  InboxItem,
+  DecisionItem,
   LykEvent,
   StudyRecord,
 } from '../api/types';
@@ -362,7 +362,7 @@ export function boardActivity(
 
 // An Inbox item's title: its study's, or what the item is when it has no
 // study, as a machine's wait has none.
-export function inboxTitle(item: { kind: InboxItem['kind'] }, study?: string): string {
+export function inboxTitle(item: { kind: DecisionItem['kind'] }, study?: string): string {
   if (study) return study;
   if (item.kind === 'autoresearch_report') return 'Autoresearch';
   if (item.kind === 'waiting_for_machine') return 'Waiting for machine';
@@ -371,9 +371,40 @@ export function inboxTitle(item: { kind: InboxItem['kind'] }, study?: string): s
 
 // A machine's wait, or a study whose run its machines kept failing: the items
 // its owner resolves. Every other needs_decision opens its study.
-export const isMachineWait = (item: { kind: InboxItem['kind']; cause?: string | null }): boolean =>
+export const isMachineWait = (item: {
+  kind: DecisionItem['kind'];
+  cause?: string | null;
+}): boolean =>
   item.kind === 'waiting_for_machine' ||
   (item.kind === 'needs_decision' && item.cause === 'machine_failures');
+
+// An agent's decision reads "<title>\n\n<body>".
+export function agentDecisionParts(text: string): { title: string; body: string } {
+  const [title, ...rest] = text.split('\n\n');
+  return { title: title ?? '', body: rest.join('\n\n') };
+}
+
+// Who raised a decision: the agent (and the member it asked for), or Lykeion.
+export function decisionRaiser(item: { raised_by: string; from_member: string }): string {
+  if (item.raised_by !== 'agent') return 'Lykeion';
+  return item.from_member ? `Agent (${item.from_member})` : 'Agent';
+}
+
+// What became of a decision that is no longer open.
+export function decisionOutcome(item: {
+  status: string;
+  chosen_option: string;
+  default_option: string;
+  options: { id: string; label: string }[] | null;
+}): string {
+  const label = (id: string) => item.options?.find((o) => o.id === id)?.label ?? id;
+  if (item.status === 'decided') return label(item.chosen_option);
+  if (item.status === 'expired')
+    return item.default_option === 'park'
+      ? 'Parked: expired without a decision'
+      : `Expired without a decision${item.default_option ? ` (${label(item.default_option)})` : ''}`;
+  return item.status === 'dismissed' ? 'Dismissed' : '';
+}
 
 // What a decision or a pass with doubts is about, by the item's cause.
 const decisionLabels: Record<string, string> = {
@@ -401,7 +432,7 @@ export function validationLines(records: StudyRecord[]): string[] {
 }
 
 export function inboxText(
-  item: { kind: InboxItem['kind']; text: string; cause?: string | null },
+  item: { kind: DecisionItem['kind']; text: string; cause?: string | null },
   study: string,
 ): string | null {
   switch (item.kind) {

@@ -9,7 +9,7 @@ import {
   type MaybeRefOrGetter,
 } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import { useRunMessages, useInbox, useAutoresearchRun } from './queries';
+import { useRunMessages, useDecisions, useAutoresearchRun } from './queries';
 import { keys } from './keys';
 import type { AgentRun, RunMessage } from './types';
 import { api, ApiError } from './client';
@@ -376,7 +376,7 @@ describe('shared library queries and mutations', () => {
     expect(fetch.mock.calls.map(([path]) => path)).not.toContain('/api/skills/bundle%3Aaeon');
     expect(fetch.mock.calls.map(([path]) => path)).toContain('/api/skills/a%2Fb%3F%23');
   });
-  it('preserves nullable Inbox identities and resolves a report without a card', async () => {
+  it('preserves nullable Decisions identities and resolves a report without a card', async () => {
     const item = {
       id: 'i1',
       card_id: null,
@@ -397,16 +397,16 @@ describe('shared library queries and mutations', () => {
       },
     };
     const fetch = vi.fn(async (path: string) =>
-      Response.json(path === '/api/inbox' ? [item] : response),
+      Response.json(path === '/api/decisions?view=open' ? [item] : response),
     );
     vi.stubGlobal('fetch', fetch);
-    const inbox = observe(() => useInbox(false));
+    const inbox = observe(() => useDecisions(false));
     const run = observe(() => useAutoresearchRun('r1'));
     await vi.waitFor(() => expect(inbox.data.value?.[0]?.card_id).toBeNull());
     expect(inbox.data.value?.[0]?.autoresearch_run_id).toBe('r1');
     await vi.waitFor(() => expect(run.data.value).toEqual(response));
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
-      '/api/inbox',
+      '/api/decisions?view=open',
       '/api/autoresearch-runs/r1',
     ]);
     expect(client.getQueryData(keys.autoresearchRun('w1', 'r1'))).toEqual(response);

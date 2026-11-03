@@ -104,7 +104,8 @@ test('real owner, admin and member controls enforce F1 and remove a colleague', 
         .getByRole('row')
         .filter({ hasText: 'colleagues-member@lab.test' })
         .getByRole('combobox')
-        .locator('..').locator('select option[value="owner"]'),
+        .locator('..')
+        .locator('select option[value="owner"]'),
     ).toHaveCount(0);
     const refusal = adminPage.waitForResponse(
       (r) => r.request().method() === 'PATCH' && r.url().endsWith(`/members/${ownerId}`),
@@ -337,8 +338,8 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
           dispatch();
           expect(await held).toBe(outcome === 'refused' ? 403 : action === 'invite' ? 201 : 204);
           if (destination === 'return') {
-            await page.goto('/#/inbox');
-            await expect(page.getByRole('navigation', { name: 'Inbox items' })).toBeVisible();
+            await page.goto('/#/decisions');
+            await expect(page.getByRole('navigation', { name: 'Decisions' })).toBeVisible();
             await page.goto('/#/colleagues');
             await expect(roster(page)).toContainText('Ana Ruiz');
           } else if (action === 'invite') {

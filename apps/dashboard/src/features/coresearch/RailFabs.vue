@@ -17,7 +17,7 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
     ><button
       class="rail-fab"
       :class="{ 'is-active': view === 'context' }"
-      :aria-label="inbox ? 'Show inbox' : session ? 'Show session details' : 'Show conversations'"
+      :aria-label="inbox ? 'Show decisions' : session ? 'Show session details' : 'Show conversations'"
       :aria-pressed="view === 'context'"
       @click="emit('change', 'context')"
     >

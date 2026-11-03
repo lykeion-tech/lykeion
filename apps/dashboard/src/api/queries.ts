@@ -18,7 +18,7 @@ import type {
   Card,
   ColumnRating,
   Comment,
-  InboxItem,
+  DecisionItem,
   Invitation,
   LykEvent,
   Me,
@@ -72,14 +72,20 @@ export const useInvitations = (enabled: MaybeRefOrGetter<boolean>) =>
     queryFn: () => api<Invitation[]>('GET', `/api/workspaces/${ws.value}/invitations`),
     enabled: computed(() => inWorkspace.value && toValue(enabled)),
   });
-export const useInbox = (archived: MaybeRefOrGetter<boolean>) =>
+export const useDecisions = (history: MaybeRefOrGetter<boolean>) =>
   useQuery({
-    queryKey: computed(() => keys.inbox(ws.value, toValue(archived))),
+    queryKey: computed(() => keys.decisions(ws.value, toValue(history))),
     queryFn: async () =>
-      (await api<InboxItem[] | null>(
+      (await api<DecisionItem[] | null>(
         'GET',
-        toValue(archived) ? '/api/inbox?archived=1' : '/api/inbox',
+        toValue(history) ? '/api/decisions?view=history' : '/api/decisions?view=open',
       )) ?? [],
+    enabled: inWorkspace,
+  });
+export const useDecisionCount = () =>
+  useQuery({
+    queryKey: computed(() => keys.decisionCount(ws.value)),
+    queryFn: async () => (await api<{ open: number }>('GET', '/api/decisions/count')).open,
     enabled: inWorkspace,
   });
 

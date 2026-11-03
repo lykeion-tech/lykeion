@@ -280,8 +280,8 @@ test('another owner gets real rename/remove refusals; offline own machines can b
       page.once('dialog', (dialog) => dialog.accept());
       await page.getByRole('button', { name: 'Remove', exact: true }).click();
       expect(await deleteAccepted).toBe(204);
-      await page.goto('/#/inbox');
-      await expect(page.getByRole('navigation', { name: 'Inbox items' })).toBeVisible();
+      await page.goto('/#/decisions');
+      await expect(page.getByRole('navigation', { name: 'Decisions' })).toBeVisible();
       await page.goto('/#/machines');
       await edit(page, 'lab-mac', 'Draft after an old removal');
       releaseDelete();
@@ -403,8 +403,8 @@ for (const outcome of ['accepted', 'refused'] as const) {
             await page.getByRole('button', { name: 'Rename', exact: true }).click();
             await page.getByRole('textbox', { name: 'Name' }).fill('Current draft');
           } else if (destination === 'same machine after return') {
-            await page.goto('/#/inbox');
-            await expect(page.getByRole('navigation', { name: 'Inbox items' })).toBeVisible();
+            await page.goto('/#/decisions');
+            await expect(page.getByRole('navigation', { name: 'Decisions' })).toBeVisible();
             await page.goto('/#/machines');
             await edit(
               page,

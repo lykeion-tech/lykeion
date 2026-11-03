@@ -27,7 +27,8 @@ import { useCoresearchProject } from './features/coresearch/api';
 import { useAristotle } from './features/coresearch/aristotle';
 import ConversationRail from './features/coresearch/ConversationRail.vue';
 import RailFabs from './features/coresearch/RailFabs.vue';
-import InboxRail from './features/inbox/InboxRail.vue';
+import DecisionBadge from './features/decisions/DecisionBadge.vue';
+import DecisionRail from './features/decisions/DecisionRail.vue';
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
@@ -36,10 +37,10 @@ const client = useQueryClient();
 const me = useMe();
 const aristotle = useAristotle();
 const aristotleShell = computed(() => !!route.meta.conversationRail);
-const inboxShell = computed(() => route.meta.page === 'inbox');
+const inboxShell = computed(() => route.meta.page === 'decisions');
 const railStorageKey = computed(() =>
   inboxShell.value
-    ? `lykeion.inbox.rail:${workspaceId.value}`
+    ? `lykeion.decisions.rail:${workspaceId.value}`
     : `lykeion.aristotle.rail:${aristotle.scope.value}`,
 );
 const railView = ref<'nav' | 'context'>('context');
@@ -124,7 +125,7 @@ const groups = [
   {
     name: '',
     items: [
-      { id: 'inbox', name: 'Inbox', icon: 'inbox' },
+      { id: 'decisions', name: 'Decisions', icon: 'inbox' },
       { id: 'my-studies', name: 'My Studies', icon: 'tasks' },
     ],
   },
@@ -452,7 +453,7 @@ onUnmounted(() => {
         />
       </template>
     </ConversationRail>
-    <InboxRail v-if="inboxShell" v-show="railView === 'context'">
+    <DecisionRail v-if="inboxShell" v-show="railView === 'context'">
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
@@ -461,7 +462,7 @@ onUnmounted(() => {
           @toggle-help="toggleHelp"
         />
       </template>
-    </InboxRail>
+    </DecisionRail>
     <RailFabs
       v-if="aristotleShell || cowriteShell || inboxShell"
       :view="railView"
@@ -575,10 +576,10 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ selected: current === item.id }"
               :aria-current="current === item.id ? 'page' : undefined"
-              ><Icon :name="item.icon" />{{ item.name }}</RouterLink
-            >
-          </section></template
-        >
+              ><Icon :name="item.icon" />{{ item.name
+              }}<DecisionBadge v-if="item.id === 'decisions'"
+            /></RouterLink></section
+        ></template>
       </nav>
       <SidebarFooter
         ref="sidebarFooter"
@@ -601,7 +602,7 @@ onUnmounted(() => {
     />
     <main class="main-pane">
       <header
-        v-if="!['settings', 'inbox'].includes(current ?? '') && !route.meta.ownHeader"
+        v-if="!['settings', 'decisions'].includes(current ?? '') && !route.meta.ownHeader"
         class="page-header"
         :class="{
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,
@@ -624,7 +625,11 @@ onUnmounted(() => {
       </div>
       <template v-else>
         <p
-          v-if="aristotle.bootstrap.error.value && !aristotleShell && !['studies', 'my-studies'].includes(current ?? '')"
+          v-if="
+            aristotle.bootstrap.error.value &&
+            !aristotleShell &&
+            !['studies', 'my-studies'].includes(current ?? '')
+          "
           class="bootstrap-error"
           role="alert"
         >

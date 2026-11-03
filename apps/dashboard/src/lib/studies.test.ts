@@ -450,7 +450,7 @@ describe('flow records and Inbox sentences', () => {
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
-    expect(studies.inboxText({ kind: 'escalated', text: 'Asked a question' }, 'S')).toBeNull();
+    expect(studies.inboxText({ kind: 'autoresearch_card', text: 'Asked a question' }, 'S')).toBeNull();
   });
   it('lifts the criterion and the need out of the server sentence', () => {
     expect(

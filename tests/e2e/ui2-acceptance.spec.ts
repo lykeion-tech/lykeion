@@ -238,13 +238,13 @@ test('fresh daemon work completes a report visible from history and Inbox and cr
   await expect(dialog.locator('pre.run-raw')).toHaveText(report);
   await page.screenshot({ path: `${shots}/real-daemon-history.png` });
   await page.keyboard.press('Escape');
-  const inbox = await page.request.get('/api/inbox', { headers });
+  const inbox = await page.request.get('/api/decisions', { headers });
   expect(inbox.status()).toBe(200);
   const item = (await inbox.json()).find(
     (i: { autoresearch_run_id: string }) => i.autoresearch_run_id === run.id,
   );
   expect(item).toBeTruthy();
-  await page.goto(`/#/inbox/${item.id}`);
+  await page.goto(`/#/decisions/${item.id}`);
   await expect(dialog.getByText('end-of-real-daemon-report', { exact: true })).toBeVisible();
   await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
   await expect(dialog.locator('pre.run-raw')).toHaveText(report);

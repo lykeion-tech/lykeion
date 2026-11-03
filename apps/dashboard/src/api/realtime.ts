@@ -75,7 +75,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       return [
         keys.cards(ws),
         keys.analytics(ws),
-        keys.inboxAll(ws),
+        keys.decisionsAll(ws),
+        keys.decisionCount(ws),
         ...own(keys.card, keys.events, keys.ratings),
         keys.researches(ws),
         ...(researchIds.length
@@ -105,7 +106,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'agent_run':
       return [keys.cards(ws), keys.runtimes(ws), keys.analytics(ws), ...own(keys.runs, keys.card)];
     case 'inbox':
-      return [keys.inboxAll(ws)];
+    case 'decision':
+      return [keys.decisionsAll(ws), keys.decisionCount(ws)];
     case 'runtime':
       // A machine going offline or being flagged changes which studies wait
       // on it; any study's runs may name it.
