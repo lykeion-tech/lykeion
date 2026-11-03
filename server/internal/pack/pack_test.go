@@ -131,6 +131,13 @@ func TestStepsDefaultToTwelve(t *testing.T) {
 	}
 }
 
+func TestToleranceIsRead(t *testing.T) {
+	p, err := Parse(goodZip(t, func(m *Manifest) { m.Validation.Tolerance = 0.5 }))
+	if err != nil || p.Manifest.Validation.Tolerance != 0.5 {
+		t.Fatalf("%v %+v", err, p)
+	}
+}
+
 func TestParseRefuses(t *testing.T) {
 	good := baseEntries(t)
 	ext := func(e entry) []entry { return append(append([]entry{}, good...), e) }
@@ -181,6 +188,8 @@ func TestParseRefuses(t *testing.T) {
 		{"long criterion", mut(func(m *Manifest) { m.Criteria = []string{strings.Repeat("x", MaxCriterionLen+1)} }), "criterion"},
 		{"steps too high", mut(func(m *Manifest) { m.Steps = MaxSteps + 1 }), "steps"},
 		{"steps negative", mut(func(m *Manifest) { m.Steps = -1 }), "steps"},
+		{"tolerance too wide", mut(func(m *Manifest) { m.Validation.Tolerance = 0.51 }), "tolerance"},
+		{"tolerance negative", mut(func(m *Manifest) { m.Validation.Tolerance = -0.01 }), "tolerance"},
 		{"unknown harness", mut(func(m *Manifest) { m.Members[0].Agent.Harness = "gpt" }), "harness"},
 		{"auditor shares harness and model", mut(func(m *Manifest) { m.Auditor.Agent = m.Members[1].Agent }), "auditor"},
 		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},

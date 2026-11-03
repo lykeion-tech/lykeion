@@ -46,8 +46,7 @@ func protocolIn(text string) []string {
 	return found
 }
 
-// handInTexts is every text a Grounding, Hypotheses or Experimentation run
-// reads that Lykeion writes: its prompt and role skill for each role, the
+// handInTexts is every text a study run reads that Lykeion writes: its prompt and role skill for each role, the
 // shipped Teams' instructions and skills, a redo note, and the step cap
 // answer ask_member gives a leader.
 func handInTexts(t *testing.T) map[string]string {
@@ -56,13 +55,13 @@ func handInTexts(t *testing.T) map[string]string {
 	m := &pack.Manifest{Members: []pack.Member{{Name: "x", Role: "Does x."}}}
 	files := []db.Attachment{{DiskName: "data.csv", RecordKey: "c1"}}
 	comments := []db.Comment{{Body: "please look at mice"}}
-	for _, col := range []string{board.Grounding, board.Hypotheses, board.Experimentation} {
+	for _, col := range board.Stages {
 		for _, role := range []string{"leader", "agent", "auditor", "x"} {
 			c := db.Card{Number: 1, BoardColumn: col, Question: "q?", ScopeFrom: board.Grounding, GroundingCriteria: []byte(`["adults"]`)}
 			out[col+"/"+role] = prompt(c, role, comments, "a lab", files) + Protocol(role, col, board.Grounding, m)
 		}
 	}
-	for _, name := range []string{"Grounding Team", "Hypotheses Team", "Experimentation Team"} {
+	for _, name := range []string{"Grounding Team", "Hypotheses Team", "Experimentation Team", "Validation Team"} {
 		_, p, err := pack.ReadShipped(pack.Shipped(), name)
 		if err != nil {
 			t.Fatal(err)
@@ -87,6 +86,9 @@ func handInTexts(t *testing.T) map[string]string {
 		Missed: []review.Item{{Kind: review.KindPaper, Label: "doi:10.1/m", Status: review.Fail}},
 	})
 	out["step cap"] = ErrStepCap.Error()
+	for mode, line := range modeLines {
+		out["Validation mode "+mode] = line
+	}
 	// The server's own failure details reach a redo note too.
 	for name, declared := range map[string][]db.Record{"none": nil, "unsaved": {{Key: "r9", Kind: review.KindOutputs, Body: []byte(`{"files":["a.csv"]}`)}}} {
 		res, err := review.Experimentation(context.Background(), nil, review.ExperimentationInput{Declared: declared})
@@ -102,12 +104,6 @@ func TestNoProtocolInHandInPrompts(t *testing.T) {
 	for where, text := range handInTexts(t) {
 		if found := protocolIn(text); len(found) > 0 {
 			t.Errorf("%s names the protocol (%s):\n%s", where, strings.Join(found, "; "), text)
-		}
-	}
-	// Validation runs keep the protocol until they hand in too.
-	for _, role := range []string{"leader", "agent", "auditor", "x"} {
-		if p := Protocol(role, board.Validation, "", nil); !strings.Contains(p, "lyk record put") {
-			t.Errorf("Validation's %s lost the protocol:\n%s", role, p)
 		}
 	}
 }

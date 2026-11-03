@@ -28,12 +28,12 @@ SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_i
   AND board_column = @board_column AND round = @round ORDER BY created_at;
 
 -- A member's run of a column's round that has not ended: queued, dispatched
--- or running. Members are every role but the leader, the auditor and a
--- study's single agent.
+-- or running. Members are every role but the leader, the auditor, a study's
+-- single agent and Validation's system runs, the objector and the rerun.
 -- name: InFlightMemberRun :one
 SELECT id FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND board_column = @board_column AND round = @round
-  AND role NOT IN ('', 'leader', 'auditor', 'agent') AND status IN ('queued', 'dispatched', 'running')
+  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1;
 
 -- The live records each agent run of a round wrote itself, so the engine can tell
@@ -146,9 +146,9 @@ VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'machi
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text;
 
--- name: UpsertCouldNotDoDecision :exec
+-- name: UpsertCardDecision :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, 'could_not_do')
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'needs_decision', @text, @cause::text)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text;
 

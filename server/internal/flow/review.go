@@ -35,28 +35,33 @@ var errNoSources = errors.New("the server has no sources lookup")
 const maxOutputText = 8 << 20
 
 // reviewBlockedText is the Inbox item for a column that failed its review
-// after its one redo; failed lists the labels of the items that failed.
-func reviewBlockedText(number int32, column, failed string) string {
-	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing: %s. Comment on the study to tell the Team what to fix.", number, title(column), failed)
+// again after its redo; reasons are the lines review.Reasons gave.
+func reviewBlockedText(number int32, column string, reasons []string) string {
+	if len(reasons) == 0 {
+		reasons = []string{"Jev's review found problems with this column."}
+	}
+	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing:\n- %s\nComment on the study to tell the Team what to fix.", number, title(column), strings.Join(reasons, "\n- "))
 }
 
-// usesReview says whether the study's current column is reviewed item by item:
-// Grounding, Hypotheses and Experimentation, unless the column was already
-// under way when item review shipped.
+// usesReview says whether the study's current column is reviewed item by
+// item, unless the column was already under way when item review shipped.
 func usesReview(c db.Card) bool {
-	return c.BoardColumn != c.LegacyColumn && c.BoardColumn != board.Validation
+	return c.BoardColumn != c.LegacyColumn
 }
 
 // reviewing is what one pass read to review a column's items, with no
 // transaction open. The auditor's findings are never part of it: Jev reviews
 // the items and their evidence alone.
 type reviewing struct {
-	items   []db.Record          // this round's item records
-	carried []review.Item        // the last attempt's items that stand, withdrawn or failed unanswered
-	cited   map[string]db.Record // what the hypotheses cite, by the cite as written
-	saved   []string             // names of the files saved in this column
-	work    []db.Record          // this round's records that may report values, and the column's outputs
-	runs    []db.Record          // the run records the work cites
+	items    []db.Record            // this round's item records
+	carried  []review.Item          // the last attempt's items that stand, withdrawn or failed unanswered
+	cited    map[string]db.Record   // what the hypotheses cite, by the cite as written
+	saved    []string               // names of the files saved in this column
+	work     []db.Record            // this round's records that may report values, and the column's outputs
+	runs     []db.Record            // the run records the work cites
+	comments []string               // the researchers' comments on the study, oldest first
+	declined map[string]string      // missed papers the Team declined this round, by normalised id, with its reason
+	sources  map[string][]db.Record // the calls holding each source Validation's claims cite
 }
 
 // reviewColumn reviews the study's current column item by item, writes the
@@ -89,6 +94,13 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if err != nil {
 			return err
 		}
+		cs, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
+		if err != nil {
+			return err
+		}
+		for _, cm := range cs {
+			rv.comments = append(rv.comments, strings.ReplaceAll(cm.Body, "\n", " "))
+		}
 		var declared *db.Record
 		var withdrawn []db.Record
 		for _, r := range recs {
@@ -98,6 +110,14 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			case r.Kind == review.KindWithdrawn:
 				if r.Round == c.Round {
 					withdrawn = append(withdrawn, r)
+				}
+			case r.Kind == "declined":
+				if r.Round == c.Round {
+					d := records.Body[struct{ Item, Reason string }](r)
+					if rv.declined == nil {
+						rv.declined = map[string]string{}
+					}
+					rv.declined[handin.NormID(d.Item)] = d.Reason
 				}
 			case r.Kind == "output":
 				rv.work = append(rv.work, r)
@@ -146,6 +166,11 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				it.Checks = []review.Check{{ID: "withdrawn", By: "agent", Detail: reason, Status: review.Withdrawn}}
 			}
 			rv.carried = append(rv.carried, it)
+		}
+		if c.BoardColumn == board.Validation {
+			if rv.sources, err = claimSources(ctx, tx, c.ID, rv.items); err != nil {
+				return err
+			}
 		}
 		var citeKeys, runKeys []string
 		for _, r := range rv.items {
@@ -341,7 +366,7 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 			return review.Result{}, errNoSources
 		}
 		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card),
-			Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
+			Comments: rv.comments, Declined: rv.declined, Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 	case board.Hypotheses:
 		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
 			Carried: rv.carried, Attempt: in.attempt})
@@ -364,6 +389,12 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 		})
 		return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
 			Values: values, Carried: rv.carried, Attempt: in.attempt})
+	case board.Validation:
+		texts, err := e.sourceTexts(ctx, rv.sources)
+		if err != nil {
+			return review.Result{}, fmt.Errorf("reading sources: %w", err)
+		}
+		return review.Claims(ctx, a, review.ClaimsInput{Items: rv.items, Sources: texts, Carried: rv.carried, Attempt: int32(in.attempt)})
 	}
 	return review.Result{}, fmt.Errorf("no item review for the %s column", in.card.BoardColumn)
 }
@@ -373,7 +404,7 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 func (e *Engine) outputTexts(ctx context.Context, recs []db.Record) (map[string]string, error) {
 	files := map[string]string{}
 	for _, r := range recs {
-		if r.Kind != "output" || r.BlobKey == "" || e.Blobs == nil ||
+		if r.Kind != "output" && r.Kind != "rerun_output" || r.BlobKey == "" || e.Blobs == nil ||
 			records.Body[struct {
 				SizeBytes int64 `json:"size_bytes"`
 			}](r).SizeBytes > maxOutputText {
@@ -582,6 +613,9 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			return err
 		}
 		res.Decision = review.Decide(res, c.Redos)
+		if review.AllWithdrawn(res) {
+			res.Decision = review.DecideAsk
+		}
 		if err := writeServer(ctx, tx, c, "review", res); err != nil {
 			return err
 		}
@@ -591,18 +625,32 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		var items []board.Item
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
-		switch res.Decision {
-		case review.DecideRedo:
+		switch {
+		case res.Decision == review.DecideAsk:
+			// Nothing is left to review or redo: the owner decides, and the
+			// redo count stays.
+			next.State = "blocked"
+			if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
+				Cause: "all_withdrawn", Text: allWithdrawnText(c.BoardColumn, review.WithdrawalReasons(res))}); err != nil {
+				return err
+			}
+			if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
+				return err
+			}
+		case res.Decision == review.DecideRedo:
 			next.Redos, next.Round = 1, c.Round+1
 			if next.HandoffNote, err = redoNote(ctx, tx, c, res); err != nil {
 				return err
 			}
-		case review.DecideBlock:
+		case res.Decision == review.DecideBlock:
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, failedLabels(res))})
+			items = append(items, board.Item{Kind: "blocked", Text: reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res))})
 		default:
 			e.drawRatingSafely(ctx, tx, c)
+			if doubts := review.OpenDoubts(res); len(doubts) > 0 {
+				items = append(items, board.Item{Kind: "open_doubts", Text: openDoubtsText(c.Number, c.BoardColumn, doubts)})
+			}
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 				if res.Decision == review.DecideCarry {
@@ -625,16 +673,4 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": res.Decision})
 	})
 	return moved, err
-}
-
-// failedLabels lists the labels of the items that failed, missed papers
-// among them.
-func failedLabels(r review.Result) string {
-	var out []string
-	for _, it := range append(append([]review.Item{}, r.Items...), r.Missed...) {
-		if it.Status == review.Fail {
-			out = append(out, it.Label)
-		}
-	}
-	return strings.Join(out, ", ")
 }

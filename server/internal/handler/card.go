@@ -52,6 +52,8 @@ func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
 		return cardInputError("a workflow study is worked by one agent")
 	case from != board.Experimentation || to != board.Experimentation:
 		return cardInputError("a workflow study runs Experimentation only")
+	case len(in.AttachmentIDs) == 0:
+		return cardInputError("A Workflow runs its method on your data: attach at least one file.")
 	}
 	return nil
 }

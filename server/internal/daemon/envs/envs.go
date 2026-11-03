@@ -159,6 +159,9 @@ func fetch(ctx context.Context, url, sum, dest string) error {
 	return os.Rename(tmp.Name(), dest)
 }
 
+// CondaPlatform is this machine's conda platform, such as osx-arm64.
+func CondaPlatform() (string, error) { return platform() }
+
 func platform() (string, error) {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "darwin/arm64":

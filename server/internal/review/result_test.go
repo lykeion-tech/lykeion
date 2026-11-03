@@ -48,7 +48,7 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 	bad := it("bad", Fail, Check{ID: "exists", Status: Pass}, Check{ID: "falsifiable", Status: Fail})
 	bad.Key = "r4"
 	r := Result{Items: []Item{it("good", Pass, Check{ID: "exists", Status: Pass}), bad}}
-	want := "Jev's review sent back these items:\n- bad:\n  - falsifiable\n" + redoAnswer
+	want := "Jev's review sent back these items:\n- bad: falsifiable check failed\n" + redoAnswer
 	if got := RedoNote(r); got != want {
 		t.Errorf("got %q", got)
 	}
@@ -57,7 +57,7 @@ func TestRedoNoteListsOnlyFailures(t *testing.T) {
 func TestRedoNoteShowsJevsOwnAnswerForInvertedChecks(t *testing.T) {
 	p := 0.1 // stored after inversion: Jev answered yes at 0.9
 	bad := it("bad", Fail, Check{ID: "lookup", By: "jev", Question: "Does it already contain the answer?", P: &p, Inverted: true, Status: Fail})
-	want := "Jev's review sent back these items:\n- bad:\n  - lookup: \"Does it already contain the answer?\" (Jev answered yes: 0.90 — a yes fails this check)\n" + redoAnswer
+	want := "Jev's review sent back these items:\n- bad: \"Does it already contain the answer?\" (Jev answered yes at 90%, and a yes fails this check)\n" + redoAnswer
 	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
 		t.Errorf("got %q", got)
 	}
@@ -70,16 +70,16 @@ func TestRedoNoteShowsQuestionsAndDetails(t *testing.T) {
 		Check{ID: "cited", By: "server", Detail: "no citation was found", Status: Fail},
 		Check{ID: "ok", By: "jev", Question: "fine?", Status: Pass})
 	bad.Key = "r4"
-	want := "Jev's review sent back these items:\n- bad:\n" +
-		"  - supported: \"Does the cited evidence support making this prediction?\" (scored 0.13)\n" +
-		"  - cited: no citation was found\n" + redoAnswer
+	want := "Jev's review sent back these items:\n" +
+		"- bad: \"Does the cited evidence support making this prediction?\" (Jev scored 13%)\n" +
+		"- bad: cited: no citation was found\n" + redoAnswer
 	if got := RedoNote(Result{Items: []Item{bad}}); got != want {
 		t.Errorf("got %q", got)
 	}
 }
 
 func TestRedoNoteOffersMissedPapers(t *testing.T) {
-	r := Result{Missed: []Item{it("doi:10.1/m", Fail, Check{ID: "criterion:1", Status: Pass}, Check{ID: "missed", Status: Fail})}}
+	r := Result{Items: []Item{it("a", Pass)}, Missed: []Item{it("doi:10.1/m", Fail, Check{ID: "criterion:1", Status: Pass}, Check{ID: "missed", Status: Fail})}}
 	want := "Jev's review sent back these items:\n- doi:10.1/m: consider this paper (it meets every criterion but was not cited)\n" + redoAnswer
 	if got := RedoNote(r); got != want {
 		t.Errorf("got %q", got)

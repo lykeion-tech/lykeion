@@ -75,7 +75,11 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		}
 	}
 	if latest == nil {
-		out.Checks = []Check{{ID: "declared", By: "server", Detail: "no output files were handed in", Status: Fail}}
+		// Values stand without a declared list; with neither there is nothing
+		// to review and the empty hand-in is the reason.
+		if len(in.Values) == 0 && len(in.Carried) == 0 {
+			return r, nil
+		}
 	} else {
 		var b OutputsBody
 		if err := json.Unmarshal(latest.Body, &b); err != nil {
@@ -89,8 +93,10 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 			}
 		}
 	}
-	out.Status = ItemStatus(out.Checks)
-	r.Items = append(r.Items, out)
+	if latest != nil {
+		out.Status = ItemStatus(out.Checks)
+		r.Items = append(r.Items, out)
+	}
 
 	for _, v := range in.Values {
 		it := Item{Key: v.Record, Kind: "value", Label: ValueLabel(v), Identity: ValueIdentity(v)}

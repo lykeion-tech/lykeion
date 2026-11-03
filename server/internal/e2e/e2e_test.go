@@ -277,7 +277,8 @@ func (l *lab) config(t *testing.T, token, script string) daemon.Config {
 	bin := filepath.Join(t.TempDir(), "claude")
 	// Like a real Claude Code, the fake reports its version and schema flag,
 	// answers the daemon's preflight hello, and, given a schema, ends with a
-	// structured answer: a scoper's Grounding hand-in.
+	// structured answer: a scoper's Grounding hand-in, or on Validation one
+	// that could not be done.
 	prelude := `#!/bin/sh
 case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
 IFS= read -r prompt
@@ -285,6 +286,7 @@ case "$prompt" in *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_err
 case "$prompt" in *models-init*) exit 1;; esac
 case "$*" in *--json-schema*) if [ -n "$LYK_TOKEN$LYK_CONFIG$LYK_SERVER" ]; then exit 41; fi;; esac
 case "$*" in *--json-schema*) handin=',"structured_output":{"status":"done","answer":"Scoped the question.","reason":null,"papers":[],"datasets":[],"no_qualifying":null,"replies":[]}';; esac
+case "$*" in *--json-schema*assessments*) handin=',"structured_output":{"status":"could_not_do","answer":"Checked nothing.","reason":"No paper is attached.","assessments":[],"verdicts":[],"flagged_errors":[],"replies":[]}';; esac
 `
 	must(t, os.WriteFile(bin, []byte(prelude+script), 0700))
 	state := t.TempDir()
@@ -473,20 +475,17 @@ func (l *lab) useAttemptScratch(t *testing.T, id uuid.UUID) {
 func TestKilledDaemonsAgentRunIsRetriedAndKeepsWaiting(t *testing.T) {
 	l := newLab(t)
 	owner, tok, _ := l.member(t, "owner@lab.org")
-	// A Validation run still holds a role token; a hand-in run holds none.
-	_, ids := l.queueIn(t, owner, 1, "validation")
+	_, ids := l.queue(t, owner, 1)
 	l.useAttemptScratch(t, ids[0])
 	id := ids[0]
 	api := &apiclient.Client{Server: l.url, Token: tok}
 	var old service.RuntimeRef
 	for attempt := int32(1); attempt <= 2; attempt++ {
 		cfg := l.config(t, tok, `mkdir -p "$npm_config_cache"
-echo "$LYK_TOKEN" > "$npm_config_cache/agent.pid.token"
 echo $$ > "$npm_config_cache/agent.pid"
 exec sleep 300
 `)
 		pidFile := filepath.Join(cfg.Home, ".caches", "npm", "agent.pid")
-		tokenFile := pidFile + ".token"
 		cmd := startProcess(t, cfg)
 		// Cleanup uses the adapter's birth-verified ownership record.
 		t.Cleanup(func() {
@@ -514,10 +513,13 @@ exec sleep 300
 			t.Fatalf("agent has no owned group: %d/%d", pid, pgid)
 		}
 		ref := l.ref(t, id)
-		token, err := os.ReadFile(tokenFile)
-		must(t, err)
-		role := &apiclient.Client{Server: l.url, Token: strings.TrimSpace(string(token))}
-		must(t, role.Do(context.Background(), "GET", "/api/role/records", nil, nil))
+		// The attempt holds its run tokens until it is swept.
+		tokens := func() int {
+			return l.count(t, "SELECT count(*) FROM agent_run_token WHERE agent_run_id=$1 AND attempt=$2", id, attempt)
+		}
+		if n := tokens(); n == 0 {
+			t.Fatalf("attempt %d holds no run token", attempt)
+		}
 		if attempt == 2 {
 			expectHTTP(t, api.Do(context.Background(), "GET", statusPath(id, old), nil, nil), 409)
 			var receipt db.AgentRun
@@ -550,7 +552,9 @@ exec sleep 300
 		}
 		time.Sleep(400 * time.Millisecond)
 		must(t, l.runs.Sweep(context.Background()))
-		expectHTTP(t, role.Do(context.Background(), "GET", "/api/role/records", nil, nil), 401)
+		if n := tokens(); n != 0 {
+			t.Fatalf("the swept attempt %d still holds %d run tokens", attempt, n)
+		}
 		t.Logf("SIGKILL of owned daemon pid=%d left attempt=%d running until sweep; agent group=%d is retained until cleanup", cmd.Process.Pid, attempt, pgid)
 		if attempt == 1 {
 			if r := l.run(t, id); r.Status != "queued" || r.Attempt != 1 {
@@ -582,7 +586,7 @@ exec sleep 300
 }
 func floatPtr(v float64) *float64 { return &v }
 
-// A Validation run hands nothing in: its whole result is the report.
+// A Validation run's hand-in is kept with its report through an outage too.
 func TestReportSurvivesUnreachableServerAndConsumerACKLoss(t *testing.T) {
 	reportSurvivesOutage(t, "validation")
 }
@@ -637,7 +641,7 @@ func reportSurvivesOutage(t *testing.T, column string) {
 		if report.AgentRunID != id || report.Attempt != 1 {
 			t.Fatalf("lost durable attempt: %+v", report)
 		}
-		if kind == "outbox" && (report.Kind != "complete" || (len(report.HandIn) > 0) != (column == "grounding")) {
+		if kind == "outbox" && (report.Kind != "complete" || len(report.HandIn) == 0) {
 			t.Fatalf("durable report %s with hand-in %s", report.Kind, report.HandIn)
 		}
 	}
@@ -675,10 +679,8 @@ func reportSurvivesOutage(t *testing.T, column string) {
 	if n := l.count(t, "SELECT count(*) FROM agent_run_message WHERE agent_run_id=$1 AND attempt=1 AND content='\"evidence\"'::jsonb", id); n != 1 {
 		t.Fatal("replay lost or duplicated stream evidence")
 	}
-	if column == "grounding" {
-		if n := l.count(t, "SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='hand_in'", id); n != 1 {
-			t.Fatalf("hand-ins recorded: %d", n)
-		}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='hand_in'", id); n != 1 {
+		t.Fatalf("hand-ins recorded: %d", n)
 	}
 }
 func queueFiles(t *testing.T, state, kind string) []string {

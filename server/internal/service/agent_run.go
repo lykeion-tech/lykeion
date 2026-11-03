@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"slices"
@@ -24,7 +25,6 @@ import (
 	"lykeion/server/internal/addon"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/availability"
-	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/pricing"
@@ -47,6 +47,9 @@ const (
 	ScopeRole                = "card:role"
 	ScopeReport              = "report:write"
 	ScopeCardCreate          = "card:create"
+	// ScopeRerun reads the study's attachments and saves a rerun's outputs,
+	// and nothing else: a rerun writes no record of its own.
+	ScopeRerun = "rerun:files"
 	// ScopeCall records a connector call. Only the daemon's tool door holds a
 	// token with it; the agent's own token never does.
 	ScopeCall = "call:record"
@@ -59,6 +62,9 @@ func Scopes(kind string) []string {
 	}
 	if kind == "autoresearch" {
 		return []string{ScopeReport, ScopeCardCreate}
+	}
+	if kind == "rerun" {
+		return []string{ScopeRerun}
 	}
 	return []string{ScopeRole}
 }
@@ -137,6 +143,7 @@ type NewAgentRun struct {
 	Assignment string
 	// ContinuityScope is computed by internal callers before any terminal snapshot.
 	ContinuityScope string `json:"-"`
+	kind            string // empty is a role run
 }
 
 type WorkspaceConnectorClaim struct {
@@ -154,8 +161,40 @@ type ClaimedCoresearch struct {
 	PythonVersion string    `json:"python_version"`
 }
 
+// RerunStep is a recorded script run a rerun replays: the run record's key,
+// what it ran, and the package list it saved, empty when that list is gone.
+type RerunStep struct {
+	Key      string `json:"key"`
+	Path     string `json:"path"`
+	Language string `json:"language"`
+	Script   string `json:"script"`
+	Packages string `json:"packages"`
+	// packagesSHA names the saved list's blob, read once the claim's
+	// transaction is closed.
+	packagesSHA string
+}
+
+// SavedOutput is an output a rerun's earlier attempt already saved.
+type SavedOutput struct {
+	Name   string `json:"name"`
+	Sha256 string `json:"sha256"`
+}
+
+// ClaimedRerun is what a rerun replays: the scripts of the study's newest
+// Experimentation round that exited 0, in the order they ran, in a fresh
+// environment rebuilt from each step's package list and the study's Python
+// version, with the study's attachments in place. Saved are the outputs an
+// earlier attempt of the rerun already saved, which are not saved again.
+type ClaimedRerun struct {
+	Steps       []RerunStep         `json:"steps"`
+	Python      string              `json:"python"`
+	Attachments []ClaimedAttachment `json:"attachments"`
+	Saved       []SavedOutput       `json:"saved"`
+}
+
 type Claimed struct {
 	Coresearch    *ClaimedCoresearch `json:"coresearch,omitempty"`
+	Rerun         *ClaimedRerun      `json:"rerun,omitempty"`
 	PythonVersion string             `json:"python_version,omitempty"`
 	AgentRun      db.AgentRun        `json:"agent_run"`
 	Token         string             `json:"token"`
@@ -362,7 +401,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
 		ContinuityScope: scope, RequestedModel: n.Model,
-		AgentID: n.Agent, Assignment: n.Assignment,
+		AgentID: n.Agent, Assignment: n.Assignment, Kind: n.kind,
 	})
 	if err != nil {
 		return t, err
@@ -565,18 +604,14 @@ func activeSlots(ctx context.Context, tx *store.Tx, ref RuntimeRef) (int, error)
 // withMemberWork is a re-claimed leader run's prompt with what its members
 // already handed in on its column and round, and the member still working,
 // so a leader whose session could not be resumed redoes no member's work.
-// Validation leaders, which take no hand-ins, keep their prompt.
 func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, error) {
-	if t.BoardColumn == board.Validation {
-		return t.Prompt, nil
-	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: *t.CardID, BoardColumn: t.BoardColumn})
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	for _, r := range recs {
-		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent"}, r.Role) {
+		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent", "objector", "rerun"}, r.Role) {
 			continue
 		}
 		var body struct {
@@ -622,6 +657,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	teams := map[uuid.UUID]TeamClaim{}
 	agentSkills := map[uuid.UUID][]string{}
 	workflows := map[uuid.UUID]string{}
+	rerunPackages := map[uuid.UUID]string{} // a rerun's package list, by blob key
 	dispatchRefs := refs
 	err := s.runtimeBatch(ctx, user, refs, func(tx *store.Tx, ordered []RuntimeRef) error {
 		// Event locks also span workspaces; acquire them in canonical order,
@@ -775,8 +811,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
+					// A rerun runs only recorded scripts: no tool servers or connectors.
 					var mcp []agent.MCPServer
-					if t.Kind != "coresearch" {
+					if t.Kind != "coresearch" && t.Kind != "rerun" {
 						mcp, err = addon.Servers(t.AddonMcp)
 					}
 					if accessErr != nil {
@@ -785,7 +822,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var conns []pack.Connector
 					var team *TeamClaim
 					var workspace []WorkspaceConnectorClaim
-					if err == nil && t.Kind != "coresearch" {
+					if err == nil && t.Kind != "coresearch" && t.Kind != "rerun" {
 						conns, team, err = ClaimConnectors(ctx, tx, t)
 						if err != nil {
 							return err
@@ -795,7 +832,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return err
 						}
 						err = claimConnectorNames(conns, team, workspace, mcp)
-					} else if err == nil {
+					} else if err == nil && t.Kind == "coresearch" {
 						workspace, err = s.workspaceConnectorClaims(ctx, tx, t)
 					}
 					if err != nil {
@@ -846,7 +883,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					callPlain := ""
-					if t.Kind != "coresearch" || len(workspace) > 0 {
+					if (t.Kind != "coresearch" && t.Kind != "rerun") || len(workspace) > 0 {
 						var callHash string
 						callPlain, callHash, _ = auth.NewToken(AgentRunPrefix)
 						callScope := ScopeCall
@@ -873,7 +910,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							agentSkills[t.ID] = names
 						}
 					}
-					if team == nil && t.Kind != "coresearch" && t.CardID != nil {
+					if team == nil && t.Kind != "coresearch" && t.Kind != "rerun" && t.CardID != nil {
 						slug, err := tx.Q.CardWorkflow(ctx, db.CardWorkflowParams{WorkspaceID: ref.WorkspaceID, ID: *t.CardID})
 						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 							return err
@@ -894,7 +931,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						if err != nil {
 							return err
 						}
-						if t.BoardColumn == "experimentation" {
+						// A rerun replays Experimentation's scripts, which may call
+						// its services.
+						if t.BoardColumn == "experimentation" || t.Kind == "rerun" {
 							rows, err := tx.Q.CardServices(ctx, db.CardServicesParams{WorkspaceID: ref.WorkspaceID, CardID: t.CardID})
 							if err != nil {
 								return err
@@ -911,6 +950,28 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							files = append(files, ClaimedAttachment{ID: a.ID, DiskName: a.DiskName, Sha256: a.Sha256, SizeBytes: a.SizeBytes, UnpackedBytes: a.UnpackedBytes, InnerFiles: a.InnerFiles})
 						}
 					}
+					var rerun *ClaimedRerun
+					if t.Kind == "rerun" {
+						st, err := StandingExperimentation(ctx, tx, *t.CardID)
+						if err != nil {
+							return err
+						}
+						own, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: ref.WorkspaceID, AgentRunID: &t.ID})
+						if err != nil {
+							return err
+						}
+						saved := []SavedOutput{}
+						for _, r := range own {
+							if r.Kind == "rerun_output" {
+								var b SavedOutput
+								if json.Unmarshal(r.Body, &b) == nil {
+									saved = append(saved, b)
+								}
+							}
+						}
+						rerun = &ClaimedRerun{Steps: st.RerunSteps(), Python: python, Attachments: files, Saved: saved}
+						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
+					}
 					if core != nil && t.RequestedModel != "" && !listsModel(current.Models, t.RequestedModel) {
 						// No CLI offers the frozen model any longer: run on the CLI's default.
 						t.RequestedModel = ""
@@ -920,7 +981,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return err
 						}
 					}
-					c = &Claimed{Coresearch: core, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					c = &Claimed{Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: s.MCPURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
 				}()
 				if err != nil {
@@ -944,8 +1005,36 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	for _, f := range refused {
 		s.deliverAfterCommit(ctx, f.WorkspaceID, f.ID)
 	}
-	// A Team pack is a blob, read only once the transaction is closed.
+	// A Team pack and a package list are blobs, read only once the
+	// transaction is closed.
 	for i := range out {
+		if prefix, ok := rerunPackages[out[i].AgentRun.ID]; ok {
+			lists := map[string]string{}
+			for j, step := range out[i].Rerun.Steps {
+				if step.packagesSHA == "" {
+					continue
+				}
+				list, ok := lists[step.packagesSHA]
+				if !ok {
+					// A list that is gone leaves none to rebuild from, which the
+					// daemon reports as an environment that could not be rebuilt.
+					rc, err := s.Blobs.Get(ctx, prefix+step.packagesSHA)
+					if err != nil && !errors.Is(err, storage.ErrNotFound) {
+						return nil, fmt.Errorf("reading a rerun's package list: %w", err)
+					}
+					if err == nil {
+						b, err := io.ReadAll(rc)
+						rc.Close()
+						if err != nil {
+							return nil, err
+						}
+						list = string(b)
+					}
+					lists[step.packagesSHA] = list
+				}
+				out[i].Rerun.Steps[j].Packages = list
+			}
+		}
 		if out[i].Coresearch != nil {
 			library := skill.Service{Store: s.Store, Blobs: s.Blobs}
 			skills, err := library.EnabledFolders(ctx, out[i].AgentRun.WorkspaceID, out[i].AgentRun.ResponsibleUserID)
@@ -1130,10 +1219,19 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 // runtime is the caller's and holds that attempt. The run's study, if it has
 // one, is locked before the run, as role commands lock them.
 func (s *AgentRuns) OnAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, fn func(*store.Tx, db.AgentRun) error) error {
+	return s.onAttempt(ctx, user, ref, run, "", fn)
+}
+
+// onAttempt is OnAttempt for a run of kind, or of any kind when kind is
+// empty; a run of another kind is not found.
+func (s *AgentRuns) onAttempt(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, kind string, fn func(*store.Tx, db.AgentRun) error) error {
 	return s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
 		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run})
 		if err != nil {
 			return err
+		}
+		if kind != "" && t.Kind != kind {
+			return ErrNotYours
 		}
 		if t.CardID != nil {
 			if _, err := tx.Q.LockCard(ctx, db.LockCardParams{ID: *t.CardID, WorkspaceID: ref.WorkspaceID}); err != nil {

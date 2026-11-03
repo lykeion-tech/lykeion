@@ -229,13 +229,15 @@ WHERE id = (
   LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = $2 AND t.status = 'queued'
- AND (($3::boolean AND t.kind='coresearch') OR (NOT $3::boolean AND t.kind IN ('role','autoresearch')))
-    AND t.harness = r.harness AND r.status = 'online' AND r.unhealthy_reason IS NULL
+ AND (($3::boolean AND t.kind='coresearch') OR (NOT $3::boolean AND t.kind IN ('role','autoresearch','rerun')))
+    -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
+    AND (t.harness = r.harness OR t.kind = 'rerun') AND r.status = 'online' AND r.unhealthy_reason IS NULL
     AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR ($4::boolean AND r.os = 'linux'))
     AND (
-      -- role runs use the chosen machine with consent, or the card owner's runtimes
-      (t.kind = 'role' AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
+      -- role runs and reruns use the study's chosen machine with consent, or
+      -- the card owner's runtimes
+      (t.kind IN ('role','rerun') AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
        AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR ($4::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
@@ -438,8 +440,8 @@ AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = $2 AND r.owner_id <> $2)
    OR (t.responsible_user_id <> $2 AND r.owner_id = $2))
- AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
-      AND c.machine = r.daemon_id AND t.harness = r.harness))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind IN ('role','rerun')
+      AND c.machine = r.daemon_id AND (t.harness = r.harness OR t.kind = 'rerun')))
 )
 ORDER BY t.id FOR UPDATE OF t
 `
@@ -519,8 +521,8 @@ func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMe
 }
 
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment, kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE(NULLIF($15::text, ''), 'role'))
 RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures
 `
 
@@ -539,6 +541,7 @@ type EnqueueAgentRunParams struct {
 	RequestedModel    string     `json:"requested_model"`
 	AgentID           *uuid.UUID `json:"agent_id"`
 	Assignment        string     `json:"assignment"`
+	Kind              string     `json:"kind"`
 }
 
 func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams) (AgentRun, error) {
@@ -557,6 +560,7 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		arg.RequestedModel,
 		arg.AgentID,
 		arg.Assignment,
+		arg.Kind,
 	)
 	var i AgentRun
 	err := row.Scan(
@@ -1505,7 +1509,7 @@ JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued','dispatched','running')
 AND t.kind <> 'coresearch' AND t.responsible_user_id <> $2
-AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = $4 AND t.harness = $5))
+AND (t.runtime_id = $3 OR (t.status = 'queued' AND t.kind IN ('role','rerun') AND c.machine = $4 AND (t.harness = $5 OR t.kind = 'rerun')))
 ORDER BY t.id FOR UPDATE OF t
 `
 

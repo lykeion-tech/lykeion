@@ -6,7 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/service"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -67,16 +70,75 @@ type Evidence struct {
 	found     map[string][]string
 	grounding map[string]string
 	saved     map[string]bool     // names of the study's output files
-	scripts   map[string][]string // a script's path → its run_script runs, run:KEY
+	exp       []db.Record         // the Experimentation column's live records
+	attached  map[string][]string // a study's attached file's name → the calls that read it, call:KEY
+	hyps      map[string]bool     // the Hypotheses column's hypothesis texts, trimmed
+	values    map[string]bool     // names of the Experimentation column's values
+	expSaved  map[string]bool     // names of the files Experimentation saved
+	standing  []db.Record         // the hypotheses that still stand
+	// Mode is how Validation checks the study, set by the caller: "runs" when
+	// Experimentation's lead handed in, else "claims".
+	Mode string
+}
+
+// ModeOf is how Validation checks a study, from its records in every
+// column: "runs" when it has standing hypotheses and Experimentation's lead
+// handed in, else "claims".
+func ModeOf(study []db.Record) string {
+	if len(StandingHypotheses(study)) == 0 {
+		return "claims"
+	}
+	for _, r := range study {
+		if r.BoardColumn == board.Experimentation && r.Kind == "summary" && Leads(r.Role) && r.SupersededAt == nil {
+			return "runs"
+		}
+	}
+	return "claims"
+}
+
+// StandingHypotheses are the Hypotheses column's hypotheses that still
+// stand, in order: the last live declaration of each, unless it was
+// withdrawn.
+func StandingHypotheses(study []db.Record) []db.Record {
+	gone := map[string]bool{}
+	for _, r := range study {
+		if r.BoardColumn == board.Hypotheses && r.Kind == review.KindWithdrawn && r.SupersededAt == nil {
+			gone[records.Body[review.WithdrawnBody](r).Item] = true
+		}
+	}
+	last := map[string]db.Record{}
+	var order []string
+	for _, r := range study {
+		if r.BoardColumn != board.Hypotheses || r.Kind != review.KindHypothesis || r.SupersededAt != nil {
+			continue
+		}
+		id := review.IdentityOf(r)
+		if _, ok := last[id]; !ok {
+			order = append(order, id)
+		}
+		last[id] = r
+	}
+	var out []db.Record
+	for _, id := range order {
+		if r := last[id]; !gone[r.Key] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // NewEvidence indexes the live records among recs, from every column.
 // A call's answer is searched as stored, which is cut at records.MaxCallAnswer.
 func NewEvidence(recs []db.Record) Evidence {
-	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{}, scripts: map[string][]string{}}
+	e := Evidence{found: map[string][]string{}, grounding: map[string]string{}, saved: map[string]bool{},
+		attached: map[string][]string{}, hyps: map[string]bool{}, values: map[string]bool{}, expSaved: map[string]bool{},
+		standing: StandingHypotheses(recs)}
 	for _, r := range recs {
 		if r.SupersededAt != nil {
 			continue
+		}
+		if r.BoardColumn == board.Experimentation {
+			e.exp = append(e.exp, r)
 		}
 		if review.GroundingSource(r) {
 			if id := review.IdentityOf(r); id != "" {
@@ -96,6 +158,11 @@ func NewEvidence(recs []db.Record) Evidence {
 			Name      string   `json:"name"`
 			Tool      string   `json:"tool"`
 			Path      string   `json:"path"`
+			Server    string   `json:"server"`
+			Text      string   `json:"text"`
+			Args      struct {
+				Name string `json:"name"`
+			} `json:"args"`
 		}
 		_ = json.Unmarshal(r.Body, &b)
 		switch r.Kind {
@@ -106,6 +173,17 @@ func NewEvidence(recs []db.Record) Evidence {
 			}
 			for _, m := range pmidField.FindAllStringSubmatch(b.Answer, -1) {
 				e.add("pmid:"+m[1], ref)
+			}
+			if b.Server == records.AttachmentServer && b.Args.Name != "" {
+				e.attached[b.Args.Name] = append(e.attached[b.Args.Name], ref)
+			}
+		case review.KindHypothesis:
+			if r.BoardColumn == board.Hypotheses {
+				e.hyps[strings.TrimSpace(b.Text)] = true
+			}
+		case "value":
+			if r.BoardColumn == board.Experimentation {
+				e.values[b.Name] = true
 			}
 		case "search":
 			for _, id := range b.Results {
@@ -118,9 +196,8 @@ func NewEvidence(recs []db.Record) Evidence {
 			e.add(b.Accession, "open_dataset:"+r.Key)
 		case "output":
 			e.saved[b.Name] = true
-		case "run":
-			if b.Tool == "run_script" {
-				e.scripts[b.Path] = append(e.scripts[b.Path], "run:"+r.Key)
+			if r.BoardColumn == board.Experimentation {
+				e.expSaved[b.Name] = true
 			}
 		}
 	}
@@ -187,6 +264,26 @@ func (e Evidence) Grounding(id string) (key string, ok bool) {
 // any of its runs.
 func (e Evidence) Saved(name string) bool { return e.saved[name] }
 
-// Scripts are the recorded run_script runs of the script at path, written
-// run:KEY as a value cites them; nil when none was recorded.
-func (e Evidence) Scripts(path string) []string { return e.scripts[path] }
+// Attached says whether a file named name is attached to the study and was
+// read through Lykeion's tools.
+func (e Evidence) Attached(name string) bool { return len(e.attached[name]) > 0 }
+
+// AttachmentCalls are the calls that read the attached file named name,
+// written call:KEY as a cite names them; nil when none did.
+func (e Evidence) AttachmentCalls(name string) []string { return e.attached[name] }
+
+// ExperimentationOutput says whether Experimentation saved a file named name.
+func (e Evidence) ExperimentationOutput(name string) bool { return e.expSaved[name] }
+
+// Standing are the study's hypotheses that still stand.
+func (e Evidence) Standing() []db.Record { return e.standing }
+
+// Hypothesis says whether text, trimmed, is a hypothesis of the study.
+func (e Evidence) Hypothesis(text string) bool { return e.hyps[strings.TrimSpace(text)] }
+
+// Value says whether the study recorded a value named name.
+func (e Evidence) Value(name string) bool { return e.values[name] }
+
+// Scripts are the script runs a value shown in file rests on, written run:KEY
+// as a value cites them (service.ScriptRuns); nil when none was recorded.
+func (e Evidence) Scripts(file string) []string { return service.ScriptRuns(e.exp, file) }

@@ -20,6 +20,7 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -69,6 +70,9 @@ func middleScoreText(number int32, column, weak string, finished bool) string {
 }
 
 func blockedText(number int32, column, weak string) string {
+	if weak == "" {
+		return fmt.Sprintf("Study #%d's %s column: Jev scored the column low twice. Comment on the study to tell the Team what to fix.", number, title(column))
+	}
 	return fmt.Sprintf("Study #%d scored low twice in its %s column, lowest on %s. Comment on the study to tell the Team what to fix.", number, title(column), weak)
 }
 
@@ -83,6 +87,9 @@ func runFailedText(number int32, column, reason, detail string) string {
 		why = "the agent ran out of context"
 	}
 	first, _, _ := strings.Cut(detail, "\n")
+	if first == "" {
+		first = "no detail was recorded"
+	}
 	if r := []rune(first); len(r) > 300 {
 		first = string(r[:300]) + "…"
 	}
@@ -91,6 +98,24 @@ func runFailedText(number int32, column, reason, detail string) string {
 
 func couldNotDoText(number int32, reason string) string {
 	return fmt.Sprintf("Study #%d: the agent could not do this column: %s", number, reason)
+}
+
+func allWithdrawnText(column string, reasons []string) string {
+	noun, left := "items", "Nothing is left to review."
+	switch column {
+	case "hypotheses":
+		noun, left = "hypotheses", "Nothing is left to test."
+	case "validation":
+		noun, left = "verdicts and flagged errors", "Nothing is left to check."
+	}
+	if len(reasons) == 1 {
+		noun = map[string]string{"items": "item", "hypotheses": "hypothesis", "verdicts and flagged errors": "verdict or flagged error"}[noun]
+	}
+	return fmt.Sprintf("The Team withdrew all %d %s: %s. %s Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), noun, strings.TrimRight(strings.Join(reasons, "; "), "."), left)
+}
+
+func openDoubtsText(number int32, column string, doubts []string) string {
+	return fmt.Sprintf("Study #%d passed %s with open doubts: %s", number, title(column), strings.Join(doubts, "; "))
 }
 
 func doneText(number int32, column string) string {
@@ -169,18 +194,10 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	return false, err
 }
 
-// auditNote is what the auditor is asked to audit: on a hand-in column the
-// leader's answer and the items this attempt handed in, by their ids; on
-// Validation the summary and the records it cites.
+// auditNote is what the auditor is asked to audit: the leader's answer and
+// the items this attempt handed in, by their ids.
 func auditNote(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) (string, error) {
 	text := records.Body[struct{ Text string }](summary).Text
-	if !handsIn(c.BoardColumn) {
-		cited, err := citedRecords(ctx, tx, c, summary)
-		if err != nil {
-			return "", err
-		}
-		return "The leader declared the column done. Audit its summary and the records it cites:\n\n" + evidence(text, cited, maxJevInput), nil
-	}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 	if err != nil {
 		return "", err
@@ -273,7 +290,8 @@ var (
 
 // Score asks Jev to score the study's current column once it is declared
 // done and its auditor settled, then moves the study on, redoes the column or
-// blocks it. A column reviewed item by item goes to reviewColumn instead. Jev
+// blocks it. A column reviewed item by item goes to reviewColumn instead, and
+// Validation to reviewValidation. Jev
 // is asked with no transaction open. When Jev cannot be reached the study
 // stays where it is, its owner hears once, and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
@@ -282,6 +300,9 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 		return err
 	}
 	if usesReview(in.card) {
+		if in.card.BoardColumn == board.Validation {
+			return e.reviewValidation(ctx, ws, in)
+		}
 		return e.reviewColumn(ctx, ws, in)
 	}
 	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
@@ -722,20 +743,26 @@ func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause erro
 // writeServer stores a record the server writes itself, under the study's
 // next key, on its current column and round.
 func writeServer(ctx context.Context, tx *store.Tx, c db.Card, kind string, body any) error {
+	_, err := writeServerKey(ctx, tx, c, kind, body)
+	return err
+}
+
+// writeServerKey is writeServer, saying the key the record got.
+func writeServerKey(ctx context.Context, tx *store.Tx, c db.Card, kind string, body any) (string, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	key, err := records.NextRecordKey(ctx, tx, c.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	rec, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn,
 		Round: c.Round, Kind: kind, Role: "server", Key: key, Body: b})
 	if err != nil {
-		return err
+		return "", err
 	}
-	return tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": "server"})
+	return key, tx.Emit(ctx, "record.created", &c.ID, store.System, map[string]any{"record_id": rec.ID, "kind": kind, "key": key, "role": "server"})
 }
 
 func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string) error {
@@ -753,10 +780,12 @@ func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string
 
 // bookkeeping says whether a record kind is the run's own bookkeeping rather
 // than its work: the calls and runs the daemon recorded, the raw hand-in, a
-// declined reply and a comment's delivery. None of it is Jev's to judge.
+// declined reply, a comment's delivery and the objector's objections. None of
+// it is shown to Jev as work; review reads a declined reply as the Team's
+// reason for leaving a paper out, and judges objections on their own.
 func bookkeeping(kind string) bool {
 	switch kind {
-	case "call", "run", "hand_in", "declined", "comment_delivery":
+	case "call", "run", "hand_in", "declined", "comment_delivery", "objection":
 		return true
 	}
 	return false
@@ -770,23 +799,64 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "") || c.Ending != "" || author != c.OwnerID {
 		return false, nil
 	}
+	note := "The researcher asked for this column to be redone:\n" + comment
+	still, err := stillFailing(ctx, tx, c)
+	if err != nil {
+		return false, err
+	}
+	if still != "" {
+		note += "\n\n" + still
+	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working,
-		Round: c.Round + 1, Redos: c.Redos, HandoffNote: "The researcher asked for this column to be redone:\n" + comment}); err != nil {
+		Round: c.Round + 1, Redos: c.Redos, HandoffNote: note}); err != nil {
 		return false, err
 	}
 	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
 		return false, err
 	}
-	ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: "could_not_do"})
-	if err != nil {
-		return false, err
-	}
-	for _, id := range ids {
-		if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+	for _, cause := range []string{"could_not_do", "all_withdrawn", "validation_invalid"} {
+		ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: cause})
+		if err != nil {
 			return false, err
+		}
+		for _, id := range ids {
+			if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
+				return false, err
+			}
 		}
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
+}
+
+// stillFailing is what the review that held the study's round sent back,
+// for the run its owner's comment restarts: the failed items and missed
+// papers it may answer in its replies, or the hypotheses Validation found
+// invalid. Empty when the round has no review, or nothing in it failed.
+func stillFailing(ctx context.Context, tx *store.Tx, c db.Card) (string, error) {
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
+	if err != nil {
+		return "", err
+	}
+	res, err := lastReview(recs, c.Round+1)
+	if err != nil || res.Column == "" || review.AllWithdrawn(res) {
+		return "", err
+	}
+	var invalid []string
+	for _, r := range recs {
+		if r.Kind != "validation_status" || r.Round != c.Round {
+			continue
+		}
+		if s := records.Body[statusBody](r); s.Final && s.Status == review.Invalid {
+			invalid = append(invalid, oneLine(s.Hypothesis)+": "+strings.Join(s.Reasons, "; "))
+		}
+	}
+	if len(invalid) > 0 {
+		return "Validation found these hypotheses invalid:\n- " + strings.Join(invalid, "\n- "), nil
+	}
+	if d := review.Decide(res, 0); d != review.DecideRedo {
+		return "", nil
+	}
+	return redoNote(ctx, tx, c, res)
 }
 
 func latestAuditor(runs []db.AgentRun) int {

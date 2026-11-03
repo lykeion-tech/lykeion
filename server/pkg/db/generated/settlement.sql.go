@@ -220,7 +220,7 @@ func (q *Queries) ReleaseSettlement(ctx context.Context, arg ReleaseSettlementPa
 
 const runtimeActiveRuns = `-- name: RuntimeActiveRuns :many
 SELECT card_id, board_column, round, role FROM agent_run WHERE workspace_id = $1 AND runtime_id = $2
- AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch')
+ AND status IN ('dispatched', 'running') AND kind IN ('role','autoresearch','rerun')
 `
 
 type RuntimeActiveRunsParams struct {

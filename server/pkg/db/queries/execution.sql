@@ -42,8 +42,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 DELETE FROM runtime WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment)
-VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @requested_model, sqlc.narg(agent_id), @assignment)
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment, kind)
+VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @requested_model, sqlc.narg(agent_id), @assignment, COALESCE(NULLIF(@kind::text, ''), 'role'))
 RETURNING *;
 
 -- name: ClaimAgentRun :one
@@ -56,13 +56,15 @@ WHERE id = (
   LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
- AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch')))
-    AND t.harness = r.harness AND r.status = 'online' AND r.unhealthy_reason IS NULL
+ AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun')))
+    -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
+    AND (t.harness = r.harness OR t.kind = 'rerun') AND r.status = 'online' AND r.unhealthy_reason IS NULL
     AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (
-      -- role runs use the chosen machine with consent, or the card owner's runtimes
-      (t.kind = 'role' AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
+      -- role runs and reruns use the study's chosen machine with consent, or
+      -- the card owner's runtimes
+      (t.kind IN ('role','rerun') AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
        AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (@guest_isolation::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
@@ -227,7 +229,7 @@ JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
 WHERE t.workspace_id = @workspace_id AND t.status IN ('queued','dispatched','running')
 AND t.kind <> 'coresearch' AND t.responsible_user_id <> @owner_id
-AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind = 'role' AND c.machine = @daemon_id AND t.harness = @harness))
+AND (t.runtime_id = @runtime_id OR (t.status = 'queued' AND t.kind IN ('role','rerun') AND c.machine = @daemon_id AND (t.harness = @harness OR t.kind = 'rerun')))
 ORDER BY t.id FOR UPDATE OF t;
 
 -- name: SetRuntimeRevokedReason :exec
@@ -250,8 +252,8 @@ AND EXISTS (
  SELECT 1 FROM runtime r WHERE r.workspace_id = t.workspace_id
  AND ((t.responsible_user_id = @user_id AND r.owner_id <> @user_id)
    OR (t.responsible_user_id <> @user_id AND r.owner_id = @user_id))
- AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind = 'role'
-      AND c.machine = r.daemon_id AND t.harness = r.harness))
+ AND (t.runtime_id = r.id OR (t.status = 'queued' AND t.kind IN ('role','rerun')
+      AND c.machine = r.daemon_id AND (t.harness = r.harness OR t.kind = 'rerun')))
 )
 ORDER BY t.id FOR UPDATE OF t;
 

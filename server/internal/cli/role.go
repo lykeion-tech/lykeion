@@ -144,25 +144,3 @@ func reportCmd(e *env) *cobra.Command {
 		return nil
 	}}
 }
-
-func openCardCmd(e *env) *cobra.Command {
-	var title string
-	cmd := &cobra.Command{Use: "open-card QUESTION", Short: "Open a study from this Autoresearch run", Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, a []string) error {
-			c, err := roleClient()
-			if err != nil {
-				return err
-			}
-			var out struct {
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-			}
-			if err := c.Do(cmd.Context(), "POST", "/api/role/cards", map[string]string{"question": strings.Join(a, " "), "title": title}, &out); err != nil {
-				return err
-			}
-			fmt.Fprintf(e.out, "#%d %s\n", out.Number, out.Title)
-			return nil
-		}}
-	cmd.Flags().StringVar(&title, "title", "", "short title (default: from the question)")
-	return cmd
-}

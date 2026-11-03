@@ -139,6 +139,8 @@ type valueRecord struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 	File  string `json:"file"`
+	// Cites are the script runs of File, written run:KEY.
+	Cites []string `json:"cites"`
 }
 
 func valueOf(r db.Record) valueRecord { return records.Body[valueRecord](r) }

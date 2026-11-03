@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/statcheck"
 )
 
 type Kind string
@@ -22,18 +24,23 @@ const (
 	Experimentation Kind = "experimentation"
 	Auditor         Kind = "auditor"
 	Autoresearch    Kind = "autoresearch"
+	Validation      Kind = "validation"
+	Objector        Kind = "objector"
 )
 
-// KindFor is the hand-in kind a run owes; Validation, Coresearch and other
-// runs owe none.
+// KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
 func KindFor(runKind, role, column string) (Kind, bool) {
 	switch {
 	case runKind == "autoresearch":
 		return Autoresearch, true
-	case role == "auditor" && column != board.Validation:
+	case role == "auditor":
 		return Auditor, true
+	case role == "objector" && column == board.Validation:
+		return Objector, true
 	}
 	switch column {
+	case board.Validation:
+		return Validation, true
 	case board.Grounding:
 		return Grounding, true
 	case board.Hypotheses:
@@ -86,6 +93,77 @@ type Concern struct {
 	Item    string `json:"item"`
 	Concern string `json:"concern"`
 }
+type Test struct {
+	Kind      string       `json:"kind"`
+	Statistic json.Number  `json:"statistic"` // kept as written, so its decimals count
+	DF1       *json.Number `json:"df1"`
+	DF2       *json.Number `json:"df2"`
+	P         json.Number  `json:"p"`
+	PBound    string       `json:"p_bound"`
+}
+type Assessment struct {
+	Hypothesis  string  `json:"hypothesis"`
+	Measurement string  `json:"measurement"`
+	Control     *string `json:"control"`
+	Test        *Test   `json:"test"`
+	Observed    *string `json:"observed"`
+}
+type Verdict struct {
+	Claim   string `json:"claim"`
+	Verdict string `json:"verdict"`
+	Source  string `json:"source"`
+	Quote   string `json:"quote"`
+}
+type FlaggedError struct {
+	Source  string `json:"source"`
+	Quote   string `json:"quote"`
+	Problem string `json:"problem"`
+}
+
+// Assessment is the review item this assessment becomes; a test's digits are
+// the decimals its numbers were written with.
+func (a Assessment) Assessment() review.Assessment {
+	r := review.Assessment{Hypothesis: a.Hypothesis, Measurement: a.Measurement, Control: a.Control, Observed: a.Observed}
+	if t := a.Test; t != nil {
+		r.Test = &statcheck.Test{Kind: t.Kind, PBound: t.PBound, StatDigits: digits(t.Statistic), PDigits: digits(t.P)}
+		r.Test.Statistic, _ = t.Statistic.Float64()
+		r.Test.P, _ = t.P.Float64()
+		if t.DF1 != nil {
+			r.Test.DF1, _ = t.DF1.Float64()
+		}
+		if t.DF2 != nil {
+			r.Test.DF2, _ = t.DF2.Float64()
+		}
+	}
+	return r
+}
+
+// digits are the decimals of a JSON number's text: 2.310 has 3, 4e-3 has 3.
+func digits(n json.Number) int {
+	s := strings.ToLower(string(n))
+	mant, exp, _ := strings.Cut(s, "e")
+	d := 0
+	if _, frac, ok := strings.Cut(mant, "."); ok {
+		d = len(frac)
+	}
+	if e, err := strconv.Atoi(exp); err == nil {
+		d -= e
+	}
+	return max(d, 0)
+}
+
+// ObjectionIn is one objection as the objector files it: target is a label
+// from its brief, a value name or a saved file's name.
+type ObjectionIn struct {
+	Target  string  `json:"target"`
+	Type    string  `json:"type"`
+	Quote   *string `json:"quote"`
+	Problem string  `json:"problem"`
+}
+
+// ObjectionTypes are the kinds of error an objection can name.
+var ObjectionTypes = []string{"wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"}
+
 type NewStudy struct {
 	Title    string `json:"title"`
 	Question string `json:"question"`
@@ -94,19 +172,23 @@ type NewStudy struct {
 // HandIn holds every field of every kind; Parse refuses the ones a kind does
 // not have.
 type HandIn struct {
-	Status       string        `json:"status"` // done | could_not_do
-	Answer       string        `json:"answer"`
-	Reason       *string       `json:"reason"`
-	Replies      []Reply       `json:"replies"`
-	Papers       []Paper       `json:"papers"`
-	Datasets     []Dataset     `json:"datasets"`
-	NoQualifying *NoQualifying `json:"no_qualifying"`
-	Hypotheses   []Hypothesis  `json:"hypotheses"`
-	Outputs      []string      `json:"outputs"`
-	Values       []Value       `json:"values"`
-	Concerns     []Concern     `json:"concerns"`
-	Report       *string       `json:"report"`
-	NewStudies   []NewStudy    `json:"new_studies"`
+	Status       string         `json:"status"` // done | could_not_do
+	Answer       string         `json:"answer"`
+	Reason       *string        `json:"reason"`
+	Replies      []Reply        `json:"replies"`
+	Papers       []Paper        `json:"papers"`
+	Datasets     []Dataset      `json:"datasets"`
+	NoQualifying *NoQualifying  `json:"no_qualifying"`
+	Hypotheses   []Hypothesis   `json:"hypotheses"`
+	Outputs      []string       `json:"outputs"`
+	Values       []Value        `json:"values"`
+	Concerns     []Concern      `json:"concerns"`
+	Report       *string        `json:"report"`
+	NewStudies   []NewStudy     `json:"new_studies"`
+	Assessments  []Assessment   `json:"assessments"`
+	Verdicts     []Verdict      `json:"verdicts"`
+	FlaggedErrs  []FlaggedError `json:"flagged_errors"`
+	Objections   []ObjectionIn  `json:"objections"`
 }
 
 // Body is the review item this hypothesis becomes, citing cites.
@@ -203,6 +285,36 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	}
 	for i, s := range h.NewStudies {
 		add(s.Title != "" && s.Question != "", "new_studies %d: title and question are both required", i+1)
+	}
+	for i, a := range h.Assessments {
+		add(within(a.Hypothesis, 2000) && within(a.Measurement, 2000), "assessments %d: hypothesis and measurement must each be 1 to 2000 characters", i+1)
+		add(a.Control == nil || within(*a.Control, 2000), "assessments %d: control must be 1 to 2000 characters", i+1)
+		add(a.Observed == nil || within(*a.Observed, 2000), "assessments %d: observed must be 1 to 2000 characters", i+1)
+		if t := a.Test; t != nil {
+			add(slices.Contains([]string{"t", "F", "chi2", "r", "z"}, t.Kind) && slices.Contains([]string{"=", "<", ">"}, t.PBound),
+				"assessments %d: test kind must be t, F, chi2, r or z, and p_bound =, < or >", i+1)
+			_, e1 := t.Statistic.Float64()
+			_, e2 := t.P.Float64()
+			add(e1 == nil && e2 == nil, "assessments %d: test statistic and p must be numbers", i+1)
+			switch t.Kind {
+			case "F":
+				add(t.DF1 != nil && t.DF2 != nil, "assessments %d: an F test needs df1 and df2", i+1)
+			case "t", "chi2", "r":
+				add(t.DF1 != nil, "assessments %d: a %s test needs df1", i+1, t.Kind)
+			}
+		}
+	}
+	for i, v := range h.Verdicts {
+		add(slices.Contains([]string{"supported", "refuted", "not_enough_info"}, v.Verdict), "verdicts %d: verdict must be supported, refuted or not_enough_info", i+1)
+		add(within(v.Claim, 2000) && within(v.Source, 2000) && within(v.Quote, 2000), "verdicts %d: claim, source and quote must each be 1 to 2000 characters", i+1)
+	}
+	for i, f := range h.FlaggedErrs {
+		add(within(f.Source, 2000) && within(f.Quote, 2000) && within(f.Problem, 2000), "flagged_errors %d: source, quote and problem must each be 1 to 2000 characters", i+1)
+	}
+	for i, o := range h.Objections {
+		add(slices.Contains(ObjectionTypes, o.Type), "objections %d: type must be wrong_test, leakage, unit_mismatch, missing_control or overreach", i+1)
+		add(o.Quote == nil || within(*o.Quote, 2000), "objections %d: quote must be null or 1 to 2000 characters", i+1)
+		add(within(o.Target, 2000) && within(o.Problem, 2000), "objections %d: target and problem must each be 1 to 2000 characters", i+1)
 	}
 	return h, probs
 }

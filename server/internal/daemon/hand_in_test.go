@@ -212,7 +212,8 @@ func TestOutputsSavedBeforeSubmit(t *testing.T) {
 
 func TestRunWithoutSchemaUnchanged(t *testing.T) {
 	f := fixture(t)
-	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = 'validation' WHERE id = $1", f.id)
+	// Every study column owes a hand-in; a run outside the board owes none.
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = '' WHERE id = $1", f.id)
 	must(t, err)
 	calls, paths, _ := handInRun(t, f, nil, func(int) (int, string) { return 200, oneProblem })
 	if len(calls) != 1 || calls[0].schema != "" {
@@ -347,7 +348,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 	for i := range 30 {
 		must(t, os.WriteFile(filepath.Join(out, fmt.Sprintf("f%02d.csv", i)), []byte("1"), 0600))
 	}
-	probs, err := sendOutputs(t.Context(), role, dir, noneSaved)
+	probs, err := sendOutputs(t.Context(), role, dir, noneSaved, nil)
 	must(t, err)
 	want := []string{"outputs/f00.csv was not saved: A run can save at most 100 outputs", "and 29 more files were not saved"}
 	if uploads != 1 || !slices.Equal(probs, want) {
@@ -359,7 +360,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(linked, "outputs"), 0700))
 	must(t, os.WriteFile(filepath.Join(linked, "secret"), []byte("s"), 0600))
 	must(t, os.Link(filepath.Join(linked, "secret"), filepath.Join(linked, "outputs", "s.txt")))
-	probs, err = sendOutputs(t.Context(), role, linked, noneSaved)
+	probs, err = sendOutputs(t.Context(), role, linked, noneSaved, nil)
 	must(t, err)
 	if uploads != 0 || !slices.Equal(probs, []string{"outputs/s.txt was not saved: it is a hard link to another file"}) {
 		t.Fatalf("%d uploads, problems %q", uploads, probs)
@@ -374,7 +375,7 @@ func TestRefusedOutputsAreBounded(t *testing.T) {
 		must(t, f.Truncate(maxOutputBytes+1))
 		f.Close()
 	}
-	probs, err = sendOutputs(t.Context(), role, big, noneSaved)
+	probs, err = sendOutputs(t.Context(), role, big, noneSaved, nil)
 	must(t, err)
 	if uploads != 0 || len(probs) != maxOutputProblems || probs[len(probs)-1] != "and 6 more files were not saved" {
 		t.Fatalf("%d uploads, %d problems, last %q", uploads, len(probs), probs[len(probs)-1])

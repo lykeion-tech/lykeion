@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 )
 
@@ -48,7 +49,7 @@ type auditBody struct {
 	Findings []string `json:"findings"`
 }
 
-var columnOf = map[Kind]string{Grounding: board.Grounding, Hypotheses: board.Hypotheses, Experimentation: board.Experimentation}
+var columnOf = map[Kind]string{Grounding: board.Grounding, Hypotheses: board.Hypotheses, Experimentation: board.Experimentation, Validation: board.Validation}
 
 // identity is how a reply, a sent-back item and a declared item are compared:
 // an id in its one spelling, text without case and with its spacing collapsed.
@@ -72,6 +73,14 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 		}
 		return []NewRecord{{Kind: "audit", Body: a}}, nil
 	}
+	if k == Objector {
+		// Filed, not yet judged: the review resolves each target and checks it.
+		recs := []NewRecord{}
+		for _, o := range h.Objections {
+			recs = append(recs, NewRecord{Kind: "objection", Body: review.Objection{Label: o.Target, Type: o.Type, Quote: o.Quote, Problem: o.Problem, Checks: []review.Check{}}})
+		}
+		return recs, nil
+	}
 	if !lead {
 		return nil, nil
 	}
@@ -83,6 +92,8 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 		c.hypotheses(h)
 	case Experimentation:
 		c.experimentation(h)
+	case Validation:
+		c.validation(h)
 	}
 	c.replies(h.Replies, prev)
 	if len(c.probs) > 0 {
@@ -160,8 +171,9 @@ func (c *converter) grounding(h HandIn) {
 	}
 }
 
-// hypotheses cite the study's Grounding items by their record key and other
-// recorded sources by the calls that returned them.
+// hypotheses cite the study's Grounding items by their record key, the
+// study's attached files by the calls that read them, and other recorded
+// sources by the calls that returned them.
 func (c *converter) hypotheses(h HandIn) {
 	for i, x := range h.Hypotheses {
 		cites, ok := []string{}, true
@@ -171,8 +183,11 @@ func (c *converter) hypotheses(h HandIn) {
 				continue
 			}
 			calls, found := c.calls(id)
+			if read := c.ev.AttachmentCalls(id); len(read) > 0 {
+				calls, found = read, true
+			}
 			if !found {
-				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset nor a source recorded in this study", i+1, id)
+				c.problem("hypothesis %d: cite %s is neither a Grounding paper or dataset, a file attached to the study, nor a source recorded in this study", i+1, id)
 				ok = false
 				continue
 			}
@@ -188,7 +203,7 @@ func (c *converter) hypotheses(h HandIn) {
 		c.declared[identity(x.Text)] = true
 		if len(cites) == 0 {
 			// Hosted search and fetch hits are no record a hypothesis can cite.
-			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, or a source you looked up through Lykeion's tools", i+1)
+			c.problem("hypothesis %d: cite a Grounding paper or dataset of this study, a file attached to it, or a source you looked up through Lykeion's tools", i+1)
 			continue
 		}
 		c.item("hypothesis", i+1, review.KindHypothesis, x.Body(cites))
@@ -222,6 +237,91 @@ func (c *converter) experimentation(h HandIn) {
 			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: v.File, Cites: runs}})
 		}
 	}
+}
+
+// validation takes assessments of the study's hypotheses against its recorded
+// values when Experimentation handed in runs, and otherwise verdicts and
+// flagged errors on the study's claims, each resting on a known source.
+func (c *converter) validation(h HandIn) {
+	if c.ev.Mode == "runs" {
+		if len(h.Verdicts) > 0 || len(h.FlaggedErrs) > 0 {
+			c.problem("this study has recorded runs: hand in assessments, not verdicts")
+		}
+		if len(h.Assessments) == 0 {
+			c.problem("a done Validation hand-in needs at least one assessment")
+		}
+	} else {
+		if len(h.Assessments) > 0 {
+			c.problem("this study has no recorded runs: hand in verdicts, not assessments")
+		}
+		if len(h.Verdicts) == 0 && len(h.FlaggedErrs) == 0 {
+			c.problem("a done Validation hand-in needs at least one verdict or flagged error")
+		}
+	}
+	if len(c.probs) > 0 {
+		return
+	}
+	for i, a := range h.Assessments {
+		ok := true
+		if !c.ev.Hypothesis(a.Hypothesis) {
+			c.problem("assessment %d: hypothesis %s matches no hypothesis of this study", i+1, a.Hypothesis)
+			ok = false
+		}
+		for _, v := range []struct {
+			what string
+			name *string
+		}{{"measurement", &a.Measurement}, {"control", a.Control}, {"observed", a.Observed}} {
+			if v.name != nil && !c.ev.Value(*v.name) {
+				c.problem("assessment %d: %s %s matches no recorded value of this study", i+1, v.what, *v.name)
+				ok = false
+			}
+		}
+		if ok {
+			c.declared[identity(a.Hypothesis)] = true
+			c.item("assessment", i+1, review.KindAssessment, a.Assessment())
+		}
+	}
+	for i, v := range h.Verdicts {
+		if src, ok := c.source(v.Source); ok {
+			c.declared[identity(v.Claim)] = true
+			c.item("verdict", i+1, review.KindVerdict, review.VerdictBody{Claim: v.Claim, Verdict: v.Verdict, Source: src, Quote: v.Quote})
+		} else {
+			c.problem("verdict %d: source not found among the study's attachments or recorded sources", i+1)
+		}
+	}
+	for i, f := range h.FlaggedErrs {
+		if src, ok := c.source(f.Source); ok {
+			// The identity review.IdentityOf gives it; a reply's spacing
+			// collapses the line break, as identity does here.
+			c.declared[identity(src+"\n"+f.Quote)] = true
+			c.item("flagged error", i+1, review.KindFlaggedError, review.FlaggedErrorBody{Source: src, Quote: f.Quote, Problem: f.Problem})
+		} else {
+			c.problem("flagged error %d: source not found among the study's attachments or recorded sources", i+1)
+		}
+	}
+	// Every hypothesis that stands is assessed: a missing one is the lead's
+	// to add, not Experimentation's to redo.
+	if c.ev.Mode == "runs" {
+		for _, r := range c.ev.Standing() {
+			text := strings.TrimSpace(records.Body[review.HypothesisBody](r).Text)
+			if !slices.ContainsFunc(h.Assessments, func(a Assessment) bool { return strings.TrimSpace(a.Hypothesis) == text }) {
+				c.problem("hypothesis %q has no assessment", review.LabelOf(r))
+			}
+		}
+	}
+}
+
+// source is s as a verdict cites it: an attached file's or a file
+// Experimentation saved's name as given, or a source id a call of the study
+// returned, in its normalised spelling.
+func (c *converter) source(s string) (string, bool) {
+	if c.ev.Attached(s) || c.ev.ExperimentationOutput(s) {
+		return s, true
+	}
+	if cites, _ := c.calls(s); len(cites) > 0 {
+		return NormID(s), true
+	}
+	return "", false
 }
 
 // replies answer the items the last review sent back: a withdrawn item is

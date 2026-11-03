@@ -266,7 +266,7 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 const inFlightMemberRun = `-- name: InFlightMemberRun :one
 SELECT id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4
-  AND role NOT IN ('', 'leader', 'auditor', 'agent') AND status IN ('queued', 'dispatched', 'running')
+  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1
 `
 
@@ -278,8 +278,8 @@ type InFlightMemberRunParams struct {
 }
 
 // A member's run of a column's round that has not ended: queued, dispatched
-// or running. Members are every role but the leader, the auditor and a
-// study's single agent.
+// or running. Members are every role but the leader, the auditor, a study's
+// single agent and Validation's system runs, the objector and the rerun.
 func (q *Queries) InFlightMemberRun(ctx context.Context, arg InFlightMemberRunParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, inFlightMemberRun,
 		arg.WorkspaceID,
@@ -848,26 +848,28 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	return ok, err
 }
 
-const upsertCouldNotDoDecision = `-- name: UpsertCouldNotDoDecision :exec
+const upsertCardDecision = `-- name: UpsertCardDecision :exec
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
-VALUES ($1, $2::uuid, $3, 'needs_decision', $4, 'could_not_do')
+VALUES ($1, $2::uuid, $3, 'needs_decision', $4, $5::text)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text
 `
 
-type UpsertCouldNotDoDecisionParams struct {
+type UpsertCardDecisionParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	CardID      uuid.UUID `json:"card_id"`
 	UserID      uuid.UUID `json:"user_id"`
 	Text        string    `json:"text"`
+	Cause       string    `json:"cause"`
 }
 
-func (q *Queries) UpsertCouldNotDoDecision(ctx context.Context, arg UpsertCouldNotDoDecisionParams) error {
-	_, err := q.db.Exec(ctx, upsertCouldNotDoDecision,
+func (q *Queries) UpsertCardDecision(ctx context.Context, arg UpsertCardDecisionParams) error {
+	_, err := q.db.Exec(ctx, upsertCardDecision,
 		arg.WorkspaceID,
 		arg.CardID,
 		arg.UserID,
 		arg.Text,
+		arg.Cause,
 	)
 	return err
 }

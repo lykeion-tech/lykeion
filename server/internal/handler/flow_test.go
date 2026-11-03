@@ -13,6 +13,9 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/handin"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -36,8 +39,7 @@ type teamRun struct {
 	leader                                bool // offered the member tools
 }
 
-// newValidationLab is newTeamLab on Validation, whose runs still name
-// members and declare the column done through lyk and wake their leader.
+// newValidationLab is newTeamLab on Validation.
 func newValidationLab(t *testing.T) *teamLab {
 	t.Helper()
 	return newTeamLabWith(t, testutil.PackOpts{Name: "val", Stage: "validation", Members: 2})
@@ -119,16 +121,18 @@ func (l *teamLab) queued(t *testing.T) int {
 }
 
 type stepOut struct {
-	Key        string
-	AgentRunID string `json:"agent_run_id"`
+	AgentRunID string
 	Error      string
 }
 
+// step has the leader ask a member for a task with ask_member; the answer's
+// ticket is the member's run.
 func (l *teamLab) step(t *testing.T, tok string, in map[string]any) (int, stepOut) {
 	t.Helper()
-	var out stepOut
-	c := l.s.call(t, "POST", "/api/role/steps", tok, "", in, &out)
-	return c, out
+	member, _ := in["member"].(string)
+	task, _ := in["content"].(string)
+	c, out := l.ask(t, tok, member, task)
+	return c, stepOut{AgentRunID: out.Ticket, Error: out.Error}
 }
 
 func TestALeaderNamesADeclaredMember(t *testing.T) {
@@ -138,7 +142,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 		t.Fatalf("first run %q", leader.role)
 	}
 	c, out := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "List three rival explanations."})
-	if c != 201 || out.Key == "" || out.AgentRunID == "" {
+	if c != 201 || out.AgentRunID == "" {
 		t.Fatalf("step %d %+v", c, out)
 	}
 	var recs []struct {
@@ -149,7 +153,7 @@ func TestALeaderNamesADeclaredMember(t *testing.T) {
 		t.Fatalf("records %d %+v", c, recs)
 	}
 	r := recs[0]
-	if r.Kind != "delegation" || r.Key != out.Key || r.Role != "leader" || r.Body["member"] != "member-1" ||
+	if r.Kind != "delegation" || r.Key == "" || r.Role != "leader" || r.Body["member"] != "member-1" ||
 		r.Body["step"] != "List three rival explanations." || r.Body["agent_run_id"] != out.AgentRunID {
 		t.Fatalf("delegation %+v", r)
 	}
@@ -178,55 +182,6 @@ func TestAnUndeclaredMemberIsRefused(t *testing.T) {
 	}
 }
 
-func TestAtTheCapTheLeaderCanStillFinish(t *testing.T) {
-	l := newTeamLab(t, 1)
-	leader := l.claim(t)
-	c, first := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	if c != 201 {
-		t.Fatalf("first step %d", c)
-	}
-	c, out := l.step(t, leader.token, map[string]any{"member": "member-2", "content": "two"})
-	if c != 409 || out.Error != "this Team has used all its steps for this column: finish the column with what you have, or do the remaining work yourself" {
-		t.Fatalf("over the cap: %d %+v", c, out)
-	}
-	if c, out := l.step(t, leader.token, map[string]any{"self": true, "content": "I compare the rivals myself."}); c != 201 || out.Key == "" {
-		t.Fatalf("self step %d %+v", c, out)
-	}
-	l.complete(t, l.claim(t)) // the member's run
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Done.", "cites": []string{"r99"}}, nil); c != 400 {
-		t.Fatalf("unknown cite: %d", c)
-	}
-	var done struct{ Key string }
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Two rivals stand.", "cites": []string{first.Key}}, &done); c != 201 || done.Key == "" {
-		t.Fatalf("done %d %+v", c, done)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'summary' AND body->>'text' = 'Two rivals stand.' AND body->'cites'->>0 = $2", l.card.ID, first.Key); n != 1 {
-		t.Fatalf("%d summaries", n)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'self_step' AND body->>'step' = 'I compare the rivals myself.'", l.card.ID); n != 1 {
-		t.Fatalf("%d self steps", n)
-	}
-}
-
-func TestDoneWaitsForInFlightWork(t *testing.T) {
-	l := newTeamLab(t, 0)
-	leader := l.claim(t)
-	if c, _ := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"}); c != 201 {
-		t.Fatalf("step %d", c)
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Too soon."}, nil); c != 409 {
-		t.Fatalf("done with a member in flight: %d", c)
-	}
-	m := l.claim(t)
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Too soon."}, nil); c != 409 {
-		t.Fatalf("done with a member running: %d", c)
-	}
-	l.complete(t, m)
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Now."}, nil); c != 201 {
-		t.Fatalf("done after the member: %d", c)
-	}
-}
-
 func TestMembersCannotWriteServerKinds(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
@@ -244,157 +199,57 @@ func TestMembersCannotWriteServerKinds(t *testing.T) {
 	if c := l.s.call(t, "POST", "/api/role/records", m.token, "", map[string]any{"kind": "rival", "body": map[string]any{"text": "a batch effect"}}, &rec); c != 201 || rec.Key == "" {
 		t.Fatalf("work record %d %+v", c, rec)
 	}
-	// The leader writes work when it does a step itself.
+	// The leader writes work when it does a task itself.
 	if c := l.s.call(t, "POST", "/api/role/records", leader.token, "", map[string]any{"kind": "comparison", "body": map[string]any{}}, nil); c != 201 {
 		t.Fatalf("leader work record: %d", c)
 	}
 }
 
-func TestAMemberRunSettlingWakesTheLeader(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	l.complete(t, leader) // the leader stops after naming a member
-	m := l.claim(t)
-	var rec struct{ Key string }
-	if c := l.s.call(t, "POST", "/api/role/records", m.token, "", map[string]any{"kind": "rival", "body": map[string]any{"text": "a batch effect"}}, &rec); c != 201 {
-		t.Fatalf("record %d", c)
-	}
-	if n := l.queued(t); n != 0 {
-		t.Fatalf("the leader woke before the member finished: %d queued", n)
-	}
-	l.complete(t, m)
-	again := l.claim(t)
-	if again.role != "leader" || !strings.Contains(again.prompt, "member-1") || !strings.Contains(again.prompt, rec.Key) || !strings.Contains(again.prompt, "a batch effect") {
-		t.Fatalf("leader resume %+v", again)
-	}
-	if again.scope != leader.scope {
-		t.Fatalf("the leader resumed on %q, not its session %q", again.scope, leader.scope)
-	}
-}
-
-func TestAFailedMemberWakesTheLeaderWithItsReason(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	l.step(t, leader.token, map[string]any{"member": "member-2", "content": "two"})
-	l.complete(t, leader)
-	m := l.claim(t)
-	if c := l.s.call(t, "POST", "/api/role/records", m.token, "", map[string]any{"kind": "failed", "body": map[string]any{"reason": "GEO has no aged mice"}}, nil); c != 201 {
-		t.Fatalf("failed %d", c)
-	}
-	l.complete(t, m)
-	again := l.claim(t)
-	if again.role != "leader" || !strings.Contains(again.prompt, "member-2") || !strings.Contains(again.prompt, "GEO has no aged mice") {
-		t.Fatalf("leader resume %+v", again)
-	}
-}
-
-func TestALeaderIdleTwiceEscalatesOnce(t *testing.T) {
-	l := newValidationLab(t)
-	l.complete(t, l.claim(t)) // stops without naming a member or finishing
-	nudged := l.claim(t)
-	if nudged.role != "leader" || !strings.Contains(nudged.prompt, "You ended without naming a member (`lyk team step`) or declaring the column done (`lyk team done`).") {
-		t.Fatalf("nudge %+v", nudged)
-	}
-	l.complete(t, nudged)
-	if n := l.queued(t); n != 0 {
-		t.Fatalf("woken a third time: %d queued", n)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID); n != 1 {
-		t.Fatalf("%d escalated items", n)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND state = 'working'", l.card.ID); n != 1 {
-		t.Fatal("the study left working")
-	}
-	if c := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try the GTEx data."}, nil); c != 201 {
-		t.Fatalf("comment %d", c)
-	}
-	if woken := l.claim(t); woken.role != "leader" || !strings.Contains(woken.prompt, "Try the GTEx data.") {
-		t.Fatalf("comment wake %+v", woken)
+// A Validation lead that ends without a hand-in is redone once with what
+// went wrong, then held for its owner, whose comment redoes it; a lead is
+// never woken to carry on.
+func TestAValidationLeadWithoutAHandInRedoesThenBlocks(t *testing.T) {
+	for name, lab := range map[string]func(*testing.T) *teamLab{"leader": newValidationLab, "agent": newValidationAgentLab} {
+		t.Run(name, func(t *testing.T) {
+			l := lab(t)
+			first := l.claim(t)
+			if first.role != name || first.outputSchema == "" || !first.lead {
+				t.Fatalf("first run %+v", first)
+			}
+			l.complete(t, first) // ends without a hand-in
+			redo := l.claim(t)
+			if redo.role != name || !strings.Contains(redo.prompt, "the run ended without a hand-in") || redo.scope == first.scope {
+				t.Fatalf("redo %+v", redo)
+			}
+			l.complete(t, redo)
+			if n := l.queued(t); n != 0 {
+				t.Fatalf("a third run queued: %d", n)
+			}
+			if n := l.s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND state = 'blocked'", l.card.ID); n != 1 {
+				t.Fatal("the study was not held")
+			}
+			if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'blocked' AND text LIKE '%the run ended without a hand-in%'", l.card.ID); n != 1 {
+				t.Fatalf("%d blocked items naming the reason", n)
+			}
+			if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID); n != 0 {
+				t.Fatalf("%d escalated items", n)
+			}
+			if c := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try the GTEx data."}, nil); c != 201 {
+				t.Fatalf("comment %d", c)
+			}
+			if again := l.claim(t); again.role != name || !strings.Contains(again.prompt, "Try the GTEx data.") {
+				t.Fatalf("after the comment %+v", again)
+			}
+		})
 	}
 }
-
 func TestOnlyTheLeaderNamesMembers(t *testing.T) {
 	l := newTeamLab(t, 0)
 	leader := l.claim(t)
 	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
 	m := l.claim(t)
 	if c, _ := l.step(t, m.token, map[string]any{"member": "member-2", "content": "two"}); c != 403 {
-		t.Fatalf("member steps: %d", c)
-	}
-	if c, _ := l.step(t, m.token, map[string]any{"self": true, "content": "two"}); c != 403 {
-		t.Fatalf("member self-steps: %d", c)
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", m.token, "", map[string]any{"summary": "x"}, nil); c != 403 {
-		t.Fatalf("member done: %d", c)
-	}
-}
-
-func TestACancelledMemberWakesTheLeader(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	_, out := l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	l.complete(t, leader)
-	if c := l.s.call(t, "POST", "/api/agent-runs/"+out.AgentRunID+"/cancel", l.jwt, l.ws, nil, nil); c != 204 {
-		t.Fatalf("cancel %d", c)
-	}
-	again := l.claim(t)
-	if again.role != "leader" || !strings.Contains(again.prompt, "member-1's run was cancelled") {
-		t.Fatalf("leader resume %+v", again)
-	}
-}
-
-func TestADeclaredDoneColumnTakesNoMoreSteps(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	l.complete(t, l.claim(t)) // the member lands while the leader still runs, which queues a wake
-	if n := l.queued(t); n != 1 {
-		t.Fatalf("%d leader wakes queued", n)
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Done."}, nil); c != 201 {
-		t.Fatalf("done %d", c)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'leader' AND status = 'queued'", l.card.ID); n != 0 {
-		t.Fatalf("the wake queued before done is still queued: %d", n)
-	}
-	for _, in := range []map[string]any{{"member": "member-2", "content": "two"}, {"self": true, "content": "two"}} {
-		if c, out := l.step(t, leader.token, in); c != 409 || out.Error != "this column was already declared done" {
-			t.Fatalf("%v after done: %d %+v", in, c, out)
-		}
-	}
-	if c := l.s.call(t, "POST", "/api/role/done", leader.token, "", map[string]any{"summary": "Again."}, nil); c != 409 {
-		t.Fatalf("second done: %d", c)
-	}
-}
-
-func TestAnIdleLeaderWaitsForItsMember(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	m := l.claim(t)
-	l.complete(t, leader)
-	l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "How is it going?"}, nil)
-	l.complete(t, l.claim(t)) // woken by the comment, it stops idle while the member works
-	if n := l.queued(t); n != 0 {
-		t.Fatalf("an idle leader was nudged with its member at work: %d queued", n)
-	}
-	l.complete(t, m)
-	if again := l.claim(t); again.role != "leader" || !strings.Contains(again.prompt, "member-1 finished") {
-		t.Fatalf("leader resume %+v", again)
-	}
-}
-
-func TestNoEscalationWhileTheLeaderIsQueued(t *testing.T) {
-	l := newValidationLab(t)
-	l.complete(t, l.claim(t))
-	nudged := l.claim(t)
-	l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try GTEx."}, nil)
-	for deadline := time.Now().Add(5 * time.Second); l.queued(t) == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-	}
-	l.complete(t, nudged)
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID); n != 0 {
-		t.Fatalf("escalated with the leader queued: %d", n)
+		t.Fatalf("member asks: %d", c)
 	}
 }
 
@@ -519,8 +374,7 @@ func TestNoToolText(t *testing.T) {
 // its owner's daemon registered to claim the study's runs.
 func newAgentLab(t *testing.T) *teamLab { return newAgentLabOn(t, "grounding") }
 
-// newValidationAgentLab is newAgentLab on Validation, whose agent still
-// declares the column done through lyk and is woken when it does not.
+// newValidationAgentLab is newAgentLab on Validation.
 func newValidationAgentLab(t *testing.T) *teamLab { return newAgentLabOn(t, "validation") }
 
 func newAgentLabOn(t *testing.T, column string) *teamLab {
@@ -540,65 +394,6 @@ func newAgentLabOn(t *testing.T, column string) *teamLab {
 	l.rts = rts[0].ID
 	l.card = s.agentCard(t, l.jwt, l.ws, a.ID, column, column, "Why do cells age?")
 	return l
-}
-
-func TestASingleAgentIdleTwiceEscalatesAndACommentWakesIt(t *testing.T) {
-	l := newValidationAgentLab(t)
-	first := l.claim(t)
-	if first.role != "agent" {
-		t.Fatalf("first run %+v", first)
-	}
-	l.complete(t, first) // stops without declaring the column done
-	nudged := l.claim(t)
-	if nudged.role != "agent" || !strings.Contains(nudged.prompt, "You ended without declaring the column done (`lyk team done`).") {
-		t.Fatalf("nudge %+v", nudged)
-	}
-	if nudged.scope != first.scope {
-		t.Fatalf("the nudge started a new session %q, not %q", nudged.scope, first.scope)
-	}
-	l.complete(t, nudged)
-	if n := l.queued(t); n != 0 {
-		t.Fatalf("woken a third time: %d queued", n)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated' AND resolved_at IS NULL", l.card.ID); n != 1 {
-		t.Fatalf("%d open escalated items", n)
-	}
-	if c := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, map[string]any{"body": "Try the GTEx data."}, nil); c != 201 {
-		t.Fatalf("comment %d", c)
-	}
-	if woken := l.claim(t); woken.role != "agent" || !strings.Contains(woken.prompt, "Try the GTEx data.") {
-		t.Fatalf("comment wake %+v", woken)
-	}
-	if n := l.s.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'escalated' AND resolved_at IS NULL", l.card.ID); n != 0 {
-		t.Fatalf("the comment that woke the agent left %d escalated items open", n)
-	}
-}
-
-func TestAWakeThatFailsIsDeliveredAgain(t *testing.T) {
-	l := newValidationLab(t)
-	leader := l.claim(t)
-	l.step(t, leader.token, map[string]any{"member": "member-1", "content": "one"})
-	l.complete(t, leader)
-	m := l.claim(t)
-	// The leader's agent cannot be read while the member settles, so waking
-	// the leader fails.
-	var pack, user, agent string
-	if err := l.s.Env.Owner.QueryRow(context.Background(), "DELETE FROM team_agent WHERE member = 'pi' RETURNING pack_id::text, user_id::text, agent_id::text").Scan(&pack, &user, &agent); err != nil {
-		t.Fatal(err)
-	}
-	l.complete(t, m)
-	if n := l.queued(t); n != 0 {
-		t.Fatalf("%d runs queued without the leader's agent", n)
-	}
-	if _, err := l.s.Env.Owner.Exec(context.Background(), "INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id) VALUES ($1, $2, $3, 'pi', $4)", l.ws, pack, user, agent); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.s.H.AgentRuns.RecoverSettlements(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if again := l.claim(t); again.role != "leader" || !strings.Contains(again.prompt, "member-1 finished") {
-		t.Fatalf("leader resume %+v", again)
-	}
 }
 
 // fail reports r as failed for reason, as a daemon does; a retried attempt
@@ -626,20 +421,54 @@ func (l *teamLab) failUntilSettled(t *testing.T, r teamRun) teamRun {
 	}
 }
 
-func TestAFailedLeaderIsToldItFailedAndEscalatesAsFailed(t *testing.T) {
+// A Validation lead whose run fails is redone once, told it failed, and then
+// held with the failure named.
+func TestAFailedValidationLeadIsRedoneThenBlocked(t *testing.T) {
 	l := newValidationLab(t)
-	woken := l.failUntilSettled(t, l.claim(t))
-	if woken.role != "leader" || !strings.Contains(woken.prompt, "failed") || strings.Contains(woken.prompt, "You ended without") {
-		t.Fatalf("the wake after a failed run: %+v", woken)
+	redo := l.failUntilSettled(t, l.claim(t))
+	if redo.role != "leader" || !strings.Contains(redo.prompt, "The last attempt at this column failed") {
+		t.Fatalf("the redo after a failed run: %+v", redo)
 	}
-	l.fail(t, woken, "agent_error")
+	l.fail(t, redo, "agent_error")
 	for n := l.queued(t); n > 0; n = l.queued(t) {
-		woken = l.failUntilSettled(t, l.claim(t))
+		l.failUntilSettled(t, l.claim(t))
 	}
 	var text string
-	l.s.Env.Owner.QueryRow(context.Background(), "SELECT text FROM inbox_item WHERE card_id = $1 AND kind = 'escalated'", l.card.ID).Scan(&text)
-	if !strings.Contains(text, "failed") || strings.Contains(text, "stopped") {
-		t.Fatalf("escalation %q", text)
+	l.s.Env.Owner.QueryRow(context.Background(), "SELECT text FROM inbox_item WHERE card_id = $1 AND kind = 'blocked'", l.card.ID).Scan(&text)
+	if !strings.Contains(text, "the agent's run failed, twice") {
+		t.Fatalf("blocked item %q", text)
+	}
+}
+
+// The objector hands in like a study run: its claim carries the objector's
+// schema, so the daemon gives its CLI no token or server address.
+func TestAnObjectorClaimHandsIn(t *testing.T) {
+	l := newValidationLab(t)
+	leader := l.claim(t)
+	var owner uuid.UUID
+	if err := l.s.Env.Owner.QueryRow(context.Background(), "SELECT owner_id FROM card WHERE id = $1", l.card.ID).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	err := l.s.H.Store.InWorkspace(context.Background(), uuid.MustParse(l.ws), owner, func(tx *store.Tx) error {
+		_, err := l.s.H.AgentRuns.Enqueue(context.Background(), tx, owner, service.NewAgentRun{Card: uuid.MustParse(l.card.ID), Column: "validation",
+			Round: 1, Role: "objector", Harness: "claude", Prompt: "brief", ContinuityScope: "objector-scope"})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.complete(t, leader)
+	var obj teamRun
+	for range 3 {
+		if obj = l.claim(t); obj.role == "objector" {
+			break
+		}
+	}
+	if obj.role != "objector" {
+		t.Fatalf("no objector claimed; last claim %+v", obj)
+	}
+	if obj.outputSchema != handin.Schema(handin.Objector) || obj.lead || obj.leader {
+		t.Fatalf("objector claim: lead %v leader %v schema %q", obj.lead, obj.leader, obj.outputSchema)
 	}
 }
 

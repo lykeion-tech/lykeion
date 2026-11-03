@@ -171,6 +171,10 @@ function keysDown(event: KeyboardEvent) {
 
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => picker.value?.unstaged ?? false);
+// A Workflow runs its method on the researcher's data.
+const needsData = computed(
+  () => mode.value === 'manual' && !!workflowSlug.value && files.ids.value.length === 0,
+);
 const blocked = computed(
   () =>
     busy.value ||
@@ -181,7 +185,8 @@ const blocked = computed(
       ? !agentPrompt.value.trim() || !draftingAgent.value || files.items.value.length > 0
       : !question.value.trim() ||
         unstaged.value ||
-        (!!workflowSlug.value && assignee.value?.type !== 'agent')),
+        (!!workflowSlug.value && assignee.value?.type !== 'agent') ||
+        needsData.value),
 );
 async function submit() {
   if (blocked.value) return;
@@ -461,6 +466,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       </p>
       <p v-if="mode === 'agent' && workflowSlug" class="composer-warning" role="status">
         The selected workflow is kept in manual mode and will not be included in the agent request.
+      </p>
+      <p v-if="needsData" class="composer-warning" role="status">
+        A Workflow runs its method on your data: attach at least one file.
       </p>
       <div v-if="files.items.value.length || files.error.value" class="composer-files">
         <ul v-if="files.items.value.length" aria-label="Files to attach">

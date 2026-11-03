@@ -61,14 +61,10 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 	fmt.Fprintf(&b, "You are the %s on Lykeion study #%d, in its %s column.\n\nWhat the researcher asked:\n%s\n",
 		role, c.Number, title(c.BoardColumn), asked(c))
 	if len(files) > 0 {
-		// Each file is named as it is in the run folder; a Validation run,
-		// which still cites by hand, also gets the record it is cited by.
+		// Each file is named as it is in the run folder.
 		listed := make([]string, len(files))
 		for i, f := range files {
 			listed[i] = f.DiskName
-			if !handsIn(c.BoardColumn) {
-				listed[i] += fmt.Sprintf(" (cite call:%s)", f.RecordKey)
-			}
 		}
 		fmt.Fprintf(&b, "\nAttached files (read-only) are in ./attachments: %s\n", strings.Join(listed, ", "))
 	}
@@ -85,24 +81,6 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 	b.WriteString("Write scratch files with your file tools, under $TMPDIR or the run folder, not with shell redirection.\n")
 	return b.String()
 }
-
-// handsIn says whether a study's runs in column end with a hand-in. Validation
-// runs still follow the lyk protocol.
-func handsIn(column string) bool { return column != board.Validation }
-
-// The Validation protocol: the lyk commands its runs write records with and
-// finish the column with.
-const (
-	writeWork = "Write your work with `lyk record put KIND --content '{\"text\": \"…\"}'`, the JSON body as one single-quoted argument (write a single quote inside it as `'\\''`, or keep the JSON free of them); it prints the record's key. " +
-		"When a record quotes a database call, cite the call with `--cites call:KEY` (`lyk calls` lists them). " +
-		"Run analysis code through the door: `run_code` for exploring (a live Python, R or Julia session) and `run_script` for the result (a saved script run from start to finish). " +
-		"Each answer starts with `run:<key>`. Put each reported number in a `value` field (or a `values` list) next to `\"cites\": [\"run:KEY\"]` naming the `run_script` run that printed it; `lyk runs` lists them. " +
-		"Records of the kinds prediction, explanation, plan and limitation cite nothing. " +
-		"Read the study's records with `lyk records`.\n"
-	finish = "When the column delivers what it must, finish with `lyk team done --cites KEY1,KEY2 --content-stdin <<'EOF'` followed by the summary and a closing `EOF` line, " +
-		"a summary that names the record keys it relies on. Pass file contents through stdin or `--content`; do not write files for it.\n"
-	askTools = "To find a skill or database tool for what you need, run `lyk tools \"what you need\"`; call the tools it names through `call_tool`.\n"
-)
 
 // handInIntro and replies are the fields every lead and member hand-in
 // has: what it says, and how it answers a redo.
@@ -163,6 +141,18 @@ func itemsPrompt(column string) string {
 			"The number must appear in that file or in that script's recorded output.\n" +
 			replies +
 			"Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
+	case board.Validation:
+		return "- `assessments`, when the study has hypotheses and recorded script runs in Experimentation: one for every hypothesis of the study, with `hypothesis` (its text, exactly as it was handed in), " +
+			"`measurement` (the name of the recorded value that measures it: the effect itself, such as a difference, or the treated group's raw value), " +
+			"`control` (the name of the recorded value holding the control group's raw value, when `measurement` is the treated group's raw value; null when `measurement` is already the effect), " +
+			"`test` (the statistical test exactly as a recorded script run printed it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2` (null when the test has none), `p` and `p_bound` (=, < or >); null when there is none. Lykeion looks for its statistic and p in the rerun's output, so a test no run printed makes the hypothesis invalid) " +
+			"and `observed` (for a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise). " +
+			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the numbers itself; you set no status.\n" +
+			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
+			"`source` (an attached file's name, the name of a file the study saved in Experimentation, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +
+			"- `flagged_errors`, otherwise: each passage that is wrong, with its `source`, the `quote` copied word for word, and the `problem`.\n" +
+			replies +
+			"Jev reads each quote alone and checks that it bears out the verdict, or that the passage is wrong in the way stated.\n"
 	}
 	return ""
 }
@@ -181,9 +171,6 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 // member's name. It is Lykeion's counterpart of the operating protocol a
 // squad leader reads.
 func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
-	if !handsIn(column) {
-		return validationProtocol(role, column, scopeFrom, m)
-	}
 	var b strings.Builder
 	b.WriteString("## How you work in Lykeion\n\n")
 	switch role {
@@ -233,58 +220,5 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 		b.WriteString(workOutputs)
 	}
 	b.WriteString("\n" + sourcesTools + "To find a skill or another database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
-	return b.String()
-}
-
-// validationProtocol is Protocol for the Validation column, whose runs write
-// records and finish the column with lyk commands.
-func validationProtocol(role, column, scopeFrom string, m *pack.Manifest) string {
-	var b strings.Builder
-	b.WriteString("## How you work in Lykeion\n\n")
-	switch role {
-	case "leader":
-		fmt.Fprintf(&b, "You lead this Team on the study's %s column. You coordinate; the members do the work.\n\n", title(column))
-	case "agent":
-		fmt.Fprintf(&b, "You work the study's %s column on your own.\n\n", title(column))
-	case "auditor":
-		fmt.Fprintf(&b, "You audit this Team's work on the study's %s column, once, after its leader declared the column done and before the column is reviewed. "+
-			"Your findings are kept with the study for the Team and the researcher; they never reach Jev.\n\n", title(column))
-	default:
-		fmt.Fprintf(&b, "You are the %s member of this Team, on the study's %s column. The leader named you for one step; your prompt says what it is.\n\n", role, title(column))
-	}
-	fmt.Fprintf(&b, "What the column delivers: %s.\n\n", deliverables[column])
-	if i, j := board.StageIndex(scopeFrom), board.StageIndex(column); i >= 0 && i < j {
-		fmt.Fprintf(&b, "Earlier columns of this study (%s) already hold records. As background you may read them: ",
-			strings.Join(board.Stages[i:j], ", "))
-		fmt.Fprintf(&b, "`lyk records --column %s`, one column at a time; the names are exactly those.\n\n", board.Stages[i])
-	}
-	switch role {
-	case "leader":
-		b.WriteString("Your members:\n")
-		if m != nil {
-			for _, mem := range m.Members {
-				fmt.Fprintf(&b, "- %s: %s\n", mem.Name, mem.Role)
-			}
-		}
-		b.WriteString("\nOn every turn:\n" +
-			"1. Read the study's records (`lyk records`) and decide the next step.\n" +
-			"2. Name the member for it: `lyk team step MEMBER --content \"…\"` (or `--content-stdin` with a heredoc). Say only what the member cannot read in the study for themselves.\n" +
-			"3. Stop after naming one member. You are woken when their work lands.\n" +
-			"4. When no member fits a step, do it yourself: say so first with `lyk team step --self --content \"…\"`, " +
-			"then write the work with `lyk record put KIND --content '<json>'`, the JSON body as one single-quoted argument.\n" +
-			"5. " + finish)
-	case "agent":
-		b.WriteString(writeWork + finish)
-	case "auditor":
-		b.WriteString("Your prompt holds the leader's summary and the records it cites; read more with `lyk records`, `lyk calls` and `lyk runs`. " +
-			"Check that each claim cites where its facts came from, that quoted passages appear in the calls they cite, " +
-			"that each reported value appears in the script run it cites, " +
-			"that the work answers what the researcher asked, and that it says what it couldn't do.\n" +
-			"Write your findings once with `lyk record put audit --content '<json>'` with a single-quoted body of the form " +
-			"`{\"text\": \"…\", \"findings\": [\"…\"]}`. You write no other records, name no members and declare nothing done.\n")
-	default:
-		b.WriteString(writeWork + "If you cannot do the step, end with `lyk result failed --content \"why\"`.\n")
-	}
-	b.WriteString("\n" + askTools)
 	return b.String()
 }

@@ -55,29 +55,6 @@ case "$prompt" in
     exit 0 ;;
 esac
 
-# The browser tests' demo Team names its members demo-*. Its leader names its
-# first member, the member writes a note, and the leader, woken with the
-# member's work, declares the column done citing it.
-role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ on Lykeion study' | head -n 1 | sed 's/^You are the //; s/ on Lykeion study$//')
-member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' CLAUDE.md 2>/dev/null)
-case "$role:$member" in leader:demo-*|demo-*:)
-  case "$role" in
-    leader)
-      case "$prompt" in
-        *"finished the step you named."*)
-          key=$(printf '%s' "$prompt" | grep -o -- '- r[0-9][0-9]* (' | head -n 1 | sed 's/^- //; s/ ($//')
-          printf 'The note is there.\n' | lyk team done --content-stdin ${key:+--cites "$key"} >/dev/null || exit 1 ;;
-        *)
-          lyk team step "$member" --content "Write the column's note." >/dev/null || exit 1 ;;
-      esac ;;
-    *)
-      printf '{"text":"The %s note."}' "$role" | lyk record put note --content-stdin >/dev/null || exit 1 ;;
-  esac
-  d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
-  mkdir -p "$d" && : > "$d/s.jsonl"
-  echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.01}}}'
-  exit 0 ;;
-esac
 case "$prompt" in
   *"Notebook cell transcript fixture"*)
     printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"nb1","name":"mcp__notebook__execute_python_cell","input":{"code":"print(\"transcript UI check\")\nprint(42)","human_description":"Print transcript check","execution_count":3}}]}}'

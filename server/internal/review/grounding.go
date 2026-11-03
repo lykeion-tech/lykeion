@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/sources"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -17,13 +18,22 @@ import (
 type GroundingInput struct {
 	Question string
 	Criteria []string
-	Items    []db.Record // this round's paper, dataset and no_qualifying records
-	Carried  []Item      // items that passed on an earlier attempt
+	Items    []db.Record       // this round's paper, dataset and no_qualifying records
+	Comments []string          // the study's researcher comments, newest last, at most 20
+	Declined map[string]string // normalised paper id -> the Team's reason for declining it
+	Carried  []Item            // items that passed on an earlier attempt
 	Attempt  int
 }
 
 // maxCandidates bounds the uncited recall hits Jev screens.
 const maxCandidates = 20
+
+// outOfScopeQuestion is asked about a missed paper the Team declined; yes
+// means the decline stands.
+const outOfScopeQuestion = "Given the research question and the researcher's comments, is this paper outside the study's scope?"
+
+// maxComments bounds the researcher comments that reach Jev.
+const maxComments = 20
 
 const weakestInstructions = "Which of these sources is least supported as meeting the research question's conditions?"
 
@@ -43,8 +53,9 @@ func criteriaQuestions(criteria []string) map[string]string {
 
 // screen asks Jev every criterion about one source, with the question's
 // fenced context first. Jev reads only the source itself, never who declared it.
-func screen(ctx context.Context, a Asker, qs map[string]string, framing []string, label, title, text, abstract string) ([]Check, error) {
-	state := ItemState("Grounding", label+"\n"+title+"\n"+text, append(slices.Clone(framing), abstract), MaxState)
+// after is more fenced context appended to the state.
+func screen(ctx context.Context, a Asker, qs map[string]string, framing []string, label, title, text, abstract, after string) ([]Check, error) {
+	state := ItemState("Grounding", label+"\n"+title+"\n"+text, append(slices.Clone(framing), abstract), MaxState) + after
 	ps, err := a.Noul(ctx, state, qs)
 	if err != nil {
 		return nil, err
@@ -144,6 +155,10 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	if len(in.Criteria) == 0 {
 		asking = []string{"Research question: " + in.Question}
 	}
+	var commentsBlock string
+	if cs := in.Comments; len(cs) > 0 {
+		commentsBlock = fence.Untrusted("Researcher's comments", strings.Join(cs[max(0, len(cs)-maxComments):], "\n"))
+	}
 	cited := map[string]bool{}
 	cite := func(keys []string) {
 		for _, k := range keys {
@@ -153,6 +168,11 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	// A carried paper is resolved again so that every identity it has
 	// upstream counts as cited, not only the id the agent wrote.
 	for _, c := range in.Carried {
+		// A missed paper whose decline stood is not found missing again.
+		if c.Kind == KindDeclined {
+			cite([]string{c.Identity})
+			continue
+		}
 		if c.Kind != KindPaper || c.Status == Withdrawn {
 			continue
 		}
@@ -211,7 +231,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		}
 		it.Checks = served(hit, missing)
 		if ItemStatus(it.Checks) == Pass {
-			cs, err := screen(ctx, a, qs, asking, it.Label, title, text, abstract)
+			cs, err := screen(ctx, a, qs, asking, it.Label, title, text, abstract, "")
 			if err != nil {
 				return Result{}, err
 			}
@@ -250,12 +270,36 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		if h.DOI != "" {
 			label = "doi:" + h.DOI
 		}
-		cs, err := screen(ctx, a, qs, asking, label, h.Title, "", h.Abstract)
+		cs, err := screen(ctx, a, qs, asking, label, h.Title, "", h.Abstract, commentsBlock)
 		if err != nil {
 			return Result{}, err
 		}
 		if ItemStatus(cs) == Pass {
-			cs = append(cs, Check{ID: "missed", By: "server", Detail: "meets every criterion and was not cited", Status: Fail})
+			missed := Check{ID: "missed", By: "server", Detail: "meets every criterion and was not cited", Status: Fail}
+			if i := slices.IndexFunc(hitKeys(h), func(k string) bool { _, ok := in.Declined[k]; return ok }); i >= 0 {
+				reason := in.Declined[hitKeys(h)[i]]
+				state := ItemState("Grounding", label+"\n"+h.Title, append(slices.Clone(asking), h.Abstract, "Reason for declining: "+reason), MaxState) + commentsBlock
+				ps, err := a.Noul(ctx, state, map[string]string{"out_of_scope": outOfScopeQuestion})
+				if err != nil {
+					return Result{}, err
+				}
+				p, ok := ps["out_of_scope"]
+				if !ok {
+					return Result{}, fmt.Errorf("jev gave no answer for out_of_scope")
+				}
+				status := StatusOf(p)
+				p = stored(p)
+				cs = append(cs, Check{ID: "out_of_scope", By: "jev", Question: outOfScopeQuestion, P: &p, Status: status})
+				// A decline Jev accepts stands as a passing item, and one it is
+				// unsure of is carried forward as a note; only a rejected one
+				// leaves the paper missed.
+				if status != Fail {
+					r.Items = append(r.Items, Item{Kind: KindDeclined, Label: label, Identity: hitKeys(h)[i], Status: status, Checks: cs})
+					continue
+				}
+				missed.Detail = "meets every criterion; the declining reason did not convince Jev"
+			}
+			cs = append(cs, missed)
 			r.Missed = append(r.Missed, Item{Kind: KindPaper, Label: label, Status: Fail, Checks: cs})
 		}
 	}

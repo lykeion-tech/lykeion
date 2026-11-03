@@ -16,6 +16,7 @@ func TestShippedTeamsDescribeTheHandIn(t *testing.T) {
 		"Grounding Team":       handin.Grounding,
 		"Hypotheses Team":      handin.Hypotheses,
 		"Experimentation Team": handin.Experimentation,
+		"Validation Team":      handin.Validation,
 	}
 	for name, k := range kinds {
 		_, p, err := pack.ReadShipped(pack.Shipped(), name)
@@ -38,5 +39,36 @@ func TestShippedTeamsDescribeTheHandIn(t *testing.T) {
 				t.Errorf("%s's leader is not told the hand-in field %s", name, f)
 			}
 		}
+	}
+}
+
+// The Validation Team is told how an assessment names its values: a control
+// value only when the measurement is the treated group's raw value, and the
+// outcome by the value that shows it.
+func TestTheValidationTeamNamesValuesAsTheReviewReadsThem(t *testing.T) {
+	_, p, err := pack.ReadShipped(pack.Shipped(), "Validation Team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := p.Manifest.Leader.Agent.Instructions
+	for _, want := range []string{
+		"null when `measurement` is already the effect",
+		"`df2` (null when the test has none)",
+		"the name of the recorded value whose text is the outcome seen",
+		"a test no run printed makes the hypothesis invalid",
+		"in Mode B judge the claims and the work; in Mode A name what was measured and judge nothing",
+	} {
+		if !strings.Contains(lead, want) {
+			t.Errorf("the leader is not told %q", want)
+		}
+	}
+	for _, m := range p.Manifest.Members {
+		if m.Name == "checker" && !strings.Contains(m.Agent.Instructions, "the files Experimentation saved") {
+			t.Errorf("the checker is not told it may read Experimentation's saved files")
+		}
+	}
+	skill := string(p.Skills["checker/claim-check"]["SKILL.md"])
+	if !strings.Contains(skill, "The\n   verdict the hand-in carries is always `supported`, `refuted` or `not_enough_info`") {
+		t.Errorf("claim-check does not say which verdicts the hand-in carries:\n%s", skill)
 	}
 }

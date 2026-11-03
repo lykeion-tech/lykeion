@@ -22,6 +22,6 @@ func teamCmd(e *env) *cobra.Command {
 		fmt.Fprintf(e.out, "added %s\n", a[0])
 		return nil
 	}}
-	c.AddCommand(add, teamStepCmd(e), teamDoneCmd(e))
+	c.AddCommand(add)
 	return c
 }

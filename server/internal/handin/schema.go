@@ -17,6 +17,9 @@ func enum(v ...string) obj { return obj{"type": "string", "enum": v} }
 func list(item any) obj    { return obj{"type": "array", "items": item} }
 func nullObj(o obj) obj    { return obj{"anyOf": []any{o, obj{"type": "null"}}} }
 
+// desc is o described for the agent filling it in.
+func desc(o obj, d string) obj { o["description"] = d; return o }
+
 // object lists props in the given order and requires all of them.
 func object(kv ...any) obj {
 	props, req := obj{}, []string{}
@@ -63,6 +66,26 @@ var schemas = map[Kind]string{
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),
 		"replies", list(reply())),
+	Validation: build(
+		"assessments", list(object(
+			"hypothesis", str(),
+			"measurement", desc(str(), "The name of the recorded value that measures the hypothesis: the effect itself, such as a difference, or the treated group's raw value."),
+			"control", desc(nullStr(), "The name of the recorded value holding the control group's raw value, when measurement is the treated group's raw value; null when measurement is already the effect."),
+			"test", desc(nullObj(object(
+				"kind", enum("t", "F", "chi2", "r", "z"),
+				"statistic", obj{"type": "number"}, "df1", nullNum(),
+				"df2", desc(nullNum(), "The second degrees of freedom, for an F test; null when the test has none."),
+				"p", obj{"type": "number"}, "p_bound", enum("=", "<", ">"))),
+				"The test exactly as a recorded script run printed it: Lykeion looks for its statistic and p in the rerun's output. Null when there is none."),
+			"observed", desc(nullStr(), "For a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise."))),
+		"verdicts", list(object("claim", str(), "verdict", enum("supported", "refuted", "not_enough_info"), "source", str(), "quote", str())),
+		"flagged_errors", list(object("source", str(), "quote", str(), "problem", str())),
+		"replies", list(reply())),
+	Objector: build(
+		"objections", list(object(
+			"target", str(),
+			"type", enum("wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"),
+			"quote", nullStr(), "problem", str()))),
 	Autoresearch: build(
 		"report", nullStr(),
 		"new_studies", list(object("title", str(), "question", str()))),

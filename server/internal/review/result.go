@@ -20,6 +20,8 @@ const (
 	DecideCarry = "carry"
 	DecideRedo  = "redo"
 	DecideBlock = "block"
+	// DecideAsk holds the study for its owner: every item was withdrawn.
+	DecideAsk = "ask"
 )
 
 type Check struct {
@@ -58,14 +60,23 @@ type Recall struct {
 	Screened int    `json:"screened"`
 }
 
+// ObjectorRun is how a Validation round's blind objector went: whether it
+// handed in its objections and, when it did not, why, in plain words.
+type ObjectorRun struct {
+	Ran        bool   `json:"ran"`
+	Reason     string `json:"reason,omitempty"`
+	SameFamily bool   `json:"same_family"`
+}
+
 type Result struct {
-	Column   string   `json:"column"`
-	Attempt  int      `json:"attempt"`
-	Items    []Item   `json:"items"`
-	Missed   []Item   `json:"missed,omitempty"`
-	Recall   *Recall  `json:"recall,omitempty"`
-	Weakest  *Weakest `json:"weakest,omitempty"`
-	Decision string   `json:"decision"`
+	Column   string       `json:"column"`
+	Attempt  int          `json:"attempt"`
+	Items    []Item       `json:"items"`
+	Missed   []Item       `json:"missed,omitempty"`
+	Recall   *Recall      `json:"recall,omitempty"`
+	Weakest  *Weakest     `json:"weakest,omitempty"`
+	Objector *ObjectorRun `json:"objector,omitempty"`
+	Decision string       `json:"decision"`
 }
 
 // stored is p as a review keeps it, to 3 places; statuses are taken from p
@@ -148,32 +159,13 @@ func ids(cs []Check, warnings bool, statuses ...string) []string {
 	return out
 }
 
+// RedoNote tells the agents why their items were sent back, one line per
+// reason.
 func RedoNote(r Result) string {
 	var b strings.Builder
 	b.WriteString("Jev's review sent back these items:\n")
-	for _, it := range r.Items {
-		if it.Status == Fail {
-			name := it.Label
-			fmt.Fprintf(&b, "- %s:\n", name)
-			for _, c := range it.Checks {
-				if c.Status != Fail || c.Warning {
-					continue
-				}
-				switch {
-				case c.Question != "" && c.P != nil && c.Inverted:
-					fmt.Fprintf(&b, "  - %s: \"%s\" (Jev answered yes: %.2f — a yes fails this check)\n", c.ID, c.Question, 1-*c.P)
-				case c.Question != "" && c.P != nil:
-					fmt.Fprintf(&b, "  - %s: \"%s\" (scored %.2f)\n", c.ID, c.Question, *c.P)
-				case c.Detail != "":
-					fmt.Fprintf(&b, "  - %s: %s\n", c.ID, c.Detail)
-				default:
-					fmt.Fprintf(&b, "  - %s\n", c.ID)
-				}
-			}
-		}
-	}
-	for _, it := range r.Missed {
-		fmt.Fprintf(&b, "- %s: consider this paper (it meets every criterion but was not cited)\n", it.Label)
+	for _, l := range Reasons(r) {
+		fmt.Fprintf(&b, "- %s\n", l)
 	}
 	b.WriteString("Items not listed stand. In your hand-in's replies, answer each listed item by the name shown: corrected (it is in this hand-in again, fixed, with the same id or text), " +
 		"withdrawn (it no longer stands) or, for a paper Jev found missing, declined, each with a reason. " +

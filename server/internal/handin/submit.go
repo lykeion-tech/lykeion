@@ -119,7 +119,9 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 				return err
 			}
 		}
-		recs, more := Convert(k, lead, h, NewEvidence(study), prev)
+		ev := NewEvidence(study)
+		ev.Mode = ModeOf(study)
+		recs, more := Convert(k, lead, h, ev, prev)
 		if probs = append(probs, more...); len(probs) > 0 {
 			return nil
 		}

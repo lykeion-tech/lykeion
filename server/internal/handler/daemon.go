@@ -329,7 +329,8 @@ func (h *H) daemonService(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if a.Status != "running" || a.BoardColumn != "experimentation" || a.RuntimeID == nil || a.CardID == nil {
+		// A rerun replays Experimentation's scripts, with its services.
+		if a.Status != "running" || (a.BoardColumn != "experimentation" && a.Kind != "rerun") || a.RuntimeID == nil || a.CardID == nil {
 			return pgx.ErrNoRows
 		}
 		rt, err := tx.Q.GetRuntime(r.Context(), db.GetRuntimeParams{WorkspaceID: ws, ID: *a.RuntimeID})

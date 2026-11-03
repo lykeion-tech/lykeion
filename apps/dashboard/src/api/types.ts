@@ -220,6 +220,7 @@ export interface InboxItem {
     | 'scoring_unavailable'
     | 'waiting_for_machine'
     | 'needs_decision'
+    | 'open_doubts'
     | 'done';
   text: string;
   // What the item asks for, for a needs_decision; null on other kinds.

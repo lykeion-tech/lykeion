@@ -73,6 +73,7 @@ func newServerOn(t *testing.T, env *testutil.Env) *server {
 		Connectors: &connectors.Client{Secret: bytes.Repeat([]byte{7}, 32)}}
 	h.AgentRuns = &service.AgentRuns{Store: st, MCPURL: "http://test/mcp/sources", Stale: time.Second}
 	h.Blobs = storage.Local{Dir: t.TempDir()}
+	h.AgentRuns.Blobs = h.Blobs
 	h.Engine = &flow.Engine{Store: st, AgentRuns: h.AgentRuns, Blobs: h.Blobs}
 	h.Autoresearch = &autoresearch.Service{Store: st, AgentRuns: h.AgentRuns, Key: bytes.Repeat([]byte{7}, 32), Engine: h.Engine}
 	h.AgentRuns.OnSettlement = (&coresearch.Service{Store: st, Blobs: h.Blobs}).OnSettlement(h.Autoresearch.OnSettlement(h.Engine.OnSettlement))

@@ -57,8 +57,18 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'run' AND k
 
 -- name: LastOutputNumber :one
 SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'output' AND key ~ '^o[0-9]+$';
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('output', 'rerun_output') AND key ~ '^o[0-9]+$';
 
 -- name: RunOutputTotals :one
 SELECT count(*)::int AS outputs, COALESCE(sum((body->>'size_bytes')::bigint), 0)::bigint AS bytes FROM record
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND agent_run_id = @agent_run_id AND kind = 'output' AND superseded_at IS NULL;
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND agent_run_id = @agent_run_id AND kind IN ('output', 'rerun_output') AND superseded_at IS NULL;
+
+-- A runtime of harness that could claim a run of the card now: online and
+-- healthy, on the card's chosen machine with its owner's consent, or the
+-- card owner's own when the card chose none.
+-- name: CardHasOnlineRuntime :one
+SELECT EXISTS (SELECT 1 FROM runtime r JOIN card c ON c.id = @card_id AND c.workspace_id = r.workspace_id
+  WHERE r.workspace_id = @workspace_id AND r.harness = @harness AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND ((c.machine IS NULL AND r.owner_id = c.owner_id)
+      OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (r.os = 'linux' AND (r.visibility = 'workspace'
+        OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id))))))) AS ok;

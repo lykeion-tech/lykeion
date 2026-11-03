@@ -39,6 +39,7 @@ var notInRunFolder = map[string]string{
 	".lock":                    "suffix of Claude's legacy lock beside the account's Claude home, not the run folder",
 	".scratch-retired-":        "beside the run folders, not in one",
 	".ack-":                    "acknowledged Coresearch receipt directory inside protected StateDir/coresearch-receipts, never a run folder",
+	".lyk-env":                 "a rerun's rebuilt environment inside the rerun's own folder, which runs no agent CLI; protectedStep keeps replayed scripts out of it",
 }
 
 // Every name the adapters and the daemon keep at the top of a run's folder

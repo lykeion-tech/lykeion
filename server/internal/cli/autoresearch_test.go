@@ -108,9 +108,9 @@ func TestAutoresearchCommands(t *testing.T) {
 
 }
 
-func TestReportAndOpenCardNeedAnAgentRunToken(t *testing.T) {
+func TestReportNeedsAnAgentRunToken(t *testing.T) {
 	t.Setenv("LYK_TOKEN", "")
-	for _, args := range [][]string{{"report"}, {"open-card", "Does Z lower W?"}} {
+	for _, args := range [][]string{{"report"}} {
 		cmd := Root(strings.NewReader("text"), &strings.Builder{})
 		cmd.SetArgs(args)
 		cmd.SetErr(&strings.Builder{})
@@ -184,8 +184,6 @@ func TestAutoresearchTokenContexts(t *testing.T) {
 				t.Errorf("report body: %v", body)
 			}
 			writeResponse(t, w, `{}`)
-		case "/api/role/cards":
-			writeResponse(t, w, `{"number":3,"title":"Question"}`)
 		default:
 			writeResponsef(t, w, `[{"id":%q}]`, id)
 		}
@@ -199,9 +197,6 @@ func TestAutoresearchTokenContexts(t *testing.T) {
 	t.Setenv("LYK_TOKEN", "role_token")
 	t.Setenv("LYK_SERVER", srv.URL)
 	if got := lyk(t, "report text", "report"); !strings.Contains(got, "Report posted") {
-		t.Fatal(got)
-	}
-	if got := lyk(t, "", "open-card", "Question"); !strings.Contains(got, "#3 Question") {
 		t.Fatal(got)
 	}
 	lyk(t, "", "autoresearch", "list")

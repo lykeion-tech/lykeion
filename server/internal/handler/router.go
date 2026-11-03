@@ -78,19 +78,18 @@ func NewRouter(h *H) http.Handler {
 			r.Use(middleware.RequireScope(service.ScopeRole))
 			r.Post("/records", h.createRecord)
 			r.Get("/records", h.listRecords)
-			r.Post("/steps", h.postStep)
 			r.Post("/members", h.askMember)
 			r.Get("/members/{ticket}", h.memberResult)
-			r.Post("/done", h.postDone)
 			r.Get("/calls", h.listCalls)
 			r.Get("/runs", h.listRuns)
 			r.Post("/blobs", h.putBlob)
 			r.Get("/blobs/{sha}", h.getBlob)
-			r.Get("/attachments/{id}", h.roleAttachment)
-			r.Post("/outputs", h.uploadOutput)
 			r.Get("/outputs/by-name", h.roleOutputByName)
 			r.Get("/outputs/{key}", h.roleOutput)
 		})
+		// A rerun's token reads attachments and saves outputs, and no more.
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeRerun)).Get("/attachments/{id}", h.roleAttachment)
+		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeRerun)).Post("/outputs", h.uploadOutput)
 		// Only the daemon's tool door holds a call token; the agent's cannot record.
 		r.With(middleware.RequireScope(service.ScopeCall, service.ScopeCoresearchConnector)).Post("/calls", h.postCall)
 		r.With(middleware.RequireScope(service.ScopeCall)).Post("/runs", h.postRun)
@@ -99,7 +98,6 @@ func NewRouter(h *H) http.Handler {
 		r.With(middleware.RequireScope(service.ScopeCall, service.ScopeCoresearchConnector)).Post("/mcp-servers/{id}/call", h.workspaceMCPCall)
 		r.With(middleware.RequireScope(service.ScopeRole, service.ScopeReport)).Post("/tools", h.postTools)
 		r.With(middleware.RequireScope(service.ScopeReport)).Post("/report", h.autoresearchReport)
-		r.With(middleware.RequireScope(service.ScopeCardCreate)).Post("/cards", h.autoresearchCard)
 
 	})
 
@@ -141,6 +139,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/agent-runs/{id}/start", h.daemonStart())
 			r.Post("/agent-runs/{id}/messages", h.daemonMessages())
 			r.Post("/agent-runs/{id}/hand-in", h.daemonHandIn)
+			r.Post("/reruns/{id}/result", h.daemonRerunResult)
 			r.Post("/agent-runs/{id}/complete", h.daemonSettle(true))
 			r.Post("/agent-runs/{id}/fail", h.daemonSettle(false))
 			r.Get("/agent-runs/{id}/status", h.daemonStatus)

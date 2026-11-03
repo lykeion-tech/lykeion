@@ -92,31 +92,13 @@ func TestTheReportReachesTheOwnerAndSubscribersOnce(t *testing.T) {
 	}
 }
 
-func TestARunOnlyTokenOpensCardsAndNothingElse(t *testing.T) {
+func TestARunOnlyTokenWritesNothingButItsReport(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	other := s.idleCard(t, a, w.ID, "Someone's own question")
 	ap, _, ltk, complete := s.runOnly(t, a, w.ID)
 
-	var c struct {
-		ID, Origin, Title string
-		OwnerID           string `json:"owner_id"`
-		BoardColumn       string `json:"board_column"`
-	}
-	if code := s.call(t, "POST", "/api/role/cards", ltk, "", map[string]string{"question": "Does Z lower W in mouse liver?", "title": "Z and W"}, &c); code != 201 ||
-		c.Origin != "autoresearch:"+ap.ID || c.OwnerID != s.userID(t, a) || c.BoardColumn != "grounding" || c.Title != "Z and W" {
-		t.Fatalf("open a card: %d %+v", code, c)
-	}
-	var dup struct {
-		CardID string `json:"card_id"`
-	}
-	if code := s.call(t, "POST", "/api/role/cards", ltk, "", map[string]string{"question": "other words", "title": "z and  W"}, &dup); code != 409 || dup.CardID != c.ID {
-		t.Fatalf("an active duplicate: %d %+v", code, dup)
-	}
-	if code := s.call(t, "POST", "/api/role/cards", ltk, "", map[string]string{"question": " "}, nil); code != 400 {
-		t.Fatalf("an empty question: %d", code)
-	}
 	if code := s.call(t, "POST", "/api/role/records", ltk, "", map[string]any{"kind": "question", "body": map[string]string{"text": "x"}}, nil); code != 403 {
 		t.Fatalf("write a record: %d", code)
 	}
@@ -167,7 +149,7 @@ func TestRunOnlyReportFullTextAndExcerpt(t *testing.T) {
 func TestRunOnlyScopeBoundariesAndCardInput(t *testing.T) {
 	s := newServer(t)
 	jwt, ws, _, stage := s.roleFixture(t)
-	for _, path := range []string{"/api/role/report", "/api/role/cards"} {
+	for _, path := range []string{"/api/role/report"} {
 		if code := s.call(t, "POST", path, stage.token, "", map[string]string{"text": "x", "question": "x"}, nil); code != 403 {
 			t.Fatalf("stage %s: %d", path, code)
 		}
@@ -180,18 +162,6 @@ func TestRunOnlyScopeBoundariesAndCardInput(t *testing.T) {
 		if code := s.call(t, p.method, p.path, token, "", nil, nil); code != 403 {
 			t.Fatalf("%s: %d", p.path, code)
 		}
-	}
-	for _, in := range []map[string]string{{"question": "a\x00b"}, {"question": strings.Repeat("x", 4001)}, {"question": "x", "title": "a\x00b"}, {"question": "x", "title": strings.Repeat("x", 201)}} {
-		if code := s.call(t, "POST", "/api/role/cards", token, "", in, nil); code != 400 {
-			t.Fatalf("invalid input: %d", code)
-		}
-	}
-	var c card
-	if code := s.call(t, "POST", "/api/role/cards", token, "", map[string]string{"question": "A new question"}, &c); code != 201 {
-		t.Fatal(code)
-	}
-	if c.Title != "A new question" {
-		t.Fatalf("default title: %+v", c)
 	}
 }
 
@@ -212,7 +182,7 @@ func (b *invalidateBody) Read(p []byte) (int, error) {
 }
 
 func TestRunOnlyWritesRevalidateAfterBodyRead(t *testing.T) {
-	for _, path := range []string{"/api/role/report", "/api/role/cards"} {
+	for _, path := range []string{"/api/role/report"} {
 		for _, action := range []string{"complete", "attempt", "revoke", "expire"} {
 			t.Run(path+"/"+action, func(t *testing.T) {
 				s := newServer(t)

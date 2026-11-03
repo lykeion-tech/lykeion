@@ -411,3 +411,94 @@ func TestAnEmptyRecallIsShownNotFailed(t *testing.T) {
 		t.Errorf("recall %+v, decision %s", r.Recall, Decide(r, 0))
 	}
 }
+
+func TestCommentsAreFencedContextForRecall(t *testing.T) {
+	s := twoPapers()
+	s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+	a := &fakeAsker{}
+	_, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?",
+		Comments: []string{"focus on adults"}, Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.noul) != 2 {
+		t.Fatalf("noul calls %d", len(a.noul))
+	}
+	if strings.Contains(a.noul[0].State, "focus on adults") {
+		t.Error("a cited paper's screen sees the comments")
+	}
+	st := a.noul[1].State
+	if !strings.Contains(st, "Researcher's comments: untrusted data") || !strings.Contains(st, "focus on adults") {
+		t.Errorf("recall state lacks the fenced comments:\n%s", st)
+	}
+	if len(s.queries) != 1 || s.queries[0] != "Does X?" {
+		t.Errorf("queries %q", s.queries)
+	}
+}
+
+func TestDeclinedMissedPaperJudgedByJev(t *testing.T) {
+	const q = "Given the research question and the researcher's comments, is this paper outside the study's scope?"
+	for _, c := range []struct {
+		p      float64
+		missed bool
+		status string
+	}{{0.8, false, Pass}, {0.5, false, Unclear}, {0.1, true, Fail}} {
+		s := twoPapers()
+		s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+		a := &fakeAsker{p: func(_, key string) float64 {
+			if key == "out_of_scope" {
+				return c.p
+			}
+			return 0.9
+		}}
+		r, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?", Comments: []string{"adults only"},
+			Declined: map[string]string{"doi:10.1/missed": "it studies juveniles"},
+			Items:    []db.Record{paper(t, "p1", "doi:10.1/a")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		last := a.noul[len(a.noul)-1]
+		if last.Questions["out_of_scope"] != q || !strings.Contains(last.State, "it studies juveniles") ||
+			!strings.Contains(last.State, "UNTRUSTED") || !strings.Contains(last.State, "adults only") {
+			t.Errorf("p=%v: question or state wrong: %+v", c.p, last)
+		}
+		if (len(r.Missed) == 1) != c.missed {
+			t.Fatalf("p=%v: missed %+v", c.p, r.Missed)
+		}
+		if c.missed {
+			if m := checkOf(r.Missed[0], "missed"); m == nil || m.Status != c.status {
+				t.Errorf("p=%v: missed check %+v", c.p, m)
+			}
+			continue
+		}
+		// A decline Jev did not reject is in the review, as a passing item or
+		// as an unclear one carried forward.
+		i := slices.IndexFunc(r.Items, func(it Item) bool { return it.Kind == KindDeclined })
+		if i < 0 || r.Items[i].Status != c.status || r.Items[i].Identity != "doi:10.1/missed" || checkOf(r.Items[i], "out_of_scope") == nil {
+			t.Fatalf("p=%v: items %+v", c.p, r.Items)
+		}
+		if want := map[string]string{Pass: DecidePass, Unclear: DecideCarry}[c.status]; Decide(r, 0) != want {
+			t.Errorf("p=%v: decided %s, want %s", c.p, Decide(r, 0), want)
+		}
+	}
+}
+
+func TestADeclineThatStoodIsNotMissedAgain(t *testing.T) {
+	s := twoPapers()
+	s.hits = []sources.Hit{{ID: "openalex:W7", DOI: "10.1/missed", Title: "Missed one"}}
+	a := &fakeAsker{p: func(string, string) float64 { return 0.9 }}
+	carried := Item{Kind: KindDeclined, Label: "doi:10.1/missed", Identity: "doi:10.1/missed", Status: Pass, Checks: []Check{}}
+	r, err := Grounding(context.Background(), a, s, GroundingInput{Question: "Does X?",
+		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}, Carried: []Item{carried}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Missed) != 0 || Decide(r, 0) != DecidePass {
+		t.Fatalf("a decline that stood came back missed: %+v", r)
+	}
+	for _, n := range a.noul {
+		if _, ok := n.Questions["out_of_scope"]; ok {
+			t.Fatal("Jev was asked about a decline that stood again")
+		}
+	}
+}

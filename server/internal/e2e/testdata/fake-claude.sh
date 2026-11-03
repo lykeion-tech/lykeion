@@ -1,6 +1,6 @@
 #!/bin/sh
-# Stands in for Claude Code: reads its role from the prompt and records what
-# that role would, through lyk. The prompt arrives on stdin: in continuity mode
+# Stands in for Claude Code: reads its role from the prompt and ends as that
+# role would. The prompt arrives on stdin: in continuity mode
 # as one stream-json user frame on the first line, with stdin left open until
 # the result; in private mode as plain text up to end of file. Like a real
 # Claude Code it reports its version and schema flag, answers the daemon's
@@ -29,27 +29,8 @@ if [ -n "$LYK_TEST_CAPTURE" ]; then
 fi
 exec 3>&1
 exec 1>&2
-# A study's runs follow the Team protocol: the leader names its first member,
-# the member writes a note, and the leader, woken with the member's work,
-# declares the column done citing it. A single agent writes its note and
-# declares the column done itself.
-case "$role" in
-  ""|autoresearch) ;;
-  leader)
-    case "$prompt" in
-      *"finished the step you named."*|*"run failed:"*)
-        key=$(printf '%s' "$prompt" | grep -o -- '- r[0-9][0-9]* (' | head -n 1 | sed 's/^- //; s/ ($//')
-        printf 'The members did the column.\n' | lyk team done --content-stdin ${key:+--cites "$key"} || exit 1 ;;
-      *)
-        member=$(sed -n '/^Your members:/{n;s/^- \([^:]*\):.*/\1/p;}' CLAUDE.md)
-        lyk team step "$member" --content "Do your part of the column." || exit 1 ;;
-    esac ;;
-  agent)
-    key=$(printf '{"text":"The column note."}' | lyk record put note --content-stdin) || exit 1
-    printf 'The column note is written.\n' | lyk team done --content-stdin --cites "$key" || exit 1 ;;
-  *)
-    printf '{"text":"The %s note."}' "$role" | lyk record put note --content-stdin || exit 1 ;;
-esac
+# Only Autoresearch runs come here; a study's run ends with its hand-in,
+# which this stand-in never gives.
 # A real Claude Code keeps its session where the daemon looks before resuming
 # one; without the file the daemon starts the next run fresh.
 d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"

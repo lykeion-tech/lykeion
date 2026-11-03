@@ -43,6 +43,7 @@ const (
 	MaxCriterionLen = 200
 	MaxSteps        = 50
 	DefaultSteps    = 12
+	MaxTolerance    = 0.5
 )
 
 var (
@@ -99,6 +100,12 @@ type Manifest struct {
 	Members     []Member `json:"members"`
 	Criteria    []string `json:"criteria"`
 	Steps       int      `json:"steps"` // per column; 0 means DefaultSteps
+	// Validation is how Validation's rerun treats this Team's numbers.
+	Validation struct {
+		// Tolerance widens "reproduced" to a relative difference this large,
+		// for work that involves randomness; 0 keeps the reported digits.
+		Tolerance float64 `json:"tolerance"`
+	} `json:"validation,omitzero"`
 }
 
 // MemberFor is the Team agent a run's role names: "leader", "auditor" or a
@@ -250,6 +257,9 @@ func (p *Pack) validate() error {
 	}
 	if m.Steps == 0 {
 		m.Steps = DefaultSteps
+	}
+	if t := m.Validation.Tolerance; !(t >= 0 && t <= MaxTolerance) {
+		return fmt.Errorf("pack: validation tolerance must be 0 to %g", MaxTolerance)
 	}
 	seen := map[string]bool{}
 	all := slices.Concat([]Member{m.Leader, m.Auditor}, m.Members)

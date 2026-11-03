@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
@@ -212,8 +213,13 @@ func TestSecondFailureBlocks(t *testing.T) {
 	if got.State != "blocked" || got.BlockKind != "low_score" || got.BoardColumn != "grounding" {
 		t.Fatalf("after a second failure: %s %s %s", got.BoardColumn, got.State, got.BlockKind)
 	}
-	want := reviewBlockedText(c.Number, "grounding", paperB2)
-	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed Jev's review again after its redo. Still failing: "+paperB2+". Comment on the study to tell the Team what to fix." {
+	rs := l.reviews(t, c.ID, "grounding")
+	reasons := review.Reasons(rs[len(rs)-1])
+	if len(reasons) == 0 || !strings.HasPrefix(reasons[0], paperB2+": ") {
+		t.Fatalf("reasons: %q", reasons)
+	}
+	want := reviewBlockedText(c.Number, "grounding", reasons)
+	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed Jev's review again after its redo. Still failing:\n- "+reasons[0]+"\nComment on the study to tell the Team what to fix." {
 		t.Fatalf("blocked wording: %q", want)
 	}
 	if items := l.inbox(t, c.ID, "blocked"); len(items) != 1 || items[0] != want {
@@ -222,10 +228,15 @@ func TestSecondFailureBlocks(t *testing.T) {
 	if rs := l.reviews(t, c.ID, "grounding"); len(rs) != 2 || rs[1].Decision != review.DecideBlock {
 		t.Fatalf("review records: %+v", rs)
 	}
-	// The owner's comment still redoes a blocked column.
+	// The owner's comment still redoes a blocked column, and the redo is
+	// sent what still fails, to answer.
 	l.e.OnComment(l.ws, c.ID, l.owner, "Use a paper that exists.")
-	if got := l.card(t, c.ID); got.State != "working" || got.Round != c.Round+2 {
+	got = l.card(t, c.ID)
+	if got.State != "working" || got.Round != c.Round+2 {
 		t.Fatalf("after the owner's comment: %s round %d", got.State, got.Round)
+	}
+	if !strings.HasPrefix(got.HandoffNote, "The researcher asked for this column to be redone:\nUse a paper that exists.\n\nJev's review sent back these items:\n- "+reasons[0]) {
+		t.Fatalf("the restarted round is not told what still fails:\n%s", got.HandoffNote)
 	}
 }
 
@@ -316,7 +327,7 @@ func TestTheAuditorsFindingsNeverReachJev(t *testing.T) {
 	stub := l.jev(t, 200, levels(nil))
 	// A yes to the lookup question fails a hypothesis.
 	stub.setNoul(func(q string) float64 {
-		if strings.Contains(q, "already contain the answer") {
+		if strings.Contains(q, "test of this exact prediction") {
 			return 0.1
 		}
 		return 0.9
@@ -370,7 +381,7 @@ func TestAHypothesisCitingItsOwnColumnFailsItsCites(t *testing.T) {
 	l := newLab(t)
 	stub := l.jev(t, 200, levels(nil))
 	stub.setNoul(func(q string) float64 {
-		if strings.Contains(q, "already contain the answer") {
+		if strings.Contains(q, "test of this exact prediction") {
 			return 0.1
 		}
 		return 0.9
@@ -590,11 +601,18 @@ func TestNothingLeftIsNeverAPass(t *testing.T) {
 	l.withdraw(t, c.ID, keyB) // the redo withdraws its only item
 	l.done(t, c.ID)
 	rs := l.reviews(t, c.ID, "grounding")
-	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideBlock || len(rs[1].Items) != 1 || rs[1].Items[0].Status != review.Withdrawn {
+	if len(rs) != 2 || rs[0].Decision != review.DecideRedo || rs[1].Decision != review.DecideAsk || len(rs[1].Items) != 1 || rs[1].Items[0].Status != review.Withdrawn {
 		t.Fatalf("review records: %+v", rs)
 	}
-	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
-		t.Fatalf("after an empty redo: %s %s", got.State, got.BlockKind)
+	got := l.card(t, c.ID)
+	if got.State != "blocked" || got.BlockKind != "" || got.BoardColumn != "grounding" || got.Redos != 1 {
+		t.Fatalf("after an empty redo: %s %q %s redos %d", got.State, got.BlockKind, got.BoardColumn, got.Redos)
+	}
+	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 || !strings.HasPrefix(items[0], "The Team withdrew all 1 item: It does not resolve. Nothing is left to review.") {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 1 {
+		t.Fatalf("%d open all_withdrawn items", n)
 	}
 }
 
@@ -857,5 +875,122 @@ func TestAReviewWithoutIdentitiesMatchesByLabel(t *testing.T) {
 		default:
 			t.Fatalf("item %+v", it)
 		}
+	}
+}
+
+func TestAllWithdrawnAsksTheOwner(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	stub.setNoul(func(q string) float64 {
+		if strings.Contains(q, "test of this exact prediction") {
+			return 0.1
+		}
+		return 0.9
+	})
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	l.groundingPaper(t, c.ID, paperA)
+	prose := l.item(t, c.ID, "explanation", map[string]any{"text": "Our own prose."})
+	var keys []string
+	for _, text := range []string{"First idea.", "Second idea.", "Third idea."} {
+		keys = append(keys, l.item(t, c.ID, review.KindHypothesis, review.HypothesisBody{Text: text,
+			Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "Young cells"}, Cites: []string{prose}}))
+	}
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	if got := l.card(t, c.ID); got.Round != c.Round+1 || got.Redos != 1 || got.State != "working" {
+		t.Fatalf("after the first failure: %s round %d redos %d", got.State, got.Round, got.Redos)
+	}
+	for i, k := range keys {
+		l.item(t, c.ID, review.KindWithdrawn, map[string]any{"item": k, "reason": fmt.Sprintf("reason %d", i+1)})
+	}
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	if rs := l.reviews(t, c.ID, "hypotheses"); len(rs) != 2 || rs[1].Decision != review.DecideAsk {
+		t.Fatalf("review records: %+v", rs)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'outcome' AND body->>'verdict' = 'ask'", c.ID); n != 1 {
+		t.Fatalf("%d ask outcomes", n)
+	}
+	got := l.card(t, c.ID)
+	if got.State != "blocked" || got.BlockKind != "" || got.Redos != 1 || got.BoardColumn != "hypotheses" {
+		t.Fatalf("held study: %s %q redos %d column %s", got.State, got.BlockKind, got.Redos, got.BoardColumn)
+	}
+	items := l.inbox(t, c.ID, "needs_decision")
+	want := "The Team withdrew all 3 hypotheses: reason 1; reason 2; reason 3. Nothing is left to test. Comment with guidance to redo the column, or close the study as a negative result."
+	if len(items) != 1 || items[0] != want {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 1 {
+		t.Fatalf("%d open all_withdrawn items", n)
+	}
+	l.e.OnComment(l.ws, c.ID, l.owner, "Try a different angle.")
+	got = l.card(t, c.ID)
+	if got.State != "working" || got.Round != c.Round+2 || got.Redos != 1 {
+		t.Fatalf("after the owner's comment: %s round %d redos %d", got.State, got.Round, got.Redos)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 0 {
+		t.Fatalf("the comment left %d all_withdrawn items open", n)
+	}
+}
+
+func TestPassedWithOpenDoubts(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	stub.setNoul(func(string) float64 { return 0.52 })
+	l.e.Sources = stubSources{}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.item(t, c.ID, review.KindPaper, paper(paperB))
+	l.done(t, c.ID)
+	got := l.card(t, c.ID)
+	if got.BoardColumn != "hypotheses" || !strings.Contains(got.HandoffNote, "Unclear in Grounding") {
+		t.Fatalf("after an unclear review: %s %q", got.BoardColumn, got.HandoffNote)
+	}
+	items := l.inbox(t, c.ID, "open_doubts")
+	if len(items) != 1 {
+		t.Fatalf("open_doubts items: %q", items)
+	}
+	prefix := fmt.Sprintf("Study #%d passed Grounding with open doubts: %s (", c.Number, paperA)
+	if !strings.HasPrefix(items[0], prefix) || !strings.Contains(items[0], "52%") || !strings.Contains(items[0], "; "+paperB+" (") {
+		t.Fatalf("open_doubts text: %q", items[0])
+	}
+}
+
+// searchSources finds hits on every recall search.
+type searchSources struct {
+	stubSources
+	hits []sources.Hit
+}
+
+func (s searchSources) Search(context.Context, string) ([]sources.Hit, error) { return s.hits, nil }
+
+func TestDeclinedMissedPaperReachesTheReview(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Sources = searchSources{hits: []sources.Hit{{ID: "openalex:W9", DOI: "10.1000/abc", Title: "Declined candidate", Abstract: "An abstract."}}}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	// Written as the hand-in writes it: the id in the form the agent gave.
+	l.item(t, c.ID, "declined", map[string]string{"item": handin.NormID("https://doi.org/10.1000/ABC"), "reason": "It studies yeast."})
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.CreateComment(context.Background(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: "Mammalian cells only."})
+		return err
+	})
+	l.done(t, c.ID)
+	rs := l.reviews(t, c.ID, "grounding")
+	if len(rs) != 1 || len(rs[0].Missed) != 0 {
+		t.Fatalf("the declined paper stayed missed: %+v", rs)
+	}
+	var state string
+	for _, call := range nouls(stub.calls()) {
+		for _, q := range call.Questions {
+			if strings.Contains(q.Instructions, "outside the study's scope") {
+				state = call.State
+			}
+		}
+	}
+	if state == "" || !strings.Contains(state, "Mammalian cells only.") || !strings.Contains(state, "It studies yeast.") {
+		t.Fatalf("the out_of_scope state lacks the comment or reason:\n%s", state)
 	}
 }

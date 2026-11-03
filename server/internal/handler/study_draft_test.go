@@ -52,16 +52,6 @@ func TestCreateStudyDraftQueuesOneShotAgent(t *testing.T) {
 	if code := s.call(t, "POST", "/api/daemon/agent-runs/"+claimed[0].AgentRun.ID+"/start", personal, "", ref, nil); code != 204 {
 		t.Fatalf("start: %d", code)
 	}
-	var created struct {
-		ID         string  `json:"id"`
-		ResearchID *string `json:"research_id"`
-	}
-	if code := s.call(t, "POST", "/api/role/cards", claimed[0].Token, "", map[string]string{"title": "Sleep and memory", "question": "Does sleep affect memory?"}, &created); code != 201 || created.ResearchID == nil || *created.ResearchID != project.ID {
-		t.Fatalf("agent create: %d %+v", code, created)
-	}
-	if code := s.call(t, "POST", "/api/role/cards", claimed[0].Token, "", map[string]string{"title": "A second study", "question": "Another question"}, nil); code != 409 {
-		t.Fatalf("second create: %d", code)
-	}
 }
 
 func TestStudyDraftRejectsUnavailableAgentAndInvalidDates(t *testing.T) {

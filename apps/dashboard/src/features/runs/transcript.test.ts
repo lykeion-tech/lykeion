@@ -667,6 +667,26 @@ describe('hand-in answers and re-asks', () => {
     expect(html).toContain('Two papers fit.');
     expect(html).not.toContain('working on it');
   });
+  it("tells a failed objector plainly, never with the harness's raw error", async () => {
+    const html = await renderToString(
+      createSSRApp({
+        render: () =>
+          h(AgentRunCard, {
+            run: {
+              ...run,
+              role: 'objector',
+              status: 'failed',
+              failure_reason: 'runtime_offline',
+              error: 'invalid continuity scope "card:x/role:objector/y"',
+            },
+            study: 'Insulin evidence',
+            position: 2,
+          }),
+      }),
+    );
+    expect(html).toContain('Did not run (runtime offline)');
+    expect(html).not.toContain('continuity scope');
+  });
   it('folds a re-ask into one line with its problems', async () => {
     const reask = msg(2, 'status', {
       handin_reask: 1,

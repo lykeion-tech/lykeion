@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/pkg/agent"
 )
@@ -94,5 +96,17 @@ func TestResultFailureKeepsTheAgentPackagesReason(t *testing.T) {
 				t.Fatalf("report = %+v, want reason %q", r, tc.want)
 			}
 		})
+	}
+}
+
+func TestARefusedContinuityScopeIsRetriedAsTheHarnesss(t *testing.T) {
+	var c claimed
+	c.AgentRun.ContinuityScope = "card:" + uuid.NewString() + "/column:validation/round:5/role:objector/" + uuid.NewString()
+	_, err := (&daemon{}).beginContinuity(c, PolicySnapshot{})
+	if err == nil {
+		t.Fatal("a malformed scope was accepted")
+	}
+	if got := failReason(agent.ReasonAgentError, "claude", err); got != agent.ReasonRuntimeOffline {
+		t.Fatalf("failReason = %q, want %q", got, agent.ReasonRuntimeOffline)
 	}
 }
