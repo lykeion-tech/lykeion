@@ -4,9 +4,13 @@ import { useDecisionCount } from '../../api/queries';
 const count = useDecisionCount();
 </script>
 <template>
-  <span v-if="count.data.value" class="decision-badge type-caption" aria-label="Open decisions">{{
-    count.data.value
-  }}</span>
+  <span
+    v-if="count.data.value"
+    class="decision-badge type-caption"
+    role="status"
+    aria-label="Open decisions"
+    >{{ count.data.value }}</span
+  >
 </template>
 <style scoped>
 .decision-badge {

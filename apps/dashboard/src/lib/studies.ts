@@ -378,6 +378,25 @@ export const isMachineWait = (item: {
   item.kind === 'waiting_for_machine' ||
   (item.kind === 'needs_decision' && item.cause === 'machine_failures');
 
+// What an agent's decision is about, and the stop kinds a decision can be in.
+export const decisionKindLabel: Record<string, string> = {
+  scope: 'Scope',
+  change_question: 'Change the question',
+  ethics: 'Ethics or sensitive data',
+  cost: 'Cost above the limit',
+  access: 'Missing access',
+  blocked: 'Blocked',
+  low_score: 'Blocked',
+  parked: 'Parked',
+};
+
+// The decide-by choices a person can set, as the page names them.
+export const decideByLabel: Record<string, string> = {
+  today: 'Today',
+  this_week: 'This week',
+  whenever: 'Whenever',
+};
+
 // An agent's decision reads "<title>\n\n<body>".
 export function agentDecisionParts(text: string): { title: string; body: string } {
   const [title, ...rest] = text.split('\n\n');

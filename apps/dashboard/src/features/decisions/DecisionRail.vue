@@ -7,7 +7,13 @@ import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { useCards, useDecisions } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
-import { agentDecisionParts, inboxText, inboxTitle, timeAgo } from '../../lib/studies';
+import {
+  agentDecisionParts,
+  decideByLabel,
+  inboxText,
+  inboxTitle,
+  timeAgo,
+} from '../../lib/studies';
 
 const route = useRoute();
 const client = useQueryClient();
@@ -19,7 +25,7 @@ const menu = ref('');
 const error = ref('');
 const shown = computed(() => (history.value ? past.data.value : open.data.value) ?? []);
 const listError = computed(() => (history.value ? past.error.value : open.error.value));
-const kinds: Record<DecisionItem['kind'], { label: string; mark: string }> = {
+const kinds: Record<string, { label: string; mark: string }> = {
   agent_decision: { label: 'Agent decision', mark: '?' },
   autoresearch_card: { label: 'Autoresearch study', mark: '↻' },
   autoresearch_report: { label: 'Autoresearch report', mark: '↻' },
@@ -28,26 +34,22 @@ const kinds: Record<DecisionItem['kind'], { label: string; mark: string }> = {
   no_tool: { label: 'No tool', mark: '?' },
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
   waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
+  machine_offline: { label: 'Machine offline', mark: '!' },
   needs_decision: { label: 'Needs a decision', mark: '?' },
   open_doubts: { label: 'Passed with open doubts', mark: '?' },
   done: { label: 'Done', mark: '✓' },
 };
+const kindOf = (item: DecisionItem) => kinds[item.kind] ?? { label: 'Decision', mark: '?' };
 const titleOf = (item: DecisionItem) =>
   item.kind === 'agent_decision'
     ? agentDecisionParts(item.text).title
     : inboxTitle(item, cards.data.value?.find((card) => card.id === item.card_id)?.title);
 const line = (item: DecisionItem) =>
   item.kind === 'agent_decision'
-    ? agentDecisionParts(item.text).body || kinds[item.kind].label
-    : (inboxText(item, titleOf(item)) ?? `${kinds[item.kind].label}: ${item.text}`);
-const decideByLabel = (item: DecisionItem) =>
-  ({
-    today: 'Today',
-    this_week: 'This week',
-    whenever: 'Whenever',
-    date: item.decide_by_date ?? '',
-    '': '',
-  })[item.decide_by];
+    ? agentDecisionParts(item.text).body || kindOf(item).label
+    : (inboxText(item, titleOf(item)) ?? `${kindOf(item).label}: ${item.text}`);
+const decideByText = (item: DecisionItem) =>
+  item.decide_by === 'date' ? (item.decide_by_date ?? '') : (decideByLabel[item.decide_by] ?? '');
 const snoozed = (item: DecisionItem) =>
   !!item.snoozed_until && Date.parse(item.snoozed_until) > Date.now();
 
@@ -108,14 +110,14 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
           class="decision-row"
           :class="{ selected: item.id === route.params.itemId, snoozed: snoozed(item) }"
         >
-          <span class="workspace-avatar">{{ kinds[item.kind].mark }}</span>
+          <span class="workspace-avatar">{{ kindOf(item).mark }}</span>
           <span class="decision-text"
             ><b>{{ titleOf(item) }}</b
             ><small>{{ line(item) }}</small></span
           >
           <span class="decision-side"
             ><small>{{ timeAgo(item.created_at) }}</small
-            ><small v-if="decideByLabel(item)" class="decide-by">{{ decideByLabel(item) }}</small
+            ><small v-if="decideByText(item)" class="decide-by">{{ decideByText(item) }}</small
             ><small v-if="snoozed(item)" class="snoozed-mark">Snoozed</small
             ><i v-if="!item.read_at" class="unread"
           /></span>
@@ -271,6 +273,7 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
   opacity: 0;
 }
 .decision-row-wrap:hover .row-menu,
+.row-menu:focus-visible,
 .row-menu[aria-expanded='true'] {
   opacity: 1;
 }

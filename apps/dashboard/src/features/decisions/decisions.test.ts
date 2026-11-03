@@ -2,6 +2,7 @@ import { ref, type Component } from 'vue';
 import { afterEach, expect, it, vi } from 'vitest';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import DecisionBadge from './DecisionBadge.vue';
+import DecisionRail from './DecisionRail.vue';
 import DecisionOptions from './DecisionOptions.vue';
 import { invalidationsFor } from '../../api/realtime';
 import { keys } from '../../api/keys';
@@ -12,7 +13,13 @@ const invalidateQueries = vi.fn();
 const count = ref<number | undefined>(3);
 vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => api(...args) }));
 vi.mock('@tanstack/vue-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
-vi.mock('../../api/queries', () => ({ useDecisionCount: () => ({ data: count }) }));
+const rows = ref<DecisionItem[]>([]);
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
+vi.mock('../../api/queries', () => ({
+  useDecisionCount: () => ({ data: count }),
+  useDecisions: () => ({ data: rows, error: ref(null) }),
+  useCards: () => ({ data: ref([]) }),
+}));
 
 const apps: ReturnType<typeof createTreeApp>[] = [];
 afterEach(() => {
@@ -46,7 +53,7 @@ const item = (over: Partial<DecisionItem> = {}): DecisionItem => ({
   decided_at: null,
   raised_by: 'agent',
   from_member: 'Lead',
-  decision_kind: 'low_score',
+  decision_kind: 'scope',
   decide_by: '',
   decide_by_date: null,
   snoozed_until: null,
@@ -74,6 +81,8 @@ it('shows each option with its consequence, the raiser and the expiry', () => {
   expect(text).toContain('The column runs again.');
   expect(text).toContain('Park');
   expect(text).toContain('Agent (Lead)');
+  expect(text).toContain('Scope');
+  expect(text).not.toContain('scope');
   expect(text).toContain('Expires in 3d');
 });
 
@@ -133,4 +142,20 @@ it('shows the open count in the sidebar and refreshes it on inbox.created', () =
   } as never;
   expect(invalidationsFor('w1', event)).toContainEqual(keys.decisionCount('w1'));
   expect(invalidationsFor('w1', event)).toContainEqual(keys.decisionsAll('w1'));
+});
+
+it('renders the rail for machine_offline and for a kind it does not know', () => {
+  rows.value = [
+    item({
+      id: 'm1',
+      kind: 'machine_offline',
+      card_id: null,
+      options: null,
+      text: 'laptop went offline',
+    }),
+    item({ id: 'x1', kind: 'brand_new' as DecisionItem['kind'], options: null }),
+  ];
+  const text = textOf(mount(DecisionRail, {}));
+  expect(text).toContain('Machine offline');
+  expect(text).toContain('Decision: Study #1 scored low twice.');
 });

@@ -268,6 +268,7 @@ export interface DecisionItem {
     | 'no_tool'
     | 'scoring_unavailable'
     | 'waiting_for_machine'
+    | 'machine_offline'
     | 'needs_decision'
     | 'open_doubts'
     | 'done';

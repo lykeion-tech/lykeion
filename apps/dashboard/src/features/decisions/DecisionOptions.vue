@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import type { DecisionItem } from '../../api/types';
-import { decisionOutcome, decisionRaiser, timeAgo } from '../../lib/studies';
+import { decisionKindLabel, decisionOutcome, decisionRaiser, timeAgo } from '../../lib/studies';
 
 // Every way to answer a decision, who raised it, when it lapses and, once
 // closed, what was chosen.
@@ -55,7 +55,8 @@ function choose(option: string) {
 <template>
   <div class="decision-options type-body">
     <p class="decision-meta type-caption">
-      {{ decisionRaiser(item) }} · {{ item.decision_kind || item.kind
+      {{ decisionRaiser(item) }} ·
+      {{ decisionKindLabel[item.decision_kind] ?? decisionKindLabel[item.kind] ?? item.kind
       }}<template v-if="expires && item.status === 'open'"> · {{ expires }}</template>
     </p>
     <template v-if="answerable">
