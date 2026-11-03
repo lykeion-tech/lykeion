@@ -76,11 +76,15 @@ func (e *Engine) Kick(ws, card uuid.UUID) {
 	go run()
 }
 
-// Tick marks queued runs whose owner is offline and kicks every working
-// study in a column with nothing in flight or a settled run to act on.
+// Tick marks queued runs whose owner is offline, expires and reminds due
+// decisions, and kicks every working study in a column with nothing in
+// flight or a settled run to act on.
 func (e *Engine) Tick(ctx context.Context) error {
 	if err := e.Store.Global().MarkQueueOffline(ctx); err != nil {
 		slog.Error("mark queue offline", "err", err)
+	}
+	if err := e.sweepDecisions(ctx, e.now()); err != nil {
+		slog.Error("sweep decisions", "err", err)
 	}
 	cands, err := e.Store.Global().BoardCandidates(ctx)
 	if err != nil {

@@ -70,26 +70,10 @@ ORDER BY c.created_at, c.id;
 SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'comment_delivery'
 ORDER BY created_at, id;
 
--- name: ListInbox :many
-SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
-ORDER BY created_at DESC LIMIT 200;
-
--- name: ListArchivedInbox :many
-SELECT * FROM inbox_item WHERE workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NOT NULL
-ORDER BY created_at DESC, id DESC LIMIT 200;
-
--- Reading informational notifications also resolves them.
--- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = COALESCE(read_at, now()),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
-WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
-RETURNING *;
-
 -- A stopped study needs nothing more from anyone: its open items asking for
--- a person are resolved, whoever they were addressed to.
+-- a person are resolved and cancelled, whoever they were addressed to.
 -- name: ResolveCardInbox :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 

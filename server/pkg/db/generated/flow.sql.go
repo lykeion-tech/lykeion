@@ -318,7 +318,7 @@ func (q *Queries) LiveRecordsByKeys(ctx context.Context, arg LiveRecordsByKeysPa
 }
 
 const resolveCardInboxKind = `-- name: ResolveCardInboxKind :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = $3 AND resolved_at IS NULL
 RETURNING id
 `
@@ -329,6 +329,7 @@ type ResolveCardInboxKindParams struct {
 	Kind        string    `json:"kind"`
 }
 
+// The study's open items of a kind whose cause went away are dismissed.
 func (q *Queries) ResolveCardInboxKind(ctx context.Context, arg ResolveCardInboxKindParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, resolveCardInboxKind, arg.WorkspaceID, arg.CardID, arg.Kind)
 	if err != nil {

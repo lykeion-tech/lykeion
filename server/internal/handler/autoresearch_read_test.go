@@ -45,7 +45,7 @@ func TestAutoresearchInboxRunWithoutCardResolves(t *testing.T) {
 		AutoresearchRunID *string `json:"autoresearch_run_id"`
 		Text              string  `json:"text"`
 	}
-	if code := s.call(t, "GET", "/api/inbox", owner, workspace.ID, nil, &items); code != 200 || len(items) != 1 {
+	if code := s.call(t, "GET", "/api/decisions", owner, workspace.ID, nil, &items); code != 200 || len(items) != 1 {
 		t.Fatalf("Inbox: %d %+v", code, items)
 	}
 	item := items[0]

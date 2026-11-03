@@ -14,7 +14,7 @@ import (
 )
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('attempt', rc.attempt, 'failure_reason', COALESCE(rc.result->>'failure_reason', ''),
@@ -87,6 +87,7 @@ type CardAgentRunsRow struct {
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
 	RetryAfter            *time.Time      `json:"retry_after"`
 	InfraFailures         int32           `json:"infra_failures"`
+	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 	AgentName             *string         `json:"agent_name"`
 	LatestText            string          `json:"latest_text"`
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
@@ -158,6 +159,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.CoresearchBuildID,
 			&i.RetryAfter,
 			&i.InfraFailures,
+			&i.AttachmentSnapshot,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
@@ -555,49 +557,6 @@ func (q *Queries) ListAllRecords(ctx context.Context, arg ListAllRecordsParams) 
 	return items, nil
 }
 
-const listArchivedInbox = `-- name: ListArchivedInbox :many
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NOT NULL
-ORDER BY created_at DESC, id DESC LIMIT 200
-`
-
-type ListArchivedInboxParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	UserID      uuid.UUID `json:"user_id"`
-}
-
-func (q *Queries) ListArchivedInbox(ctx context.Context, arg ListArchivedInboxParams) ([]InboxItem, error) {
-	rows, err := q.db.Query(ctx, listArchivedInbox, arg.WorkspaceID, arg.UserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []InboxItem
-	for rows.Next() {
-		var i InboxItem
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.UserID,
-			&i.Kind,
-			&i.Text,
-			&i.ReadAt,
-			&i.CreatedAt,
-			&i.ResolvedAt,
-			&i.AutoresearchRunID,
-			&i.RuntimeID,
-			&i.Cause,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCards = `-- name: ListCards :many
 SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadline, c.spent_usd, c.board_column, c.state, c.flag, c.ending, c.end_reason, c.rounds, c.version, c.created_at, c.round, c.handoff_note, c.gating_until, c.position, c.research_id, c.assignee_type, c.assignee_id, c.origin, c.pack_id, c.block_kind, c.scope_from, c.scope_to, c.redos, c.machine, c.workflow, c.workflow_release, c.grounding_criteria, c.legacy_column, c.study_cli, c.auditor_cli, c.start_date,
   COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
@@ -762,84 +721,6 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]C
 	return items, nil
 }
 
-const listInbox = `-- name: ListInbox :many
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause FROM inbox_item WHERE workspace_id = $1 AND user_id = $2 AND resolved_at IS NULL
-ORDER BY created_at DESC LIMIT 200
-`
-
-type ListInboxParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	UserID      uuid.UUID `json:"user_id"`
-}
-
-func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]InboxItem, error) {
-	rows, err := q.db.Query(ctx, listInbox, arg.WorkspaceID, arg.UserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []InboxItem
-	for rows.Next() {
-		var i InboxItem
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.UserID,
-			&i.Kind,
-			&i.Text,
-			&i.ReadAt,
-			&i.CreatedAt,
-			&i.ResolvedAt,
-			&i.AutoresearchRunID,
-			&i.RuntimeID,
-			&i.Cause,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const markInboxRead = `-- name: MarkInboxRead :one
-UPDATE inbox_item SET read_at = COALESCE(read_at, now()),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
-WHERE id = $1 AND workspace_id = $2 AND user_id = $3
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause
-`
-
-type MarkInboxReadParams struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	UserID      uuid.UUID `json:"user_id"`
-}
-
-// Reading informational notifications also resolves them.
-func (q *Queries) MarkInboxRead(ctx context.Context, arg MarkInboxReadParams) (InboxItem, error) {
-	row := q.db.QueryRow(ctx, markInboxRead, arg.ID, arg.WorkspaceID, arg.UserID)
-	var i InboxItem
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.CardID,
-		&i.UserID,
-		&i.Kind,
-		&i.Text,
-		&i.ReadAt,
-		&i.CreatedAt,
-		&i.ResolvedAt,
-		&i.AutoresearchRunID,
-		&i.RuntimeID,
-		&i.Cause,
-	)
-	return i, err
-}
-
 const nextCardNumber = `-- name: NextCardNumber :one
 UPDATE workspace SET card_counter = card_counter + 1 WHERE id = $1 RETURNING card_counter
 `
@@ -852,7 +733,7 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 }
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id
 `
@@ -863,7 +744,7 @@ type ResolveCardInboxParams struct {
 }
 
 // A stopped study needs nothing more from anyone: its open items asking for
-// a person are resolved, whoever they were addressed to.
+// a person are resolved and cancelled, whoever they were addressed to.
 func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, resolveCardInbox, arg.WorkspaceID, arg.CardID)
 	if err != nil {

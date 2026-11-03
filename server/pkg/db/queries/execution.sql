@@ -314,6 +314,11 @@ WHERE t.workspace_id = @workspace_id AND t.status = 'queued' AND t.retry_after =
     AND r.attempt = t.attempt AND r.runtime_id = @runtime_id);
 
 -- A study's runs held after too many parks try again from a fresh count.
+-- A study's runs held after too many parks, waiting for its owner.
+-- name: ParkedAgentRuns :many
+SELECT id FROM agent_run
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued' AND infra_failures >= @park_limit;
+
 -- name: ReleaseParkedAgentRuns :exec
 UPDATE agent_run SET retry_after = NULL, infra_failures = 0
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued' AND infra_failures >= @park_limit;

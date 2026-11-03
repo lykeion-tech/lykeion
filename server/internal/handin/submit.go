@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -106,6 +107,13 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 				return err
 			}
 		}
+		if lead && h.Decision != nil && h.Decision.FromMember != nil {
+			p, err := teamMember(ctx, tx, w, *h.Decision.FromMember)
+			if err != nil {
+				return err
+			}
+			probs = append(probs, p...)
+		}
 		var prev Review
 		if lead && s.SentBack != nil {
 			c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: w.Card})
@@ -136,4 +144,30 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		return nil
 	})
 	return probs, err
+}
+
+// teamMember is the problem with a decision raised for member: it must be
+// one of the column Team's members, and a column with no Team has none.
+func teamMember(ctx context.Context, tx *store.Tx, w service.Writer, member string) ([]string, error) {
+	packID, err := tx.Q.GetCardTeamPack(ctx, db.GetCardTeamPackParams{WorkspaceID: tx.WS, CardID: w.Card, BoardColumn: w.Column})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []string{"decision: from_member must be null: you work this column alone"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	row, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
+	if err != nil {
+		return nil, err
+	}
+	var m pack.Manifest
+	if err := json.Unmarshal(row.Manifest, &m); err != nil {
+		return nil, err
+	}
+	for _, x := range m.Members {
+		if x.Name == member {
+			return nil, nil
+		}
+	}
+	return []string{"decision: from_member must name one of your Team's members, or be null"}, nil
 }

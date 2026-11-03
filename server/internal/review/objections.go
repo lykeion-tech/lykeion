@@ -41,7 +41,7 @@ const objectorHandIn = "You are checking a finished study for errors. Below are 
 	"- `type`: one of the errors above;\n" +
 	"- `quote`: a passage copied word for word from the target, or null;\n" +
 	"- `problem`: what is wrong, specific to this target.\n" +
-	"An objection naming a target not listed here, or quoting text the target does not hold, is dropped. Hand in no objections when you find no error.\n\n"
+	"An objection naming a target not listed here, or quoting text the target does not hold, is dropped. Hand in no objections when you find no error. Leave `decision` null.\n\n"
 
 // rivalLabel is the i-th shuffled label: Rival A to Rival Z, then Rival AA.
 func rivalLabel(i int) string {

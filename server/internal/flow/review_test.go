@@ -225,6 +225,7 @@ func TestSecondFailureBlocks(t *testing.T) {
 	if items := l.inbox(t, c.ID, "blocked"); len(items) != 1 || items[0] != want {
 		t.Fatalf("blocked items: %q", items)
 	}
+	l.wantStopDecision(t, c.ID)
 	if rs := l.reviews(t, c.ID, "grounding"); len(rs) != 2 || rs[1].Decision != review.DecideBlock {
 		t.Fatalf("review records: %+v", rs)
 	}
@@ -614,6 +615,7 @@ func TestNothingLeftIsNeverAPass(t *testing.T) {
 	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'all_withdrawn' AND resolved_at IS NULL", c.ID); n != 1 {
 		t.Fatalf("%d open all_withdrawn items", n)
 	}
+	l.wantStopDecision(t, c.ID)
 }
 
 func TestARedeclaredPassStands(t *testing.T) {

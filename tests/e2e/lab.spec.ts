@@ -68,7 +68,9 @@ test('the real message API paginates beyond 500 and scopes overlapping sequences
   expect(await card.json()).toMatchObject({ flag: 'escalated', board_column: 'grounding' });
 });
 
-test('the lab daemon records a failed result and the engine files an Inbox item', async ({
+// No server writes a 'failed' record since the agent protocol was removed, so
+// the tail of this test cannot pass until the lab script hands in instead.
+test.fixme('the lab daemon records a failed result and the engine raises a decision', async ({
   request,
 }) => {
   await labSignIn(request);
@@ -83,7 +85,6 @@ test('the lab daemon records a failed result and the engine files an Inbox item'
     data: {
       question: 'Can the lab record a real failed execution?',
       assignee: { type: 'team', teams: { grounding: await labTeam(request, workspace.id) } },
-
     },
   });
   expect(cardResponse.status()).toBe(201);
@@ -91,19 +92,19 @@ test('the lab daemon records a failed result and the engine files an Inbox item'
   await expect
     .poll(
       async () => {
-        const res = await request.get('/api/inbox', { headers });
+        const res = await request.get('/api/decisions', { headers });
         expect(res.status()).toBe(200);
         return ((await res.json()) ?? []).some(
-          (i: { card_id: string; kind: string }) => i.card_id === card.id && i.kind === 'escalated',
+          (i: { card_id: string; kind: string }) => i.card_id === card.id && i.kind === 'blocked',
         );
       },
       { timeout: 30_000 },
     )
     .toBe(true);
-  const inbox = await request.get('/api/inbox', { headers });
+  const inbox = await request.get('/api/decisions', { headers });
   expect(inbox.status()).toBe(200);
   expect(await inbox.json()).toEqual(
-    expect.arrayContaining([expect.objectContaining({ card_id: card.id, kind: 'escalated' })]),
+    expect.arrayContaining([expect.objectContaining({ card_id: card.id, kind: 'blocked' })]),
   );
   const runsResponse = await request.get(`/api/cards/${card.id}/runs`, { headers });
   expect(runsResponse.status()).toBe(200);

@@ -86,8 +86,14 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 // has: what it says, and how it answers a redo.
 const (
 	handInIntro = "Your final answer is your hand-in: Lykeion checks it, and asks you to correct it if something is missing. Its fields:\n" +
-		"- `status`: `done`, or `could_not_do` when something outside the work blocked it (no data attached, a source that would not open); then `reason` says plainly what blocked it, and is null otherwise.\n" +
-		"- `answer`: what you found or did, written for the researcher in plain language.\n"
+		"- `status`: `done`, or `could_not_do` when something outside the work blocked it (no data attached, a source that would not open); then `reason` says plainly what blocked it, and is null otherwise. " +
+		"`ask` puts a question only the researcher can answer: see `decision`.\n" +
+		"- `answer`: what you found or did, written for the researcher in plain language.\n" +
+		"- `decision`: null unless `status` is `ask`. Then it holds the question: `kind`, `title` (one line), `body`, 2 to 5 `options` (each an `id` of lowercase letters, digits or underscores, a `label` and a one-line `consequence`), " +
+		"`expires_at` (null for 7 days, or a time at most 30 days ahead) and `from_member`. " +
+		"`kind` is one of: `scope` (the question has readings that lead to different studies), `change_question` (the work shows the study should ask something else), " +
+		"`ethics` (human participants, clinical or personal data, dual-use), `cost` (compute, paid data or paid connectors above the study's limit), " +
+		"`access` (data, credentials or files the lab has not attached). Never ask about method, tools, evidence or retries: decide those yourself.\n"
 	replies = "- `replies`: empty, except on a redo. A redo's prompt lists the items Jev sent back; answer each one, naming it as the list does " +
 		"(a DOI, arXiv or PubMed id, an accession, the hypothesis text, a value's name, or `outputs`), with an action and a reason: " +
 		"`corrected` (the item is in this hand-in again, fixed, with the same id or text), `withdrawn` (it no longer stands), " +
@@ -164,7 +170,7 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 	"Your final answer is your hand-in: `status` (`done`, or `could_not_do` with a `reason`), `answer` (your findings overall, in plain language), " +
 	"and `concerns`, one per problem: `item` names the item (its id, accession, hypothesis text, value name, or `outputs`) and `concern` says what is wrong. " +
 	"An item you could not check against a source is a concern, never a pass. " +
-	"Leave `replies` empty. You hand in no items and ask no members.\n"
+	"Leave `replies` empty and `decision` null. You hand in no items and ask no members.\n"
 
 // Protocol is the skill text appended to an agent's instructions for its role
 // in a column: "leader", "agent" (a study's single agent), "auditor", or a
@@ -202,13 +208,17 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 			"2. Wait for the result with `member_result`. It waits up to 10 minutes; while the member is still `working`, call it again. One member works at a time, so wait for one member's result before you ask the next.\n" +
 			"3. A member hands in the same fields you do. Copy the items you keep into your own hand-in, edited as needed: only your hand-in counts. Pass a member's files on by their saved names (`read_output` reads them), never by a path in its run folder.\n" +
 			"4. When no member fits a task, do it yourself.\n" +
-			"5. When the column delivers what it must, end with your hand-in.\n\n")
+			"5. When the column delivers what it must, end with your hand-in.\n" +
+			"6. A member that hands in `ask` brings you its question. Decide it yourself if you can; if only the researcher can, end with your own `ask` hand-in, naming the member in `from_member`. " +
+			"The study waits on one question at a time, and your run ends when you ask: you resume with the answer.\n\n")
 	case "agent":
-		b.WriteString("Do the column's work and end with your hand-in.\n\n")
+		b.WriteString("Do the column's work and end with your hand-in. If only the researcher can answer a question, end with an `ask` hand-in, `from_member` null; your run ends, and you resume with the answer. " +
+			"The study waits on one question at a time.\n\n")
 	case "auditor":
 		b.WriteString(auditorHandIn)
 	default:
-		b.WriteString("Do the task and end with your hand-in. It has the column's fields, but the items are optional: hand in the ones your task produced. The leader decides what goes into the column's hand-in.\n\n")
+		b.WriteString("Do the task and end with your hand-in. It has the column's fields, but the items are optional: hand in the ones your task produced. The leader decides what goes into the column's hand-in. " +
+			"A question only the researcher can answer goes to the leader: hand in `ask` with the decision, and the leader raises it for you.\n\n")
 	}
 	if role != "auditor" {
 		b.WriteString(handInIntro + itemsPrompt(column))

@@ -21,6 +21,7 @@ import (
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -700,7 +701,9 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		case verdict == "low":
 			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
-			items = append(items, board.Item{Kind: "blocked", Text: blockedText(c.Number, c.BoardColumn, weak)})
+			if err := holdForDecision(ctx, tx, c, "blocked", "low_score", blockedText(c.Number, c.BoardColumn, weak), e.now()); err != nil {
+				return err
+			}
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
@@ -791,12 +794,24 @@ func bookkeeping(kind string) bool {
 	return false
 }
 
-// unblock restarts the column of a blocked study when its owner comments:
-// one blocked by a second low score or by its lead's failed runs (block kind
-// low_score or none), or held because its lead could not do the column. The
-// comment becomes the leader's (or agent's) note, and the redo count stays.
-func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
-	if c.State != "blocked" || (c.BlockKind != "low_score" && c.BlockKind != "") || c.Ending != "" || author != c.OwnerID {
+// unblock restarts the column of a blocked study when its owner comments,
+// as redo does; any member's comment reopens a parked study.
+func (e *Engine) unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
+	if author != c.OwnerID && c.BlockKind != "parked" {
+		return false, nil
+	}
+	return e.redo(ctx, tx, c, author, comment)
+}
+
+// redo restarts the column of a blocked study: one blocked by a second low
+// score or by its lead's failed runs (block kind low_score or none), held
+// because its lead could not do the column, or parked. The guidance becomes
+// the leader's (or agent's) note, and the redo count stays. The study's
+// stops are answered with the redo, and runs its machines kept failing in
+// the old round are cancelled with the item that asked about them. It says
+// false for a study that is not blocked.
+func (e *Engine) redo(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
+	if c.State != "blocked" || !slices.Contains([]string{"", "low_score", "parked"}, c.BlockKind) || c.Ending != "" {
 		return false, nil
 	}
 	note := "The researcher asked for this column to be redone:\n" + comment
@@ -811,19 +826,25 @@ func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, com
 		Round: c.Round + 1, Redos: c.Redos, HandoffNote: note}); err != nil {
 		return false, err
 	}
-	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
+	ids, err := tx.Q.RedoCardStops(ctx, db.RedoCardStopsParams{WorkspaceID: tx.WS, CardID: c.ID, Guidance: comment, DecidedBy: author})
+	if err != nil {
 		return false, err
 	}
-	for _, cause := range []string{"could_not_do", "all_withdrawn", "validation_invalid"} {
-		ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: cause})
-		if err != nil {
+	dismissed, err := tx.Q.DismissMachineFailures(ctx, db.DismissMachineFailuresParams{WorkspaceID: tx.WS, CardID: c.ID})
+	if err != nil {
+		return false, err
+	}
+	for _, id := range append(ids, dismissed...) {
+		if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.User(author), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return false, err
 		}
-		for _, id := range ids {
-			if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
-				return false, err
-			}
-		}
+	}
+	held, err := service.ParkedRuns(ctx, tx, c.ID)
+	if err != nil {
+		return false, err
+	}
+	if err := e.cancelInTx(ctx, tx, held); err != nil {
+		return false, err
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})
 }

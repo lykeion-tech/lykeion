@@ -112,7 +112,7 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 		stillBreached("after " + cause + " and a pass")
 	}
 	// Reading the item, which the Inbox does on select, changes nothing.
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/read", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read: %d", code)
 	}
 	stillBreached("after reading the item")
@@ -124,42 +124,44 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 
 	breach()
 	old := item
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("resolve: %d", code)
 	}
 	if reason, fence, _ := state(); reason != nil || fence != 0 {
 		t.Fatalf("resolving the breach left: %v %d", reason, fence)
 	}
+	// Resolving a wait chooses no option: it is dismissed, by no one.
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND status = 'dismissed' AND decided_by IS NULL`, item); n != 1 {
+		t.Fatal("a resolved wait is not dismissed")
+	}
 	// A resolved item can't clear a newer breach, nor can another member.
 	breach()
-	if code := s.call(t, "POST", "/api/inbox/"+old+"/resolve", a, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+old+"/resolve", a, w.ID, nil, nil); code != 404 {
 		t.Fatalf("resolving a resolved item: %d", code)
 	}
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
 		t.Fatalf("a colleague resolved the owner's wait: %d", code)
 	}
 	stillBreached("after stale and foreign resolves")
 }
 
-// Resolving the item that asks about a run its machines kept failing lets
-// the run try again from a fresh count; only its owner can, and only for
-// that sort of item.
-func TestResolvingAParkedRunsItemReleasesIt(t *testing.T) {
+// Trying again on the decision that asks about a run its machines kept
+// failing lets the run try again from a fresh count; only someone who may
+// answer the decision can.
+func TestDecideTryAgainReleasesParkedRuns(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	c := s.idleCard(t, a, w.ID, "Why?")
-	var run, item, other string
+	var run, item string
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt, infra_failures, failure_reason, retry_after)
 		VALUES ($1, $2, $3, 'grounding', 1, 'scoper', 'claude', 'p', 'queued', 5, 5, 'provider_network', '9999-12-31') RETURNING id::text`, w.ID, c.ID, c.OwnerID).Scan(&run); err != nil {
 		t.Fatal(err)
 	}
-	insert := `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause) VALUES ($1, $2, $3, 'needs_decision', 't', $4) RETURNING id::text`
-	if err := s.Env.Owner.QueryRow(t.Context(), insert, w.ID, c.ID, c.OwnerID, "machine_failures").Scan(&item); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Env.Owner.QueryRow(t.Context(), insert, w.ID, c.ID, c.OwnerID, nil).Scan(&other); err != nil {
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, options, default_option)
+		VALUES ($1, $2, $3, 'needs_decision', 't', 'machine_failures', '[{"id":"try_again","label":"T","consequence":"t"},{"id":"park","label":"P","consequence":"p"}]', 'park') RETURNING id::text`,
+		w.ID, c.ID, c.OwnerID).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	held := func() (failures int, heldRun bool) {
@@ -170,17 +172,17 @@ func TestResolvingAParkedRunsItemReleasesIt(t *testing.T) {
 		return
 	}
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
-		t.Fatalf("a colleague resolved the owner's item: %d", code)
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/decide", b, w.ID, map[string]any{"option": "try_again"}, nil); code != 403 {
+		t.Fatalf("a colleague answered the owner's decision: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+other+"/resolve", a, w.ID, nil, nil); code != 404 {
-		t.Fatalf("another decision resolved: %d", code)
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", a, w.ID, nil, nil); code != 404 {
+		t.Fatalf("resolve still answers a decision: %d", code)
 	}
 	if n, h := held(); n != 5 || !h {
 		t.Fatalf("released early: %d %v", n, h)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
-		t.Fatalf("resolve: %d", code)
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/decide", a, w.ID, map[string]any{"option": "try_again"}, nil); code != 200 {
+		t.Fatalf("try again: %d", code)
 	}
 	if n, h := held(); n != 0 || h {
 		t.Fatalf("still held: %d %v", n, h)

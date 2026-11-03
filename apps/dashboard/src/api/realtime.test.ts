@@ -24,7 +24,8 @@ describe('event to query map', () => {
       has(type, keys.cards('w1'));
       has(type, keys.card('w1', 'c1'));
       has(type, keys.events('w1', 'c1'));
-      has(type, keys.inboxAll('w1'));
+      has(type, keys.decisionsAll('w1'));
+      has(type, keys.decisionCount('w1'));
       has(type, keys.analytics('w1'));
     }
   });
@@ -82,9 +83,11 @@ describe('event to query map', () => {
     expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
     client.clear();
   });
-  it('inbox events refresh both Inbox lists', () => {
-    has('inbox.read', keys.inboxAll('w1'), null);
-    has('inbox.resolved', keys.inboxAll('w1'), null);
+  it('inbox and decision events refresh the Decisions lists and the count', () => {
+    for (const type of ['inbox.created', 'inbox.read', 'inbox.resolved', 'decision.reminder']) {
+      has(type, keys.decisionsAll('w1'), null);
+      has(type, keys.decisionCount('w1'), null);
+    }
   });
   it('runtime events refresh the runtimes', () => {
     has('runtime.online', keys.runtimes('w1'), null);
@@ -405,8 +408,9 @@ describe('useRealtimeSync', () => {
       keys.events('w1', 'c1'),
       keys.runs('w1', 'c1'),
       keys.runMessages('w1', 'r1', 1),
-      keys.inbox('w1', false),
-      keys.inbox('w1', true),
+      keys.decisions('w1', false),
+      keys.decisions('w1', true),
+      keys.decisionCount('w1'),
       keys.runtimes('w1'),
       keys.storage('w1'),
       keys.analytics('w1'),

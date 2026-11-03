@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"lykeion/server/internal/board"
@@ -164,6 +166,36 @@ type ObjectionIn struct {
 // ObjectionTypes are the kinds of error an objection can name.
 var ObjectionTypes = []string{"wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"}
 
+// DecisionKinds are the questions an agent may put to the researcher.
+var DecisionKinds = []string{"scope", "change_question", "ethics", "cost", "access"}
+
+// MinDecisionWait and MaxDecisionWait bound how far ahead an agent may set
+// its decision's expiry.
+const (
+	MinDecisionWait = time.Hour
+	MaxDecisionWait = 30 * 24 * time.Hour
+)
+
+// OptionIn is one answer an agent offers the researcher.
+type OptionIn struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Consequence string `json:"consequence"`
+}
+
+// DecisionIn is the question an ask hand-in puts to the researcher; a lead
+// raising a member's question names that member in FromMember.
+type DecisionIn struct {
+	Kind       string     `json:"kind"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	Options    []OptionIn `json:"options"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	FromMember *string    `json:"from_member"`
+}
+
+var optionID = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+
 type NewStudy struct {
 	Title    string `json:"title"`
 	Question string `json:"question"`
@@ -172,7 +204,8 @@ type NewStudy struct {
 // HandIn holds every field of every kind; Parse refuses the ones a kind does
 // not have.
 type HandIn struct {
-	Status       string         `json:"status"` // done | could_not_do
+	Status       string         `json:"status"` // done | could_not_do | ask
+	Decision     *DecisionIn    `json:"decision"`
 	Answer       string         `json:"answer"`
 	Reason       *string        `json:"reason"`
 	Replies      []Reply        `json:"replies"`
@@ -239,9 +272,36 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 			probs = append(probs, fmt.Sprintf(format, a...))
 		}
 	}
-	add(h.Status == "done" || h.Status == "could_not_do", "status: must be done or could_not_do")
+	// The auditor, the objector and Autoresearch work alone, with no lead to
+	// ask for them, so they never ask.
+	if slices.Contains([]Kind{Auditor, Objector, Autoresearch}, k) {
+		add(h.Status == "done" || h.Status == "could_not_do", "status: must be done or could_not_do")
+	} else {
+		add(slices.Contains([]string{"done", "could_not_do", "ask"}, h.Status), "status: must be done, could_not_do or ask")
+	}
 	add(within(h.Answer, 8000), "answer: say what you did, 1 to 8000 characters")
 	add(h.Status != "could_not_do" || strings.TrimSpace(deref(h.Reason)) != "", "reason: say what blocked the work")
+	add(h.Status != "ask" || h.Decision != nil, "decision: an ask needs a decision")
+	add(h.Status == "ask" || h.Decision == nil, "decision: only an ask carries a decision; leave it null")
+	if d := h.Decision; d != nil {
+		add(slices.Contains(DecisionKinds, d.Kind), "decision: kind must be scope, change_question, ethics, cost or access")
+		add(within(d.Title, 200) && !strings.Contains(d.Title, "\n"), "decision: title must be one line of 1 to 200 characters")
+		add(within(d.Body, 4000), "decision: body must be 1 to 4000 characters")
+		add(len(d.Options) >= 2 && len(d.Options) <= 5, "decision: give 2 to 5 options")
+		ids := map[string]bool{}
+		for i, o := range d.Options {
+			add(optionID.MatchString(o.ID), "decision options %d: id must be 1 to 40 lowercase letters, digits or underscores", i+1)
+			add(!ids[o.ID], "decision options %d: another option already has the id %s", i+1, o.ID)
+			ids[o.ID] = true
+			add(within(o.Label, 80), "decision options %d: label must be 1 to 80 characters", i+1)
+			add(within(o.Consequence, 200), "decision options %d: consequence must say in 1 to 200 characters what the option leads to", i+1)
+		}
+		if e := d.ExpiresAt; e != nil {
+			now := time.Now()
+			add(!e.Before(now.Add(MinDecisionWait)) && !e.After(now.Add(MaxDecisionWait)), "decision: expires_at must be at least 1 hour and at most 30 days ahead")
+		}
+		add(d.FromMember == nil || strings.TrimSpace(*d.FromMember) != "", "decision: from_member must name a Team member, or be null")
+	}
 	for i, r := range h.Replies {
 		add(r.Item != "", "replies %d: item must name the item replied to", i+1)
 		add(slices.Contains([]string{"corrected", "withdrawn", "declined"}, r.Action), "replies %d: action must be corrected, withdrawn or declined", i+1)

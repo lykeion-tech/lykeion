@@ -298,7 +298,7 @@ test('the workspace menu names the workspace and logs out', async ({ page }) => 
   await expect(page).toHaveURL(/#\/signin$/);
   await signedOutRead;
   expect((await page.request.get('/api/me')).status()).toBe(401);
-  for (const destination of ['/studies', '/inbox', '/settings']) {
+  for (const destination of ['/studies', '/decisions', '/settings']) {
     await page.evaluate((destination) => {
       location.hash = destination;
     }, destination);

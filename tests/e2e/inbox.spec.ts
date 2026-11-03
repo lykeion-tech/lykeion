@@ -14,11 +14,11 @@ import {
 test('an escalation reaches the Inbox and is read on opening', async ({ page }) => {
   const title = `Sleep loss and microglial pruning ${Date.now()}`;
   const { item } = await escalation(page, title);
-  await page.goto('/#/inbox');
-  const list = page.getByRole('navigation', { name: 'Inbox items' });
+  await page.goto('/#/decisions');
+  const list = page.getByRole('navigation', { name: 'Decisions' });
   const link = list.getByRole('link', { name: new RegExp(title) }).first();
   await expect(link).toBeVisible();
-  await expect(link).toContainText('Escalated');
+  await expect(link).toContainText('column stopped');
   await expect(link.locator('.unread')).toHaveCount(1);
 
   await page.screenshot({ path: `${artifacts}/open-unread.png`, fullPage: true });
@@ -27,7 +27,7 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
   await expect(link.locator('.unread')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Show inbox' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'Show decisions' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -36,7 +36,7 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
   await expect(
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Show inbox' }).click();
+  await page.getByRole('button', { name: 'Show decisions' }).click();
   await expect(link).toBeVisible();
 
   await expect
@@ -48,9 +48,12 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-18-artifacts';
 type Item = { id: string; card_id: string; read_at: string | null; resolved_at: string | null };
 async function inbox(page: Page, archived = false) {
-  const response = await page.request.get(`/api/inbox${archived ? '?archived=1' : ''}`, {
-    headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
-  });
+  const response = await page.request.get(
+    `/api/decisions${archived ? '?view=history' : '?view=open'}`,
+    {
+      headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
+    },
+  );
   expect(response.status()).toBe(200);
   return ((await response.json()) ?? []) as Item[];
 }
@@ -66,12 +69,12 @@ async function escalation(page: Page, name: string) {
   return { card, item };
 }
 const row = (page: Page, id: string) =>
-  page.getByRole('navigation', { name: 'Inbox items' }).locator(`a[href="#/inbox/${id}"]`);
+  page.getByRole('navigation', { name: 'Decisions' }).locator(`a[href="#/decisions/${id}"]`);
 
 test('a failed read shows an inline error and keeps the actual unread item', async ({ page }) => {
   const { item } = await escalation(page, 'Transport read failure');
-  await page.route(`**/api/inbox/${item.id}/read`, (route) => route.abort('failed'));
-  await page.goto('/#/inbox');
+  await page.route(`**/api/decisions/${item.id}/read`, (route) => route.abort('failed'));
+  await page.goto('/#/decisions');
   await row(page, item.id).click();
   await expect(page.getByRole('alert')).toContainText(/Failed to fetch/);
   await expect(row(page, item.id).locator('.unread')).toHaveCount(1);
@@ -89,7 +92,7 @@ for (const destination of [
     const b = await escalation(page, 'Current read visit');
     if (destination === 'another workspace') {
       const older = await labFixture(page.request);
-      await labInbox(page.request, older.card_id, 'escalated', 'Earlier same-name workspace item');
+      await labInbox(page.request, older.card_id, 'blocked', 'Earlier same-name workspace item');
     }
     const other = await labFixture(page.request);
     const otherName = `Inbox target ${other.workspace_id}`;
@@ -115,7 +118,7 @@ for (const destination of [
       drain = resolve;
     });
     let first = true;
-    await page.route(`**/api/inbox/${a.item.id}/read`, async (route) => {
+    await page.route(`**/api/decisions/${a.item.id}/read`, async (route) => {
       if (!first) return route.continue();
       first = false;
       try {
@@ -130,7 +133,7 @@ for (const destination of [
       }
     });
     try {
-      await page.goto(`/#/inbox/${a.item.id}`);
+      await page.goto(`/#/decisions/${a.item.id}`);
       expect(await refused).toBe(404);
       if (destination === 'another workspace') {
         // The inbox shows its own rail; the workspace switcher lives in the navigation rail.
@@ -147,7 +150,7 @@ for (const destination of [
         await expect
           .poll(() => page.evaluate(() => localStorage.getItem('lykeion.workspace')))
           .toBe(other.workspace_id);
-        await page.goto('/#/inbox');
+        await page.goto('/#/decisions');
         await expect(page.getByText('Nothing needs you right now')).toBeVisible();
       } else {
         await row(page, b.item.id).click();
@@ -162,7 +165,8 @@ for (const destination of [
         }
       }
       const browserResponse = page.waitForResponse(
-        (r) => r.request().method() === 'POST' && r.url().endsWith(`/api/inbox/${a.item.id}/read`),
+        (r) =>
+          r.request().method() === 'POST' && r.url().endsWith(`/api/decisions/${a.item.id}/read`),
       );
       release();
       await drained;
@@ -185,7 +189,7 @@ test('the embedded study fits long evidence and resets drafts on selection', asy
   const b = await escalation(page, 'Embedded next selection');
   await labHypotheses(page.request, a.card.id);
   await labRecords(page.request, a.card.id, 25);
-  await page.goto(`/#/inbox/${a.item.id}`);
+  await page.goto(`/#/decisions/${a.item.id}`);
   const study = page.getByRole('region', { name: 'Study', exact: true });
   await expect(study.getByRole('heading', { name: a.card.title })).toBeVisible();
   const meta = study.locator('aside[aria-label="Right pane"]');
@@ -210,7 +214,7 @@ test('Stop in the embedded study archives the original item and keeps the ended 
   page,
 }) => {
   const { card, item } = await escalation(page, 'Embedded Stop resolution');
-  await page.goto(`/#/inbox/${item.id}`);
+  await page.goto(`/#/decisions/${item.id}`);
   await expect(
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: card.title }),
   ).toBeVisible();
@@ -223,11 +227,11 @@ test('Stop in the embedded study archives the original item and keeps the ended 
   await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: card.title })).toBeVisible();
   await page
-    .getByRole('navigation', { name: 'Inbox items' })
-    .getByRole('button', { name: 'Archived' })
+    .getByRole('navigation', { name: 'Decisions' })
+    .getByRole('button', { name: 'History' })
     .click();
   await expect(row(page, item.id)).toBeVisible();
-  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(row(page, item.id)).toHaveCount(0);
 });
 
@@ -240,7 +244,7 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
       localStorage.setItem('lykeion.study-inspector-width', '424');
   });
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(`/#/inbox/${item.id}`);
+  await page.goto(`/#/decisions/${item.id}`);
   const study = page.getByRole('region', { name: 'Study', exact: true });
   const meta = study.locator('aside[aria-label="Right pane"]');
   // The pane floats over the study on narrow windows and when the Inbox leaves it under 640px.
@@ -340,7 +344,7 @@ test('embedded Properties keeps its own width and responds to the actual Inbox c
   expect(
     await page.evaluate(() => localStorage.getItem('lykeion.embedded-study-inspector-width')),
   ).toBe('260');
-  await page.goto(`/#/inbox/${item.id}`);
+  await page.goto(`/#/decisions/${item.id}`);
   await expect(meta).toHaveCSS('width', '240px');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.study-inspector-width'))).toBe(
     '250',
@@ -374,8 +378,8 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
     ['done', `Study #${card.number} is done.`, `${name} is done`],
   ];
   for (const [kind, text] of kinds) await labInbox(page.request, card.id, kind, text);
-  await page.goto('/#/inbox');
-  const list = page.getByRole('navigation', { name: 'Inbox items' });
+  await page.goto('/#/decisions');
+  const list = page.getByRole('navigation', { name: 'Decisions' });
   for (const [, , shown] of kinds)
     await expect(list.getByText(shown, { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
@@ -384,7 +388,7 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
     await expect(
       page.getByRole('region', { name: 'Study' }).getByRole('heading', { name }),
     ).toBeVisible();
-    await expect(page).toHaveURL(/#\/inbox\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
   }
 });
 
@@ -397,10 +401,10 @@ test('Inbox report without card opens the run', async ({ page }) => {
     inbox: true,
   });
   const headers = { 'X-Workspace-ID': f.workspace_id };
-  const items = await (await page.request.get('/api/inbox', { headers })).json();
+  const items = await (await page.request.get('/api/decisions', { headers })).json();
   const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
   expect(item.card_id).toBeNull();
-  await page.goto('/#/inbox');
+  await page.goto('/#/decisions');
   await row(page, item.id).click();
   const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
   await expect(dialog.getByRole('heading', { name: 'Report literature watch' })).toBeVisible();
@@ -410,7 +414,7 @@ test('Inbox report without card opens the run', async ({ page }) => {
   await expect
     .poll(
       async () =>
-        (await (await page.request.get('/api/inbox?archived=1', { headers })).json()).find(
+        (await (await page.request.get('/api/decisions?view=history', { headers })).json()).find(
           (i: { id: string }) => i.id === item.id,
         )?.read_at,
     )
@@ -420,7 +424,7 @@ test('Inbox report without card opens the run', async ({ page }) => {
   await page.screenshot({ path: 'test-results/ui2/task15-inbox.png', fullPage: true });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`#/inbox/${item.id}$`));
+  await expect(page).toHaveURL(new RegExp(`#/decisions/${item.id}$`));
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await expect(dialog).toBeVisible();
 });
@@ -436,7 +440,7 @@ test('Inbox report context survives archive refresh and a closed run stays close
     inbox: true,
   });
   const headers = { 'X-Workspace-ID': f.workspace_id };
-  const items = await (await page.request.get('/api/inbox', { headers })).json();
+  const items = await (await page.request.get('/api/decisions', { headers })).json();
   const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
   let holding = false;
   let release!: () => void;
@@ -451,7 +455,7 @@ test('Inbox report context survives archive refresh and a closed run stays close
   const late = new Promise<void>((resolve) => {
     drained = resolve;
   });
-  await page.route('**/api/inbox?archived=1', async (route) => {
+  await page.route('**/api/decisions?view=history', async (route) => {
     const response = await route.fetch();
     if (holding) {
       await gate;
@@ -463,11 +467,11 @@ test('Inbox report context survives archive refresh and a closed run stays close
     }
   });
   try {
-    await page.goto('/#/inbox');
+    await page.goto('/#/decisions');
     await initial;
     holding = true;
     await row(page, item.id).click();
-    await expect(page.getByRole('navigation', { name: 'Inbox items' })).toContainText(
+    await expect(page.getByRole('navigation', { name: 'Decisions' })).toContainText(
       'Nothing needs you right now',
     );
     const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
@@ -480,11 +484,11 @@ test('Inbox report context survives archive refresh and a closed run stays close
     await page.getByRole('button', { name: 'Open report', exact: true }).click();
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('button', { name: 'Archived', exact: true }).click();
+    await page.getByRole('button', { name: 'History', exact: true }).click();
     await expect(row(page, item.id)).toBeVisible();
     await expect(row(page, item.id).locator('.unread')).toHaveCount(0);
     const receipt = (
-      await (await page.request.get('/api/inbox?archived=1', { headers })).json()
+      await (await page.request.get('/api/decisions?view=history', { headers })).json()
     ).find((i: { id: string }) => i.id === item.id);
     expect(receipt.read_at).toBeTruthy();
     expect(receipt.resolved_at).toBeTruthy();
@@ -524,10 +528,10 @@ test('study descriptions render safe, readable Markdown in Studies and Inbox', a
     '<script>window.badMarkdown = true</script> [unsafe](javascript:alert(1))',
   ].join('\n');
   const study = await newStudy(page.request, question, { assignee: null, title: 'Markdown study' });
-  await labInbox(page.request, study.id, 'escalated', 'Inspect Markdown');
+  await labInbox(page.request, study.id, 'blocked', 'Inspect Markdown');
   const item = (await inbox(page)).find((i) => i.card_id === study.id)!;
   expect(item).toBeTruthy();
-  for (const url of [`/#/studies/${study.id}`, `/#/inbox/${item.id}`]) {
+  for (const url of [`/#/studies/${study.id}`, `/#/decisions/${item.id}`]) {
     await page.goto(url);
     const description = page.getByRole('region', { name: 'Study description' });
     await expect(description.getByRole('heading', { name: 'Study approach' })).toBeVisible();

@@ -443,7 +443,7 @@ func TestTheFifthParkHoldsTheRunAndAsksItsOwner(t *testing.T) {
 	if s := f.infraState(t, id); s.Status != "queued" || s.Wait == nil || *s.Wait < 24*time.Hour {
 		t.Fatalf("the fifth park did not hold the run: %+v", s)
 	}
-	want := "Study #1 “t” has stopped trying: its run failed 5 times for reasons outside the agent's work, last because the agent's provider could not be reached (connect ECONNRESET). Resolve this item to try again."
+	want := "Study #1 “t” has stopped trying: its run failed 5 times for reasons outside the agent's work, last because the agent's provider could not be reached (connect ECONNRESET). Choose Try again or Park."
 	d := f.openDecisions(t)
 	if len(d) != 1 || d[0].User != f.Owner || d[0].Card != f.Card || d[0].Text != want {
 		t.Fatalf("items %+v", d)

@@ -457,6 +457,9 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 			if err != nil {
 				return err
 			}
+			if err := tx.Q.ResolveMachineOffline(ctx, db.ResolveMachineOfflineParams{WorkspaceID: ws, RuntimeID: &r.ID}); err != nil {
+				return err
+			}
 			out = append(out, r)
 		}
 		if err := team.AddBuiltIn(ctx, tx, user); err != nil {
@@ -529,6 +532,11 @@ func (s *AgentRuns) Heartbeat(ctx context.Context, user uuid.UUID, refs []Runtim
 			k, err := tx.Q.TouchRuntime(ctx, db.TouchRuntimeParams{ID: ref.RuntimeID, WorkspaceID: ref.WorkspaceID, OwnerID: user})
 			if err != nil {
 				return err
+			}
+			if k > 0 {
+				if err := tx.Q.ResolveMachineOffline(ctx, db.ResolveMachineOfflineParams{WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID}); err != nil {
+					return err
+				}
 			}
 			if len(telemetry) > 0 {
 				rt, e := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: ref.WorkspaceID, ID: ref.RuntimeID})
@@ -1553,7 +1561,8 @@ func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 	return err
 }
 
-// cancelLocked cancels a locked open run, revokes its tokens and records it.
+// cancelLocked cancels a locked open run, revokes its tokens and records it,
+// as user, or as the system when user is uuid.Nil.
 func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.AgentRun, error) {
 	if err := rows(tx.Q.CancelAgentRun(ctx, db.CancelAgentRunParams{WorkspaceID: tx.WS, ID: run})); err != nil {
 		return db.AgentRun{}, err
@@ -1565,7 +1574,11 @@ func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.Ag
 	if err != nil {
 		return t, err
 	}
-	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, store.User(user), agentRunEvent(t))
+	actor := store.User(user)
+	if user == uuid.Nil {
+		actor = store.System
+	}
+	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, actor, agentRunEvent(t))
 }
 
 // CancelCardRuns cancels every open run of a study about to be deleted, in the
@@ -1585,6 +1598,31 @@ func CancelCardRuns(ctx context.Context, tx *store.Tx, user, card uuid.UUID) err
 		}
 		if _, err := cancelLocked(ctx, tx, user, run); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// tellOfflineOwners tells the owner of each machine that is offline with
+// studies queued for it, once until it comes back.
+func tellOfflineOwners(ctx context.Context, tx *store.Tx) error {
+	offline, err := tx.Q.OfflineRuntimesWithQueuedRuns(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	for _, m := range offline {
+		text := fmt.Sprintf("%s is offline and %d queued runs wait for it. They continue once it is back online.", m.Machine, m.Queued)
+		if m.Queued == 1 {
+			text = fmt.Sprintf("%s is offline and a queued run waits for it. It continues once the machine is back online.", m.Machine)
+		}
+		ids, err := tx.Q.InsertMachineOffline(ctx, db.InsertMachineOfflineParams{WorkspaceID: tx.WS, UserID: m.OwnerID, RuntimeID: &m.ID, Text: text})
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := tx.Emit(ctx, "inbox.created", nil, store.System, map[string]any{"inbox_item_id": id}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1657,6 +1695,9 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 				if err := tx.Emit(ctx, "runtime.updated", nil, store.System, map[string]any{"action": "stale_sweep"}); err != nil {
 					return err
 				}
+			}
+			if err := tellOfflineOwners(ctx, tx); err != nil {
+				return err
 			}
 		}
 		candidates, err := tx.Q.SweepCandidates(ctx)

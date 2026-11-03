@@ -12,11 +12,11 @@ async function escalated(page: Page, cardId: string) {
     .poll(
       async () =>
         (
-          ((await (await page.request.get('/api/inbox', { headers })).json()) ?? []) as {
+          ((await (await page.request.get('/api/decisions', { headers })).json()) ?? []) as {
             card_id: string;
             kind: string;
           }[]
-        ).some((i) => i.card_id === cardId && i.kind === 'escalated'),
+        ).some((i) => i.card_id === cardId && i.kind === 'blocked'),
       { timeout: 30_000 },
     )
     .toBe(true);

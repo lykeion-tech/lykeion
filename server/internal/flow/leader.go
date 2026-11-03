@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -152,9 +153,9 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 
 // afterRun acts on a lead's settled run. A column finishes on its lead's
 // hand-in: a done hand-in already wrote the summary that hands the column to
-// its auditor, a could_not_do hand-in holds the study for its owner, and a
-// run that failed, or ended without a hand-in, redoes the column once and
-// then blocks it. A member's, the auditor's or the objector's run wakes no
+// its auditor, a could_not_do hand-in holds the study for its owner, an ask
+// hand-in puts its question to the researcher, and a run that failed, or
+// ended without a hand-in, redoes the column once and then blocks it. A member's, the auditor's or the objector's run wakes no
 // one; the engine's next pass reads what it left.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if t.Kind == "rerun" {
@@ -163,30 +164,58 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if accessInterrupted(t) || !leads(t.Role) || t.Status == "cancelled" {
 		return nil
 	}
+	// Jev is asked before the study is locked: an answer can take a minute.
+	fit := fitUnavailable
+	if e.Jev != nil && t.Status == "completed" {
+		var h *handInBody
+		err := e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) (err error) {
+			h, _, err = runHandIn(ctx, tx, t.ID)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if h != nil && h.Status == "ask" && h.Decision != nil {
+			fit = e.fitCheck(ctx, *t.CardID, *h.Decision)
+		}
+	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, *t.CardID)
 		if err != nil || !current(c, t.BoardColumn, t.Round) {
 			return err
 		}
-		recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &t.ID})
-		if err != nil {
+		h, summary, err := runHandIn(ctx, tx, t.ID)
+		if err != nil || summary {
 			return err
 		}
-		var h *handInBody
-		for _, r := range recs {
-			switch r.Kind {
-			case "summary":
-				return nil
-			case "hand_in":
-				b := records.Body[handInRecord](r).HandIn
-				h = &b
-			}
-		}
 		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
-			return askOwner(ctx, tx, c, ptrOr(h.Reason))
+			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
-		return runFailed(ctx, tx, c, t)
+		if t.Status == "completed" && h != nil && h.Status == "ask" && h.Decision != nil {
+			return e.raiseAgentDecision(ctx, tx, c, t, *h.Decision, fit, e.now())
+		}
+		return e.runFailed(ctx, tx, c, t)
 	})
+}
+
+// runHandIn is the hand-in a run recorded, and whether the run already
+// declared its column done.
+func runHandIn(ctx context.Context, tx *store.Tx, run uuid.UUID) (*handInBody, bool, error) {
+	recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &run})
+	if err != nil {
+		return nil, false, err
+	}
+	var h *handInBody
+	for _, r := range recs {
+		switch r.Kind {
+		case "summary":
+			return h, true, nil
+		case "hand_in":
+			b := records.Body[handInRecord](r).HandIn
+			h = &b
+		}
+	}
+	return h, false, nil
 }
 
 // handInRecord is the part of a hand_in record the engine reads.
@@ -195,20 +224,20 @@ type handInRecord struct {
 }
 
 type handInBody struct {
-	Status string  `json:"status"`
-	Reason *string `json:"reason"`
+	Status   string             `json:"status"`
+	Reason   *string            `json:"reason"`
+	Decision *handin.DecisionIn `json:"decision"`
 }
 
 // askOwner holds a study whose lead could not do its column, as a block
 // holds it but with the redo count unchanged, and asks its owner once; the
 // owner's comment restarts the column through unblock.
-func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
+func (e *Engine) askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
-		Round: c.Round, Redos: c.Redos}); err != nil {
+		Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
-	if err := tx.Q.UpsertCardDecision(ctx, db.UpsertCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Cause: "could_not_do",
-		Text: couldNotDoText(c.Number, reason)}); err != nil {
+	if err := holdForDecision(ctx, tx, c, "needs_decision", "could_not_do", couldNotDoText(c.Number, reason), e.now()); err != nil {
 		return err
 	}
 	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
@@ -220,7 +249,7 @@ func askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error
 // runFailed redoes a column whose lead's run failed, or ended without a
 // hand-in, telling the redo what went wrong; a column already redone once is
 // blocked instead, and its owner told why.
-func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) error {
+func (e *Engine) runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) error {
 	detail := strings.TrimSpace(t.Error)
 	if detail == "" {
 		detail = "the run ended without a hand-in"
@@ -236,8 +265,7 @@ func runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.AgentRun) erro
 		return err
 	}
 	if next.State == "blocked" {
-		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "blocked",
-			Text: runFailedText(c.Number, c.BoardColumn, ptrOr(t.FailureReason), detail)}); err != nil {
+		if err := holdForDecision(ctx, tx, c, "blocked", "run_failed", runFailedText(c.Number, c.BoardColumn, ptrOr(t.FailureReason), detail), e.now()); err != nil {
 			return err
 		}
 	}
@@ -268,7 +296,7 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 		if err != nil {
 			return err
 		}
-		restart, err = unblock(ctx, tx, c, author, body)
+		restart, err = e.unblock(ctx, tx, c, author, body)
 		return err
 	})
 	if err == nil && restart {

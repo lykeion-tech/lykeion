@@ -58,6 +58,6 @@ func rootWithBrowser(in io.Reader, out io.Writer, opener func(string) error) *co
 		},
 	}
 	root.SetOut(out)
-	root.AddCommand(loginCmd(e), logoutCmd(e), whoamiCmd(e), workspaceCmd(e), cardCmd(e), inboxCmd(e), daemonCmd(e), runtimeCmd(e), resultCmd(e), recordsCmd(e), blobCmd(e), boardCmd(e), addonCmd(e), autoresearchCmd(e), reportCmd(e), teamCmd(e), recordCmd(e), callsCmd(e), runsCmd(e), toolsCmd(e), outputCmd(e), cellCmd(e), coresearchRunCmd(e), coresearchFileCmd(e), coresearchEnvCmd(e), paperCmd(e))
+	root.AddCommand(loginCmd(e), logoutCmd(e), whoamiCmd(e), workspaceCmd(e), cardCmd(e), decisionsCmd(e), daemonCmd(e), runtimeCmd(e), resultCmd(e), recordsCmd(e), blobCmd(e), boardCmd(e), addonCmd(e), autoresearchCmd(e), reportCmd(e), teamCmd(e), recordCmd(e), callsCmd(e), runsCmd(e), toolsCmd(e), outputCmd(e), cellCmd(e), coresearchRunCmd(e), coresearchFileCmd(e), coresearchEnvCmd(e), paperCmd(e))
 	return root
 }

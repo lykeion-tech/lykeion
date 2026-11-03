@@ -65,9 +65,10 @@ export const keys = {
   ratings: (ws: string, id: string) => ['ws', ws, 'card', id, 'ratings'] as const,
   runMessages: (ws: string, run: string, attempt: number) =>
     ['ws', ws, 'run', run, 'messages', attempt] as const,
-  inboxAll: (ws: string) => ['ws', ws, 'inbox'] as const,
-  inbox: (ws: string, archived: boolean) =>
-    ['ws', ws, 'inbox', archived ? 'archived' : 'open'] as const,
+  decisionsAll: (ws: string) => ['ws', ws, 'decisions'] as const,
+  decisions: (ws: string, history: boolean) =>
+    ['ws', ws, 'decisions', history ? 'history' : 'open'] as const,
+  decisionCount: (ws: string) => ['ws', ws, 'decision-count'] as const,
   runtimes: (ws: string) => ['ws', ws, 'runtimes'] as const,
   researches: (ws: string) => ['ws', ws, 'researches'] as const,
   researchDetails: (ws: string) => ['ws', ws, 'research'] as const,

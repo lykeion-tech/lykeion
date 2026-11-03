@@ -210,8 +210,8 @@ const lykEvent = (type: string, payload: Record<string, unknown>, at: string): L
 
 describe('stages and blocks', () => {
   it('names the block reason', () => {
-    const kinds: BlockKind[] = ['', 'low_score'];
-    expect(kinds.map(blockLabel)).toEqual(['', 'low score']);
+    const kinds: BlockKind[] = ['', 'low_score', 'decision', 'parked'];
+    expect(kinds.map(blockLabel)).toEqual(['', 'low score', 'Waiting on a decision', 'Parked']);
   });
 });
 
@@ -299,6 +299,15 @@ describe('composer actions', () => {
     expect(blockedActions(blocked, 'u1')).toEqual(['comment']);
     expect(blockedActions(blocked, 'u2')).toEqual([]);
     expect(blockedActions(card({ owner_id: 'u1' }), 'u1')).toEqual([]);
+  });
+  it('sends a question to Decisions and lets anyone comment on a parked study', () => {
+    const asked = card({ state: 'blocked', block_kind: 'decision', owner_id: 'u1' });
+    expect(blockedActions(asked, 'u1')).toEqual([]);
+    expect(blockedMessage(asked)).toBe('The agent asked you a question: answer it in Decisions.');
+    const parked = card({ state: 'blocked', block_kind: 'parked', owner_id: 'u1' });
+    expect(blockedActions(parked, 'u2')).toEqual(['comment']);
+    expect(blockedMessage(parked)).toBe('Parked: comment to redo this column.');
+    expect(blockBadge(parked)).toBe('Parked');
   });
 });
 
@@ -450,7 +459,9 @@ describe('flow records and Inbox sentences', () => {
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
-    expect(studies.inboxText({ kind: 'escalated', text: 'Asked a question' }, 'S')).toBeNull();
+    expect(
+      studies.inboxText({ kind: 'autoresearch_card', text: 'Asked a question' }, 'S'),
+    ).toBeNull();
   });
   it('lifts the criterion and the need out of the server sentence', () => {
     expect(

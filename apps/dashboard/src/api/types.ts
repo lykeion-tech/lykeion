@@ -146,7 +146,7 @@ export interface Card {
   // What every Grounding source must meet, as the researcher wrote them.
 }
 
-export type BlockKind = '' | 'low_score';
+export type BlockKind = '' | 'low_score' | 'decision' | 'parked';
 
 export interface Comment {
   id: string;
@@ -253,15 +253,14 @@ export interface RunMessage {
   created_at: string;
 }
 
-export interface InboxItem {
+export interface DecisionItem {
   id: string;
   workspace_id: string;
   card_id: string | null;
   autoresearch_run_id: string | null;
   user_id: string;
   kind:
-    | 'escalated'
-    | 'released'
+    | 'agent_decision'
     | 'autoresearch_card'
     | 'autoresearch_report'
     | 'middle_score'
@@ -269,6 +268,7 @@ export interface InboxItem {
     | 'no_tool'
     | 'scoring_unavailable'
     | 'waiting_for_machine'
+    | 'machine_offline'
     | 'needs_decision'
     | 'open_doubts'
     | 'done';
@@ -278,6 +278,31 @@ export interface InboxItem {
   read_at: string | null;
   resolved_at: string | null;
   created_at: string;
+  options: DecisionOption[] | null;
+  default_option: string;
+  status: 'open' | 'decided' | 'expired' | 'dismissed' | string;
+  expires_at: string | null;
+  // Set once the day-before reminder went out: the item expires within a day.
+  reminded_at: string | null;
+  chosen_option: string;
+  guidance: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  raised_by: string;
+  from_member: string;
+  decision_kind: string;
+  decide_by: '' | 'today' | 'this_week' | 'whenever' | 'date';
+  decide_by_date: string | null;
+  snoozed_until: string | null;
+  kept: boolean;
+  archived_at: string | null;
+  can_answer: boolean;
+}
+
+export interface DecisionOption {
+  id: string;
+  label: string;
+  consequence: string;
 }
 
 export interface RuntimeModel {

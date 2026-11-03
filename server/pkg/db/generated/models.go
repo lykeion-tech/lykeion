@@ -88,6 +88,7 @@ type AgentRun struct {
 	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
 	RetryAfter            *time.Time      `json:"retry_after"`
 	InfraFailures         int32           `json:"infra_failures"`
+	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -636,18 +637,37 @@ type FieldPackApproval struct {
 }
 
 type InboxItem struct {
-	ID                uuid.UUID  `json:"id"`
-	WorkspaceID       uuid.UUID  `json:"workspace_id"`
-	CardID            *uuid.UUID `json:"card_id"`
-	UserID            uuid.UUID  `json:"user_id"`
-	Kind              string     `json:"kind"`
-	Text              string     `json:"text"`
-	ReadAt            *time.Time `json:"read_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	ResolvedAt        *time.Time `json:"resolved_at"`
-	AutoresearchRunID *uuid.UUID `json:"autoresearch_run_id"`
-	RuntimeID         *uuid.UUID `json:"runtime_id"`
-	Cause             *string    `json:"cause"`
+	ID                uuid.UUID       `json:"id"`
+	WorkspaceID       uuid.UUID       `json:"workspace_id"`
+	CardID            *uuid.UUID      `json:"card_id"`
+	UserID            uuid.UUID       `json:"user_id"`
+	Kind              string          `json:"kind"`
+	Text              string          `json:"text"`
+	ReadAt            *time.Time      `json:"read_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	ResolvedAt        *time.Time      `json:"resolved_at"`
+	AutoresearchRunID *uuid.UUID      `json:"autoresearch_run_id"`
+	RuntimeID         *uuid.UUID      `json:"runtime_id"`
+	Cause             *string         `json:"cause"`
+	Options           json.RawMessage `json:"options"`
+	DefaultOption     string          `json:"default_option"`
+	Status            string          `json:"status"`
+	ExpiresAt         *time.Time      `json:"expires_at"`
+	RemindedAt        *time.Time      `json:"reminded_at"`
+	ChosenOption      string          `json:"chosen_option"`
+	Guidance          string          `json:"guidance"`
+	DecidedBy         *uuid.UUID      `json:"decided_by"`
+	DecidedAt         *time.Time      `json:"decided_at"`
+	RaisedBy          string          `json:"raised_by"`
+	RaisedRunID       *uuid.UUID      `json:"raised_run_id"`
+	FromMember        string          `json:"from_member"`
+	DecisionKind      string          `json:"decision_kind"`
+	DecideBy          string          `json:"decide_by"`
+	DecideByDate      pgtype.Date     `json:"decide_by_date"`
+	SnoozedUntil      *time.Time      `json:"snoozed_until"`
+	Kept              bool            `json:"kept"`
+	ArchivedAt        *time.Time      `json:"archived_at"`
+	TouchedAt         time.Time       `json:"touched_at"`
 }
 
 type Member struct {
@@ -765,6 +785,14 @@ type StudyDraftRequest struct {
 	Deadline       *time.Time  `json:"deadline"`
 	CardID         *uuid.UUID  `json:"card_id"`
 	Completed      bool        `json:"completed"`
+}
+
+type StudyReaction struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Emoji       string    `json:"emoji"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type TeamAgent struct {

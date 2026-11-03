@@ -61,7 +61,7 @@ func TestUI1FieldsDefaultAndAreChecked(t *testing.T) {
 		t.Fatal(err)
 	}
 	var resolved *string
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'escalated', 'x') RETURNING resolved_at::text`, ws, card, u).Scan(&resolved); err != nil || resolved != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'blocked', 'x') RETURNING resolved_at::text`, ws, card, u).Scan(&resolved); err != nil || resolved != nil {
 		t.Fatalf("inbox item opens unresolved: %v %v", resolved, err)
 	}
 	var version string

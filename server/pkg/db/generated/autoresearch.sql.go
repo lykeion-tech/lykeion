@@ -442,7 +442,7 @@ func (q *Queries) DeleteTrigger(ctx context.Context, arg DeleteTriggerParams) (i
 const enqueueAutoresearchAgentRun = `-- name: EnqueueAutoresearchAgentRun :one
 INSERT INTO agent_run (workspace_id, kind, requester_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, requested_model)
 VALUES ($1, 'autoresearch', $2::uuid, $2::uuid, '', 0, 'autoresearch', $3, $4, $5, 2, $6)
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot
 `
 
 type EnqueueAutoresearchAgentRunParams struct {
@@ -515,6 +515,7 @@ func (q *Queries) EnqueueAutoresearchAgentRun(ctx context.Context, arg EnqueueAu
 		&i.CoresearchBuildID,
 		&i.RetryAfter,
 		&i.InfraFailures,
+		&i.AttachmentSnapshot,
 	)
 	return i, err
 }

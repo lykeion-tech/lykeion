@@ -92,6 +92,7 @@ func TestCouldNotDoAsksTheOwner(t *testing.T) {
 	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'could_not_do' AND resolved_at IS NULL", c.ID); n != 1 {
 		t.Fatalf("%d open could_not_do items", n)
 	}
+	l.wantStopDecision(t, c.ID)
 	got := l.card(t, c.ID)
 	if got.State != "blocked" || got.BlockKind != "" || got.Redos != c.Redos || got.Round != c.Round {
 		t.Fatalf("held study: %s %q redos %d round %d", got.State, got.BlockKind, got.Redos, got.Round)
@@ -140,6 +141,7 @@ func TestLeadHandInInvalidRedoesThenBlocks(t *testing.T) {
 		strings.Contains(items[0], "scored low") {
 		t.Fatalf("blocked items: %q", items)
 	}
+	l.wantStopDecision(t, c.ID)
 	if q := l.runs(t, c.ID); len(q) != 0 {
 		t.Fatalf("a blocked study queued %d runs", len(q))
 	}

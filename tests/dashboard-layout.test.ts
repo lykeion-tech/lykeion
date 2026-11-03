@@ -55,11 +55,11 @@ describe('the dashboard source layout', () => {
     }
   });
 
-  it('inbox holds its files', () => {
+  it('decisions holds its files', () => {
     const moved = [
-      ['views/InboxView.vue', 'features/inbox/InboxView.vue'],
-      ['views/UpdatesView.vue', 'features/inbox/UpdatesView.vue'],
-      ['components/InboxRail.vue', 'features/inbox/InboxRail.vue'],
+      ['views/InboxView.vue', 'features/decisions/DecisionsView.vue'],
+      ['views/UpdatesView.vue', 'features/workspace/UpdatesView.vue'],
+      ['components/InboxRail.vue', 'features/decisions/DecisionRail.vue'],
     ];
     for (const [from, to] of moved) {
       expect(existsSync(join(src, to)), to).toBe(true);

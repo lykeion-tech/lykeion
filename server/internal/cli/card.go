@@ -161,8 +161,9 @@ func cardCmd(e *env) *cobra.Command {
 	return c
 }
 
-func inboxCmd(e *env) *cobra.Command {
-	return &cobra.Command{Use: "inbox", Short: "Escalations and releases", RunE: func(cmd *cobra.Command, _ []string) error {
+func decisionsCmd(e *env) *cobra.Command {
+	var history bool
+	c := &cobra.Command{Use: "decisions", Short: "Items waiting for a person, with their options", RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := e.inWorkspace(); err != nil {
 			return err
 		}
@@ -170,8 +171,15 @@ func inboxCmd(e *env) *cobra.Command {
 			Kind, Text string
 			CreatedAt  string  `json:"created_at"`
 			ReadAt     *string `json:"read_at"`
+			Options    []struct {
+				ID string `json:"id"`
+			} `json:"options"`
 		}
-		if err := e.client().Do(cmd.Context(), "GET", "/api/inbox", nil, &items); err != nil {
+		path := "/api/decisions"
+		if history {
+			path += "?view=history"
+		}
+		if err := e.client().Do(cmd.Context(), "GET", path, nil, &items); err != nil {
 			return err
 		}
 		for _, it := range items {
@@ -179,8 +187,18 @@ func inboxCmd(e *env) *cobra.Command {
 			if it.ReadAt != nil {
 				mark = " "
 			}
-			fmt.Fprintf(e.out, "%s %-14s %s  %s\n", mark, it.Kind, it.CreatedAt, it.Text)
+			ids := make([]string, len(it.Options))
+			for i, o := range it.Options {
+				ids[i] = o.ID
+			}
+			fmt.Fprintf(e.out, "%s %-14s %s  %s", mark, it.Kind, it.CreatedAt, it.Text)
+			if len(ids) > 0 {
+				fmt.Fprintf(e.out, "  [%s]", strings.Join(ids, "|"))
+			}
+			fmt.Fprintln(e.out)
 		}
 		return nil
 	}}
+	c.Flags().BoolVar(&history, "history", false, "List decided, expired and archived items instead")
+	return c
 }
