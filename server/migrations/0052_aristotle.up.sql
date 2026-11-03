@@ -113,7 +113,7 @@ REVOKE ALL ON lab_cursor FROM PUBLIC, lykeion_app;
 
 CREATE FUNCTION lab_run_can_read(chat uuid, owner uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM agent_run r
+  SELECT EXISTS (SELECT 1 FROM public.agent_run r
     WHERE r.workspace_id = app_workspace() AND r.id = app_user()
       AND r.kind = 'aristotle' AND r.status = 'running'
       AND r.lab_chat_id = chat AND r.requester_id = owner)
@@ -144,18 +144,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON lab_chat, lab_message, lab_read, lesson,
 
 CREATE FUNCTION lab_events_after(consumer text, lim int) RETURNS SETOF event
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT e.* FROM event e
-  WHERE e.id > COALESCE((SELECT c.last_event_id FROM lab_cursor c WHERE c.consumer = $1), 0)
+  SELECT e.* FROM public.event e
+  WHERE e.id > COALESCE((SELECT c.last_event_id FROM public.lab_cursor c WHERE c.consumer = $1), 0)
   ORDER BY e.id LIMIT GREATEST(0, $2)
 $$;
 CREATE FUNCTION lab_advance(consumer text, last bigint) RETURNS void
 LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  INSERT INTO lab_cursor (consumer, last_event_id) VALUES ($1, GREATEST(0, $2))
-  ON CONFLICT (consumer) DO UPDATE SET last_event_id = GREATEST(lab_cursor.last_event_id, excluded.last_event_id)
+  INSERT INTO public.lab_cursor AS cursor_row (consumer, last_event_id) VALUES ($1, GREATEST(0, $2))
+  ON CONFLICT (consumer) DO UPDATE SET last_event_id = GREATEST(cursor_row.last_event_id, excluded.last_event_id)
 $$;
 CREATE FUNCTION due_lesson_jobs(lim int) RETURNS SETOF lesson_job
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT * FROM lesson_job WHERE status = 'queued' AND due_at <= now()
+  SELECT * FROM public.lesson_job WHERE status = 'queued' AND due_at <= now()
   ORDER BY due_at, id LIMIT GREATEST(0, $1)
 $$;
 REVOKE ALL ON FUNCTION lab_events_after(text, int), lab_advance(text, bigint), due_lesson_jobs(int) FROM PUBLIC;

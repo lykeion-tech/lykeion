@@ -210,3 +210,74 @@ func TestAristotleDueJobs(t *testing.T) {
 		}
 	}
 }
+
+func TestAristotleFunctionsIgnoreTemporaryTables(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	owner, ws, _ := seedWorkspace(t, env)
+	chat, attacker := uuid.New(), uuid.New()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO lab_chat(id,workspace_id,owner_id) VALUES($1,$2,$3)`, []any{chat, ws, owner}},
+		{`INSERT INTO lab_message(workspace_id,chat_id,owner_id,kind,body) VALUES($1,$2,$3,'question','private')`, []any{ws, chat, owner}},
+		{`INSERT INTO event(workspace_id,type,actor_type) VALUES($1,'lab.shadow','system')`, []any{ws}},
+		{`INSERT INTO lesson_job(workspace_id,due_at) VALUES($1,now())`, []any{ws}},
+	} {
+		if _, err := env.Owner.Exec(ctx, q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := env.App.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT set_config('app.workspace_id',$1,true),set_config('app.user_id',$2,true)`, ws.String(), attacker.String()); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`CREATE TEMP TABLE agent_run (id uuid,workspace_id uuid,kind text,status text,lab_chat_id uuid,requester_id uuid) ON COMMIT DROP`,
+		`CREATE TEMP TABLE event (LIKE public.event) ON COMMIT DROP`,
+		`CREATE TEMP TABLE lab_cursor (consumer text PRIMARY KEY,last_event_id bigint NOT NULL) ON COMMIT DROP`,
+		`CREATE TEMP TABLE lesson_job (LIKE public.lesson_job) ON COMMIT DROP`,
+		`INSERT INTO pg_temp.lab_cursor(consumer,last_event_id) VALUES('shadow',9223372036854775807)`,
+	} {
+		if _, err = tx.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO pg_temp.agent_run VALUES($1,$2,'aristotle','running',$3,$4)`, attacker, ws, chat, owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"lab_chat", "lab_message"} {
+		var n int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.`+table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("forged temporary run reveals %d %s rows", n, table)
+		}
+	}
+	var n int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.lab_events_after('shadow',10)`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("shadowed event/cursor: n=%d err=%v", n, err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.due_lesson_jobs(10)`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("shadowed jobs: n=%d err=%v", n, err)
+	}
+	if _, err = tx.Exec(ctx, `SELECT public.lab_advance('shadow',17)`); err != nil {
+		t.Fatal(err)
+	}
+	var last int64
+	if err = tx.QueryRow(ctx, `SELECT last_event_id FROM pg_temp.lab_cursor WHERE consumer='shadow'`).Scan(&last); err != nil || last != 9223372036854775807 {
+		t.Fatalf("temporary cursor mutated: last=%d err=%v", last, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = env.Owner.QueryRow(ctx, `SELECT last_event_id FROM public.lab_cursor WHERE consumer='shadow'`).Scan(&last); err != nil || last != 17 {
+		t.Fatalf("public cursor not advanced: last=%d err=%v", last, err)
+	}
+}
