@@ -1,10 +1,17 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"lykeion/server/internal/labmemory"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
 )
 
 const labChats = "/api/lab/chats"
@@ -158,4 +165,94 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 			t.Fatal(ref, code)
 		}
 	}
+}
+
+func TestAskStaleModelAdvertiserAllowsFreshFallback(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	stale := csRegister(t, s, a, ws, "stale-advertiser", "claude")
+	fresh := csRegister(t, s, a, ws, "fresh-fallback", "claude")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET models='[{"value":"chosen"}]',last_seen_at=now()-interval '2 minutes' WHERE id=$1`, stale.RuntimeID); err != nil {
+		t.Fatal(err)
+	}
+	chat := newLabChat(t, s, a, ws)
+	if code := s.call(t, "POST", labChats+"/"+chat+"/questions", a, ws, map[string]string{"text": "your lab", "harness": "claude", "model": "chosen"}, nil); code != 202 {
+		t.Fatalf("admission %d", code)
+	}
+	owner := uuid.MustParse(s.userID(t, a))
+	if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{stale}, 1); err != nil || len(claims) != 0 {
+		t.Fatalf("stale advertiser claimed: %v %+v", err, claims)
+	}
+	claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{fresh}, 1)
+	if err != nil || len(claims) != 1 || claims[0].AgentRun.LabChatID == nil || claims[0].AgentRun.LabChatID.String() != chat || claims[0].AgentRun.RequestedModel != "" {
+		t.Fatalf("fresh CLI default fallback: %v %+v", err, claims)
+	}
+}
+
+func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "dependent-gaps", "claude")
+	chat := newLabChat(t, s, a, ws)
+	card := s.idleCard(t, a, ws, "source")
+	who := uuid.MustParse(s.userID(t, a))
+	ref := labmemory.Ref{Kind: "study", ID: uuid.MustParse(card.ID)}
+	var version string
+	if err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws), who, func(tx *store.Tx) error {
+		f, err := labmemory.Read(t.Context(), tx, who, ref)
+		if err != nil {
+			return err
+		}
+		data, err := json.Marshal(f)
+		if err != nil {
+			return err
+		}
+		version = fmt.Sprintf("%x", sha256.Sum256(data))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seed := func(body string, sources []uuid.UUID, evidence, statements any) uuid.UUID {
+		t.Helper()
+		var q struct{ Message labMessage }
+		if code := s.call(t, "POST", labChats+"/"+chat+"/questions", a, ws, map[string]string{"text": body, "harness": "claude"}, &q); code != 202 {
+			t.Fatal(code)
+		}
+		var run uuid.UUID
+		if err := s.Env.Owner.QueryRow(t.Context(), `UPDATE lab_message SET launch_sources=$2 WHERE id=$1 RETURNING agent_run_id`, q.Message.ID, sources).Scan(&run); err != nil {
+			t.Fatal(err)
+		}
+		var id uuid.UUID
+		if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO lab_message(workspace_id,chat_id,owner_id,agent_run_id,kind,body,statements,evidence,history_safe,created_at) VALUES($1,$2,$3,$4,'answer','',$5,$6,true,clock_timestamp()) RETURNING id`, ws, chat, who, run, statements, evidence).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	cite := map[string]string{"ref": ref.String(), "title": "source", "version": version, "via": "read"}
+	aID := seed("A", []uuid.UUID{}, []any{cite}, []any{map[string]any{"kind": "fact", "text": "earlier secret", "cites": []any{cite}}})
+	gap := func(q, text string, src []uuid.UUID) uuid.UUID {
+		return seed(q, src, []any{}, []any{map[string]any{"kind": "gap", "text": text, "cites": []any{}}})
+	}
+	bID := gap("B", "dependent secret", []uuid.UUID{aID})
+	cID := gap("C", "independent", []uuid.UUID{})
+	read := func(wantB string) {
+		t.Helper()
+		var page struct {
+			Messages []labMessage
+			Next     string `json:"next_cursor"`
+		}
+		if code := s.call(t, "GET", labChats+"/"+chat+"/messages?limit=3", a, ws, nil, &page); code != 200 || len(page.Messages) != 3 || page.Next == "" {
+			t.Fatalf("page %d %+v", code, page)
+		}
+		b, c := page.Messages[0], page.Messages[2]
+		if b.ID != bID || b.Kind != wantB || c.ID != cID || c.Kind != "answer" || len(c.Statements) != 1 || c.Statements[0].Text != "independent" {
+			t.Fatalf("cross-page history: %+v", page)
+		}
+		if wantB == "failure" && (len(b.Evidence) != 0 || len(b.Statements) != 0 || b.Body != "This answer is unavailable because its evidence has changed.") {
+			t.Fatalf("private gap leaked: %+v", b)
+		}
+	}
+	read("answer")
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE card SET title='changed' WHERE id=$1", card.ID); err != nil {
+		t.Fatal(err)
+	}
+	read("failure")
 }

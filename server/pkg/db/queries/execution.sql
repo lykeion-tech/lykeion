@@ -63,7 +63,7 @@ WHERE id = (
     -- of the owner's online runtimes lists it, any runs it on the CLI default
     AND (t.kind NOT IN ('coresearch','aristotle') OR t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
                OR NOT EXISTS(SELECT 1 FROM runtime o WHERE o.workspace_id=t.workspace_id AND o.owner_id=r.owner_id AND o.harness=r.harness
-                             AND o.status='online' AND (t.kind <> 'aristotle' OR o.unhealthy_reason IS NULL)
+                             AND o.status='online' AND (t.kind <> 'aristotle' OR (o.unhealthy_reason IS NULL AND o.last_seen_at>now()-interval '60 seconds'))
                              AND o.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))))
     AND (t.retry_after IS NULL OR t.retry_after <= now())
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
@@ -77,7 +77,7 @@ WHERE id = (
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
-      OR (t.kind='aristotle' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
+      OR (t.kind='aristotle' AND r.last_seen_at>now()-interval '60 seconds' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
           AND EXISTS(SELECT 1 FROM lab_chat lc JOIN member m ON m.workspace_id=lc.workspace_id AND m.user_id=lc.owner_id
                      WHERE lc.workspace_id=t.workspace_id AND lc.id=t.lab_chat_id AND lc.owner_id=r.owner_id)
           AND NOT EXISTS(SELECT 1 FROM agent_run o WHERE o.workspace_id=t.workspace_id AND o.lab_chat_id=t.lab_chat_id AND o.id<>t.id
