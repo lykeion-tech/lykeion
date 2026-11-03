@@ -112,7 +112,7 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 		stillBreached("after " + cause + " and a pass")
 	}
 	// Reading the item, which the Inbox does on select, changes nothing.
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/read", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read: %d", code)
 	}
 	stillBreached("after reading the item")
@@ -124,7 +124,7 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 
 	breach()
 	old := item
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("resolve: %d", code)
 	}
 	if reason, fence, _ := state(); reason != nil || fence != 0 {
@@ -132,11 +132,11 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 	}
 	// A resolved item can't clear a newer breach, nor can another member.
 	breach()
-	if code := s.call(t, "POST", "/api/inbox/"+old+"/resolve", a, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+old+"/resolve", a, w.ID, nil, nil); code != 404 {
 		t.Fatalf("resolving a resolved item: %d", code)
 	}
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
 		t.Fatalf("a colleague resolved the owner's wait: %d", code)
 	}
 	stillBreached("after stale and foreign resolves")
@@ -170,16 +170,16 @@ func TestResolvingAParkedRunsItemReleasesIt(t *testing.T) {
 		return
 	}
 	b := s.member(t, a, w.ID, "b@lab.org", "member")
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", b, w.ID, nil, nil); code != 404 {
 		t.Fatalf("a colleague resolved the owner's item: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+other+"/resolve", a, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+other+"/resolve", a, w.ID, nil, nil); code != 404 {
 		t.Fatalf("another decision resolved: %d", code)
 	}
 	if n, h := held(); n != 5 || !h {
 		t.Fatalf("released early: %d %v", n, h)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/resolve", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("resolve: %d", code)
 	}
 	if n, h := held(); n != 0 || h {

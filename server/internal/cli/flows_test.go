@@ -87,7 +87,7 @@ func TestWorkspaceInvitationsAndInbox(t *testing.T) {
 	if got := lyk(t, "", "workspace", "members"); !strings.Contains(got, "guest@lab.org") || !strings.Contains(got, "admin") {
 		t.Fatal(got)
 	}
-	if got := lyk(t, "", "inbox"); got != "" {
+	if got := lyk(t, "", "decisions"); got != "" {
 		t.Fatalf("unexpected inbox: %s", got)
 	}
 	c := Root(strings.NewReader(""), &bytes.Buffer{})

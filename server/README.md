@@ -99,7 +99,7 @@ Sign in with an emailed code entered in the terminal, or Google in the browser:
 /tmp/lyk card list
 /tmp/lyk card comment 1 'Focus on the fasting state.'
 /tmp/lyk card show 1
-/tmp/lyk inbox
+/tmp/lyk decisions
 /tmp/lyk logout
 ```
 

@@ -824,57 +824,6 @@ func (h *H) cardEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
-// listInbox lists the caller's open items, or with ?archived=1 the resolved ones.
-func (h *H) listInbox(w http.ResponseWriter, r *http.Request) {
-	archived := r.URL.Query().Get("archived") == "1"
-	items := []db.InboxItem{}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		var err error
-		if archived {
-			items, err = tx.Q.ListArchivedInbox(r.Context(), db.ListArchivedInboxParams{WorkspaceID: ws, UserID: user})
-		} else {
-			items, err = tx.Q.ListInbox(r.Context(), db.ListInboxParams{WorkspaceID: ws, UserID: user})
-		}
-		return err
-	})
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	if items == nil {
-		items = []db.InboxItem{}
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-// readResolves are the Inbox kinds that only inform: reading one resolves it.
-var readResolves = []string{"done", "middle_score", "no_tool", "autoresearch_card", "autoresearch_report"}
-
-func (h *H) readInbox(w http.ResponseWriter, r *http.Request) {
-	id, ok := cardID(w, r)
-	if !ok {
-		return
-	}
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		item, err := tx.Q.MarkInboxRead(r.Context(), db.MarkInboxReadParams{ID: id, WorkspaceID: ws, UserID: user})
-		if err != nil {
-			return err
-		}
-		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
-			return err
-		}
-		if !slices.Contains(readResolves, item.Kind) {
-			return nil
-		}
-		return tx.Emit(r.Context(), "inbox.resolved", item.CardID, store.User(user), map[string]string{"inbox_item_id": id.String()})
-	})
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // resolveInbox is the owner saying an item's cause is dealt with. For a
 // machine's wait the machine is cleared, as a pass at daemon start would,
 // which is the only other way a fence breach clears; for a study whose run

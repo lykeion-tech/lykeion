@@ -16,7 +16,7 @@ func TestMachineWritesTakeLocksInWorkspaceOrder(t *testing.T) {
 	for _, tc := range []struct{ name, method, path string }{
 		{"rename", "PATCH", "/api/runtimes/%s"},
 		{"delete", "DELETE", "/api/runtimes/%s"},
-		{"resolve", "POST", "/api/inbox/%s/resolve"},
+		{"resolve", "POST", "/api/decisions/%s/resolve"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newServer(t)

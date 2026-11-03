@@ -82,23 +82,23 @@ func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
 		t.Fatal(code)
 	}
 	var items []struct{ ID, Kind string }
-	if code := s.call(t, "GET", "/api/inbox", a, w.ID, nil, &items); code != 200 || len(items) != 2 {
+	if code := s.call(t, "GET", "/api/decisions", a, w.ID, nil, &items); code != 200 || len(items) != 2 {
 		t.Fatalf("inbox %d %+v", code, items)
 	}
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET read_at='2000-01-01T00:00:00Z' WHERE id=$1`, items[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, item := range items {
-		if code := s.call(t, "POST", "/api/inbox/"+item.ID+"/read", other, w.ID, nil, nil); code != 404 {
+		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", other, w.ID, nil, nil); code != 404 {
 			t.Fatalf("other reader: %d", code)
 		}
-		if code := s.call(t, "POST", "/api/inbox/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
+		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
 			t.Fatal(code)
 		}
 		if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND read_at IS NOT NULL AND resolved_at IS NOT NULL`, item.ID) != 1 || s.count(t, `SELECT count(*) FROM event WHERE type='inbox.resolved' AND payload->>'inbox_item_id'=$1`, item.ID) != 1 {
 			t.Errorf("unresolved %s", item.Kind)
 		}
-		if code := s.call(t, "POST", "/api/inbox/"+item.ID+"/read", a, w.ID, nil, nil); code != 404 {
+		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 404 {
 			t.Fatalf("repeat: %d", code)
 		}
 	}
@@ -106,10 +106,10 @@ func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
 		t.Fatal("prior read timestamp changed")
 	}
 	var active, archived []map[string]any
-	if code := s.call(t, "GET", "/api/inbox", a, w.ID, nil, &active); code != 200 || len(active) != 0 {
+	if code := s.call(t, "GET", "/api/decisions", a, w.ID, nil, &active); code != 200 || len(active) != 0 {
 		t.Fatalf("active %d %+v", code, active)
 	}
-	if code := s.call(t, "GET", "/api/inbox?archived=1", a, w.ID, nil, &archived); code != 200 || len(archived) != 2 {
+	if code := s.call(t, "GET", "/api/decisions?view=history", a, w.ID, nil, &archived); code != 200 || len(archived) != 2 {
 		t.Fatalf("archive %d %+v", code, archived)
 	}
 }

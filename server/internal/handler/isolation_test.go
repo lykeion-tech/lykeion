@@ -56,7 +56,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	}
 	var item string
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-		VALUES ($1, $2, $3, 'escalated', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
+		VALUES ($1, $2, $3, 'needs_decision', 'x') RETURNING id`, wa.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	var attached string
@@ -218,12 +218,12 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/inbox" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID
 		}
-		if route == "/api/inbox/{id}/read" {
+		if strings.HasPrefix(route, "/api/decisions/{id}") {
 			path = strings.Replace(path, "{id}", item, 1)
 		} else if strings.HasPrefix(route, "/api/mcp-servers/{id}") {
 			path = strings.Replace(path, "{id}", mcp.ID, 1)
@@ -245,6 +245,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		switch {
 		case strings.HasSuffix(route, "/stop"):
 			body = map[string]string{"reason": "outsider"}
+		case strings.HasSuffix(route, "/triage"):
+			body = map[string]string{"decide_by": "today"}
+		case route == "/api/cards/{id}/reactions":
+			body = map[string]string{"emoji": "x"}
 		case strings.HasSuffix(route, "/settings"):
 			body = map[string]any{"settings": map[string]any{}}
 
@@ -321,7 +325,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		{http.MethodPost, "/api/cards/" + c.ID + "/comments", map[string]string{"body": "probe"}},
 		{http.MethodGet, "/api/cards/" + c.ID + "/events", nil},
 		{http.MethodGet, "/api/cards/" + c.ID + "/attachments/" + attached, nil},
-		{http.MethodPost, "/api/inbox/" + item + "/read", nil},
+		{http.MethodPost, "/api/decisions/" + item + "/read", nil},
 	} {
 		if code := s.call(t, route.method, route.path, b, wb.ID, route.body, nil); code != http.StatusNotFound {
 			t.Errorf("%s %s under B returned %d, want 404", route.method, route.path, code)

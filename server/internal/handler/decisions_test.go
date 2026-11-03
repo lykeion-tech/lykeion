@@ -1,0 +1,173 @@
+package handler
+
+import (
+	"testing"
+	"time"
+)
+
+type decisionRow struct {
+	ID           string  `json:"id"`
+	Kind         string  `json:"kind"`
+	Text         string  `json:"text"`
+	Kept         bool    `json:"kept"`
+	CanAnswer    bool    `json:"can_answer"`
+	DecideBy     string  `json:"decide_by"`
+	SnoozedUntil *string `json:"snoozed_until"`
+	ArchivedAt   *string `json:"archived_at"`
+}
+
+const stopOptions = `[{"id":"close","label":"Close","consequence":"c"},{"id":"park","label":"Park","consequence":"p"}]`
+
+// seedDecision inserts an open item with options for a card and returns its id.
+func (s *server) seedDecision(t *testing.T, ws, cardID, user, text string) string {
+	t.Helper()
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, default_option)
+		VALUES ($1, $2, $3, 'needs_decision', $4, $5::jsonb, 'park') RETURNING id`, ws, cardID, user, text, stopOptions).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func (s *server) decisions(t *testing.T, tok, ws, query string) []decisionRow {
+	t.Helper()
+	var rows []decisionRow
+	if code := s.call(t, "GET", "/api/decisions"+query, tok, ws, nil, &rows); code != 200 {
+		t.Fatalf("decisions%s: %d", query, code)
+	}
+	return rows
+}
+
+func (s *server) decisionCount(t *testing.T, tok, ws string) int {
+	t.Helper()
+	var out struct{ Open int }
+	if code := s.call(t, "GET", "/api/decisions/count", tok, ws, nil, &out); code != 200 {
+		t.Fatalf("count: %d", code)
+	}
+	return out.Open
+}
+
+func TestDecisionsVisibleToStudyReaders(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	c := s.idleCard(t, a, w.ID, "q")
+	s.seedDecision(t, w.ID, c.ID, s.userID(t, a), "stopped")
+	// A machine item of A is A's alone.
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO inbox_item (workspace_id, user_id, kind, text) VALUES ($1, $2, 'machine_offline', 'laptop')`, w.ID, s.userID(t, a)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.decisions(t, b, w.ID, ""); len(got) != 1 || got[0].Text != "stopped" || got[0].CanAnswer {
+		t.Fatalf("B sees %+v", got)
+	}
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 2 {
+		t.Fatalf("A sees %+v", got)
+	}
+	other := s.workspace(t, b, "other")
+	if got := s.decisions(t, b, other.ID, ""); len(got) != 0 {
+		t.Fatalf("another workspace shows %+v", got)
+	}
+}
+
+func TestTriageOrdersAndSnoozes(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	user := s.userID(t, a)
+	whenever := s.seedDecision(t, w.ID, c.ID, user, "whenever")
+	today := s.seedDecision(t, w.ID, c.ID, user, "today")
+	snoozed := s.seedDecision(t, w.ID, c.ID, user, "snoozed")
+	triage := func(id string, body map[string]any) {
+		t.Helper()
+		if code := s.call(t, "PUT", "/api/decisions/"+id+"/triage", a, w.ID, body, nil); code != 204 {
+			t.Fatalf("triage: %d", code)
+		}
+	}
+	triage(whenever, map[string]any{"decide_by": "whenever"})
+	triage(today, map[string]any{"decide_by": "today"})
+	triage(snoozed, map[string]any{"decide_by": "today", "snoozed_until": time.Now().Add(48 * time.Hour).Format(time.RFC3339)})
+	got := s.decisions(t, a, w.ID, "")
+	if len(got) != 3 || got[0].Text != "today" || got[1].Text != "whenever" || got[2].Text != "snoozed" || got[2].SnoozedUntil == nil {
+		t.Fatalf("order: %+v", got)
+	}
+	if n := s.decisionCount(t, a, w.ID); n != 2 {
+		t.Fatalf("count with one snoozed: %d", n)
+	}
+	if code := s.call(t, "PUT", "/api/decisions/"+today+"/triage", a, w.ID, map[string]any{"decide_by": "date"}, nil); code != 400 {
+		t.Fatalf("date without a date: %d", code)
+	}
+	if code := s.call(t, "PUT", "/api/decisions/"+today+"/triage", a, w.ID, map[string]any{"decide_by": "soon"}, nil); code != 400 {
+		t.Fatalf("unknown decide_by: %d", code)
+	}
+}
+
+func TestKeepArchiveRevive(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	c := s.idleCard(t, a, w.ID, "q")
+	id := s.seedDecision(t, w.ID, c.ID, s.userID(t, a), "x")
+	post := func(tok, action string) int {
+		return s.call(t, "POST", "/api/decisions/"+id+"/"+action, tok, w.ID, nil, nil)
+	}
+	if code := post(b, "archive"); code != 403 {
+		t.Fatalf("a plain member archiving another's item: %d", code)
+	}
+	if code := post(a, "keep"); code != 204 {
+		t.Fatalf("keep: %d", code)
+	}
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || !got[0].Kept {
+		t.Fatalf("kept: %+v", got)
+	}
+	if code := post(a, "archive"); code != 204 {
+		t.Fatalf("archive: %d", code)
+	}
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 0 {
+		t.Fatalf("archived still open: %+v", got)
+	}
+	if got := s.decisions(t, a, w.ID, "?view=history"); len(got) != 1 || got[0].ArchivedAt == nil || got[0].CanAnswer {
+		t.Fatalf("history: %+v", got)
+	}
+	if code := post(a, "revive"); code != 204 {
+		t.Fatalf("revive: %d", code)
+	}
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].ArchivedAt != nil || !got[0].CanAnswer {
+		t.Fatalf("revived: %+v", got)
+	}
+}
+
+func TestCountCountsAnswerableOnly(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	owner := s.signIn(t, "owner@lab.org")
+	w := s.workspace(t, owner, "lab")
+	member := s.member(t, owner, w.ID, "member@lab.org", "member")
+	admin := s.member(t, owner, w.ID, "admin@lab.org", "admin")
+	c := s.idleCard(t, member, w.ID, "q")
+	s.seedDecision(t, w.ID, c.ID, s.userID(t, member), "x")
+	other := s.idleCard(t, owner, w.ID, "mine")
+	s.seedDecision(t, w.ID, other.ID, s.userID(t, owner), "y")
+	// An informational item never counts.
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'done', 'z')`, w.ID, other.ID, s.userID(t, owner)); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.decisionCount(t, member, w.ID); n != 1 {
+		t.Fatalf("member (owns one study): %d", n)
+	}
+	if n := s.decisionCount(t, owner, w.ID); n != 2 {
+		t.Fatalf("workspace owner: %d", n)
+	}
+	if n := s.decisionCount(t, admin, w.ID); n != 2 {
+		t.Fatalf("admin: %d", n)
+	}
+	plain := s.member(t, owner, w.ID, "plain@lab.org", "member")
+	if n := s.decisionCount(t, plain, w.ID); n != 0 {
+		t.Fatalf("plain member: %d", n)
+	}
+}

@@ -352,9 +352,14 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
-			r.Get("/api/inbox", h.listInbox)
-			r.Post("/api/inbox/{id}/read", h.readInbox)
-			r.Post("/api/inbox/{id}/resolve", h.resolveInbox)
+			r.Get("/api/decisions", h.listDecisions)
+			r.Get("/api/decisions/count", h.countDecisions)
+			r.Post("/api/decisions/{id}/read", h.readDecision)
+			r.Put("/api/decisions/{id}/triage", h.triageDecision)
+			r.Post("/api/decisions/{id}/keep", h.keepDecision)
+			r.Post("/api/decisions/{id}/archive", h.archiveDecision)
+			r.Post("/api/decisions/{id}/revive", h.reviveDecision)
+			r.Post("/api/decisions/{id}/resolve", h.resolveInbox)
 		})
 	})
 	return r

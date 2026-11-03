@@ -113,18 +113,18 @@ func TestInbox(t *testing.T) {
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	var item uuid.UUID
 	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
-		VALUES ($1, $2, $3, 'escalated', '3 failed gates') RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
+		VALUES ($1, $2, $3, 'needs_decision', '3 failed gates') RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	var inbox []map[string]any
-	s.call(t, "GET", "/api/inbox", a, w.ID, nil, &inbox)
+	s.call(t, "GET", "/api/decisions", a, w.ID, nil, &inbox)
 	if len(inbox) != 1 {
 		t.Fatalf("%+v", inbox)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+item.String()+"/read", a, w.ID, nil, nil); code != 204 {
+	if code := s.call(t, "POST", "/api/decisions/"+item.String()+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/inbox/"+item.String()+"/read", a, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+item.String()+"/read", a, w.ID, nil, nil); code != 404 {
 		t.Fatalf("read twice: %d", code)
 	}
 }
@@ -158,7 +158,7 @@ func TestEmptyCollectionResponsesAreJSONArrays(t *testing.T) {
 	}
 
 	assertBody("GET", "/api/cards")
-	assertBody("GET", "/api/inbox")
+	assertBody("GET", "/api/decisions")
 
 	var c card
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c); code != http.StatusCreated {
