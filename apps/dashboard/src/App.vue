@@ -28,7 +28,9 @@ import { useAristotle } from './features/coresearch/aristotle';
 import ConversationRail from './features/coresearch/ConversationRail.vue';
 import RailFabs from './features/coresearch/RailFabs.vue';
 import DecisionBadge from './features/decisions/DecisionBadge.vue';
+import AristotleWindow from './features/aristotle-window/AristotleWindow.vue';
 import DecisionRail from './features/decisions/DecisionRail.vue';
+const labWindow = ref<InstanceType<typeof AristotleWindow>>();
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
@@ -367,6 +369,19 @@ function go(id: string) {
 }
 function key(event: KeyboardEvent) {
   if (event.defaultPrevented || route.meta.bare) return;
+  if (labWindow.value && !document.querySelector('dialog[open]')) {
+    const shortcut = event.key.toLowerCase();
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && shortcut === 'j') {
+      event.preventDefault();
+      labWindow.value.toggle();
+      return;
+    }
+    if (event.ctrlKey && event.shiftKey && shortcut === 'm') {
+      event.preventDefault();
+      labWindow.value.modelMenu();
+      return;
+    }
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     if (!paletteOpen.value && document.querySelector('dialog[open]')) return;
     event.preventDefault();
@@ -652,6 +667,9 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
     </main>
+    <AristotleWindow v-if="workspaceId && me.data.value?.id && !unauthorized" ref="labWindow"
+      :key="workspaceId + ':' + me.data.value.id" :user-id="me.data.value.id"
+      :study-id="cardId" :study-title="shownCard ? studyDisplayTitle(shownCard.title) : undefined" />
     <CreateStudy
       v-if="composer.open"
       :assignee="composer.assignee"

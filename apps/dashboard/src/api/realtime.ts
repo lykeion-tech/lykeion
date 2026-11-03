@@ -17,6 +17,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
   );
   const parent = typeof e.payload.autoresearch_id === 'string' ? e.payload.autoresearch_id : '';
   switch (e.type.split('.')[0]) {
+    case 'lab':
+      return [['ws', ws, 'lab']];
     case 'coresearch': {
       const project = e.payload.project_id;
       if (typeof project !== 'string') return [];
@@ -235,7 +237,14 @@ export function useRealtimeSync(
       if (!msg || typeof msg !== 'object') return;
       if (msg.type === 'event' && msg.event && msg.event.workspace_id === ws) {
         cursor = Math.max(cursor, msg.event.id);
-        schedule(invalidationsFor(ws, msg.event), current);
+        const refreshKeys = invalidationsFor(ws, msg.event);
+        // Lab answers are live projections. Changes to their source records
+        // must recheck every loaded page, even when no chat message changed.
+        const lab = ['ws', ws, 'lab'];
+        const source = /^(card|study|record|comment|inbox|decision|lesson|workspace|member|team|pack|stage_addon|attachment)\./;
+        if (source.test(msg.event.type) && client.getQueryCache().findAll({queryKey: lab, type: 'active'}).length)
+          refreshKeys.push(lab);
+        schedule(refreshKeys, current);
       } else if (msg.type === 'error') {
         lost.value = true;
         stop();

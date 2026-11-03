@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LabSource from '../aristotle-window/LabSource.vue';
 import SelectPicker from '../../ui/SelectPicker.vue';
 import {
   computed,
@@ -73,7 +74,7 @@ const RecordedMarkdown = defineAsyncComponent({
   delay: 0,
 });
 
-const props = defineProps<{ id: string; embedded?: boolean }>();
+const props = defineProps<{ id: string; embedded?: boolean; citation?: string }>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const card = useCard(() => props.id);
@@ -448,6 +449,7 @@ function pin() {
     aria-label="Study"
   >
     <div class="task-main" :hidden="showMeta && paneFocused">
+      <LabSource v-if="citation" :study="id" :citation="citation" />
       <header class="study-heading">
         <button
           v-if="!embedded"

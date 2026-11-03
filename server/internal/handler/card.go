@@ -282,6 +282,7 @@ type serviceNameView struct {
 }
 
 type attachmentView struct {
+	RecordKey   string    `json:"record_key,omitempty"`
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	SizeBytes   int64     `json:"size_bytes"`
@@ -300,7 +301,11 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 		return v, err
 	}
 	for _, f := range files {
-		v.Attachments = append(v.Attachments, attachmentView{ID: f.ID, Name: f.Name, SizeBytes: f.SizeBytes, ContentType: f.ContentType})
+		attachment := attachmentView{ID: f.ID, Name: f.Name, SizeBytes: f.SizeBytes, ContentType: f.ContentType}
+		if f.BlobKey == c.WorkspaceID.String()+"/attachments/"+f.ID.String() {
+			attachment.RecordKey = f.RecordKey
+		}
+		v.Attachments = append(v.Attachments, attachment)
 	}
 	services, err := tx.Q.CardServices(r.Context(), db.CardServicesParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
 	if err != nil {

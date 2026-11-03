@@ -126,7 +126,7 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'studies', title: 'Studies' },
     props: {
       default: { scope: 'workspace' },
-      detail: (route) => ({ id: param(route, 'cardId') ?? '' }),
+      detail: (route) => ({ id: param(route, 'cardId') ?? '', citation: typeof route.query.cite === 'string' ? route.query.cite : undefined }),
     },
   },
   {
@@ -135,7 +135,7 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'my-studies', title: 'My Studies' },
     props: {
       default: { scope: 'mine' },
-      detail: (route) => ({ id: param(route, 'cardId') ?? '' }),
+      detail: (route) => ({ id: param(route, 'cardId') ?? '', citation: typeof route.query.cite === 'string' ? route.query.cite : undefined }),
     },
   },
   {
