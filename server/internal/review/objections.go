@@ -98,7 +98,7 @@ func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map
 		switch {
 		case !ok:
 			o.Server = fmt.Sprintf("the target %q is not one the objector was shown", o.Label)
-		case o.Quote != nil && !strings.Contains(text, *o.Quote):
+		case o.Quote != nil && !quoteIn(text, *o.Quote):
 			o.Server = fmt.Sprintf("the quoted passage is not in %q", o.Label)
 		default:
 			o.Server = "ok"

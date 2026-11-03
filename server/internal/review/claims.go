@@ -78,15 +78,15 @@ func Claims(ctx context.Context, a Asker, in ClaimsInput) (Result, error) {
 			continue
 		}
 		text, known := in.Sources[source]
-		pass := Check{ID: "quote_in_source", By: "server", Status: Pass}
+		found := Check{ID: "quote_in_source", By: "server", Status: Pass}
 		switch {
 		case !known:
-			pass.Status, pass.Detail = Fail, "the source "+source+" is not one of this study's sources"
-		case !strings.Contains(text, quote):
-			pass.Status, pass.Detail = Fail, "the quote is not verbatim in "+source
+			found.Status, found.Detail = Fail, "the source "+source+" is not one of this study's sources"
+		case !quoteIn(text, quote):
+			found.Status, found.Detail = Fail, "the quote is not verbatim in "+source
 		}
-		it.Checks = []Check{pass}
-		if pass.Status == Pass {
+		it.Checks = []Check{found}
+		if found.Status == Pass {
 			var itemText string
 			if rec.Kind == KindVerdict {
 				itemText = "Claim: " + vb.Claim
@@ -147,6 +147,14 @@ func Claims(ctx context.Context, a Asker, in ClaimsInput) (Result, error) {
 	return r, nil
 }
 
+// quoteIn says whether quote is in text word for word. Runs of whitespace
+// count as one space on both sides, so line breaks from a PDF do not matter;
+// an empty quote is in nothing.
+func quoteIn(text, quote string) bool {
+	q := strings.Join(strings.Fields(quote), " ")
+	return q != "" && strings.Contains(strings.Join(strings.Fields(text), " "), q)
+}
+
 // judge asks Jev for its verdict on a claim from the quote alone, and
 // compares it with the Team's.
 func judge(ctx context.Context, a Asker, claim, quote, verdict string) (Check, error) {
@@ -158,7 +166,7 @@ func judge(ctx context.Context, a Asker, claim, quote, verdict string) (Check, e
 		return Check{}, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
 	}
 	p := ans.Probabilities[ans.Choice]
-	c := Check{ID: "verdict", By: "jev", Status: verdictStatus(ans.Choice == verdict, p)}
+	c := Check{ID: "verdict", By: "jev", Question: verdictInstructions, Status: verdictStatus(ans.Choice == verdict, p)}
 	c.Detail = fmt.Sprintf("Jev read the quote as %s (%.0f%%); the Team said %s", ans.Choice, p*100, verdict)
 	p = stored(p)
 	c.P = &p

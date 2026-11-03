@@ -103,3 +103,16 @@ func hasValue(m map[string]string, v string) bool {
 	}
 	return false
 }
+
+func TestObjectionQuoteIsWhitespaceTolerantAndNeverEmpty(t *testing.T) {
+	texts := map[string]string{"Rival A": "Dose raises\nslope;  measured 0.4"}
+	for quote, want := range map[string]bool{"raises slope; measured 0.4": true, "": false, "  ": false} {
+		out, err := JudgeObjections(context.Background(), &fakeAsker{}, []Objection{{Label: "Rival A", Type: "overreach", Quote: sp(quote), Problem: "p"}}, texts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (out[0].Server == "ok") != want {
+			t.Errorf("%q: server %q", quote, out[0].Server)
+		}
+	}
+}

@@ -258,7 +258,7 @@ func TestClaimsVerdicts(t *testing.T) {
 			t.Errorf("%s: %s want %s", c.name, got, c.want)
 		}
 		// Jev is blind to the Team's verdict.
-		if len(a.choices) != 1 || strings.Contains(a.choices[0].State, "Team") {
+		if len(a.choices) != 1 || strings.Contains(a.choices[0].State, "Team") || strings.Contains(a.choices[0].State, c.verdict) {
 			t.Errorf("%s: %+v", c.name, a.choices)
 		}
 	}
@@ -346,5 +346,27 @@ func TestClaimsWeakest(t *testing.T) {
 	}
 	if last := a.choices[len(a.choices)-1]; last.Instructions != claimsWeakest || strings.Contains(last.State, "r2") {
 		t.Fatalf("%+v", last)
+	}
+}
+
+func TestClaimsQuoteMatching(t *testing.T) {
+	src := map[string]string{"s1": "The drug lowered\nblood   pressure."}
+	for quote, want := range map[string]string{"lowered blood pressure": Pass, "  \n": Fail, "": Fail, "lowered pressure": Fail} {
+		a := &fakeAsker{choice: "supported", choiceP: 0.9}
+		r, err := Claims(context.Background(), a, ClaimsInput{Items: []db.Record{verdictRec(t, "r1", "supported", quote)}, Sources: src})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Items[0].Status != want {
+			t.Errorf("%q: %s want %s", quote, r.Items[0].Status, want)
+		}
+	}
+}
+
+func TestOpenDoubtsNamesAnUnclearVerdict(t *testing.T) {
+	a := &fakeAsker{choice: "refuted", choiceP: 0.5}
+	r, _ := Claims(context.Background(), a, ClaimsInput{Items: []db.Record{verdictRec(t, "r1", "supported", "lowered")}, Sources: claimSources()})
+	if got := OpenDoubts(r); len(got) != 1 || !strings.Contains(got[0], verdictInstructions) {
+		t.Fatal(got)
 	}
 }
