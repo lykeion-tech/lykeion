@@ -26,8 +26,9 @@ const valid = computed(() =>
 );
 function select(q: DecisionQuestion, id: string) {
   if (!answerable.value || busy.value) return;
+  const alreadySelected = !custom[q.id] && (choices[q.id] ?? []).includes(id);
   custom[q.id] = false;
-  if (q.mode === 'single') choices[q.id] = [id];
+  if (q.mode === 'single') choices[q.id] = !q.required && alreadySelected ? [] : [id];
   else
     choices[q.id] = (choices[q.id] ?? []).includes(id)
       ? choices[q.id].filter((x) => x !== id)
@@ -35,7 +36,7 @@ function select(q: DecisionQuestion, id: string) {
 }
 function selectOther(q: DecisionQuestion) {
   if (!answerable.value || busy.value) return;
-  custom[q.id] = true;
+  custom[q.id] = !q.required && custom[q.id] ? false : true;
   choices[q.id] = [];
 }
 function history(q: DecisionQuestion) {
@@ -90,6 +91,7 @@ async function submit() {
       </div>
       <h2>{{ q.prompt }}</h2>
       <p v-if="q.help_text" class="help">{{ q.help_text }}</p>
+      <p v-if="q.mode !== 'text'" class="choice-instruction">{{ q.mode === 'single' ? 'Choose one' : 'Choose one or more' }}</p>
       <template v-if="item.status === 'open'">
         <textarea
           v-if="q.mode === 'text'"
@@ -170,14 +172,17 @@ async function submit() {
   gap: 16px;
 }
 .permission-note,
+.choice-instruction,
 .help,
 .history-answer {
   color: var(--muted);
   line-height: 1.55;
 }
-.permission-note {
+.permission-note,
+.choice-instruction {
   font-size: 12px;
 }
+.choice-instruction { margin-top: 8px; }
 .question {
   padding: 18px;
   border: 1px solid var(--border);

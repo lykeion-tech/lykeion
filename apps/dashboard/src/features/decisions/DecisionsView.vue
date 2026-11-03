@@ -123,7 +123,10 @@ watch(
       </article>
       <div v-else class="conversation-empty">
         <Icon name="inbox" :size="38" />
-        <p>Select a decision to open its study</p>
+        <p v-if="!itemId">Select a decision to open its study</p>
+        <p v-else-if="open.error.value || resolved.error.value" role="alert">Unable to load decisions. Please try again.</p>
+        <p v-else-if="open.isLoading.value || resolved.isLoading.value" role="status">Loading decision…</p>
+        <p v-else>Decision not found or no longer available.</p>
       </div>
     </main>
     <AutoresearchRunDialog v-if="reportOpen && selectedReport?.autoresearch_run_id"

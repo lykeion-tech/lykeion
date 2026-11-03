@@ -17,10 +17,12 @@ vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => api(...args) }
 vi.mock('@tanstack/vue-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 const rows = ref<DecisionItem[]>([]);
 const cards = ref<any[]>([]);
+const decisionsLoading = ref(false);
+const decisionsError = ref<Error | null>(null);
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
 vi.mock('../../api/queries', () => ({
   useDecisionCount: () => ({ data: count }),
-  useDecisions: () => ({ data: rows, error: ref(null) }),
+  useDecisions: () => ({ data: rows, error: decisionsError, isLoading: decisionsLoading }),
   useCards: () => ({ data: cards }),
   useMe: () => ({ data: me }),
   useMembers: () => ({
@@ -42,6 +44,8 @@ afterEach(() => {
   me.value = { id: 'me' };
   rows.value = [];
   cards.value = [];
+  decisionsLoading.value = false;
+  decisionsError.value = null;
 });
 
 const item = (over: Partial<DecisionItem> = {}): DecisionItem => ({
@@ -397,4 +401,39 @@ it('switches multiple selections and custom answers exclusively and enforces the
   expect(buttonFor(root, 'Attention')?.props['aria-pressed']).toBe(true);
   expect(buttonFor(root, 'Something else')?.props['aria-pressed']).toBe(false);
   expect(buttonFor(root, 'Submit')?.props.disabled).toBe(false);
+});
+
+it('lets optional single and custom choices return to unanswered without losing another answer', async () => {
+  const set = { questions: [{ ...questionSet.questions[0], required: false }, questionSet.questions[1]] };
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: set } as never) });
+  await click(buttonFor(root, 'Recall')); await click(buttonFor(root, 'Children')); await new Promise((r) => setTimeout(r));
+  await click(buttonFor(root, 'Children')); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Children')?.props['aria-pressed']).toBe(false);
+  expect(buttonFor(root, 'Recall')?.props['aria-pressed']).toBe(true);
+  const other = buttons(root).filter((n) => textOf(n).includes('Something else'))[0];
+  await click(other); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  await click(other); await new Promise((r) => setTimeout(r));
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(false);
+  api.mockResolvedValue(undefined); await click(buttonFor(root, 'Submit'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/answers', { answers: [{ question_id: 'multi', option_ids: ['x'], text: null }] });
+});
+
+it('clearly identifies single and multiple choice modes', () => {
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision', options: [], question_set: questionSet } as never) });
+  expect(textOf(root)).toContain('Choose one');
+  expect(textOf(root)).toContain('Choose one or more');
+});
+
+it('distinguishes a requested decision loading, query failure, missing item and no selection', async () => {
+  decisionsLoading.value = true;
+  const requested = mount(DecisionsView, { itemId: 'missing' });
+  expect(textOf(requested)).toContain('Loading decision');
+  decisionsLoading.value = false; decisionsError.value = new Error('Network error');
+  await new Promise((r) => setTimeout(r));
+  expect(textOf(requested)).toContain('Unable to load decisions');
+  decisionsError.value = null; await new Promise((r) => setTimeout(r));
+  expect(textOf(requested)).toContain('Decision not found');
+  const empty = mount(DecisionsView, {});
+  expect(textOf(empty)).toContain('Select a decision');
 });
