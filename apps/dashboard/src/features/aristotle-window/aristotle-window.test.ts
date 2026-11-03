@@ -105,9 +105,16 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
   };
   const composer = () => all(root).find((n) => n.props.placeholder === 'Ask Aristotle')!;
   await settle();
-  return { root, click, calls, composer, client };
+  const tryDraft = async (question: string) => {
+    (composer().props.onInput as Function)({ target: { value: question } });
+    await settle();
+    const form = all(root).find((n) => n.tag === 'form')!;
+    (form.props.onSubmit as Function)({ preventDefault() {} });
+    await settle();
+  };
+  return { root, click, calls, composer, client, tryDraft };
 }
-it('opens and minimizes, suggests removable study context and shows starters on focus', async () => {
+it('opens and minimizes, suggests removable study context and hides unavailable starters', async () => {
   const t = await mount();
   await t.click('Ask Aristotle');
   expect(textOf(t.root)).toContain('This study: Lab study');
@@ -116,8 +123,7 @@ it('opens and minimizes, suggests removable study context and shows starters on 
   expect(textOf(t.root)).not.toContain('Ask the lab');
   (t.composer().props.onFocus as Function)();
   await settle();
-  expect(all(t.root).filter((n) => n.tag === 'button' && textOf(n).endsWith('?'))).toHaveLength(4);
-  await t.click(starter);
+  expect(all(t.root).filter((n) => n.tag === 'button' && textOf(n).endsWith('?'))).toHaveLength(0);
   expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
   expect(textOf(t.root)).toContain('Private questions are unavailable');
   expect(textOf(t.root)).not.toContain('Start voice chat');
@@ -129,7 +135,7 @@ it('preserves the draft and refuses submission before sending it', async () => {
   await t.click('Ask Aristotle');
   (t.composer().props.onFocus as Function)();
   await settle();
-  await t.click(starter);
+  await t.tryDraft(starter);
   expect(textOf(t.root)).toContain('Private questions are unavailable');
   expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
   expect(t.composer().props.value ?? t.composer().value).toBe(starter);
@@ -206,7 +212,7 @@ it('shows Codex as unavailable, excludes other members’ models, and keeps the 
   await t.click('Select model');
   (t.composer().props.onFocus as Function)();
   await settle();
-  await t.click(starter);
+  await t.tryDraft(starter);
   expect(t.calls.some((c) => c.path.endsWith('/questions'))).toBe(false);
   expect(t.composer().props.value).toBe(starter);
 });

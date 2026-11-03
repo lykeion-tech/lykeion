@@ -231,6 +231,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		LessonWritesEnabled: writer != nil,
 		Google:              auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
+	if err := runs.CancelUnavailableLabRuns(ctx); err != nil {
+		return fmt.Errorf("cancel unavailable lab runs: %w", err)
+	}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
 	}
@@ -274,6 +277,9 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 				}
 				if err := coresearch.Sweep(sweepCtx, st); err != nil && sweepCtx.Err() == nil {
 					slog.Error("Coresearch sweep", "err", err)
+				}
+				if err := runs.CancelUnavailableLabRuns(sweepCtx); err != nil && sweepCtx.Err() == nil {
+					slog.Error("cancel unavailable lab runs", "err", err)
 				}
 				if err := runs.Sweep(sweepCtx); err != nil && sweepCtx.Err() == nil {
 					slog.Error("sweep", "err", err)

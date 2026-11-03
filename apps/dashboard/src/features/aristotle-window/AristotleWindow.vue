@@ -326,7 +326,7 @@ onUnmounted(() => {
       </p>
       <p v-else-if="chat && messages.isPending.value">Loading conversation…</p>
       <template v-else>
-        <LabWelcome v-if="focused && !turns.length" @ask="ask" />
+        <LabWelcome v-if="focused && !turns.length" :can-ask="labQuestionsAvailable" @ask="ask" />
         <template v-for="message in turns" :key="message.id">
           <div v-if="message.kind === 'question'" class="question">{{ message.body }}</div>
           <LabAnswer

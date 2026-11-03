@@ -302,6 +302,11 @@ func (h *H) daemonSettle(ok bool) http.HandlerFunc {
 			agentRunFail(w, r, err)
 			return
 		}
+		if t.Kind == "aristotle" {
+			// An old daemon acknowledges settlement with no need for private turn data.
+			writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "status": t.Status, "attempt": t.Attempt})
+			return
+		}
 		writeJSON(w, 200, t)
 	}
 }

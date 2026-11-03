@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowRight } from '@lucide/vue';
 import Aristotle from '../coresearch/Aristotle.vue';
+defineProps<{ canAsk: boolean }>();
 const emit = defineEmits<{ ask: [question: string] }>();
 const starters = [
   'What has the lab already decided about this study?',
@@ -17,7 +18,7 @@ const starters = [
       Aristotle answers from what the lab has recorded: studies, decisions, gates and comments, and
       the lessons it drew from them.
     </p>
-    <div class="starters">
+    <div v-if="canAsk" class="starters">
       <button v-for="q in starters" :key="q" @click="emit('ask', q)">
         {{ q }}<ArrowRight :size="14" />
       </button>

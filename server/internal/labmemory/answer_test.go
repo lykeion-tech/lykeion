@@ -59,7 +59,19 @@ func (x *turn) submit(ctx context.Context, kind string, cites ...string) ([]stri
 		cites = []string{}
 	}
 	raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: "Checked.", Cites: cites}}})
-	return x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw)
+	return x.historicalAnswer(ctx, raw)
+}
+
+// Reproduce validation of a stored historical attempt. The public hand-in
+// route now cancels these attempts and cannot ask a daemon to re-run them.
+func (x *turn) historicalAnswer(ctx context.Context, raw json.RawMessage) ([]string, error) {
+	var problems []string
+	err := x.runs.OnAttempt(ctx, x.user, x.ref, x.run.ID, func(tx *store.Tx, run db.AgentRun) error {
+		var err error
+		problems, err = x.h.Aristotle.Answer(ctx, tx, run, raw)
+		return err
+	})
+	return problems, err
 }
 func TestAnswerAcceptsCitedFacts(t *testing.T) {
 	x := runningTurn(t)
@@ -385,7 +397,7 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 			}
 			x.log(r.String(), "read")
 			raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: "sensitive-previous-answer", Cites: []string{r.String()}}}})
-			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
+			if p, e := x.historicalAnswer(ctx, raw); e != nil || len(p) > 0 {
 				t.Fatal(e, p)
 			}
 			if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); e != nil {
@@ -488,7 +500,7 @@ func TestLaunchDropsOnlyAnswersThatSawRedactedHistory(t *testing.T) {
 			cites = []string{}
 		}
 		raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: body, Cites: cites}}})
-		if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
+		if p, e := x.historicalAnswer(ctx, raw); e != nil || len(p) > 0 {
 			t.Fatal(e, p)
 		}
 	}
@@ -526,7 +538,7 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 				return b
 			}
 			if source == "launch history" {
-				if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "private-method", ref.String())); e != nil || len(p) > 0 {
+				if p, e := x.historicalAnswer(ctx, raw("fact", "private-method", ref.String())); e != nil || len(p) > 0 {
 					t.Fatal(e, p)
 				}
 				if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); e != nil {
@@ -545,7 +557,7 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 			}
 			x.exec("UPDATE field_pack SET visibility='private' WHERE id=$1", team)
 			for _, claim := range [][]byte{raw("gap", "private-method"), raw("fact", "private-method", ref.String())} {
-				p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, claim)
+				p, e := x.historicalAnswer(ctx, claim)
 				if e != nil || len(p) == 0 {
 					t.Fatalf("accepted revoked private content (%s): %v %v", source, e, p)
 				}
@@ -553,7 +565,7 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 			// Reading the narrower projection cannot remove information from
 			// the existing model session, and dropping every cite cannot help.
 			x.log(ref.String(), "read")
-			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("gap", "private-method")); e != nil || len(p) != 1 || p[0] != FreshTurnProblem {
+			if p, e := x.historicalAnswer(ctx, raw("gap", "private-method")); e != nil || len(p) != 1 || p[0] != FreshTurnProblem {
 				t.Fatal(e, p)
 			}
 			e := x.runs.Store.InWorkspace(ctx, x.ws, x.user, func(tx *store.Tx) error {
@@ -581,11 +593,11 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 			if e != nil || strings.Contains(prompt, "private-method") {
 				t.Fatal(e, prompt)
 			}
-			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "Updated projection", ref.String())); e != nil || len(p) == 0 || p[0] == FreshTurnProblem {
+			if p, e := x.historicalAnswer(ctx, raw("fact", "Updated projection", ref.String())); e != nil || len(p) == 0 || p[0] == FreshTurnProblem {
 				t.Fatal("old reads authorized a new attempt", e, p)
 			}
 			x.log(ref.String(), "read")
-			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "Updated projection", ref.String())); e != nil || len(p) > 0 {
+			if p, e := x.historicalAnswer(ctx, raw("fact", "Updated projection", ref.String())); e != nil || len(p) > 0 {
 				t.Fatal(e, p)
 			}
 

@@ -56,6 +56,7 @@ type handInBody struct {
 // accepted again and writes nothing.
 func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage) ([]string, error) {
 	var probs []string
+	var unavailable bool
 	err := s.Runs.OnAttempt(ctx, user, ref, run, func(tx *store.Tx, t db.AgentRun) error {
 		probs = nil // A serialization retry starts a fresh validation.
 		k, ok := KindFor(t.Kind, t.Role, t.BoardColumn)
@@ -63,10 +64,14 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 			return service.ErrConflict
 		}
 		if k == Aristotle {
+			var err error
+			unavailable, err = s.Runs.CancelUnavailableLabInTx(ctx, tx, t)
+			if err != nil || unavailable {
+				return err
+			}
 			if s.Aristotle == nil || t.RequesterID == nil || *t.RequesterID != user {
 				return service.ErrNotYours
 			}
-			var err error
 			probs, err = s.Aristotle.Answer(ctx, tx, t, raw)
 			return err
 		}
@@ -158,6 +163,10 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		}
 		return nil
 	})
+	// Return a terminal verdict only after the cancellation transaction commits.
+	if err == nil && unavailable {
+		return nil, service.ErrConflict
+	}
 	return probs, err
 }
 

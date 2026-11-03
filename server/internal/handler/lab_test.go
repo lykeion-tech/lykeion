@@ -332,3 +332,67 @@ func TestLegacyLabDaemonCannotFetchPromptOrEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestOldDaemonLabStatusAndHandInStopTheAttempt(t *testing.T) {
+	for _, first := range []string{"status", "hand-in"} {
+		t.Run(first, func(t *testing.T) {
+			s, a, _, _, ws, _ := csFixture(t)
+			rt := csRegister(t, s, a, ws, "old-daemon", "claude")
+			rt.Attempt = 1
+			actor := s.personalToken(t, a)
+			chat := newLabChat(t, s, a, ws)
+			q := seedHistoricalLabQuestion(t, s, chat, "synthetic secret", "")
+			var run string
+			err := s.Env.Owner.QueryRow(t.Context(), `UPDATE agent_run SET status='running',attempt=1,runtime_id=$2,started_at=now()
+ WHERE id=(SELECT agent_run_id FROM lab_message WHERE id=$1) RETURNING id::text`, q, rt.RuntimeID).Scan(&run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			token := "ltk_" + uuid.NewString()
+			if _, err = s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,$4,now()+interval '1 hour')`, auth.Hash(token), ws, run, service.Scopes("aristotle")); err != nil {
+				t.Fatal(err)
+			}
+			base := "/api/daemon/agent-runs/" + run
+			status := func() {
+				t.Helper()
+				var out struct{ Status string }
+				code := s.call(t, "GET", base+"/status?workspace_id="+ws+"&runtime_id="+rt.RuntimeID.String()+"&attempt=1", actor, "", nil, &out)
+				if code != 200 || out.Status != "cancelled" {
+					t.Fatal(code, out)
+				}
+			}
+			handIn := func() {
+				t.Helper()
+				var out struct {
+					Problems     []string
+					FreshAttempt bool `json:"fresh_attempt_required"`
+				}
+				code := s.call(t, "POST", base+"/hand-in", actor, "", map[string]any{"workspace_id": ws, "runtime_id": rt.RuntimeID, "attempt": 1, "hand_in": map[string]any{}}, &out)
+				if code != 409 || len(out.Problems) > 0 || out.FreshAttempt {
+					t.Fatal(code, out)
+				}
+			}
+			if first == "hand-in" {
+				handIn()
+			} else {
+				status()
+			}
+			for range 2 {
+				status()
+				handIn()
+			}
+			var receipt map[string]any
+			if code := s.call(t, "POST", base+"/complete", actor, "", rt, &receipt); code != 200 || len(receipt) != 3 || receipt["status"] != "cancelled" || receipt["id"] != run {
+				t.Fatal("late settlement exposed run data", code, receipt)
+			}
+			var state string
+			var tokens, settlements, answers int
+			err = s.Env.Owner.QueryRow(t.Context(), `SELECT r.status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),
+ (SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=r.id),
+ (SELECT count(*) FROM lab_message WHERE agent_run_id=r.id AND kind='answer') FROM agent_run r WHERE id=$1`, run).Scan(&state, &tokens, &settlements, &answers)
+			if err != nil || state != "cancelled" || tokens != 0 || settlements != 1 || answers != 0 {
+				t.Fatal(err, state, tokens, settlements, answers)
+			}
+		})
+	}
+}

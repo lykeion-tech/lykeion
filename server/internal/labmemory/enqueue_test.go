@@ -111,11 +111,11 @@ func TestLegacyAristotleRunIsRefusedBeforeClaim(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Fatal(err, len(got))
 	}
-	var status, reason string
+	var status string
 	var tokens int
-	err = f.env.Owner.QueryRow(ctx, `SELECT status,error,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE id=$1`, run.ID).Scan(&status, &reason, &tokens)
-	if err != nil || status != "failed" || !strings.Contains(reason, agent.ErrLabClaude.Error()) || tokens != 0 {
-		t.Fatal(err, status, reason, tokens)
+	err = f.env.Owner.QueryRow(ctx, `SELECT status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE id=$1`, run.ID).Scan(&status, &tokens)
+	if err != nil || status != "cancelled" || tokens != 0 {
+		t.Fatal(err, status, tokens)
 	}
 }
 
@@ -191,5 +191,40 @@ func TestLabQuestionsRefusedBeforePersistence(t *testing.T) {
 				t.Fatal(err, n)
 			}
 		})
+	}
+}
+
+func TestUnavailableLabRolloutCancelsOpenRunsAndRevokesTokens(t *testing.T) {
+	f, runs, chat := labQueue(t)
+	ctx := t.Context()
+	ordinary := uuid.New()
+	f.exec(`INSERT INTO agent_run(id,workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt)
+ VALUES($1,$2,$3,$4,'grounding',1,'scoper','claude','ordinary')`, ordinary, f.ws, f.study, f.user)
+	ids := map[string]uuid.UUID{}
+	for _, status := range []string{"queued", "dispatched", "running"} {
+		r := enqueueQuestion(t, f, runs, chat, status, "")
+		ids[status] = r.ID
+		f.exec("UPDATE agent_run SET status=$2,attempt=1 WHERE id=$1", r.ID, status)
+		f.exec(`INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,ARRAY['aristotle:ask'],now()+interval '1 hour')`, r.ID.String(), f.ws, r.ID)
+	}
+	for range 2 {
+		if err := runs.CancelUnavailableLabRuns(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ordinaryStatus string
+	if err := f.env.Owner.QueryRow(ctx, "SELECT status FROM agent_run WHERE id=$1", ordinary).Scan(&ordinaryStatus); err != nil || ordinaryStatus != "queued" {
+		t.Fatal(err, ordinaryStatus)
+	}
+	for initial, id := range ids {
+		var status string
+		var tokens, settlements, events int
+		err := f.env.Owner.QueryRow(ctx, `SELECT r.status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),
+ (SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=r.id),
+ (SELECT count(*) FROM event WHERE workspace_id=r.workspace_id AND type='agent_run.cancelled' AND payload->>'agent_run_id'=r.id::text)
+ FROM agent_run r WHERE id=$1`, id).Scan(&status, &tokens, &settlements, &events)
+		if err != nil || status != "cancelled" || tokens != 0 || settlements != 1 || events != 1 {
+			t.Fatal(initial, err, status, tokens, settlements, events)
+		}
 	}
 }

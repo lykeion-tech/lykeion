@@ -61,3 +61,9 @@ ORDER BY id FOR UPDATE;
 -- name: LabChatHasPendingRuns :one
 SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id=app_workspace() AND requester_id=app_user()
   AND kind='aristotle' AND lab_chat_id = sqlc.arg(chat_id)::uuid AND status IN ('queued','dispatched','running'));
+
+-- name: OpenLabRunIDs :many
+SELECT id FROM agent_run
+WHERE workspace_id = @workspace_id AND kind = 'aristotle'
+  AND status IN ('queued','dispatched','running')
+ORDER BY id;

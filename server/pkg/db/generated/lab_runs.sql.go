@@ -307,6 +307,33 @@ func (q *Queries) MarkLabAttemptStale(ctx context.Context, runID uuid.UUID) (int
 	return result.RowsAffected(), nil
 }
 
+const openLabRunIDs = `-- name: OpenLabRunIDs :many
+SELECT id FROM agent_run
+WHERE workspace_id = $1 AND kind = 'aristotle'
+  AND status IN ('queued','dispatched','running')
+ORDER BY id
+`
+
+func (q *Queries) OpenLabRunIDs(ctx context.Context, workspaceID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, openLabRunIDs, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordLabLaunchSources = `-- name: RecordLabLaunchSources :execrows
 UPDATE lab_message SET launch_sources=$1::uuid[], launch_attempt=(SELECT attempt FROM agent_run WHERE workspace_id=app_workspace() AND id=$2::uuid)
 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND kind='question' AND agent_run_id=$2::uuid

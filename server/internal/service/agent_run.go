@@ -767,6 +767,15 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
+					if t.Kind == "aristotle" && agent.LabAvailability(t.Harness) != nil {
+						// The tentative claim never became an attempt or left this transaction.
+						if err := tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: tx.WS, ID: t.ID}); err != nil {
+							return err
+						}
+						_, err := s.CancelUnavailableLabInTx(ctx, tx, t)
+						progress = true
+						return err
+					}
 					if s.afterClaim != nil {
 						if err := s.afterClaim(ctx, tx, t); err != nil {
 							return err
@@ -856,9 +865,6 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var mcp []agent.MCPServer
 					if t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
 						mcp, err = addon.Servers(t.AddonMcp)
-					}
-					if t.Kind == "aristotle" {
-						err = agent.LabAvailability(t.Harness)
 					}
 					if accessErr != nil {
 						err = accessErr
@@ -1617,7 +1623,7 @@ func (s *AgentRuns) Fail(ctx context.Context, user uuid.UUID, ref RuntimeRef, ru
 func (s *AgentRuns) Status(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID) (string, error) {
 	var status string
 	err := s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
-		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID})
+		t, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID})
 		if err != nil {
 			return err
 		}
@@ -1631,6 +1637,13 @@ func (s *AgentRuns) Status(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			}
 		}
 		status = t.Status
+		disabled, err := s.CancelUnavailableLabInTx(ctx, tx, t)
+		if err != nil {
+			return err
+		}
+		if disabled && !terminal(status) {
+			status = "cancelled"
+		}
 		return nil
 	})
 	return status, err
