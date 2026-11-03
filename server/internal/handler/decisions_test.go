@@ -80,6 +80,13 @@ func TestDecisionsVisibleToStudyReaders(t *testing.T) {
 			t.Fatalf("another workspace shows %+v", got)
 		}
 	}
+	// Naming A's workspace is refused outright.
+	for _, path := range []string{"/api/decisions", "/api/decisions?view=history", "/api/decisions/count"} {
+		var body map[string]any
+		if code := s.call(t, "GET", path, outsider, w.ID, nil, &body); code != 403 && code != 404 {
+			t.Fatalf("outsider GET %s with A's workspace: %d %+v", path, code, body)
+		}
+	}
 	if code := s.call(t, "PUT", "/api/decisions/"+id+"/triage", outsider, other.ID, map[string]any{"decide_by": "today"}, nil); code != 404 {
 		t.Fatalf("triage across workspaces: %d", code)
 	}
