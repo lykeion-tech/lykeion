@@ -158,7 +158,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
           <tr v-for="t in rows" :key="t.id">
             <td>
               <RouterLink :to="'/teams/' + t.id" class="team-name"
-                ><span class="team-icon"
+                ><span class="team-icon" :class="{ 'team-icon-built-in': t.source === 'shipped' }"
                   ><AvatarDisplay
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
@@ -203,6 +203,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <style scoped>
 .team-directory {
   padding: 4px 4px 32px 20px;
+  scrollbar-gutter: stable;
 }
 .team-toolbar {
   margin-right: 16px;
@@ -251,6 +252,17 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-table tr {
   grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 95px;
   padding-right: 0;
+}
+.team-table tbody tr {
+  padding-block: 10px;
+}
+.team-table tbody td {
+  height: auto;
+  min-height: 32px;
+}
+.team-table th {
+  padding-block: 6px;
+  line-height: normal;
 }
 .team-table th:not(:first-child) {
   text-align: center;
@@ -312,6 +324,10 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   height: 32px;
   flex: none;
   color: var(--muted);
+}
+.team-icon-built-in {
+  background: var(--input);
+  border-radius: 50%;
 }
 .team-name > .team-icon {
   overflow: visible;

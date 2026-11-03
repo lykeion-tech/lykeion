@@ -7,6 +7,8 @@ import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
+import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import Aristotle from '../coresearch/Aristotle.vue';
 import {
   useAgents,
   useCards,
@@ -152,6 +154,14 @@ function assigneeName(card: Card) {
   return agentDisplayName(
     agents.data.value?.find((agent) => agent.id === card.assignee_id)?.name ?? 'Unavailable agent',
   );
+}
+function assignedAgent(card: Card) {
+  return card.assignee_type === 'agent'
+    ? agents.data.value?.find((agent) => agent.id === card.assignee_id)
+    : undefined;
+}
+function cardStateLabel(card: Card) {
+  return card.state === 'working' && !card.agent_running ? '' : stateLabel(card);
 }
 const options = (category: Category) =>
   category === 'Owner'
@@ -494,12 +504,32 @@ onUnmounted(() => {
             >
             <span v-if="card.waiting" class="card-waiting">{{ card.waiting }}</span>
             <div class="card-metadata">
-              <span v-if="display.properties.includes('Owner')"
-                >Owner: {{ ownerName(card.owner_id) }}</span
+              <span
+                v-if="display.properties.includes('Assignee') && card.assignee_id"
+                class="card-assignee"
               >
-              <span v-if="display.properties.includes('Assignee')"
-                >Assignee: {{ assigneeName(card) }}</span
+                <AvatarDisplay
+                  v-if="assignedAgent(card)?.avatar_url"
+                  :value="assignedAgent(card)!.avatar_url.slice(6)"
+                  :size="14"
+                />
+                <span
+                  v-else-if="assignedAgent(card)?.built_in_key === 'aristotle'"
+                  class="card-aristotle"
+                  ><Aristotle still
+                /></span>
+                <Icon v-else :name="card.assignee_type === 'agent' ? 'bot' : 'users'" :size="14" />
+                {{ assigneeName(card) }}
+              </span>
+              <span
+                v-if="display.properties.includes('Owner')"
+                :class="{
+                  'card-owner-separated':
+                    display.properties.includes('Assignee') && card.assignee_id,
+                }"
               >
+                <Icon name="users" :size="12" />{{ ownerName(card.owner_id) }}
+              </span>
               <span v-if="display.properties.includes('Deadline') && card.deadline"
                 >Due {{ new Date(card.deadline).toLocaleDateString() }}</span
               >
@@ -507,15 +537,13 @@ onUnmounted(() => {
                 researches.data.value?.find((project) => project.id === card.research_id)?.name ??
                 'Unavailable project'
               }}</span>
-              <span v-if="display.properties.includes('Role')"
-                ><Icon :name="card.role ? 'bot' : 'users'" :size="12" />{{
-                  card.role ? roleLabel(card.role) : ownerName(card.owner_id)
-                }}</span
+              <span v-if="display.properties.includes('Role') && card.role"
+                ><Icon name="bot" :size="12" />{{ roleLabel(card.role) }}</span
               ><span
-                v-if="stateLabel(card) && column.id !== 'blocked'"
+                v-if="cardStateLabel(card) && column.id !== 'blocked'"
                 class="chip"
                 :class="'chip-' + card.state"
-                >{{ stateLabel(card) }}</span
+                >{{ cardStateLabel(card) }}</span
               ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
                 endLabel(card)
               }}</span
@@ -557,10 +585,10 @@ onUnmounted(() => {
           ><span class="truncate">{{ studyDisplayTitle(card.title) }}</span>
           <span class="row-meta push-right">
             <span
-              v-if="stateLabel(card) && group.id !== 'blocked'"
+              v-if="cardStateLabel(card) && group.id !== 'blocked'"
               class="chip"
               :class="'chip-' + card.state"
-              >{{ stateLabel(card) }}</span
+              >{{ cardStateLabel(card) }}</span
             >
             <span v-if="card.queued" class="chip chip-queued">queued</span>
             <span v-if="card.flag" class="chip" :class="'chip-' + card.flag">{{
@@ -888,6 +916,28 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.card-metadata > .card-owner-separated {
+  gap: 6px;
+}
+.card-owner-separated::before {
+  content: '';
+  width: 1px;
+  height: 11px;
+  flex: none;
+  background: color-mix(in srgb, var(--muted) 65%, var(--text));
+}
+.card-aristotle {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.card-aristotle :deep(.aristotle-art) {
+  width: 100%;
+  height: 100%;
 }
 .view-dialog {
   width: 578px;

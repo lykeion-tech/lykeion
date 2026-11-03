@@ -86,6 +86,25 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
   return { root, client, props, router, button, click, settle };
 }
 describe('study page scope', () => {
+  it('shows Working only for an actually running agent', async () => {
+    const t = await mount();
+    t.client.setQueryData(keys.cards('lab'), [
+      card('Idle study', 'me', { role: '', agent_running: false }),
+      card('Queued study', 'me', { queued: true, agent_running: false }),
+      card('Active study', 'me', { agent_running: true }),
+    ]);
+    await t.settle();
+    const cards = all(t.root).filter((n) => n.tag === 'button' && n.props['data-card']);
+    expect(textOf(cards.find((n) => n.props['data-card'] === 'Idle study')!)).not.toContain(
+      'Working',
+    );
+    expect(textOf(cards.find((n) => n.props['data-card'] === 'Queued study')!)).not.toContain(
+      'Working',
+    );
+    expect(textOf(cards.find((n) => n.props['data-card'] === 'Active study')!)).toContain(
+      'Working',
+    );
+  });
   it('defaults to all workspace studies without All/Mine controls', async () => {
     const t = await mount();
     expect(textOf(t.root)).toContain('Own study');

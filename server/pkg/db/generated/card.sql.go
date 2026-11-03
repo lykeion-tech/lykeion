@@ -564,6 +564,8 @@ SELECT c.id, c.workspace_id, c.number, c.title, c.question, c.owner_id, c.deadli
     ORDER BY t.created_at, t.id LIMIT 1), '')::text AS waiting,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
+  EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
+    AND t.status = 'running')::boolean AS agent_running,
   COALESCE((SELECT t.role FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status IN ('queued', 'dispatched', 'running') ORDER BY t.created_at DESC, t.id DESC LIMIT 1), '')::text AS role,
   GREATEST(c.created_at, (SELECT max(e.created_at) FROM event e WHERE e.workspace_id = c.workspace_id AND e.card_id = c.id))::timestamptz AS updated_at
@@ -611,6 +613,7 @@ type ListCardsRow struct {
 	StartDate         *time.Time      `json:"start_date"`
 	Waiting           string          `json:"waiting"`
 	Queued            bool            `json:"queued"`
+	AgentRunning      bool            `json:"agent_running"`
 	Role              string          `json:"role"`
 	UpdatedAt         time.Time       `json:"updated_at"`
 }
@@ -670,6 +673,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 			&i.StartDate,
 			&i.Waiting,
 			&i.Queued,
+			&i.AgentRunning,
 			&i.Role,
 			&i.UpdatedAt,
 		); err != nil {

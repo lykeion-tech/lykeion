@@ -38,10 +38,11 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 	}
 
 	var list []struct {
-		ID          string `json:"id"`
-		BoardColumn string `json:"board_column"`
-		Queued      bool   `json:"queued"`
-		Role        string `json:"role"`
+		ID           string `json:"id"`
+		BoardColumn  string `json:"board_column"`
+		Queued       bool   `json:"queued"`
+		AgentRunning bool   `json:"agent_running"`
+		Role         string `json:"role"`
 	}
 	if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &list); code != 200 || len(list) != 4 {
 		t.Fatalf("%d %+v", code, list)
@@ -49,6 +50,9 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 	got := map[string]string{}
 	for _, c := range list {
 		got[c.ID] = c.BoardColumn + "/" + map[bool]string{true: "queued", false: "-"}[c.Queued] + "/" + c.Role
+		if c.AgentRunning != (c.ID == working.ID) {
+			t.Errorf("card %s: agent_running = %v", c.ID, c.AgentRunning)
+		}
 	}
 	want := map[string]string{
 		idle.ID:    "grounding/-/",
