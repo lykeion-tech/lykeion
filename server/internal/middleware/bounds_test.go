@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -444,5 +445,36 @@ func TestDocStepsEscapedTextBounds(t *testing.T) {
 	}
 	if n := JSONBodyLimit(httptest.NewRequest("POST", path+"/other", nil)); n != MaxBodyBytes {
 		t.Fatalf("nonmatching route limit %d", n)
+	}
+}
+
+func TestDaemonHandInBodyLimitIsExact(t *testing.T) {
+	const path = "/api/daemon/agent-runs/00000000-0000-0000-0000-000000000001/hand-in"
+	for _, tc := range []struct {
+		method, path string
+		size, want   int
+	}{
+		{"POST", path, 10 << 20, 204}, {"POST", path, (10 << 20) + 1, 413},
+		{"POST", path + "/extra", (1 << 20) + 1, 413}, {"PUT", path, (1 << 20) + 1, 413},
+		{"POST", "/api/daemon/agent-runs/not-a-uuid/hand-in", (1 << 20) + 1, 413},
+		{"POST", "/api/daemon/agent-runs/00000000000000000000000000000001/hand-in", (1 << 20) + 1, 413},
+		{"POST", "/api/cards", (1 << 20) + 1, 413},
+	} {
+		t.Run(fmt.Sprintf("%s_%s_%d", tc.method, tc.path, tc.size), func(t *testing.T) {
+			called := false
+			h := RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				data, err := io.ReadAll(r.Body)
+				if err != nil || len(data) != tc.size {
+					t.Errorf("body length %d, error %v", len(data), err)
+				}
+				w.WriteHeader(204)
+			}))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(strings.Repeat("x", tc.size))))
+			if rec.Code != tc.want || called != (tc.want == 204) {
+				t.Fatalf("status %d called %v, want %d", rec.Code, called, tc.want)
+			}
+		})
 	}
 }

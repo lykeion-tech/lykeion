@@ -19,6 +19,7 @@ import (
 
 const (
 	MaxBodyBytes          = 1 << 20
+	MaxHandInBodyBytes    = 10 << 20
 	MaxDaemonMessageBytes = 32 << 20
 	// MaxCallBodyBytes holds a 32 MiB answer and its JSON escapes.
 	MaxCallBodyBytes    = 64 << 20
@@ -137,8 +138,24 @@ func daemonMessagePost(r *http.Request) bool {
 	return err == nil
 }
 
+// daemonHandInPost identifies the run's structured hand-in endpoint.
+func daemonHandInPost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 6 || p[1] != "api" || p[2] != "daemon" || p[3] != "agent-runs" || p[5] != "hand-in" || len(p[4]) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(p[4])
+	return err == nil
+}
+
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
 func JSONBodyLimit(r *http.Request) int64 {
+	if daemonHandInPost(r) {
+		return MaxHandInBodyBytes
+	}
 	// A one MiB document may expand sixfold in its JSON representation.
 	if r.Method == http.MethodPost {
 		if r.URL.Path == "/api/run/coresearch/paper/edit" {

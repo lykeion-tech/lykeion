@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"maps"
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -224,5 +228,60 @@ func TestValueFileFromAnotherRun(t *testing.T) {
 	got := flow.MatchValuesIn(recs, nil, map[string]string{"o1": "slope 0.4213\n"})
 	if len(got) != 1 || !got[0].Matched || got[0].File != "o1" {
 		t.Fatalf("matches %+v", got)
+	}
+}
+
+func TestDaemonHandInAcceptsLargeQuestionSetAtLimit(t *testing.T) {
+	l, leader := groundingLab(t)
+	questions := make([]any, 64)
+	text := strings.Repeat("🧬", 4000)
+	for i := range questions {
+		questions[i] = map[string]any{"id": fmt.Sprintf("q_%d", i), "prompt": text, "help_text": text, "required": true, "mode": "text", "options": []any{}, "allow_other": false}
+	}
+	decision := map[string]any{"kind": "scope", "title": "Choose scope", "body": "Research population", "options": nil, "question_set": map[string]any{"questions": questions}, "expires_at": nil, "from_member": nil}
+	hand := map[string]any{"status": "ask", "answer": "Need the researcher.", "reason": nil, "decision": decision, "papers": []any{}, "datasets": []any{}, "no_qualifying": nil, "replies": []any{}}
+	in := maps.Clone(leader.ref)
+	in["hand_in"] = hand
+	payload, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) <= 1<<20 || len(payload) >= 10<<20 {
+		t.Fatalf("payload size %d", len(payload))
+	}
+	path := l.s.URL + "/api/daemon/agent-runs/" + leader.id + "/hand-in"
+	post := func(size int) (int, handInOut) {
+		t.Helper()
+		body := append(bytes.Clone(payload), bytes.Repeat([]byte(" "), size-len(payload))...)
+		req, err := http.NewRequest("POST", path, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+l.personal)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out handInOut
+		if resp.StatusCode == 200 {
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode, out
+	}
+	if status, _ := post((10 << 20) + 1); status != 413 {
+		t.Fatalf("oversize status %d", status)
+	}
+	if n := l.kinds(t, "hand_in"); n != 0 {
+		t.Fatalf("oversize wrote %d hand-ins", n)
+	}
+	if status, out := post(10 << 20); status != 200 || !out.Accepted {
+		t.Fatalf("boundary status %d output %+v", status, out)
+	}
+	if n := l.kinds(t, "hand_in"); n != 1 {
+		t.Fatalf("accepted hand-ins %d", n)
 	}
 }
