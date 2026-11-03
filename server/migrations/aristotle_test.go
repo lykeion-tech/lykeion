@@ -335,6 +335,7 @@ func TestAristotleQueueSecurity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer tx.Rollback(ctx)
 		if _, err = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+table+" TO lykeion_app"); err != nil {
 			t.Fatal(err)
 		}
