@@ -22,7 +22,8 @@ const decider = computed(() => {
   return member ? member.name || member.email : '';
 });
 const answerable = computed(() => props.item.can_answer && props.item.status === 'open' && options.value.length > 0);
-const canSubmit = computed(() => answerable.value && !!selected.value && !busy.value && (selected.value !== 'redo' || !!guidance.value.trim()));
+const systemRedo = computed(() => props.item.kind !== 'agent_decision' && selected.value === 'redo');
+const canSubmit = computed(() => answerable.value && !!selected.value && !busy.value && (!systemRedo.value || !!guidance.value.trim()));
 const expires = computed(() => {
   const at = props.item.expires_at;
   if (!at) return '';
@@ -43,7 +44,7 @@ async function submit() {
   try {
     await api('POST', `/api/decisions/${props.item.id}/decide`, {
       option: selected.value,
-      ...(selected.value === 'redo' ? { guidance: guidance.value.trim() } : {}),
+      ...(systemRedo.value ? { guidance: guidance.value.trim() } : {}),
     });
     await Promise.all([
       client.invalidateQueries({ queryKey: keys.decisionsAll(props.item.workspace_id) }),
@@ -72,7 +73,7 @@ async function submit() {
           <b>{{ option.label }}</b><small>{{ option.consequence }}</small>
         </button>
       </div>
-      <textarea v-if="answerable && selected === 'redo'" class="decision-guidance" aria-label="Guidance"
+      <textarea v-if="answerable && systemRedo" class="decision-guidance" aria-label="Guidance"
         placeholder="Guidance for the next round (required)" :value="guidance"
         @input="guidance = ($event.target as HTMLTextAreaElement).value" />
       <button v-if="answerable" type="button" class="button primary decision-submit" :disabled="!canSubmit" @click="submit">{{ busy ? 'Submitting…' : 'Submit' }}</button>

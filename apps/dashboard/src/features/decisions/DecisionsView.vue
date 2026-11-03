@@ -21,9 +21,15 @@ const cards = useCards();
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId),
 );
-const study = computed(() => cards.data.value?.find((card) => card.id === selected.value?.card_id));
-const question = computed(() => selected.value?.kind === 'agent_decision' ? agentDecisionParts(selected.value.text) : { title: selected.value ? inboxTitle(selected.value, study.value?.title) : '', body: selected.value?.text ?? '' });
 const selectedReport = ref<DecisionItem>();
+const display = computed(() => selected.value ?? selectedReport.value);
+const study = computed(() => cards.data.value?.find((card) => card.id === display.value?.card_id));
+const question = computed(() => {
+  const item = display.value;
+  if (!item) return { title: '', body: '' };
+  if (item.kind === 'agent_decision') return agentDecisionParts(item.text);
+  return { title: study.value?.title || (item.card_id ? inboxTitle(item) : decisionKindOf(item.kind).label), body: item.text };
+});
 const reportOpen = ref(false);
 let reportVisit = '';
 // A read receipt moves the item between lists without changing the open run.
@@ -97,20 +103,22 @@ watch(
   <section class="resources resource-decisions">
     <main class="decision-activity">
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
-      <article v-if="selected" class="activity-card">
+      <article v-if="display" class="activity-card">
         <header class="activity-card-header">
-          <span>{{ decisionKindOf(selected.kind).label }}</span>
-          <span class="card-time">{{ timeAgo(selected.created_at) }}</span>
+          <span>{{ decisionKindOf(display.kind).label }}</span>
+          <span class="card-time">{{ timeAgo(display.created_at) }}</span>
         </header>
         <div class="card-body">
-          <div class="status-line"><span class="status-pill">{{ selected.status === 'open' ? 'Pending' : selected.status }}</span></div>
-          <h1>{{ question.title }}</h1>
-          <p v-if="question.body" class="question-body">{{ question.body }}</p>
-          <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
-          <p v-if="selected.card_id" class="study-link"><RouterLink :to="'/studies/' + selected.card_id">Open {{ study?.title || 'study' }} and activity →</RouterLink></p>
-          <DecisionOptions v-if="selected.options?.length" :key="selected.id" :item="selected" />
-          <MachineWait v-if="isMachineWait(selected)" :key="selected.id" :item="selected" />
-          <button v-if="selectedReport" class="button" @click="reportOpen = true">Open report</button>
+          <div class="question-panel">
+            <div class="status-line"><span class="status-pill">{{ display.status === 'open' ? 'Pending' : display.status }}</span></div>
+            <h1>{{ question.title }}</h1>
+            <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
+            <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
+            <DecisionOptions v-if="display.options?.length" :key="display.id" :item="display" />
+            <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
+          </div>
+          <p v-if="display.card_id" class="study-link"><RouterLink :to="'/studies/' + display.card_id">Open {{ study?.title || 'study' }} and activity →</RouterLink></p>
+          <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>
         </div>
       </article>
       <div v-else class="conversation-empty">
@@ -129,12 +137,14 @@ watch(
 .activity-card-header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; }
 .card-time { margin-left:auto; }
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
+.question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
 .card-body h1 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
 .question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
 .study-context { color:var(--muted); }
 .status-pill { display:inline-flex; padding:4px 8px; border:1px solid var(--primary); border-radius:5px; color:var(--primary-text); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+.report-button { align-self:flex-start; }
 .study-link { font-size:13px; color:var(--primary-text); }
 .study-link a:hover { text-decoration:underline; }
 .conversation-empty { min-height:300px; }
-@media (max-width:700px) { .decision-activity { padding:16px 12px 40px; } .card-body { padding:16px; } }
+@media (max-width:700px) { .decision-activity { padding:16px 12px 40px; } .card-body { padding:12px; } .question-panel { padding:16px; } }
 </style>

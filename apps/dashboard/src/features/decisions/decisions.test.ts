@@ -142,6 +142,16 @@ it('shows non-answerers the options and explains who can answer', () => {
   expect(buttonFor(root, 'Submit')).toBeUndefined();
 });
 
+it('allows an agent option named redo without system-stop guidance', async () => {
+  api.mockResolvedValue(undefined);
+  const root = mount(DecisionOptions, { item: item({ kind: 'agent_decision' }) });
+  await click(buttonFor(root, 'Redo with guidance'));
+  await new Promise((r) => setTimeout(r));
+  expect(all(root).find((n) => n.tag === 'textarea')).toBeUndefined();
+  await click(buttonFor(root, 'Submit'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/decide', { option: 'redo' });
+});
+
 it('shows a decided item its choice and who made it, without buttons', () => {
   const root = mount(DecisionOptions, {
     item: item({
@@ -259,6 +269,24 @@ it('renders a machine_offline item as its text', () => {
     item({ kind: 'machine_offline', card_id: null, options: null, text: 'laptop is offline' }),
   ];
   expect(textOf(mount(DecisionsView, { itemId: 'd1' }))).toContain('laptop is offline');
+});
+
+it('retains a report after the selected row leaves the capped history', async () => {
+  rows.value = [item({ kind: 'autoresearch_report', card_id: null, options: null, autoresearch_run_id: 'r1', text: 'The report is ready' })];
+  const root = mount(DecisionsView, { itemId: 'd1' });
+  await new Promise((r) => setTimeout(r));
+  rows.value = [];
+  await new Promise((r) => setTimeout(r));
+  expect(textOf(root)).toContain('The report is ready');
+  expect(buttonFor(root, 'Open report')).toBeDefined();
+});
+
+it('names a studyless machine item and does not duplicate its message', () => {
+  rows.value = [item({ kind: 'machine_offline', card_id: null, options: null, text: 'laptop is offline' })];
+  const text = textOf(mount(DecisionsView, { itemId: 'd1' }));
+  expect(text).toContain('Machine offline');
+  expect(text).not.toContain('Study');
+  expect(text.match(/laptop is offline/g)).toHaveLength(1);
 });
 
 it('drops a decided row from the Open list once the list refreshes', async () => {
