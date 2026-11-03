@@ -37,6 +37,8 @@ func personalOnly(next http.Handler) http.Handler {
 
 func agentRunFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, agent.ErrLabClaude), errors.Is(err, agent.ErrLabHarness):
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, service.ErrConflict):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, service.ErrNotYours):

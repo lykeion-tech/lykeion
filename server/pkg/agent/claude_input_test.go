@@ -94,7 +94,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"verified t
 				c.Bin = ""
 				t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			}
-			session, err := c.Execute(t.Context(), "synthetic lab prompt", ExecOptions{Lab: true, ReadOnly: true, Dir: t.TempDir(), Sandbox: testSandbox})
+			session, err := c.execute(t.Context(), "synthetic lab prompt", ExecOptions{Lab: true, ReadOnly: true, Dir: t.TempDir(), Sandbox: testSandbox})
 			if err != nil {
 				t.Fatal(err)
 			}

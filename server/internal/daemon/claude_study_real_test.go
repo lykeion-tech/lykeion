@@ -157,6 +157,9 @@ func TestRealClaudeStudyRunResumesWithoutPersonalContext(t *testing.T) {
 // The fixture substitutes a loopback provider only after checking the adapter
 // pinned Anthropic. No real sign-in, external model or lab data is used.
 func TestRealLabClaudeRejectsPersonalGateway(t *testing.T) {
+	if err := agent.LabAvailability("claude"); err != nil {
+		t.Skipf("requires an admitted lab runtime: %v", err)
+	}
 	if os.Getenv("LYK_TEST_SKILLS_REAL") != "1" {
 		t.Skip("opt-in installed Claude offline transport")
 	}

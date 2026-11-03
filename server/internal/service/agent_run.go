@@ -857,6 +857,9 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
 						mcp, err = addon.Servers(t.AddonMcp)
 					}
+					if t.Kind == "aristotle" {
+						err = agent.LabAvailability(t.Harness)
+					}
 					if accessErr != nil {
 						err = accessErr
 					}
@@ -1250,6 +1253,11 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 		if err != nil {
 			return err
 		}
+		if t.Kind == "aristotle" {
+			if err := agent.LabAvailability(t.Harness); err != nil {
+				return err
+			}
+		}
 		return startLocked(ctx, tx, ref, t)
 	})
 }
@@ -1259,6 +1267,9 @@ func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, r
 func (s *AgentRuns) StartLab(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, history func(context.Context, *store.Tx, db.AgentRun) (string, error)) (string, error) {
 	var prompt string
 	err := s.onAttempt(ctx, user, ref, run, "aristotle", func(tx *store.Tx, t db.AgentRun) error {
+		if err := agent.LabAvailability(t.Harness); err != nil {
+			return err
+		}
 		if t.RequesterID == nil || *t.RequesterID != user {
 			return ErrNotYours
 		}

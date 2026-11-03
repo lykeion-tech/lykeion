@@ -73,6 +73,15 @@ func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
 }
 
 func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
+	if o.Lab {
+		if err := LabAvailability("claude"); err != nil {
+			return nil, err
+		}
+	}
+	return c.execute(ctx, prompt, o)
+}
+
+func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
 	if o.Coresearch && !o.Aristotle {
 		o.Model = ""
 	}

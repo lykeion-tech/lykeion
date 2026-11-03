@@ -16,9 +16,14 @@ func Enqueue(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db
 }
 
 func EnqueueWithContext(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.LabChat, asker uuid.UUID, question string, contextCard *uuid.UUID, contextRef *string, harness, model string) (db.AgentRun, error) {
-	if harness != "claude" {
-		return db.AgentRun{}, agent.ErrLabHarness
+	if err := agent.LabAvailability(harness); err != nil {
+		return db.AgentRun{}, err
 	}
+	return enqueueTurn(ctx, tx, runs, chat, asker, question, contextCard, contextRef, harness, model)
+}
+
+// enqueueTurn writes the turn after the execution policy admits its harness.
+func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, chat db.LabChat, asker uuid.UUID, question string, contextCard *uuid.UUID, contextRef *string, harness, model string) (db.AgentRun, error) {
 	if chat.WorkspaceID != tx.WS || chat.OwnerID != asker {
 		return db.AgentRun{}, service.ErrNotYours
 	}

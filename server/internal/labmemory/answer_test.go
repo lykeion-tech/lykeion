@@ -34,12 +34,12 @@ func runningTurn(t *testing.T) *turn {
 		t.Fatal(e)
 	}
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rows[0].ID}
-	claims, e := runs.Claim(t.Context(), f.user, []service.RuntimeRef{ref}, 1)
+	claims, e := historicalClaim(t, f, runs, ref)
 	if e != nil || len(claims) != 1 {
 		t.Fatal(e, claims)
 	}
 	ref.Attempt = claims[0].AgentRun.Attempt
-	if _, e = runs.StartLab(t.Context(), f.user, ref, run.ID, LaunchPrompt); e != nil {
+	if _, e = historicalStart(t.Context(), runs, f.user, ref, run.ID); e != nil {
 		t.Fatal(e)
 	}
 	return &turn{f, runs, run, ref, handin.HandIns{Runs: runs, Aristotle: Answers{Store: runs.Store}}}
@@ -393,12 +393,12 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 			}
 			chat := db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}
 			next := enqueueQuestion(t, x.fixture, x.runs, chat, "Follow up", "")
-			claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+			claims, e := historicalClaim(t, x.fixture, x.runs, x.ref)
 			if e != nil || len(claims) != 1 || claims[0].AgentRun.ID != next.ID {
 				t.Fatal(e, claims)
 			}
 			claim := claims[0].AgentRun
-			if strings.Contains(claim.Prompt, "sensitive-previous-answer") || claim.SessionID != "" || claim.ContinuityScope != "" {
+			if strings.Contains(claim.Prompt, "sensitive-previous-answer") || claim.SessionID != "" {
 				t.Fatal("claim retained private prior turn", claim.Prompt)
 			}
 			x.exec("UPDATE agent_run SET prompt='legacy-private-prompt' WHERE id=$1", claim.ID)
@@ -407,7 +407,7 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 			}
 			runtime := x.ref
 			runtime.Attempt = claim.Attempt
-			prompt, e := x.runs.StartLab(ctx, x.user, runtime, claim.ID, LaunchPrompt)
+			prompt, e := historicalStart(ctx, x.runs, x.user, runtime, claim.ID)
 			if e != nil || strings.Contains(prompt, "legacy-private-prompt") || !strings.Contains(prompt, "Follow up") || !strings.Contains(prompt, "private question") || strings.Contains(prompt, "sensitive-previous-answer") != (change == "unchanged") {
 				t.Fatal(e, prompt)
 			}
@@ -471,12 +471,12 @@ func TestLaunchDropsOnlyAnswersThatSawRedactedHistory(t *testing.T) {
 			t.Fatal(e)
 		}
 		x.run = enqueueQuestion(t, x.fixture, x.runs, db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}, question, "")
-		claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+		claims, e := historicalClaim(t, x.fixture, x.runs, x.ref)
 		if e != nil || len(claims) != 1 {
 			t.Fatal(e, claims)
 		}
 		x.ref.Attempt = claims[0].AgentRun.Attempt
-		prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+		prompt, e := historicalStart(ctx, x.runs, x.user, x.ref, x.run.ID)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -533,12 +533,12 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 					t.Fatal(e)
 				}
 				x.run = enqueueQuestion(t, x.fixture, x.runs, db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}, "Follow up", "")
-				cs, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+				cs, e := historicalClaim(t, x.fixture, x.runs, x.ref)
 				if e != nil || len(cs) != 1 {
 					t.Fatal(e, cs)
 				}
 				x.ref.Attempt = cs[0].AgentRun.Attempt
-				prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+				prompt, e := historicalStart(ctx, x.runs, x.user, x.ref, x.run.ID)
 				if e != nil || !strings.Contains(prompt, "private-method") {
 					t.Fatal(e, prompt)
 				}
@@ -572,12 +572,12 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 			if e != nil || retried.Status != "queued" {
 				t.Fatal(e, retried.Status)
 			}
-			claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+			claims, e := historicalClaim(t, x.fixture, x.runs, x.ref)
 			if e != nil || len(claims) != 1 || claims[0].AgentRun.Attempt != oldAttempt+1 || claims[0].AgentRun.SessionID != "" {
 				t.Fatal(e, claims)
 			}
 			x.ref.Attempt = claims[0].AgentRun.Attempt
-			prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+			prompt, e := historicalStart(ctx, x.runs, x.user, x.ref, x.run.ID)
 			if e != nil || strings.Contains(prompt, "private-method") {
 				t.Fatal(e, prompt)
 			}

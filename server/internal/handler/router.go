@@ -11,6 +11,7 @@ import (
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/workspacemcp"
+	"lykeion/server/pkg/agent"
 )
 
 func NewRouter(h *H) http.Handler {
@@ -53,7 +54,13 @@ func NewRouter(h *H) http.Handler {
 	r.Get("/auth/google/callback", h.googleCallback)
 
 	if h.Lab != nil {
-		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeAristotle)).Handle("/mcp/lab", h.Lab)
+		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeAristotle)).HandleFunc("/mcp/lab", func(w http.ResponseWriter, r *http.Request) {
+			if err := agent.LabAvailability("claude"); err != nil {
+				writeErr(w, http.StatusServiceUnavailable, err.Error())
+				return
+			}
+			h.Lab.ServeHTTP(w, r)
+		})
 	}
 	if h.Sources != nil {
 		r.With(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeRole, service.ScopeReport, service.ScopeCoresearch)).Handle("/mcp/sources", h.Sources)

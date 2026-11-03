@@ -13,6 +13,11 @@ import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
 
+// Neither installed CLI currently enforces private lab execution under managed settings.
+const labQuestionsAvailable = false;
+const unavailableReason =
+  'Private questions are unavailable. Claude Code and Codex cannot guarantee that a question stays within the approved tools and AI provider. You can still read past chats.';
+
 const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string }>();
 const open = ref(false),
   focused = ref(false),
@@ -180,8 +185,7 @@ async function ask(question = draft.value) {
     error.value = 'Questions can contain up to 8,000 characters.';
     return;
   }
-  if (clis.value.includes('codex') && !clis.value.includes('claude')) {
-    error.value = 'Codex is unavailable for lab questions. Connect a machine with Claude Code.';
+  if (!labQuestionsAvailable) {
     return;
   }
   const ws = workspaceId.value;
@@ -343,6 +347,7 @@ onUnmounted(() => {
         <X :size="12" />
       </button>
     </div>
+    <p v-if="!labQuestionsAvailable" class="error" role="status">{{ unavailableReason }}</p>
     <p v-if="error" class="error" role="alert">
       {{ error }} <RouterLink v-if="offline" to="/machines">Machines</RouterLink>
     </p>
@@ -397,7 +402,7 @@ onUnmounted(() => {
         type="submit"
         aria-label="Ask"
         title="Ask"
-        :disabled="sending || !draft.trim()"
+        :disabled="!labQuestionsAvailable || sending || !draft.trim()"
       >
         <ArrowUp :size="17" />
       </button>
@@ -453,14 +458,14 @@ onUnmounted(() => {
       </template>
       <template v-else-if="menu === 'model'">
         <small>Your machines · Select model</small>
-        <button :disabled="!clis.includes('claude')" @click="chooseModel('')">
+        <button :disabled="!labQuestionsAvailable || !clis.includes('claude')" @click="chooseModel('')">
           Claude Code · Default {{ !model ? '✓' : '' }}
         </button>
-        <button v-for="m in models" :key="m.value" @click="chooseModel(m.value)">
+        <button v-for="m in models" :key="m.value" :disabled="!labQuestionsAvailable" @click="chooseModel(m.value)">
           {{ m.label || m.value }} {{ m.value === model ? '✓' : '' }}
         </button>
-        <small>Claude Code verified with 2.1.317. Codex is unavailable for lab questions.</small>
-        <RouterLink v-if="!clis.includes('claude')" to="/machines"
+        <small>Claude Code and Codex are unavailable for private questions.</small>
+        <RouterLink v-if="labQuestionsAvailable && !clis.includes('claude')" to="/machines"
           >Connect a Claude Code machine</RouterLink
         >
       </template>

@@ -4,14 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/auth"
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 )
 
 const labChats = "/api/lab/chats"
@@ -25,34 +29,33 @@ func newLabChat(t *testing.T, s *server, a, ws string) string {
 	return out.Chat.ID
 }
 
-func TestAskEnqueuesAndReturns202(t *testing.T) {
+func seedHistoricalLabQuestion(t *testing.T, s *server, chat, body, model string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := s.Env.Owner.QueryRow(t.Context(), `WITH r AS (
+ INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,board_column,round,role,harness,prompt,skill,requested_model)
+ SELECT workspace_id,'aristotle',owner_id,owner_id,id,'',0,'aristotle','claude',$2,'',$3 FROM lab_chat WHERE id=$1 RETURNING *)
+ INSERT INTO lab_message(workspace_id,owner_id,chat_id,kind,body,agent_run_id)
+ SELECT workspace_id,requester_id,lab_chat_id,'question',$2,id FROM r RETURNING id`, chat, body, model).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestPrivateLabQuestionsAreRefusedBeforeStorage(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
-	csRegister(t, s, a, ws, "lab-ask", "claude")
+	csRegister(t, s, a, ws, "online", "claude")
 	id := newLabChat(t, s, a, ws)
-	question := strings.Repeat("界", 8000)
-	var out struct {
-		Message struct{ ID, Kind, Body string }
+	for _, h := range []string{"claude", "codex"} {
+		var out struct{ Code, Error string }
+		if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": "private", "harness": h}, &out); code != 503 || out.Code != "lab_unavailable" || out.Error != agent.LabAvailability(h).Error() {
+			t.Fatal(code, out)
+		}
 	}
-	if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": question, "harness": "claude"}, &out); code != 202 || out.Message.ID == "" || out.Message.Body != question || out.Message.Kind != "question" {
-		t.Fatalf("accepted %d", code)
-	}
-	if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": "followup", "harness": "claude"}, nil); code != 202 {
-		t.Fatal(code)
-	}
-	var page struct {
-		Messages []struct{ ID, Body string }
-		Next     string `json:"next_cursor"`
-	}
-	path := labChats + "/" + id + "/messages?limit=1"
-	if code := s.call(t, "GET", path, a, ws, nil, &page); code != 200 || len(page.Messages) != 1 || page.Messages[0].Body != "followup" || page.Next == "" {
-		t.Fatalf("page %d %+v", code, page)
-	}
-	if code := s.call(t, "GET", path+"&cursor="+page.Next, a, ws, nil, &page); code != 200 || len(page.Messages) != 1 || page.Messages[0].ID != out.Message.ID {
-		t.Fatalf("page2 %d", code)
-	}
-	var chats struct{ Chats []struct{ Title string } }
-	if code := s.call(t, "GET", labChats, a, ws, nil, &chats); code != 200 || len(chats.Chats) != 1 || chats.Chats[0].Title != strings.Repeat("界", 40)+"…" {
-		t.Fatalf("title %d %+v", code, chats)
+	var n int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM lab_message WHERE chat_id=$1)+(SELECT count(*) FROM agent_run WHERE lab_chat_id=$1)`, id).Scan(&n); err != nil || n != 0 {
+		t.Fatal(err, n)
 	}
 }
 
@@ -61,9 +64,7 @@ func TestLabPendingAcrossOverlappingQuestions(t *testing.T) {
 	csRegister(t, s, a, ws, "parallel", "claude")
 	id := newLabChat(t, s, a, ws)
 	for _, q := range []string{"First", "Second"} {
-		if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": q, "harness": "claude"}, nil); code != 202 {
-			t.Fatal(code)
-		}
+		seedHistoricalLabQuestion(t, s, id, q, "")
 	}
 	var run string
 	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT agent_run_id FROM lab_message WHERE chat_id=$1 AND body='First'", id).Scan(&run); err != nil {
@@ -109,16 +110,16 @@ func TestAskRefusesBlankAndOversizedQuestions(t *testing.T) {
 	}
 }
 
-func TestAskWithNoOwnMachineIs409NoMachine(t *testing.T) {
+func TestPrivateLabUnavailableWithoutOwnMachine(t *testing.T) {
 	s, a, b, _, ws, _ := csFixture(t)
 	csRegister(t, s, b, ws, "other", "claude")
 	path := labChats + "/" + newLabChat(t, s, a, ws) + "/questions"
 	for _, tt := range []struct {
 		cli, code string
 		status    int
-	}{{"claude", "no_machine", 409}, {"codex", "unsupported_harness", 422}} {
+	}{{"claude", "lab_unavailable", 503}, {"codex", "lab_unavailable", 503}} {
 		var out struct{ Code, Error string }
-		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": tt.cli}, &out); code != tt.status || out.Code != tt.code || (tt.cli == "claude" && out.Error != "Your machine is offline") {
+		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": tt.cli}, &out); code != tt.status || out.Code != tt.code || out.Error != agent.LabAvailability(tt.cli).Error() {
 			t.Fatalf("%s: %d %+v", tt.cli, code, out)
 		}
 	}
@@ -126,7 +127,7 @@ func TestAskWithNoOwnMachineIs409NoMachine(t *testing.T) {
 	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET unhealthy_reason='sign_in' WHERE id=$1", own.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": "claude"}, nil); code != 409 {
+	if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": "claude"}, nil); code != 503 {
 		t.Fatal("unhealthy own runtime", code)
 	}
 	var count int
@@ -187,14 +188,10 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, ref := range []string{"study:" + card.ID, "record:" + record} {
-		var msg struct{ Message struct{ ID string } }
-		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "Read context", "context_ref": ref, "harness": "claude"}, &msg); code != 202 {
+		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "Read context", "context_ref": ref, "harness": "claude"}, nil); code != 503 {
 			t.Fatal(code)
 		}
-		var prompt string
-		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT r.prompt FROM lab_message m JOIN agent_run r ON r.id=m.agent_run_id WHERE m.id=$1`, msg.Message.ID).Scan(&prompt); err != nil || !strings.Contains(prompt, ref) {
-			t.Fatal(err, prompt)
-		}
+
 	}
 	other := s.workspace(t, a, "another").ID
 	foreign := s.idleCard(t, a, other, "other")
@@ -205,7 +202,7 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 	}
 }
 
-func TestAskStaleModelAdvertiserAllowsFreshFallback(t *testing.T) {
+func TestLegacyLabRunCannotBeClaimedByFreshFallback(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	stale := csRegister(t, s, a, ws, "stale-advertiser", "claude")
 	fresh := csRegister(t, s, a, ws, "fresh-fallback", "claude")
@@ -213,17 +210,14 @@ func TestAskStaleModelAdvertiserAllowsFreshFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	chat := newLabChat(t, s, a, ws)
-	if code := s.call(t, "POST", labChats+"/"+chat+"/questions", a, ws, map[string]string{"text": "your lab", "harness": "claude", "model": "chosen"}, nil); code != 202 {
-		t.Fatalf("admission %d", code)
-	}
+	seedHistoricalLabQuestion(t, s, chat, "your lab", "chosen")
 	owner := uuid.MustParse(s.userID(t, a))
-	if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{stale}, 1); err != nil || len(claims) != 0 {
-		t.Fatalf("stale advertiser claimed: %v %+v", err, claims)
+	for _, ref := range []service.RuntimeRef{stale, fresh} {
+		if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{ref}, 1); err != nil || len(claims) != 0 {
+			t.Fatal("legacy private claim", err, claims)
+		}
 	}
-	claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{fresh}, 1)
-	if err != nil || len(claims) != 1 || claims[0].AgentRun.LabChatID == nil || claims[0].AgentRun.LabChatID.String() != chat || claims[0].AgentRun.RequestedModel != "" {
-		t.Fatalf("fresh CLI default fallback: %v %+v", err, claims)
-	}
+
 }
 
 func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
@@ -263,12 +257,9 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 	}
 	seed := func(body string, sources []uuid.UUID, evidence, statements any) uuid.UUID {
 		t.Helper()
-		var q struct{ Message labMessage }
-		if code := s.call(t, "POST", labChats+"/"+chat+"/questions", a, ws, map[string]string{"text": body, "harness": "claude"}, &q); code != 202 {
-			t.Fatal(code)
-		}
+		q := seedHistoricalLabQuestion(t, s, chat, body, "")
 		var run uuid.UUID
-		if err := s.Env.Owner.QueryRow(t.Context(), `UPDATE lab_message SET launch_sources=$2 WHERE id=$1 RETURNING agent_run_id`, q.Message.ID, sources).Scan(&run); err != nil {
+		if err := s.Env.Owner.QueryRow(t.Context(), `UPDATE lab_message SET launch_sources=$2 WHERE id=$1 RETURNING agent_run_id`, q, sources).Scan(&run); err != nil {
 			t.Fatal(err)
 		}
 		var id uuid.UUID
@@ -310,4 +301,34 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	read("failure")
+}
+
+// A daemon from a previous release can retain a dispatched run or bearer.
+// Neither the historical prompt nor new lab evidence may reach that daemon.
+func TestLegacyLabDaemonCannotFetchPromptOrEvidence(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	s.H.Lab = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("reached the lab evidence handler") })
+	server := httptest.NewServer(NewRouter(s.H))
+	defer server.Close()
+	s.Server = server
+	chat := newLabChat(t, s, a, ws)
+	rt := csRegister(t, s, a, ws, "old-daemon", "claude")
+	q := seedHistoricalLabQuestion(t, s, chat, "private", "")
+	var run uuid.UUID
+	if err := s.Env.Owner.QueryRow(t.Context(), `UPDATE agent_run SET status='running',attempt=1,runtime_id=$2 WHERE id=(SELECT agent_run_id FROM lab_message WHERE id=$1) RETURNING id`, q, rt.RuntimeID).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	token := "ltk_" + uuid.NewString()
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,$4,now()+interval '1 hour')`, auth.Hash(token), ws, run, service.Scopes("aristotle")); err != nil {
+		t.Fatal(err)
+	}
+	if status := s.call(t, "POST", "/mcp/lab", token, "", nil, nil); status != 503 {
+		t.Fatal("lab MCP", status)
+	}
+	rt.Attempt = 1
+	for _, suffix := range []string{"/start", "/start?lab_history=1"} {
+		if status := s.call(t, "POST", "/api/daemon/agent-runs/"+run.String()+suffix, s.personalToken(t, a), "", rt, nil); status != 503 {
+			t.Fatal("lab launch", suffix, status)
+		}
+	}
 }

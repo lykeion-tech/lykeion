@@ -424,6 +424,9 @@ func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
 
 func labHandInFixture(t *testing.T) *daemonFixture {
 	t.Helper()
+	if err := agent.LabAvailability("claude"); err != nil {
+		t.Skipf("requires an admitted lab runtime: %v", err)
+	}
 	f := fixture(t)
 	// Remove the fixture's ordinary study run to exercise just the private turn.
 	_, err := f.env.Owner.Exec(t.Context(), "DELETE FROM agent_run WHERE id=$1", f.id)

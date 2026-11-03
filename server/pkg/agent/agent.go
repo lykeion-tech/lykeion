@@ -356,7 +356,17 @@ func waitSupervised(cmd *exec.Cmd, nonce string) error {
 type SandboxCommand func(context.Context, CLIPaths, string, ...string) (*exec.Cmd, error)
 
 // ErrLabHarness is returned before a private question reaches an unsupported CLI.
-var ErrLabHarness = errors.New("Lab questions currently require Claude Code. The Codex CLI cannot restrict its native tools to the lab.")
+var ErrLabHarness = errors.New("Codex is unavailable for private lab questions because managed settings can change its provider and tools.")
+var ErrLabClaude = errors.New("Claude Code is unavailable for private lab questions because managed hooks can receive the question.")
+
+// LabAvailability checks the release's verified private execution boundary.
+// Neither CLI can enforce that boundary against all effective managed settings.
+func LabAvailability(harness string) error {
+	if harness == "claude" {
+		return ErrLabClaude
+	}
+	return ErrLabHarness
+}
 
 var ErrNoSandbox = errors.New("this run has no sandbox")
 var ErrHarnessRemoved = errors.New("Cursor and Antigravity are no longer supported; choose Claude Code or Codex")

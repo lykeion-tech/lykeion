@@ -226,12 +226,12 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Harness == "codex" {
-		writeJSON(w, 422, map[string]string{"code": "unsupported_harness", "error": agent.ErrLabHarness.Error()})
+	if in.Harness != "claude" && in.Harness != "codex" {
+		writeErr(w, 400, "select a supported CLI")
 		return
 	}
-	if in.Harness != "claude" {
-		writeErr(w, 400, "select a supported CLI")
+	if err := agent.LabAvailability(in.Harness); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "lab_unavailable", "error": err.Error()})
 		return
 	}
 	available, err := tx.Q.AristotleRuntimeAvailable(ctx, db.AristotleRuntimeAvailableParams{Harness: in.Harness, RequireHealthy: true})

@@ -118,23 +118,22 @@ it('opens and minimizes, suggests removable study context and shows starters on 
   await settle();
   expect(all(t.root).filter((n) => n.tag === 'button' && textOf(n).endsWith('?'))).toHaveLength(4);
   await t.click(starter);
-  expect(t.calls.find((c) => c.path.endsWith('/questions'))?.body).toMatchObject({
-    text: starter,
-    harness: 'claude',
-  });
+  expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
+  expect(textOf(t.root)).toContain('Private questions are unavailable');
   expect(textOf(t.root)).not.toContain('Start voice chat');
   await t.click('Minimize');
   expect(t.composer()).toBeUndefined();
 });
-it('retains the draft and offers Machines after a no_machine response', async () => {
+it('preserves the draft and refuses submission before sending it', async () => {
   const t = await mount(false, true);
   await t.click('Ask Aristotle');
   (t.composer().props.onFocus as Function)();
   await settle();
   await t.click(starter);
-  expect(textOf(t.root)).toContain('Your machine is offline');
+  expect(textOf(t.root)).toContain('Private questions are unavailable');
+  expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
   expect(t.composer().props.value ?? t.composer().value).toBe(starter);
-  expect(all(t.root).find((n) => n.props.href === '/machines')).toBeDefined();
+  expect(all(t.root).find((n) => n.props.href === '/machines')).toBeUndefined();
 });
 it('renders marked statements, links, evidence paths and flags a lesson', async () => {
   const t = await mount(true);
@@ -202,7 +201,7 @@ it('shows Codex as unavailable, excludes other members’ models, and keeps the 
   ]);
   await t.click('Ask Aristotle');
   await t.click('Select model');
-  expect(textOf(t.root)).toContain('Codex is unavailable');
+  expect(textOf(t.root)).toContain('Claude Code and Codex are unavailable');
   expect(textOf(t.root)).not.toContain('Private model');
   await t.click('Select model');
   (t.composer().props.onFocus as Function)();
