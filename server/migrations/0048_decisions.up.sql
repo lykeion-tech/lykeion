@@ -53,7 +53,7 @@ WHERE resolved_at IS NULL AND kind = 'needs_decision' AND cause = 'machine_failu
 CREATE FUNCTION due_decisions(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid, card_id uuid)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT workspace_id, id, card_id FROM inbox_item
-  WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= at
+  WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= at AND card_id IS NOT NULL
   ORDER BY expires_at, id LIMIT 100
 $$;
 CREATE FUNCTION due_reminders(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid)

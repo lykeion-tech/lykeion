@@ -222,15 +222,17 @@ func (e *Engine) resumeAfterDecision(ctx context.Context, tx *store.Tx, c db.Car
 			note += " — " + item.Guidance
 		}
 	}
+	// Who resumes is read before anything is written, so a lead that cannot
+	// be woken leaves the study as it was.
+	role, m, a, err := e.worker(ctx, tx, c)
+	if err != nil {
+		return err
+	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "working",
 		BlockKind: "", Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
 	c.State, c.BlockKind = "working", ""
-	role, m, a, err := e.worker(ctx, tx, c)
-	if err != nil {
-		return err
-	}
 	_, err = e.enqueue(ctx, tx, c, role, m, a, note)
 	return err
 }
@@ -275,21 +277,19 @@ func (e *Engine) sweepDecisions(ctx context.Context, now time.Time) error {
 	return errors.Join(errs...)
 }
 
-// expire closes one due decision: a stop applies its default option for no
-// one, and an agent's question wakes its lead without an answer.
+// expire closes one due decision: a stop applies its default option as the
+// system, and an agent's question wakes its lead without an answer, or, when
+// the lead cannot be woken, holds the study for its owner.
 func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time) error {
-	var cancel []uuid.UUID
-	var owner uuid.UUID
-	err := e.Store.InWorkspace(ctx, d.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+	return e.Store.InWorkspace(ctx, d.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+		// The workspace, then the study's execution lock and the study, then
+		// its item, as Decide takes them.
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, d.WorkspaceID); err != nil {
 			return err
 		}
-		var c db.Card
-		if d.CardID != uuid.Nil {
-			var err error
-			if c, err = lockCard(ctx, tx, d.CardID); err != nil {
-				return err
-			}
+		c, err := lockCard(ctx, tx, d.CardID)
+		if err != nil {
+			return err
 		}
 		it, err := tx.Q.LockDecision(ctx, db.LockDecisionParams{ID: d.ID, WorkspaceID: d.WorkspaceID})
 		if err != nil {
@@ -316,9 +316,18 @@ func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time
 				return nil
 			}
 			err = e.resumeAfterDecision(ctx, tx, c, expired)
+			if errors.Is(err, ErrPackUnavailable) || errors.Is(err, errNoAgent) {
+				// askOwner tells the board itself.
+				return e.askOwner(ctx, tx, c, "its question expired and its lead could not be woken: "+err.Error())
+			}
 		case it.DefaultOption != "":
-			owner = c.OwnerID
-			_, cancel, err = applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, "")
+			var cancel []uuid.UUID
+			if _, cancel, err = applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, ""); err != nil {
+				return err
+			}
+			// No one chose the default, so its runs are cancelled here, as
+			// the system, rather than after commit as a person.
+			err = e.cancelInTx(ctx, tx, cancel)
 		default:
 			return nil
 		}
@@ -327,12 +336,21 @@ func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time
 		}
 		return emitSteered(ctx, tx, c.ID, store.System)
 	})
-	if err != nil {
-		return err
+}
+
+// cancelInTx cancels runs inside the caller's transaction as the system,
+// each recording its settlement; one that already ended is left alone.
+func (e *Engine) cancelInTx(ctx context.Context, tx *store.Tx, runs []uuid.UUID) error {
+	for _, id := range runs {
+		r, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{WorkspaceID: tx.WS, ID: id})
+		if err != nil {
+			return err
+		}
+		if err := e.AgentRuns.CancelInTx(ctx, tx, uuid.Nil, r); err != nil && !errors.Is(err, service.ErrConflict) {
+			return err
+		}
 	}
-	// Cancelling needs a member; the study's owner, who the decision was
-	// for, stands for the expired default.
-	return e.cancelParked(ctx, d.WorkspaceID, owner, cancel)
+	return nil
 }
 
 // errDecisionOpen is the failed hand-in of a lead that asks while its study

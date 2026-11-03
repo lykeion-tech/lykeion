@@ -1561,7 +1561,8 @@ func (s *AgentRuns) Cancel(ctx context.Context, ws, user, run uuid.UUID) error {
 	return err
 }
 
-// cancelLocked cancels a locked open run, revokes its tokens and records it.
+// cancelLocked cancels a locked open run, revokes its tokens and records it,
+// as user, or as the system when user is uuid.Nil.
 func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.AgentRun, error) {
 	if err := rows(tx.Q.CancelAgentRun(ctx, db.CancelAgentRunParams{WorkspaceID: tx.WS, ID: run})); err != nil {
 		return db.AgentRun{}, err
@@ -1573,7 +1574,11 @@ func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.Ag
 	if err != nil {
 		return t, err
 	}
-	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, store.User(user), agentRunEvent(t))
+	actor := store.User(user)
+	if user == uuid.Nil {
+		actor = store.System
+	}
+	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, actor, agentRunEvent(t))
 }
 
 // CancelCardRuns cancels every open run of a study about to be deleted, in the

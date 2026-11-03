@@ -93,9 +93,50 @@ func TestExpiredStopIsParked(t *testing.T) {
 }
 
 // A stop that expires while its column still holds a run cancels that run,
-// as parking by hand does.
+// as parking by hand does, but as the system.
 func TestExpiredStopCancelsTheColumnsRuns(t *testing.T) {
 	l := newLab(t)
+	c, item := l.expiringWithARun(t)
+	if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("an expired stop left %d runs queued", len(q))
+	}
+	if status, _, _, _ := l.decision(t, item); status != "expired" {
+		t.Fatalf("item: %s", status)
+	}
+	if n := l.count(t, "SELECT count(*) FROM event WHERE card_id = $1 AND type = 'agent_run.cancelled' AND actor_type = 'system' AND actor_id IS NULL", c.ID); n != 1 {
+		t.Fatalf("%d system cancellations", n)
+	}
+	if n := l.count(t, "SELECT count(*) FROM event WHERE card_id = $1 AND type = 'agent_run.cancelled'", c.ID); n != 1 {
+		t.Fatalf("%d cancellations", n)
+	}
+}
+
+// An expired park cancels its runs even when the study's owner has left the
+// workspace.
+func TestExpiredStopCancelsRunsOfAnOwnerWhoLeft(t *testing.T) {
+	l := newLab(t)
+	c, _ := l.expiringWithARun(t)
+	if _, err := l.env.Owner.Exec(context.Background(), "DELETE FROM member WHERE workspace_id = $1 AND user_id = $2", l.ws, l.owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+		t.Fatal(err)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status IN ('queued', 'dispatched', 'running')", c.ID); n != 0 {
+		t.Fatalf("%d open runs after the park", n)
+	}
+	if got := l.card(t, c.ID); got.BlockKind != "parked" {
+		t.Fatalf("after expiry: %s %q", got.State, got.BlockKind)
+	}
+}
+
+// expiringWithARun is a held study whose stop is due while a member's run is
+// still queued in its column.
+func (l *lab) expiringWithARun(t *testing.T) (db.Card, uuid.UUID) {
+	t.Helper()
 	c, item := l.heldStudy(t)
 	l.in(t, func(tx *store.Tx) error {
 		ctx := context.Background()
@@ -111,11 +152,34 @@ func TestExpiredStopCancelsTheColumnsRuns(t *testing.T) {
 		return err
 	})
 	l.due(t, item)
-	if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+	return c, item
+}
+
+// A question whose lead cannot be woken any more expires all the same, and
+// its study is held for its owner instead of staying due.
+func TestExpiredQuestionWithNoLeadHoldsTheStudy(t *testing.T) {
+	l := newLab(t)
+	c, _, item := l.askedStudy(t)
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE field_pack SET manifest = '"broken"' WHERE id = $1`, l.pack.ID); err != nil {
 		t.Fatal(err)
 	}
+	l.due(t, item)
+	for range 2 {
+		if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if status, _, _, _ := l.decision(t, item); status != "expired" {
+		t.Fatalf("item: %s", status)
+	}
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "" || got.Round != c.Round {
+		t.Fatalf("after expiry: %s %q round %d", got.State, got.BlockKind, got.Round)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND kind = 'needs_decision' AND cause = 'could_not_do' AND status = 'open'", c.ID); n != 1 {
+		t.Fatalf("%d holds for the owner", n)
+	}
 	if q := l.runs(t, c.ID); len(q) != 0 {
-		t.Fatalf("an expired stop left %d runs queued", len(q))
+		t.Fatalf("%d runs queued", len(q))
 	}
 }
 
@@ -239,5 +303,29 @@ func TestArchiveAfter90Days(t *testing.T) {
 		if archived != want {
 			t.Errorf("item %s archived %v, want %v", id, archived, want)
 		}
+	}
+}
+
+// A studyless item with an expiry is not the sweep's: it neither breaks the
+// pass nor expires.
+func TestStudylessItemsStayOutOfTheSweep(t *testing.T) {
+	l := newLab(t)
+	ctx := context.Background()
+	var studyless uuid.UUID
+	if err := l.env.Owner.QueryRow(ctx, `INSERT INTO inbox_item (workspace_id, user_id, kind, text, options, default_option, expires_at)
+		VALUES ($1, $2, 'needs_decision', 'x', '[{"id":"park","label":"Park","consequence":"p"}]', 'park', $3) RETURNING id`,
+		l.ws, l.owner, l.e.now().Add(-2*time.Minute)).Scan(&studyless); err != nil {
+		t.Fatal(err)
+	}
+	_, item := l.heldStudy(t)
+	l.due(t, item)
+	if err := l.e.sweepDecisions(ctx, l.e.now()); err != nil {
+		t.Fatal(err)
+	}
+	if status, _, _, _ := l.decision(t, item); status != "expired" {
+		t.Fatalf("the study's stop: %s", status)
+	}
+	if status, _, _, _ := l.decision(t, studyless); status != "open" {
+		t.Fatalf("the studyless item: %s", status)
 	}
 }
