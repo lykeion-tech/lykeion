@@ -29,13 +29,40 @@ func (i *Index) Ensure(ctx context.Context) error {
 	if err != nil {
 		s := strings.ToLower(err.Error())
 		if strings.Contains(s, "index already exists") {
-			return nil
+			return i.validateSchema(ctx)
 		}
 		if strings.Contains(s, "unknown command") {
 			return ErrUnavailable
 		}
 	}
 	return err
+}
+
+// Never accept an unrelated or obsolete index under the shared index name.
+func (i *Index) validateSchema(ctx context.Context) error {
+	info, err := i.rdb.FTInfo(ctx, "idx:lab").Result()
+	if err != nil {
+		return fmt.Errorf("inspect lab search schema: %w", err)
+	}
+	incompatible := errors.New("incompatible lab search schema")
+	if info.IndexDefinition.KeyType != "HASH" || len(info.IndexDefinition.Prefixes) != 1 || info.IndexDefinition.Prefixes[0] != "lab:" {
+		return incompatible
+	}
+	fields := make(map[string]redis.FTAttribute)
+	for _, a := range info.Attributes {
+		fields[a.Attribute] = a
+	}
+	for _, name := range []string{"workspace", "kind", "model"} {
+		a, ok := fields[name]
+		if !ok || a.Identifier != name || a.Type != "TAG" || a.NoIndex {
+			return incompatible
+		}
+	}
+	a, ok := fields["embedding"]
+	if !ok || a.Identifier != "embedding" || a.Type != "VECTOR" || a.Algorithm != "FLAT" || a.DataType != "FLOAT32" || a.Dim != embed.Dimensions || a.DistanceMetric != "COSINE" || a.NoIndex {
+		return incompatible
+	}
+	return nil
 }
 func key(ws uuid.UUID, r labmemory.Ref) string { return "lab:" + ws.String() + ":" + r.String() }
 func vector(v []float32) ([]byte, error) {

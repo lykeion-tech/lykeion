@@ -14,3 +14,9 @@ Verification: `LYK_INDEX_INTEGRATION=1 go test ./internal/embed/ ./internal/labi
 Containers were uniquely named `lyk-ari-task3-<uuid>` with ephemeral loopback ports, removed by test cleanup. No preview containers/data were used. Integration container tests are opt-in via `LYK_INDEX_INTEGRATION=1` so ordinary unit runs never create containers implicitly.
 
 Concern: no real TEI model container was downloaded/run in this bounded task; HTTP contract is tested using httptest. Full model-change backfill belongs to Task 4 consumer orchestration.
+
+## Review follow-up: existing schema readiness
+
+`Ensure` now inspects `FT.INFO` when `idx:lab` exists. It requires HASH keys with exactly the `lab:` prefix; indexed workspace/kind/model TAG attributes with matching identifiers; and indexed embedding VECTOR FLAT FLOAT32 with 384 dimensions and COSINE distance. Incompatible schemas return an error so startup falls back; existing indexes are never deleted or rebuilt by readiness.
+
+Added isolated Redis 8 integration cases for missing model TAG, wrong vector dimensions, and wrong key prefix; each asserts rejection and preservation of the existing index. The existing repeated-Ensure case verifies compatible acceptance. `LYK_INDEX_INTEGRATION=1 go test ./internal/labindex/` PASS. Only uniquely named owned test containers were created and cleaned up.

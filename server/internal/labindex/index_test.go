@@ -109,3 +109,41 @@ func TestVectorEncoding(t *testing.T) {
 		t.Fatalf("invalid float32 representation %v", err)
 	}
 }
+
+func TestEnsureRejectsIncompatibleSchema(t *testing.T) {
+	if os.Getenv("LYK_INDEX_INTEGRATION") != "1" {
+		t.Skip("set LYK_INDEX_INTEGRATION=1")
+	}
+	ctx := context.Background()
+	r := redisForTest(t, "redis:8-alpine")
+	for _, tc := range []struct {
+		name, prefix, dim string
+		model             bool
+	}{
+		{"missing model", "lab:", "384", false},
+		{"wrong dimension", "lab:", "768", true},
+		{"wrong prefix", "other:", "384", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []interface{}{"FT.CREATE", "idx:lab", "ON", "HASH", "PREFIX", 1, tc.prefix, "SCHEMA", "workspace", "TAG", "kind", "TAG"}
+			if tc.model {
+				args = append(args, "model", "TAG")
+			}
+			args = append(args, "embedding", "VECTOR", "FLAT", 6, "TYPE", "FLOAT32", "DIM", tc.dim, "DISTANCE_METRIC", "COSINE")
+			if err := r.Do(ctx, args...).Err(); err != nil {
+				t.Fatal(err)
+			}
+			idx := New(r, embed.Fake{}, embed.Model)
+			if err := idx.Ensure(ctx); err == nil {
+				t.Fatal("accepted incompatible schema")
+			}
+			// Ensure only inspects: it must never drop or rebuild an existing index.
+			if err := r.Do(ctx, "FT.INFO", "idx:lab").Err(); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Do(ctx, "FT.DROPINDEX", "idx:lab").Err(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
