@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/handin"
@@ -27,7 +28,6 @@ func holdForDecision(ctx context.Context, tx *store.Tx, c db.Card, kind, cause, 
 var (
 	ErrNotAnswerer    = errors.New("only the study's owner or a workspace owner or admin may answer this decision")
 	ErrDecisionClosed = errors.New("this decision is no longer open")
-	ErrAgentDecision  = errors.New("agent decisions are answered once resumption exists")
 	ErrNotWaiting     = errors.New("the study is no longer waiting on this decision")
 )
 
@@ -36,12 +36,14 @@ type OptionError string
 
 func (e OptionError) Error() string { return string(e) }
 
-// Decide answers an open decision with one of its options and applies it to
-// the study: redo restarts the column with guidance as its note, close ends
-// the study as a negative result, park leaves it blocked until someone redoes
-// it and cancels its column's open runs, and try_again releases the runs its
-// machines kept failing. The item is locked and rechecked under the study's
-// lock, so of two answers at once only the first applies; the other gets
+// Decide answers an open decision with one of its options. An agent's
+// question resumes its lead's session with the answer. A stop's option is
+// applied to the study: redo restarts the column with guidance as its note,
+// close ends the study as a negative result, park leaves it blocked until
+// someone redoes it and cancels its column's open runs, and try_again
+// releases the runs its machines kept failing. The item is locked and
+// rechecked under the study's lock, so of two answers at once, or an answer
+// and its expiry, only the first applies; the other answer gets
 // ErrDecisionClosed.
 func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, guidance string) error {
 	guidance = strings.TrimSpace(guidance)
@@ -63,9 +65,6 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		}
 		if !row.MayAnswer {
 			return ErrNotAnswerer
-		}
-		if row.InboxItem.Kind == "agent_decision" {
-			return ErrAgentDecision
 		}
 		if row.InboxItem.CardID == nil {
 			return ErrNotWaiting
@@ -90,68 +89,30 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		if !slices.ContainsFunc(options, func(o service.Option) bool { return o.ID == option }) {
 			return OptionError("this decision has no option " + option)
 		}
-		if option == "redo" && guidance == "" {
+		agent := it.Kind == "agent_decision"
+		if !agent && option == "redo" && guidance == "" {
 			return OptionError("redo needs guidance")
 		}
-		if c.ID == uuid.Nil || c.Ending != "" {
+		if c.ID == uuid.Nil || c.Ending != "" || agent && !waitsOnQuestion(c) {
 			return ErrNotWaiting
 		}
-		if _, err := tx.Q.DecideItem(ctx, db.DecideItemParams{ID: item, WorkspaceID: ws, ChosenOption: option, Guidance: guidance, DecidedBy: user}); err != nil {
+		decided, err := tx.Q.DecideItem(ctx, db.DecideItemParams{ID: item, WorkspaceID: ws, ChosenOption: option, Guidance: guidance, DecidedBy: user})
+		if err != nil {
 			return err
 		}
 		if err := tx.Emit(ctx, "inbox.resolved", &card, store.User(user), map[string]string{"inbox_item_id": item.String()}); err != nil {
 			return err
 		}
-		switch option {
-		case "redo":
+		if agent {
+			err = e.resumeAfterDecision(ctx, tx, c, decided)
+		} else {
+			restart, cancel, err = applyOption(ctx, tx, c, user, option, guidance)
+		}
+		if err != nil || restart {
 			// redo emits card.steered itself.
-			restart, err = redo(ctx, tx, c, user, guidance)
-			if err == nil && !restart {
-				err = ErrNotWaiting
-			}
-			return err
-		case "close":
-			why := guidance
-			if why == "" {
-				why = c.Title
-			}
-			s := board.FromCard(c)
-			board.Stop(&s, "closed as a negative result: "+why)
-			if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, ws)); err != nil {
-				return err
-			}
-			if err := service.EndStudyItems(ctx, tx, card, store.User(user)); err != nil {
-				return err
-			}
-		case "park":
-			s := board.FromCard(c)
-			board.Park(&s)
-			if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, ws)); err != nil {
-				return err
-			}
-			// A parked study stops: its column's open runs, held ones
-			// included, are cancelled once this commits.
-			runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: ws, CardID: card, BoardColumn: c.BoardColumn, Round: c.Round})
-			if err != nil {
-				return err
-			}
-			for _, r := range runs {
-				if slices.Contains([]string{"queued", "dispatched", "running"}, r.Status) {
-					cancel = append(cancel, r.ID)
-				}
-			}
-		case "try_again":
-			if err := service.ReleaseParkedRuns(ctx, tx, card); err != nil {
-				return err
-			}
-		default:
-			return OptionError("option " + option + " cannot be applied")
-		}
-		next, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: ws, ID: card})
-		if err != nil {
 			return err
 		}
-		return tx.Emit(ctx, "card.steered", &card, store.User(user), map[string]any{"column": next.BoardColumn, "state": next.State, "ending": next.Ending})
+		return emitSteered(ctx, tx, card, store.User(user))
 	})
 	if err != nil {
 		return err
@@ -159,14 +120,219 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 	if restart {
 		e.Kick(ws, card)
 	}
-	// As steering does, the cancellations run after the answer commits, each
-	// through the agent-run cancel path so its settlement is recorded.
-	for _, run := range cancel {
+	return e.cancelParked(ctx, ws, user, cancel)
+}
+
+// waitsOnQuestion is whether the study is blocked on its lead's question.
+func waitsOnQuestion(c db.Card) bool {
+	return c.State == "blocked" && c.BlockKind == "decision"
+}
+
+// applyOption applies a stop's option to its locked study, for user, or for
+// no one when the stop expired. It reports whether the column restarts and
+// which runs to cancel once the caller commits.
+func applyOption(ctx context.Context, tx *store.Tx, c db.Card, user uuid.UUID, option, guidance string) (bool, []uuid.UUID, error) {
+	actor := store.System
+	if user != uuid.Nil {
+		actor = store.User(user)
+	}
+	switch option {
+	case "redo":
+		// redo emits card.steered itself.
+		restart, err := redo(ctx, tx, c, user, guidance)
+		if err == nil && !restart {
+			err = ErrNotWaiting
+		}
+		return restart, nil, err
+	case "close":
+		why := guidance
+		if why == "" {
+			why = c.Title
+		}
+		s := board.FromCard(c)
+		board.Stop(&s, "closed as a negative result: "+why)
+		if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, tx.WS)); err != nil {
+			return false, nil, err
+		}
+		return false, nil, service.EndStudyItems(ctx, tx, c.ID, actor)
+	case "park":
+		s := board.FromCard(c)
+		board.Park(&s)
+		if err := tx.Q.SaveCardBoard(ctx, s.Params(c.ID, tx.WS)); err != nil {
+			return false, nil, err
+		}
+		// A parked study stops: its column's open runs, held ones
+		// included, are cancelled once this commits.
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+		if err != nil {
+			return false, nil, err
+		}
+		var cancel []uuid.UUID
+		for _, r := range runs {
+			if slices.Contains([]string{"queued", "dispatched", "running"}, r.Status) {
+				cancel = append(cancel, r.ID)
+			}
+		}
+		return false, cancel, nil
+	case "try_again":
+		return false, nil, service.ReleaseParkedRuns(ctx, tx, c.ID)
+	}
+	return false, nil, OptionError("option " + option + " cannot be applied")
+}
+
+// emitSteered tells the board where the study now stands.
+func emitSteered(ctx context.Context, tx *store.Tx, card uuid.UUID, actor store.Actor) error {
+	next, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: card})
+	if err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "card.steered", &card, actor, map[string]any{"column": next.BoardColumn, "state": next.State, "ending": next.Ending})
+}
+
+// cancelParked cancels a parked study's runs after the park commits, as
+// steering does, each through the agent-run cancel path so its settlement is
+// recorded. user is who the cancellations are recorded for.
+func (e *Engine) cancelParked(ctx context.Context, ws, user uuid.UUID, runs []uuid.UUID) error {
+	for _, run := range runs {
 		if err := e.AgentRuns.Cancel(ctx, ws, user, run); err != nil && !errors.Is(err, service.ErrConflict) {
 			return fmt.Errorf("the study was parked; cancelling its run %s failed: %w", run, err)
 		}
 	}
 	return nil
+}
+
+// resumeAfterDecision wakes the lead that asked item, once it is answered or
+// expired: the study works again in the same round, so the lead's next run
+// has the asking run's continuity scope and resumes its session, with the
+// outcome as its note.
+func (e *Engine) resumeAfterDecision(ctx context.Context, tx *store.Tx, c db.Card, item db.InboxItem) error {
+	title, _, _ := strings.Cut(item.Text, "\n")
+	note := "Your question \"" + title + "\" expired without an answer. Continue without it."
+	if item.Status == "decided" {
+		var options []service.Option
+		if err := json.Unmarshal(item.Options, &options); err != nil {
+			return err
+		}
+		label := item.ChosenOption
+		if i := slices.IndexFunc(options, func(o service.Option) bool { return o.ID == item.ChosenOption }); i >= 0 {
+			label = options[i].Label
+		}
+		note = "The researcher answered your question \"" + title + "\": " + label
+		if item.Guidance != "" {
+			note += " — " + item.Guidance
+		}
+	}
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "working",
+		BlockKind: "", Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
+		return err
+	}
+	c.State, c.BlockKind = "working", ""
+	role, m, a, err := e.worker(ctx, tx, c)
+	if err != nil {
+		return err
+	}
+	_, err = e.enqueue(ctx, tx, c, role, m, a, note)
+	return err
+}
+
+// sweepDecisions expires the decisions due by now, reminds once the day
+// before a decision expires, and archives history untouched for 90 days. An
+// expiring decision is locked and rechecked under its study's lock, as
+// Decide takes them, so an answer and its expiry close it once between them.
+func (e *Engine) sweepDecisions(ctx context.Context, now time.Time) error {
+	var errs []error
+	due, err := e.Store.Global().DueDecisions(ctx, now)
+	if err != nil {
+		return err
+	}
+	for _, d := range due {
+		if err := e.expire(ctx, d, now); err != nil {
+			errs = append(errs, fmt.Errorf("expire decision %s: %w", d.ID, err))
+		}
+	}
+	remind, err := e.Store.Global().DueReminders(ctx, now)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	for _, r := range remind {
+		err := e.Store.InWorkspace(ctx, r.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+			card, err := tx.Q.MarkReminded(ctx, db.MarkRemindedParams{At: now, ID: r.ID, WorkspaceID: r.WorkspaceID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			return tx.Emit(ctx, "decision.reminder", card, store.System, map[string]string{"inbox_item_id": r.ID.String()})
+		})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("remind decision %s: %w", r.ID, err))
+		}
+	}
+	if err := e.Store.Global().ArchiveStale(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// expire closes one due decision: a stop applies its default option for no
+// one, and an agent's question wakes its lead without an answer.
+func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time) error {
+	var cancel []uuid.UUID
+	var owner uuid.UUID
+	err := e.Store.InWorkspace(ctx, d.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+		if _, err := tx.Q.LockWorkspaceForMutation(ctx, d.WorkspaceID); err != nil {
+			return err
+		}
+		var c db.Card
+		if d.CardID != uuid.Nil {
+			var err error
+			if c, err = lockCard(ctx, tx, d.CardID); err != nil {
+				return err
+			}
+		}
+		it, err := tx.Q.LockDecision(ctx, db.LockDecisionParams{ID: d.ID, WorkspaceID: d.WorkspaceID})
+		if err != nil {
+			return err
+		}
+		if it.Status != "open" || it.ResolvedAt != nil || it.ExpiresAt == nil || it.ExpiresAt.After(now) {
+			return nil
+		}
+		expired, err := tx.Q.ExpireDecision(ctx, db.ExpireDecisionParams{ID: d.ID, WorkspaceID: d.WorkspaceID})
+		if err != nil {
+			return err
+		}
+		if err := tx.Emit(ctx, "inbox.resolved", it.CardID, store.System, map[string]string{"inbox_item_id": d.ID.String()}); err != nil {
+			return err
+		}
+		// A study already stopped, or no longer waiting on the question,
+		// only has its item closed.
+		if c.ID == uuid.Nil || c.Ending != "" {
+			return nil
+		}
+		switch {
+		case it.Kind == "agent_decision":
+			if !waitsOnQuestion(c) {
+				return nil
+			}
+			err = e.resumeAfterDecision(ctx, tx, c, expired)
+		case it.DefaultOption != "":
+			owner = c.OwnerID
+			_, cancel, err = applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, "")
+		default:
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return emitSteered(ctx, tx, c.ID, store.System)
+	})
+	if err != nil {
+		return err
+	}
+	// Cancelling needs a member; the study's owner, who the decision was
+	// for, stands for the expired default.
+	return e.cancelParked(ctx, d.WorkspaceID, owner, cancel)
 }
 
 // errDecisionOpen is the failed hand-in of a lead that asks while its study

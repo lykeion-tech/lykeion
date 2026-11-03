@@ -80,3 +80,24 @@ INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, def
   raised_by, raised_run_id, from_member, decision_kind)
 VALUES (@workspace_id, @card_id::uuid, @user_id, 'agent_decision', @text, @options::jsonb, '', @expires_at,
   'agent', @raised_run_id::uuid, @from_member, @decision_kind);
+
+-- name: DueDecisions :many
+SELECT workspace_id::uuid AS workspace_id, id::uuid AS id, card_id::uuid AS card_id FROM due_decisions(@at::timestamptz);
+
+-- name: DueReminders :many
+SELECT workspace_id::uuid AS workspace_id, id::uuid AS id FROM due_reminders(@at::timestamptz);
+
+-- name: ArchiveStale :exec
+SELECT archive_stale_decisions(@at::timestamptz);
+
+-- An expired decision records the option it fell back to, and no one who
+-- chose it.
+-- name: ExpireDecision :one
+UPDATE inbox_item SET status = 'expired', chosen_option = default_option, resolved_at = now(), touched_at = now()
+WHERE id = @id AND workspace_id = @workspace_id
+RETURNING *;
+
+-- name: MarkReminded :one
+UPDATE inbox_item SET reminded_at = @at::timestamptz
+WHERE id = @id AND workspace_id = @workspace_id AND status = 'open' AND reminded_at IS NULL
+RETURNING card_id;

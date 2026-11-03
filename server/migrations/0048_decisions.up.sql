@@ -47,3 +47,27 @@ UPDATE inbox_item SET default_option = 'park', expires_at = now() + interval '7 
   options = '[{"id":"try_again","label":"Try again","consequence":"The parked runs are queued again on their machine."},
     {"id":"park","label":"Park","consequence":"The study stops here; anyone who can open it may redo it later."}]'
 WHERE resolved_at IS NULL AND kind = 'needs_decision' AND cause = 'machine_failures';
+
+-- The engine's sweep finds due decisions across workspaces, then works on
+-- each inside its own workspace.
+CREATE FUNCTION due_decisions(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid, card_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT workspace_id, id, card_id FROM inbox_item
+  WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= at
+  ORDER BY expires_at, id LIMIT 100
+$$;
+CREATE FUNCTION due_reminders(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT workspace_id, id FROM inbox_item
+  WHERE status = 'open' AND expires_at IS NOT NULL AND reminded_at IS NULL AND expires_at <= at + interval '24 hours'
+  ORDER BY expires_at, id LIMIT 100
+$$;
+CREATE INDEX inbox_item_stale ON inbox_item (touched_at)
+  WHERE archived_at IS NULL AND NOT kept AND status <> 'open';
+CREATE FUNCTION archive_stale_decisions(at timestamptz) RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  UPDATE inbox_item SET archived_at = at
+  WHERE archived_at IS NULL AND NOT kept AND status <> 'open' AND touched_at <= at - interval '90 days'
+$$;
+REVOKE ALL ON FUNCTION due_decisions(timestamptz), due_reminders(timestamptz), archive_stale_decisions(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION due_decisions(timestamptz), due_reminders(timestamptz), archive_stale_decisions(timestamptz) TO lykeion_app;

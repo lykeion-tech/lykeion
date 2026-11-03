@@ -199,7 +199,7 @@ func TestDecideTwiceConflicts(t *testing.T) {
 
 func TestDecideRefusesWhatTheDecisionDoesNotOffer(t *testing.T) {
 	l := newLab(t)
-	c, item := l.heldStudy(t)
+	_, item := l.heldStudy(t)
 	var opt OptionError
 	if err := l.e.Decide(context.Background(), l.ws, item, l.owner, "try_again", ""); !errors.As(err, &opt) {
 		t.Fatalf("an option the stop does not offer: %v", err)
@@ -209,17 +209,6 @@ func TestDecideRefusesWhatTheDecisionDoesNotOffer(t *testing.T) {
 	}
 	if status, _, _, _ := l.decision(t, item); status != "open" {
 		t.Fatalf("a refused answer changed the item: %s", status)
-	}
-	if _, err := l.env.Owner.Exec(context.Background(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options)
-		VALUES ($1, $2, $3, 'agent_decision', 'which cohort?', '[{"id":"a","label":"A","consequence":"a"}]')`, l.ws, c.ID, l.owner); err != nil {
-		t.Fatal(err)
-	}
-	var agentItem uuid.UUID
-	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM inbox_item WHERE kind = 'agent_decision'").Scan(&agentItem); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.e.Decide(context.Background(), l.ws, agentItem, l.owner, "a", ""); !errors.Is(err, ErrAgentDecision) {
-		t.Fatalf("an agent decision: %v", err)
 	}
 }
 

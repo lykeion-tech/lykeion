@@ -196,7 +196,7 @@ func (h *H) decideDecision(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, flow.ErrNotAnswerer):
 		writeErr(w, http.StatusForbidden, err.Error())
 		return
-	case errors.Is(err, flow.ErrDecisionClosed), errors.Is(err, flow.ErrAgentDecision), errors.Is(err, flow.ErrNotWaiting):
+	case errors.Is(err, flow.ErrDecisionClosed), errors.Is(err, flow.ErrNotWaiting):
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	case err != nil:

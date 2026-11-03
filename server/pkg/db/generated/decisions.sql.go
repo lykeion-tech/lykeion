@@ -14,6 +14,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveStale = `-- name: ArchiveStale :exec
+SELECT archive_stale_decisions($1::timestamptz)
+`
+
+func (q *Queries) ArchiveStale(ctx context.Context, at time.Time) error {
+	_, err := q.db.Exec(ctx, archiveStale, at)
+	return err
+}
+
 const cancelCardDecisions = `-- name: CancelCardDecisions :many
 UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2::uuid AND status = 'open' AND resolved_at IS NULL
@@ -93,6 +102,117 @@ func (q *Queries) DecideItem(ctx context.Context, arg DecideItemParams) (InboxIt
 		arg.ID,
 		arg.WorkspaceID,
 	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+	)
+	return i, err
+}
+
+const dueDecisions = `-- name: DueDecisions :many
+SELECT workspace_id::uuid AS workspace_id, id::uuid AS id, card_id::uuid AS card_id FROM due_decisions($1::timestamptz)
+`
+
+type DueDecisionsRow struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) DueDecisions(ctx context.Context, at time.Time) ([]DueDecisionsRow, error) {
+	rows, err := q.db.Query(ctx, dueDecisions, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DueDecisionsRow
+	for rows.Next() {
+		var i DueDecisionsRow
+		if err := rows.Scan(&i.WorkspaceID, &i.ID, &i.CardID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const dueReminders = `-- name: DueReminders :many
+SELECT workspace_id::uuid AS workspace_id, id::uuid AS id FROM due_reminders($1::timestamptz)
+`
+
+type DueRemindersRow struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) DueReminders(ctx context.Context, at time.Time) ([]DueRemindersRow, error) {
+	rows, err := q.db.Query(ctx, dueReminders, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DueRemindersRow
+	for rows.Next() {
+		var i DueRemindersRow
+		if err := rows.Scan(&i.WorkspaceID, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const expireDecision = `-- name: ExpireDecision :one
+UPDATE inbox_item SET status = 'expired', chosen_option = default_option, resolved_at = now(), touched_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
+`
+
+type ExpireDecisionParams struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// An expired decision records the option it fell back to, and no one who
+// chose it.
+func (q *Queries) ExpireDecision(ctx context.Context, arg ExpireDecisionParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, expireDecision, arg.ID, arg.WorkspaceID)
 	var i InboxItem
 	err := row.Scan(
 		&i.ID,
@@ -439,6 +559,25 @@ func (q *Queries) MarkDecisionRead(ctx context.Context, arg MarkDecisionReadPara
 		&i.TouchedAt,
 	)
 	return i, err
+}
+
+const markReminded = `-- name: MarkReminded :one
+UPDATE inbox_item SET reminded_at = $1::timestamptz
+WHERE id = $2 AND workspace_id = $3 AND status = 'open' AND reminded_at IS NULL
+RETURNING card_id
+`
+
+type MarkRemindedParams struct {
+	At          time.Time `json:"at"`
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) MarkReminded(ctx context.Context, arg MarkRemindedParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, markReminded, arg.At, arg.ID, arg.WorkspaceID)
+	var card_id *uuid.UUID
+	err := row.Scan(&card_id)
+	return card_id, err
 }
 
 const setDecisionArchived = `-- name: SetDecisionArchived :exec

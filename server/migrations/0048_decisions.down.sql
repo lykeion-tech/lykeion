@@ -1,3 +1,7 @@
+DROP FUNCTION archive_stale_decisions(timestamptz);
+DROP FUNCTION due_reminders(timestamptz);
+DROP FUNCTION due_decisions(timestamptz);
+DROP INDEX inbox_item_stale;
 DROP INDEX inbox_item_due;
 DROP INDEX inbox_item_one_agent_decision;
 DELETE FROM inbox_item WHERE kind IN ('agent_decision', 'machine_offline');
