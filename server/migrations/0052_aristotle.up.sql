@@ -202,6 +202,9 @@ CREATE TABLE lab_event_delivery (
  workspace_id uuid NOT NULL,
  PRIMARY KEY (consumer,event_id)
 );
+-- Owner and SECURITY DEFINER queue operations bypass RLS; app has no direct grants.
+ALTER TABLE lab_event_delivery ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant ON lab_event_delivery USING (workspace_id = app_workspace()) WITH CHECK (workspace_id = app_workspace());
 CREATE INDEX lab_event_delivery_workspace ON lab_event_delivery(consumer,workspace_id,event_id);
 REVOKE ALL ON lab_event_consumer, lab_event_delivery FROM PUBLIC, lykeion_app;
 CREATE FUNCTION lab_enqueue_event() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -257,6 +260,9 @@ CREATE TABLE lab_fact_dirty (
  card_id uuid,
  PRIMARY KEY(consumer,id)
 );
+-- Owner and SECURITY DEFINER queue operations bypass RLS; app has no direct grants.
+ALTER TABLE lab_fact_dirty ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant ON lab_fact_dirty USING (workspace_id = app_workspace()) WITH CHECK (workspace_id = app_workspace());
 CREATE INDEX lab_fact_dirty_workspace ON lab_fact_dirty(consumer,workspace_id,id);
 REVOKE ALL ON lab_fact_dirty FROM PUBLIC,lykeion_app;
 CREATE FUNCTION lab_decision_changed() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$

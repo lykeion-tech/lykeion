@@ -142,6 +142,21 @@ func TestAristotleMigrationReversible(t *testing.T) {
 		if _, err = env.Owner.Exec(t.Context(), string(q)); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+		for _, table := range []string{"lab_event_delivery", "lab_fact_dirty"} {
+			var exists bool
+			if err := env.Owner.QueryRow(t.Context(), `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&exists); err != nil {
+				t.Fatal(err)
+			}
+			if exists != (name == "0052_aristotle.up.sql") {
+				t.Fatalf("%s after %s exists=%v", table, name, exists)
+			}
+			if exists {
+				var protected bool
+				if err := env.Owner.QueryRow(t.Context(), `SELECT relrowsecurity AND EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=c.oid) AND NOT has_table_privilege('lykeion_app',c.oid,'SELECT,INSERT,UPDATE,DELETE') FROM pg_class c WHERE oid=$1::regclass`, table).Scan(&protected); err != nil || !protected {
+					t.Fatalf("%s security after reapply=%v err=%v", table, protected, err)
+				}
+			}
+		}
 	}
 }
 
@@ -282,5 +297,74 @@ func TestAristotleFunctionsIgnoreTemporaryTables(t *testing.T) {
 	}
 	if err = env.Owner.QueryRow(ctx, `SELECT last_event_id FROM public.lab_cursor WHERE consumer='shadow'`).Scan(&last); err != nil || last != 17 {
 		t.Fatalf("public cursor not advanced: last=%d err=%v", last, err)
+	}
+}
+
+// Queue tables remain owner-only; tenant policies also protect against accidental
+// future grants. Definer helpers intentionally process work across tenants.
+func TestAristotleQueueSecurity(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	workspaces := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, ws := range workspaces {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace(id,slug,name) VALUES($1,$2,'queue')`, ws, ws.String()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO event(workspace_id,type,actor_type) VALUES($1,'queue.test','system')`, ws); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO lab_fact_dirty(consumer,workspace_id,ref) VALUES('indexer',$1,'test')`, ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, table := range []string{"lab_event_delivery", "lab_fact_dirty"} {
+		var rls, policy, granted bool
+		if err := env.Owner.QueryRow(ctx, `SELECT relrowsecurity, EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=c.oid), has_table_privilege('lykeion_app',c.oid,'SELECT,INSERT,UPDATE,DELETE') FROM pg_class c WHERE oid=$1::regclass`, table).Scan(&rls, &policy, &granted); err != nil {
+			t.Fatal(err)
+		}
+		if !rls || !policy || granted {
+			t.Fatalf("%s: RLS=%v policy=%v app grant=%v", table, rls, policy, granted)
+		}
+		for _, query := range []string{"SELECT * FROM " + table, "DELETE FROM " + table, "UPDATE " + table + " SET workspace_id=workspace_id", "INSERT INTO " + table + " SELECT * FROM " + table + " WHERE false"} {
+			_, err := env.App.Exec(ctx, query)
+			wantCode(t, err, "42501", query)
+		}
+		// Temporarily grant access inside a rolled-back owner transaction to exercise
+		// the policy independently of the stronger owner-only privilege boundary.
+		tx, err := env.Owner.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+table+" TO lykeion_app"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, "SET LOCAL ROLE lykeion_app"); err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		if err = tx.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("%s unscoped rows=%d err=%v", table, n, err)
+		}
+		if _, err = tx.Exec(ctx, `SELECT set_config('app.workspace_id',$1,true)`, workspaces[0].String()); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("%s scoped rows=%d err=%v", table, n, err)
+		}
+		_, err = tx.Exec(ctx, "UPDATE "+table+" SET workspace_id=$1", workspaces[1])
+		wantCode(t, err, "42501", table+" cross-workspace update")
+		tx.Rollback(ctx)
+	}
+	var n int
+	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM lab_pending_events('indexer',200)`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("definer event rows=%d err=%v", n, err)
+	}
+	for _, ws := range workspaces {
+		if _, err := env.App.Exec(ctx, `SELECT lab_ack_work('indexer',ARRAY(SELECT id FROM lab_pending_workspace_work('indexer',$1,200) WHERE source='event'),ARRAY(SELECT id FROM lab_pending_workspace_work('indexer',$1,200) WHERE source='dirty'))`, ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := env.Owner.QueryRow(ctx, `SELECT (SELECT count(*) FROM lab_event_delivery)+(SELECT count(*) FROM lab_fact_dirty)`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("owner remaining queue rows=%d err=%v", n, err)
 	}
 }
