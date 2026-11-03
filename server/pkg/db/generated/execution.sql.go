@@ -259,7 +259,7 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine
 `
 
 type ClaimAgentRunParams struct {
@@ -319,6 +319,7 @@ type ClaimAgentRunRow struct {
 	RetryAfter            *time.Time      `json:"retry_after"`
 	InfraFailures         int32           `json:"infra_failures"`
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 	ClaimedMachine        *string         `json:"claimed_machine"`
 }
 
@@ -380,6 +381,7 @@ func (q *Queries) ClaimAgentRun(ctx context.Context, arg ClaimAgentRunParams) (C
 		&i.RetryAfter,
 		&i.InfraFailures,
 		&i.AttachmentSnapshot,
+		&i.LabChatID,
 		&i.ClaimedMachine,
 	)
 	return i, err
@@ -434,7 +436,7 @@ func (q *Queries) DeleteRuntime(ctx context.Context, arg DeleteRuntimeParams) (i
 }
 
 const departingMemberSharedRuns = `-- name: DepartingMemberSharedRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot FROM agent_run t
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status IN ('queued', 'dispatched', 'running')
 AND t.kind <> 'coresearch'
@@ -512,6 +514,7 @@ func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMe
 			&i.RetryAfter,
 			&i.InfraFailures,
 			&i.AttachmentSnapshot,
+			&i.LabChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -526,7 +529,7 @@ func (q *Queries) DepartingMemberSharedRuns(ctx context.Context, arg DepartingMe
 const enqueueAgentRun = `-- name: EnqueueAgentRun :one
 INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment, kind)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE(NULLIF($15::text, ''), 'role'))
-RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot
+RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id
 `
 
 type EnqueueAgentRunParams struct {
@@ -616,6 +619,7 @@ func (q *Queries) EnqueueAgentRun(ctx context.Context, arg EnqueueAgentRunParams
 		&i.RetryAfter,
 		&i.InfraFailures,
 		&i.AttachmentSnapshot,
+		&i.LabChatID,
 	)
 	return i, err
 }
@@ -669,7 +673,7 @@ func (q *Queries) FinishAgentRun(ctx context.Context, arg FinishAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot FROM agent_run WHERE id = $1 AND workspace_id = $2
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id FROM agent_run WHERE id = $1 AND workspace_id = $2
 `
 
 type GetAgentRunParams struct {
@@ -730,6 +734,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, arg GetAgentRunParams) (Agent
 		&i.RetryAfter,
 		&i.InfraFailures,
 		&i.AttachmentSnapshot,
+		&i.LabChatID,
 	)
 	return i, err
 }
@@ -1063,7 +1068,7 @@ func (q *Queries) ListRuntimes(ctx context.Context, workspaceID uuid.UUID) ([]Li
 }
 
 const lockAgentRun = `-- name: LockAgentRun :one
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id FROM agent_run WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockAgentRunParams struct {
@@ -1124,6 +1129,7 @@ func (q *Queries) LockAgentRun(ctx context.Context, arg LockAgentRunParams) (Age
 		&i.RetryAfter,
 		&i.InfraFailures,
 		&i.AttachmentSnapshot,
+		&i.LabChatID,
 	)
 	return i, err
 }
@@ -1158,7 +1164,7 @@ func (q *Queries) LockAgentRunToken(ctx context.Context, arg LockAgentRunTokenPa
 }
 
 const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot FROM agent_run t
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
  AND (($2::boolean AND t.kind='coresearch') OR (NOT $2::boolean AND t.kind IN ('role','autoresearch')))
@@ -1233,6 +1239,7 @@ func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHa
 			&i.RetryAfter,
 			&i.InfraFailures,
 			&i.AttachmentSnapshot,
+			&i.LabChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -1542,7 +1549,7 @@ func (q *Queries) RoleBlobExists(ctx context.Context, arg RoleBlobExistsParams) 
 }
 
 const runtimeDependentRuns = `-- name: RuntimeDependentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, c.title AS study_title, u.name AS colleague
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, c.title AS study_title, u.name AS colleague
 FROM agent_run t
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 JOIN "user" u ON u.id = t.responsible_user_id
@@ -1610,6 +1617,7 @@ type RuntimeDependentRunsRow struct {
 	RetryAfter            *time.Time      `json:"retry_after"`
 	InfraFailures         int32           `json:"infra_failures"`
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 	StudyTitle            string          `json:"study_title"`
 	Colleague             string          `json:"colleague"`
 }
@@ -1679,6 +1687,7 @@ func (q *Queries) RuntimeDependentRuns(ctx context.Context, arg RuntimeDependent
 			&i.RetryAfter,
 			&i.InfraFailures,
 			&i.AttachmentSnapshot,
+			&i.LabChatID,
 			&i.StudyTitle,
 			&i.Colleague,
 		); err != nil {
@@ -1724,7 +1733,7 @@ func (q *Queries) RuntimeShares(ctx context.Context, arg RuntimeSharesParams) ([
 const setRunMachine = `-- name: SetRunMachine :one
 UPDATE agent_run SET machine_name = COALESCE(r.custom_name, r.device_name), machine_owner_id = r.owner_id
 FROM runtime r WHERE agent_run.id = $1 AND agent_run.workspace_id = $2 AND r.id = agent_run.runtime_id
-RETURNING agent_run.id, agent_run.workspace_id, agent_run.card_id, agent_run.responsible_user_id, agent_run.board_column, agent_run.round, agent_run.role, agent_run.harness, agent_run.prompt, agent_run.skill, agent_run.status, agent_run.queue_reason, agent_run.runtime_id, agent_run.prepare_lease_expires_at, agent_run.dispatched_at, agent_run.started_at, agent_run.completed_at, agent_run.attempt, agent_run.max_attempts, agent_run.session_id, agent_run.continuity_scope, agent_run.profile_mode, agent_run.policy_digest, agent_run.model, agent_run.error, agent_run.failure_reason, agent_run.cost_usd, agent_run.late_usage_at, agent_run.created_at, agent_run.handoff_note, agent_run.input_lease_expires_at, agent_run.input_fetch_expires_at, agent_run.input_fetch_id, agent_run.input_outcomes, agent_run.addon_hash, agent_run.addon_mcp, agent_run.kind, agent_run.requester_id, agent_run.requested_model, agent_run.agent_id, agent_run.assignment, agent_run.cancel_reason, agent_run.machine_name, agent_run.machine_owner_id, agent_run.coresearch_chat_id, agent_run.coresearch_build_id, agent_run.retry_after, agent_run.infra_failures, agent_run.attachment_snapshot
+RETURNING agent_run.id, agent_run.workspace_id, agent_run.card_id, agent_run.responsible_user_id, agent_run.board_column, agent_run.round, agent_run.role, agent_run.harness, agent_run.prompt, agent_run.skill, agent_run.status, agent_run.queue_reason, agent_run.runtime_id, agent_run.prepare_lease_expires_at, agent_run.dispatched_at, agent_run.started_at, agent_run.completed_at, agent_run.attempt, agent_run.max_attempts, agent_run.session_id, agent_run.continuity_scope, agent_run.profile_mode, agent_run.policy_digest, agent_run.model, agent_run.error, agent_run.failure_reason, agent_run.cost_usd, agent_run.late_usage_at, agent_run.created_at, agent_run.handoff_note, agent_run.input_lease_expires_at, agent_run.input_fetch_expires_at, agent_run.input_fetch_id, agent_run.input_outcomes, agent_run.addon_hash, agent_run.addon_mcp, agent_run.kind, agent_run.requester_id, agent_run.requested_model, agent_run.agent_id, agent_run.assignment, agent_run.cancel_reason, agent_run.machine_name, agent_run.machine_owner_id, agent_run.coresearch_chat_id, agent_run.coresearch_build_id, agent_run.retry_after, agent_run.infra_failures, agent_run.attachment_snapshot, agent_run.lab_chat_id
 `
 
 type SetRunMachineParams struct {
@@ -1785,6 +1794,7 @@ func (q *Queries) SetRunMachine(ctx context.Context, arg SetRunMachineParams) (A
 		&i.RetryAfter,
 		&i.InfraFailures,
 		&i.AttachmentSnapshot,
+		&i.LabChatID,
 	)
 	return i, err
 }

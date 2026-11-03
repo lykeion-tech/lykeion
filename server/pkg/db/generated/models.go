@@ -89,6 +89,7 @@ type AgentRun struct {
 	RetryAfter            *time.Time      `json:"retry_after"`
 	InfraFailures         int32           `json:"infra_failures"`
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -677,6 +678,92 @@ type InboxItem struct {
 	TouchedAt         time.Time       `json:"touched_at"`
 	QuestionSet       json.RawMessage `json:"question_set"`
 	Answers           json.RawMessage `json:"answers"`
+}
+
+type LabChat struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	Title       string    `json:"title"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type LabCursor struct {
+	Consumer    string `json:"consumer"`
+	LastEventID int64  `json:"last_event_id"`
+}
+
+type LabMessage struct {
+	ID            uuid.UUID       `json:"id"`
+	WorkspaceID   uuid.UUID       `json:"workspace_id"`
+	ChatID        uuid.UUID       `json:"chat_id"`
+	OwnerID       uuid.UUID       `json:"owner_id"`
+	Kind          string          `json:"kind"`
+	Body          string          `json:"body"`
+	Statements    json.RawMessage `json:"statements"`
+	ContextCardID *uuid.UUID      `json:"context_card_id"`
+	AgentRunID    *uuid.UUID      `json:"agent_run_id"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type LabRead struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Ref         string    `json:"ref"`
+	Via         string    `json:"via"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type Lesson struct {
+	ID             uuid.UUID       `json:"id"`
+	WorkspaceID    uuid.UUID       `json:"workspace_id"`
+	Kind           string          `json:"kind"`
+	Text           string          `json:"text"`
+	Cites          json.RawMessage `json:"cites"`
+	Studies        []uuid.UUID     `json:"studies"`
+	Generalises    bool            `json:"generalises"`
+	Status         string          `json:"status"`
+	SetAsideReason string          `json:"set_aside_reason"`
+	Model          string          `json:"model"`
+	WrittenAt      time.Time       `json:"written_at"`
+	CheckedAt      *time.Time      `json:"checked_at"`
+}
+
+type LessonCard struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+}
+
+type LessonCounter struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	LessonID    uuid.UUID `json:"lesson_id"`
+	Ref         string    `json:"ref"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type LessonFlag struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	LessonID    uuid.UUID `json:"lesson_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Reason      string    `json:"reason"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type LessonJob struct {
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      *uuid.UUID `json:"card_id"`
+	DecisionID  *uuid.UUID `json:"decision_id"`
+	LessonID    *uuid.UUID `json:"lesson_id"`
+	Triggers    []string   `json:"triggers"`
+	DueAt       time.Time  `json:"due_at"`
+	BatchID     string     `json:"batch_id"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type Member struct {
