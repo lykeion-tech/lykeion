@@ -24,8 +24,9 @@ SELECT sqlc.embed(i),
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.id = @id AND i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid);
 
+-- due_soon counts those whose reminder has gone out: they expire within a day.
 -- name: CountDecisions :one
-SELECT count(*) FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
+SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
   AND jsonb_array_length(i.options) > 0 AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
@@ -38,17 +39,20 @@ WHERE id = @id AND workspace_id = @workspace_id;
 -- name: SetDecisionKept :exec
 UPDATE inbox_item SET kept = true, touched_at = now() WHERE id = @id AND workspace_id = @workspace_id;
 
--- name: SetDecisionArchived :exec
+-- An open decision with options is answered, not archived: archiving one
+-- changes no row.
+-- name: SetDecisionArchived :execrows
 UPDATE inbox_item SET archived_at = CASE WHEN @archived::bool THEN now() ELSE NULL END, touched_at = now()
-WHERE id = @id AND workspace_id = @workspace_id;
+WHERE id = @id AND workspace_id = @workspace_id
+  AND NOT (@archived::bool AND status = 'open' AND jsonb_array_length(options) > 0);
 
 -- Reading an item that only informs also resolves and dismisses it.
 -- name: MarkDecisionRead :one
 UPDATE inbox_item SET read_at = COALESCE(read_at, now()), touched_at = now(),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
-  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND status = 'open' THEN 'dismissed' ELSE status END
+  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND status = 'open' THEN 'dismissed' ELSE status END
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND resolved_at IS NULL))
 RETURNING *;
 
 -- name: LockDecision :one

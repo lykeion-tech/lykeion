@@ -1615,8 +1615,14 @@ func tellOfflineOwners(ctx context.Context, tx *store.Tx) error {
 		if m.Queued == 1 {
 			text = fmt.Sprintf("%s is offline and a queued run waits for it. It continues once the machine is back online.", m.Machine)
 		}
-		if err := tx.Q.InsertMachineOffline(ctx, db.InsertMachineOfflineParams{WorkspaceID: tx.WS, UserID: m.OwnerID, RuntimeID: &m.ID, Text: text}); err != nil {
+		ids, err := tx.Q.InsertMachineOffline(ctx, db.InsertMachineOfflineParams{WorkspaceID: tx.WS, UserID: m.OwnerID, RuntimeID: &m.ID, Text: text})
+		if err != nil {
 			return err
+		}
+		for _, id := range ids {
+			if err := tx.Emit(ctx, "inbox.created", nil, store.System, map[string]any{"inbox_item_id": id}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

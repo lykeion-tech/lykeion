@@ -209,6 +209,40 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 	return count, err
 }
 
+const dismissMachineFailures = `-- name: DismissMachineFailures :many
+UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
+WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'needs_decision' AND cause = 'machine_failures'
+  AND resolved_at IS NULL
+RETURNING id
+`
+
+type DismissMachineFailuresParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// A redone column no longer waits on runs its machines kept failing: the
+// study's open item asking about them is dismissed.
+func (q *Queries) DismissMachineFailures(ctx context.Context, arg DismissMachineFailuresParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, dismissMachineFailures, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCardByNumber = `-- name: GetCardByNumber :one
 SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date FROM card WHERE workspace_id = $1 AND number = $2
 `
@@ -316,11 +350,12 @@ func (q *Queries) InsertInboxItem(ctx context.Context, arg InsertInboxItemParams
 	return err
 }
 
-const insertMachineOffline = `-- name: InsertMachineOffline :exec
+const insertMachineOffline = `-- name: InsertMachineOffline :many
 INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
 SELECT $1, $2, 'machine_offline', $3, $4, 'offline'
 WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND runtime_id = $4
   AND kind = 'machine_offline' AND resolved_at IS NULL)
+RETURNING id
 `
 
 type InsertMachineOfflineParams struct {
@@ -332,14 +367,29 @@ type InsertMachineOfflineParams struct {
 
 // One open offline notice per machine; there is no unique index for it, so the
 // sweep, which runs alone, checks first.
-func (q *Queries) InsertMachineOffline(ctx context.Context, arg InsertMachineOfflineParams) error {
-	_, err := q.db.Exec(ctx, insertMachineOffline,
+func (q *Queries) InsertMachineOffline(ctx context.Context, arg InsertMachineOfflineParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, insertMachineOffline,
 		arg.WorkspaceID,
 		arg.UserID,
 		arg.Text,
 		arg.RuntimeID,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const liveCardRecord = `-- name: LiveCardRecord :one
@@ -557,7 +607,7 @@ func (q *Queries) RedoCardStops(ctx context.Context, arg RedoCardStopsParams) ([
 }
 
 const resolveMachineOffline = `-- name: ResolveMachineOffline :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'machine_offline' AND resolved_at IS NULL
 `
 
@@ -572,7 +622,7 @@ func (q *Queries) ResolveMachineOffline(ctx context.Context, arg ResolveMachineO
 }
 
 const resolveMachineWaits = `-- name: ResolveMachineWaits :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
 `
 
@@ -588,7 +638,7 @@ func (q *Queries) ResolveMachineWaits(ctx context.Context, arg ResolveMachineWai
 }
 
 const resolveMachineWaitsExcept = `-- name: ResolveMachineWaitsExcept :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
   AND cause IS DISTINCT FROM $3::text
 `
@@ -605,7 +655,7 @@ func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMach
 }
 
 const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_by = user_id, decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
   AND kind = 'waiting_for_machine'
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
@@ -994,7 +1044,7 @@ INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, optio
 VALUES ($1, $2::uuid, $3, $4, $5, $6::text, $7::jsonb, $8, $9)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text, options = EXCLUDED.options, default_option = EXCLUDED.default_option,
-  expires_at = EXCLUDED.expires_at
+  expires_at = EXCLUDED.expires_at, reminded_at = NULL
 `
 
 type UpsertStopDecisionParams struct {

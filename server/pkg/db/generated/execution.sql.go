@@ -1333,6 +1333,39 @@ func (q *Queries) ParkAgentRun(ctx context.Context, arg ParkAgentRunParams) erro
 	return err
 }
 
+const parkedAgentRuns = `-- name: ParkedAgentRuns :many
+SELECT id FROM agent_run
+WHERE workspace_id = $1 AND card_id = $2::uuid AND status = 'queued' AND infra_failures >= $3
+`
+
+type ParkedAgentRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	ParkLimit   int32     `json:"park_limit"`
+}
+
+// A study's runs held after too many parks try again from a fresh count.
+// A study's runs held after too many parks, waiting for its owner.
+func (q *Queries) ParkedAgentRuns(ctx context.Context, arg ParkedAgentRunsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, parkedAgentRuns, arg.WorkspaceID, arg.CardID, arg.ParkLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const privatizeDepartingMemberRuntimes = `-- name: PrivatizeDepartingMemberRuntimes :exec
 UPDATE runtime SET visibility = 'private' WHERE workspace_id = $1 AND owner_id = $2
 `
@@ -1424,7 +1457,6 @@ type ReleaseParkedAgentRunsParams struct {
 	ParkLimit   int32     `json:"park_limit"`
 }
 
-// A study's runs held after too many parks try again from a fresh count.
 func (q *Queries) ReleaseParkedAgentRuns(ctx context.Context, arg ReleaseParkedAgentRunsParams) error {
 	_, err := q.db.Exec(ctx, releaseParkedAgentRuns, arg.WorkspaceID, arg.CardID, arg.ParkLimit)
 	return err

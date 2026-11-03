@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -52,7 +53,7 @@ func TestAnswerResumesTheSameSession(t *testing.T) {
 	}
 	q := l.runs(t, c.ID)
 	if len(q) != 1 || q[0].Role != "leader" || q[0].Scope != lead.ContinuityScope ||
-		!strings.Contains(q[0].Prompt, `The researcher answered your question "Which population?": Children — Ages 6 to 12.`) {
+		!strings.Contains(q[0].Prompt, `The researcher answered your question "Which population?": Children — Ages 6 to 12. — answered by owner@lab.org at `) {
 		t.Fatalf("the lead's next run: %+v", q)
 	}
 }
@@ -327,5 +328,154 @@ func TestStudylessItemsStayOutOfTheSweep(t *testing.T) {
 	}
 	if status, _, _, _ := l.decision(t, studyless); status != "open" {
 		t.Fatalf("the studyless item: %s", status)
+	}
+}
+
+// withHeldRun gives a held study a member's run that its machines kept
+// failing, held for its owner, and the open machine_failures decision that
+// asks about it; it returns the run and the decision.
+func (l *lab) withHeldRun(t *testing.T, c db.Card) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	var run uuid.UUID
+	l.in(t, func(tx *store.Tx) error {
+		ctx := context.Background()
+		card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: l.ws, ID: c.ID})
+		if err != nil {
+			return err
+		}
+		a, err := teamAgent(ctx, tx, l.pack.ID, l.owner, l.man.Members[0].Name)
+		if err != nil {
+			return err
+		}
+		r, err := l.e.enqueue(ctx, tx, card, l.man.Members[0].Name, &l.man, a, "still going")
+		if err != nil {
+			return err
+		}
+		run = r.ID
+		if err := tx.Q.HoldAgentRun(ctx, db.HoldAgentRunParams{WorkspaceID: l.ws, ID: run, HeldUntil: &service.HeldUntil}); err != nil {
+			return err
+		}
+		return service.HoldForDecision(ctx, tx, card, "needs_decision", "machine_failures", "kept failing", l.e.now())
+	})
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET infra_failures = 5 WHERE id = $1", run); err != nil {
+		t.Fatal(err)
+	}
+	var item uuid.UUID
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM inbox_item WHERE card_id = $1 AND cause = 'machine_failures' AND status = 'open'", c.ID).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	return run, item
+}
+
+// The owner's redo answers every stop of the study: the machine_failures
+// decision is dismissed and the old round's held run cancelled, so its
+// later expiry cannot park the study that moved on.
+func TestRedoClosesMachineFailures(t *testing.T) {
+	l := newLab(t)
+	c, _ := l.heldStudy(t)
+	run, machine := l.withHeldRun(t, c)
+	l.e.OnComment(l.ws, c.ID, l.owner, "Use the GTEx data instead.")
+	if status, _, _, _ := l.decision(t, machine); status != "dismissed" {
+		t.Fatalf("machine_failures item after the redo: %s", status)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE id = $1 AND status = 'cancelled'", run); n != 1 {
+		t.Fatal("the old round's held run was not cancelled")
+	}
+	l.due(t, machine)
+	if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.card(t, c.ID); got.State != "working" || got.BlockKind != "" {
+		t.Fatalf("after the old item's due date: %s %q", got.State, got.BlockKind)
+	}
+}
+
+// A stop whose study has moved on no longer holds it: its expiry only closes
+// the item, and answering it is refused.
+func TestStaleStopLeavesTheStudyAlone(t *testing.T) {
+	l := newLab(t)
+	c, stop := l.heldStudy(t)
+	_, machine := l.withHeldRun(t, c)
+	// The study works again, and its held run is gone, without either item
+	// being closed.
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET state = 'working', block_kind = '' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE agent_run SET status = 'cancelled' WHERE card_id = $1 AND status = 'queued'", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Decide(context.Background(), l.ws, stop, l.owner, "park", ""); !errors.Is(err, ErrNotWaiting) {
+		t.Fatalf("parking through a stale stop: %v", err)
+	}
+	if err := l.e.Decide(context.Background(), l.ws, machine, l.owner, "park", ""); !errors.Is(err, ErrNotWaiting) {
+		t.Fatalf("parking through a stale machine_failures item: %v", err)
+	}
+	l.due(t, stop)
+	l.due(t, machine)
+	if err := l.e.sweepDecisions(context.Background(), l.e.now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uuid.UUID{stop, machine} {
+		if status, _, _, _ := l.decision(t, id); status != "expired" {
+			t.Fatalf("item %s: %s", id, status)
+		}
+	}
+	if got := l.card(t, c.ID); got.State != "working" || got.BlockKind != "" || got.Ending != "" {
+		t.Fatalf("a stale stop moved the study: %s %q %q", got.State, got.BlockKind, got.Ending)
+	}
+}
+
+// An answer whose lead cannot be woken any more still closes the question,
+// and the study is held for its owner, its brief kept.
+func TestAnswerWithNoLeadHoldsTheStudy(t *testing.T) {
+	l := newLab(t)
+	c, _, item := l.askedStudy(t)
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE field_pack SET manifest = '"broken"' WHERE id = $1`, l.pack.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE card SET handoff_note = 'the brief' WHERE id = $1`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Decide(context.Background(), l.ws, item, l.owner, "children", ""); err != nil {
+		t.Fatalf("answering: %v", err)
+	}
+	if status, chosen, _, _ := l.decision(t, item); status != "decided" || chosen != "children" {
+		t.Fatalf("item: %s %s", status, chosen)
+	}
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "" || got.HandoffNote != "the brief" {
+		t.Fatalf("after the answer: %s %q note %q", got.State, got.BlockKind, got.HandoffNote)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1 AND cause = 'could_not_do' AND status = 'open'", c.ID); n != 1 {
+		t.Fatalf("%d holds for the owner", n)
+	}
+}
+
+// Asking blocks the study without losing the brief its lead was working to.
+func TestAskKeepsTheBrief(t *testing.T) {
+	l := newLab(t)
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	lead := l.latestRun(t, c.ID, "leader")
+	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE card SET handoff_note = 'the brief' WHERE id = $1`, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.askBy(t, lead, "")
+	if got := l.card(t, c.ID); got.BlockKind != "decision" || got.HandoffNote != "the brief" {
+		t.Fatalf("after the ask: %q note %q", got.BlockKind, got.HandoffNote)
+	}
+}
+
+// A stop raised again gets a fresh week, and so a fresh reminder.
+func TestRaisedAgainRemindsAgain(t *testing.T) {
+	l := newLab(t)
+	c, item := l.heldStudy(t)
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE inbox_item SET reminded_at = now() WHERE id = $1", item); err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		return holdForDecision(context.Background(), tx, c, "needs_decision", "could_not_do", "again", l.e.now())
+	})
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE id = $1 AND reminded_at IS NULL AND text = 'again'", item); n != 1 {
+		t.Fatal("the refreshed stop kept its old reminder")
 	}
 }

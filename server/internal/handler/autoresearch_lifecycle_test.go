@@ -89,8 +89,13 @@ func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range items {
-		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", other, w.ID, nil, nil); code != 404 {
+		// Another member who can see the item opens it without reading it
+		// for its addressee: a studyless one is not theirs to see at all.
+		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", other, w.ID, nil, nil); code != 204 && code != 404 {
 			t.Fatalf("other reader: %d", code)
+		}
+		if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND resolved_at IS NULL`, item.ID) != 1 {
+			t.Fatalf("another member's read resolved %s", item.Kind)
 		}
 		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
 			t.Fatal(code)
@@ -98,8 +103,12 @@ func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
 		if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND read_at IS NOT NULL AND resolved_at IS NOT NULL`, item.ID) != 1 || s.count(t, `SELECT count(*) FROM event WHERE type='inbox.resolved' AND payload->>'inbox_item_id'=$1`, item.ID) != 1 {
 			t.Errorf("unresolved %s", item.Kind)
 		}
-		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 404 {
+		// A repeated read is accepted and records nothing more.
+		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
 			t.Fatalf("repeat: %d", code)
+		}
+		if s.count(t, `SELECT count(*) FROM event WHERE type='inbox.resolved' AND payload->>'inbox_item_id'=$1`, item.ID) != 1 {
+			t.Errorf("a repeated read of %s emitted again", item.Kind)
 		}
 	}
 	if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND read_at='2000-01-01T00:00:00Z'`, items[0].ID) != 1 {

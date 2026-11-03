@@ -13,10 +13,10 @@ ALTER TABLE inbox_item
   ADD COLUMN reminded_at timestamptz,
   ADD COLUMN chosen_option text NOT NULL DEFAULT '',
   ADD COLUMN guidance text NOT NULL DEFAULT '',
-  ADD COLUMN decided_by uuid REFERENCES "user"(id),
+  ADD COLUMN decided_by uuid REFERENCES "user"(id) ON DELETE SET NULL,
   ADD COLUMN decided_at timestamptz,
   ADD COLUMN raised_by text NOT NULL DEFAULT 'system' CHECK (raised_by IN ('system', 'agent')),
-  ADD COLUMN raised_run_id uuid REFERENCES agent_run(id),
+  ADD COLUMN raised_run_id uuid REFERENCES agent_run(id) ON DELETE SET NULL,
   ADD COLUMN from_member text NOT NULL DEFAULT '',
   ADD COLUMN decision_kind text NOT NULL DEFAULT '' CHECK (decision_kind IN ('', 'scope', 'change_question', 'ethics', 'cost', 'access')),
   ADD COLUMN decide_by text NOT NULL DEFAULT '',
@@ -34,8 +34,11 @@ CREATE INDEX inbox_item_due ON inbox_item (expires_at)
 ALTER TABLE card DROP CONSTRAINT card_block_kind_check,
   ADD CONSTRAINT card_block_kind_check CHECK (block_kind IN ('', 'low_score', 'decision', 'parked'));
 
--- Resolved items are history; open stops become decisions that park the study after a week.
-UPDATE inbox_item SET status = 'decided', decided_at = resolved_at WHERE resolved_at IS NOT NULL;
+-- Resolved items are history: a resolved stop was decided, anything else
+-- dismissed. Open stops become decisions that park the study after a week.
+UPDATE inbox_item SET status = 'decided', decided_at = resolved_at
+WHERE resolved_at IS NOT NULL AND kind IN ('blocked', 'needs_decision');
+UPDATE inbox_item SET status = 'dismissed' WHERE resolved_at IS NOT NULL AND kind NOT IN ('blocked', 'needs_decision');
 
 UPDATE inbox_item SET default_option = 'park', expires_at = now() + interval '7 days',
   options = '[{"id":"redo","label":"Redo with guidance","consequence":"The column runs again with your guidance as its brief."},

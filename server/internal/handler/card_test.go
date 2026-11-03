@@ -124,8 +124,11 @@ func TestInbox(t *testing.T) {
 	if code := s.call(t, "POST", "/api/decisions/"+item.String()+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/decisions/"+item.String()+"/read", a, w.ID, nil, nil); code != 404 {
+	if code := s.call(t, "POST", "/api/decisions/"+item.String()+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read twice: %d", code)
+	}
+	if n := s.count(t, `SELECT count(*) FROM event WHERE type='inbox.read' AND payload->>'inbox_item_id'=$1`, item.String()); n != 1 {
+		t.Fatalf("%d inbox.read events after reading twice", n)
 	}
 }
 

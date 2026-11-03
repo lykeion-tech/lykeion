@@ -75,10 +75,21 @@ func TestOfflineMachineWithQueuedWorkTellsItsOwner(t *testing.T) {
 	if n, _ := f.offlineItems(t); n != 1 {
 		t.Fatalf("a second sweep left %d items", n)
 	}
+	var created int
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT count(*) FROM event WHERE workspace_id = $1 AND type = 'inbox.created'", f.WS).Scan(&created); err != nil || created != 1 {
+		t.Fatalf("inbox.created events: %d, %v", created, err)
+	}
 	if _, err := f.T.Register(ctx, f.Owner, f.WS, "d1", "laptop", []string{"claude"}, nil, agent.Platform{OS: "linux"}); err != nil {
 		t.Fatal(err)
 	}
 	if n, _ := f.offlineItems(t); n != 0 {
 		t.Fatalf("the machine coming back left %d items", n)
+	}
+	// The notice was not a choice anyone made: it is dismissed, and touched
+	// now so it ages into the archive from its end.
+	var status string
+	var fresh bool
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT status, touched_at > now() - interval '1 minute' AND touched_at > created_at FROM inbox_item WHERE kind = 'machine_offline' AND workspace_id = $1", f.WS).Scan(&status, &fresh); err != nil || status != "dismissed" || !fresh {
+		t.Fatalf("resolved notice: %s touched now %v, %v", status, fresh, err)
 	}
 }

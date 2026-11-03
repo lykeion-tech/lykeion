@@ -89,18 +89,19 @@ INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, optio
 VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text, @cause::text, @options::jsonb, @default_option, @expires_at)
 ON CONFLICT (workspace_id, card_id, cause) WHERE kind = 'needs_decision' AND resolved_at IS NULL
 DO UPDATE SET text = EXCLUDED.text, options = EXCLUDED.options, default_option = EXCLUDED.default_option,
-  expires_at = EXCLUDED.expires_at;
+  expires_at = EXCLUDED.expires_at, reminded_at = NULL;
 
 -- One open offline notice per machine; there is no unique index for it, so the
 -- sweep, which runs alone, checks first.
--- name: InsertMachineOffline :exec
+-- name: InsertMachineOffline :many
 INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
 SELECT @workspace_id, @user_id, 'machine_offline', @text, @runtime_id, 'offline'
 WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id
-  AND kind = 'machine_offline' AND resolved_at IS NULL);
+  AND kind = 'machine_offline' AND resolved_at IS NULL)
+RETURNING id;
 
 -- name: ResolveMachineOffline :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'machine_offline' AND resolved_at IS NULL;
 
 -- name: BoardCandidates :many
@@ -151,12 +152,12 @@ ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine'
 
 -- A machine's waits end when it recovers, as its offline notice does.
 -- name: ResolveMachineWaits :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
 -- A machine's wait, which its owner resolves by saying the cause is dealt with.
 -- name: ResolveOpenOwnerItem :one
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_by = user_id, decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
   AND kind = 'waiting_for_machine'
 RETURNING *;
@@ -170,8 +171,16 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND resolved_at 
   AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 RETURNING id;
 
+-- A redone column no longer waits on runs its machines kept failing: the
+-- study's open item asking about them is dismissed.
+-- name: DismissMachineFailures :many
+UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'needs_decision' AND cause = 'machine_failures'
+  AND resolved_at IS NULL
+RETURNING id;
+
 -- name: ResolveMachineWaitsExcept :exec
-UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
   AND cause IS DISTINCT FROM @keep::text;
 

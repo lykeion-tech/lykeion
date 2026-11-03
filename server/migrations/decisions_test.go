@@ -61,6 +61,8 @@ func TestOpenStopsGetOptions(t *testing.T) {
 	blocked := add("blocked", "", nil)
 	machine := add("needs_decision", "machine_failures", nil)
 	resolved := add("blocked", "", &now)
+	readDone := add("done", "", &now)
+	wait := add("waiting_for_machine", "", &now)
 	info := add("done", "", nil)
 
 	if _, err := env.Owner.Exec(ctx, string(up)); err != nil {
@@ -87,12 +89,29 @@ func TestOpenStopsGetOptions(t *testing.T) {
 			}
 		}
 	}
-	var status string
-	if err := env.Owner.QueryRow(ctx, `SELECT status FROM inbox_item WHERE id = $1`, resolved).Scan(&status); err != nil || status != "decided" {
-		t.Fatalf("resolved item: status %q, %v", status, err)
+	// Only a resolved stop was a choice someone made; every other resolved
+	// item was dismissed.
+	for id, want := range map[string]string{resolved: "decided", readDone: "dismissed", wait: "dismissed"} {
+		var status string
+		if err := env.Owner.QueryRow(ctx, `SELECT status FROM inbox_item WHERE id = $1`, id).Scan(&status); err != nil || status != want {
+			t.Fatalf("resolved item %s: status %q, want %q, %v", id, status, want, err)
+		}
 	}
 	var open bool
 	if err := env.Owner.QueryRow(ctx, `SELECT expires_at IS NULL AND status = 'open' FROM inbox_item WHERE id = $1`, info).Scan(&open); err != nil || !open {
 		t.Fatalf("informational item should stay open without expiry: %v", err)
+	}
+}
+
+func TestDecisionReferencesClearOnDelete(t *testing.T) {
+	env := testutil.Setup(t)
+	for _, col := range []string{"decided_by", "raised_run_id"} {
+		var action string
+		err := env.Owner.QueryRow(t.Context(), `SELECT c.confdeltype::text FROM pg_constraint c
+			JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+			WHERE c.conrelid = 'inbox_item'::regclass AND c.contype = 'f' AND a.attname = $1`, col).Scan(&action)
+		if err != nil || action != "n" {
+			t.Errorf("%s: on delete %q, want set null (n), %v", col, action, err)
+		}
 	}
 }

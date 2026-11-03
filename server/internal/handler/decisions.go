@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"lykeion/server/internal/flow"
@@ -44,9 +45,10 @@ func (h *H) listDecisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// countDecisions counts the open items the caller may answer now.
+// countDecisions counts the open items the caller may answer now, and how
+// many of them expire within a day.
 func (h *H) countDecisions(w http.ResponseWriter, r *http.Request) {
-	var n int64
+	var n db.CountDecisionsRow
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) (err error) {
 		n, err = tx.Q.CountDecisions(r.Context(), db.CountDecisionsParams{WorkspaceID: ws, Viewer: user, IsAdmin: agentAdmin(r)})
 		return err
@@ -55,19 +57,27 @@ func (h *H) countDecisions(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int64{"open": n})
+	writeJSON(w, http.StatusOK, map[string]int64{"open": n.Open, "due_soon": n.DueSoon})
 }
 
 // readResolves are the Inbox kinds that only inform: reading one resolves it.
-var readResolves = []string{"done", "middle_score", "no_tool", "autoresearch_card", "autoresearch_report"}
+var readResolves = []string{"done", "middle_score", "no_tool", "autoresearch_card", "autoresearch_report", "open_doubts"}
 
+// readDecision records that the item's addressee read it. Anyone else who
+// can see the item may open it too; their read changes nothing.
 func (h *H) readDecision(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
 	if !ok {
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.GetDecision(r.Context(), db.GetDecisionParams{ID: id, WorkspaceID: ws, Viewer: user, IsAdmin: agentAdmin(r)}); err != nil {
+			return err
+		}
 		item, err := tx.Q.MarkDecisionRead(r.Context(), db.MarkDecisionReadParams{ID: id, WorkspaceID: ws, UserID: user})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -85,6 +95,9 @@ func (h *H) readDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// errStillOpen is an archive of an open decision, which is answered instead.
+var errStillOpen = errors.New("an open decision is answered, not archived")
 
 // manageDecision runs a triage write on an item the caller may organise: one
 // they may answer, or one raised for them. An item they cannot see is 404.
@@ -108,6 +121,8 @@ func (h *H) manageDecision(w http.ResponseWriter, r *http.Request, write func(tx
 	switch {
 	case forbidden:
 		writeErr(w, http.StatusForbidden, "not yours to organise")
+	case errors.Is(err, errStillOpen):
+		writeErr(w, http.StatusConflict, err.Error())
 	case err != nil:
 		fail(w, r, err)
 	default:
@@ -161,7 +176,11 @@ func (h *H) reviveDecision(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) setArchived(w http.ResponseWriter, r *http.Request, archived bool) {
 	h.manageDecision(w, r, func(tx *store.Tx, ws, id uuid.UUID) error {
-		return tx.Q.SetDecisionArchived(r.Context(), db.SetDecisionArchivedParams{ID: id, WorkspaceID: ws, Archived: archived})
+		n, err := tx.Q.SetDecisionArchived(r.Context(), db.SetDecisionArchivedParams{ID: id, WorkspaceID: ws, Archived: archived})
+		if err == nil && n == 0 {
+			return errStillOpen
+		}
+		return err
 	})
 }
 

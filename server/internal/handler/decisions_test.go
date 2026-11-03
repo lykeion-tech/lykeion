@@ -151,10 +151,20 @@ func TestKeepArchiveRevive(t *testing.T) {
 	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || !got[0].Kept {
 		t.Fatalf("kept: %+v", got)
 	}
+	// An open decision is answered, not archived.
+	if code := post(a, "archive"); code != 409 {
+		t.Fatalf("archiving an open decision: %d", code)
+	}
+	var info string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'no_tool', 'x')
+		RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&info); err != nil {
+		t.Fatal(err)
+	}
+	id = info
 	if code := post(a, "archive"); code != 204 {
 		t.Fatalf("archive: %d", code)
 	}
-	if got := s.decisions(t, a, w.ID, ""); len(got) != 0 {
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].Kind != "needs_decision" {
 		t.Fatalf("archived still open: %+v", got)
 	}
 	if got := s.decisions(t, a, w.ID, "?view=history"); len(got) != 1 || got[0].ArchivedAt == nil || got[0].CanAnswer {
@@ -163,8 +173,69 @@ func TestKeepArchiveRevive(t *testing.T) {
 	if code := post(a, "revive"); code != 204 {
 		t.Fatalf("revive: %d", code)
 	}
-	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].ArchivedAt != nil || !got[0].CanAnswer {
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 2 {
 		t.Fatalf("revived: %+v", got)
+	}
+}
+
+// A member opening the owner's unread item is not its addressee: the read
+// is accepted and changes nothing.
+func TestReadingAnothersItemChangesNothing(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	c := s.idleCard(t, a, w.ID, "q")
+	id := s.seedDecision(t, w.ID, c.ID, s.userID(t, a), "stopped")
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", b, w.ID, nil, nil); code != 204 {
+		t.Fatalf("member reading the owner's item: %d", code)
+	}
+	var unread bool
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT read_at IS NULL FROM inbox_item WHERE id = $1`, id).Scan(&unread); err != nil || !unread {
+		t.Fatalf("read_at changed: unread %v, %v", unread, err)
+	}
+	var events int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE type = 'inbox.read'`).Scan(&events); err != nil || events != 0 {
+		t.Fatalf("inbox.read events: %d, %v", events, err)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("owner reading: %d", code)
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT read_at IS NULL FROM inbox_item WHERE id = $1`, id).Scan(&unread); err != nil || unread {
+		t.Fatalf("owner's read not recorded: %v", err)
+	}
+}
+
+// due_soon counts the open answerable decisions whose reminder went out.
+func TestCountsDecisionsDueSoon(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	user := s.userID(t, a)
+	s.seedDecision(t, w.ID, c.ID, user, "later")
+	soon := s.seedDecision(t, w.ID, c.ID, user, "soon")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET reminded_at = now() WHERE id = $1`, soon); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Open    int `json:"open"`
+		DueSoon int `json:"due_soon"`
+	}
+	if code := s.call(t, "GET", "/api/decisions/count", a, w.ID, nil, &out); code != 200 || out.Open != 2 || out.DueSoon != 1 {
+		t.Fatalf("count: %d %+v", code, out)
+	}
+	var rows []struct {
+		Text       string  `json:"text"`
+		RemindedAt *string `json:"reminded_at"`
+	}
+	s.call(t, "GET", "/api/decisions", a, w.ID, nil, &rows)
+	for _, r := range rows {
+		if (r.Text == "soon") != (r.RemindedAt != nil) {
+			t.Fatalf("reminded_at: %+v", rows)
+		}
 	}
 }
 
@@ -334,5 +405,25 @@ func TestDecideParkCancelsHeldRuns(t *testing.T) {
 	}
 	if queued != 0 || state != "blocked" || kind != "parked" {
 		t.Fatalf("after park: %d open runs, card %s %s", queued, state, kind)
+	}
+}
+
+// A pass with open doubts only informs: reading it resolves and dismisses it.
+func TestReadingOpenDoubtsResolvesIt(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'open_doubts', 'x')
+		RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("read: %d", code)
+	}
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND status = 'dismissed' AND resolved_at IS NOT NULL`, id); n != 1 {
+		t.Fatal("open doubts stayed open after reading")
 	}
 }

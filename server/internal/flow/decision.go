@@ -96,6 +96,15 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		if c.ID == uuid.Nil || c.Ending != "" || agent && !waitsOnQuestion(c) {
 			return ErrNotWaiting
 		}
+		if !agent {
+			held, err := heldBy(ctx, tx, c, it)
+			if err != nil {
+				return err
+			}
+			if !held {
+				return ErrNotWaiting
+			}
+		}
 		decided, err := tx.Q.DecideItem(ctx, db.DecideItemParams{ID: item, WorkspaceID: ws, ChosenOption: option, Guidance: guidance, DecidedBy: user})
 		if err != nil {
 			return err
@@ -105,8 +114,12 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		}
 		if agent {
 			err = e.resumeAfterDecision(ctx, tx, c, decided)
+			if errors.Is(err, ErrPackUnavailable) || errors.Is(err, errNoAgent) {
+				// askOwner tells the board itself.
+				return e.askOwner(ctx, tx, c, "its question was answered and its lead could not be woken: "+err.Error())
+			}
 		} else {
-			restart, cancel, err = applyOption(ctx, tx, c, user, option, guidance)
+			restart, cancel, err = e.applyOption(ctx, tx, c, user, option, guidance)
 		}
 		if err != nil || restart {
 			// redo emits card.steered itself.
@@ -123,6 +136,18 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 	return e.cancelParked(ctx, ws, user, cancel)
 }
 
+// heldBy is whether the study still waits on stop: a study blocked on its
+// stop, outside a question or a park, or for runs its machines kept failing,
+// a study that still has such runs held. A study that moved on is no longer
+// the stop's to park or close.
+func heldBy(ctx context.Context, tx *store.Tx, c db.Card, stop db.InboxItem) (bool, error) {
+	if ptrOr(stop.Cause) == "machine_failures" {
+		runs, err := service.ParkedRuns(ctx, tx, c.ID)
+		return len(runs) > 0, err
+	}
+	return c.State == "blocked" && slices.Contains([]string{"", "low_score"}, c.BlockKind), nil
+}
+
 // waitsOnQuestion is whether the study is blocked on its lead's question.
 func waitsOnQuestion(c db.Card) bool {
 	return c.State == "blocked" && c.BlockKind == "decision"
@@ -131,7 +156,7 @@ func waitsOnQuestion(c db.Card) bool {
 // applyOption applies a stop's option to its locked study, for user, or for
 // no one when the stop expired. It reports whether the column restarts and
 // which runs to cancel once the caller commits.
-func applyOption(ctx context.Context, tx *store.Tx, c db.Card, user uuid.UUID, option, guidance string) (bool, []uuid.UUID, error) {
+func (e *Engine) applyOption(ctx context.Context, tx *store.Tx, c db.Card, user uuid.UUID, option, guidance string) (bool, []uuid.UUID, error) {
 	actor := store.System
 	if user != uuid.Nil {
 		actor = store.User(user)
@@ -139,7 +164,7 @@ func applyOption(ctx context.Context, tx *store.Tx, c db.Card, user uuid.UUID, o
 	switch option {
 	case "redo":
 		// redo emits card.steered itself.
-		restart, err := redo(ctx, tx, c, user, guidance)
+		restart, err := e.redo(ctx, tx, c, user, guidance)
 		if err == nil && !restart {
 			err = ErrNotWaiting
 		}
@@ -220,6 +245,17 @@ func (e *Engine) resumeAfterDecision(ctx context.Context, tx *store.Tx, c db.Car
 		note = "The researcher answered your question \"" + title + "\": " + label
 		if item.Guidance != "" {
 			note += " — " + item.Guidance
+		}
+		if item.DecidedBy != nil && item.DecidedAt != nil {
+			u, err := tx.Q.GetUser(ctx, *item.DecidedBy)
+			if err != nil {
+				return err
+			}
+			who := u.Name
+			if who == "" {
+				who = u.Email
+			}
+			note += " — answered by " + who + " at " + item.DecidedAt.UTC().Format(time.RFC3339)
 		}
 	}
 	// Who resumes is read before anything is written, so a lead that cannot
@@ -321,8 +357,12 @@ func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time
 				return e.askOwner(ctx, tx, c, "its question expired and its lead could not be woken: "+err.Error())
 			}
 		case it.DefaultOption != "":
+			held, herr := heldBy(ctx, tx, c, it)
+			if herr != nil || !held {
+				return herr
+			}
 			var cancel []uuid.UUID
-			if _, cancel, err = applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, ""); err != nil {
+			if _, cancel, err = e.applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, ""); err != nil {
 				return err
 			}
 			// No one chose the default, so its runs are cancelled here, as
@@ -441,7 +481,7 @@ func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card
 		return err
 	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
-		BlockKind: "decision", Round: c.Round, Redos: c.Redos}); err != nil {
+		BlockKind: "decision", Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
 	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {

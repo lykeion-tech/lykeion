@@ -234,7 +234,7 @@ type handInBody struct {
 // owner's comment restarts the column through unblock.
 func (e *Engine) askOwner(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
-		Round: c.Round, Redos: c.Redos}); err != nil {
+		Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
 	if err := holdForDecision(ctx, tx, c, "needs_decision", "could_not_do", couldNotDoText(c.Number, reason), e.now()); err != nil {
@@ -296,7 +296,7 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 		if err != nil {
 			return err
 		}
-		restart, err = unblock(ctx, tx, c, author, body)
+		restart, err = e.unblock(ctx, tx, c, author, body)
 		return err
 	})
 	if err == nil && restart {

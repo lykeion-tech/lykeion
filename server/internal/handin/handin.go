@@ -169,8 +169,12 @@ var ObjectionTypes = []string{"wrong_test", "leakage", "unit_mismatch", "missing
 // DecisionKinds are the questions an agent may put to the researcher.
 var DecisionKinds = []string{"scope", "change_question", "ethics", "cost", "access"}
 
-// MaxDecisionWait is how far ahead an agent may set its decision's expiry.
-const MaxDecisionWait = 30 * 24 * time.Hour
+// MinDecisionWait and MaxDecisionWait bound how far ahead an agent may set
+// its decision's expiry.
+const (
+	MinDecisionWait = time.Hour
+	MaxDecisionWait = 30 * 24 * time.Hour
+)
 
 // OptionIn is one answer an agent offers the researcher.
 type OptionIn struct {
@@ -268,7 +272,13 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 			probs = append(probs, fmt.Sprintf(format, a...))
 		}
 	}
-	add(slices.Contains([]string{"done", "could_not_do", "ask"}, h.Status), "status: must be done, could_not_do or ask")
+	// The auditor, the objector and Autoresearch work alone, with no lead to
+	// ask for them, so they never ask.
+	if slices.Contains([]Kind{Auditor, Objector, Autoresearch}, k) {
+		add(h.Status == "done" || h.Status == "could_not_do", "status: must be done or could_not_do")
+	} else {
+		add(slices.Contains([]string{"done", "could_not_do", "ask"}, h.Status), "status: must be done, could_not_do or ask")
+	}
 	add(within(h.Answer, 8000), "answer: say what you did, 1 to 8000 characters")
 	add(h.Status != "could_not_do" || strings.TrimSpace(deref(h.Reason)) != "", "reason: say what blocked the work")
 	add(h.Status != "ask" || h.Decision != nil, "decision: an ask needs a decision")
@@ -288,7 +298,7 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		}
 		if e := d.ExpiresAt; e != nil {
 			now := time.Now()
-			add(e.After(now) && !e.After(now.Add(MaxDecisionWait)), "decision: expires_at must be after now and at most 30 days ahead")
+			add(!e.Before(now.Add(MinDecisionWait)) && !e.After(now.Add(MaxDecisionWait)), "decision: expires_at must be at least 1 hour and at most 30 days ahead")
 		}
 		add(d.FromMember == nil || strings.TrimSpace(*d.FromMember) != "", "decision: from_member must name a Team member, or be null")
 	}

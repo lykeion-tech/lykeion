@@ -57,7 +57,7 @@ func (q *Queries) CancelCardDecisions(ctx context.Context, arg CancelCardDecisio
 }
 
 const countDecisions = `-- name: CountDecisions :one
-SELECT count(*) FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
+SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $1 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
   AND jsonb_array_length(i.options) > 0 AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
@@ -70,11 +70,17 @@ type CountDecisionsParams struct {
 	IsAdmin     bool      `json:"is_admin"`
 }
 
-func (q *Queries) CountDecisions(ctx context.Context, arg CountDecisionsParams) (int64, error) {
+type CountDecisionsRow struct {
+	Open    int64 `json:"open"`
+	DueSoon int64 `json:"due_soon"`
+}
+
+// due_soon counts those whose reminder has gone out: they expire within a day.
+func (q *Queries) CountDecisions(ctx context.Context, arg CountDecisionsParams) (CountDecisionsRow, error) {
 	row := q.db.QueryRow(ctx, countDecisions, arg.WorkspaceID, arg.Viewer, arg.IsAdmin)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+	var i CountDecisionsRow
+	err := row.Scan(&i.Open, &i.DueSoon)
+	return i, err
 }
 
 const decideItem = `-- name: DecideItem :one
@@ -508,10 +514,10 @@ func (q *Queries) LockDecision(ctx context.Context, arg LockDecisionParams) (Inb
 
 const markDecisionRead = `-- name: MarkDecisionRead :one
 UPDATE inbox_item SET read_at = COALESCE(read_at, now()), touched_at = now(),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
-  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND status = 'open' THEN 'dismissed' ELSE status END
+  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND status = 'open' THEN 'dismissed' ELSE status END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND resolved_at IS NULL))
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
 `
 
@@ -580,9 +586,10 @@ func (q *Queries) MarkReminded(ctx context.Context, arg MarkRemindedParams) (*uu
 	return card_id, err
 }
 
-const setDecisionArchived = `-- name: SetDecisionArchived :exec
+const setDecisionArchived = `-- name: SetDecisionArchived :execrows
 UPDATE inbox_item SET archived_at = CASE WHEN $1::bool THEN now() ELSE NULL END, touched_at = now()
 WHERE id = $2 AND workspace_id = $3
+  AND NOT ($1::bool AND status = 'open' AND jsonb_array_length(options) > 0)
 `
 
 type SetDecisionArchivedParams struct {
@@ -591,9 +598,14 @@ type SetDecisionArchivedParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 }
 
-func (q *Queries) SetDecisionArchived(ctx context.Context, arg SetDecisionArchivedParams) error {
-	_, err := q.db.Exec(ctx, setDecisionArchived, arg.Archived, arg.ID, arg.WorkspaceID)
-	return err
+// An open decision with options is answered, not archived: archiving one
+// changes no row.
+func (q *Queries) SetDecisionArchived(ctx context.Context, arg SetDecisionArchivedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setDecisionArchived, arg.Archived, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setDecisionKept = `-- name: SetDecisionKept :exec

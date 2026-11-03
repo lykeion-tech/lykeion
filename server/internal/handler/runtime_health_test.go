@@ -130,6 +130,10 @@ func TestHealthRouteKeepsAFenceBreach(t *testing.T) {
 	if reason, fence, _ := state(); reason != nil || fence != 0 {
 		t.Fatalf("resolving the breach left: %v %d", reason, fence)
 	}
+	// Resolving a wait chooses no option: it is dismissed, by no one.
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND status = 'dismissed' AND decided_by IS NULL`, item); n != 1 {
+		t.Fatal("a resolved wait is not dismissed")
+	}
 	// A resolved item can't clear a newer breach, nor can another member.
 	breach()
 	if code := s.call(t, "POST", "/api/decisions/"+old+"/resolve", a, w.ID, nil, nil); code != 404 {

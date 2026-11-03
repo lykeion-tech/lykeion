@@ -59,9 +59,11 @@ func TestAskProblems(t *testing.T) {
 		{"31 days", ask(t, func(d map[string]any) {
 			d["expires_at"] = time.Now().Add(31 * 24 * time.Hour).UTC().Format(time.RFC3339)
 		}),
-			"decision: expires_at must be after now and at most 30 days ahead"},
+			"decision: expires_at must be at least 1 hour and at most 30 days ahead"},
 		{"past", ask(t, func(d map[string]any) { d["expires_at"] = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339) }),
-			"decision: expires_at must be after now and at most 30 days ahead"},
+			"decision: expires_at must be at least 1 hour and at most 30 days ahead"},
+		{"in ten minutes", ask(t, func(d map[string]any) { d["expires_at"] = time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339) }),
+			"decision: expires_at must be at least 1 hour and at most 30 days ahead"},
 		{"no title", ask(t, func(d map[string]any) { d["title"] = "" }), "decision: title must be one line of 1 to 200 characters"},
 		{"blank member", ask(t, func(d map[string]any) { d["from_member"] = " " }), "decision: from_member must name a Team member, or be null"},
 		{"no body", ask(t, func(d map[string]any) { d["body"] = "" }), "decision: body must be 1 to 4000 characters"},
@@ -78,6 +80,24 @@ func TestEveryKindAcceptsADecision(t *testing.T) {
 	for _, k := range []Kind{Grounding, Hypotheses, Experimentation, Auditor, Autoresearch, Validation, Objector} {
 		if !strings.Contains(Schema(k), `"decision"`) {
 			t.Errorf("%s: the schema has no decision", k)
+		}
+	}
+}
+
+// Only a column's lead asks the researcher: the auditor, the objector and
+// Autoresearch hand in done or could_not_do.
+func TestOnlyLeadsAsk(t *testing.T) {
+	var full map[string]any
+	if err := json.Unmarshal(ask(t, nil), &full); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"status": "ask", "answer": "x", "reason": nil, "decision": full["decision"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []Kind{Auditor, Objector, Autoresearch} {
+		if _, probs := Parse(k, raw); !slices.Contains(probs, "status: must be done or could_not_do") {
+			t.Errorf("%s: problems %q", k, probs)
 		}
 	}
 }

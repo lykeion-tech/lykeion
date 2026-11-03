@@ -640,7 +640,7 @@ func (e *Engine) routeBack(ctx context.Context, tx *store.Tx, c db.Card, column,
 // comment restarts Validation through unblock.
 func (e *Engine) holdInvalid(ctx context.Context, tx *store.Tx, c db.Card, invalid []string) error {
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
-		Round: c.Round, Redos: c.Redos}); err != nil {
+		Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
 	if err := holdForDecision(ctx, tx, c, "needs_decision", "validation_invalid", validationInvalidText(c.Number, invalid), e.now()); err != nil {

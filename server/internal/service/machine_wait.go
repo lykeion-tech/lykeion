@@ -67,6 +67,12 @@ func holdForOwner(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, de
 	return tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID})
 }
 
+// ParkedRuns are a study's runs held after too many parks, waiting for its
+// owner.
+func ParkedRuns(ctx context.Context, tx *store.Tx, card uuid.UUID) ([]uuid.UUID, error) {
+	return tx.Q.ParkedAgentRuns(ctx, db.ParkedAgentRunsParams{WorkspaceID: tx.WS, CardID: card, ParkLimit: parkLimit})
+}
+
 // ReleaseParkedRuns lets a study's runs held after too many parks try again,
 // from a fresh count, once their owner resolved the item that asked.
 func ReleaseParkedRuns(ctx context.Context, tx *store.Tx, card uuid.UUID) error {
