@@ -166,7 +166,7 @@ func TestCardAssociationsCannotCrossWorkspaces(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, query string }{
 		{"comment", `INSERT INTO comment (workspace_id, card_id, author_id, body) VALUES ($1, $2, $3, 'body')`},
-		{"inbox_item", `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'released', 'text')`},
+		{"inbox_item", `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'blocked', 'text')`},
 		{"event", `INSERT INTO event (workspace_id, card_id, actor_id, type, actor_type) VALUES ($1, $2, $3, 'card.created', 'user')`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

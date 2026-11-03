@@ -9,7 +9,7 @@ import (
 	"lykeion/server/internal/testutil"
 )
 
-var coreInboxKinds = []string{"escalated", "released", "middle_score", "blocked", "done"}
+var coreInboxKinds = []string{"middle_score", "blocked", "done"}
 
 func TestScientificCore(t *testing.T) {
 	env := testutil.Setup(t)

@@ -512,7 +512,7 @@ const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now()
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
   AND (kind = 'waiting_for_machine' OR kind = 'needs_decision' AND cause = 'machine_failures')
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
 `
 
 type ResolveOpenOwnerItemParams struct {
@@ -539,6 +539,25 @@ func (q *Queries) ResolveOpenOwnerItem(ctx context.Context, arg ResolveOpenOwner
 		&i.AutoresearchRunID,
 		&i.RuntimeID,
 		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
 	)
 	return i, err
 }
@@ -590,7 +609,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -664,6 +683,7 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.CoresearchBuildID,
 			&i.RetryAfter,
 			&i.InfraFailures,
+			&i.AttachmentSnapshot,
 		); err != nil {
 			return nil, err
 		}
