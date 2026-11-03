@@ -101,12 +101,19 @@ func (t *Tx) NextLessonWorkspace(ctx context.Context, after uuid.UUID) (uuid.UUI
 	}
 	return ws, err
 }
-func (t *Tx) ActiveLessonPage(ctx context.Context, after uuid.UUID) ([]LessonCites, error) {
-	rows, err := t.raw.Query(ctx, `SELECT id,cites FROM lesson WHERE workspace_id=$1 AND status='active' AND id>$2 ORDER BY id LIMIT 16 FOR UPDATE`, t.WS, after)
+func (t *Tx) ActiveLessonPage(ctx context.Context) ([]LessonCites, error) {
+	rows, err := t.raw.Query(ctx, `SELECT id,cites FROM lesson WHERE workspace_id=$1 AND status='active' ORDER BY swept_at NULLS FIRST,id LIMIT 16 FOR UPDATE NOWAIT`, t.WS)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[LessonCites])
+}
+func (t *Tx) MarkLessonsSwept(ctx context.Context, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := t.raw.Exec(ctx, `UPDATE lesson SET swept_at=now() WHERE workspace_id=$1 AND id=ANY($2) AND status='active'`, t.WS, ids)
+	return err
 }
 func (t *Tx) SetAsideChangedLesson(ctx context.Context, id uuid.UUID) error {
 	_, err := t.raw.Exec(ctx, `WITH changed AS (

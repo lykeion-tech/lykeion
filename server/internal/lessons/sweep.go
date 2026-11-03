@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,24 +15,25 @@ import (
 // Sweep rechecks a bounded page, even without a corresponding event. Version
 // uses the same shared projection as the immediate lesson read guard.
 func (x *Triggers) Sweep(ctx context.Context) error {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	ws, after := x.sweepWorkspace, x.sweepLesson
+	x.sweepMu.Lock()
+	defer x.sweepMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var ws uuid.UUID
 	err := x.Store.Maintenance(ctx, func(tx *store.Tx) error {
-		if after == uuid.Nil {
-			var err error
-			ws, err = tx.NextLessonWorkspace(ctx, ws)
-			if err != nil || ws == uuid.Nil {
-				return err
-			}
+		var err error
+		ws, err = tx.NextLessonWorkspace(ctx, x.sweepWorkspace)
+		if err != nil || ws == uuid.Nil {
+			return err
 		}
 		if err := tx.Workspace(ctx, ws); err != nil {
 			return err
 		}
-		page, err := tx.ActiveLessonPage(ctx, after)
+		page, err := tx.ActiveLessonPage(ctx)
 		if err != nil {
 			return err
 		}
+		fresh := make([]uuid.UUID, 0, len(page))
 		for _, l := range page {
 			var cites []labmemory.Citation
 			stale := json.Unmarshal(l.Cites, &cites) != nil || len(cites) == 0
@@ -54,17 +56,16 @@ func (x *Triggers) Sweep(ctx context.Context) error {
 				if err := tx.SetAsideChangedLesson(ctx, l.ID); err != nil {
 					return err
 				}
+			} else {
+				fresh = append(fresh, l.ID)
 			}
-			after = l.ID
 		}
-		if len(page) < 16 {
-			after = uuid.Nil
-		}
-		return nil
+		return tx.MarkLessonsSwept(ctx, fresh)
 	})
-	if err == nil {
+	// Only schedule by workspace. Failed checks roll back, so that page
+	// remains the oldest in its workspace and is retried on the next visit.
+	if ws != uuid.Nil {
 		x.sweepWorkspace = ws
-		x.sweepLesson = after
 	}
 	return err
 }

@@ -392,7 +392,11 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION lab_seed_lesson_card() FROM PUBLIC;
 CREATE TRIGGER lab_seed_lesson_card AFTER INSERT ON card FOR EACH ROW EXECUTE FUNCTION lab_seed_lesson_card();
-CREATE INDEX lesson_active_sweep ON lesson(workspace_id,id) WHERE status='active';
+-- Each workspace visits never-checked lessons first, then its oldest checks.
+-- Updating this timestamp and all rewrites in one transaction preserves a
+-- failed page for the next visit even if the server restarts.
+ALTER TABLE lesson ADD COLUMN swept_at timestamptz;
+CREATE INDEX lesson_active_sweep ON lesson(workspace_id,swept_at NULLS FIRST,id) WHERE status='active';
 CREATE INDEX lesson_card_queued ON lesson_job(workspace_id,card_id,created_at,id)
  WHERE status='queued' AND batch_id='' AND lesson_id IS NULL;
 -- Skip empty workspaces; the global scheduler sees only the next tenant ID.

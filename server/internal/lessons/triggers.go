@@ -17,13 +17,15 @@ type Triggers struct {
 	Store *store.Store
 	Now   func() time.Time
 
-	mu                                         sync.Mutex
-	lastWorkspace, sweepWorkspace, sweepLesson uuid.UUID
+	tickMu, sweepMu               sync.Mutex
+	lastWorkspace, sweepWorkspace uuid.UUID
 }
 
 func (x *Triggers) Tick(ctx context.Context) error {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.tickMu.Lock()
+	defer x.tickMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	now := time.Now()
 	if x.Now != nil {
 		now = x.Now()

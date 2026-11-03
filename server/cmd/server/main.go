@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -282,27 +283,28 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	defer func() { stopSweep(); <-sweepDone }()
 	if h.LessonWritesEnabled {
 		lessonCtx, stopLessons := context.WithCancel(ctx)
-		lessonsDone := make(chan struct{})
+		var lessonWorkers sync.WaitGroup
 		triggers := &lessons.Triggers{Store: st}
-		go func() {
-			defer close(lessonsDone)
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-lessonCtx.Done():
-					return
-				case <-ticker.C:
+		for _, worker := range []struct {
+			name string
+			tick func(context.Context) error
+		}{{"lesson triggers", triggers.Tick}, {"lesson sweep", triggers.Sweep}} {
+			lessonWorkers.Go(func() {
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-lessonCtx.Done():
+						return
+					case <-ticker.C:
+					}
+					if err := worker.tick(lessonCtx); err != nil && lessonCtx.Err() == nil {
+						slog.Warn(worker.name+" failed; will retry", "err", err)
+					}
 				}
-				if err := triggers.Tick(lessonCtx); err != nil && lessonCtx.Err() == nil {
-					slog.Warn("lesson triggers failed; will retry", "err", err)
-				}
-				if err := triggers.Sweep(lessonCtx); err != nil && lessonCtx.Err() == nil {
-					slog.Warn("lesson sweep failed; will retry", "err", err)
-				}
-			}
-		}()
-		defer func() { stopLessons(); <-lessonsDone }()
+			})
+		}
+		defer func() { stopLessons(); lessonWorkers.Wait() }()
 	}
 	attachCtx, stopAttach := context.WithCancel(ctx)
 	attachDone := make(chan struct{})

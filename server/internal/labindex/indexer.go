@@ -343,6 +343,25 @@ func (x *Indexer) step(ctx context.Context, w *indexWork) (bool, error) {
 			} else if err := x.Index.rdb.SAdd(ctx, membersKey(w.WS), r.String()).Err(); err != nil {
 				return false, err
 			}
+			if r.Kind == "study" {
+				var question string
+				err := x.Store.Maintenance(ctx, func(tx *store.Tx) error {
+					if err := tx.Workspace(ctx, w.WS); err != nil {
+						return err
+					}
+					var err error
+					question, err = tx.LessonQuestion(ctx, r.ID)
+					return err
+				})
+				if err != nil {
+					return false, err
+				}
+				// The maintenance transaction has released its connection before TEI.
+				if err := x.Index.updateStudyVector(ctx, w.WS, r, question); err != nil {
+					return false, err
+				}
+			}
+
 			w.After = s
 		}
 		budget -= n

@@ -4,6 +4,7 @@ package labindex
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -25,11 +26,14 @@ type Index struct {
 
 func New(rdb *redis.Client, e embed.Embedder, model string) *Index { return &Index{rdb, e, model} }
 func (i *Index) Ensure(ctx context.Context) error {
-	err := i.rdb.Do(ctx, "FT.CREATE", "idx:lab", "ON", "HASH", "PREFIX", 1, "lab:", "SCHEMA", "workspace", "TAG", "kind", "TAG", "model", "TAG", "embedding", "VECTOR", "FLAT", 6, "TYPE", "FLOAT32", "DIM", embed.Dimensions, "DISTANCE_METRIC", "COSINE").Err()
+	args := []any{"FT.CREATE", "idx:lab", "ON", "HASH", "PREFIX", 1, "lab:", "SCHEMA", "workspace", "TAG", "kind", "TAG", "model", "TAG"}
+	args = append(args, vectorSchema("embedding")...)
+	args = append(args, vectorSchema("study_embedding")...)
+	err := i.rdb.Do(ctx, args...).Err()
 	if err != nil {
 		s := strings.ToLower(err.Error())
 		if strings.Contains(s, "index already exists") {
-			return i.validateSchema(ctx)
+			return i.validateSchema(ctx, true)
 		}
 		if strings.Contains(s, "unknown command") {
 			return ErrUnavailable
@@ -38,8 +42,12 @@ func (i *Index) Ensure(ctx context.Context) error {
 	return err
 }
 
-// Never accept an unrelated or obsolete index under the shared index name.
-func (i *Index) validateSchema(ctx context.Context) error {
+func vectorSchema(field string) []any {
+	return []any{field, "VECTOR", "FLAT", 6, "TYPE", "FLOAT32", "DIM", embed.Dimensions, "DISTANCE_METRIC", "COSINE"}
+}
+
+// Accept a compatible existing fact index and upgrade its study field in place.
+func (i *Index) validateSchema(ctx context.Context, upgrade bool) error {
 	info, err := i.rdb.FTInfo(ctx, "idx:lab").Result()
 	if err != nil {
 		return fmt.Errorf("inspect lab search schema: %w", err)
@@ -58,9 +66,21 @@ func (i *Index) validateSchema(ctx context.Context) error {
 			return incompatible
 		}
 	}
-	a, ok := fields["embedding"]
-	if !ok || a.Identifier != "embedding" || a.Type != "VECTOR" || a.Algorithm != "FLAT" || a.DataType != "FLOAT32" || a.Dim != embed.Dimensions || a.DistanceMetric != "COSINE" || a.NoIndex {
-		return incompatible
+	for _, name := range []string{"embedding", "study_embedding"} {
+		a, ok := fields[name]
+		if !ok && name == "study_embedding" && upgrade {
+			// A previous installation already holds ordinary fact vectors. Add the
+			// optional study field in-place; a concurrent upgrader may install it first.
+			args := append([]any{"FT.ALTER", "idx:lab", "SCHEMA", "ADD"}, vectorSchema(name)...)
+			alterErr := i.rdb.Do(ctx, args...).Err()
+			if err := i.validateSchema(ctx, false); err != nil {
+				return errors.Join(alterErr, err)
+			}
+			return nil
+		}
+		if !ok || a.Identifier != name || a.Type != "VECTOR" || a.Algorithm != "FLAT" || a.DataType != "FLOAT32" || a.Dim != embed.Dimensions || a.DistanceMetric != "COSINE" || a.NoIndex {
+			return incompatible
+		}
 	}
 	return nil
 }
@@ -100,13 +120,46 @@ func (i *Index) PutVersion(ctx context.Context, ws uuid.UUID, r labmemory.Ref, v
 	if err != nil {
 		return err
 	}
+	// The model tag scopes both vectors. Clear the secondary field on each
+	// ordinary rewrite so no stale study vector can be exposed under a new tag.
 	_, err = i.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		if r.Kind == "study" {
+			p.HDel(ctx, key(ws, r), "study_revision", "study_embedding")
+		}
 		p.HSet(ctx, key(ws, r), "workspace", ws.String(), "kind", r.Kind, "model", i.model, "ref", r.String(), "version", version, "embedding", b)
 		p.SAdd(ctx, membersKey(ws), r.String())
 		return nil
 	})
 	return err
 }
+
+// The dedicated field lives on the same indexed hash as the ordinary study
+// vector, so deletion and orphan cleanup remove both. Its fingerprint tracks
+// the actual text (and model), independent of the shared fact version.
+func (i *Index) updateStudyVector(ctx context.Context, ws uuid.UUID, r labmemory.Ref, text string) error {
+	k := key(ws, r)
+	revision := fmt.Sprintf("%x", sha256.Sum256([]byte(i.model+"\x00"+text)))
+	old, err := i.rdb.HGet(ctx, k, "study_revision").Result()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	if old == revision {
+		return nil
+	}
+	v, err := i.e.Embed(ctx, []string{text}, false)
+	if err != nil {
+		return err
+	}
+	if len(v) != 1 {
+		return errors.New("invalid study embedding count")
+	}
+	b, err := vector(v[0])
+	if err != nil {
+		return err
+	}
+	return i.rdb.HSet(ctx, k, "study_embedding", b, "study_revision", revision).Err()
+}
+
 func (i *Index) Delete(ctx context.Context, ws uuid.UUID, r labmemory.Ref) error {
 	_, err := i.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		p.Del(ctx, key(ws, r))
@@ -169,7 +222,7 @@ func (i *Index) VisitStudyCandidates(ctx context.Context, ws uuid.UUID, q string
 		return err
 	}
 	const page = 32
-	query := fmt.Sprintf("(@workspace:{%s} @model:{%s} @kind:{study} @embedding:[VECTOR_RANGE 2.01 $BLOB]=>{$YIELD_DISTANCE_AS: dist})", tag(ws.String()), tag(i.model))
+	query := fmt.Sprintf("(@workspace:{%s} @model:{%s} @kind:{study} @study_embedding:[VECTOR_RANGE 2.01 $BLOB]=>{$YIELD_DISTANCE_AS: dist})", tag(ws.String()), tag(i.model))
 	for offset := 0; ; offset += page {
 		raw, err := i.rdb.Do(ctx, "FT.SEARCH", "idx:lab", query, "PARAMS", 2, "BLOB", b, "SORTBY", "dist", "ASC", "RETURN", 2, "ref", "workspace", "LIMIT", offset, page, "DIALECT", 2).Result()
 		if err != nil {

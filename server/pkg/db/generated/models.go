@@ -756,12 +756,14 @@ type Lesson struct {
 	Model          string          `json:"model"`
 	WrittenAt      time.Time       `json:"written_at"`
 	CheckedAt      *time.Time      `json:"checked_at"`
+	SweptAt        *time.Time      `json:"swept_at"`
 }
 
 type LessonCard struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	CardID      uuid.UUID `json:"card_id"`
 	BoardColumn string    `json:"board_column"`
+	BoardState  string    `json:"board_state"`
 }
 
 type LessonCounter struct {
