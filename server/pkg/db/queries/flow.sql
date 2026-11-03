@@ -37,8 +37,9 @@ SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id =
   AND kind = 'no_tool' AND resolved_at IS NULL
   AND substr(text, strpos(text, 'what it needed: ') + length('what it needed: ')) = @need::text;
 
+-- The study's open items of a kind whose cause went away are dismissed.
 -- name: ResolveCardInboxKind :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind AND resolved_at IS NULL
 RETURNING id;
 

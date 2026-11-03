@@ -794,9 +794,9 @@ func bookkeeping(kind string) bool {
 }
 
 // unblock restarts the column of a blocked study when its owner comments,
-// as redo does.
+// as redo does; any member's comment reopens a parked study.
 func unblock(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, comment string) (bool, error) {
-	if author != c.OwnerID {
+	if author != c.OwnerID && c.BlockKind != "parked" {
 		return false, nil
 	}
 	return redo(ctx, tx, c, author, comment)
@@ -823,18 +823,13 @@ func redo(ctx context.Context, tx *store.Tx, c db.Card, author uuid.UUID, commen
 		Round: c.Round + 1, Redos: c.Redos, HandoffNote: note}); err != nil {
 		return false, err
 	}
-	if err := resolveInbox(ctx, tx, c.ID, "blocked"); err != nil {
+	ids, err := tx.Q.RedoCardStops(ctx, db.RedoCardStopsParams{WorkspaceID: tx.WS, CardID: c.ID, Guidance: comment, DecidedBy: author})
+	if err != nil {
 		return false, err
 	}
-	for _, cause := range []string{"could_not_do", "all_withdrawn", "validation_invalid"} {
-		ids, err := tx.Q.ResolveCardDecision(ctx, db.ResolveCardDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, Cause: cause})
-		if err != nil {
+	for _, id := range ids {
+		if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.User(author), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return false, err
-		}
-		for _, id := range ids {
-			if err := tx.Emit(ctx, "inbox.resolved", &c.ID, store.System, map[string]string{"inbox_item_id": id.String()}); err != nil {
-				return false, err
-			}
 		}
 	}
 	return true, tx.Emit(ctx, "card.steered", &c.ID, store.User(author), map[string]any{"column": c.BoardColumn, "state": board.Working})

@@ -60,7 +60,7 @@ func holdForOwner(ctx context.Context, tx *store.Tx, run db.AgentRun, reason, de
 	if detail != "" {
 		text += " (" + detail + ")"
 	}
-	text += ". Resolve this item to try again."
+	text += ". Choose Try again or Park."
 	if err := HoldForDecision(ctx, tx, c, "needs_decision", "machine_failures", text, time.Now()); err != nil {
 		return err
 	}

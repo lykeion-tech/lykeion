@@ -733,7 +733,7 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 }
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id
 `
@@ -744,7 +744,7 @@ type ResolveCardInboxParams struct {
 }
 
 // A stopped study needs nothing more from anyone: its open items asking for
-// a person are resolved, whoever they were addressed to.
+// a person are resolved and cancelled, whoever they were addressed to.
 func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, resolveCardInbox, arg.WorkspaceID, arg.CardID)
 	if err != nil {

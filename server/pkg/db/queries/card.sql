@@ -71,9 +71,9 @@ SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_i
 ORDER BY created_at, id;
 
 -- A stopped study needs nothing more from anyone: its open items asking for
--- a person are resolved, whoever they were addressed to.
+-- a person are resolved and cancelled, whoever they were addressed to.
 -- name: ResolveCardInbox :many
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 

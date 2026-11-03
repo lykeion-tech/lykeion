@@ -514,21 +514,30 @@ func (q *Queries) OfflineRuntimesWithQueuedRuns(ctx context.Context, workspaceID
 	return items, nil
 }
 
-const resolveCardDecision = `-- name: ResolveCardDecision :many
-UPDATE inbox_item SET resolved_at = now()
-WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'needs_decision' AND cause = $3::text
-  AND resolved_at IS NULL
+const redoCardStops = `-- name: RedoCardStops :many
+UPDATE inbox_item SET status = 'decided', chosen_option = 'redo', guidance = $1, decided_by = $2::uuid,
+  decided_at = now(), resolved_at = now(), touched_at = now()
+WHERE workspace_id = $3 AND card_id = $4::uuid AND resolved_at IS NULL
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 RETURNING id
 `
 
-type ResolveCardDecisionParams struct {
+type RedoCardStopsParams struct {
+	Guidance    string    `json:"guidance"`
+	DecidedBy   uuid.UUID `json:"decided_by"`
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	CardID      uuid.UUID `json:"card_id"`
-	Cause       string    `json:"cause"`
 }
 
-func (q *Queries) ResolveCardDecision(ctx context.Context, arg ResolveCardDecisionParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, resolveCardDecision, arg.WorkspaceID, arg.CardID, arg.Cause)
+// A redone column answers the study's open stops with redo, the guidance
+// being what the person said.
+func (q *Queries) RedoCardStops(ctx context.Context, arg RedoCardStopsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, redoCardStops,
+		arg.Guidance,
+		arg.DecidedBy,
+		arg.WorkspaceID,
+		arg.CardID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -563,7 +572,7 @@ func (q *Queries) ResolveMachineOffline(ctx context.Context, arg ResolveMachineO
 }
 
 const resolveMachineWaits = `-- name: ResolveMachineWaits :exec
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
 `
 
@@ -572,13 +581,14 @@ type ResolveMachineWaitsParams struct {
 	RuntimeID   *uuid.UUID `json:"runtime_id"`
 }
 
+// A machine's waits end when it recovers, as its offline notice does.
 func (q *Queries) ResolveMachineWaits(ctx context.Context, arg ResolveMachineWaitsParams) error {
 	_, err := q.db.Exec(ctx, resolveMachineWaits, arg.WorkspaceID, arg.RuntimeID)
 	return err
 }
 
 const resolveMachineWaitsExcept = `-- name: ResolveMachineWaitsExcept :exec
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'waiting_for_machine' AND resolved_at IS NULL
   AND cause IS DISTINCT FROM $3::text
 `
@@ -595,7 +605,7 @@ func (q *Queries) ResolveMachineWaitsExcept(ctx context.Context, arg ResolveMach
 }
 
 const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_by = user_id, decided_at = now(), touched_at = now()
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
   AND kind = 'waiting_for_machine'
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at

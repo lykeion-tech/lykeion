@@ -149,25 +149,29 @@ INSERT INTO inbox_item (workspace_id, user_id, kind, text, runtime_id, cause)
 VALUES (@workspace_id, @user_id, 'waiting_for_machine', @text, @runtime_id, @cause)
 ON CONFLICT (workspace_id, runtime_id, cause) WHERE kind = 'waiting_for_machine' AND resolved_at IS NULL DO NOTHING;
 
+-- A machine's waits end when it recovers, as its offline notice does.
 -- name: ResolveMachineWaits :exec
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL;
 
 -- A machine's wait, which its owner resolves by saying the cause is dealt with.
 -- name: ResolveOpenOwnerItem :one
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_by = user_id, decided_at = now(), touched_at = now()
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id AND resolved_at IS NULL
   AND kind = 'waiting_for_machine'
 RETURNING *;
 
--- name: ResolveCardDecision :many
-UPDATE inbox_item SET resolved_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'needs_decision' AND cause = @cause::text
-  AND resolved_at IS NULL
+-- A redone column answers the study's open stops with redo, the guidance
+-- being what the person said.
+-- name: RedoCardStops :many
+UPDATE inbox_item SET status = 'decided', chosen_option = 'redo', guidance = @guidance, decided_by = @decided_by::uuid,
+  decided_at = now(), resolved_at = now(), touched_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND resolved_at IS NULL
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 RETURNING id;
 
 -- name: ResolveMachineWaitsExcept :exec
-UPDATE inbox_item SET resolved_at = now()
+UPDATE inbox_item SET resolved_at = now(), status = 'decided', decided_at = now(), touched_at = now()
 WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'waiting_for_machine' AND resolved_at IS NULL
   AND cause IS DISTINCT FROM @keep::text;
 

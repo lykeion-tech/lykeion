@@ -303,3 +303,36 @@ func TestStoppingCancelsOpenDecisions(t *testing.T) {
 		t.Fatalf("answering a cancelled decision: %d", code)
 	}
 }
+
+// Parking stops the study: the runs its machines kept failing are cancelled,
+// so none stays queued for ever.
+func TestDecideParkCancelsHeldRuns(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "Why?")
+	var run, item string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, attempt, infra_failures, failure_reason, retry_after)
+		VALUES ($1, $2, $3, 'grounding', 1, 'scoper', 'claude', 'p', 'queued', 5, 5, 'provider_network', '9999-12-31') RETURNING id::text`, w.ID, c.ID, c.OwnerID).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause, options, default_option)
+		VALUES ($1, $2, $3, 'needs_decision', 't', 'machine_failures', '[{"id":"try_again","label":"T","consequence":"t"},{"id":"park","label":"P","consequence":"p"}]', 'park') RETURNING id::text`,
+		w.ID, c.ID, c.OwnerID).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+item+"/decide", a, w.ID, map[string]any{"option": "park"}, nil); code != 200 {
+		t.Fatalf("park: %d", code)
+	}
+	var queued int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM agent_run WHERE card_id = $1 AND status IN ('queued', 'dispatched', 'running')`, c.ID).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	var state, kind string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT state, block_kind FROM card WHERE id = $1`, c.ID).Scan(&state, &kind); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 0 || state != "blocked" || kind != "parked" {
+		t.Fatalf("after park: %d open runs, card %s %s", queued, state, kind)
+	}
+}

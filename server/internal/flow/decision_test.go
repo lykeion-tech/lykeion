@@ -222,3 +222,52 @@ func TestDecideRefusesWhatTheDecisionDoesNotOffer(t *testing.T) {
 		t.Fatalf("an agent decision: %v", err)
 	}
 }
+
+// colleague adds a plain member to the lab's workspace.
+func (l *lab) colleague(t *testing.T, email string) uuid.UUID {
+	t.Helper()
+	u, err := l.st.Global().UpsertUserByEmail(context.Background(), email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		return tx.Q.AddMember(context.Background(), db.AddMemberParams{WorkspaceID: l.ws, UserID: u.ID, Role: "member"})
+	})
+	return u.ID
+}
+
+func TestAMemberMayReopenAParkedStudy(t *testing.T) {
+	l := newLab(t)
+	b := l.colleague(t, "b@lab.org")
+	c, item := l.heldStudy(t)
+	if err := l.e.Decide(context.Background(), l.ws, item, l.owner, "park", ""); err != nil {
+		t.Fatal(err)
+	}
+	l.e.OnComment(l.ws, c.ID, b, "I'll take it from here with GTEx.")
+	got := l.card(t, c.ID)
+	if got.State != "working" || got.BlockKind != "" || got.Round != c.Round+1 || !strings.Contains(got.HandoffNote, "GTEx") {
+		t.Fatalf("after a colleague's comment: %s %q round %d note %q", got.State, got.BlockKind, got.Round, got.HandoffNote)
+	}
+}
+
+func TestAColleagueCannotRedoALowScoreBlock(t *testing.T) {
+	l := newLab(t)
+	b := l.colleague(t, "b@lab.org")
+	c, _ := l.heldStudy(t)
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET block_kind = 'low_score' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.e.OnComment(l.ws, c.ID, b, "Redo it.")
+	if got := l.card(t, c.ID); got.State != "blocked" || got.Round != c.Round {
+		t.Fatalf("a colleague's comment moved a low-score block: %s round %d", got.State, got.Round)
+	}
+}
+
+func TestACommentThatRedoesDecidesTheStop(t *testing.T) {
+	l := newLab(t)
+	c, item := l.heldStudy(t)
+	l.e.OnComment(l.ws, c.ID, l.owner, "Use the GTEx data instead.")
+	if status, chosen, guidance, by := l.decision(t, item); status != "decided" || chosen != "redo" || guidance != "Use the GTEx data instead." || by == nil || *by != l.owner {
+		t.Fatalf("item after the owner's comment: %s %s %q %v", status, chosen, guidance, by)
+	}
+}
