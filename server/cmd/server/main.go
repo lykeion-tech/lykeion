@@ -25,9 +25,11 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/coresearch"
+	"lykeion/server/internal/embed"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/jev"
+	"lykeion/server/internal/labindex"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/realtime"
@@ -166,6 +168,22 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if key := getenv("TYPESAFE_API_KEY"); key != "" {
 		engine.Jev = &jev.Client{BaseURL: "https://api.typesafe.ai", Key: key, Model: jev.Model}
 	}
+	// Optional local embeddings: live record tools remain usable without Search.
+	var labIndex *labindex.Index
+	if endpoint := getenv("EMBEDDINGS_URL"); endpoint != "" {
+		candidate := labindex.New(rdb, embed.TEI{URL: endpoint}, embed.Model)
+		readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := candidate.Ensure(readyCtx)
+		if err == nil {
+			labIndex = candidate
+			_, err = (embed.TEI{URL: endpoint}).Embed(readyCtx, []string{"readiness"}, false)
+		}
+		cancel()
+		if err != nil {
+			slog.Warn("lab search unavailable; using live record tools")
+		}
+	}
+	_ = labIndex // Attached to lab tools and the event consumer in their wiring tasks.
 	secretKey, err := seal.ParseKey(getenv("LYK_SECRET_KEY"))
 	if err != nil {
 		return err
