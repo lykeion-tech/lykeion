@@ -15,11 +15,12 @@ import (
 
 var ErrNotFound = errors.New("lab fact not found")
 
-// Fact is workspace-shared evidence. Study/workspace Team projections include
-// active shipped/workspace-shared Teams only, even for an uploader. Private Team
-// details are intentionally unavailable through this API. Writer/tool code must
-// use this same baseline for reads, citation versions and lesson maintenance;
-// adding owner-only details requires a separate scope/reference contract.
+// Fact is workspace-shared evidence. Study facts include the assigned Team's
+// id/name/stage/column already visible in the study directory to all members.
+// Team definitions include active shipped/workspace-shared manifests only, even
+// for an uploader; private manifests/methods are unavailable through this API.
+// Writer/tool code must use this same baseline for reads, citation versions and
+// lesson maintenance; owner-only details need a separate scope/ref contract.
 type Fact struct {
 	Ref         Ref
 	Title, Text string
@@ -87,7 +88,7 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 	}
 	// Projection versions cover every exposed field and link. The shared
 	// baseline is identical for every eligible member and maintenance caller;
-	// private Team data is excluded rather than mixed into shared citations.
+	// private Team definitions are excluded rather than mixed into shared citations.
 	if r.Kind == "study" || r.Kind == "workspace" || r.Kind == "decision" {
 		evidence, _ := json.Marshal(struct {
 			Title, Text, Version string

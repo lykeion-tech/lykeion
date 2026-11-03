@@ -460,3 +460,102 @@ func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
 		check()
 	}
 }
+
+func TestPrivateTeamAssignmentMetadataIsSharedAndVersioned(t *testing.T) {
+	f := setup(t)
+	peer := f.member()
+	team := f.team()
+	ref := Ref{"study", f.study}
+	ctx := context.Background()
+	s := &store.Store{Pool: f.env.App}
+	f.exec(`UPDATE field_pack SET stage='grounding' WHERE id=$1`, team)
+	assertBaseline := func(wantName, wantStage string) string {
+		t.Helper()
+		var baseline string
+		for _, user := range []uuid.UUID{f.user, peer} {
+			fact, err := f.readAs(user, ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projection struct {
+				Teams []struct {
+					ID          uuid.UUID
+					Name, Stage string
+					Manifest    json.RawMessage
+				}
+			}
+			if err := json.Unmarshal([]byte(fact.Text), &projection); err != nil {
+				t.Fatal(err)
+			}
+			if len(projection.Teams) != 1 {
+				t.Fatalf("missing assignment: %s", fact.Text)
+			}
+			assignment := projection.Teams[0]
+			if assignment.ID != team || assignment.Name != wantName || assignment.Stage != wantStage {
+				t.Fatalf("assignment: %+v", assignment)
+			}
+			if len(assignment.Manifest) > 0 || strings.Contains(fact.Text, "private-method") {
+				t.Fatalf("private definition exposed: %s", fact.Text)
+			}
+			if baseline != "" && baseline != fact.Version {
+				t.Fatal("viewer-specific assignment version")
+			}
+			baseline = fact.Version
+		}
+		if err := s.Maintenance(ctx, func(tx *store.Tx) error {
+			if err := tx.Workspace(ctx, f.ws); err != nil {
+				return err
+			}
+			v, err := Version(ctx, tx, ref)
+			if err != nil {
+				return err
+			}
+			if v != baseline {
+				t.Fatal("maintenance assignment version differs")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return baseline
+	}
+	previous := assertBaseline("Private Team", "grounding")
+	for _, change := range []struct{ sql, name, stage string }{{`UPDATE field_pack SET name='Renamed Team' WHERE id=$1`, "Renamed Team", "grounding"}, {`UPDATE field_pack SET stage='hypotheses' WHERE id=$1`, "Renamed Team", "hypotheses"}} {
+		lesson := f.lessonFor(ref)
+		f.exec(change.sql, team)
+		current := assertBaseline(change.name, change.stage)
+		if previous == current {
+			t.Fatal("exposed assignment change did not change version")
+		}
+		previous = current
+		for _, user := range []uuid.UUID{f.user, peer} {
+			if _, err := f.readAs(user, lesson); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("stale assignment lesson: %v", err)
+			}
+		}
+		if err := s.Maintenance(ctx, func(tx *store.Tx) error {
+			if err := tx.Workspace(ctx, f.ws); err != nil {
+				return err
+			}
+			if _, err := Version(ctx, tx, lesson); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("maintenance retained changed assignment lesson: %v", err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Assignment removal changes shared evidence even though no Team definition changed.
+	lesson := f.lessonFor(ref)
+	f.exec(`DELETE FROM card_team WHERE workspace_id=$1 AND card_id=$2 AND pack_id=$3`, f.ws, f.study, team)
+	after, err := f.read(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous == after.Version {
+		t.Fatal("assignment removal did not change version")
+	}
+	if _, err := f.read(lesson); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("removed assignment lesson: %v", err)
+	}
+}

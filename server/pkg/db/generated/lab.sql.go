@@ -34,7 +34,7 @@ const labFact = `-- name: LabFact :one
 SELECT c.title::text AS title, jsonb_build_object('study',jsonb_build_object('id',c.id,'number',c.number,'title',c.title,'question',c.question,'owner_id',c.owner_id,'deadline',c.deadline,'start_date',c.start_date,'board_column',c.board_column,'state',c.state,'flag',c.flag,'ending',c.ending,'end_reason',c.end_reason,'rounds',c.rounds,'round',c.round,'version',c.version,'created_at',c.created_at,'handoff_note',c.handoff_note,'research_id',c.research_id,'assignee_type',c.assignee_type,'assignee_id',c.assignee_id,'origin',c.origin,'block_kind',c.block_kind,'scope_from',c.scope_from,'scope_to',c.scope_to,'redos',c.redos,'workflow',c.workflow,'workflow_release',c.workflow_release),
  'attachments',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'name',a.name,'content_type',a.content_type,'size_bytes',a.size_bytes,'record_key',a.record_key) ORDER BY a.id) FROM attachment a WHERE a.workspace_id=c.workspace_id AND a.card_id=c.id),'[]'::jsonb),
  'runs',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'kind',r.kind,'role',r.role,'board_column',r.board_column,'round',r.round,'status',r.status,'created_at',r.created_at) ORDER BY r.id) FROM agent_run r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id AND r.kind IN ('role','rerun')),'[]'::jsonb),
- 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('column',ct.board_column,'name',p.name,'manifest',p.manifest) ORDER BY ct.board_column,p.id) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id AND p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace')),'[]'::jsonb))::text AS text,
+ 'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'column',ct.board_column,'name',p.name,'stage',p.stage) || CASE WHEN p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace') THEN jsonb_build_object('manifest',p.manifest) ELSE '{}'::jsonb END ORDER BY ct.board_column,p.id) FROM card_team ct JOIN field_pack p ON p.workspace_id=ct.workspace_id AND p.id=ct.pack_id WHERE ct.workspace_id=c.workspace_id AND ct.card_id=c.id),'[]'::jsonb))::text AS text,
  c.version::text AS version, false AS superseded,
  COALESCE((SELECT jsonb_agg(x.ref ORDER BY x.ref) FROM (
  SELECT 'record:'||r.id::text AS ref FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
@@ -84,11 +84,12 @@ type LabFactRow struct {
 
 // All relations are explicitly workspace-scoped in addition to RLS. These are
 // lab facts only: no Coresearch relation or run transcript is read.
-// Shared citation baseline: only active shipped/workspace-shared Teams enter
-// memory, even when the asker uploaded an assigned private Team. No owner-only
-// supplement may be added to these projections: Read and maintenance Version
-// must identify the same evidence. Private Team facts need a separate future
-// scope/reference contract and must never feed workspace-shared lessons.
+// Shared citation baseline: assigned Team id/name/stage/column are visible in
+// the study directory to every member, regardless of definition visibility.
+// Only active shipped/workspace-shared Team definitions enter memory. No
+// owner-only supplement may be added: Read and maintenance Version must identify
+// the same evidence. Private definitions need a separate future scope/reference
+// contract and must never feed workspace-shared lessons.
 func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, error) {
 	row := q.db.QueryRow(ctx, labFact, arg.Kind, arg.WorkspaceID, arg.ID)
 	var i LabFactRow
