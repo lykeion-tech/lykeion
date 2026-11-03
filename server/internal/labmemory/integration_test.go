@@ -266,7 +266,7 @@ func (f *fixture) lessonFor(ref Ref) Ref {
 	}
 	cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: fact.Version}})
 	id := uuid.New()
-	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson from private-method',$3,'test')`, id, f.ws, cites)
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson',$3,'test')`, id, f.ws, cites)
 	return Ref{"lesson", id}
 }
 func TestPublicReadsBindTransactionIdentity(t *testing.T) {
@@ -312,12 +312,12 @@ func TestTeamVisibilityAndLessonsFollowAsker(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(own.Text, "private-method") || strings.Contains(peer.Text, "private-method") {
+		if strings.Contains(own.Text, "private-method") || strings.Contains(peer.Text, "private-method") || own.Version != peer.Version {
 			t.Fatalf("visibility: owner=%s peer=%s", own.Text, peer.Text)
 		}
 		lesson := f.lessonFor(r)
-		if _, err := f.readAs(other, lesson); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("private evidence lesson exposed: %v", err)
+		if _, err := f.readAs(other, lesson); err != nil {
+			t.Fatalf("shared baseline lesson unavailable: %v", err)
 		}
 		f.exec(`UPDATE field_pack SET visibility='workspace' WHERE id=$1`, team)
 		shared, err := f.readAs(other, r)
@@ -339,8 +339,8 @@ func TestTeamVisibilityAndLessonsFollowAsker(t *testing.T) {
 				t.Fatalf("deleted team: %s %v", fact.Text, err)
 			}
 		}
-		if _, err := f.read(lesson); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("deleted lesson evidence: %v", err)
+		if _, err := f.read(lesson); err != nil {
+			t.Fatalf("deleting excluded private evidence invalidated shared baseline: %v", err)
 		}
 		f.exec(`UPDATE field_pack SET deleted_at=NULL WHERE id=$1`, team)
 	}
@@ -348,6 +348,7 @@ func TestTeamVisibilityAndLessonsFollowAsker(t *testing.T) {
 func TestProjectionVersionsTrackSubstantiveChanges(t *testing.T) {
 	f := setup(t)
 	team := f.team()
+	f.exec(`UPDATE field_pack SET visibility='workspace' WHERE id=$1`, team)
 	check := func(r Ref, mutation string, args ...any) {
 		t.Helper()
 		before, err := f.read(r)
@@ -391,5 +392,71 @@ func TestStudyProjectionExcludesInternalColumns(t *testing.T) {
 		if strings.Contains(fact.Text, key) {
 			t.Fatalf("internal field %s in %s", key, fact.Text)
 		}
+	}
+}
+
+func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
+	f := setup(t)
+	other := f.member()
+	privateTeam := f.team()
+	sharedTeam := uuid.New()
+	f.exec(`INSERT INTO field_pack(id,workspace_id,name,version,sha256,manifest,blob_key,source,uploaded_by,visibility) VALUES($1,$2,'Shared Team','1','hash','{"method":"shared-method"}','blob','uploaded',$3,'workspace')`, sharedTeam, f.ws, f.user)
+	f.exec(`INSERT INTO card_team(workspace_id,card_id,board_column,pack_id) VALUES($1,$2,'hypotheses',$3)`, f.ws, f.study, sharedTeam)
+	ctx := context.Background()
+	s := &store.Store{Pool: f.env.App}
+	for _, ref := range []Ref{{"study", f.study}, {Kind: "workspace"}} {
+		shared, err := f.readAs(other, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: shared.Version}})
+		id := uuid.New()
+		f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Shared lesson',$3,'test')`, id, f.ws, cites)
+		lesson := Ref{"lesson", id}
+		ownerLesson := f.lessonFor(ref)
+		check := func() {
+			t.Helper()
+			for _, user := range []uuid.UUID{f.user, other} {
+				fact, err := f.readAs(user, ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if fact.Version != shared.Version || fact.Text != shared.Text {
+					t.Fatalf("viewer-dependent baseline for %v: %s != %s", ref, fact.Version, shared.Version)
+				}
+				if !strings.Contains(fact.Text, "shared-method") {
+					t.Fatal("shared Team missing from baseline")
+				}
+				if strings.Contains(fact.Text, "private-method") {
+					t.Fatal("private Team in shared baseline")
+				}
+				if _, err := f.readAs(user, lesson); err != nil {
+					t.Fatalf("shared lesson unavailable: %v", err)
+				}
+			}
+			if err := s.Maintenance(ctx, func(tx *store.Tx) error {
+				if err := tx.Workspace(ctx, f.ws); err != nil {
+					return err
+				}
+				version, err := Version(ctx, tx, ref)
+				if err != nil {
+					return err
+				}
+				if version != shared.Version {
+					t.Fatalf("maintenance version %s != shared %s", version, shared.Version)
+				}
+				for _, candidate := range []Ref{lesson, ownerLesson} {
+					if _, err := Version(ctx, tx, candidate); err != nil {
+						t.Fatalf("maintenance marks shared lesson stale: %v", err)
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check()
+		f.exec(`UPDATE field_pack SET manifest='{"secret":"private-method-revised"}' WHERE id=$1`, privateTeam)
+		check()
 	}
 }

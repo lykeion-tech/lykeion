@@ -15,6 +15,11 @@ import (
 
 var ErrNotFound = errors.New("lab fact not found")
 
+// Fact is workspace-shared evidence. Study/workspace Team projections include
+// active shipped/workspace-shared Teams only, even for an uploader. Private Team
+// details are intentionally unavailable through this API. Writer/tool code must
+// use this same baseline for reads, citation versions and lesson maintenance;
+// adding owner-only details requires a separate scope/reference contract.
 type Fact struct {
 	Ref         Ref
 	Title, Text string
@@ -23,7 +28,7 @@ type Fact struct {
 	Superseded  bool
 }
 
-// Citation pins a lesson to the exact live version of a fact.
+// Citation pins a workspace-shared lesson to the exact shared fact baseline.
 type Citation struct {
 	Ref     string `json:"ref"`
 	Version string `json:"version"`
@@ -80,9 +85,9 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 		}
 		f.Links = append(f.Links, link)
 	}
-	// Projection versions cover every exposed field and link. Access-dependent
-	// Team visibility is part of the projection, so a lesson cannot carry private
-	// evidence into another member's answer.
+	// Projection versions cover every exposed field and link. The shared
+	// baseline is identical for every eligible member and maintenance caller;
+	// private Team data is excluded rather than mixed into shared citations.
 	if r.Kind == "study" || r.Kind == "workspace" || r.Kind == "decision" {
 		evidence, _ := json.Marshal(struct {
 			Title, Text, Version string
@@ -117,7 +122,8 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 // Version is an internal workspace-scoped primitive for version validation.
 // It does not establish membership and must not be exposed as a public read tool.
 // Call Read for evidence returned to an asker. Maintenance callers must first
-// explicitly select their workspace on the transaction.
+// explicitly select their workspace on the transaction. Its fact baseline and
+// versions match member Read results, independent of caller identity.
 func Version(ctx context.Context, tx *store.Tx, r Ref) (string, error) {
 	if tx == nil || tx.Q == nil || tx.WS == uuid.Nil {
 		return "", ErrNotFound
