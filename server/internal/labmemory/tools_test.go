@@ -314,6 +314,9 @@ func TestLabLessonDirectoryAndSearchRequireSuccessfulCheck(t *testing.T) {
 	stale := f.lessonFor(Ref{"comment", f.comment})
 	f.exec("INSERT INTO comment_cancellation(workspace_id,comment_id,author_id) VALUES($1,$2,$3)", f.ws, f.comment, f.user)
 	checked := f.lessonFor(Ref{"record", f.record})
+	// Pin fixture navigation order without using either lesson reference.
+	f.exec("UPDATE lesson SET directory_key=$1 WHERE id=$2", "10000000-0000-4000-8000-000000000000", stale.ID)
+	f.exec("UPDATE lesson SET directory_key=$1 WHERE id=$2", "f0000000-0000-4000-8000-000000000000", checked.ID)
 	tf := newTools(t, f, searchStub{f.ws, []Ref{unchecked, stale, checked}, nil})
 	tf.call("read", map[string]any{"ref": unchecked.String()}, true)
 	tf.call("links", map[string]any{"ref": unchecked.String()}, true)
@@ -328,6 +331,7 @@ func TestLabLessonDirectoryAndSearchRequireSuccessfulCheck(t *testing.T) {
 	if len(first.Results) != 0 || first.NextAfter == "" || strings.Contains(first.NextAfter, stale.ID.String()) {
 		t.Fatal(first)
 	}
+	f.exec("DELETE FROM lesson WHERE id=$1", stale.ID)
 	args["after"] = first.NextAfter
 	second := tf.page(args)
 	if len(second.Results) != 1 || second.Results[0].Ref != checked.String() || second.NextAfter != "" {
@@ -411,5 +415,46 @@ func TestLabLargeStudyLogsOnlyCurrentPage(t *testing.T) {
 	}
 	if err = f.env.Owner.QueryRow(t.Context(), "SELECT count(DISTINCT ref) FROM lab_read WHERE agent_run_id=$1 AND via=$2", tf.run, src).Scan(&count); err != nil || count != 23 {
 		t.Fatalf("second page overlaps: %d %v", count, err)
+	}
+}
+
+func TestLabLessonCursorIndependentOfOtherWorkspace(t *testing.T) {
+	f := setup(t)
+	f.lessonFor(Ref{Kind: "workspace"})
+	f.lessonFor(Ref{Kind: "workspace"})
+	tf := newTools(t, f, nil)
+	args := map[string]any{"ref": "workspace:context", "directory": "lessons", "limit": 1}
+	first := tf.page(args)
+	key, err := uuid.Parse(first.NextAfter)
+	if err != nil || key.Version() != 4 || len(first.Results) != 1 || first.Results[0].Ref == "lesson:"+key.String() {
+		t.Fatalf("expected an independent random cursor: %+v", first)
+	}
+	other := &fixture{t: t, env: f.env, ws: uuid.New(), user: f.member()}
+	other.exec("INSERT INTO workspace(id,slug,name) VALUES($1,'unrelated','Unrelated')", other.ws)
+	other.exec("INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'owner')", other.ws, other.user)
+	otherLesson := other.lessonFor(Ref{Kind: "workspace"})
+	other.exec(`INSERT INTO lesson(workspace_id,kind,text,cites,model,checked_at) SELECT l.workspace_id,l.kind,l.text,l.cites,l.model,now() FROM lesson l CROSS JOIN generate_series(1,80) WHERE l.id=$1`, otherLesson.ID)
+	unchanged := tf.page(args)
+	if len(unchanged.Results) != 1 || unchanged.Results[0] != first.Results[0] || unchanged.NextAfter != first.NextAfter {
+		t.Fatalf("foreign insertions changed page: %+v", unchanged)
+	}
+	other.exec("UPDATE lesson SET directory_key=$1 WHERE id=$2", "ffffffff-ffff-ffff-ffff-ffffffffffff", otherLesson.ID)
+	outside := newTools(t, other, nil)
+	foreignPage := outside.page(args)
+	foreignKey, err := uuid.Parse(foreignPage.NextAfter)
+	if err != nil || foreignKey.Version() != 4 || foreignKey == key {
+		t.Fatalf("unexpected foreign cursor %+v", foreignPage)
+	}
+	args["after"] = first.NextAfter
+	page := outside.page(args)
+	if len(page.Results) != 1 {
+		t.Fatal("expected a visible local hit after the foreign cursor", page)
+	}
+	for _, hit := range page.Results {
+		var local bool
+		err := f.env.Owner.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM lesson WHERE workspace_id=$1 AND id=$2)", other.ws, strings.TrimPrefix(hit.Ref, "lesson:")).Scan(&local)
+		if err != nil || !local {
+			t.Fatalf("replayed foreign cursor returned a nonlocal lesson: %+v %v", hit, err)
+		}
 	}
 }

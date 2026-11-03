@@ -70,9 +70,9 @@ WHERE r.workspace_id = @workspace_id AND r.id = @id AND r.kind='aristotle' AND r
 SELECT id FROM card WHERE workspace_id = @workspace_id AND id > @after_id::uuid ORDER BY id LIMIT @page_size::integer;
 
 -- name: LabLessonDirectory :many
-SELECT id,directory_seq FROM lesson WHERE workspace_id = @workspace_id AND status='active'
-  AND checked_at IS NOT NULL AND directory_seq > @after_seq::bigint
-  ORDER BY directory_seq LIMIT @page_size::integer;
+SELECT id,directory_key FROM lesson WHERE workspace_id = @workspace_id AND status='active'
+  AND checked_at IS NOT NULL AND directory_key > @after_key::uuid
+  ORDER BY directory_key LIMIT @page_size::integer;
 
 -- name: LabStudyOpen :one
 SELECT EXISTS(SELECT 1 FROM card WHERE workspace_id = @workspace_id AND id = @card_id)::boolean;

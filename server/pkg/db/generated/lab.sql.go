@@ -134,24 +134,24 @@ func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, e
 }
 
 const labLessonDirectory = `-- name: LabLessonDirectory :many
-SELECT id,directory_seq FROM lesson WHERE workspace_id = $1 AND status='active'
-  AND checked_at IS NOT NULL AND directory_seq > $2::bigint
-  ORDER BY directory_seq LIMIT $3::integer
+SELECT id,directory_key FROM lesson WHERE workspace_id = $1 AND status='active'
+  AND checked_at IS NOT NULL AND directory_key > $2::uuid
+  ORDER BY directory_key LIMIT $3::integer
 `
 
 type LabLessonDirectoryParams struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
-	AfterSeq    int64     `json:"after_seq"`
+	AfterKey    uuid.UUID `json:"after_key"`
 	PageSize    int32     `json:"page_size"`
 }
 
 type LabLessonDirectoryRow struct {
 	ID           uuid.UUID `json:"id"`
-	DirectorySeq int64     `json:"directory_seq"`
+	DirectoryKey uuid.UUID `json:"directory_key"`
 }
 
 func (q *Queries) LabLessonDirectory(ctx context.Context, arg LabLessonDirectoryParams) ([]LabLessonDirectoryRow, error) {
-	rows, err := q.db.Query(ctx, labLessonDirectory, arg.WorkspaceID, arg.AfterSeq, arg.PageSize)
+	rows, err := q.db.Query(ctx, labLessonDirectory, arg.WorkspaceID, arg.AfterKey, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (q *Queries) LabLessonDirectory(ctx context.Context, arg LabLessonDirectory
 	var items []LabLessonDirectoryRow
 	for rows.Next() {
 		var i LabLessonDirectoryRow
-		if err := rows.Scan(&i.ID, &i.DirectorySeq); err != nil {
+		if err := rows.Scan(&i.ID, &i.DirectoryKey); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

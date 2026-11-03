@@ -94,17 +94,17 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 		}
 		return refs, "", nil
 	case "lessons":
-		// Sequence cursors reveal no reference for a stale candidate and
-		// permit a bounded index seek even at the end of a large directory.
-		var seq int64
+		// Each cursor is a random navigation key independent of the lesson
+		// reference and insertions in every other workspace.
+		after := uuid.Nil
 		if in.After != "" {
 			var err error
-			seq, err = strconv.ParseInt(in.After, 10, 64)
-			if err != nil || seq < 0 {
+			after, err = uuid.Parse(in.After)
+			if err != nil {
 				return nil, "", errPage
 			}
 		}
-		rows, err := tx.Q.LabLessonDirectory(ctx, db.LabLessonDirectoryParams{WorkspaceID: tx.WS, AfterSeq: seq, PageSize: int32(limit + 1)})
+		rows, err := tx.Q.LabLessonDirectory(ctx, db.LabLessonDirectoryParams{WorkspaceID: tx.WS, AfterKey: after, PageSize: int32(limit + 1)})
 		if err != nil {
 			return nil, "", err
 		}
@@ -113,7 +113,7 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 			refs = append(refs, Ref{"lesson", row.ID})
 		}
 		if len(refs) > limit {
-			return refs[:limit], strconv.FormatInt(rows[limit-1].DirectorySeq, 10), nil
+			return refs[:limit], rows[limit-1].DirectoryKey.String(), nil
 		}
 		return refs, "", nil
 	default:

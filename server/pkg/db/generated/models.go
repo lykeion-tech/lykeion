@@ -735,7 +735,7 @@ type LabRead struct {
 }
 
 type Lesson struct {
-	DirectorySeq   int64           `json:"directory_seq"`
+	DirectoryKey   uuid.UUID       `json:"directory_key"`
 	ID             uuid.UUID       `json:"id"`
 	WorkspaceID    uuid.UUID       `json:"workspace_id"`
 	Kind           string          `json:"kind"`

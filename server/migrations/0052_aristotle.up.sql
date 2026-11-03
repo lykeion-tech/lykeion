@@ -58,7 +58,7 @@ CREATE INDEX lab_study_decision_links ON inbox_item (workspace_id,card_id,id)
   WHERE jsonb_array_length(options)>0 OR question_set IS NOT NULL;
 
 CREATE TABLE lesson (
-  directory_seq bigint NOT NULL GENERATED ALWAYS AS IDENTITY,
+  directory_key uuid NOT NULL DEFAULT gen_random_uuid(),
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   kind text NOT NULL CHECK (kind IN ('lab', 'preference')),
@@ -71,10 +71,11 @@ CREATE TABLE lesson (
   model text NOT NULL,
   written_at timestamptz NOT NULL DEFAULT now(),
   checked_at timestamptz,
+  CHECK (directory_key <> id),
   UNIQUE (workspace_id, id)
 );
 -- A navigation cursor never has to disclose the reference of a stale lesson.
-CREATE INDEX lab_lesson_directory ON lesson (workspace_id,directory_seq)
+CREATE UNIQUE INDEX lab_lesson_directory ON lesson (workspace_id,directory_key)
  WHERE status='active' AND checked_at IS NOT NULL;
 
 CREATE TABLE lesson_flag (
