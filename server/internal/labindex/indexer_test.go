@@ -3,6 +3,7 @@ package labindex
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
+	"lykeion/server/migrations"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type failingEmbedder struct{}
@@ -496,7 +499,7 @@ func TestIndexerDeliveryHelpersBoundedAndPrivileged(t *testing.T) {
 			t.Fatalf("app can directly read %s", table)
 		}
 	}
-	for _, name := range []string{"lab_pending_events(text,integer)", "lab_ack_event(text,bigint)", "lab_index_workspaces_after(uuid,integer)", "lab_index_workspace_exists(uuid)"} {
+	for _, name := range []string{"lab_pending_workspace_events(text,uuid,integer)", "lab_pending_events(text,integer)", "lab_ack_event(text,bigint)", "lab_index_workspaces_after(uuid,integer)", "lab_index_workspace_exists(uuid)"} {
 		var public bool
 		if err := env.Owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM aclexplode((SELECT proacl FROM pg_proc WHERE oid=$1::regprocedure)) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE')`, name).Scan(&public); err != nil || public {
 			t.Fatalf("public helper %s: %v %v", name, public, err)
@@ -513,5 +516,182 @@ func TestIndexerDeliveryHelpersBoundedAndPrivileged(t *testing.T) {
 	}
 	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM lab_index_workspaces_after($1,10000)`, uuid.Nil).Scan(&n); err != nil || n != 20 {
 		t.Fatalf("unbounded workspace discovery: %d %v", n, err)
+	}
+}
+
+func TestIndexerCoalescesBacklogDespiteUnrelatedRedisKeys(t *testing.T) {
+	x, env, ws, card := indexerFixture(t)
+	ctx := context.Background()
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	pipe := env.Redis.Pipeline()
+	for n := 0; n < 32000; n++ {
+		pipe.Set(ctx, fmt.Sprintf("unrelated:%d", n), "x", 0)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 200; n++ {
+		emitIndexEvent(t, x, ws, card, "card.steered")
+	}
+	if err := x.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var pending int
+	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM lab_event_delivery`).Scan(&pending); err != nil || pending != 0 {
+		t.Fatalf("200-event small workspace backlog was not drained in one tick: %d %v", pending, err)
+	}
+	if x.orphanCursor == 0 {
+		t.Fatal("fixture did not leave global cleanup incomplete")
+	}
+}
+
+func TestIndexerFairWorkspacePagesAndNeverAcknowledgesFutureEvents(t *testing.T) {
+	x, env, ws, card := indexerFixture(t)
+	ctx := context.Background()
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	other := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace(id,slug,name) VALUES($1,'fair-other','Other')`, other); err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 80; n++ {
+		if _, err := env.Owner.Exec(ctx, `INSERT INTO record(workspace_id,card_id,board_column,round,kind,role,body) VALUES($1,$2,'grounding',1,'paper','grounding','{}')`, ws, card); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for n := 0; n < 200; n++ {
+		emitIndexEvent(t, x, ws, card, "record.created")
+	}
+	var observed int64
+	if err := env.Owner.QueryRow(ctx, `SELECT max(id) FROM event WHERE workspace_id=$1`, ws).Scan(&observed); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.Store.InWorkspace(ctx, other, uuid.Nil, func(tx *store.Tx) error { return tx.Emit(ctx, "workspace.updated", nil, store.System, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.Tick(ctx); err != nil {
+		t.Fatal(err)
+	} // first page of the large workspace
+	emitIndexEvent(t, x, ws, card, "card.steered") // committed after the captured job snapshot
+	var future int64
+	if err := env.Owner.QueryRow(ctx, `SELECT max(id) FROM event WHERE workspace_id=$1`, ws).Scan(&future); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.Tick(ctx); err != nil {
+		t.Fatal(err)
+	} // round-robin must service the other workspace now
+	var otherPending int
+	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM lab_event_delivery WHERE workspace_id=$1`, other).Scan(&otherPending); err != nil || otherPending != 0 {
+		t.Fatalf("large workspace starved another workspace: %d %v", otherPending, err)
+	}
+	if env.Redis.Exists(ctx, key(other, labmemory.Ref{Kind: "workspace"})).Val() != 1 {
+		t.Fatal("other workspace was acknowledged without indexing")
+	}
+	finished := false
+	for n := 0; n < 100; n++ {
+		var pending int
+		if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM lab_event_delivery WHERE workspace_id=$1 AND event_id<=$2`, ws, observed).Scan(&pending); err != nil {
+			t.Fatal(err)
+		}
+		if pending == 0 {
+			finished = true
+			break
+		}
+		if err := x.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !finished {
+		t.Fatal("coalesced large workspace job did not finish")
+	}
+	var futurePending bool
+	if err := env.Owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM lab_event_delivery WHERE event_id=$1)`, future).Scan(&futurePending); err != nil || !futurePending {
+		t.Fatalf("future event incorrectly acknowledged: %v %v", futurePending, err)
+	}
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIndexerTracksUserAndAutomaticDecisionMutations(t *testing.T) {
+	x, env, ws, card := indexerFixture(t)
+	ctx := context.Background()
+	var user uuid.UUID
+	if err := env.Owner.QueryRow(ctx, `SELECT owner_id FROM card WHERE id=$1`, card).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,options,status,resolved_at) VALUES($1,$2,$3,$4,'agent_decision','Question','[{"id":"a"}]','decided',now())`, id, ws, card, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	k := key(ws, labmemory.Ref{Kind: "decision", ID: id})
+	// These are the exact transactional write primitives used by manageDecision;
+	// no test manually emits an indexing event.
+	actions := []struct {
+		name  string
+		write func(*store.Tx) error
+	}{
+		{"triage", func(tx *store.Tx) error {
+			until := time.Now().Add(time.Hour)
+			return tx.Q.SetDecisionTriage(ctx, db.SetDecisionTriageParams{ID: id, WorkspaceID: ws, DecideBy: "today", SnoozedUntil: &until})
+		}},
+		{"keep", func(tx *store.Tx) error {
+			return tx.Q.SetDecisionKept(ctx, db.SetDecisionKeptParams{ID: id, WorkspaceID: ws})
+		}},
+		{"archive", func(tx *store.Tx) error {
+			_, err := tx.Q.SetDecisionArchived(ctx, db.SetDecisionArchivedParams{ID: id, WorkspaceID: ws, Archived: true})
+			return err
+		}},
+		{"revive", func(tx *store.Tx) error {
+			_, err := tx.Q.SetDecisionArchived(ctx, db.SetDecisionArchivedParams{ID: id, WorkspaceID: ws, Archived: false})
+			return err
+		}},
+	}
+	for _, action := range actions {
+		before := env.Redis.HGet(ctx, k, "version").Val()
+		if err := x.Store.InWorkspace(ctx, ws, user, action.write); err != nil {
+			t.Fatal(action.name, err)
+		}
+		if err := drainIndexer(ctx, x); err != nil {
+			t.Fatal(action.name, err)
+		}
+		if after := env.Redis.HGet(ctx, k, "version").Val(); after == "" || after == before {
+			t.Fatal(action.name, "left stale decision index")
+		}
+	}
+	if _, err := env.Owner.Exec(ctx, `UPDATE inbox_item SET kept=false,touched_at=now()-interval '91 days' WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	before := env.Redis.HGet(ctx, k, "version").Val()
+	if err := x.Store.Global().ArchiveStale(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := drainIndexer(ctx, x); err != nil {
+		t.Fatal(err)
+	}
+	if after := env.Redis.HGet(ctx, k, "version").Val(); after == "" || after == before {
+		t.Fatal("automatic archive left stale decision index")
+	}
+}
+
+func TestIndexerSchedulingMigrationReversible(t *testing.T) {
+	_, env, _, _ := indexerFixture(t)
+	for _, name := range []string{"0054_lab_index_scheduling.down.sql", "0054_lab_index_scheduling.up.sql"} {
+		sql, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.Owner.Exec(context.Background(), string(sql)); err != nil {
+			t.Fatal(name, err)
+		}
 	}
 }

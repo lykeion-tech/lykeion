@@ -65,6 +65,7 @@ func (i *Index) validateSchema(ctx context.Context) error {
 	return nil
 }
 func key(ws uuid.UUID, r labmemory.Ref) string { return "lab:" + ws.String() + ":" + r.String() }
+func membersKey(ws uuid.UUID) string           { return "labindex:members:" + ws.String() }
 func vector(v []float32) ([]byte, error) {
 	if len(v) != embed.Dimensions {
 		return nil, errors.New("invalid embedding dimensions")
@@ -99,10 +100,20 @@ func (i *Index) PutVersion(ctx context.Context, ws uuid.UUID, r labmemory.Ref, v
 	if err != nil {
 		return err
 	}
-	return i.rdb.HSet(ctx, key(ws, r), "workspace", ws.String(), "kind", r.Kind, "model", i.model, "ref", r.String(), "version", version, "embedding", b).Err()
+	_, err = i.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.HSet(ctx, key(ws, r), "workspace", ws.String(), "kind", r.Kind, "model", i.model, "ref", r.String(), "version", version, "embedding", b)
+		p.SAdd(ctx, membersKey(ws), r.String())
+		return nil
+	})
+	return err
 }
 func (i *Index) Delete(ctx context.Context, ws uuid.UUID, r labmemory.Ref) error {
-	return i.rdb.Del(ctx, key(ws, r)).Err()
+	_, err := i.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.Del(ctx, key(ws, r))
+		p.SRem(ctx, membersKey(ws), r.String())
+		return nil
+	})
+	return err
 }
 func tag(s string) string {
 	var b strings.Builder

@@ -2,6 +2,7 @@ package labindex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/store"
 )
@@ -32,13 +34,14 @@ type Indexer struct {
 	orphanKeys     []string
 }
 type indexWork struct {
-	ws         uuid.UUID
-	event      int64 // zero for backfill
-	after      string
-	sourceDone bool
-	scan       uint64
-	keys       []string
-	scanDone   bool
+	WS         uuid.UUID
+	Model      string
+	Events     []int64 // exact observed IDs; later events are never added to this snapshot
+	After      string
+	SourceDone bool
+	Scan       uint64
+	Keys       []string
+	ScanDone   bool
 }
 type indexEvent struct {
 	id   int64
@@ -88,6 +91,9 @@ func (x *Indexer) Tick(ctx context.Context) error {
 	if err := x.Index.Ensure(ctx); err != nil {
 		return err
 	}
+	if err := x.Index.rdb.SetNX(ctx, "labindex:lastworkspace", uuid.Nil.String(), 0).Err(); err != nil {
+		return err
+	}
 	if err := x.Index.rdb.SetNX(ctx, "labindex:epoch", uuid.NewString(), 0).Err(); err != nil {
 		return err
 	}
@@ -105,16 +111,27 @@ func (x *Indexer) Tick(ctx context.Context) error {
 		x.orphanCursor = 0
 		x.orphanKeys = nil
 	}
-	if err := x.sweepOrphans(ctx); err != nil {
-		return err
-	}
-	if x.work == nil && x.preferEvents {
-		if err := x.chooseEvent(ctx); err != nil {
-			return err
-		}
+	// Alternate recovery/backfill and event pages. Event selection round-robins
+	// workspace UUIDs and keeps progress per workspace, so a large lab cannot
+	// monopolize maintenance while another lab waits.
+	var workErr error
+	if !x.initialized && !x.preferEvents {
+		workErr = x.backfill(ctx)
+		x.preferEvents = true
+	} else {
+		workErr = x.deliver(ctx)
 		x.preferEvents = false
 	}
-	if x.work == nil && !x.initialized {
+	// Global legacy/orphan discovery never gates event completion and never scans
+	// to completion for a single event. New entries use workspace-local manifests.
+	cleanupErr := x.sweepOrphans(ctx)
+	if workErr != nil {
+		return workErr
+	}
+	return cleanupErr
+}
+func (x *Indexer) backfill(ctx context.Context) error {
+	if x.work == nil {
 		var ws uuid.UUID
 		rows, err := x.Store.Pool.Query(ctx, `SELECT * FROM lab_index_workspaces_after($1,1)`, x.afterWorkspace)
 		if err != nil {
@@ -131,38 +148,104 @@ func (x *Indexer) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if found {
-			x.work = &indexWork{ws: ws}
-		} else {
+		if !found {
 			x.initialized = true
+			return x.deliver(ctx)
 		}
-	}
-	if x.work == nil {
-		if err := x.chooseEvent(ctx); err != nil {
-			return err
-		}
-	}
-
-	if x.work == nil {
-		return nil
+		x.work = &indexWork{WS: ws}
 	}
 	done, err := x.step(ctx, x.work)
+	if err != nil {
+		return err
+	}
+	if done {
+		x.afterWorkspace = x.work.WS
+		x.work = nil
+	}
+	return nil
+}
+func (x *Indexer) deliver(ctx context.Context) error {
+	after := uuid.Nil
+	if s, err := x.Index.rdb.Get(ctx, "labindex:lastworkspace").Result(); err == nil {
+		after, _ = uuid.Parse(s)
+	} else if err != redis.Nil {
+		return err
+	}
+	events, err := x.pendingWorkspace(ctx, after)
+	if err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	ws := events[0].ws
+	if err := x.Index.rdb.Set(ctx, "labindex:lastworkspace", ws.String(), 0).Err(); err != nil {
+		return err
+	}
+	jobKey := "labindex:job:" + ws.String()
+	var w indexWork
+	raw, err := x.Index.rdb.Get(ctx, jobKey).Bytes()
+	if err == nil {
+		if err := json.Unmarshal(raw, &w); err != nil {
+			return err
+		}
+		if w.Model != x.Index.model {
+			err = redis.Nil
+		}
+	} else if err != redis.Nil {
+		return err
+	}
+	if err == redis.Nil {
+		w = indexWork{WS: ws, Model: x.Index.model}
+		for _, e := range events {
+			if relevantDelivery(e) {
+				w.Events = append(w.Events, e.id)
+			} else if err := x.ack(ctx, e.id); err != nil {
+				return err
+			}
+		}
+		if len(w.Events) == 0 {
+			return nil
+		}
+	}
+	done, err := x.step(ctx, &w)
+	// Persist successful partial progress even after TEI failure. Only IDs captured
+	// before this job began are acknowledged after its complete reconciliation.
+	encoded, encodeErr := json.Marshal(w)
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if saveErr := x.Index.rdb.Set(ctx, jobKey, encoded, 24*time.Hour).Err(); saveErr != nil {
+		return saveErr
+	}
 	if err != nil {
 		return err
 	}
 	if !done {
 		return nil
 	}
-	if x.work.event != 0 {
-		if err := x.ack(ctx, x.work.event); err != nil {
+	for _, id := range w.Events {
+		if err := x.ack(ctx, id); err != nil {
 			return err
 		}
-	} else {
-		x.afterWorkspace = x.work.ws
-		x.preferEvents = true
 	}
-	x.work = nil
-	return nil
+	return x.Index.rdb.Del(ctx, jobKey).Err()
+}
+func (x *Indexer) pendingWorkspace(ctx context.Context, after uuid.UUID) ([]indexEvent, error) {
+	rows, err := x.Store.Pool.Query(ctx, `SELECT id,workspace_id,type,card_id FROM lab_pending_workspace_events('indexer',$1,200)`, after)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []indexEvent
+	for rows.Next() {
+		var e indexEvent
+		if err := rows.Scan(&e.id, &e.ws, &e.typ, &e.card); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }
 
 // Run owns an independent cancellable maintenance loop; callers never put its
@@ -181,38 +264,6 @@ func (x *Indexer) Run(ctx context.Context, interval time.Duration, onError func(
 		}
 	}
 }
-func (x *Indexer) chooseEvent(ctx context.Context) error {
-	events, err := x.pending(ctx)
-	if err != nil {
-		return err
-	}
-	for _, e := range events {
-		if relevantDelivery(e) {
-			x.work = &indexWork{ws: e.ws, event: e.id}
-			break
-		}
-		if err := x.ack(ctx, e.id); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func (x *Indexer) pending(ctx context.Context) ([]indexEvent, error) {
-	rows, err := x.Store.Pool.Query(ctx, `SELECT id,workspace_id,type,card_id FROM lab_pending_events('indexer',16)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var events []indexEvent
-	for rows.Next() {
-		var e indexEvent
-		if err := rows.Scan(&e.id, &e.ws, &e.typ, &e.card); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	return events, rows.Err()
-}
 func (x *Indexer) ack(ctx context.Context, id int64) error {
 	_, err := x.Store.Pool.Exec(ctx, `SELECT lab_ack_event('indexer',$1)`, id)
 	return err
@@ -230,83 +281,88 @@ func (x *Indexer) read(ctx context.Context, ws uuid.UUID, r labmemory.Ref) (labm
 	return f, err
 }
 func (x *Indexer) step(ctx context.Context, w *indexWork) (bool, error) {
-	if !w.sourceDone {
+	budget := factBudget
+	if !w.SourceDone {
 		var refs []string
 		err := x.Store.Maintenance(ctx, func(tx *store.Tx) error {
-			if err := tx.Workspace(ctx, w.ws); err != nil {
+			if err := tx.Workspace(ctx, w.WS); err != nil {
 				return err
 			}
 			var err error
-			refs, err = tx.LabFactRefs(ctx, w.after, factBudget+1)
+			refs, err = tx.LabFactRefs(ctx, w.After, budget+1)
 			return err
 		})
 		if err != nil {
 			return false, err
 		}
 		n := len(refs)
-		if n > factBudget {
-			n = factBudget
+		if n > budget {
+			n = budget
 		}
 		for _, s := range refs[:n] {
 			r, err := labmemory.ParseRef(s)
 			if err != nil {
 				return false, err
 			}
-			f, err := x.read(ctx, w.ws, r)
+			f, err := x.read(ctx, w.WS, r)
 			if errors.Is(err, labmemory.ErrNotFound) || (err == nil && r.Kind == "comment" && f.Superseded) {
-				if err := x.Index.Delete(ctx, w.ws, r); err != nil {
+				if err := x.Index.Delete(ctx, w.WS, r); err != nil {
 					return false, err
 				}
-				w.after = s
+				w.After = s
 				continue
 			}
 			if err != nil {
 				return false, err
 			}
-			fields, err := x.Index.rdb.HMGet(ctx, key(w.ws, r), "model", "version").Result()
+			fields, err := x.Index.rdb.HMGet(ctx, key(w.WS, r), "model", "version").Result()
 			if err != nil {
 				return false, err
 			}
 			if len(fields) != 2 || fields[0] != x.Index.model || fields[1] != f.Version {
-				if err := x.Index.Put(ctx, w.ws, r, f.Version, f.Title+"\n"+f.Text); err != nil {
+				if err := x.Index.Put(ctx, w.WS, r, f.Version, f.Title+"\n"+f.Text); err != nil {
 					return false, err
 				}
+			} else if err := x.Index.rdb.SAdd(ctx, membersKey(w.WS), r.String()).Err(); err != nil {
+				return false, err
 			}
-			w.after = s
+			w.After = s
 		}
-		w.sourceDone = len(refs) <= factBudget
-		// Source processing and pruning each consume separate bounded ticks.
-		return false, nil
+		budget -= n
+		w.SourceDone = len(refs) <= n
+		if !w.SourceDone || budget == 0 {
+			return false, nil
+		}
 	}
-	if len(w.keys) == 0 && !w.scanDone {
-		keys, next, err := x.Index.rdb.Scan(ctx, w.scan, "lab:"+w.ws.String()+":*", factBudget).Result()
+	if len(w.Keys) == 0 && !w.ScanDone {
+		refs, next, err := x.Index.rdb.SScan(ctx, membersKey(w.WS), w.Scan, "*", int64(budget)).Result()
 		if err != nil {
 			return false, err
 		}
-		w.keys = keys
-		w.scan = next
-		w.scanDone = next == 0
+		w.Keys = refs
+		w.Scan = next
+		w.ScanDone = next == 0
 	}
-	n := len(w.keys)
-	if n > factBudget {
-		n = factBudget
+	n := len(w.Keys)
+	if n > budget {
+		n = budget
 	}
-	for _, k := range w.keys[:n] {
-		r, err := labmemory.ParseRef(strings.TrimPrefix(k, "lab:"+w.ws.String()+":"))
+	for _, s := range w.Keys[:n] {
+		r, err := labmemory.ParseRef(s)
 		if err != nil {
 			return false, err
 		}
-		f, err := x.read(ctx, w.ws, r)
+		f, err := x.read(ctx, w.WS, r)
 		if errors.Is(err, labmemory.ErrNotFound) || (err == nil && r.Kind == "comment" && f.Superseded) {
-			if err := x.Index.rdb.Del(ctx, k).Err(); err != nil {
+			if err := x.Index.Delete(ctx, w.WS, r); err != nil {
 				return false, err
 			}
 		} else if err != nil {
 			return false, err
 		}
 	}
-	w.keys = w.keys[n:]
-	return w.scanDone && len(w.keys) == 0, nil
+	w.Keys = w.Keys[n:]
+	return w.ScanDone && len(w.Keys) == 0, nil
 }
 
 // Workspace deletion cascades its event rows. Redis namespace cleanup therefore
@@ -342,10 +398,24 @@ func (x *Indexer) sweepOrphans(ctx context.Context) error {
 			}
 			exists[ws] = live
 		}
+		r, err := labmemory.ParseRef(parts[2])
+		if err != nil {
+			return err
+		}
+		if live {
+			f, readErr := x.read(ctx, ws, r)
+			if errors.Is(readErr, labmemory.ErrNotFound) || (readErr == nil && r.Kind == "comment" && f.Superseded) {
+				live = false
+			} else if readErr != nil {
+				return readErr
+			}
+		}
 		if !live {
-			if err := x.Index.rdb.Del(ctx, k).Err(); err != nil {
+			if err := x.Index.Delete(ctx, ws, r); err != nil {
 				return err
 			}
+		} else if err := x.Index.rdb.SAdd(ctx, membersKey(ws), r.String()).Err(); err != nil {
+			return err
 		}
 	}
 	x.orphanKeys = x.orphanKeys[n:]
