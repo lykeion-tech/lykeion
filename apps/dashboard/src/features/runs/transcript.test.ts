@@ -9,6 +9,7 @@ import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import type { AgentRun, RunMessage } from '../../api/types';
 import { liveStatus, transcriptBlocks } from './run-transcript';
+import { readableAssignment } from '../../lib/studies';
 
 const run = {
   id: 'r',
@@ -498,6 +499,20 @@ describe('live status line', () => {
   });
 });
 describe('run assignment and agent name', () => {
+  it('hides the title only when the assignment is the original study description', () => {
+    expect(
+      readableAssignment(
+        { ...run, assignment: 'Title\n\nDescription' },
+        { title: 'Title', question: 'Description' },
+      ),
+    ).toBe('Description');
+    expect(
+      readableAssignment(
+        { ...run, assignment: 'Do a separate task' },
+        { title: 'Title', question: 'Description' },
+      ),
+    ).toBe('Do a separate task');
+  });
   it('opens the transcript with the run’s assignment, then the live status', async () => {
     const html = await render([msg(1, 'text', 'Starting.'), msg(2, 'thinking', 'plan')], {
       status: 'running',

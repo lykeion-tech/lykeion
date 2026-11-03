@@ -97,6 +97,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'record':
       return own(keys.recordsAll);
     case 'study':
+      if (e.type === 'study.run_reactions_changed' && card && typeof e.payload.run_id === 'string')
+        return [['ws', ws, 'run-reactions', card, e.payload.run_id]];
       if (e.type === 'study.reactions_changed' && card)
         return [['ws', ws, 'study-reactions', card]];
       return own(keys.card);

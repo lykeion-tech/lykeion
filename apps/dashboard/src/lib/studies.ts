@@ -470,8 +470,14 @@ export function studyOverview(records: StudyRecord[], round: number): string {
 
 // Older runs stored coordination envelopes as their assignment. Present the
 // task itself rather than repeating the embedded records and prompt framing.
-export function readableAssignment(run: AgentRun): string {
+export function readableAssignment(
+  run: AgentRun,
+  study?: { title: string; question: string },
+): string {
   const text = run.assignment.trim();
+  const title = study?.title?.trim();
+  const question = study?.question?.trim();
+  if (title && question && text === `${title}\n\n${question}`) return question;
   const stage = columnName(run.board_column);
   if (
     run.role === 'auditor' &&

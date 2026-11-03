@@ -29,8 +29,8 @@ const RecordedMarkdown = defineAsyncComponent({
   },
 });
 
-const props = defineProps<{ run: AgentRun }>();
-const assignment = computed(() => readableAssignment(props.run));
+const props = defineProps<{ run: AgentRun; study?: { title: string; question: string } }>();
+const assignment = computed(() => readableAssignment(props.run, props.study));
 const messages = useRunMessages(() => props.run, true);
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
 const blocks = computed(() =>

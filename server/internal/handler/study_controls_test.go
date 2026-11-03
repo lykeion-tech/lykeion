@@ -70,6 +70,36 @@ func TestStudyDescriptionControls(t *testing.T) {
 	}
 }
 
+func TestRunReactionsAreScopedToRunAndStudy(t *testing.T) {
+	l, run := groundingLab(t)
+	path := "/api/cards/" + l.card.ID + "/runs/" + run.id + "/reactions"
+	if code := l.s.call(t, "PUT", path, l.jwt, l.ws, map[string]any{"emoji": "👍"}, nil); code != 200 {
+		t.Fatalf("add reaction: %d", code)
+	}
+	var got []struct {
+		Emoji string `json:"emoji"`
+		Count int    `json:"count"`
+		Mine  bool   `json:"mine"`
+	}
+	if code := l.s.call(t, "GET", path, l.jwt, l.ws, nil, &got); code != 200 || len(got) != 1 || got[0].Emoji != "👍" || got[0].Count != 1 || !got[0].Mine {
+		t.Fatalf("list: %d %+v", code, got)
+	}
+	var study []any
+	if code := l.s.call(t, "GET", "/api/cards/"+l.card.ID+"/reactions", l.jwt, l.ws, nil, &study); code != 200 || len(study) != 0 {
+		t.Fatalf("study reactions: %d %+v", code, study)
+	}
+	other := l.s.idleCard(t, l.jwt, l.ws, "Unrelated study")
+	if code := l.s.call(t, "GET", "/api/cards/"+other.ID+"/runs/"+run.id+"/reactions", l.jwt, l.ws, nil, nil); code != 404 {
+		t.Fatalf("wrong study: %d", code)
+	}
+	if code := l.s.call(t, "DELETE", path, l.jwt, l.ws, map[string]any{"emoji": "👍"}, nil); code != 200 {
+		t.Fatalf("remove: %d", code)
+	}
+	if code := l.s.call(t, "GET", path, l.jwt, l.ws, nil, &got); code != 200 || len(got) != 0 {
+		t.Fatalf("removed: %d %+v", code, got)
+	}
+}
+
 func TestStudyAttachmentOnlyReachesSubsequentRuns(t *testing.T) {
 	l := newTeamLabWith(t, testutil.PackOpts{Name: "snapshot", Stage: "hypotheses", Members: 2})
 	file := l.s.uploadData(t, l.jwt, l.ws, "new.csv", []byte("new input"))

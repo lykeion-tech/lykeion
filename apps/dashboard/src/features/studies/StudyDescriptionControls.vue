@@ -197,7 +197,7 @@ async function attach(event: Event) {
 }
 .description-action:hover,
 .description-action:focus-visible {
-  background: var(--surface-hover, #333);
+  background: var(--hover);
   color: var(--text);
 }
 .description-action:disabled {
@@ -233,7 +233,7 @@ async function attach(event: Event) {
 }
 .reaction-quick button:hover,
 .reaction-more:hover {
-  background: var(--surface-hover, #333);
+  background: var(--hover);
 }
 .reaction-more {
   width: 100%;

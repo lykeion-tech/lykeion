@@ -73,11 +73,13 @@ const run: AgentRun = {
   last_activity_at: null,
 };
 function setup(extra: Partial<AgentRun> = {}, runtime: Runtime | null = null) {
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   workspaceId.value = 'w';
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData(keys.members('w'), [{ user_id: 'u', name: 'Owner' }]);
+  client.setQueryData(['ws', 'w', 'run-reactions', 'c', 'run-1'], []);
   client.setQueryData(keys.card('w', 'c'), {
     id: 'c',
     machine_label: 'Bench',
@@ -137,7 +139,7 @@ it('opens in place and shows the transcript', async () => {
   const { root, fetch, header, clickHeader } = setup();
   await nextTick();
   expect(textOf(root)).toContain('A three-line preview.');
-  expect(textOf(root)).toContain('▸ show transcript');
+  expect(textOf(root)).not.toContain('▸ show transcript');
   expect(header().props['aria-expanded']).toBe(false);
   expect(fetch).not.toHaveBeenCalled();
   expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
@@ -152,6 +154,17 @@ it('opens in place and shows the transcript', async () => {
   ]);
   await clickHeader();
   expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
+});
+it('adds a reaction to the run without opening its transcript', async () => {
+  const { root, fetch, header } = setup();
+  const control = all(root).find((n) => n.props['aria-label'] === 'Add run reaction')!;
+  (control.props.onClick as () => void)();
+  await nextTick();
+  const emoji = all(root).find((n) => n.tag === 'button' && n.props['aria-label'] === '👍')!;
+  (emoji.props.onClick as () => void)();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  expect(fetch.mock.calls[0]?.[0]).toBe('/api/cards/c/runs/run-1/reactions');
+  expect(header().props['aria-expanded']).toBe(false);
 });
 it.each(['running', 'dispatched'] as const)(
   'starts open while the run is working (%s)',

@@ -12,6 +12,7 @@ import {
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
+import { Square } from '@lucide/vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
 import StudyReview from './StudyReview.vue';
@@ -46,10 +47,8 @@ import {
 } from '../../api/queries';
 import type { Card } from '../../api/types';
 import {
-  actionLabel,
   blockedActions,
   blockedMessage,
-  type ComposerAction,
   columnName,
   endLabel,
   stateLabel,
@@ -297,12 +296,12 @@ defineExpose({ openNotebookAt });
 const comment = ref('');
 const busy = ref(false);
 const error = ref('');
-const action = ref<ComposerAction>({ kind: 'comment' });
-const picker = ref<'' | 'main'>('');
-const placeholders: Record<ComposerAction['kind'], string> = {
-  comment: 'Leave a comment…',
-  stop: 'Why the study stops.',
-};
+const canStop = computed(
+  () =>
+    working.value &&
+    agentRuns.value.some((run) => run.status === 'running' || run.status === 'dispatched'),
+);
+const showStop = computed(() => canStop.value && !comment.value.trim());
 const blockedBar = computed(() => (c.value ? blockedMessage(c.value) : ''));
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
 const assignedTeams = computed(() => [
@@ -325,17 +324,12 @@ const worksAlone = computed(
 );
 let draftRevision = 0;
 watch(
-  [comment, action],
+  comment,
   () => {
     draftRevision++;
   },
   { flush: 'sync' },
 );
-function pick(a: ComposerAction) {
-  action.value = a;
-  picker.value = '';
-}
-
 let generation = 0;
 watch(
   [workspaceId, () => props.id],
@@ -348,8 +342,6 @@ watch(
     comment.value = '';
     busy.value = false;
     error.value = '';
-    action.value = { kind: 'comment' };
-    picker.value = '';
   },
   { flush: 'sync' },
 );
@@ -382,23 +374,39 @@ const time = (iso: string) =>
 // Each continuation belongs to its captured visit.
 async function send() {
   const text = comment.value.trim();
-  const a = action.value;
   if (busy.value || !text || !c.value) return;
-  if (a.kind === 'stop' && !confirm(`Stop ${number.value}? Ended studies are never reopened.`))
-    return;
   const scope = mutationScope();
   const ownDraftRevision = draftRevision;
   const base = `/api/cards/${scope.id}`;
   busy.value = true;
   error.value = '';
   try {
-    if (a.kind === 'comment') await api('POST', `${base}/comments`, { body: text });
-    if (a.kind === 'stop') await api('POST', `${base}/stop`, { reason: text });
+    await api('POST', `${base}/comments`, { body: text });
     if (!scope.current()) return;
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
-      action.value = { kind: 'comment' };
     }
+    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
+    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) busy.value = false;
+  }
+}
+async function submitComposer() {
+  if (!showStop.value) return send();
+  if (
+    busy.value ||
+    !confirm(`Stop ${number.value}? This ends the study and it cannot be reopened.`)
+  )
+    return;
+  const scope = mutationScope();
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('POST', `/api/cards/${scope.id}/stop`, { reason: 'Stopped by user' });
+    if (!scope.current()) return;
     await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
     if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
   } catch (e) {
@@ -458,8 +466,14 @@ function pin() {
           <p v-if="waiting" class="study-waiting" role="status">{{ waiting }}</p>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
-            <StudyDescriptionControls :key="id" :card-id="id" :attachments="c.attachments ?? []" @download="download" />
+            <StudyDescriptionControls
+              :key="id"
+              :card-id="id"
+              :attachments="c.attachments ?? []"
+              @download="download"
+            />
           </section>
+          <h2 class="activity-heading">Activity</h2>
           <ul
             v-if="statusLines.length"
             class="validation-statuses type-body"
@@ -493,7 +507,7 @@ function pin() {
                     : entry.comment.id)
             "
           >
-            <template v-if="entry.kind === 'comment'">
+            <div v-if="entry.kind === 'comment'" class="activity-comment">
               <div class="who" :class="{ mine: entry.comment.author_id === me.data.value?.id }">
                 <span class="avatar">{{ name(entry.comment.author_id)[0] }}</span
                 >{{ name(entry.comment.author_id) }}<span class="tm">{{ time(entry.at) }}</span>
@@ -518,7 +532,7 @@ function pin() {
                   })
                 }}
               </p>
-            </template>
+            </div>
             <div v-else-if="entry.kind === 'event'" class="event-line">
               <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
             </div>
@@ -559,50 +573,33 @@ function pin() {
           </template>
         </div>
       </div>
-      <div v-if="c && !c.ending" class="pinned-composer" @keydown.esc="picker = ''">
+      <div v-if="c && !c.ending" class="pinned-composer">
         <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
-        <form class="study-comment" @submit.prevent="send">
+        <form class="study-comment" @submit.prevent="submitComposer">
           <textarea
             v-model="comment"
-            :placeholder="placeholders[action.kind]"
+            placeholder="Leave a comment…"
             aria-label="Comment"
             @keydown.meta.enter.prevent="send"
             @keydown.ctrl.enter.prevent="send"
           />
           <footer>
-            <div class="action-anchor">
-              <button
-                type="button"
-                class="action-mode"
-                aria-label="Action"
-                aria-haspopup="menu"
-                :aria-expanded="picker !== ''"
-                @click="picker = picker ? '' : 'main'"
-              >
-                {{ actionLabel(action) }} <Icon name="down" :size="11" />
-              </button>
-              <div v-if="picker === 'main'" class="action-menu" role="menu" aria-label="Actions">
-                <button type="button" role="menuitem" @click="pick({ kind: 'comment' })">
-                  Comment<small>reaches the work</small>
-                </button>
-                <button
-                  v-if="!blocked.length"
-                  type="button"
-                  role="menuitem"
-                  class="danger"
-                  @click="pick({ kind: 'stop' })"
-                >
-                  Stop<small>ends the study</small>
-                </button>
-              </div>
-            </div>
             <button
               class="round-send"
+              :class="{ 'stop-control': showStop }"
               type="submit"
-              :disabled="busy || !comment.trim()"
-              aria-label="Send"
+              :disabled="busy || (!comment.trim() && !canStop)"
+              :aria-label="showStop ? 'Stop' : 'Send'"
+              :title="showStop ? 'Stop' : 'Send comment'"
             >
-              <Icon name="up" :size="18" />
+              <Square
+                v-if="showStop"
+                :size="12"
+                fill="currentColor"
+                :stroke-width="0"
+                aria-hidden="true"
+              />
+              <Icon v-else name="up" :size="18" />
             </button>
           </footer>
         </form>
@@ -1122,6 +1119,11 @@ function pin() {
 .study-comment .round-send {
   width: 26px;
   height: 26px;
+  padding: 0;
+}
+.study-comment .round-send.stop-control {
+  background: var(--primary-text);
+  color: #000;
 }
 .pinned-composer {
   width: 100%;
@@ -1469,6 +1471,14 @@ function pin() {
 .study-description :deep(.markdown-body ul) {
   padding-inline-start: 20px;
 }
+.activity-heading {
+  margin: 32px 0 16px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
 .activity-card,
 .jev-card {
   margin: 12px 0;
@@ -1595,12 +1605,15 @@ function pin() {
   font-size: 12px;
   white-space: nowrap;
 }
+.activity-comment {
+  margin: 24px 0;
+}
 .who {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 13.5px;
-  margin: 8px 0 6px 14px;
+  margin: 0 0 6px 14px;
 }
 .who.mine {
   justify-content: flex-end;
@@ -1617,7 +1630,7 @@ function pin() {
   border-radius: 12px;
   padding: 10px 13px;
   font-size: 13.5px;
-  margin: 0 0 14px 14px;
+  margin: 0 0 0 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1628,7 +1641,7 @@ function pin() {
 }
 .delivery {
   color: var(--muted);
-  margin: -10px 0 14px 14px;
+  margin: 8px 0 0 14px;
 }
 .delivery.mine {
   text-align: right;
@@ -1689,51 +1702,6 @@ function pin() {
 }
 .status-done {
   color: #0672c5;
-}
-.action-anchor {
-  position: relative;
-  margin-right: auto;
-}
-.action-mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 12.5px;
-  background: var(--surface);
-}
-.action-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  width: 230px;
-  background: var(--fill-menu);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px #0003;
-  padding: 4px;
-  z-index: 20;
-}
-.action-menu button {
-  display: flex;
-  width: 100%;
-  padding: 6px 9px;
-  border-radius: 5px;
-  font-size: 13px;
-  text-align: left;
-}
-.action-menu button:hover,
-.action-menu button:focus-visible {
-  background: var(--hover);
-}
-.action-menu small {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-.action-menu .danger {
-  color: var(--error-text);
 }
 .study-meta .ending-chip {
   max-width: 100%;

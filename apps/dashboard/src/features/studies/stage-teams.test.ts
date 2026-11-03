@@ -158,6 +158,7 @@ async function ssr(component: Component, props: Record<string, unknown>, path: s
 // its text and call its click handler.
 type Node = {
   tag: string;
+  style: Record<string, unknown>;
   text: string;
   props: Record<string, unknown>;
   children: Node[];
@@ -178,6 +179,7 @@ type Node = {
 function node(tag: string, text = ''): Node {
   return {
     tag,
+    style: {},
     text,
     get options() {
       return this.children.filter((n) => n.tag === 'option');
@@ -905,6 +907,85 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
     ...extra,
   });
 }
+
+it('offers stop for an active run when empty and sends a typed comment', async () => {
+  const fetch = vi.fn(
+    async (path: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        init?.method === 'POST'
+          ? '{}'
+          : String(path) === '/api/cards/c'
+            ? JSON.stringify({
+                id: 'c',
+                title: 'Study',
+                question: 'Question',
+                state: 'working',
+                ending: '',
+                board_column: 'grounding',
+                round: 1,
+                teams: {},
+                attachments: [],
+                services: [],
+              })
+            : '[]',
+        { status: 200 },
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client);
+      client.setQueryData(keys.runs('w', 'c'), [
+        {
+          id: 'r',
+          card_id: 'c',
+          board_column: 'grounding',
+          round: 1,
+          role: 'leader',
+          status: 'running',
+          harness: 'claude',
+          assignment: '',
+          answer: '',
+          latest_text: '',
+          error: '',
+          created_at: '2026-11-03T10:00:00Z',
+        },
+      ]);
+      client.setQueryData(['ws', 'w', 'run-reactions', 'c', 'r'], []);
+    },
+  );
+  try {
+    expect(t.nodes().find((n) => n.props['aria-label'] === 'Stop')).toBeTruthy();
+    expect(t.nodes().find((n) => n.props['aria-label'] === 'Action')).toBeFalsy();
+    const confirmStop = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal('confirm', confirmStop);
+    const form = t.nodes().find((n) => n.tag === 'form' && n.props.class === 'study-comment')!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(fetch.mock.calls.some(([path]) => String(path).endsWith('/stop'))).toBe(false);
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(
+      fetch.mock.calls.some(
+        ([path, init]) =>
+          String(path).endsWith('/stop') &&
+          init?.method === 'POST' &&
+          String(init.body).includes('Stopped by user'),
+      ),
+    ).toBe(true);
+    await t.fill('Comment', 'Keep going');
+    expect(t.nodes().find((n) => n.props['aria-label'] === 'Send')).toBeTruthy();
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(
+      fetch.mock.calls.some(
+        ([path, init]) => String(path).endsWith('/comments') && init?.method === 'POST',
+      ),
+    ).toBe(true);
+  } finally {
+    t.unmount();
+  }
+});
 
 describe('no Follows from', () => {
   it('has no Follows from in the new-study window', async () => {

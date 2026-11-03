@@ -11,6 +11,7 @@ import { deliveryLine } from '../studies/comment-delivery';
 import { registerDraftVisit } from '../../state/resource-draft';
 import { backendLabel } from '../../lib/backends';
 import RunTurn from './RunTurn.vue';
+import RunReactions from './RunReactions.vue';
 import { columnName, roleLabel, systemRun, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
@@ -141,36 +142,37 @@ const lastActive = computed(
 </script>
 <template>
   <article class="agent-card" :data-status="run.status">
-    <button
-      class="run-header"
-      :aria-label="`${name} (${state}), Run ${position}`"
-      :aria-expanded="open"
-      :aria-controls="`run-transcript-${run.id}`"
-      @click="open = !open"
-    >
-      <span class="fold-caret" aria-hidden="true"
-        ><Icon :name="open ? 'down' : 'right'" :size="14"
-      /></span>
-      <span class="avatar agent">
-        {{ name[0] }}
-        <span v-if="active" class="live-dot" :title="state" />
-      </span>
-      <span class="run-identity">
-        <span class="agent-name">{{
-          agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
-        }}</span>
-        <span class="run-meta"
-          ><template v-if="run.model">{{ run.model }} · </template
-          ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
-        >
-      </span>
-    </button>
+    <div class="run-header-row">
+      <button
+        class="run-header"
+        :aria-label="`${name} (${state}), Run ${position}`"
+        :aria-expanded="open"
+        :aria-controls="`run-transcript-${run.id}`"
+        @click="open = !open"
+      >
+        <span class="fold-caret" aria-hidden="true"
+          ><Icon :name="open ? 'down' : 'right'" :size="14"
+        /></span>
+        <span class="avatar agent">
+          {{ name[0] }}
+          <span v-if="active" class="live-dot" :title="state" />
+        </span>
+        <span class="run-identity">
+          <span class="agent-name">{{
+            agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
+          }}</span>
+          <span class="run-meta"
+            ><template v-if="run.model">{{ run.model }} · </template
+            ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
+          >
+        </span></button
+      ><RunReactions :study-id="studyId" :run-id="run.id" />
+    </div>
     <template v-if="!open">
       <p class="preview">{{ preview }}</p>
-      <button class="show-transcript" @click="open = true">▸ show transcript</button>
     </template>
     <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
-      <RunTurn :run="run" />
+      <RunTurn :run="run" :study="studyCard.data.value" />
       <p class="run-environment" aria-label="Run environment">
         <span v-for="e in environment" :key="e.key"
           ><span class="environment-label">{{ e.key }}:</span> {{ e.value }}</span
@@ -239,13 +241,17 @@ const lastActive = computed(
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1;
   min-width: 0;
   text-align: left;
   border-radius: 4px;
 }
-.run-header:focus-visible,
-.show-transcript:focus-visible {
+.run-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.run-header:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 4px;
 }
@@ -296,14 +302,6 @@ const lastActive = computed(
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.show-transcript {
-  margin-top: 10px;
-  color: var(--primary-text);
-  font-size: 12px;
-}
-.show-transcript:hover {
-  color: var(--text);
 }
 .open-transcript {
   margin-top: 20px;
@@ -374,7 +372,7 @@ const lastActive = computed(
 .reply-composer textarea {
   flex: 1;
   min-width: 0;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: 0;
   background: transparent;

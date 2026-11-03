@@ -6,10 +6,54 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
+
+func (h *H) runReactions(w http.ResponseWriter, r *http.Request) {
+	card, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	run, err := uuid.Parse(chi.URLParam(r, "run"))
+	if err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	var in struct {
+		Emoji string `json:"emoji"`
+	}
+	if r.Method != http.MethodGet && (readJSON(r, &in) != nil || in.Emoji == "" || len(in.Emoji) > 64 || !utf8.ValidString(in.Emoji) || strings.IndexFunc(in.Emoji, func(c rune) bool { return unicode.IsControl(c) || unicode.IsSpace(c) }) >= 0) {
+		writeErr(w, 400, "invalid reaction")
+		return
+	}
+	out := []store.StudyReaction{}
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		t, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: ws, ID: run})
+		if err != nil {
+			return err
+		}
+		if t.CardID == nil || *t.CardID != card {
+			return pgx.ErrNoRows
+		}
+		if r.Method != http.MethodGet {
+			if err := tx.SetRunReaction(r.Context(), run, user, in.Emoji, r.Method == http.MethodPut); err != nil {
+				return err
+			}
+			if err := tx.Emit(r.Context(), "study.run_reactions_changed", &card, store.User(user), map[string]any{"run_id": run}); err != nil {
+				return err
+			}
+		}
+		out, err = tx.RunReactions(r.Context(), run, user)
+		return err
+	})
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
+}
 
 func (h *H) studyReactions(w http.ResponseWriter, r *http.Request) {
 	id, ok := cardID(w, r)
