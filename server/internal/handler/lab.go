@@ -116,6 +116,7 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var pending bool
 	var messages []labMessage
 	var next string
 	who := user(r)
@@ -125,6 +126,10 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		chat, e := privateLabChat(r, tx)
+		if e != nil {
+			return e
+		}
+		pending, e = tx.Q.LabChatHasPendingRuns(ctx, chat.ID)
 		if e != nil {
 			return e
 		}
@@ -165,7 +170,7 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"messages": messages, "next_cursor": next})
+	writeJSON(w, 200, map[string]any{"messages": messages, "next_cursor": next, "pending": pending})
 }
 
 func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {

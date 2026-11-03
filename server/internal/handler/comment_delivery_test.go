@@ -106,6 +106,13 @@ func TestCancelStudyCommentPreservesReceiptAndPreventsDelivery(t *testing.T) {
 	if _, ok := l.listComments(t)[cancelled]; ok {
 		t.Fatal("cancelled comment still shown")
 	}
+	var cited []struct {
+		ID, Body  string
+		Cancelled bool
+	}
+	if code := l.s.call(t, "GET", "/api/cards/"+l.card.ID+"/comments?cite="+cancelled, other, l.ws, nil, &cited); code != 200 || len(cited) != 1 || cited[0].ID != cancelled || cited[0].Body != "Do not deliver this." || !cited[0].Cancelled {
+		t.Fatalf("cancelled citation: %d %+v", code, cited)
+	}
 	if n := l.s.count(t, `SELECT count(*) FROM comment WHERE id=$1`, cancelled); n != 1 {
 		t.Fatalf("lost comment provenance: %d", n)
 	}

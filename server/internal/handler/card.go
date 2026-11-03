@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -776,6 +777,7 @@ func (h *H) cancelComment(w http.ResponseWriter, r *http.Request) {
 // listedComment is a comment with where it went: which run's work it
 // reached and how, or nil while it waits for the next step.
 type listedComment struct {
+	Cancelled bool `json:"cancelled,omitempty"`
 	db.Comment
 	Delivery *commentDelivery `json:"delivery"`
 }
@@ -791,9 +793,33 @@ func (h *H) listComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []listedComment{}
-	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+	err := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
 		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
 			return err
+		}
+		// Timeline lists exclude cancellations. A citation explicitly requests a
+		// single historical source, using the same member projection as the chat.
+		if r.URL.Query().Has("cite") {
+			ref, err := labmemory.ParseRef("comment:" + r.URL.Query().Get("cite"))
+			if err != nil {
+				return pgx.ErrNoRows
+			}
+			fact, err := labmemory.Read(r.Context(), tx, who, ref)
+			if errors.Is(err, labmemory.ErrNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !slices.Contains(fact.Links, labmemory.Ref{Kind: "study", ID: id}) {
+				return nil
+			}
+			var comment db.Comment
+			if err = json.Unmarshal([]byte(fact.Text), &comment); err != nil {
+				return err
+			}
+			out = append(out, listedComment{Comment: comment, Cancelled: fact.Superseded})
+			return nil
 		}
 		comments, err := tx.Q.ListComments(r.Context(), db.ListCommentsParams{WorkspaceID: ws, CardID: id})
 		if err != nil {

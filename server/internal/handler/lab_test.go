@@ -56,6 +56,44 @@ func TestAskEnqueuesAndReturns202(t *testing.T) {
 	}
 }
 
+func TestLabPendingAcrossOverlappingQuestions(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "parallel", "claude")
+	id := newLabChat(t, s, a, ws)
+	for _, q := range []string{"First", "Second"} {
+		if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": q, "harness": "claude"}, nil); code != 202 {
+			t.Fatal(code)
+		}
+	}
+	var run string
+	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT agent_run_id FROM lab_message WHERE chat_id=$1 AND body='First'", id).Scan(&run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='failed' WHERE id=$1", run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO lab_message(workspace_id,owner_id,chat_id,kind,body,agent_run_id,created_at)
+		SELECT workspace_id,owner_id,chat_id,'failure','First failed',agent_run_id,clock_timestamp() FROM lab_message
+		WHERE agent_run_id=$1 AND kind='question' ON CONFLICT DO NOTHING`, run); err != nil {
+		t.Fatal(err)
+	}
+	page := func(want bool) {
+		t.Helper()
+		var got struct {
+			Pending  *bool
+			Messages []struct{ Kind string }
+		}
+		if code := s.call(t, "GET", labChats+"/"+id+"/messages?limit=1", a, ws, nil, &got); code != 200 || got.Pending == nil || *got.Pending != want || len(got.Messages) != 1 || got.Messages[0].Kind != "failure" {
+			t.Fatalf("pending %t: %d %+v", want, code, got)
+		}
+	}
+	page(true)
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='failed' WHERE lab_chat_id=$1 AND status='queued'", id); err != nil {
+		t.Fatal(err)
+	}
+	page(false)
+}
+
 func TestAskRefusesBlankAndOversizedQuestions(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	path := labChats + "/" + newLabChat(t, s, a, ws) + "/questions"

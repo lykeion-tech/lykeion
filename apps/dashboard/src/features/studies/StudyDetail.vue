@@ -286,6 +286,15 @@ const roleNames = computed(
 const working = computed(() => !!c.value && !c.value.ending && c.value.state === 'working');
 const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
+watch(
+  () => props.citation,
+  (citation) => {
+    if (!citation) return;
+    paneFocused.value = false;
+    if (window.innerWidth <= 980 || embeddedConstrained.value) showMeta.value = false;
+  },
+  { immediate: true },
+);
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
 function openNotebookAt(run: string) {
   notebookRun.value = run;

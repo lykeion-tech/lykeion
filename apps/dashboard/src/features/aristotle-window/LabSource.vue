@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useCard, useComments, useNotebookRecords } from '../../api/queries';
+import { computed, ref, watch, nextTick } from 'vue';
+import { useQuery } from '@tanstack/vue-query';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { useCard, useNotebookRecords } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { labRecordTitle } from './api';
 
@@ -10,7 +13,36 @@ const id = computed(() => props.citation.split(':')[1]);
 const recordStudy = computed(() => (kind.value === 'record' ? props.study : ''));
 const study = useCard(recordStudy),
   records = useNotebookRecords(recordStudy);
-const comments = useComments(() => (kind.value === 'comment' ? props.study : ''));
+const comments = useQuery({
+  queryKey: computed(() => [
+    ...keys.comments(workspaceId.value, props.study),
+    'citation',
+    id.value,
+  ]),
+  enabled: computed(() => kind.value === 'comment' && !!id.value && !!workspaceId.value),
+  queryFn: ({ signal }) =>
+    api<{ id: string; body: string; cancelled?: boolean }[]>(
+      'GET',
+      '/api/cards/' +
+        encodeURIComponent(props.study) +
+        '/comments?cite=' +
+        encodeURIComponent(id.value!),
+      undefined,
+      undefined,
+      { workspace: workspaceId.value, signal },
+    ),
+  staleTime: 0,
+  gcTime: 0,
+});
+const sourceElement = ref<HTMLElement>();
+watch(
+  () => props.citation,
+  async () => {
+    await nextTick();
+    sourceElement.value?.focus();
+  },
+  { immediate: true, flush: 'post' },
+);
 const queries = computed(() => (kind.value === 'record' ? [study, records] : [comments]));
 const loading = computed(() => queries.value.some((q) => q.isFetching.value));
 const failed = computed(() => queries.value.some((q) => q.isError.value));
@@ -20,7 +52,7 @@ function retry() {
 const source = computed(() => {
   if (kind.value === 'comment') {
     const row = comments.data.value?.find((c) => c.id === id.value);
-    return row && { title: 'Comment', text: row.body };
+    return row && { title: row.cancelled ? 'Cancelled comment' : 'Comment', text: row.body };
   }
   const row = records.data.value?.find((r) => r.id === id.value);
   if (!row) return;
@@ -29,7 +61,7 @@ const source = computed(() => {
 });
 </script>
 <template>
-  <aside class="source" aria-label="Cited source">
+  <aside ref="sourceElement" tabindex="-1" class="source" aria-label="Cited source">
     <RouterLink class="dismiss" :to="'/studies/' + props.study" aria-label="Close cited source"
       >×</RouterLink
     >

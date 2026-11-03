@@ -236,3 +236,24 @@ it('offers canonical text and binary file records and excludes detached or misma
   ).toBe('');
   expect(labRecordTitle({ ...row, key: 'c2' }, card, 'lab')).toBe('');
 });
+
+it('keeps waiting for the second question when the first fails out of order', async () => {
+  const t = await mount(false, false, (path) =>
+    path.includes('/messages')
+      ? {
+          messages: [
+            { id: 'q1', kind: 'question', body: 'First' },
+            { id: 'q2', kind: 'question', body: 'Second' },
+            { id: 'f1', kind: 'failure', body: 'First failed' },
+          ],
+          next_cursor: '',
+          pending: true,
+        }
+      : { chats: [{ id: 'chat', title: 'Overlapping questions' }], next_cursor: '' },
+  );
+  await t.click('Ask Aristotle');
+  await t.click('Switch chat');
+  await t.click('Overlapping questions');
+  expect(textOf(t.root)).toContain('Reading the lab’s records');
+  expect(textOf(t.root)).not.toContain('Retry question');
+});

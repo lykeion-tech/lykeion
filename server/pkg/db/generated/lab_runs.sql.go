@@ -132,6 +132,18 @@ func (q *Queries) LabAttemptNeedsRestart(ctx context.Context, runID uuid.UUID) (
 	return column_1, err
 }
 
+const labChatHasPendingRuns = `-- name: LabChatHasPendingRuns :one
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id=app_workspace() AND requester_id=app_user()
+  AND kind='aristotle' AND lab_chat_id = $1::uuid AND status IN ('queued','dispatched','running'))
+`
+
+func (q *Queries) LabChatHasPendingRuns(ctx context.Context, chatID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, labChatHasPendingRuns, chatID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const labLaunchedSources = `-- name: LabLaunchedSources :one
 SELECT CASE WHEN m.launch_attempt=r.attempt THEN m.launch_sources ELSE NULL::uuid[] END::uuid[] AS sources
 FROM lab_message m JOIN agent_run r ON r.workspace_id=m.workspace_id AND r.id=m.agent_run_id

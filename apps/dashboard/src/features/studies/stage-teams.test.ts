@@ -1367,6 +1367,26 @@ describe('study right-pane surfaces', () => {
     }
   });
 
+  it('reveals a cited source on the same study while its pane is maximized', async () => {
+    const citation = ref('');
+    const t = await mount(StudyDetail, () => ({ id: 'c', citation: citation.value }), '/', seedStudy);
+    try {
+      await t.click(/^Properties$/);
+      const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
+      (maximize.props.onClick as () => void)();
+      await nextTick();
+      const main = () => t.nodes().find((n) => n.props.class === 'task-main')!;
+      expect(main().props.hidden).toBe(true);
+      citation.value = 'comment:source';
+      await nextTick();
+      await nextTick();
+      expect(main().props.hidden).toBe(false);
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Cited source')).toBe(true);
+    } finally {
+      t.unmount();
+    }
+  });
+
   it('opens the chooser and shows properties, execution and files one at a time', async () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {

@@ -60,7 +60,7 @@ export function useMessages(user: () => string, open: Ref<boolean>, chat: Ref<st
     enabled: computed(() => open.value && !!chat.value && !!workspaceId.value && !!user()),
     initialPageParam: '',
     queryFn: ({ pageParam, signal, queryKey }) =>
-      api<{ messages: LabMessage[]; next_cursor: string }>(
+      api<{ messages: LabMessage[]; next_cursor: string; pending: boolean }>(
         'GET',
         page(root + '/' + encodeURIComponent(queryKey[5]!) + '/messages', pageParam),
         undefined,
@@ -69,8 +69,7 @@ export function useMessages(user: () => string, open: Ref<boolean>, chat: Ref<st
       ),
     getNextPageParam: (last) => last.next_cursor || undefined,
     // Recheck all loaded pages even when the workspace event socket is disconnected.
-    refetchInterval: (query) =>
-      query.state.data?.pages[0]?.messages.at(-1)?.kind === 'question' ? 1800 : 15000,
+    refetchInterval: (query) => (query.state.data?.pages[0]?.pending ? 1800 : 15000),
     staleTime: 0,
     gcTime: 0,
   });

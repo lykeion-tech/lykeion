@@ -18,8 +18,7 @@ const open = ref(false),
   focused = ref(false),
   evidence = ref(false);
 type Menu = '' | 'chats' | 'options' | 'context' | 'model';
-const menuBelow = ref(false),
-  menu = ref<Menu>(''),
+const menu = ref<Menu>(''),
   panel = ref<HTMLElement>(),
   fab = ref<HTMLButtonElement>(),
   minimize = ref<HTMLButtonElement>();
@@ -82,15 +81,56 @@ function chooseModel(id: string) {
   menu.value = '';
   composer.value?.focus();
 }
-function showMenu(value: Menu) {
-  menuBelow.value =
-    (panel.value?.getBoundingClientRect?.().top ?? window.innerHeight) <
-    Math.min(300, window.innerHeight * 0.44) + 10;
+const menuBox = ref<HTMLElement>();
+const menuStyle = ref<{ top?: string; bottom?: string; maxHeight?: string }>({});
+let menuOpener: HTMLElement | null = null;
+function placeMenu() {
+  const host = panel.value;
+  const anchor = host?.querySelector<HTMLElement>('[data-lab-menu="' + menu.value + '"]');
+  if (!anchor || !host) return;
+  const a = anchor.getBoundingClientRect(),
+    p = host.getBoundingClientRect(),
+    gap = 6,
+    margin = 8;
+  const above = a.top - gap - margin,
+    below = window.innerHeight - a.bottom - gap - margin;
+  menuStyle.value =
+    above >= below
+      ? {
+          bottom: p.bottom - a.top + gap + 'px',
+          maxHeight: Math.max(0, Math.min(300, above)) + 'px',
+        }
+      : { top: a.bottom - p.top + gap + 'px', maxHeight: Math.max(0, Math.min(300, below)) + 'px' };
+}
+function closeMenu(restore = false) {
+  menu.value = '';
+  if (restore) (menuOpener?.isConnected ? menuOpener : minimize.value)?.focus();
+  menuOpener = null;
+}
+function showMenu(
+  value: Menu,
+  opener: HTMLElement | null = document.activeElement as HTMLElement | null,
+) {
+  menuOpener = opener;
   menu.value = value;
+  nextTick(() => {
+    if (menu.value !== value || !menuBox.value) return;
+    placeMenu();
+    const first = menuBox.value.querySelector<HTMLElement>('input,button:not(:disabled),a[href]');
+    (first ?? menuBox.value).focus();
+  });
 }
-function toggleMenu(value: Menu) {
-  showMenu(menu.value === value ? '' : value);
+function toggleMenu(value: Menu, event: MouseEvent) {
+  if (menu.value === value) closeMenu(true);
+  else showMenu(value, event.currentTarget as HTMLElement);
 }
+watch(
+  [style, logHeight],
+  () => {
+    if (menu.value) nextTick(placeMenu);
+  },
+  { flush: 'post' },
+);
 function toggle() {
   open.value = !open.value;
   menu.value = '';
@@ -103,8 +143,9 @@ function toggle() {
 defineExpose({
   toggle,
   modelMenu: () => {
+    const opener = document.activeElement as HTMLElement | null;
     if (!open.value) toggle();
-    nextTick(() => showMenu('model'));
+    nextTick(() => showMenu('model', opener));
   },
 });
 function focus() {
@@ -193,22 +234,25 @@ function localKey(e: KeyboardEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (menu.value) {
-      menu.value = '';
-      minimize.value?.focus();
+      closeMenu(true);
     } else toggle();
   }
   if (e.key === '@' && e.target === composer.value && !draft.value) {
     e.preventDefault();
-    showMenu('context');
+    showMenu('context', composer.value ?? null);
   }
 }
 function outside(e: Event) {
   if (menu.value && !panel.value?.contains(e.target as Node)) menu.value = '';
 }
-onMounted(() => document.addEventListener('pointerdown', outside));
+onMounted(() => {
+  document.addEventListener('pointerdown', outside);
+  window.addEventListener('resize', placeMenu);
+});
 onUnmounted(() => {
   alive = false;
   document.removeEventListener('pointerdown', outside);
+  window.removeEventListener('resize', placeMenu);
 });
 </script>
 <template>
@@ -238,9 +282,10 @@ onUnmounted(() => {
       <button
         class="title"
         aria-label="Switch chat"
+        data-lab-menu="chats"
         :aria-expanded="menu === 'chats'"
         title="Switch chat"
-        @click="toggleMenu('chats')"
+        @click="toggleMenu('chats', $event)"
       >
         <span>{{ title }}</span
         ><ChevronDown :size="13" />
@@ -249,9 +294,10 @@ onUnmounted(() => {
         class="ib grip"
         aria-label="Drag to move · Click for options"
         title="Drag to move · Click for options"
+        data-lab-menu="options"
         :aria-expanded="menu === 'options'"
         @pointerdown="placement.start($event, 'drag')"
-        @click="!placement.consumeDrag() && toggleMenu('options')"
+        @click="!placement.consumeDrag() && toggleMenu('options', $event)"
       >
         <GripVertical :size="16" />
       </button>
@@ -277,25 +323,18 @@ onUnmounted(() => {
       <p v-else-if="chat && messages.isPending.value">Loading conversation…</p>
       <template v-else>
         <LabWelcome v-if="focused && !turns.length" @ask="ask" />
-        <template v-for="(message, i) in turns" :key="message.id">
+        <template v-for="message in turns" :key="message.id">
           <div v-if="message.kind === 'question'" class="question">{{ message.body }}</div>
           <LabAnswer
             v-else-if="message.kind === 'answer'"
             :message="message"
             :evidence="evidence"
           />
-          <div v-else class="failure">
-            {{ message.body }}
-            <button
-              v-if="turns[i - 1]?.kind === 'question'"
-              :disabled="sending"
-              @click="ask(turns[i - 1]?.body)"
-            >
-              Retry question
-            </button>
-          </div>
+          <div v-else class="failure">{{ message.body }}</div>
         </template>
-        <p v-if="turns.at(-1)?.kind === 'question'" role="status">Reading the lab’s records…</p>
+        <p v-if="messages.data.value?.pages[0]?.pending" role="status">
+          Reading the lab’s records…
+        </p>
       </template>
     </div>
     <div v-if="context" class="chip">
@@ -313,8 +352,9 @@ onUnmounted(() => {
         class="ib"
         title="Add a study, record or file · @"
         aria-label="Add a study, record or file"
+        data-lab-menu="context"
         :aria-expanded="menu === 'context'"
-        @click="toggleMenu('context')"
+        @click="toggleMenu('context', $event)"
       >
         <Plus :size="17" />
       </button>
@@ -332,8 +372,9 @@ onUnmounted(() => {
         class="ib"
         title="Select model · ⌃⇧M"
         aria-label="Select model"
+        data-lab-menu="model"
         :aria-expanded="menu === 'model'"
-        @click="toggleMenu('model')"
+        @click="toggleMenu('model', $event)"
       >
         <Brain :size="16" />
       </button>
@@ -361,15 +402,7 @@ onUnmounted(() => {
         <ArrowUp :size="17" />
       </button>
     </form>
-    <div
-      v-if="menu"
-      class="menu"
-      :class="{ above: logHeight < 160 && !menuBelow, below: logHeight < 160 && menuBelow }"
-      @keydown.esc.stop.prevent="
-        menu = '';
-        minimize?.focus();
-      "
-    >
+    <div v-if="menu" class="menu" ref="menuBox" tabindex="-1" :style="menuStyle">
       <template v-if="menu === 'options'">
         <button
           @click="
@@ -688,11 +721,11 @@ header {
 .menu {
   position: absolute;
   z-index: 2;
-  bottom: 54px;
+  box-sizing: border-box;
   right: 10px;
   width: min(270px, calc(100% - 20px));
   display: grid;
-  max-height: min(300px, 44dvh);
+  max-height: min(300px, calc(100dvh - 16px));
   overflow: auto;
   overscroll-behavior: contain;
   padding: 5px;
@@ -700,13 +733,6 @@ header {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 5px 20px color-mix(in srgb, var(--text) 16%, transparent);
-}
-.menu.below {
-  bottom: auto;
-  top: calc(100% + 6px);
-}
-.menu.above {
-  bottom: calc(100% + 6px);
 }
 .menu small,
 .menu a {
