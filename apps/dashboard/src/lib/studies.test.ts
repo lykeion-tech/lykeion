@@ -216,6 +216,28 @@ describe('stages and blocks', () => {
 });
 
 describe('records and transcript', () => {
+  it('merges Jev lines into the activity in time order', () => {
+    const comment = {
+      id: 'k',
+      card_id: 'c',
+      author_id: 'u',
+      body: 'hi',
+      created_at: '2026-11-03T10:01:00Z',
+    } as Comment;
+    const entries = transcript(
+      [comment],
+      [],
+      [lykEvent('card.edited', {}, '2026-11-03T10:03:00Z')],
+      [{ at: '2026-11-03T10:02:00Z', text: 'Jev reviewed Grounding', column: 'grounding' }],
+    );
+    expect(entries.map((entry) => entry.kind)).toEqual(['comment', 'jev', 'event']);
+    expect(entries[1]).toEqual({
+      kind: 'jev',
+      at: '2026-11-03T10:02:00Z',
+      text: 'Jev reviewed Grounding',
+      column: 'grounding',
+    });
+  });
   it('summarises a record by what it holds', () => {
     expect(
       recordLine(rec('evidence', { claim: 'X raises Y', source_id: 'europepmc:PMC1' }, 'E1')),

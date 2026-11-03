@@ -33,6 +33,7 @@ import {
   useCard,
   useCardEvents,
   useCardRatings,
+  useCardReview,
   useCards,
   useComments,
   useKindRecords,
@@ -55,6 +56,7 @@ import {
   validationLines,
   transcript,
 } from '../../lib/studies';
+import { feedLine, reviewingLine } from '../../lib/review';
 import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
@@ -79,6 +81,7 @@ const cards = useCards();
 const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
 const ratings = useCardRatings(() => props.id);
+const review = useCardReview(() => props.id);
 const useStatuses = useKindRecords(() => props.id, 'validation_status');
 const statusLines = computed(() => validationLines(useStatuses.data.value ?? []));
 const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.dismissed));
@@ -175,6 +178,7 @@ const resourceReads = computed(() =>
     { label: 'Comments', query: comments },
     { label: 'Events', query: events },
     { label: 'Runs', query: runs },
+    { label: 'Review', query: review },
   ].map(({ label, query }) => ({
     label,
     error: query.error.value,
@@ -186,13 +190,34 @@ const resourceReads = computed(() =>
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
 // Runs are read as agent cards above; their transcripts open in a dialog.
-const entries = computed(() =>
-  transcript(
+const entries = computed(() => {
+  const columns = review.data.value ?? [];
+  const entries = transcript(
     comments.data.value ?? [],
     [],
     (events.data.value ?? []).filter((e) => e.type !== 'card.created'),
-  ),
-);
+    columns.flatMap((column) =>
+      column.attempts.map((attempt) => ({
+        at: attempt.at,
+        text: feedLine(attempt),
+        column: attempt.column,
+      })),
+    ),
+  );
+  const current = c.value?.board_column;
+  const line = current ? reviewingLine(current, runs.data.value ?? [], columns) : null;
+  const newest = agentRuns.value.at(-1);
+  if (line && current && newest) {
+    // A completed run can lack completed_at in older data.
+    entries.push({
+      kind: 'jev',
+      at: newest.completed_at ?? newest.started_at ?? newest.created_at,
+      text: line,
+      column: current,
+    });
+  }
+  return entries;
+});
 const agentRuns = computed(() =>
   [...(runs.data.value ?? [])].sort(
     (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
@@ -420,9 +445,11 @@ function pin() {
               entry.kind +
               (entry.kind === 'event'
                 ? entry.id
-                : entry.kind === 'run'
-                  ? entry.run.id
-                  : entry.comment.id)
+                : entry.kind === 'jev'
+                  ? `${entry.column}:${entry.at}:${entry.text}`
+                  : entry.kind === 'run'
+                    ? entry.run.id
+                    : entry.comment.id)
             "
           >
             <template v-if="entry.kind === 'comment'">
@@ -453,6 +480,19 @@ function pin() {
             </template>
             <div v-else-if="entry.kind === 'event'" class="event-line">
               <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
+            </div>
+            <div v-else-if="entry.kind === 'jev'" class="event-line">
+              <span class="dot" />
+              <span>{{ entry.text }} · {{ time(entry.at) }}</span>
+              <button
+                class="text-button"
+                @click="
+                  showMeta = true;
+                  activeSurface = 'review';
+                "
+              >
+                Open Review
+              </button>
             </div>
           </template>
         </div>

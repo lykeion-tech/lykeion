@@ -202,11 +202,13 @@ export function eventText(e: LykEvent): string {
 export type TranscriptEntry =
   | { kind: 'comment'; at: string; comment: Comment }
   | { kind: 'run'; at: string; run: AgentRun }
+  | { kind: 'jev'; at: string; text: string; column: Column }
   | { kind: 'event'; at: string; text: string; id: number };
 export function transcript(
   comments: Comment[],
   runs: AgentRun[],
   events: LykEvent[],
+  jev: { at: string; text: string; column: Column }[] = [],
 ): TranscriptEntry[] {
   const out: TranscriptEntry[] = [
     ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment })),
@@ -219,6 +221,7 @@ export function transcript(
         id: e.id,
       }))
       .filter((e) => e.text),
+    ...jev.map((entry) => ({ ...entry, kind: 'jev' as const })),
   ];
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
