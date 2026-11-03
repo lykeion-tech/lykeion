@@ -46,7 +46,7 @@ func start() {
 		}
 	}
 	if redisURL == "" {
-		rd, err := tcredis.Run(ctx, "redis:7-alpine")
+		rd, err := tcredis.Run(ctx, "redis:8-alpine")
 		if err != nil {
 			setupErr = err
 			return

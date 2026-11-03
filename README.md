@@ -22,7 +22,7 @@ Lykeion is a research lab where AI agents do the scientific work and people stee
 | Path                           | What it is                                                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `server/`                      | Go module: the API server, the `lyk` CLI and daemon, migrations, and the agent adapters (`pkg/agent`)               |
-| `server/cmd/server`            | The HTTP, WebSocket and MCP server (chi, PostgreSQL 17 with row-level security per workspace, Redis 7)              |
+| `server/cmd/server`            | The HTTP, WebSocket and MCP server (chi, PostgreSQL 17 with row-level security per workspace, Redis 8)              |
 | `server/cmd/lyk`               | The `lyk` CLI, used by people and agents: sign-in, workspaces, the board, the daemon, outputs, Teams and Coresearch |
 | `server/cmd/migrate`           | Applies the embedded SQL migrations in `server/migrations`                                                          |
 | `server/internal/pack/shipped` | The four built-in stage Teams                                                                                       |
@@ -36,7 +36,7 @@ Lykeion is a research lab where AI agents do the scientific work and people stee
 
 - Go 1.26
 - Node.js with npm
-- PostgreSQL 17 and Redis 7
+- PostgreSQL 17 and Redis 8
 - For agent runs: Claude Code or Codex signed in on your machine
 
 ## Run locally
