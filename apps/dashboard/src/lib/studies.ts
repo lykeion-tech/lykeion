@@ -374,14 +374,22 @@ const decisionLabels: Record<string, string> = {
   validation_invalid: 'Validation found invalid results',
 };
 
-// Validation's final statuses, one line per hypothesis: its status and the
-// first reason for it.
+// Validation's final statuses, one line per hypothesis: "<hypothesis> —
+// <status> · <first reason>". A route-back leaves earlier rounds' statuses
+// live, so only the newest round that has final statuses is shown.
 export function validationLines(records: StudyRecord[]): string[] {
-  return records
-    .filter((r) => r.kind === 'validation_status' && !r.superseded_at && r.body.final === true)
+  const final = records.filter(
+    (r) => r.kind === 'validation_status' && !r.superseded_at && r.body.final === true,
+  );
+  const newest = Math.max(...final.map((r) => r.round));
+  return final
+    .filter((r) => r.round === newest)
     .map((r) => {
       const reasons = Array.isArray(r.body.reasons) ? r.body.reasons : [];
-      return [str(r.body.status), ...reasons.slice(0, 1).map(str)].join(' · ');
+      const what = str(r.body.hypothesis).trim();
+      const clipped = what.length > 60 ? `${what.slice(0, 60)}…` : what;
+      const verdict = [str(r.body.status), ...reasons.slice(0, 1).map(str)].join(' · ');
+      return clipped ? `${clipped} — ${verdict}` : verdict;
     });
 }
 

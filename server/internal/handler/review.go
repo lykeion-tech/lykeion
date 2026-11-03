@@ -77,6 +77,7 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 		}
 		study = append(study, recs...)
 	}
+	var statuses []db.Record
 	v := &validationView{Mode: handin.ModeOf(study), Statuses: []json.RawMessage{}, Objections: []json.RawMessage{}}
 	for _, rec := range study {
 		if rec.BoardColumn != board.Validation {
@@ -84,7 +85,7 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 		}
 		switch rec.Kind {
 		case "validation_status":
-			v.Statuses = append(v.Statuses, rec.Body)
+			statuses = append(statuses, rec)
 		case "objection":
 			v.Objections = append(v.Objections, rec.Body)
 			var o struct {
@@ -97,6 +98,30 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 			v.Rerun = rec.Body
 		case "route_back":
 			v.RouteBack = rec.Body
+		}
+	}
+	// A route-back leaves the earlier round's statuses live: only the newest
+	// round with final statuses stands, else the newest round's code statuses.
+	final := func(r db.Record) bool {
+		var b struct {
+			Final bool `json:"final"`
+		}
+		return json.Unmarshal(r.Body, &b) == nil && b.Final
+	}
+	var round int32 = -1
+	for _, r := range statuses {
+		if final(r) && r.Round > round {
+			round = r.Round
+		}
+	}
+	if round < 0 {
+		for _, r := range statuses {
+			round = max(round, r.Round)
+		}
+	}
+	for _, r := range statuses {
+		if r.Round == round {
+			v.Statuses = append(v.Statuses, r.Body)
 		}
 	}
 	return v, nil

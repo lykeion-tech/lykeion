@@ -92,16 +92,18 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
 	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), uuid.Nil, func(tx *store.Tx) error {
 		for _, x := range []struct {
-			kind string
-			body any
+			kind  string
+			round int32
+			body  any
 		}{
-			{"validation_status", map[string]any{"hypothesis": "H1", "status": "invalid", "reasons": []string{"the value did not reproduce"}, "cites": []string{}, "final": true}},
-			{"objection", map[string]any{"target_key": "k", "label": "H1", "type": "leakage", "problem": "p", "server": "ok", "checks": []any{}, "upheld": true, "same_family": true}},
-			{"rerun", map[string]any{"reproduced": map[string]bool{"v": false}, "notes": map[string]string{"v": "off by 3"}}},
+			{"validation_status", 1, map[string]any{"hypothesis": "H1", "status": "valid", "reasons": []string{}, "cites": []string{}, "final": true}},
+			{"validation_status", 2, map[string]any{"hypothesis": "H1", "status": "invalid", "reasons": []string{"the value did not reproduce"}, "cites": []string{}, "final": true}},
+			{"objection", 2, map[string]any{"target_key": "k", "label": "H1", "type": "leakage", "problem": "p", "server": "ok", "checks": []any{}, "upheld": true, "same_family": true}},
+			{"rerun", 2, map[string]any{"reproduced": map[string]bool{"v": false}, "notes": map[string]string{"v": "off by 3"}}},
 		} {
 			b, _ := json.Marshal(x.body)
 			if _, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
-				BoardColumn: "validation", Round: 1, Kind: x.kind, Role: "server", Body: b}); err != nil {
+				BoardColumn: "validation", Round: x.round, Kind: x.kind, Role: "server", Body: b}); err != nil {
 				return err
 			}
 		}
@@ -129,6 +131,9 @@ func TestReviewEndpointAnswersValidationRecords(t *testing.T) {
 	}
 	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, w.ID, nil, &v); code != 200 {
 		t.Fatalf("code %d", code)
+	}
+	if len(v.Columns[0].Statuses) != 0 || v.Columns[0].Mode != "" {
+		t.Fatalf("grounding carries validation fields: %+v", v.Columns[0])
 	}
 	val := v.Columns[3]
 	if val.Mode != "claims" || len(val.Statuses) != 1 || val.Statuses[0].Status != "invalid" || !val.Statuses[0].Final ||

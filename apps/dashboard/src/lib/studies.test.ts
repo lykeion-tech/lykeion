@@ -403,17 +403,27 @@ describe('flow records and Inbox sentences', () => {
     expect(at('open_doubts')).toBe('S: Passed with open doubts');
     expect(at('needs_decision', 'could_not_do')).toBeNull();
   });
-  it('shows final Validation statuses as one line per hypothesis', () => {
-    const rec = (body: Record<string, unknown>, superseded_at: string | null = null) =>
-      ({ kind: 'validation_status', superseded_at, body }) as any;
+  it('shows only the newest round of final Validation statuses, one line per hypothesis', () => {
+    const rec = (
+      round: number,
+      body: Record<string, unknown>,
+      superseded_at: string | null = null,
+    ) => ({ kind: 'validation_status', round, superseded_at, body }) as any;
     expect(
       studies.validationLines([
-        rec({ status: 'invalid', reasons: ['did not reproduce', 'x'], final: true }),
-        rec({ status: 'valid', reasons: [], final: true }),
-        rec({ status: 'valid', reasons: ['r'], final: false }),
-        rec({ status: 'valid', reasons: ['r'], final: true }, 't'),
+        rec(1, { hypothesis: 'H1', status: 'valid', reasons: [], final: true }),
+        rec(2, {
+          hypothesis: 'H1',
+          status: 'invalid',
+          reasons: ['did not reproduce', 'x'],
+          final: true,
+        }),
+        rec(2, { hypothesis: 'H2', status: 'valid', reasons: [], final: true }),
+        rec(3, { hypothesis: 'H1', status: 'valid', reasons: ['r'], final: false }),
+        rec(2, { hypothesis: 'H3', status: 'valid', reasons: ['r'], final: true }, 't'),
       ]),
-    ).toEqual(['invalid · did not reproduce', 'valid']);
+    ).toEqual(['H1 — invalid · did not reproduce', 'H2 — valid']);
+    expect(studies.validationLines([])).toEqual([]);
   });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
