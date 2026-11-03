@@ -470,21 +470,18 @@ func (w *Writer) apply(ctx context.Context, tx *store.Tx, j store.BatchJob, less
 			if err != nil {
 				return err
 			}
-			if changed {
-				// Jev ran outside the database. Check every dependency again, including
-				// counter-facts that are not themselves citations in the new wording.
-				for ref, want := range input.Observed {
-					r, _ := labmemory.ParseRef(ref)
-					v, err := labmemory.Version(ctx, tx, r)
-					if errors.Is(err, labmemory.ErrNotFound) || err == nil && v != want {
-						return errRewriteChanged
-					}
-					if err != nil {
-						return err
-					}
+			// The guard can reject a draft because a fact changed during Jev.
+			// Distinguish that retry from rejection against unchanged evidence.
+			for ref, want := range input.Observed {
+				r, _ := labmemory.ParseRef(ref)
+				v, err := labmemory.Version(ctx, tx, r)
+				if errors.Is(err, labmemory.ErrNotFound) || err == nil && v != want {
+					return errRewriteChanged
+				}
+				if err != nil {
+					return err
 				}
 			}
-
 		}
 	} else {
 		for _, d := range o.Lessons[:min(4, len(o.Lessons))] {

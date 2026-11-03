@@ -410,8 +410,8 @@ func TestGuardEvaluatesCompleteRewriteIncludingCounter(t *testing.T) {
 	f.b.output = Output{Replacement: &f.draft}
 	f.run()
 	f.run()
-	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 {
-		t.Fatal("accepted claim without evaluating contradiction")
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='set_aside'`, target) != 1 || f.count(`SELECT count(*) FROM lesson_job WHERE lesson_id=$1 AND status='done' AND failures=0`, target) != 1 || len(f.b.requests) != 1 {
+		t.Fatal("unchanged contradictory rewrite did not finish as rejected")
 	}
 }
 func TestSlowPreparationLeavesHealthyJobsProviderBudgetIntact(t *testing.T) {
@@ -459,5 +459,57 @@ func TestPreparationDeadlineAllowsPreparedBatchToSubmit(t *testing.T) {
 	}
 	if !errors.Is(prep.Err(), context.DeadlineExceeded) || len(f.b.requests) != 1 || len(f.b.requests[0]) != 1 || f.b.requests[0][0].JobID != healthy || f.count(`SELECT count(*) FROM lesson_job WHERE failures>0`) != 0 {
 		t.Fatal("preparation deadline spent provider attempts")
+	}
+}
+
+func TestRewriteRetriesStudyChangeDuringSupportedJevCall(t *testing.T) {
+	f := writing(t)
+	study := labmemory.Ref{Kind: "study", ID: f.card}
+	version := func() string {
+		t.Helper()
+		var v string
+		err := f.w.scoped(t.Context(), f.ws, func(tx *store.Tx) error {
+			var err error
+			v, err = labmemory.Version(t.Context(), tx, study)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	initial := version()
+	target := f.rewrite([]string{study.String()})
+	cites, err := json.Marshal([]labmemory.Citation{{Ref: study.String(), Version: initial}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`UPDATE lesson SET cites=$1 WHERE id=$2`, cites, target)
+	d := Draft{Kind: "lab", Text: "Rewrite from the original question", Cites: []string{study.String()}}
+	f.b.output = Output{Replacement: &d}
+	f.run()
+
+	judge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := f.env.Owner.Exec(r.Context(), `UPDATE card SET question='Revised question during guard' WHERE id=$1`, f.card); err != nil {
+			t.Error(err)
+		}
+		fmt.Fprint(w, `{"model":"jev-1.13.0","answers":{"q":{"choice":"supported"}}}`)
+	}))
+	defer judge.Close()
+	f.w.Jev.BaseURL = judge.URL
+	f.run()
+	if len(f.b.requests) != 2 || !strings.Contains(f.b.requests[1][0].Prompt, "Revised question during guard") {
+		t.Fatal("stale supported verdict did not produce a new batch for the current question")
+	}
+	if f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND text='Previous lesson' AND status='set_aside'`, target) != 1 ||
+		f.count(`SELECT count(*) FROM lesson_job WHERE lesson_id=$1 AND status='submitted' AND failures=0`, target) != 1 {
+		t.Fatal("obsolete rewrite activated or lost its pending job")
+	}
+	d.Text = "Rewrite from the revised question"
+	f.w.Jev = fakeJudge(t, "supported")
+	f.run()
+	current := version()
+	if current == initial || f.count(`SELECT count(*) FROM lesson WHERE id=$1 AND status='active' AND text=$2 AND cites->0->>'version'=$3`, target, d.Text, current) != 1 {
+		t.Fatal("fresh rewrite did not pin the revised study")
 	}
 }
