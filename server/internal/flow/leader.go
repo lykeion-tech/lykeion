@@ -60,8 +60,6 @@ func IsMember(role string) bool {
 	return !slices.Contains([]string{"", "leader", "auditor", "agent", "objector", "rerun"}, role)
 }
 
-func waitingToStart(status string) bool { return status == "queued" || status == "dispatched" }
-
 func inFlight(status string) bool {
 	return status == "queued" || status == "dispatched" || status == "running"
 }

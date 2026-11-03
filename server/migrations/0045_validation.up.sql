@@ -13,10 +13,13 @@ ALTER TABLE agent_run
   ADD CONSTRAINT agent_run_rerun_harness CHECK ((kind = 'rerun') = (harness = ''));
 
 -- A Validation column worked under the old protocol starts again as a fresh round under the new review rules.
--- Blocked cards stay blocked; their owner's comment restarts them as before.
+-- Blocked cards stay blocked; their owner's comment restarts them under the new rules.
+UPDATE card SET legacy_column = '', version = version + 1
+WHERE board_column = 'validation' AND state = 'blocked' AND legacy_column = 'validation';
+
 WITH restarted AS (
   SELECT id, workspace_id FROM card
-  WHERE board_column = 'validation' AND state IN ('working', 'gating') AND ending = ''
+  WHERE board_column = 'validation' AND state = 'working' AND ending = ''
 ), cancelled AS (
   UPDATE agent_run r SET status = 'cancelled', completed_at = now()
   FROM restarted c

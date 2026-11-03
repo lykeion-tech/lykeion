@@ -102,11 +102,14 @@ func couldNotDoText(number int32, reason string) string {
 
 func allWithdrawnText(column string, reasons []string) string {
 	noun, left := "items", "Nothing is left to review."
-	if column == "hypotheses" {
+	switch column {
+	case "hypotheses":
 		noun, left = "hypotheses", "Nothing is left to test."
+	case "validation":
+		noun, left = "verdicts and flagged errors", "Nothing is left to check."
 	}
 	if len(reasons) == 1 {
-		noun = map[string]string{"items": "item", "hypotheses": "hypothesis"}[noun]
+		noun = map[string]string{"items": "item", "hypotheses": "hypothesis", "verdicts and flagged errors": "verdict or flagged error"}[noun]
 	}
 	return fmt.Sprintf("The Team withdrew all %d %s: %s. %s Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), noun, strings.TrimRight(strings.Join(reasons, "; "), "."), left)
 }

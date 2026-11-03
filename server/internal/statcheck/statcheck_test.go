@@ -87,3 +87,32 @@ func TestConsistent(t *testing.T) {
 		t.Error("unknown bound should error")
 	}
 }
+
+func TestConsistentAcrossKinds(t *testing.T) {
+	cases := []struct {
+		name string
+		in   Test
+		want bool
+	}{
+		{"F", Test{Kind: "F", Statistic: 3.32, StatDigits: 2, DF1: 2, DF2: 30, P: 0.05, PDigits: 2, PBound: "="}, true},
+		{"F wrong p", Test{Kind: "F", Statistic: 3.32, StatDigits: 2, DF1: 2, DF2: 30, P: 0.20, PDigits: 2, PBound: "="}, false},
+		{"chi2", Test{Kind: "chi2", Statistic: 3.84, StatDigits: 2, DF1: 1, P: 0.05, PDigits: 2, PBound: "="}, true},
+		{"chi2 wrong p", Test{Kind: "chi2", Statistic: 3.84, StatDigits: 2, DF1: 1, P: 0.01, PDigits: 2, PBound: "="}, false},
+		{"r", Test{Kind: "r", Statistic: 0.30, StatDigits: 2, DF1: 48, P: 0.03, PDigits: 2, PBound: "="}, true},
+		{"z", Test{Kind: "z", Statistic: 1.96, StatDigits: 2, P: 0.05, PDigits: 2, PBound: "="}, true},
+		{"z wrong p", Test{Kind: "z", Statistic: 1.96, StatDigits: 2, P: 0.5, PDigits: 1, PBound: "="}, false},
+		{"negative t", Test{Kind: "t", Statistic: -2.20, StatDigits: 2, DF1: 28, P: 0.04, PDigits: 2, PBound: "="}, true},
+		{"negative t wrong p", Test{Kind: "t", Statistic: -2.20, StatDigits: 2, DF1: 28, P: 0.40, PDigits: 2, PBound: "="}, false},
+		{"r near 1", Test{Kind: "r", Statistic: 0.999, StatDigits: 3, DF1: 10, P: 0.001, PDigits: 3, PBound: "<"}, true},
+		{"r near 1 not significant", Test{Kind: "r", Statistic: 0.999, StatDigits: 3, DF1: 10, P: 0.05, PDigits: 2, PBound: ">"}, false},
+	}
+	for _, c := range cases {
+		got, _, err := Consistent(c.in)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: consistent = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

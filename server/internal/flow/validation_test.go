@@ -376,6 +376,29 @@ func TestModeBRedoesOnce(t *testing.T) {
 	}
 }
 
+func TestModeBAllWithdrawnAsksTheOwner(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	c := l.study(t, "validation", true, nil)
+	l.put(t, c.ID, "validation", 1, "call", "server", map[string]any{"server": "attachments", "tool": "attach", "args": map[string]any{"name": "paper.txt"},
+		"answer": "The drug lowered systolic blood pressure by 10 mmHg."})
+	l.e.Kick(l.ws, c.ID)
+	key := l.item(t, c.ID, review.KindVerdict, review.VerdictBody{Claim: "The drug lowers blood pressure.", Verdict: "supported", Source: "paper.txt", Quote: "lowered diastolic pressure"})
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	l.e.Kick(l.ws, c.ID)
+	l.item(t, c.ID, review.KindWithdrawn, map[string]any{"item": key, "reason": "the paper reports systolic pressure only"})
+	l.done(t, c.ID)
+	l.settleAuditor(t, c.ID)
+	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "" {
+		t.Fatalf("after withdrawing every verdict: %s %q", got.State, got.BlockKind)
+	}
+	want := "The Team withdrew all 1 verdict or flagged error: the paper reports systolic pressure only. Nothing is left to check. Comment with guidance to redo the column, or close the study as a negative result."
+	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 || items[0] != want {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+}
+
 func TestARestartedValidationRoundUsesTheHandIn(t *testing.T) {
 	l := newLab(t)
 	c := l.study(t, "validation", true, nil)

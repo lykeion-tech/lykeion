@@ -63,10 +63,10 @@ func reason(c Check) string {
 }
 
 // AllWithdrawn says whether the Team withdrew every item it had in a column
-// reviewed item by item, so nothing is left to review; the owner decides
-// what happens next.
+// reviewed item by item, Validation's claim checks included, so nothing is
+// left to review; the owner decides what happens next.
 func AllWithdrawn(r Result) bool {
-	if r.Column != "grounding" && r.Column != "hypotheses" && r.Column != "experimentation" || len(r.Items) == 0 {
+	if r.Column != "grounding" && r.Column != "hypotheses" && r.Column != "experimentation" && r.Column != "validation" || len(r.Items) == 0 {
 		return false
 	}
 	for _, it := range r.Items {

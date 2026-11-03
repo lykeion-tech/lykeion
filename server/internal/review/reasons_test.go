@@ -72,8 +72,8 @@ func TestWithdrawalReasonsNeverBlank(t *testing.T) {
 	if got != "too weak|no reason given|no reason given" {
 		t.Fatal(got)
 	}
-	if AllWithdrawn(Result{Column: board.Validation, Items: r.Items}) {
-		t.Fatal("validation has no item review")
+	if !AllWithdrawn(Result{Column: board.Validation, Items: r.Items}) {
+		t.Fatal("Validation's withdrawn verdicts and flagged errors are not all withdrawn")
 	}
 }
 

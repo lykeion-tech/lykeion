@@ -57,8 +57,8 @@ func TestValidationInProgressRestartsAtMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var blocked uuid.UUID
-	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column, state, round, redos)
-		VALUES ($1, 2, 't', 'q', $2, 'validation', 'blocked', 2, 1) RETURNING id`, ws, u).Scan(&blocked); err != nil {
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column, state, round, redos, legacy_column)
+		VALUES ($1, 2, 't', 'q', $2, 'validation', 'blocked', 2, 1, 'validation') RETURNING id`, ws, u).Scan(&blocked); err != nil {
 		t.Fatal(err)
 	}
 	exec(`INSERT INTO record (workspace_id, card_id, board_column, round, kind, role) VALUES ($1,$2,'validation',2,'claim','reviewer')`, ws, card)
@@ -80,8 +80,9 @@ func TestValidationInProgressRestartsAtMigration(t *testing.T) {
 	if err := env.Owner.QueryRow(ctx, `SELECT count(*) FROM record WHERE card_id=$1 AND round=2`, card).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("round-2 records=%d (%v), want 1", n, err)
 	}
-	if err := env.Owner.QueryRow(ctx, `SELECT round FROM card WHERE id=$1`, blocked).Scan(&round); err != nil || round != 2 {
-		t.Fatalf("blocked card round=%d (%v), want 2", round, err)
+	var state string
+	if err := env.Owner.QueryRow(ctx, `SELECT round, state, legacy_column FROM card WHERE id=$1`, blocked).Scan(&round, &state, &legacy); err != nil || round != 2 || state != "blocked" || legacy != "" {
+		t.Fatalf("blocked card round=%d state=%q legacy=%q (%v), want 2 blocked \"\"", round, state, legacy, err)
 	}
 
 	exec(read("0045_validation.down.sql"))
