@@ -2,25 +2,27 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
-import StudyDetail from '../studies/StudyDetail.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import DecisionOptions from './DecisionOptions.vue';
 import MachineWait from './MachineWait.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { useDecisions, useMe } from '../../api/queries';
+import { useCards, useDecisions, useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
-import { agentDecisionParts, isMachineWait } from '../../lib/studies';
+import { agentDecisionParts, decisionKindOf, inboxTitle, isMachineWait, timeAgo } from '../../lib/studies';
 
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
 const open = useDecisions(false);
 const resolved = useDecisions(true);
 const me = useMe();
+const cards = useCards();
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId),
 );
+const study = computed(() => cards.data.value?.find((card) => card.id === selected.value?.card_id));
+const question = computed(() => selected.value?.kind === 'agent_decision' ? agentDecisionParts(selected.value.text) : { title: selected.value ? inboxTitle(selected.value, study.value?.title) : '', body: selected.value?.text ?? '' });
 const selectedReport = ref<DecisionItem>();
 const reportOpen = ref(false);
 let reportVisit = '';
@@ -93,53 +95,46 @@ watch(
 </script>
 <template>
   <section class="resources resource-decisions">
-    <div class="split-workspace">
-      <div class="conversation-content">
-        <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
-        <div v-if="selected?.kind === 'agent_decision'" class="agent-question">
-          <p class="type-body">
-            <b>{{ agentDecisionParts(selected.text).title }}</b>
-          </p>
-          <p class="type-body">{{ agentDecisionParts(selected.text).body }}</p>
+    <main class="decision-activity">
+      <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
+      <article v-if="selected" class="activity-card">
+        <header class="activity-card-header">
+          <span>{{ decisionKindOf(selected.kind).label }}</span>
+          <span class="card-time">{{ timeAgo(selected.created_at) }}</span>
+        </header>
+        <div class="card-body">
+          <div class="status-line"><span class="status-pill">{{ selected.status === 'open' ? 'Pending' : selected.status }}</span></div>
+          <h1>{{ question.title }}</h1>
+          <p v-if="question.body" class="question-body">{{ question.body }}</p>
+          <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
+          <p v-if="selected.card_id" class="study-link"><RouterLink :to="'/studies/' + selected.card_id">Open {{ study?.title || 'study' }} and activity →</RouterLink></p>
+          <DecisionOptions v-if="selected.options?.length" :key="selected.id" :item="selected" />
+          <MachineWait v-if="isMachineWait(selected)" :key="selected.id" :item="selected" />
+          <button v-if="selectedReport" class="button" @click="reportOpen = true">Open report</button>
         </div>
-        <DecisionOptions v-if="selected?.options?.length" :key="selected.id" :item="selected" />
-        <MachineWait
-          v-if="selected && isMachineWait(selected)"
-          :key="selected.id"
-          :item="selected"
-        />
-        <StudyDetail
-          v-else-if="selected?.card_id && selected.kind !== 'autoresearch_report'"
-          :id="selected.card_id"
-          :key="selected.card_id"
-          embedded
-        />
-        <div v-else-if="selectedReport" class="conversation-empty">
-          <Icon name="zap" :size="38" />
-          <p>{{ selectedReport.text }}</p>
-          <button class="button" @click="reportOpen = true">Open report</button>
-        </div>
-        <div v-else class="conversation-empty">
-          <Icon name="inbox" :size="38" />
-          <p>Select a decision to open its study</p>
-        </div>
+      </article>
+      <div v-else class="conversation-empty">
+        <Icon name="inbox" :size="38" />
+        <p>Select a decision to open its study</p>
       </div>
-    </div>
-    <AutoresearchRunDialog
-      v-if="reportOpen && selectedReport?.autoresearch_run_id"
-      :key="workspaceId + ':' + selectedReport.autoresearch_run_id"
-      :run-id="selectedReport.autoresearch_run_id"
-      @close="reportOpen = false"
-    />
+    </main>
+    <AutoresearchRunDialog v-if="reportOpen && selectedReport?.autoresearch_run_id"
+      :key="workspaceId + ':' + selectedReport.autoresearch_run_id" :run-id="selectedReport.autoresearch_run_id" @close="reportOpen = false" />
   </section>
 </template>
 <style scoped src="../../ui/resources.css"></style>
 <style scoped>
-.agent-question {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 16px 0;
-  white-space: pre-wrap;
-}
+.decision-activity { padding:28px 32px 64px; max-width:1000px; width:100%; margin:0 auto; }
+.activity-card { border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); overflow:hidden; }
+.activity-card-header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--border); color:var(--muted); font-size:12px; }
+.card-time { margin-left:auto; }
+.card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
+.card-body h1 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
+.question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
+.study-context { color:var(--muted); }
+.status-pill { display:inline-flex; padding:4px 8px; border:1px solid var(--primary); border-radius:5px; color:var(--primary-text); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+.study-link { font-size:13px; color:var(--primary-text); }
+.study-link a:hover { text-decoration:underline; }
+.conversation-empty { min-height:300px; }
+@media (max-width:700px) { .decision-activity { padding:16px 12px 40px; } .card-body { padding:16px; } }
 </style>

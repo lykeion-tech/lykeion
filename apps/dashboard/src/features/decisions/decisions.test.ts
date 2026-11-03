@@ -16,11 +16,12 @@ const me = ref<{ id: string } | undefined>({ id: 'me' });
 vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => api(...args) }));
 vi.mock('@tanstack/vue-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 const rows = ref<DecisionItem[]>([]);
+const cards = ref<any[]>([]);
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
 vi.mock('../../api/queries', () => ({
   useDecisionCount: () => ({ data: count }),
   useDecisions: () => ({ data: rows, error: ref(null) }),
-  useCards: () => ({ data: ref([]) }),
+  useCards: () => ({ data: cards }),
   useMe: () => ({ data: me }),
   useMembers: () => ({
     data: ref([
@@ -40,6 +41,7 @@ afterEach(() => {
   count.value = { open: 3, due_soon: 0 };
   me.value = { id: 'me' };
   rows.value = [];
+  cards.value = [];
 });
 
 const item = (over: Partial<DecisionItem> = {}): DecisionItem => ({
@@ -100,32 +102,44 @@ it('shows each option with its consequence, the raiser and the expiry', () => {
   expect(text).toContain('Expires in 3d');
 });
 
-it('asks for guidance on redo and will not send it empty', async () => {
-  const root = mount(DecisionOptions, { item: item() });
-  await click(buttonFor(root, 'Redo with guidance'));
-  const box = all(root).find((n) => n.tag === 'textarea')!;
-  expect(box).toBeDefined();
-  await click(buttonFor(root, 'Redo with guidance'));
-  expect(api).not.toHaveBeenCalled();
-  (box.props.onInput as (e: unknown) => void)({ target: { value: '  use the 2024 cohort ' } });
-  await new Promise((r) => setTimeout(r));
-  await click(buttonFor(root, 'Redo with guidance'));
-  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/decide', {
-    option: 'redo',
-    guidance: 'use the 2024 cohort',
-  });
-});
-
-it('sends an option that needs no guidance straight away', async () => {
+it('stages a choice and submits it only after explicit confirmation', async () => {
   api.mockResolvedValue(undefined);
-  await click(buttonFor(mount(DecisionOptions, { item: item() }), 'Park'));
+  const root = mount(DecisionOptions, { item: item() });
+  await click(buttonFor(root, 'Park'));
+  await new Promise((r) => setTimeout(r));
+  expect(api).not.toHaveBeenCalled();
+  expect(buttonFor(root, 'Park')?.props['aria-pressed']).toBe(true);
+  await click(buttonFor(root, 'Submit'));
   expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/decide', { option: 'park' });
   expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.decisionsAll('w1') });
-  expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.decisionCount('w1') });
 });
 
-it('shows a non-answerer no buttons', () => {
-  expect(buttons(mount(DecisionOptions, { item: item({ can_answer: false }) }))).toHaveLength(0);
+it('requires redo guidance, retaining it across a failed submission', async () => {
+  api.mockRejectedValueOnce(new Error('Temporary problem'));
+  const root = mount(DecisionOptions, { item: item() });
+  await click(buttonFor(root, 'Redo with guidance'));
+  await new Promise((r) => setTimeout(r));
+  const box = all(root).find((n) => n.tag === 'textarea')!;
+  expect(box).toBeDefined();
+  expect(buttonFor(root, 'Submit')?.props.disabled).toBe(true);
+  (box.props.onInput as (e: unknown) => void)({ target: { value: '  use the 2024 cohort ' } });
+  await new Promise((r) => setTimeout(r));
+  await click(buttonFor(root, 'Submit'));
+  await new Promise((r) => setTimeout(r));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/decide', {
+    option: 'redo', guidance: 'use the 2024 cohort',
+  });
+  expect(textOf(root)).toContain('Temporary problem');
+  expect(all(root).find((n) => n.tag === 'textarea')?.props.value).toBe('  use the 2024 cohort ');
+  expect(buttonFor(root, 'Redo with guidance')?.props['aria-pressed']).toBe(true);
+});
+
+it('shows non-answerers the options and explains who can answer', () => {
+  const root = mount(DecisionOptions, { item: item({ can_answer: false }) });
+  expect(textOf(root)).toContain('Redo with guidance');
+  expect(textOf(root)).toContain('Only the study owner or a workspace owner or admin can answer');
+  expect(buttonFor(root, 'Redo with guidance')?.props.disabled).toBe(true);
+  expect(buttonFor(root, 'Submit')).toBeUndefined();
 });
 
 it('shows a decided item its choice and who made it, without buttons', () => {
@@ -230,6 +244,16 @@ it('shows an agent question with its options and only its addressee reads it', a
   expect(api).not.toHaveBeenCalled();
 });
 
+it('shows the study context and a link to its activity without embedding its sidebar', () => {
+  rows.value = [item({ kind: 'agent_decision', text: 'Choose a population\n\nTwo readings.' })];
+  cards.value = [{ id: 'c1', number: 4, title: 'Memory study', question: 'Does sleep help?' }];
+  const root = mount(DecisionsView, { itemId: 'd1' });
+  expect(textOf(root)).toContain('Memory study');
+  expect(textOf(root)).toContain('Does sleep help?');
+  expect(all(root).some((n) => n.props.to === '/studies/c1')).toBe(true);
+  expect(all(root).some((n) => n.tag === 'StudyDetail')).toBe(false);
+});
+
 it('renders a machine_offline item as its text', () => {
   rows.value = [
     item({ kind: 'machine_offline', card_id: null, options: null, text: 'laptop is offline' }),
@@ -247,7 +271,10 @@ it('drops a decided row from the Open list once the list refreshes', async () =>
   const rail = mount(DecisionRail, {});
   const rowLinks = () => all(rail).filter((n) => n.props.to !== undefined);
   expect(rowLinks().map((n) => n.props.to)).toEqual(['/decisions/d1', '/decisions/d2']);
-  await click(buttonFor(mount(DecisionOptions, { item: rows.value[0] }), 'Park'));
+  const options = mount(DecisionOptions, { item: rows.value[0] });
+  await click(buttonFor(options, 'Park'));
+  await new Promise((r) => setTimeout(r));
+  await click(buttonFor(options, 'Submit'));
   await new Promise((r) => setTimeout(r));
   expect(rowLinks().map((n) => n.props.to)).toEqual(['/decisions/d2']);
 });
