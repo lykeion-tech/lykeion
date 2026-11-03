@@ -725,7 +725,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 }
 
 const listComments = `-- name: ListComments :many
-SELECT id, workspace_id, card_id, author_id, body, created_at, reply_run_id, steer_attempt FROM comment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at
+SELECT id, workspace_id, card_id, author_id, body, created_at, reply_run_id, steer_attempt FROM comment c WHERE workspace_id = $1 AND card_id = $2 AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id) ORDER BY created_at
 `
 
 type ListCommentsParams struct {
@@ -927,7 +927,7 @@ func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error 
 }
 
 const undeliveredComments = `-- name: UndeliveredComments :many
-SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3 AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
   AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
     AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
 ORDER BY c.created_at, c.id

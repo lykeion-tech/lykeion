@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createRenderer, h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AgentRunCard from './AgentRunCard.vue';
-import type { AgentRun, RunMessage, Runtime } from '../../api/types';
+import type { AgentRun, Comment, RunMessage, Runtime } from '../../api/types';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, node, textOf } from '../../../../../tests/daemon-tree';
@@ -72,7 +72,11 @@ const run: AgentRun = {
   answer: 'A **three-line** preview.',
   last_activity_at: null,
 };
-function setup(extra: Partial<AgentRun> = {}, runtime: Runtime | null = null) {
+function setup(
+  extra: Partial<AgentRun> = {},
+  runtime: Runtime | null = null,
+  replies: Comment[] = [],
+) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   workspaceId.value = 'w';
   const client = new QueryClient({
@@ -107,7 +111,7 @@ function setup(extra: Partial<AgentRun> = {}, runtime: Runtime | null = null) {
   ];
   const fetch = vi.fn(async (_path: string) => Response.json(messages));
   vi.stubGlobal('fetch', fetch);
-  const notebook: string[] = [];
+  const cancelled: string[] = [];
   const root = node('root');
   const app = createTreeApp({
     render: () =>
@@ -117,7 +121,9 @@ function setup(extra: Partial<AgentRun> = {}, runtime: Runtime | null = null) {
         position: 1,
         studyId: 'c',
         runtime,
-        onNotebook: (id: string) => notebook.push(id),
+        replies,
+        authorId: 'u',
+        onCancelComment: (id: string) => cancelled.push(id),
       }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
@@ -133,8 +139,41 @@ function setup(extra: Partial<AgentRun> = {}, runtime: Runtime | null = null) {
     (header().props.onClick as () => void)();
     await nextTick();
   };
-  return { root, fetch, notebook, header, clickHeader };
+  return { root, fetch, cancelled, header, clickHeader };
 }
+it('lets the author remove a reply and uses the round send control', async () => {
+  const item: Comment = {
+    id: 'reply',
+    workspace_id: 'w',
+    card_id: 'c',
+    author_id: 'u',
+    body: 'Hello',
+    created_at: run.created_at,
+    delivery: null,
+  };
+  const { root, cancelled } = setup({}, null, [item]);
+  await nextTick();
+  const remove = all(root).find((n) => n.props['aria-label'] === 'Remove comment')!;
+  expect(remove).toBeTruthy();
+  (remove.props.onClick as () => void)();
+  expect(cancelled).toEqual(['reply']);
+  const send = all(root).find((n) => n.props['aria-label'] === 'Send reply to Ada')!;
+  expect(String(send.props.class)).toContain('round-send');
+});
+it('does not offer removal for another member’s reply', async () => {
+  const item: Comment = {
+    id: 'reply',
+    workspace_id: 'w',
+    card_id: 'c',
+    author_id: 'other',
+    body: 'Hello',
+    created_at: run.created_at,
+    delivery: null,
+  };
+  const { root } = setup({}, null, [item]);
+  await nextTick();
+  expect(all(root).some((n) => n.props['aria-label'] === 'Remove comment')).toBe(false);
+});
 it('opens in place and shows the transcript', async () => {
   const { root, fetch, header, clickHeader } = setup();
   await nextTick();
@@ -187,17 +226,6 @@ it('shows the run environment when open', async () => {
   expect(textOf(root)).not.toContain('Runs on: Bench');
   expect(textOf(root)).toContain('The study machine needs attention.');
 });
-it('opens the Notebook at its run', async () => {
-  const { root, notebook, clickHeader } = setup();
-  await clickHeader();
-  const button = all(root).find(
-    (n) => n.tag === 'button' && textOf(n).trim() === 'Open in Notebook',
-  )!;
-  expect(button).toBeTruthy();
-  (button.props.onClick as () => void)();
-  expect(notebook).toEqual(['run-1']);
-});
-
 it('sends a reply from the card to that run', async () => {
   const { root, fetch } = setup();
   const field = all(root).find(

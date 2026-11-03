@@ -296,6 +296,7 @@ defineExpose({ openNotebookAt });
 const comment = ref('');
 const busy = ref(false);
 const error = ref('');
+const cancellingComment = ref('');
 const canStop = computed(
   () =>
     working.value &&
@@ -340,6 +341,7 @@ watch(
     paneFocused.value = false;
     propertyBusy.value = false;
     comment.value = '';
+    cancellingComment.value = '';
     busy.value = false;
     error.value = '';
   },
@@ -413,6 +415,22 @@ async function submitComposer() {
     if (scope.current()) error.value = (e as Error).message;
   } finally {
     if (scope.current()) busy.value = false;
+  }
+}
+async function cancelComment(id: string) {
+  if (cancellingComment.value) return;
+  const scope = mutationScope();
+  cancellingComment.value = id;
+  error.value = '';
+  try {
+    await api('DELETE', `/api/cards/${scope.id}/comments/${id}`, undefined, undefined, {
+      workspace: scope.workspace,
+    });
+    await client.invalidateQueries({ queryKey: keys.comments(scope.workspace, scope.id) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) cancellingComment.value = '';
   }
 }
 function pin() {
@@ -545,12 +563,14 @@ function pin() {
               :runtime="runtime(entry.run.runtime_id)"
               :study-id="id"
               :author-initial="me.data.value?.id ? name(me.data.value.id)[0] : '?'"
+              :author-id="me.data.value?.id"
+              :cancelling-comment="cancellingComment"
               :replies="
                 (comments.data.value ?? []).filter(
                   (comment) => comment.reply_run_id === entry.run.id,
                 )
               "
-              @notebook="openNotebookAt"
+              @cancel-comment="cancelComment"
             />
             <div v-else-if="entry.kind === 'jev'" class="jev-card">
               <span class="avatar jev-avatar" aria-hidden="true">J</span>

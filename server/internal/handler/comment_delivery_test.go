@@ -86,6 +86,41 @@ func TestCommentClaimedOnce(t *testing.T) {
 	}
 }
 
+func TestCancelStudyCommentPreservesReceiptAndPreventsDelivery(t *testing.T) {
+	l, run := groundingLab(t)
+	cancelled := l.comment(t, "Do not deliver this.")
+	path := "/api/cards/" + l.card.ID + "/comments/" + cancelled
+	other := l.s.signIn(t, "other@lab.org")
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'member')`, l.ws, l.s.userID(t, other)); err != nil {
+		t.Fatal(err)
+	}
+	if code := l.s.call(t, "DELETE", path, other, l.ws, nil, nil); code != 404 {
+		t.Fatalf("another member cancelled comment: %d", code)
+	}
+	if code := l.s.call(t, "DELETE", path, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel: %d", code)
+	}
+	if code, comments := l.runComments(t, run); code != 200 || len(comments) != 0 {
+		t.Fatalf("delivered cancelled comment: %d %+v", code, comments)
+	}
+	if _, ok := l.listComments(t)[cancelled]; ok {
+		t.Fatal("cancelled comment still shown")
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM comment WHERE id=$1`, cancelled); n != 1 {
+		t.Fatalf("lost comment provenance: %d", n)
+	}
+	delivered := l.comment(t, "Already delivered.")
+	if code, comments := l.runComments(t, run); code != 200 || len(comments) != 1 {
+		t.Fatalf("delivery: %d %+v", code, comments)
+	}
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+delivered, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel delivered: %d", code)
+	}
+	if n := l.receipts(t, delivered); n != 1 {
+		t.Fatalf("lost delivery receipt: %d", n)
+	}
+}
+
 func TestTargetedCommentGoesOnlyToSelectedRun(t *testing.T) {
 	l, leader := groundingLab(t)
 	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")

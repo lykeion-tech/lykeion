@@ -23,8 +23,10 @@ const props = defineProps<{
   studyId: string;
   replies?: Comment[];
   authorInitial?: string;
+  authorId?: string;
+  cancellingComment?: string;
 }>();
-const emit = defineEmits<{ notebook: [run: string] }>();
+const emit = defineEmits<{ cancelComment: [id: string] }>();
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
 const open = ref(active.value);
 const members = useMembers();
@@ -141,50 +143,76 @@ const lastActive = computed(
 );
 </script>
 <template>
-  <article class="agent-card" :data-status="run.status">
-    <div class="run-header-row">
-      <button
-        class="run-header"
-        :aria-label="`${name} (${state}), Run ${position}`"
-        :aria-expanded="open"
-        :aria-controls="`run-transcript-${run.id}`"
-        @click="open = !open"
-      >
-        <span class="fold-caret" aria-hidden="true"
-          ><Icon :name="open ? 'down' : 'right'" :size="14"
-        /></span>
-        <span class="avatar agent">
-          {{ name[0] }}
-          <span v-if="active" class="live-dot" :title="state" />
-        </span>
-        <span class="run-identity">
-          <span class="agent-name">{{
-            agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
-          }}</span>
-          <span class="run-meta"
-            ><template v-if="run.model">{{ run.model }} · </template
-            ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
-          >
-        </span></button
-      ><RunReactions :study-id="studyId" :run-id="run.id" />
-    </div>
-    <template v-if="!open">
-      <p class="preview">{{ preview }}</p>
-    </template>
-    <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
-      <RunTurn :run="run" :study="studyCard.data.value" />
-      <p class="run-environment" aria-label="Run environment">
-        <span v-for="e in environment" :key="e.key"
-          ><span class="environment-label">{{ e.key }}:</span> {{ e.value }}</span
+  <section class="run-card-group">
+    <article class="agent-card" :data-status="run.status">
+      <div class="run-header-row">
+        <button
+          class="run-header"
+          :aria-label="`${name} (${state}), Run ${position}`"
+          :aria-expanded="open"
+          :aria-controls="`run-transcript-${run.id}`"
+          @click="open = !open"
         >
+          <span class="fold-caret" aria-hidden="true"
+            ><Icon :name="open ? 'down' : 'right'" :size="14"
+          /></span>
+          <span class="avatar agent">
+            {{ name[0] }}
+            <span v-if="active" class="live-dot" :title="state" />
+          </span>
+          <span class="run-identity">
+            <span class="agent-name">{{
+              agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
+            }}</span>
+            <span class="run-meta"
+              ><template v-if="run.model">{{ run.model }} · </template
+              ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
+            >
+          </span></button
+        ><RunReactions :study-id="studyId" :run-id="run.id" />
+      </div>
+      <template v-if="!open">
+        <p class="preview">{{ preview }}</p>
+      </template>
+      <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
+        <RunTurn :run="run" :study="studyCard.data.value" />
+        <p class="run-environment" aria-label="Run environment">
+          <span v-for="e in environment" :key="e.key"
+            ><span class="environment-label">{{ e.key }}:</span> {{ e.value }}</span
+          >
+        </p>
+        <p v-if="studyCard.data.value?.machine_notice" class="machine-notice" role="status">
+          {{ studyCard.data.value.machine_notice }}
+        </p>
+      </div>
+      <form class="reply-composer" :aria-label="`Reply to ${name}`" @submit.prevent="sendReply">
+        <span class="avatar reply-avatar" aria-hidden="true">{{ authorInitial || '?' }}</span>
+        <textarea
+          :value="reply"
+          :aria-label="`Reply to ${name}`"
+          placeholder="Leave a reply…"
+          rows="1"
+          @input="reply = ($event.target as HTMLTextAreaElement).value"
+          @keydown.meta.enter.prevent="sendReply"
+          @keydown.ctrl.enter.prevent="sendReply"
+        />
+        <button
+          type="submit"
+          class="round-send reply-send"
+          :disabled="replyBusy || !reply.trim()"
+          :aria-label="`Send reply to ${name}`"
+        >
+          <Icon name="up" :size="18" />
+        </button>
+      </form>
+      <p v-if="replyError" class="reply-error" role="alert">{{ replyError }}</p>
+      <p v-if="reply.trim() && active && run.harness === 'codex'" class="reply-note">
+        Codex cannot receive replies during this run; the reply is saved as a study comment.
       </p>
-      <p v-if="studyCard.data.value?.machine_notice" class="machine-notice" role="status">
-        {{ studyCard.data.value.machine_notice }}
+      <p v-else-if="reply.trim() && run.status !== 'running'" class="reply-note">
+        This reply will be saved as a study comment.
       </p>
-      <button class="text-button notebook-link" @click="emit('notebook', run.id)">
-        Open in Notebook
-      </button>
-    </div>
+    </article>
     <div v-if="replies?.length" class="run-replies">
       <div v-for="item in replies" :key="item.id" class="run-reply">
         <span class="avatar reply-avatar">{{
@@ -196,37 +224,35 @@ const lastActive = computed(
           <p>{{ item.body }}</p>
           <small>{{ replyStatus(item) }}</small>
         </div>
+        <button
+          v-if="item.author_id === authorId"
+          type="button"
+          class="reply-remove"
+          aria-label="Remove comment"
+          :title="item.delivery ? 'Remove comment (already delivered)' : 'Remove comment'"
+          :disabled="!!cancellingComment"
+          @click="emit('cancelComment', item.id)"
+        >
+          <Icon name="trash" :size="15" />
+        </button>
       </div>
     </div>
-    <form class="reply-composer" :aria-label="`Reply to ${name}`" @submit.prevent="sendReply">
-      <span class="avatar reply-avatar" aria-hidden="true">{{ authorInitial || '?' }}</span>
-      <textarea
-        :value="reply"
-        :aria-label="`Reply to ${name}`"
-        placeholder="Leave a reply…"
-        rows="1"
-        @input="reply = ($event.target as HTMLTextAreaElement).value"
-        @keydown.meta.enter.prevent="sendReply"
-        @keydown.ctrl.enter.prevent="sendReply"
-      />
-      <button
-        type="submit"
-        :disabled="replyBusy || !reply.trim()"
-        :aria-label="`Send reply to ${name}`"
-      >
-        <Icon name="up" :size="16" />
-      </button>
-    </form>
-    <p v-if="replyError" class="reply-error" role="alert">{{ replyError }}</p>
-    <p v-if="reply.trim() && active && run.harness === 'codex'" class="reply-note">
-      Codex cannot receive replies during this run; the reply is saved as a study comment.
-    </p>
-    <p v-else-if="reply.trim() && run.status !== 'running'" class="reply-note">
-      This reply will be saved as a study comment.
-    </p>
-  </article>
+  </section>
 </template>
 <style scoped>
+:deep(.step-heading .step-chevron) {
+  display: none;
+}
+:deep(.step-heading) {
+  padding-inline: 0;
+}
+:deep(.step-body) {
+  margin-left: 22px;
+}
+:deep(.activity-steps) {
+  padding-left: 0;
+  margin-left: 0;
+}
 .agent-card {
   min-width: 0;
   padding: 14px 16px;
@@ -326,26 +352,19 @@ const lastActive = computed(
   color: var(--muted);
   font-size: 12px;
 }
-.notebook-link {
-  margin-top: 12px;
-  font-size: 12px;
-}
-.notebook-link:hover {
-  text-decoration: underline;
-}
-.notebook-link:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 4px;
-}
 .run-replies {
-  border-top: 1px solid var(--border);
-  margin: 14px -16px 0;
-  padding: 12px 16px 0;
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
 }
 .run-reply {
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px #00000014;
+  background: #ffffff16;
   overflow-wrap: anywhere;
 }
 .run-reply p {
@@ -379,8 +398,27 @@ const lastActive = computed(
   color: var(--text);
   font: inherit;
 }
-.reply-composer button {
-  color: var(--primary-text);
+.reply-composer .reply-send {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--on-primary);
+}
+.reply-remove {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.reply-remove:hover,
+.reply-remove:focus-visible {
+  background: var(--hover);
+  color: var(--text);
 }
 .reply-composer button:disabled {
   opacity: 0.45;

@@ -738,6 +738,36 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, comment)
 }
 
+func (h *H) cancelComment(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	comment, err := uuid.Parse(chi.URLParam(r, "comment"))
+	if err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: id}); err != nil {
+			return err
+		}
+		ok, err := tx.CancelStudyComment(r.Context(), id, comment, user)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return pgx.ErrNoRows
+		}
+		return tx.Emit(r.Context(), "comment.cancelled", &id, store.User(user), map[string]string{"comment_id": comment.String()})
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // listedComment is a comment with where it went: which run's work it
 // reached and how, or nil while it waits for the next step.
 type listedComment struct {

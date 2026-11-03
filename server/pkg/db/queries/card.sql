@@ -57,11 +57,11 @@ VALUES (@workspace_id, @card_id, @author_id, @body, sqlc.narg(reply_run_id), sql
 RETURNING *;
 
 -- name: ListComments :many
-SELECT * FROM comment WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY created_at;
+SELECT * FROM comment c WHERE workspace_id = @workspace_id AND card_id = @card_id AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id) ORDER BY created_at;
 
 -- A study's comments posted after since that no run has been given yet.
 -- name: UndeliveredComments :many
-SELECT c.* FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at > @since
+SELECT c.* FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at > @since AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
   AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
     AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
 ORDER BY c.created_at, c.id;
