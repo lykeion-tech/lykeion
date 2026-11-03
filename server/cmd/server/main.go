@@ -31,6 +31,7 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/labindex"
 	"lykeion/server/internal/labmemory"
+	"lykeion/server/internal/lessons"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/realtime"
@@ -279,6 +280,30 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		}
 	}()
 	defer func() { stopSweep(); <-sweepDone }()
+	if h.LessonWritesEnabled {
+		lessonCtx, stopLessons := context.WithCancel(ctx)
+		lessonsDone := make(chan struct{})
+		triggers := &lessons.Triggers{Store: st}
+		go func() {
+			defer close(lessonsDone)
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-lessonCtx.Done():
+					return
+				case <-ticker.C:
+				}
+				if err := triggers.Tick(lessonCtx); err != nil && lessonCtx.Err() == nil {
+					slog.Warn("lesson triggers failed; will retry", "err", err)
+				}
+				if err := triggers.Sweep(lessonCtx); err != nil && lessonCtx.Err() == nil {
+					slog.Warn("lesson sweep failed; will retry", "err", err)
+				}
+			}
+		}()
+		defer func() { stopLessons(); <-lessonsDone }()
+	}
 	attachCtx, stopAttach := context.WithCancel(ctx)
 	attachDone := make(chan struct{})
 	go func() {

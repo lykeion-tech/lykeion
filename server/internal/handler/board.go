@@ -90,7 +90,7 @@ func (h *H) steerCard(w http.ResponseWriter, r *http.Request, cancelAgentRuns, e
 		if err := saveBoard(r.Context(), tx, c, &s, items); err != nil {
 			return err
 		}
-		if err := tx.Emit(r.Context(), "card.steered", &id, store.User(who), map[string]any{"path": r.URL.Path, "column": s.Column, "flag": s.Flag, "ending": s.Ending}); err != nil {
+		if err := tx.Emit(r.Context(), "card.steered", &id, store.User(who), map[string]any{"path": r.URL.Path, "column": s.Column, "state": s.State, "flag": s.Flag, "ending": s.Ending}); err != nil {
 			return err
 		}
 		out, err = tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})

@@ -1,3 +1,6 @@
+DROP FUNCTION lab_next_lesson_workspace(uuid);
+DROP TRIGGER lab_seed_lesson_card ON card;
+DROP FUNCTION lab_seed_lesson_card();
 DROP FUNCTION lab_record_answer(uuid,jsonb), lab_has_accepted_answer(uuid);
 DROP INDEX lab_study_record_links, lab_study_comment_links, lab_study_decision_links;
 DROP TRIGGER lab_decision_changed ON inbox_item;

@@ -115,7 +115,7 @@ CREATE TABLE lesson_job (
   status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'submitted', 'done', 'failed')),
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (workspace_id, decision_id) REFERENCES inbox_item (workspace_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, decision_id) REFERENCES inbox_item (workspace_id, id) ON DELETE SET NULL (decision_id),
   FOREIGN KEY (workspace_id, lesson_id) REFERENCES lesson (workspace_id, id) ON DELETE CASCADE
 );
 CREATE INDEX lesson_job_due ON lesson_job (due_at, id) WHERE status = 'queued';
@@ -211,7 +211,10 @@ REVOKE ALL ON lab_event_consumer, lab_event_delivery FROM PUBLIC, lykeion_app;
 CREATE FUNCTION lab_enqueue_event() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
  INSERT INTO public.lab_event_delivery(consumer,event_id,workspace_id)
- SELECT c.consumer,NEW.id,NEW.workspace_id FROM public.lab_event_consumer c;
+ SELECT c.consumer,NEW.id,NEW.workspace_id FROM public.lab_event_consumer c
+ WHERE c.consumer <> 'lessons' OR (NEW.card_id IS NOT NULL AND (
+   (NEW.type='card.steered' AND (NEW.payload ? 'column' OR NEW.payload ? 'state'))
+   OR (NEW.type='inbox.resolved' AND NEW.payload ? 'inbox_item_id')));
  RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION lab_enqueue_event() FROM PUBLIC;
@@ -369,3 +372,35 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 $$;
 REVOKE ALL ON FUNCTION lab_has_accepted_answer(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lab_has_accepted_answer(uuid) TO lykeion_app;
+
+-- Establish the cutover baseline while card, event and decision producers are
+-- excluded. Old column changes are already represented by the current card;
+-- replaying them against that snapshot would invent moves in reverse.
+LOCK TABLE public.card, public.event, public.inbox_item IN SHARE ROW EXCLUSIVE MODE;
+INSERT INTO public.lab_event_consumer VALUES ('lessons');
+INSERT INTO public.lab_event_delivery(consumer,event_id,workspace_id)
+ SELECT 'lessons',id,workspace_id FROM public.event WHERE type='inbox.resolved' AND card_id IS NOT NULL;
+ALTER TABLE lesson_card ADD COLUMN board_state text NOT NULL DEFAULT '';
+INSERT INTO lesson_card(workspace_id,card_id,board_column,board_state)
+ SELECT workspace_id,id,board_column,state FROM card;
+CREATE FUNCTION lab_seed_lesson_card() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path=pg_catalog,public AS $$
+BEGIN
+ INSERT INTO public.lesson_card(workspace_id,card_id,board_column,board_state)
+ VALUES(NEW.workspace_id,NEW.id,NEW.board_column,NEW.state);
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION lab_seed_lesson_card() FROM PUBLIC;
+CREATE TRIGGER lab_seed_lesson_card AFTER INSERT ON card FOR EACH ROW EXECUTE FUNCTION lab_seed_lesson_card();
+CREATE INDEX lesson_active_sweep ON lesson(workspace_id,id) WHERE status='active';
+CREATE INDEX lesson_card_queued ON lesson_job(workspace_id,card_id,created_at,id)
+ WHERE status='queued' AND batch_id='' AND lesson_id IS NULL;
+-- Skip empty workspaces; the global scheduler sees only the next tenant ID.
+CREATE FUNCTION lab_next_lesson_workspace(after_id uuid) RETURNS uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ SELECT COALESCE(
+  (SELECT l.workspace_id FROM public.lesson l WHERE l.status='active' AND l.workspace_id>$1 ORDER BY l.workspace_id LIMIT 1),
+  (SELECT l.workspace_id FROM public.lesson l WHERE l.status='active' ORDER BY l.workspace_id LIMIT 1))
+$$;
+REVOKE ALL ON FUNCTION lab_next_lesson_workspace(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_next_lesson_workspace(uuid) TO lykeion_app;
