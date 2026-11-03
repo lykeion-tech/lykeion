@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -192,6 +193,59 @@ func (q *Queries) GetDecision(ctx context.Context, arg GetDecisionParams) (GetDe
 		&i.MayAnswer,
 	)
 	return i, err
+}
+
+const hasOpenAgentDecision = `-- name: HasOpenAgentDecision :one
+SELECT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND kind = 'agent_decision' AND status = 'open')
+`
+
+type HasOpenAgentDecisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) HasOpenAgentDecision(ctx context.Context, arg HasOpenAgentDecisionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenAgentDecision, arg.WorkspaceID, arg.CardID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const insertAgentDecision = `-- name: InsertAgentDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, default_option, expires_at,
+  raised_by, raised_run_id, from_member, decision_kind)
+VALUES ($1, $2::uuid, $3, 'agent_decision', $4, $5::jsonb, '', $6,
+  'agent', $7::uuid, $8, $9)
+`
+
+type InsertAgentDecisionParams struct {
+	WorkspaceID  uuid.UUID       `json:"workspace_id"`
+	CardID       uuid.UUID       `json:"card_id"`
+	UserID       uuid.UUID       `json:"user_id"`
+	Text         string          `json:"text"`
+	Options      json.RawMessage `json:"options"`
+	ExpiresAt    *time.Time      `json:"expires_at"`
+	RaisedRunID  uuid.UUID       `json:"raised_run_id"`
+	FromMember   string          `json:"from_member"`
+	DecisionKind string          `json:"decision_kind"`
+}
+
+// An agent's question to the researcher; the partial unique index keeps one
+// open per study.
+func (q *Queries) InsertAgentDecision(ctx context.Context, arg InsertAgentDecisionParams) error {
+	_, err := q.db.Exec(ctx, insertAgentDecision,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.UserID,
+		arg.Text,
+		arg.Options,
+		arg.ExpiresAt,
+		arg.RaisedRunID,
+		arg.FromMember,
+		arg.DecisionKind,
+	)
+	return err
 }
 
 const listDecisions = `-- name: ListDecisions :many

@@ -210,3 +210,23 @@ func TestTheValidationHandInNamesValuesAsTheReviewReadsThem(t *testing.T) {
 		}
 	}
 }
+
+// Leads and members are told which questions reach the researcher, that
+// method, tools, evidence and retries never do, and that a member's question
+// goes through its leader.
+func TestTheProtocolSaysWhenToAsk(t *testing.T) {
+	for _, role := range []string{"leader", "agent", "Curie"} {
+		p := Protocol(role, board.Hypotheses, "", nil)
+		for _, want := range []string{"`scope`", "`change_question`", "`ethics`", "`cost`", "`access`", "Never ask about method, tools, evidence or retries"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s is not told %s", role, want)
+			}
+		}
+	}
+	if p := Protocol("leader", board.Hypotheses, "", nil); !strings.Contains(p, "naming the member in `from_member`") {
+		t.Errorf("the leader is not told to raise a member's question")
+	}
+	if p := Protocol("Curie", board.Hypotheses, "", nil); !strings.Contains(p, "goes to the leader") {
+		t.Errorf("a member is not told its question goes to the leader")
+	}
+}

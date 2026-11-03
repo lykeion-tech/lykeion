@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -165,4 +167,82 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		}
 	}
 	return nil
+}
+
+// errDecisionOpen is the failed hand-in of a lead that asks while its study
+// already waits on one of its questions.
+const errDecisionOpen = "one decision is already open on this study"
+
+// fitQuestion is what Jev is asked of an agent's question before it reaches
+// the researcher.
+const fitQuestion = "Does this question belong to the kind it is tagged with, and is it one only the researcher can answer?"
+
+var fitOptions = map[string]string{
+	"fits":            "It is of its tagged kind (scope, change_question, ethics, cost or access), and only the researcher can settle it.",
+	"decide_yourself": "It is not of its tagged kind, or it is a choice of method, tools, analysis, evidence or a retry that the agent can make itself.",
+}
+
+// raiseAgentDecision puts a lead's question to the study's owner: the study
+// is blocked on it in the same round, so the lead resumes its session once
+// it is answered. A study waits on one question at a time, so a second ask
+// fails the hand-in. When Jev judges the question not the researcher's, the
+// lead runs again in the same round and decides it itself.
+func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card, run db.AgentRun, d handin.DecisionIn, now time.Time) error {
+	open, err := tx.Q.HasOpenAgentDecision(ctx, db.HasOpenAgentDecisionParams{WorkspaceID: tx.WS, CardID: c.ID})
+	if err != nil {
+		return err
+	}
+	if open {
+		run.Error = errDecisionOpen
+		return e.runFailed(ctx, tx, c, run)
+	}
+	if e.Jev != nil {
+		a, err := e.Jev.Choice(ctx, decisionState(d), fitQuestion, fitOptions)
+		switch {
+		case err != nil:
+			// As with no Jev at all, the server's checks alone apply.
+			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", c.ID, "err", err)
+		case a.Choice == "decide_yourself":
+			role, m, ag, err := e.worker(ctx, tx, c)
+			if err != nil {
+				return err
+			}
+			_, err = e.enqueue(ctx, tx, c, role, m, ag, "Decide this yourself: "+d.Title)
+			return err
+		}
+	}
+	options := make([]service.Option, len(d.Options))
+	for i, o := range d.Options {
+		options[i] = service.Option{ID: o.ID, Label: o.Label, Consequence: o.Consequence}
+	}
+	raw, err := json.Marshal(options)
+	if err != nil {
+		return err
+	}
+	expires := now.Add(service.DecisionWindow)
+	if d.ExpiresAt != nil {
+		expires = *d.ExpiresAt
+	}
+	if err := tx.Q.InsertAgentDecision(ctx, db.InsertAgentDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
+		Text: d.Title + "\n\n" + d.Body, Options: raw, ExpiresAt: &expires, RaisedRunID: run.ID, FromMember: ptrOr(d.FromMember), DecisionKind: d.Kind}); err != nil {
+		return err
+	}
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
+		BlockKind: "decision", Round: c.Round, Redos: c.Redos}); err != nil {
+		return err
+	}
+	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "blocked"})
+}
+
+// decisionState is an agent's question as Jev reads it.
+func decisionState(d handin.DecisionIn) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Kind: %s\nTitle: %s\n\n%s\n\nOptions:\n", d.Kind, d.Title, d.Body)
+	for _, o := range d.Options {
+		fmt.Fprintf(&b, "- %s: %s\n", o.Label, o.Consequence)
+	}
+	return b.String()
 }

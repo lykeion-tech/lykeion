@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
@@ -152,9 +153,9 @@ func lockCard(ctx context.Context, tx *store.Tx, id uuid.UUID) (db.Card, error) 
 
 // afterRun acts on a lead's settled run. A column finishes on its lead's
 // hand-in: a done hand-in already wrote the summary that hands the column to
-// its auditor, a could_not_do hand-in holds the study for its owner, and a
-// run that failed, or ended without a hand-in, redoes the column once and
-// then blocks it. A member's, the auditor's or the objector's run wakes no
+// its auditor, a could_not_do hand-in holds the study for its owner, an ask
+// hand-in puts its question to the researcher, and a run that failed, or
+// ended without a hand-in, redoes the column once and then blocks it. A member's, the auditor's or the objector's run wakes no
 // one; the engine's next pass reads what it left.
 func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if t.Kind == "rerun" {
@@ -185,6 +186,9 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
 			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
+		if t.Status == "completed" && h != nil && h.Status == "ask" && h.Decision != nil {
+			return e.raiseAgentDecision(ctx, tx, c, t, *h.Decision, e.now())
+		}
 		return e.runFailed(ctx, tx, c, t)
 	})
 }
@@ -195,8 +199,9 @@ type handInRecord struct {
 }
 
 type handInBody struct {
-	Status string  `json:"status"`
-	Reason *string `json:"reason"`
+	Status   string             `json:"status"`
+	Reason   *string            `json:"reason"`
+	Decision *handin.DecisionIn `json:"decision"`
 }
 
 // askOwner holds a study whose lead could not do its column, as a block

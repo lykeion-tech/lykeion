@@ -34,8 +34,19 @@ func reply() obj {
 	return object("item", str(), "action", enum("corrected", "withdrawn", "declined"), "reason", str())
 }
 
+// decision is the question an ask hand-in puts to the researcher.
+func decision() obj {
+	return desc(nullObj(object(
+		"kind", enum("scope", "change_question", "ethics", "cost", "access"),
+		"title", str(), "body", str(),
+		"options", list(object("id", str(), "label", str(), "consequence", str())),
+		"expires_at", desc(nullStr(), "When the question expires, as an RFC 3339 time at most 30 days ahead; null for 7 days."),
+		"from_member", desc(nullStr(), "The Team member whose question this is; null when it is your own."))),
+		"The question for the researcher when status is ask; null otherwise.")
+}
+
 func build(extra ...any) string {
-	kv := append([]any{"status", enum("done", "could_not_do"), "answer", str(), "reason", nullStr()}, extra...)
+	kv := append([]any{"status", enum("done", "could_not_do", "ask"), "answer", str(), "reason", nullStr(), "decision", decision()}, extra...)
 	b, err := json.Marshal(object(kv...))
 	if err != nil {
 		panic(err)

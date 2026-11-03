@@ -68,3 +68,15 @@ UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = no
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'open' AND resolved_at IS NULL
   AND jsonb_array_length(options) > 0
 RETURNING id;
+
+-- name: HasOpenAgentDecision :one
+SELECT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND kind = 'agent_decision' AND status = 'open');
+
+-- An agent's question to the researcher; the partial unique index keeps one
+-- open per study.
+-- name: InsertAgentDecision :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, default_option, expires_at,
+  raised_by, raised_run_id, from_member, decision_kind)
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'agent_decision', @text, @options::jsonb, '', @expires_at,
+  'agent', @raised_run_id::uuid, @from_member, @decision_kind);
