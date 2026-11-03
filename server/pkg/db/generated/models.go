@@ -796,6 +796,13 @@ type LessonJob struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+type LessonJobInput struct {
+	WorkspaceID    uuid.UUID       `json:"workspace_id"`
+	JobID          uuid.UUID       `json:"job_id"`
+	Versions       json.RawMessage `json:"versions"`
+	RewriteVersion string          `json:"rewrite_version"`
+}
+
 type Member struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	UserID      uuid.UUID `json:"user_id"`

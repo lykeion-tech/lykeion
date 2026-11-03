@@ -1,3 +1,5 @@
+DROP FUNCTION pending_lesson_batch();
+DROP TABLE lesson_job_input;
 DROP FUNCTION lab_next_lesson_workspace(uuid);
 DROP TRIGGER lab_seed_lesson_card ON card;
 DROP FUNCTION lab_seed_lesson_card();

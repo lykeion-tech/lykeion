@@ -408,3 +408,24 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 $$;
 REVOKE ALL ON FUNCTION lab_next_lesson_workspace(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lab_next_lesson_workspace(uuid) TO lykeion_app;
+
+-- The global due-job function exposes routing metadata only. Submitted evidence
+-- snapshots remain in tenant scope and contain versions, never prompt text.
+ALTER TABLE lesson_job ADD UNIQUE(workspace_id,id);
+CREATE TABLE lesson_job_input (
+ workspace_id uuid NOT NULL, job_id uuid PRIMARY KEY, versions jsonb NOT NULL, rewrite_version text NOT NULL,
+ FOREIGN KEY(workspace_id,job_id) REFERENCES lesson_job(workspace_id,id) ON DELETE CASCADE
+);
+ALTER TABLE lesson_job_input ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant ON lesson_job_input USING(workspace_id=app_workspace()) WITH CHECK(workspace_id=app_workspace());
+GRANT SELECT,INSERT,UPDATE,DELETE ON lesson_job_input TO lykeion_app;
+CREATE INDEX lesson_job_poll ON lesson_job(due_at,batch_id) WHERE status='submitted';
+CREATE UNIQUE INDEX lesson_counter_fact ON lesson_counter(lesson_id,ref);
+CREATE FUNCTION pending_lesson_batch() RETURNS TABLE(id uuid,workspace_id uuid,batch_id text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+ SELECT j.id,j.workspace_id,j.batch_id FROM public.lesson_job j WHERE j.status='submitted' AND j.batch_id=(
+ SELECT q.batch_id FROM public.lesson_job q WHERE q.status='submitted' AND q.due_at<=now()
+ ORDER BY q.due_at,q.id LIMIT 1) ORDER BY j.id LIMIT 50
+$$;
+REVOKE ALL ON FUNCTION pending_lesson_batch() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pending_lesson_batch() TO lykeion_app;

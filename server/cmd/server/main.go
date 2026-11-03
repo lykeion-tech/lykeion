@@ -224,10 +224,11 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if addr := getenv("SMTP_ADDR"); addr != "" {
 		mail = auth.SMTPMailer{Addr: addr, From: getenv("SMTP_FROM"), User: getenv("SMTP_USER"), Pass: getenv("SMTP_PASS")}
 	}
+	writer := buildLessonWriter(st, labIndex, getenv("ANTHROPIC_API_KEY"), getenv("TYPESAFE_API_KEY"))
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
-		LessonWritesEnabled: strings.TrimSpace(getenv("ANTHROPIC_API_KEY")) != "" && strings.TrimSpace(getenv("TYPESAFE_API_KEY")) != "",
+		LessonWritesEnabled: writer != nil,
 		Google:              auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
 	if err := runs.RecoverSettlements(ctx); err != nil {
@@ -288,7 +289,7 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		for _, worker := range []struct {
 			name string
 			tick func(context.Context) error
-		}{{"lesson triggers", triggers.Tick}, {"lesson sweep", triggers.Sweep}} {
+		}{{"lesson triggers", triggers.Tick}, {"lesson sweep", triggers.Sweep}, {"lesson writer", writer.Tick}} {
 			lessonWorkers.Go(func() {
 				ticker := time.NewTicker(30 * time.Second)
 				defer ticker.Stop()
@@ -370,4 +371,12 @@ func shutdown(srv *http.Server, hub *realtime.Hub) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)
+}
+
+func buildLessonWriter(st *store.Store, index *labindex.Index, anthropicKey, jevKey string) *lessons.Writer {
+	anthropicKey, jevKey = strings.TrimSpace(anthropicKey), strings.TrimSpace(jevKey)
+	if anthropicKey == "" || jevKey == "" {
+		return nil
+	}
+	return &lessons.Writer{Store: st, Index: index, Batcher: lessons.NewAnthropicBatcher(anthropicKey), Jev: &jev.Client{BaseURL: "https://api.typesafe.ai", Key: jevKey, Model: jev.Model}}
 }
