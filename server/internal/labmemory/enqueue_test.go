@@ -39,7 +39,7 @@ func TestEnqueueMakesAnAristotleRunForTheAsker(t *testing.T) {
 	f, runs, chat := labQueue(t)
 	f.exec("INSERT INTO lab_message(workspace_id,chat_id,owner_id,kind,body) VALUES($1,$2,$3,'answer','Earlier answer')", f.ws, chat.ID, f.user)
 	run := enqueueQuestion(t, f, runs, chat, "private question", "exact")
-	if run.Kind != "aristotle" || run.Role != "aristotle" || run.RequesterID == nil || *run.RequesterID != f.user || run.ResponsibleUserID != f.user || run.LabChatID == nil || *run.LabChatID != chat.ID || run.AgentID == nil || run.ContinuityScope != "lab-chat:"+chat.ID.String() || run.RequestedModel != "exact" || !strings.HasPrefix(run.Prompt, "private question") || !strings.Contains(run.Prompt, "Context study: study:"+f.study.String()) || !strings.Contains(run.Prompt, "Earlier answer") || !strings.Contains(run.Skill, Protocol()) {
+	if run.Kind != "aristotle" || run.Role != "aristotle" || run.RequesterID == nil || *run.RequesterID != f.user || run.ResponsibleUserID != f.user || run.LabChatID == nil || *run.LabChatID != chat.ID || run.AgentID == nil || run.ContinuityScope != "lab-chat:"+chat.ID.String() || run.RequestedModel != "exact" || !strings.HasPrefix(run.Prompt, "private question") || !strings.Contains(run.Prompt, "Context study: study:"+f.study.String()) || strings.Contains(run.Prompt, "Earlier answer") || !strings.Contains(run.Skill, Protocol()) {
 		t.Fatal(run)
 	}
 	var payload map[string]string
@@ -104,7 +104,7 @@ func TestOnlyTheAskersRuntimeClaimsIt(t *testing.T) {
 	f.exec("UPDATE runtime SET unhealthy_reason='sign_in' WHERE id=$1", exact.RuntimeID)
 	f.exec("UPDATE agent_run SET status='completed' WHERE id=$1", first.ID)
 	f.exec("INSERT INTO lab_message(workspace_id,owner_id,chat_id,agent_run_id,kind,body) VALUES($1,$2,$3,$4,'answer','answered while queued')", f.ws, f.user, chat.ID, first.ID)
-	if got = claim(f.user, generic); len(got) != 1 || got[0].AgentRun.ID != second.ID || got[0].AgentRun.RequestedModel != "" || !strings.Contains(got[0].AgentRun.Prompt, "answered while queued") {
+	if got = claim(f.user, generic); len(got) != 1 || got[0].AgentRun.ID != second.ID || got[0].AgentRun.RequestedModel != "" || strings.Contains(got[0].AgentRun.Prompt, "answered while queued") {
 		t.Fatal("missing CLI default fallback", got)
 	}
 }

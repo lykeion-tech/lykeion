@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -115,6 +116,57 @@ func (q *Queries) InsertLabQuestion(ctx context.Context, arg InsertLabQuestionPa
 	return err
 }
 
+const labPriorTurns = `-- name: LabPriorTurns :many
+SELECT m.id, m.kind, prior_q.launch_sources, CASE WHEN m.kind='question' THEN m.body ELSE '' END::text AS question, m.statements, m.evidence, COALESCE(m.history_safe,false)::boolean AS history_safe
+FROM agent_run r JOIN lab_message m ON m.workspace_id=r.workspace_id AND m.chat_id=r.lab_chat_id
+ AND m.owner_id=r.requester_id
+LEFT JOIN agent_run o ON o.workspace_id=m.workspace_id AND o.id=m.agent_run_id
+LEFT JOIN lab_message prior_q ON prior_q.workspace_id=m.workspace_id AND prior_q.agent_run_id=m.agent_run_id
+ AND prior_q.chat_id=m.chat_id AND prior_q.kind='question'
+WHERE r.id=$1::uuid AND r.kind='aristotle' AND r.workspace_id=app_workspace()
+ AND r.requester_id=app_user() AND m.kind IN ('question','answer')
+ AND ((o.created_at,o.id)<(r.created_at,r.id) OR (o.id IS NULL AND m.created_at<r.created_at))
+ORDER BY COALESCE(o.created_at,m.created_at),o.id,m.created_at,m.id
+`
+
+type LabPriorTurnsRow struct {
+	ID            uuid.UUID       `json:"id"`
+	Kind          string          `json:"kind"`
+	LaunchSources []uuid.UUID     `json:"launch_sources"`
+	Question      string          `json:"question"`
+	Statements    json.RawMessage `json:"statements"`
+	Evidence      json.RawMessage `json:"evidence"`
+	HistorySafe   bool            `json:"history_safe"`
+}
+
+func (q *Queries) LabPriorTurns(ctx context.Context, runID uuid.UUID) ([]LabPriorTurnsRow, error) {
+	rows, err := q.db.Query(ctx, labPriorTurns, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LabPriorTurnsRow
+	for rows.Next() {
+		var i LabPriorTurnsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.LaunchSources,
+			&i.Question,
+			&i.Statements,
+			&i.Evidence,
+			&i.HistorySafe,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockDepartingLabRuns = `-- name: LockDepartingLabRuns :many
 SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id FROM agent_run
 WHERE workspace_id = $1 AND kind = 'aristotle' AND requester_id = $2
@@ -198,21 +250,34 @@ func (q *Queries) LockDepartingLabRuns(ctx context.Context, arg LockDepartingLab
 	return items, nil
 }
 
+const recordLabLaunchSources = `-- name: RecordLabLaunchSources :execrows
+UPDATE lab_message SET launch_sources=$1::uuid[]
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND kind='question' AND agent_run_id=$2::uuid
+`
+
+type RecordLabLaunchSourcesParams struct {
+	Sources []uuid.UUID `json:"sources"`
+	RunID   uuid.UUID   `json:"run_id"`
+}
+
+func (q *Queries) RecordLabLaunchSources(ctx context.Context, arg RecordLabLaunchSourcesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordLabLaunchSources, arg.Sources, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const refreshLabRunPrompt = `-- name: RefreshLabRunPrompt :one
 UPDATE agent_run r SET prompt=q.body||
- CASE WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END||
- COALESCE((SELECT E'\n\nEarlier conversation:\n'||string_agg(m.kind||': '||m.body||
- CASE WHEN m.kind='answer' AND m.statements<>'[]'::jsonb THEN E'\n'||m.statements::text ELSE '' END,E'\n' ORDER BY COALESCE(o.created_at,m.created_at),o.id,m.created_at,m.id)
- FROM lab_message m LEFT JOIN agent_run o ON o.workspace_id=m.workspace_id AND o.id=m.agent_run_id
- WHERE m.workspace_id=q.workspace_id AND m.chat_id=q.chat_id AND m.owner_id=q.owner_id
- AND m.kind IN ('question','answer') AND ((o.created_at,o.id)<(r.created_at,r.id) OR (o.id IS NULL AND m.created_at<q.created_at))), '')
+ CASE WHEN q.context_card_id IS NULL THEN '' ELSE E'\n\nContext study: study:'||q.context_card_id::text END
 FROM lab_message q WHERE r.workspace_id=app_workspace() AND r.kind='aristotle' AND r.id= $1
 AND q.workspace_id=r.workspace_id AND q.owner_id=app_user() AND q.chat_id=r.lab_chat_id AND q.agent_run_id=r.id AND q.kind='question'
 RETURNING r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id
 `
 
-// An earlier turn can finish after this question was sent. Refresh at dispatch
-// so even a fresh CLI session sees earlier answers, without seeing later turns.
+// Only the current question enters a queued/claimed prompt. The launch request
+// builds the prior conversation after rechecking every evidence pin.
 func (q *Queries) RefreshLabRunPrompt(ctx context.Context, id uuid.UUID) (AgentRun, error) {
 	row := q.db.QueryRow(ctx, refreshLabRunPrompt, id)
 	var i AgentRun

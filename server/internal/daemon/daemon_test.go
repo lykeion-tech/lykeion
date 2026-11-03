@@ -42,6 +42,7 @@ import (
 )
 
 type daemonFixture struct {
+	handInOutput       string
 	h                  *handler.H
 	dropMessageACK     atomic.Bool
 	dropReportACK      atomic.Bool

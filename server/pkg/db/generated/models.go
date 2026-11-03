@@ -724,6 +724,8 @@ type LabMessage struct {
 	AgentRunID    *uuid.UUID      `json:"agent_run_id"`
 	CreatedAt     time.Time       `json:"created_at"`
 	Evidence      json.RawMessage `json:"evidence"`
+	HistorySafe   *bool           `json:"history_safe"`
+	LaunchSources []uuid.UUID     `json:"launch_sources"`
 }
 
 type LabRead struct {
@@ -731,6 +733,7 @@ type LabRead struct {
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
 	Ref         string    `json:"ref"`
 	Via         string    `json:"via"`
+	ReadVersion string    `json:"read_version"`
 	CreatedAt   time.Time `json:"created_at"`
 	ID          int64     `json:"id"`
 }

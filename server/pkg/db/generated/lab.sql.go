@@ -13,7 +13,7 @@ import (
 )
 
 const appendLabRead = `-- name: AppendLabRead :exec
-INSERT INTO lab_read(workspace_id,agent_run_id,ref,via) VALUES($1,$2,$3,$4)
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version) VALUES($1,$2,$3,$4,$5)
 `
 
 type AppendLabReadParams struct {
@@ -21,6 +21,7 @@ type AppendLabReadParams struct {
 	AgentRunID  uuid.UUID `json:"agent_run_id"`
 	Ref         string    `json:"ref"`
 	Via         string    `json:"via"`
+	ReadVersion string    `json:"read_version"`
 }
 
 func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) error {
@@ -29,6 +30,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 		arg.AgentRunID,
 		arg.Ref,
 		arg.Via,
+		arg.ReadVersion,
 	)
 	return err
 }

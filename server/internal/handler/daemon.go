@@ -16,6 +16,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/compute"
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -253,9 +254,25 @@ func (h *H) daemonPrepare() http.HandlerFunc {
 	})
 }
 func (h *H) daemonStart() http.HandlerFunc {
-	return h.daemonStep(func(r *http.Request, id uuid.UUID, in agentRunCall) error {
+	regular := h.daemonStep(func(r *http.Request, id uuid.UUID, in agentRunCall) error {
 		return h.AgentRuns.Start(r.Context(), user(r), in.RuntimeRef, id)
 	})
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("lab_history") != "1" {
+			regular(w, r)
+			return
+		}
+		id, in, ok := h.agentRunCall(w, r)
+		if !ok {
+			return
+		}
+		prompt, err := h.AgentRuns.StartLab(r.Context(), user(r), in.RuntimeRef, id, labmemory.LaunchPrompt)
+		if err != nil {
+			agentRunFail(w, r, err)
+			return
+		}
+		writeJSON(w, 200, map[string]string{"prompt": prompt})
+	}
 }
 func (h *H) daemonMessages() http.HandlerFunc {
 	return h.daemonStep(func(r *http.Request, id uuid.UUID, in agentRunCall) error {

@@ -76,7 +76,11 @@ func handInRun(t *testing.T, f *daemonFixture, turn func(o agent.ExecOptions), r
 			msgs := make(chan agent.Message)
 			done := make(chan agent.Result, 1)
 			close(msgs)
-			done <- agent.Result{SessionID: "s1", Output: `{"done":true}`, Usage: []agent.Usage{{Model: "m", InputTokens: 10, OutputTokens: 1}}}
+			output := f.handInOutput
+			if output == "" {
+				output = `{"done":true}`
+			}
+			done <- agent.Result{SessionID: "s1", Output: output, Usage: []agent.Usage{{Model: "m", InputTokens: 10, OutputTokens: 1}}}
 			close(done)
 			return &agent.Session{Messages: msgs, Done: done}, nil
 		}), nil
@@ -437,6 +441,7 @@ func labHandInFixture(t *testing.T) *daemonFixture {
 
 func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
 	f := labHandInFixture(t)
+	f.handInOutput = `{"statements":[{"kind":"fact","text":"Study","cites":["study:` + f.card.String() + `"]}]}`
 	calls, paths, failed := handInRun(t, f, func(o agent.ExecOptions) {
 		if !o.Lab || !o.ReadOnly || o.MCPToken != "" || o.DoorURL == "" || o.DoorToken == "" || !strings.Contains(o.OutputSchema, "statements") {
 			t.Error("missing private lab-only launch options")
@@ -458,7 +463,7 @@ func TestAristotleDaemonLaunchesLabOnlyHandIn(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(out, "private.txt"), []byte("private"), 0600); err != nil {
 			t.Error(err)
 		}
-	}, func(int) (int, string) { return 200, `{"accepted":true}` })
+	}, nil)
 	if len(calls) != 1 || !strings.Contains(calls[0].prompt, labmemory.Protocol()) || !strings.Contains(calls[0].prompt, "Context study: study:"+f.card.String()) || f.status(t) != "completed" {
 		t.Fatalf("failed to launch and submit: calls=%v failure=%v", calls, failed)
 	}

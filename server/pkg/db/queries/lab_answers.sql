@@ -1,9 +1,9 @@
 -- name: LabTurnHasAnswer :one
-SELECT EXISTS(SELECT 1 FROM lab_message WHERE workspace_id=app_workspace()
- AND owner_id=app_user() AND agent_run_id=sqlc.arg(run_id)::uuid AND kind='answer')::boolean;
+SELECT lab_has_accepted_answer(sqlc.arg(run_id)::uuid)::boolean;
 
 -- name: LabEvidenceLog :many
-SELECT ref,via FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=sqlc.arg(run_id)::uuid
+SELECT ref,via,(CASE WHEN min(read_version)=max(read_version) THEN min(read_version) ELSE '' END)::text AS read_version
+FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=sqlc.arg(run_id)::uuid
  GROUP BY ref,via ORDER BY min(id);
 
 -- name: RecordLabAnswer :one

@@ -39,13 +39,20 @@ func runningTurn(t *testing.T) *turn {
 		t.Fatal(e, claims)
 	}
 	ref.Attempt = claims[0].AgentRun.Attempt
-	if e = runs.Start(t.Context(), f.user, ref, run.ID); e != nil {
+	if _, e = runs.StartLab(t.Context(), f.user, ref, run.ID, LaunchPrompt); e != nil {
 		t.Fatal(e)
 	}
 	return &turn{f, runs, run, ref, handin.HandIns{Runs: runs, Aristotle: Answers{Store: runs.Store}}}
 }
 func (x *turn) log(ref, via string) {
-	x.exec("INSERT INTO lab_read(workspace_id,agent_run_id,ref,via) VALUES($1,$2,$3,$4)", x.ws, x.run.ID, ref, via)
+	var version string
+	r, err := ParseRef(ref)
+	if err == nil {
+		if fact, e := x.read(r); e == nil {
+			version = pin(fact).Version
+		}
+	}
+	x.exec("INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version) VALUES($1,$2,$3,$4,$5)", x.ws, x.run.ID, ref, via, version)
 }
 func (x *turn) submit(ctx context.Context, kind string, cites ...string) ([]string, error) {
 	if cites == nil {
@@ -301,5 +308,202 @@ func TestAnswerFailureRecoversAfterInterruptedDelivery(t *testing.T) {
 	var delivered bool
 	if e = x.env.Owner.QueryRow(ctx, "SELECT delivered_at IS NOT NULL FROM agent_run_settlement WHERE agent_run_id=$1", x.run.ID).Scan(&delivered); e != nil || !delivered {
 		t.Fatal(e, delivered)
+	}
+}
+
+func TestCompleteNeedsValidatedAnswer(t *testing.T) {
+	x := runningTurn(t)
+	if _, e := x.runs.Complete(t.Context(), x.user, x.ref, x.run.ID, service.Report{}); !errors.Is(e, service.ErrConflict) {
+		t.Fatalf("completion without answer: %v", e)
+	}
+	if p, e := x.submit(t.Context(), "gap"); e != nil || len(p) > 0 {
+		t.Fatal(e, p)
+	}
+	for range 2 {
+		r, e := x.runs.Complete(t.Context(), x.user, x.ref, x.run.ID, service.Report{})
+		if e != nil || r.Status != "completed" {
+			t.Fatal(e, r.Status)
+		}
+	}
+}
+func TestAcceptedAnswerSurvivesFailureAndSweep(t *testing.T) {
+	for _, mode := range []string{"failure", "sweep"} {
+		t.Run(mode, func(t *testing.T) {
+			x := runningTurn(t)
+			ctx := t.Context()
+			x.runs.OnSettlement = (Answers{Store: x.runs.Store}).OnSettlement
+			if p, e := x.submit(ctx, "gap"); e != nil || len(p) > 0 {
+				t.Fatal(e, p)
+			}
+			if mode == "failure" {
+				for range 2 {
+					r, e := x.runs.Fail(ctx, x.user, x.ref, x.run.ID, service.Report{FailureReason: agent.ReasonRuntimeOffline, Error: "crash"})
+					if e != nil || r.Status != "completed" {
+						t.Fatal(e, r.Status)
+					}
+				}
+			} else {
+				x.exec("UPDATE runtime SET status='offline' WHERE id=$1", x.ref.RuntimeID)
+				for range 2 {
+					if e := x.runs.Sweep(ctx); e != nil {
+						t.Fatal(e)
+					}
+				}
+			}
+			var status string
+			var outcomes int
+			if e := x.env.Owner.QueryRow(ctx, "SELECT status,(SELECT count(*) FROM lab_message WHERE agent_run_id=r.id AND kind IN ('answer','failure')) FROM agent_run r WHERE id=$1", x.run.ID).Scan(&status, &outcomes); e != nil || status != "completed" || outcomes != 1 {
+				t.Fatal(e, status, outcomes)
+			}
+		})
+	}
+}
+
+func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
+	for _, change := range []string{"unchanged", "lesson set aside", "team unshared", "team unshared after read"} {
+		t.Run(change, func(t *testing.T) {
+			x := runningTurn(t)
+			ctx := t.Context()
+			var r Ref
+			var hide func()
+			if strings.HasPrefix(change, "team unshared") {
+				team := x.team()
+				x.exec("UPDATE field_pack SET visibility='workspace' WHERE id=$1", team)
+				r = Ref{"study", x.study}
+				hide = func() { x.exec("UPDATE field_pack SET visibility='private' WHERE id=$1", team) }
+			} else {
+				r = x.lessonFor(Ref{"record", x.record})
+				hide = func() { x.exec("UPDATE lesson SET status='set_aside' WHERE id=$1", r.ID) }
+			}
+			kind := "fact"
+			if r.Kind == "lesson" {
+				kind = "lesson"
+			}
+			x.log(r.String(), "read")
+			if change == "team unshared after read" {
+				hide()
+			}
+			raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: "sensitive-previous-answer", Cites: []string{r.String()}}}})
+			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
+				t.Fatal(e, p)
+			}
+			if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); e != nil {
+				t.Fatal(e)
+			}
+			chat := db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}
+			next := enqueueQuestion(t, x.fixture, x.runs, chat, "Follow up", "")
+			claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+			if e != nil || len(claims) != 1 || claims[0].AgentRun.ID != next.ID {
+				t.Fatal(e, claims)
+			}
+			claim := claims[0].AgentRun
+			if strings.Contains(claim.Prompt, "sensitive-previous-answer") || claim.SessionID != "" || claim.ContinuityScope != "" {
+				t.Fatal("claim retained private prior turn", claim.Prompt)
+			}
+			x.exec("UPDATE agent_run SET prompt='legacy-private-prompt' WHERE id=$1", claim.ID)
+			if change != "unchanged" {
+				hide()
+			}
+			runtime := x.ref
+			runtime.Attempt = claim.Attempt
+			prompt, e := x.runs.StartLab(ctx, x.user, runtime, claim.ID, LaunchPrompt)
+			if e != nil || strings.Contains(prompt, "legacy-private-prompt") || !strings.Contains(prompt, "Follow up") || !strings.Contains(prompt, "private question") || strings.Contains(prompt, "sensitive-previous-answer") != (change == "unchanged") {
+				t.Fatal(e, prompt)
+			}
+		})
+	}
+}
+
+func TestConcurrentFailureAndHandInPublishOneOutcome(t *testing.T) {
+	x := runningTurn(t)
+	ctx := t.Context()
+	x.runs.OnSettlement = (Answers{Store: x.runs.Store}).OnSettlement
+	start := make(chan struct{})
+	handed := make(chan error, 1)
+	reported := make(chan error, 1)
+	go func() {
+		<-start
+		p, e := x.submit(ctx, "gap")
+		if len(p) != 0 {
+			e = errors.New("invalid gap")
+		}
+		handed <- e
+	}()
+	go func() {
+		<-start
+		_, e := x.runs.Fail(ctx, x.user, x.ref, x.run.ID, service.Report{FailureReason: agent.ReasonHandInInvalid, Error: "fixture failure"})
+		reported <- e
+	}()
+	close(start)
+	submitErr, failErr := <-handed, <-reported
+	if failErr != nil || submitErr != nil && !errors.Is(submitErr, service.ErrConflict) {
+		t.Fatal(submitErr, failErr)
+	}
+	var status, kind string
+	var n, events int
+	if e := x.env.Owner.QueryRow(ctx, `SELECT status,(SELECT min(kind) FROM lab_message WHERE agent_run_id=r.id AND kind<>'question'),
+ (SELECT count(*) FROM lab_message WHERE agent_run_id=r.id AND kind<>'question'),
+ (SELECT count(*) FROM event WHERE type='lab.message.created' AND payload->>'message_id' IN
+ (SELECT id::text FROM lab_message WHERE agent_run_id=r.id AND kind<>'question')) FROM agent_run r WHERE id=$1`, x.run.ID).Scan(&status, &kind, &n, &events); e != nil {
+		t.Fatal(e)
+	}
+	if n != 1 || events != 1 || submitErr == nil && (kind != "answer" || status != "completed") || submitErr != nil && (kind != "failure" || status != "failed") {
+		t.Fatal(submitErr, status, kind, n, events)
+	}
+}
+
+func TestUnvalidatedStoredTextCannotAuthorizeCompletion(t *testing.T) {
+	x := runningTurn(t)
+	ctx := t.Context()
+	x.exec("INSERT INTO lab_message(workspace_id,owner_id,chat_id,agent_run_id,kind,body) VALUES($1,$2,$3,$4,'answer','legacy answer')", x.ws, x.user, *x.run.LabChatID, x.run.ID)
+	if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); !errors.Is(e, service.ErrConflict) {
+		t.Fatal(e)
+	}
+}
+
+func TestLaunchDropsOnlyAnswersThatSawRedactedHistory(t *testing.T) {
+	x := runningTurn(t)
+	ctx := t.Context()
+	next := func(question string) string {
+		t.Helper()
+		if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); e != nil {
+			t.Fatal(e)
+		}
+		x.run = enqueueQuestion(t, x.fixture, x.runs, db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}, question, "")
+		claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+		if e != nil || len(claims) != 1 {
+			t.Fatal(e, claims)
+		}
+		x.ref.Attempt = claims[0].AgentRun.Attempt
+		prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return prompt
+	}
+	say := func(kind, body string, cites ...string) {
+		t.Helper()
+		if cites == nil {
+			cites = []string{}
+		}
+		raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: body, Cites: cites}}})
+		if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
+			t.Fatal(e, p)
+		}
+	}
+	lesson := x.lessonFor(Ref{"record", x.record})
+	x.log(lesson.String(), "read")
+	say("lesson", "sensitive lesson", lesson.String())
+	if prompt := next("Second question"); !strings.Contains(prompt, "sensitive lesson") {
+		t.Fatal(prompt)
+	}
+	say("gap", "dependent restatement")
+	x.exec("UPDATE lesson SET status='set_aside' WHERE id=$1", lesson.ID)
+	if prompt := next("Third question"); strings.Contains(prompt, "sensitive lesson") || strings.Contains(prompt, "dependent restatement") {
+		t.Fatal(prompt)
+	}
+	say("gap", "new independent result")
+	if prompt := next("Fourth question"); !strings.Contains(prompt, "new independent result") || strings.Contains(prompt, "dependent restatement") || strings.Contains(prompt, "sensitive lesson") {
+		t.Fatal(prompt)
 	}
 }

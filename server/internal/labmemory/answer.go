@@ -2,6 +2,7 @@ package labmemory
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,8 +20,9 @@ import (
 type Answers struct{ Store *store.Store }
 
 type answerCite struct {
-	Ref   string `json:"ref"`
-	Title string `json:"title"`
+	Ref     string `json:"ref"`
+	Title   string `json:"title"`
+	Version string `json:"version"`
 }
 type answerEvidence struct {
 	answerCite
@@ -32,8 +34,16 @@ type answerStatement struct {
 	Cites []answerCite `json:"cites"`
 }
 type checkedAnswer struct {
-	Statements []answerStatement `json:"statements"`
-	Evidence   []answerEvidence  `json:"evidence"`
+	HistorySafe bool              `json:"history_safe"`
+	Statements  []answerStatement `json:"statements"`
+	Evidence    []answerEvidence  `json:"evidence"`
+}
+
+// Include the visible projection as well as its source version. A study or
+// lesson can remain open while part of its evidence becomes private or changes.
+func pin(f Fact) answerCite {
+	data, _ := json.Marshal(f)
+	return answerCite{Ref: f.Ref.String(), Title: f.Title, Version: fmt.Sprintf("%x", sha256.Sum256(data))}
 }
 
 // Answer runs inside the authenticated, locked attempt, under the requester's
@@ -88,15 +98,16 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		if e != nil {
 			return answerCite{}, false, e
 		}
-		c := answerCite{ref.String(), f.Title}
+		c := pin(f)
 		titles[ref] = c
 		return c, true, nil
 	}
-	result := checkedAnswer{Evidence: []answerEvidence{}}
+	result := checkedAnswer{Evidence: []answerEvidence{}, HistorySafe: true}
 	readHere := map[Ref]bool{}
 	for _, row := range log {
 		ref, e := ParseRef(row.Ref)
 		if e != nil {
+			result.HistorySafe = false
 			continue
 		}
 		cite, visible, e := lookup(ref)
@@ -104,7 +115,13 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 			return nil, e
 		}
 		if !visible {
+			result.HistorySafe = false
 			continue
+		}
+		// A version that changed between tool use and hand-in cannot vouch
+		// for old text in a later turn. Navigation origins expose no fact body.
+		if row.Via != "links" && row.ReadVersion != cite.Version {
+			result.HistorySafe = false
 		}
 		readHere[ref] = true
 		via := row.Via
@@ -122,6 +139,9 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 			if !visible {
 				via = ""
 			}
+		}
+		if via == "" {
+			result.HistorySafe = false
 		}
 		result.Evidence = append(result.Evidence, answerEvidence{cite, via})
 	}

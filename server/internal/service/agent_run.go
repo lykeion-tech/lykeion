@@ -1008,6 +1008,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					if t.Kind == "aristotle" {
 						t, err = tx.Q.RefreshLabRunPrompt(ctx, t.ID)
+						t.ContinuityScope, t.SessionID = "", "" // Each turn starts with its currently permitted history.
 						if err != nil {
 							return err
 						}
@@ -1245,21 +1246,41 @@ func (s *AgentRuns) PrepareLease(ctx context.Context, user uuid.UUID, ref Runtim
 
 func (s *AgentRuns) Start(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID) error {
 	return s.onAgentRun(ctx, user, ref, func(tx *store.Tx) error {
-		if _, err := lockAttempt(ctx, tx, ref, run); err != nil {
-			return err
-		}
-		if err := rows(tx.Q.StartAgentRun(ctx, db.StartAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID, RuntimeID: &ref.RuntimeID})); err != nil {
-			return err
-		}
-		t, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: run, WorkspaceID: ref.WorkspaceID})
+		t, err := lockAttempt(ctx, tx, ref, run)
 		if err != nil {
 			return err
 		}
-		if err := tx.Q.StartMachineAttempt(ctx, db.StartMachineAttemptParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run, Attempt: ref.Attempt, RuntimeID: ref.RuntimeID}); err != nil {
+		return startLocked(ctx, tx, ref, t)
+	})
+}
+
+// StartLab builds the only historical prompt sent to the CLI in the same
+// requester snapshot that admits the attempt. The claim contains no answers.
+func (s *AgentRuns) StartLab(ctx context.Context, user uuid.UUID, ref RuntimeRef, run uuid.UUID, history func(context.Context, *store.Tx, db.AgentRun) (string, error)) (string, error) {
+	var prompt string
+	err := s.onAttempt(ctx, user, ref, run, "aristotle", func(tx *store.Tx, t db.AgentRun) error {
+		if t.RequesterID == nil || *t.RequesterID != user {
+			return ErrNotYours
+		}
+		if err := startLocked(ctx, tx, ref, t); err != nil {
 			return err
 		}
-		return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))
+		var err error
+		prompt, err = history(ctx, tx, t)
+		return err
 	})
+	return prompt, err
+}
+
+func startLocked(ctx context.Context, tx *store.Tx, ref RuntimeRef, t db.AgentRun) error {
+	if err := rows(tx.Q.StartAgentRun(ctx, db.StartAgentRunParams{ID: t.ID, WorkspaceID: tx.WS, RuntimeID: &ref.RuntimeID})); err != nil {
+		return err
+	}
+	t.Status = "running"
+	if err := tx.Q.StartMachineAttempt(ctx, db.StartMachineAttemptParams{WorkspaceID: tx.WS, AgentRunID: t.ID, Attempt: ref.Attempt, RuntimeID: ref.RuntimeID}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))
 }
 
 // OnAttempt runs fn on run's attempt ref, with the run locked, in the
@@ -1418,6 +1439,20 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			}
 		} else if t.Status != "cancelled" && !runningOn(t, ref) {
 			return ErrConflict
+		}
+		if t.Kind == "aristotle" && t.Status != "cancelled" {
+			answered, err := tx.Q.LabTurnHasAnswer(ctx, t.ID)
+			if err != nil {
+				return err
+			}
+			if ok && !answered {
+				return ErrConflict
+			}
+			// An accepted answer is the authoritative outcome even if the
+			// daemon crashed before acknowledging its hand-in.
+			if answered {
+				ok = true
+			}
 		}
 		spent := 0.0
 		for _, u := range r.Usage {
@@ -1786,7 +1821,16 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if reason == "" {
 				continue
 			}
+			answered := false
+			if t.Kind == "aristotle" {
+				answered, err = tx.Q.LabTurnHasAnswer(ctx, t.ID)
+				if err != nil {
+					return err
+				}
+			}
 			switch {
+			case answered:
+				err = tx.Q.FinishAgentRun(ctx, db.FinishAgentRunParams{WorkspaceID: tx.WS, ID: t.ID, Status: "completed", SessionID: t.SessionID})
 			case t.CardID != nil:
 				err = s.parkInfra(ctx, tx, t, reason, t.Error, 0)
 			case t.Attempt < t.MaxAttempts:
@@ -1807,7 +1851,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if err = saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
 				return err
 			}
-			if out.Status == "failed" {
+			if terminal(out.Status) {
 				if err = saveSettlement(ctx, tx, out); err != nil {
 					return err
 				}
@@ -1821,8 +1865,8 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 				return err
 			}
 			event := "agent_run.requeued"
-			if out.Status == "failed" {
-				event = "agent_run.failed"
+			if terminal(out.Status) {
+				event = "agent_run." + out.Status
 			}
 			if err := tx.Emit(ctx, event, out.CardID, store.System, agentRunEvent(out)); err != nil {
 				return err

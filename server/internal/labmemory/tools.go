@@ -54,6 +54,7 @@ type hitList struct {
 	Results   []hit  `json:"results"`
 }
 type evidence struct {
+	historyPin string
 	Ref        string    `json:"ref"`
 	Title      string    `json:"title"`
 	Text       string    `json:"text"`
@@ -147,8 +148,8 @@ func (c toolCall) authorized(ctx context.Context, work func(*store.Tx, uuid.UUID
 		return work(tx, asker)
 	})
 }
-func (c toolCall) log(ctx context.Context, tx *store.Tx, ref Ref, via string) error {
-	return tx.Q.AppendLabRead(ctx, db.AppendLabReadParams{WorkspaceID: tx.WS, AgentRunID: c.role.AgentRunID, Ref: ref.String(), Via: via})
+func (c toolCall) log(ctx context.Context, tx *store.Tx, ref Ref, via, version string) error {
+	return tx.Q.AppendLabRead(ctx, db.AppendLabReadParams{WorkspaceID: tx.WS, AgentRunID: c.role.AgentRunID, Ref: ref.String(), Via: via, ReadVersion: version})
 }
 func (c toolCall) hits(ctx context.Context, tx *store.Tx, asker uuid.UUID, refs []Ref, via string, limit int) (hitList, error) {
 	out := hitList{Results: []hit{}}
@@ -165,7 +166,7 @@ func (c toolCall) hits(ctx context.Context, tx *store.Tx, asker uuid.UUID, refs 
 		if err != nil {
 			return hitList{}, err
 		}
-		if err := c.log(ctx, tx, ref, via); err != nil {
+		if err := c.log(ctx, tx, ref, via, pin(f).Version); err != nil {
 			return hitList{}, err
 		}
 		out.Results = append(out.Results, hit{ref.String(), ref.Kind, f.Title})
@@ -219,7 +220,7 @@ func (t Tools) server(role middleware.Role, token string) *mcp.Server {
 			if e != nil {
 				return e
 			}
-			if e = c.log(ctx, tx, ref, "links"); e != nil {
+			if e = c.log(ctx, tx, ref, "links", ""); e != nil {
 				return e
 			}
 			result, e = c.hits(ctx, tx, asker, refs, ref.String(), 0)

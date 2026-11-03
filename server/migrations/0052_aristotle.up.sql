@@ -44,6 +44,7 @@ CREATE TABLE lab_read (
   agent_run_id uuid NOT NULL,
   ref text NOT NULL,
   via text NOT NULL DEFAULT '',
+  read_version text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE
@@ -301,14 +302,36 @@ REVOKE ALL ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(te
 GRANT EXECUTE ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work(text,bigint[],bigint[]) TO lykeion_app;
 
 -- Freeze only server-validated, visible evidence alongside the accepted answer.
-ALTER TABLE lab_message ADD COLUMN evidence jsonb NOT NULL DEFAULT '[]';
-CREATE UNIQUE INDEX lab_turn_outcome ON lab_message(agent_run_id,kind)
+ALTER TABLE lab_message ADD COLUMN evidence jsonb NOT NULL DEFAULT '[]',
+ ADD COLUMN history_safe boolean,
+ ADD COLUMN launch_sources uuid[];
+-- NULL denotes a legacy or unvalidated message. A validated answer whose
+-- evidence was redacted during hand-in is still terminal, but cannot be replayed.
+-- Only the checked answer recorder may publish or change an answer row.
+-- Questions and plain settlement failures are the other server write paths.
+DROP POLICY owner ON lab_message;
+CREATE POLICY owner_view ON lab_message FOR SELECT USING (
+ workspace_id=app_workspace() AND owner_id=app_user());
+CREATE POLICY owner_append ON lab_message FOR INSERT WITH CHECK (
+ workspace_id=app_workspace() AND owner_id=app_user() AND history_safe IS NULL
+ AND (kind='question' OR (kind='failure' AND EXISTS (
+ SELECT 1 FROM agent_run r WHERE r.workspace_id=lab_message.workspace_id
+ AND r.id=lab_message.agent_run_id AND r.lab_chat_id=lab_message.chat_id
+ AND r.requester_id=app_user() AND r.kind='aristotle' AND r.status='failed'))));
+-- The start transaction records which answer IDs the CLI actually received.
+-- Only this field on a private question can be updated by the application.
+CREATE POLICY owner_launch ON lab_message FOR UPDATE USING (
+ workspace_id=app_workspace() AND owner_id=app_user() AND kind='question')
+ WITH CHECK (workspace_id=app_workspace() AND owner_id=app_user() AND kind='question');
+REVOKE UPDATE ON lab_message FROM lykeion_app;
+GRANT UPDATE(launch_sources) ON lab_message TO lykeion_app;
+CREATE UNIQUE INDEX lab_turn_outcome ON lab_message(agent_run_id)
  WHERE agent_run_id IS NOT NULL AND kind IN ('answer','failure');
 
 CREATE FUNCTION lab_record_answer(run uuid, statements jsonb) RETURNS SETOF uuid
 LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
- INSERT INTO public.lab_message(workspace_id,chat_id,owner_id,agent_run_id,kind,body,statements,evidence)
- SELECT r.workspace_id,c.id,c.owner_id,r.id,'answer','',$2->'statements',$2->'evidence'
+ INSERT INTO public.lab_message(workspace_id,chat_id,owner_id,agent_run_id,kind,body,statements,evidence,history_safe)
+ SELECT r.workspace_id,c.id,c.owner_id,r.id,'answer','',$2->'statements',$2->'evidence',COALESCE(($2->>'history_safe')::boolean,false)
  FROM public.agent_run r JOIN public.lab_chat c
  ON (c.workspace_id,c.id,c.owner_id)=(r.workspace_id,r.lab_chat_id,r.requester_id)
  JOIN public.member m ON (m.workspace_id,m.user_id)=(r.workspace_id,r.requester_id)
@@ -318,3 +341,14 @@ LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 $$;
 REVOKE ALL ON FUNCTION lab_record_answer(uuid,jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lab_record_answer(uuid,jsonb) TO lykeion_app;
+
+-- Lease recovery runs as the maintenance identity and needs only the accepted
+-- outcome bit, never private message content.
+CREATE FUNCTION lab_has_accepted_answer(run uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+ SELECT EXISTS(SELECT 1 FROM public.lab_message m WHERE m.workspace_id=public.app_workspace()
+ AND m.agent_run_id=$1 AND m.kind='answer' AND m.history_safe IS NOT NULL
+ AND (m.owner_id=public.app_user() OR public.app_user()='00000000-0000-0000-0000-000000000000'::uuid))
+$$;
+REVOKE ALL ON FUNCTION lab_has_accepted_answer(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lab_has_accepted_answer(uuid) TO lykeion_app;

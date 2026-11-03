@@ -13,13 +13,15 @@ import (
 )
 
 const labEvidenceLog = `-- name: LabEvidenceLog :many
-SELECT ref,via FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=$1::uuid
+SELECT ref,via,(CASE WHEN min(read_version)=max(read_version) THEN min(read_version) ELSE '' END)::text AS read_version
+FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=$1::uuid
  GROUP BY ref,via ORDER BY min(id)
 `
 
 type LabEvidenceLogRow struct {
-	Ref string `json:"ref"`
-	Via string `json:"via"`
+	Ref         string `json:"ref"`
+	Via         string `json:"via"`
+	ReadVersion string `json:"read_version"`
 }
 
 func (q *Queries) LabEvidenceLog(ctx context.Context, runID uuid.UUID) ([]LabEvidenceLogRow, error) {
@@ -31,7 +33,7 @@ func (q *Queries) LabEvidenceLog(ctx context.Context, runID uuid.UUID) ([]LabEvi
 	var items []LabEvidenceLogRow
 	for rows.Next() {
 		var i LabEvidenceLogRow
-		if err := rows.Scan(&i.Ref, &i.Via); err != nil {
+		if err := rows.Scan(&i.Ref, &i.Via, &i.ReadVersion); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -43,8 +45,7 @@ func (q *Queries) LabEvidenceLog(ctx context.Context, runID uuid.UUID) ([]LabEvi
 }
 
 const labTurnHasAnswer = `-- name: LabTurnHasAnswer :one
-SELECT EXISTS(SELECT 1 FROM lab_message WHERE workspace_id=app_workspace()
- AND owner_id=app_user() AND agent_run_id=$1::uuid AND kind='answer')::boolean
+SELECT lab_has_accepted_answer($1::uuid)::boolean
 `
 
 func (q *Queries) LabTurnHasAnswer(ctx context.Context, runID uuid.UUID) (bool, error) {

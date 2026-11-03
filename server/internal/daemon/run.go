@@ -149,11 +149,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	prompt := c.AgentRun.Prompt
-	if lab {
-		// Both adapters suppress personal instruction files. Carry this turn's
-		// frozen protocol explicitly, including when resuming a CLI session.
-		prompt = c.AgentRun.Skill + "\n\n" + prompt
-	}
 	if c.AgentRun.Skill != "" {
 		if err := os.WriteFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), []byte(c.AgentRun.Skill), 0600); err != nil {
 			fail(err)
@@ -174,12 +169,28 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
-	if err = d.api.Do(ctx, "POST", base+"/start", ref, nil); err != nil {
+	startPath := base + "/start"
+	var launch struct{ Prompt string }
+	var startResponse any
+	if lab {
+		startPath += "?lab_history=1"
+		startResponse = &launch
+	}
+	if err = d.api.Do(ctx, "POST", startPath, ref, startResponse); err != nil {
 		fail(err)
 		if retryableControlLoss(err) {
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
 		return nil
+	}
+	if lab {
+		if launch.Prompt == "" {
+			fail(errors.New("the server did not provide a checked lab prompt"))
+			return nil
+		}
+		prompt = c.AgentRun.Skill + "\n\n" + launch.Prompt
+		// Only re-asks inside this live turn may resume its CLI session.
+		c.AgentRun.SessionID, c.AgentRun.ContinuityScope = "", ""
 	}
 	// The run's token fetches the files, so this follows the start; the CLI
 	// never starts with only some of them.

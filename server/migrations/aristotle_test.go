@@ -13,7 +13,10 @@ func TestAristotleTables(t *testing.T) {
 	env := testutil.Setup(t)
 	for _, name := range []string{"lab_chat", "lab_message", "lab_read", "lesson", "lesson_flag", "lesson_counter", "lesson_job", "lesson_card"} {
 		var rls, granted bool
-		err := env.Owner.QueryRow(t.Context(), `SELECT relrowsecurity, has_table_privilege('lykeion_app',oid,'SELECT') AND has_table_privilege('lykeion_app',oid,'INSERT') AND has_table_privilege('lykeion_app',oid,'UPDATE') AND has_table_privilege('lykeion_app',oid,'DELETE') FROM pg_class WHERE oid=to_regclass($1)`, name).Scan(&rls, &granted)
+		err := env.Owner.QueryRow(t.Context(), `SELECT relrowsecurity, has_table_privilege('lykeion_app',oid,'SELECT') AND has_table_privilege('lykeion_app',oid,'INSERT') AND CASE WHEN relname='lab_message' THEN
+          has_column_privilege('lykeion_app',oid,'launch_sources','UPDATE') AND NOT has_column_privilege('lykeion_app',oid,'statements','UPDATE')
+          ELSE has_table_privilege('lykeion_app',oid,'UPDATE') END
+          AND has_table_privilege('lykeion_app',oid,'DELETE') FROM pg_class WHERE oid=to_regclass($1)`, name).Scan(&rls, &granted)
 		if err != nil || !rls || !granted {
 			t.Errorf("%s: RLS=%v app grant=%v err=%v", name, rls, granted, err)
 		}
