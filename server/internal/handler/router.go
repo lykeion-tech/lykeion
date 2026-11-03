@@ -151,6 +151,7 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 		r.Post("/api/decisions/{id}/decide", h.decideDecision)
+		r.Post("/api/decisions/{id}/answers", h.answerDecision)
 
 		r.Put("/api/runtimes/{id}/sharing", h.setRuntimeSharing)
 

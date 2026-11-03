@@ -14,6 +14,66 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const answerQuestionSet = `-- name: AnswerQuestionSet :one
+UPDATE inbox_item SET status = 'decided', answers = $1::jsonb, decided_by = $2::uuid,
+  decided_at = now(), resolved_at = now(), touched_at = now()
+WHERE id = $3 AND workspace_id = $4
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
+`
+
+type AnswerQuestionSetParams struct {
+	Answers     json.RawMessage `json:"answers"`
+	DecidedBy   uuid.UUID       `json:"decided_by"`
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+}
+
+func (q *Queries) AnswerQuestionSet(ctx context.Context, arg AnswerQuestionSetParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, answerQuestionSet,
+		arg.Answers,
+		arg.DecidedBy,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+		&i.QuestionSet,
+		&i.Answers,
+	)
+	return i, err
+}
+
 const archiveStale = `-- name: ArchiveStale :exec
 SELECT archive_stale_decisions($1::timestamptz)
 `

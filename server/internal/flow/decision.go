@@ -234,15 +234,27 @@ func (e *Engine) resumeAfterDecision(ctx context.Context, tx *store.Tx, c db.Car
 	title, _, _ := strings.Cut(item.Text, "\n")
 	note := "Your question \"" + title + "\" expired without an answer. Continue without it."
 	if item.Status == "decided" {
-		var options []service.Option
-		if err := json.Unmarshal(item.Options, &options); err != nil {
-			return err
+		if len(item.QuestionSet) > 0 {
+			var set handin.QuestionSetIn
+			var answers []QuestionAnswer
+			if err := json.Unmarshal(item.QuestionSet, &set); err != nil {
+				return err
+			}
+			if err := json.Unmarshal(item.Answers, &answers); err != nil {
+				return err
+			}
+			note = "The researcher answered your question \"" + title + "\":" + questionSetAnswerText(set, answers)
+		} else {
+			var options []service.Option
+			if err := json.Unmarshal(item.Options, &options); err != nil {
+				return err
+			}
+			label := item.ChosenOption
+			if i := slices.IndexFunc(options, func(o service.Option) bool { return o.ID == item.ChosenOption }); i >= 0 {
+				label = options[i].Label
+			}
+			note = "The researcher answered your question \"" + title + "\": " + label
 		}
-		label := item.ChosenOption
-		if i := slices.IndexFunc(options, func(o service.Option) bool { return o.ID == item.ChosenOption }); i >= 0 {
-			label = options[i].Label
-		}
-		note = "The researcher answered your question \"" + title + "\": " + label
 		if item.Guidance != "" {
 			note += " — " + item.Guidance
 		}

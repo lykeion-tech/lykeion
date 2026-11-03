@@ -66,6 +66,12 @@ UPDATE inbox_item SET status = 'decided', chosen_option = @chosen_option, guidan
 WHERE id = @id AND workspace_id = @workspace_id
 RETURNING *;
 
+-- name: AnswerQuestionSet :one
+UPDATE inbox_item SET status = 'decided', answers = @answers::jsonb, decided_by = @decided_by::uuid,
+  decided_at = now(), resolved_at = now(), touched_at = now()
+WHERE id = @id AND workspace_id = @workspace_id
+RETURNING *;
+
 -- A stopped study's open decisions are cancelled: nobody answers them any more.
 -- name: CancelCardDecisions :many
 UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()

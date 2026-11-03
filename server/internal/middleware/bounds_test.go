@@ -478,3 +478,20 @@ func TestDaemonHandInBodyLimitIsExact(t *testing.T) {
 		})
 	}
 }
+
+func TestQuestionAnswersBodyLimit(t *testing.T) {
+	id := "e2580cdf-b924-4001-b80a-716d03e7c1f1"
+	for _, tt := range []struct {
+		method, path string
+		want         int64
+	}{
+		{"POST", "/api/decisions/" + id + "/answers", 10 << 20},
+		{"GET", "/api/decisions/" + id + "/answers", MaxBodyBytes},
+		{"POST", "/api/decisions/not-a-uuid/answers", MaxBodyBytes},
+		{"POST", "/api/decisions/" + id + "/decide", MaxBodyBytes},
+	} {
+		if got := JSONBodyLimit(httptest.NewRequest(tt.method, tt.path, nil)); got != tt.want {
+			t.Errorf("%s %s got %d want %d", tt.method, tt.path, got, tt.want)
+		}
+	}
+}

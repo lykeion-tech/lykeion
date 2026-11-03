@@ -152,7 +152,22 @@ func daemonHandInPost(r *http.Request) bool {
 }
 
 // JSONBodyLimit is shared by pre-transaction buffering and strict decoding.
+func questionAnswersPost(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := strings.Split(r.URL.Path, "/")
+	if len(p) != 5 || p[1] != "api" || p[2] != "decisions" || p[4] != "answers" || len(p[3]) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(p[3])
+	return err == nil
+}
+
 func JSONBodyLimit(r *http.Request) int64 {
+	if questionAnswersPost(r) {
+		return 10 << 20
+	}
 	if daemonHandInPost(r) {
 		return MaxHandInBodyBytes
 	}

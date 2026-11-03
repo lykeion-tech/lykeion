@@ -168,10 +168,12 @@ func decisionsCmd(e *env) *cobra.Command {
 			return err
 		}
 		var items []struct {
-			Kind, Text string
-			CreatedAt  string  `json:"created_at"`
-			ReadAt     *string `json:"read_at"`
-			Options    []struct {
+			Kind, Text  string
+			CreatedAt   string               `json:"created_at"`
+			QuestionSet *decisionQuestionSet `json:"question_set"`
+			Answers     []decisionAnswer     `json:"answers"`
+			ReadAt      *string              `json:"read_at"`
+			Options     []struct {
 				ID string `json:"id"`
 			} `json:"options"`
 		}
@@ -195,7 +197,7 @@ func decisionsCmd(e *env) *cobra.Command {
 			if len(ids) > 0 {
 				fmt.Fprintf(e.out, "  [%s]", strings.Join(ids, "|"))
 			}
-			fmt.Fprintln(e.out)
+			fmt.Fprintln(e.out, decisionQuestionLines(it.QuestionSet, it.Answers))
 		}
 		return nil
 	}}
