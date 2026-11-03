@@ -13,6 +13,7 @@ import type {
   AutoresearchRunDetail,
   Research,
   ResearchDetail,
+  ReviewColumn,
   AgentRun,
   Card,
   ColumnRating,
@@ -98,6 +99,13 @@ export const useCard = (id: MaybeRefOrGetter<string>) =>
   ofCard<Card>(id, keys.card, (c) => `/api/cards/${c}`);
 export const useCardRatings = (id: MaybeRefOrGetter<string>) =>
   ofCard<ColumnRating[]>(id, keys.ratings, (c) => `/api/cards/${c}/ratings`);
+export const useCardReview = (id: MaybeRefOrGetter<string>) =>
+  useQuery({
+    queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'review']),
+    queryFn: async () =>
+      (await api<{ columns: ReviewColumn[] }>('GET', `/api/cards/${toValue(id)}/review`)).columns,
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
 export const useCardEvents = (id: MaybeRefOrGetter<string>) =>

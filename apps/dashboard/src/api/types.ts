@@ -42,6 +42,52 @@ export interface Workspace {
 
 export type Column = 'grounding' | 'hypotheses' | 'experimentation' | 'validation' | 'done';
 
+export type CheckStatus = 'pass' | 'unclear' | 'fail' | 'withdrawn';
+export interface ReviewCheck {
+  id: string;
+  by: 'server' | 'jev';
+  question?: string;
+  inverted?: boolean;
+  detail?: string;
+  p?: number;
+  status: CheckStatus;
+  warning?: boolean;
+}
+export interface ReviewItem {
+  key: string;
+  kind: string;
+  label: string;
+  identity?: string;
+  status: CheckStatus;
+  carried?: boolean;
+  checks: ReviewCheck[];
+  quote: string;
+  cites: string[];
+}
+export interface ReviewAttempt {
+  column: Column;
+  attempt: number;
+  round: number;
+  at: string;
+  items: ReviewItem[];
+  missed?: ReviewItem[];
+  recall?: { query: string; hits: number; screened: number };
+  weakest?: { key: string; p: number };
+  objector?: { ran: boolean; reason?: string; same_family: boolean };
+  decision: 'pass' | 'carry' | 'redo' | 'block' | 'ask';
+}
+export interface ReviewColumn {
+  column: Column;
+  attempts: ReviewAttempt[];
+  mode?: string;
+  statuses?: Record<string, unknown>[];
+  objections?: Record<string, unknown>[];
+  rerun?: Record<string, unknown> | null;
+  route_back?: Record<string, unknown> | null;
+  same_family?: boolean;
+  objector?: { ran: boolean; reason?: string; same_family: boolean } | null;
+}
+
 // One column of a study offered to its owner for a Team rating.
 export interface ColumnRating {
   column: Column;
