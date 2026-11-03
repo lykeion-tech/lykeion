@@ -438,6 +438,109 @@ it('shows Validation statuses with the objections upheld against them', async ()
   expect(textOf(root)).toContain('Sent back to Experimentation once');
 });
 
+it('links final Validation objections by their record keys without guessing uncited targets', async () => {
+  const { root } = setup(
+    validation({
+      statuses: [
+        {
+          hypothesis: 'First hypothesis',
+          status: 'caveated',
+          reasons: ['an upheld wrong test objection'],
+          cites: ['value-1', 'objection-9'],
+        },
+        {
+          hypothesis: 'Second hypothesis',
+          status: 'invalid',
+          reasons: ['No valid test'],
+          cites: ['value-2'],
+        },
+      ],
+      objections: [
+        {
+          key: 'objection-9',
+          target_key: 'hypothesis-record',
+          type: 'wrong_test',
+          problem: 'Incorrect comparison',
+          upheld: true,
+        },
+        {
+          key: 'objection-10',
+          target_key: 'value-2',
+          type: 'wrong_test',
+          problem: 'Uncited and did not lower the status',
+          upheld: true,
+        },
+        {
+          key: 'objection-11',
+          target_key: 'hypothesis-record',
+          type: 'wrong_test',
+          problem: 'Dropped objection',
+          upheld: false,
+        },
+      ],
+    }),
+  );
+  await nextTick();
+  const rows = all(root).filter((n) => n.props.class === 'validation-status');
+  expect(textOf(rows[0]!)).toContain('wrong test: Incorrect comparison');
+  expect(textOf(rows[0]!)).not.toContain('Dropped objection');
+  expect(textOf(rows[1]!)).not.toContain('Uncited and did not lower the status');
+});
+
+it('preserves distinct missed item groups and selection when status filters change', async () => {
+  const a = grounding();
+  a.items = [];
+  a.weakest = undefined;
+  a.missed = [
+    {
+      key: '',
+      kind: 'paper',
+      label: 'Missed first',
+      quote: 'First missing source',
+      cites: [],
+      status: 'pass',
+      checks: [{ id: 'missed', by: 'jev', status: 'pass', p: 0.9 }],
+    },
+    {
+      key: '',
+      kind: 'paper',
+      label: 'Missed second',
+      quote: 'Second missing source',
+      cites: [],
+      status: 'fail',
+      checks: [{ id: 'missed', by: 'jev', status: 'fail', p: 0.1 }],
+    },
+    {
+      key: '',
+      kind: 'paper',
+      label: 'Missed third',
+      quote: 'Third missing source',
+      cites: [],
+      status: 'unclear',
+      checks: [{ id: 'missed', by: 'jev', status: 'unclear', p: 0.5 }],
+    },
+  ];
+  const { root } = setup([{ column: 'grounding', attempts: [a] }]);
+  await nextTick();
+  await click(labelled(root, 'Checks · evidence'));
+  const groups = () => all(root).filter((n) => n.props.class === 'check-group');
+  const second = groups()[1]!;
+  expect(groups()).toHaveLength(3);
+  await click(labelled(root, 'Unsupported checks'));
+  expect(groups()).toHaveLength(1);
+  expect(groups()[0] === second).toBe(true);
+  await click(all(groups()[0]!).find((n) => n.props.class === 'check-row')!);
+  expect(textOf(selected(root))).toContain('Second missing source');
+  await click(labelled(root, 'All checks'));
+  expect(groups().map((group) => textOf(group).includes('Missed'))).toEqual([true, true, true]);
+  expect(groups()[1] === second).toBe(true);
+  await click(labelled(root, 'Unclear checks'));
+  expect(groups()).toHaveLength(1);
+  expect(textOf(groups()[0]!)).toContain('Missed third');
+  await click(all(groups()[0]!).find((n) => n.props.class === 'check-row')!);
+  expect(textOf(selected(root))).toContain('Third missing source');
+});
+
 it('says why the objector did not run and marks a same-family objector', async () => {
   const skipped = setup(
     validation({

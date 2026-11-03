@@ -236,3 +236,60 @@ func TestCardReviewAddsRoundTimeAndItemText(t *testing.T) {
 		t.Fatalf("B read A's review through A's workspace: %d", code)
 	}
 }
+
+func TestReviewEndpointIncludesObjectionRecordKeys(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	var c card
+	s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q"}, &c)
+	err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(w.ID), uuid.Nil, func(tx *store.Tx) error {
+		for _, rec := range []struct{ kind, key, body string }{
+			{"validation_status", "status-1", `{"hypothesis":"H1","status":"caveated","reasons":["an upheld wrong test objection"],"cites":["value-1","objection-9"],"final":true}`},
+			{"objection", "objection-9", `{"target_key":"value-1","label":"H1","type":"wrong_test","problem":"Incorrect comparison","upheld":true,"same_family":false,"server":"ok","checks":[]}`},
+			{"objection", "objection-10", `{"target_key":"value-1","label":"H1","type":"wrong_test","problem":"No further status reduction","upheld":true}`},
+		} {
+			if _, err := tx.Q.InsertRecord(t.Context(), db.InsertRecordParams{WorkspaceID: tx.WS, CardID: uuid.MustParse(c.ID),
+				BoardColumn: "validation", Round: 1, Kind: rec.kind, Key: rec.key, Role: "server", Body: json.RawMessage(rec.body)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Columns []struct {
+			Column     string
+			Statuses   []struct{ Cites []string }
+			Objections []map[string]any
+		}
+	}
+	if code := s.call(t, "GET", "/api/cards/"+c.ID+"/review", a, w.ID, nil, &v); code != 200 {
+		t.Fatalf("code %d", code)
+	}
+	val := v.Columns[3]
+	if len(val.Statuses) != 1 || len(val.Statuses[0].Cites) != 2 || val.Statuses[0].Cites[1] != "objection-9" {
+		t.Fatalf("statuses %+v", val.Statuses)
+	}
+	if len(val.Objections) != 2 {
+		t.Fatalf("objections %+v", val.Objections)
+	}
+	byKey := make(map[string]map[string]any)
+	for _, o := range val.Objections {
+		key, _ := o["key"].(string)
+		byKey[key] = o
+	}
+	o := byKey["objection-9"]
+	if o == nil || o["target_key"] != "value-1" || o["label"] != "H1" || o["type"] != "wrong_test" || o["problem"] != "Incorrect comparison" || o["upheld"] != true || o["same_family"] != false || o["server"] != "ok" {
+		t.Fatalf("cited objection lost its record key or original fields: %+v", val.Objections)
+	}
+	if checks, ok := o["checks"].([]any); !ok || len(checks) != 0 {
+		t.Fatalf("checks changed: %+v", o)
+	}
+	if byKey["objection-10"]["problem"] != "No further status reduction" {
+		t.Fatalf("uncited objection missing: %+v", val.Objections)
+	}
+}

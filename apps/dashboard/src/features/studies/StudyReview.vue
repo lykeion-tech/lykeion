@@ -185,7 +185,7 @@ const checkGroups = computed(() =>
       (spoke) =>
         spoke.item === i && (checkFilter.value === 'all' || spoke.status === checkFilter.value),
     );
-    return rows.length ? [{ item, rows }] : [];
+    return rows.length ? [{ item, index: i, rows }] : [];
   }),
 );
 const icons: Record<CheckStatus, string> = { pass: '✓', unclear: '◐', fail: '○', withdrawn: '—' };
@@ -279,7 +279,9 @@ const validationStatuses = computed(() =>
         (objection) =>
           objection.upheld === true &&
           Array.isArray(status.cites) &&
-          status.cites.includes(objection.target_key),
+          // Final statuses cite the judged objection's record, not its target.
+          // Target matching is only for older responses without record keys.
+          status.cites.includes(objection.key || objection.target_key),
       )
       .map(
         (objection) =>
@@ -511,7 +513,7 @@ const validationStatuses = computed(() =>
                 {{ filter.label }} {{ count(filter.status) }}
               </button>
             </div>
-            <section v-for="group in checkGroups" :key="group.item.key" class="check-group">
+            <section v-for="group in checkGroups" :key="group.index" class="check-group">
               <header class="check-group-heading">
                 <b>{{ group.item.label }}</b>
                 <span v-if="group.item.carried" class="review-tag">carried</span>

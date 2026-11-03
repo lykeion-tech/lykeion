@@ -184,7 +184,22 @@ func validationOf(r *http.Request, tx *store.Tx, ws, card uuid.UUID) (*validatio
 	}
 	for _, r := range objections {
 		if r.Round == round {
-			v.Objections = append(v.Objections, r.Body)
+			// Final statuses cite the judged objection's record key. Keep the
+			// original body fields alongside it so clients can join that evidence.
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(r.Body, &body); err != nil {
+				return nil, err
+			}
+			key, err := json.Marshal(r.Key)
+			if err != nil {
+				return nil, err
+			}
+			body["key"] = key
+			answer, err := json.Marshal(body)
+			if err != nil {
+				return nil, err
+			}
+			v.Objections = append(v.Objections, answer)
 			if json.Unmarshal(r.Body, &sameFamily) == nil && sameFamily.SameFamily {
 				v.SameFamily = true
 			}
