@@ -692,7 +692,8 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Body string `json:"body"`
+		Body        string     `json:"body"`
+		TargetRunID *uuid.UUID `json:"target_run_id"`
 	}
 	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Body) == "" {
 		writeErr(w, http.StatusBadRequest, "body required")
@@ -700,12 +701,25 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 	}
 	var comment db.Comment
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		if _, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id}); err != nil {
+		if _, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: id}); err != nil {
 			return err
+		}
+		var attempt *int32
+		if in.TargetRunID != nil {
+			run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: ws, ID: *in.TargetRunID})
+			if err != nil {
+				return err
+			}
+			if run.CardID == nil || *run.CardID != id {
+				return pgx.ErrNoRows
+			}
+			if run.Status == "running" && run.Harness == "claude" && run.Kind == "role" {
+				attempt = &run.Attempt
+			}
 		}
 		var err error
 		comment, err = tx.Q.CreateComment(r.Context(), db.CreateCommentParams{
-			WorkspaceID: ws, CardID: id, AuthorID: user, Body: in.Body,
+			WorkspaceID: ws, CardID: id, AuthorID: user, Body: in.Body, ReplyRunID: in.TargetRunID, SteerAttempt: attempt,
 		})
 		if err != nil {
 			return err
@@ -718,7 +732,7 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	if h.Engine != nil {
+	if h.Engine != nil && in.TargetRunID == nil {
 		h.Engine.OnComment(comment.WorkspaceID, id, comment.AuthorID, comment.Body)
 	}
 	writeJSON(w, http.StatusCreated, comment)

@@ -48,7 +48,40 @@ func ClaimNewComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how st
 	if err != nil {
 		return nil, err
 	}
+	cs, err = CommentsForRun(ctx, tx, cs, &run)
+	if err != nil {
+		return nil, err
+	}
 	return deliver(ctx, tx, run, how, cs)
+}
+
+// CommentsForRun keeps live-targeted steering with its selected attempt.
+// Once that attempt ends, the reply remains ordinary study context.
+func CommentsForRun(ctx context.Context, tx *store.Tx, cs []db.Comment, run *db.AgentRun) ([]db.Comment, error) {
+	out := make([]db.Comment, 0, len(cs))
+	for _, c := range cs {
+		if c.ReplyRunID == nil && c.SteerAttempt != nil && run != nil {
+			continue
+		}
+		if c.ReplyRunID != nil && c.SteerAttempt == nil && run != nil {
+			continue
+		}
+		if c.ReplyRunID != nil && c.SteerAttempt != nil {
+			target, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: *c.ReplyRunID})
+			if err != nil {
+				return nil, err
+			}
+			active := target.Status == "running" && target.Attempt == *c.SteerAttempt
+			if run == nil && active {
+				continue
+			}
+			if run != nil && (!active || run.ID != target.ID || run.Attempt != target.Attempt) {
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 // DeliverComments writes a receipt giving run each of cs that has none yet,
@@ -66,6 +99,10 @@ func DeliverComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how str
 		included[c.ID] = true
 	}
 	open = slices.DeleteFunc(open, func(c db.Comment) bool { return !included[c.ID] })
+	open, err = CommentsForRun(ctx, tx, open, &run)
+	if err != nil {
+		return nil, err
+	}
 	return deliver(ctx, tx, run, how, open)
 }
 

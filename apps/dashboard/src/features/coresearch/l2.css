@@ -6967,6 +6967,7 @@
 }
 .coresearch.task-rightpane-card .art-title,
 .coresearch .task-rightpane-card .art-title {
+  font-size: 16px;
   color: var(--ink);
 }
 .coresearch.task-rightpane-card .art-header,

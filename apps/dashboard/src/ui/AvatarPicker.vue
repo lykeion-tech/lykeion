@@ -3,7 +3,7 @@ import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import Icon from './Icon.vue';
 import { Smile, Dog, Hamburger, Volleyball, Car, Lightbulb, Hash } from '@lucide/vue';
 import type { EmojiRecord } from '../data/emoji-data';
-defineProps<{ modelValue: string; emojiOnly?: boolean }>();
+const props = defineProps<{ modelValue: string; emojiOnly?: boolean; startExpanded?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; close: [] }>();
 const host = ref<HTMLElement>();
 function outside(event: PointerEvent) {
@@ -16,7 +16,7 @@ onMounted(() => {
   window.addEventListener('pointerdown', outside);
 });
 onUnmounted(() => window.removeEventListener('pointerdown', outside));
-const expanded = ref(false),
+const expanded = ref(!!props.startExpanded),
   query = ref(''),
   category = ref('Recent'),
   error = ref(''),
@@ -64,9 +64,14 @@ const catalog = ref<EmojiRecord[]>([]),
 const toneNames = ['Default', 'Light', 'Medium-light', 'Medium', 'Medium-dark', 'Dark'];
 const toneColors = ['#ffcd38', '#f7dece', '#f3d2a2', '#d5ab88', '#ad7858', '#6c4a37'];
 const recent = ['👍', '😀', '😘', '😍', '😆', '😜', '😅', '😂', '🌍', '😱'];
-watch(expanded, async (value) => {
-  if (value && !catalog.value.length) catalog.value = (await import('../data/emoji-data')).default;
-});
+watch(
+  expanded,
+  async (value) => {
+    if (value && !catalog.value.length)
+      catalog.value = (await import('../data/emoji-data')).default;
+  },
+  { immediate: true },
+);
 const normalized = (s: string) => s.replace(/\ufe0f/g, '');
 const visible = computed(() => {
   const q = query.value.trim().toLowerCase();

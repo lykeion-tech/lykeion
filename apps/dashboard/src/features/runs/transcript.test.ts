@@ -281,7 +281,7 @@ describe('reading-first recorded run', () => {
         content: 'failed elsewhere',
       }),
     ]);
-    expect(html).toContain('class="mark-ok turn-item"');
+    expect(html).toMatch(/class="(?:mark-ok turn-item|turn-item mark-ok)"/);
     expect(html).toContain('activity-step failed');
     const thinkingFirst = await render(
       [

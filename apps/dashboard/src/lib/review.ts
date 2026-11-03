@@ -138,11 +138,21 @@ export function feedLine(a: ReviewAttempt): string {
     ask: 'waiting for you',
     route_back: 'sent back to Experimentation',
   }[a.decision];
-  return `Jev · ${columnName(a.column)}, try ${a.attempt} · ${outcome}`;
+  return `Jev · ${columnName(a.column)} · ${outcome}`;
 }
 
 export function reviewingLine(
-  card: Pick<Card, 'board_column' | 'state' | 'ending' | 'flag' | 'legacy_column' | 'round'>,
+  card: Pick<
+    Card,
+    | 'board_column'
+    | 'state'
+    | 'ending'
+    | 'flag'
+    | 'legacy_column'
+    | 'round'
+    | 'gating_until'
+    | 'assignee_type'
+  >,
   runs: AgentRun[],
   reviews: ReviewColumn[],
 ): string | null {
@@ -151,6 +161,9 @@ export function reviewingLine(
     card.state !== 'working' ||
     card.ending ||
     card.flag ||
+    card.assignee_type === 'agent' ||
+    !card.gating_until ||
+    !(Date.parse(card.gating_until) > Date.now()) ||
     col === 'done' ||
     col === card.legacy_column
   )
@@ -163,7 +176,7 @@ export function reviewingLine(
     return null;
   const attempts = reviews.find((review) => review.column === col)?.attempts ?? [];
   if (attempts.some((a) => a.round === round)) return null;
-  return `Jev · ${columnName(col)}, try ${attempts.length + 1} · reviewing…`;
+  return `Jev · ${columnName(col)} · reviewing`;
 }
 
 export function legacyColumns(
@@ -179,12 +192,10 @@ export function legacyColumns(
     return {
       column,
       verdict: String(outcome?.body.verdict ?? ''),
-      criteria: scores
-        .filter(latest)
-        .map((r) => ({
-          name: String(r.body.criterion ?? ''),
-          level: levels[Math.round(Number(r.body.level)) - 1] ?? '',
-        })),
+      criteria: scores.filter(latest).map((r) => ({
+        name: String(r.body.criterion ?? ''),
+        level: levels[Math.round(Number(r.body.level)) - 1] ?? '',
+      })),
     };
   });
 }

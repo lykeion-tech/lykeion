@@ -52,7 +52,8 @@ ORDER BY c.board_column, c.position, c.number;
 SELECT * FROM card WHERE workspace_id = @workspace_id AND id = @id;
 
 -- name: CreateComment :one
-INSERT INTO comment (workspace_id, card_id, author_id, body) VALUES (@workspace_id, @card_id, @author_id, @body)
+INSERT INTO comment (workspace_id, card_id, author_id, body, reply_run_id, steer_attempt)
+VALUES (@workspace_id, @card_id, @author_id, @body, sqlc.narg(reply_run_id), sqlc.narg(steer_attempt))
 RETURNING *;
 
 -- name: ListComments :many

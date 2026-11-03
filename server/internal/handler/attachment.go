@@ -125,9 +125,16 @@ func checkStudyFileLimits(rows []db.Attachment) error {
 // upload to it, under a name unique within the study. An upload another study
 // linked first, or one swept since it was read, refuses this one.
 func linkStudyFiles(r *http.Request, tx *store.Tx, blobs storage.Storage, card db.Card, files []db.Attachment) error {
-	names := make([]string, len(files))
+	existing, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: card.WorkspaceID, CardID: &card.ID})
+	if err != nil {
+		return err
+	}
+	names := make([]string, len(existing)+len(files))
+	for i, f := range existing {
+		names[i] = f.DiskName
+	}
 	for i, f := range files {
-		names[i] = f.Name
+		names[len(existing)+i] = f.Name
 	}
 	disk := records.DiskNames(names)
 	for i, f := range files {
@@ -138,7 +145,7 @@ func linkStudyFiles(r *http.Request, tx *store.Tx, blobs storage.Storage, card d
 		if err != nil {
 			return err
 		}
-		n, err := tx.Q.LinkAttachment(r.Context(), db.LinkAttachmentParams{ID: f.ID, CardID: &card.ID, DiskName: disk[i], RecordKey: key})
+		n, err := tx.Q.LinkAttachment(r.Context(), db.LinkAttachmentParams{ID: f.ID, CardID: &card.ID, DiskName: disk[len(existing)+i], RecordKey: key})
 		if err != nil {
 			return err
 		}
@@ -443,7 +450,13 @@ func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	var row db.Attachment
 	err = h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
-		var err error
+		snapshot, err := tx.RunAttachmentSnapshot(r.Context(), role.AgentRunID)
+		if err != nil {
+			return err
+		}
+		if snapshot != nil && !slices.Contains(snapshot, id) {
+			return storage.ErrNotFound
+		}
 		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, ID: id})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && row.Kind != "file" {
 			return storage.ErrNotFound

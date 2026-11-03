@@ -165,6 +165,9 @@ func (h *H) listCalls(w http.ResponseWriter, r *http.Request) {
 	var recs []db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) (err error) {
 		recs, err = tx.Q.ListRecords(r.Context(), db.ListRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: role.Column})
+		if err == nil {
+			recs, err = visibleRunRecords(r.Context(), tx, role, recs)
+		}
 		return err
 	})
 	if err != nil {

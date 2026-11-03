@@ -102,8 +102,36 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 		return err
 	}
 	if steps := st.RerunSteps(); len(steps) > 0 {
-		_, err = e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
-		return err
+		// A single replay folder cannot faithfully reproduce scripts that saw
+		// different study files. Never silently replay them with newer inputs.
+		var source *uuid.UUID
+		var snapshot []uuid.UUID
+		for _, step := range steps {
+			for _, record := range st.Records {
+				if record.Key != step.Key || record.AgentRunID == nil {
+					continue
+				}
+				ids, err := tx.RunAttachmentSnapshot(ctx, *record.AgentRunID)
+				if err != nil {
+					return err
+				}
+				if source == nil {
+					source = record.AgentRunID
+					snapshot = ids
+				} else if !slices.Equal(snapshot, ids) {
+					ok, notes := noneReproduced(st.Values, "the scripts used different attached files; they cannot be replayed together")
+					return writeRerun(ctx, tx, c.ID, c.BoardColumn, c.Round, nil, rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Reproduced: ok, Notes: notes})
+				}
+			}
+		}
+		run, err := e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
+		if err != nil {
+			return err
+		}
+		if source != nil {
+			return tx.CopyRunAttachmentSnapshot(ctx, *source, run.ID)
+		}
+		return nil
 	}
 	ok, notes := noneReproduced(st.Values, noScriptNote)
 	return writeRerun(ctx, tx, c.ID, c.BoardColumn, c.Round, nil, rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Reproduced: ok, Notes: notes})

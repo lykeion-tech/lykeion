@@ -301,12 +301,14 @@ type CardTeam struct {
 }
 
 type Comment struct {
-	ID          uuid.UUID `json:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	AuthorID    uuid.UUID `json:"author_id"`
-	Body        string    `json:"body"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           uuid.UUID  `json:"id"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	CardID       uuid.UUID  `json:"card_id"`
+	AuthorID     uuid.UUID  `json:"author_id"`
+	Body         string     `json:"body"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ReplyRunID   *uuid.UUID `json:"reply_run_id"`
+	SteerAttempt *int32     `json:"steer_attempt"`
 }
 
 type ConnectorFetch struct {

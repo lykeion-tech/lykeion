@@ -155,6 +155,8 @@ export interface Comment {
   author_id: string;
   body: string;
   created_at: string;
+  reply_run_id?: string | null;
+  steer_attempt?: number | null;
   // Which run's work the comment reached and how; null while it waits.
   delivery: CommentDelivery | null;
 }

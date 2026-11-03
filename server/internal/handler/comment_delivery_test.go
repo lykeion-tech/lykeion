@@ -86,6 +86,110 @@ func TestCommentClaimedOnce(t *testing.T) {
 	}
 }
 
+func TestTargetedCommentGoesOnlyToSelectedRun(t *testing.T) {
+	l, leader := groundingLab(t)
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	member := l.claim(t)
+	if member.id != ask.Ticket {
+		t.Fatal("wrong member run")
+	}
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "For the member.", "target_run_id": member.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	if code, got := l.runComments(t, leader); code != 200 || len(got) != 0 {
+		t.Fatalf("wrong run received comment: %d %+v", code, got)
+	}
+	if code, got := l.runComments(t, member); code != 200 || len(got) != 1 || got[0].ID != comment.ID {
+		t.Fatalf("target did not receive comment: %d %+v", code, got)
+	}
+}
+
+func TestReplyToFinishedRunIsStudyComment(t *testing.T) {
+	l, leader := groundingLab(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET status = 'completed', completed_at = now() WHERE id = $1", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "A note on this work.", "target_run_id": leader.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	var attempt *int32
+	if err := l.s.Env.Owner.QueryRow(t.Context(), "SELECT steer_attempt FROM comment WHERE id = $1", comment.ID).Scan(&attempt); err != nil || attempt != nil {
+		t.Fatalf("finished reply targeted an attempt: %v %v", attempt, err)
+	}
+}
+
+func TestTargetedCommentDoesNotEnterAnotherRunsPrompt(t *testing.T) {
+	l, leader := groundingLab(t)
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "Private steering for the lead.", "target_run_id": leader.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	member := l.claim(t)
+	if member.id != ask.Ticket || strings.Contains(member.prompt, "Private steering for the lead.") {
+		t.Fatalf("targeted steering appeared in member prompt: %s", member.prompt)
+	}
+	if code, got := l.runComments(t, leader); code != 200 || len(got) != 1 || got[0].ID != comment.ID {
+		t.Fatalf("target did not receive steering: %d %+v", code, got)
+	}
+}
+
+func TestTargetedCommentIsNotRedirectedAfterRunEnds(t *testing.T) {
+	l, leader := groundingLab(t)
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	member := l.claim(t)
+	if member.id != ask.Ticket {
+		t.Fatal("wrong member run")
+	}
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "For the member.", "target_run_id": member.id}, nil); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET status = 'completed', completed_at = now() WHERE id = $1", member.id); err != nil {
+		t.Fatal(err)
+	}
+	if code, got := l.runComments(t, leader); code != 200 || len(got) != 0 {
+		t.Fatalf("ended run's reply redirected: %d %+v", code, got)
+	}
+}
+
+func TestReplyRejectsRunFromAnotherStudy(t *testing.T) {
+	l, leader := groundingLab(t)
+	var other string
+	if err := l.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO card (workspace_id, number, title, question, owner_id, board_column)
+		SELECT workspace_id, 900, 'Other', 'Other study?', owner_id, 'grounding' FROM card WHERE id = $1 RETURNING id`, l.card.ID).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	if code := l.s.call(t, "POST", "/api/cards/"+other+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "Not for this run.", "target_run_id": leader.id}, nil); code != 404 {
+		t.Fatalf("cross-study target: got %d, want 404", code)
+	}
+}
+
+func TestReplyToRunningCodexIsStudyComment(t *testing.T) {
+	l, leader := groundingLab(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness = 'codex' WHERE id = $1", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "A note for this study.", "target_run_id": leader.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	if code, got := l.runComments(t, leader); code != 200 || len(got) != 0 {
+		t.Fatalf("unsupported live input was claimed: %d %+v", code, got)
+	}
+	var attempt *int32
+	if err := l.s.Env.Owner.QueryRow(t.Context(), "SELECT steer_attempt FROM comment WHERE id = $1", comment.ID).Scan(&attempt); err != nil || attempt != nil {
+		t.Fatalf("codex reply targeted an unsupported live attempt: %v %v", attempt, err)
+	}
+}
+
 // A Codex member can't take a comment mid-turn and its daemon never asks for
 // one: the leader waiting on it gets the comment in its next member_result,
 // once, and the study page says so.

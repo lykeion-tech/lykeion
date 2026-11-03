@@ -308,6 +308,7 @@ const unlinkedObjections = computed(() =>
 
 <template>
   <section class="study-review surface-content type-body" aria-label="Study review">
+    <h2 class="review-heading">Review</h2>
     <p v-if="review.isPending.value" class="review-empty" role="status">Loading review…</p>
     <p v-else-if="review.isError.value" class="inline-error" role="alert">
       {{ review.error.value?.message }}
@@ -337,20 +338,10 @@ const unlinkedObjections = computed(() =>
     </section>
     <template v-else>
       <ServerChecks v-if="attempt && shown === 'experimentation'" />
-      <header class="fingerprint-caption type-caption" aria-label="Fingerprint caption">
-        <span>Claim fingerprint</span>
-        <span
-          >{{ columnName(shown)
-          }}<template v-if="attempt">
-            · try {{ attempt.attempt }} · {{ checks.length }} checks<template
-              v-if="shown === 'experimentation'"
-            >
-              · warnings only</template
-            ></template
-          ></span
-        >
-      </header>
       <div class="fingerprint-panel">
+        <p v-if="attempt && shown === 'experimentation'" class="warning-caption type-caption">
+          Experimentation · warnings only
+        </p>
         <p v-if="!newest" class="review-empty">
           Jev reviews each column when its agents finish. Nothing to review yet.
         </p>
@@ -631,13 +622,14 @@ const unlinkedObjections = computed(() =>
 <style scoped>
 .study-review {
   min-width: 0;
+  padding: 24px 20px;
 }
-.fingerprint-caption {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  margin-bottom: 8px;
+.review-heading {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.warning-caption {
+  margin: 0 0 8px;
   color: var(--muted);
 }
 .fingerprint-panel {

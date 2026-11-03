@@ -348,6 +348,11 @@ func (e *Engine) Resume(ctx context.Context, tx *store.Tx, c db.Card) error {
 		if err != nil {
 			return err
 		}
+		if r.Prompt != "" {
+			if err := tx.CopyRunAttachmentSnapshot(ctx, r.ID, run.ID); err != nil {
+				return err
+			}
+		}
 		if _, err := service.DeliverComments(ctx, tx, run, service.DeliveredNextRun, comments); err != nil {
 			return err
 		}

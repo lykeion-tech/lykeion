@@ -168,9 +168,7 @@ it('switches the shown column from a tile', async () => {
   const tile = all(root).find((n) => n.props['aria-label'] === 'Show Hypotheses review')!;
   (tile.props.onClick as () => void)();
   await nextTick();
-  expect(textOf(all(root).find((n) => n.props['aria-label'] === 'Fingerprint caption')!)).toContain(
-    'Hypotheses · try 1 · 4 checks',
-  );
+  expect(tile.props['aria-pressed']).toBe(true);
 });
 
 it('shows the newest attempt by time, including after a review arrives', async () => {
@@ -194,9 +192,8 @@ it('shows the newest attempt by time, including after a review arrives', async (
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   await nextTick();
-  expect(textOf(all(root).find((n) => n.props['aria-label'] === 'Fingerprint caption')!)).toContain(
-    'Validation · try 2',
-  );
+  expect(labelled(root, 'Show Validation review').props['aria-pressed']).toBe(true);
+  expect(textOf(root)).toContain('Validation · try 2');
 });
 
 it('preserves a selected historical stage when the card or review updates', async () => {
@@ -210,9 +207,7 @@ it('preserves a selected historical stage when the card or review updates', asyn
   client.setQueryData(keys.card('w', 'c'), { id: 'c', board_column: 'validation' });
   await new Promise((resolve) => setTimeout(resolve, 0));
   await nextTick();
-  const caption = () =>
-    textOf(all(root).find((n) => n.props['aria-label'] === 'Fingerprint caption')!);
-  expect(caption()).toContain('Grounding · try 1');
+  expect(groundingTile.props['aria-pressed']).toBe(true);
   client.setQueryData(
     [...keys.recordsAll('w', 'c'), 'review'],
     [
@@ -225,7 +220,7 @@ it('preserves a selected historical stage when the card or review updates', asyn
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   await nextTick();
-  expect(caption()).toContain('Grounding · try 1');
+  expect(groundingTile.props['aria-pressed']).toBe(true);
 });
 
 it('bounds long fingerprint labels and their weakest marker within the chart', async () => {
@@ -392,7 +387,7 @@ it('puts Experimentation server checks open above the fingerprint and marks warn
   const nodes = all(root);
   expect(labelled(root, 'Checked by the server').props['aria-expanded']).toBe(true);
   expect(nodes.indexOf(labelled(root, 'Checked by the server'))).toBeLessThan(
-    nodes.indexOf(labelled(root, 'Fingerprint caption')),
+    nodes.indexOf(nodes.find((n) => n.props.class === 'fingerprint-panel')!),
   );
   expect(textOf(root)).toContain('Output was declared');
   await click(labelled(root, 'Checks · evidence'));

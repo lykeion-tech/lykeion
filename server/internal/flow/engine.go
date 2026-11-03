@@ -221,6 +221,10 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 	if err != nil {
 		return "", nil, err
 	}
+	comments, err = service.CommentsForRun(ctx, tx, comments, nil)
+	if err != nil {
+		return "", nil, err
+	}
 	// Read at start, so a change to the research context reaches the next run.
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
 	if err != nil {

@@ -116,10 +116,10 @@ describe('review helpers', () => {
 
   it('describes the review decision in the feed', () => {
     expect(feedLine(attempt({ column: 'grounding', attempt: 1, decision: 'redo' }))).toBe(
-      'Jev · Grounding, try 1 · needs another try',
+      'Jev · Grounding · needs another try',
     );
     expect(feedLine(attempt({ column: 'validation', decision: 'route_back' }))).toBe(
-      'Jev · Validation, try 1 · sent back to Experimentation',
+      'Jev · Validation · sent back to Experimentation',
     );
   });
 
@@ -130,6 +130,8 @@ describe('review helpers', () => {
       state: 'working',
       ending: '',
       flag: '',
+      assignee_type: 'team',
+      gating_until: '2999-01-01T00:00:00Z',
     } as const;
     const runs = [
       { board_column: 'hypotheses', round: 2, status: 'running' },
@@ -137,7 +139,9 @@ describe('review helpers', () => {
       { board_column: 'hypotheses', round: 3, status: 'completed' },
     ] as AgentRun[];
     const reviews = [{ column: 'hypotheses' as const, attempts: [attempt()] }];
-    expect(reviewingLine(card, runs, reviews)).toBe('Jev · Hypotheses, try 2 · reviewing…');
+    expect(reviewingLine(card, runs, reviews)).toBe('Jev · Hypotheses · reviewing');
+    expect(reviewingLine({ ...card, gating_until: null }, runs, reviews)).toBeNull();
+    expect(reviewingLine({ ...card, assignee_type: 'agent' }, runs, reviews)).toBeNull();
     expect(reviewingLine(card, [...runs, { ...runs[2]!, status: 'running' }], reviews)).toBeNull();
     expect(
       reviewingLine(card, runs, [{ column: 'hypotheses', attempts: [attempt({ round: 3 })] }]),

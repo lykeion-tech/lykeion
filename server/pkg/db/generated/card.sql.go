@@ -382,15 +382,18 @@ func (q *Queries) CreateCard(ctx context.Context, arg CreateCardParams) (Card, e
 }
 
 const createComment = `-- name: CreateComment :one
-INSERT INTO comment (workspace_id, card_id, author_id, body) VALUES ($1, $2, $3, $4)
-RETURNING id, workspace_id, card_id, author_id, body, created_at
+INSERT INTO comment (workspace_id, card_id, author_id, body, reply_run_id, steer_attempt)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, workspace_id, card_id, author_id, body, created_at, reply_run_id, steer_attempt
 `
 
 type CreateCommentParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
-	AuthorID    uuid.UUID `json:"author_id"`
-	Body        string    `json:"body"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	CardID       uuid.UUID  `json:"card_id"`
+	AuthorID     uuid.UUID  `json:"author_id"`
+	Body         string     `json:"body"`
+	ReplyRunID   *uuid.UUID `json:"reply_run_id"`
+	SteerAttempt *int32     `json:"steer_attempt"`
 }
 
 func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error) {
@@ -399,6 +402,8 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		arg.CardID,
 		arg.AuthorID,
 		arg.Body,
+		arg.ReplyRunID,
+		arg.SteerAttempt,
 	)
 	var i Comment
 	err := row.Scan(
@@ -408,6 +413,8 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		&i.AuthorID,
 		&i.Body,
 		&i.CreatedAt,
+		&i.ReplyRunID,
+		&i.SteerAttempt,
 	)
 	return i, err
 }
@@ -718,7 +725,7 @@ func (q *Queries) ListCards(ctx context.Context, workspaceID uuid.UUID) ([]ListC
 }
 
 const listComments = `-- name: ListComments :many
-SELECT id, workspace_id, card_id, author_id, body, created_at FROM comment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at
+SELECT id, workspace_id, card_id, author_id, body, created_at, reply_run_id, steer_attempt FROM comment WHERE workspace_id = $1 AND card_id = $2 ORDER BY created_at
 `
 
 type ListCommentsParams struct {
@@ -742,6 +749,8 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]C
 			&i.AuthorID,
 			&i.Body,
 			&i.CreatedAt,
+			&i.ReplyRunID,
+			&i.SteerAttempt,
 		); err != nil {
 			return nil, err
 		}
@@ -918,7 +927,7 @@ func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error 
 }
 
 const undeliveredComments = `-- name: UndeliveredComments :many
-SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3
   AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
     AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
 ORDER BY c.created_at, c.id
@@ -947,6 +956,8 @@ func (q *Queries) UndeliveredComments(ctx context.Context, arg UndeliveredCommen
 			&i.AuthorID,
 			&i.Body,
 			&i.CreatedAt,
+			&i.ReplyRunID,
+			&i.SteerAttempt,
 		); err != nil {
 			return nil, err
 		}

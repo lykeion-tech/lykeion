@@ -194,7 +194,7 @@ async function selectPane(id: string | null) {
   activePane.value = id;
 }
 const experimentSurfaces = [
-  { id: 'notebook', label: 'Notebook', icon: 'book' },
+  { id: 'notebook', label: 'Notebook', icon: 'code' },
   { id: 'files', label: 'Files', icon: 'file' },
   { id: 'compute', label: 'Compute', icon: 'monitor' },
 ];
@@ -748,6 +748,8 @@ async function stop() {
         :active="activePane"
         :focused="paneMode === 'focus'"
         :surfaces="experimentSurfaces"
+        :default-width="240"
+        :restore-width="false"
         :container-width="experimentWidth || undefined"
         :focus-key="activeFile?.id"
         width-key="lykeion.experiment-pane-width"

@@ -16,6 +16,7 @@ import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
 import StudyReview from './StudyReview.vue';
 import StudyNotebook from './StudyNotebook.vue';
+import StudyDescriptionControls from './StudyDescriptionControls.vue';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
 import ExecutionLog from '../runs/ExecutionLog.vue';
@@ -98,7 +99,27 @@ const embeddedConstrained = computed(
   () => props.embedded && studyWidth.value < inspectorMinimum + studyMinimum,
 );
 let studyObserver: ResizeObserver | undefined;
+let reviewPoll: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
+  reviewPoll = setInterval(() => {
+    const current = card.data.value;
+    const roundRuns = (runs.data.value ?? []).filter(
+      (run) => run.board_column === current?.board_column && run.round === current?.round,
+    );
+    if (
+      current?.state === 'working' &&
+      current.assignee_type !== 'agent' &&
+      roundRuns.length &&
+      roundRuns.every((run) => !['queued', 'dispatched', 'running'].includes(run.status)) &&
+      !(review.data.value ?? []).some(
+        (column) =>
+          column.column === current.board_column &&
+          column.attempts.some((attempt) => attempt.round === current.round),
+      )
+    ) {
+      void card.refetch();
+    }
+  }, 5000);
   if (!studyElement.value) return;
   studyWidth.value = studyElement.value.getBoundingClientRect().width;
   studyObserver = new ResizeObserver(([entry]) => {
@@ -106,7 +127,10 @@ onMounted(() => {
   });
   studyObserver.observe(studyElement.value);
 });
-onUnmounted(() => studyObserver?.disconnect());
+onUnmounted(() => {
+  studyObserver?.disconnect();
+  clearInterval(reviewPoll);
+});
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
 const notebookRun = ref<string | null>(null);
@@ -192,11 +216,22 @@ const resourceReads = computed(() =>
 );
 const readErrors = computed(() => resourceReads.value.filter((read) => read.error));
 const transcriptPending = computed(() => resourceReads.value.some((read) => read.pending));
+function jevOutcomeClass(text: string) {
+  const outcome = text.slice(text.lastIndexOf(' · ') + 3);
+  if (outcome.startsWith('good to go')) return 'jev-pass';
+  if (outcome === 'needs another try' || outcome === 'sent back to Experimentation')
+    return 'jev-redo';
+  if (outcome === 'nothing to review yet') return 'jev-empty';
+  return 'jev-waiting';
+}
 const entries = computed(() => {
   const columns = review.data.value ?? [];
   const entries = transcript(
-    comments.data.value ?? [],
-    [],
+    (comments.data.value ?? []).filter(
+      (comment) =>
+        !comment.reply_run_id || !agentRuns.value.some((run) => run.id === comment.reply_run_id),
+    ),
+    agentRuns.value,
     (events.data.value ?? []).filter((e) => e.type !== 'card.created'),
     columns.flatMap((column) =>
       column.attempts.map((attempt) => ({
@@ -209,7 +244,17 @@ const entries = computed(() => {
   const current = c.value;
   if (!current || !review.isSuccess.value || !runs.isSuccess.value) return entries;
   const line = reviewingLine(current, agentRuns.value, columns);
-  if (!line) return entries;
+  if (!line) {
+    if (!columns.some((column) => column.attempts.length)) {
+      entries.push({
+        kind: 'jev',
+        at: current.created_at,
+        text: `Jev · ${columnName(current.board_column)} · nothing to review yet`,
+        column: current.board_column,
+      });
+    }
+    return entries;
+  }
   const newest = agentRuns.value
     .filter((run) => run.board_column === current.board_column && run.round === current.round)
     .at(-1);
@@ -255,7 +300,7 @@ const error = ref('');
 const action = ref<ComposerAction>({ kind: 'comment' });
 const picker = ref<'' | 'main'>('');
 const placeholders: Record<ComposerAction['kind'], string> = {
-  comment: 'Leave a comment… it reaches the work in progress or the next step.',
+  comment: 'Leave a comment…',
   stop: 'Why the study stops.',
 };
 const blockedBar = computed(() => (c.value ? blockedMessage(c.value) : ''));
@@ -413,6 +458,7 @@ function pin() {
           <p v-if="waiting" class="study-waiting" role="status">{{ waiting }}</p>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
+            <StudyDescriptionControls :key="id" :card-id="id" :attachments="c.attachments ?? []" @download="download" />
           </section>
           <ul
             v-if="statusLines.length"
@@ -422,18 +468,6 @@ function pin() {
             <li v-for="(line, i) in statusLines" :key="i">{{ line }}</li>
           </ul>
           <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
-          <section v-if="agentRuns.length" class="agent-cards" aria-label="Agents">
-            <AgentRunCard
-              v-for="(run, index) in agentRuns"
-              :key="run.id"
-              :run="run"
-              :study="studyDisplayTitle(c.title)"
-              :position="index + 1"
-              :runtime="runtime(run.runtime_id)"
-              :study-id="id"
-              @notebook="openNotebookAt"
-            />
-          </section>
           <div
             v-for="read in readErrors"
             :key="read.label"
@@ -488,17 +522,38 @@ function pin() {
             <div v-else-if="entry.kind === 'event'" class="event-line">
               <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
             </div>
-            <div v-else-if="entry.kind === 'jev'" class="event-line">
-              <span class="dot" />
-              <span>{{ entry.text }} · {{ time(entry.at) }}</span>
+            <AgentRunCard
+              v-else-if="entry.kind === 'run'"
+              class="activity-card"
+              :run="entry.run"
+              :study="studyDisplayTitle(c.title)"
+              :position="agentRuns.findIndex((run) => run.id === entry.run.id) + 1"
+              :runtime="runtime(entry.run.runtime_id)"
+              :study-id="id"
+              :author-initial="me.data.value?.id ? name(me.data.value.id)[0] : '?'"
+              :replies="
+                (comments.data.value ?? []).filter(
+                  (comment) => comment.reply_run_id === entry.run.id,
+                )
+              "
+              @notebook="openNotebookAt"
+            />
+            <div v-else-if="entry.kind === 'jev'" class="jev-card">
+              <span class="avatar jev-avatar" aria-hidden="true">J</span>
+              <span class="jev-text">
+                {{ entry.text.slice(0, entry.text.lastIndexOf(' · ')) }} ·
+                <span :class="jevOutcomeClass(entry.text)">{{
+                  entry.text.slice(entry.text.lastIndexOf(' · ') + 3)
+                }}</span>
+              </span>
               <button
-                class="text-button"
+                class="jev-review-link"
                 @click="
                   showMeta = true;
                   activeSurface = 'review';
                 "
               >
-                Open Review
+                Open Review <span aria-hidden="true">→</span>
               </button>
             </div>
           </template>
@@ -1414,11 +1469,52 @@ function pin() {
 .study-description :deep(.markdown-body ul) {
   padding-inline-start: 20px;
 }
-.agent-cards {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+.activity-card,
+.jev-card {
+  margin: 12px 0;
+}
+.jev-card {
+  display: flex;
+  align-items: center;
   gap: 12px;
-  margin: 24px 0;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: #ffffff16;
+  font-size: 14px;
+}
+.jev-avatar {
+  color: #b5841b;
+  background: #b5841b30;
+  font-weight: 600;
+}
+.jev-text {
+  min-width: 0;
+  flex: 1;
+}
+.jev-review-link {
+  flex: none;
+  color: var(--primary);
+}
+.jev-review-link:hover {
+  text-decoration: underline;
+}
+.jev-waiting {
+  color: #c69c25;
+}
+.jev-empty {
+  color: var(--muted);
+}
+.jev-redo {
+  color: #ef4444;
+}
+.jev-pass {
+  color: #22a65a;
+}
+.jev-review-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
 }
 .stage-box {
   border: 1px solid var(--border);

@@ -931,6 +931,13 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						if err != nil {
 							return err
 						}
+						snapshot, err := tx.RunAttachmentSnapshot(ctx, t.ID)
+						if err != nil {
+							return err
+						}
+						if snapshot != nil {
+							rows = slices.DeleteFunc(rows, func(a db.Attachment) bool { return !slices.Contains(snapshot, a.ID) })
+						}
 						// A rerun replays Experimentation's scripts, which may call
 						// its services.
 						if t.BoardColumn == "experimentation" || t.Kind == "rerun" {

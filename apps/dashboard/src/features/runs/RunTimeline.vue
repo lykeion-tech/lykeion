@@ -164,6 +164,12 @@ const marked = computed(() =>
     linear-gradient(-45deg, transparent 43%, var(--error-text) 43% 57%, transparent 57%),
     var(--step-canvas);
 }
+.turn-item:has(> .activity-single)::before {
+  top: 13.5px;
+}
+.turn-item.mark-fail:has(> .activity-single)::before {
+  top: 12.5px;
+}
 .turn-ending,
 .attempt-divider {
   font-size: 12.5px;

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/statcheck"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -25,6 +26,83 @@ func rerunStudy(t *testing.T, l *lab, round int32, runs ...map[string]any) db.Ca
 	}
 	l.put(t, c.ID, "experimentation", 1, "value", "leader", map[string]any{"name": "auc", "value": "0.873", "file": "fit.py", "cites": cites})
 	return l.move(t, c.ID, "validation", round)
+}
+
+func TestRerunDoesNotMixDifferentAttachmentSnapshots(t *testing.T) {
+	l := newLab(t)
+	c := rerunStudy(t, l, 1, script(0), script(0))
+	var runs []uuid.UUID
+	for range 2 {
+		l.in(t, func(tx *store.Tx) error {
+			r, err := l.e.AgentRuns.Enqueue(context.Background(), tx, l.owner, service.NewAgentRun{Card: c.ID, Column: "experimentation", Round: 1, Role: "leader", Harness: "claude"})
+			if err == nil {
+				runs = append(runs, r.ID)
+			}
+			return err
+		})
+	}
+	if _, err := l.env.Owner.Exec(t.Context(), `UPDATE agent_run SET attachment_snapshot=ARRAY[$2::uuid] WHERE id=$1`, runs[1], uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := l.env.Owner.Query(t.Context(), `SELECT id FROM record WHERE card_id=$1 AND kind='run' ORDER BY created_at, key`, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for i, id := range ids {
+		if _, err := l.env.Owner.Exec(t.Context(), `UPDATE record SET agent_run_id=$2 WHERE id=$1`, id, runs[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l.startRerun(t, c.ID)
+	if n := l.count(t, `SELECT count(*) FROM agent_run WHERE card_id=$1 AND kind='rerun'`, c.ID); n != 0 {
+		t.Fatalf("queued %d mixed-input reruns", n)
+	}
+	var body []byte
+	if err := l.env.Owner.QueryRow(t.Context(), `SELECT body FROM record WHERE card_id=$1 AND kind='rerun'`, c.ID).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	var result rerunBody
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reproduced["auc"] || result.Notes["auc"] != "the scripts used different attached files; they cannot be replayed together" {
+		t.Fatalf("result %s", body)
+	}
+}
+
+func TestRerunKeepsItsScriptAttachmentSnapshot(t *testing.T) {
+	l := newLab(t)
+	c := rerunStudy(t, l, 1, script(0))
+	var source uuid.UUID
+	l.in(t, func(tx *store.Tx) error {
+		r, err := l.e.AgentRuns.Enqueue(context.Background(), tx, l.owner, service.NewAgentRun{Card: c.ID, Column: "experimentation", Round: 1, Role: "leader", Harness: "claude"})
+		source = r.ID
+		return err
+	})
+	file := uuid.New()
+	if _, err := l.env.Owner.Exec(t.Context(), `UPDATE agent_run SET attachment_snapshot=ARRAY[$2::uuid] WHERE id=$1`, source, file); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.env.Owner.Exec(t.Context(), `UPDATE record SET agent_run_id=$2 WHERE card_id=$1 AND kind='run'`, c.ID, source); err != nil {
+		t.Fatal(err)
+	}
+	l.startRerun(t, c.ID)
+	var ids []uuid.UUID
+	if err := l.env.Owner.QueryRow(t.Context(), `SELECT attachment_snapshot FROM agent_run WHERE card_id=$1 AND kind='rerun'`, c.ID).Scan(&ids); err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != file {
+		t.Fatalf("replay snapshot: %v", ids)
+	}
 }
 
 func (l *lab) startRerun(t *testing.T, id uuid.UUID) {

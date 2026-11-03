@@ -281,6 +281,10 @@ func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		records, err = tx.Q.ListRecords(r.Context(), db.ListRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, BoardColumn: col})
+		if err != nil {
+			return err
+		}
+		records, err = visibleRunRecords(r.Context(), tx, role, records)
 		return err
 	})
 	// A trigger's payload is untrusted text kept for people; no role reads it.
@@ -296,6 +300,25 @@ func (h *H) listRecords(w http.ResponseWriter, r *http.Request) {
 		records = []db.Record{}
 	}
 	writeJSON(w, 200, records)
+}
+
+// Attachment source records follow the same immutable run snapshot as files.
+func visibleRunRecords(ctx context.Context, tx *store.Tx, role middleware.Role, recs []db.Record) ([]db.Record, error) {
+	snapshot, err := tx.RunAttachmentSnapshot(ctx, role.AgentRunID)
+	if err != nil || snapshot == nil {
+		return recs, err
+	}
+	files, err := tx.Q.CardAttachments(ctx, db.CardAttachmentsParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID})
+	if err != nil {
+		return nil, err
+	}
+	hidden := map[string]bool{}
+	for _, file := range files {
+		if !slices.Contains(snapshot, file.ID) {
+			hidden[file.RecordKey] = true
+		}
+	}
+	return slices.DeleteFunc(recs, func(rec db.Record) bool { return hidden[rec.Key] }), nil
 }
 
 // putBlob spools, hashes and provisionally stores bytes without lifecycle locks,

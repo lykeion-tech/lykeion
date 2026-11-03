@@ -593,7 +593,7 @@ describe('Shared machines', () => {
     try {
       await t.click(/Run 1/);
       expect(t.text()).toContain(`Bench (${label})`);
-      expect(t.text()).toContain('Runs on: Bench');
+      expect(t.text()).not.toContain('Runs on: Bench');
       expect(t.text()).toContain(
         "This study's machine is no longer shared with you; choose another.",
       );

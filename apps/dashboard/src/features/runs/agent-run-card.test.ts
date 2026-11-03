@@ -171,7 +171,7 @@ it('shows the run environment when open', async () => {
   expect(textOf(root)).toContain('Old bench (Owner)');
   expect(textOf(root)).toContain('Claude Code');
   expect(textOf(root)).toContain('Recorded model');
-  expect(textOf(root)).toContain('Runs on: Bench');
+  expect(textOf(root)).not.toContain('Runs on: Bench');
   expect(textOf(root)).toContain('The study machine needs attention.');
 });
 it('opens the Notebook at its run', async () => {
@@ -183,4 +183,35 @@ it('opens the Notebook at its run', async () => {
   expect(button).toBeTruthy();
   (button.props.onClick as () => void)();
   expect(notebook).toEqual(['run-1']);
+});
+
+it('sends a reply from the card to that run', async () => {
+  const { root, fetch } = setup();
+  const field = all(root).find(
+    (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Reply to Ada',
+  )!;
+  expect(field).toBeTruthy();
+  (field.props.onInput as (event: unknown) => void)({ target: { value: 'Please check this.' } });
+  await nextTick();
+  const form = all(root).find((n) => n.tag === 'form' && n.props['aria-label'] === 'Reply to Ada')!;
+  (form.props.onSubmit as (event: { preventDefault(): void }) => void)({ preventDefault() {} });
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  const [path, options] = fetch.mock.calls.find(([url]) =>
+    url.endsWith('/comments'),
+  ) as unknown as [string, RequestInit];
+  expect(path).toContain('/api/cards/c/comments');
+  expect(JSON.parse(options.body as string)).toEqual({
+    body: 'Please check this.',
+    target_run_id: 'run-1',
+  });
+});
+
+it('explains when a running Codex cannot receive live input', async () => {
+  const { root } = setup({ status: 'running', harness: 'codex' });
+  const field = all(root).find(
+    (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Reply to Ada',
+  )!;
+  (field.props.onInput as (event: unknown) => void)({ target: { value: 'Please check this.' } });
+  await nextTick();
+  expect(textOf(root)).toContain('Codex cannot receive replies during this run');
 });

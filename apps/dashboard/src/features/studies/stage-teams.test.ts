@@ -1205,6 +1205,23 @@ describe('a study worked by one agent', () => {
 });
 
 describe('study right-pane surfaces', () => {
+  it('shows an empty Jev state when no review exists for a one-agent study', async () => {
+    const t = await mount(
+      StudyDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (client) => {
+        seedStudy(client, { assignee_type: 'agent', gating_until: null });
+        client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(t.text()).toContain('nothing to review yet'));
+      expect(t.text()).not.toContain('· reviewing');
+    } finally {
+      t.unmount();
+    }
+  });
   it('shows a pending Jev line only for a successfully read review in the active non-legacy round', async () => {
     let failReview!: () => void;
     const pending = new Promise<Response>((resolve) => {
@@ -1221,6 +1238,11 @@ describe('study right-pane surfaces', () => {
       (c) => {
         client = c;
         seedStudy(c);
+        c.setQueryData(keys.card('w', 'c'), (old: Record<string, unknown>) => ({
+          ...old,
+          assignee_type: 'team',
+          gating_until: '2999-01-01T00:00:00Z',
+        }));
         c.setQueryData(keys.runs('w', 'c'), [
           {
             id: 'lead',
@@ -1236,12 +1258,12 @@ describe('study right-pane surfaces', () => {
       },
     );
     try {
-      expect(t.text()).not.toContain('reviewing…');
+      expect(t.text()).not.toContain('· reviewing');
       failReview();
       await vi.waitFor(() => expect(t.text()).toContain('Review unavailable'));
-      expect(t.text()).not.toContain('reviewing…');
+      expect(t.text()).not.toContain('· reviewing');
       client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
-      await vi.waitFor(() => expect(t.text()).toContain('Jev · Grounding, try 1 · reviewing…'));
+      await vi.waitFor(() => expect(t.text()).toContain('Jev · Grounding · reviewing'));
       const cardKey = keys.card('w', 'c');
       const working = client.getQueryData<Record<string, unknown>>(cardKey)!;
       for (const change of [
@@ -1253,10 +1275,10 @@ describe('study right-pane surfaces', () => {
         { round: 2 },
       ]) {
         client.setQueryData(cardKey, working);
-        await vi.waitFor(() => expect(t.text()).toContain('reviewing…'));
+        await vi.waitFor(() => expect(t.text()).toContain('· reviewing'));
         client.setQueryData(cardKey, { ...working, ...change });
         await vi.waitFor(() =>
-          expect(t.text(), JSON.stringify(change)).not.toContain('reviewing…'),
+          expect(t.text(), JSON.stringify(change)).not.toContain('· reviewing'),
         );
       }
     } finally {
