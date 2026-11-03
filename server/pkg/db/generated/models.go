@@ -312,6 +312,13 @@ type Comment struct {
 	SteerAttempt *int32     `json:"steer_attempt"`
 }
 
+type CommentCancellation struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CommentID   uuid.UUID `json:"comment_id"`
+	AuthorID    uuid.UUID `json:"author_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type ConnectorFetch struct {
 	WorkspaceID   uuid.UUID `json:"workspace_id"`
 	RequestSha256 string    `json:"request_sha256"`
@@ -668,6 +675,8 @@ type InboxItem struct {
 	Kept              bool            `json:"kept"`
 	ArchivedAt        *time.Time      `json:"archived_at"`
 	TouchedAt         time.Time       `json:"touched_at"`
+	QuestionSet       json.RawMessage `json:"question_set"`
+	Answers           json.RawMessage `json:"answers"`
 }
 
 type Member struct {
@@ -716,6 +725,14 @@ type Research struct {
 	Priority    string     `json:"priority"`
 	LeadType    *string    `json:"lead_type"`
 	LeadID      *uuid.UUID `json:"lead_id"`
+}
+
+type RunReaction struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	RunID       uuid.UUID `json:"run_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Emoji       string    `json:"emoji"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type Runtime struct {

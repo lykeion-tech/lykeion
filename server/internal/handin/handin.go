@@ -186,12 +186,28 @@ type OptionIn struct {
 // DecisionIn is the question an ask hand-in puts to the researcher; a lead
 // raising a member's question names that member in FromMember.
 type DecisionIn struct {
-	Kind       string     `json:"kind"`
-	Title      string     `json:"title"`
-	Body       string     `json:"body"`
+	Kind        string         `json:"kind"`
+	Title       string         `json:"title"`
+	Body        string         `json:"body"`
+	Options     []OptionIn     `json:"options"`
+	QuestionSet *QuestionSetIn `json:"question_set"`
+	ExpiresAt   *time.Time     `json:"expires_at"`
+	FromMember  *string        `json:"from_member"`
+}
+
+// QuestionSetIn is a group of questions raised as one decision.
+type QuestionSetIn struct {
+	Questions []QuestionIn `json:"questions"`
+}
+
+type QuestionIn struct {
+	ID         string     `json:"id"`
+	Prompt     string     `json:"prompt"`
+	HelpText   *string    `json:"help_text"`
+	Required   *bool      `json:"required"`
+	Mode       string     `json:"mode"`
 	Options    []OptionIn `json:"options"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	FromMember *string    `json:"from_member"`
+	AllowOther *bool      `json:"allow_other"`
 }
 
 var optionID = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
@@ -287,14 +303,54 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(slices.Contains(DecisionKinds, d.Kind), "decision: kind must be scope, change_question, ethics, cost or access")
 		add(within(d.Title, 200) && !strings.Contains(d.Title, "\n"), "decision: title must be one line of 1 to 200 characters")
 		add(within(d.Body, 4000), "decision: body must be 1 to 4000 characters")
-		add(len(d.Options) >= 2 && len(d.Options) <= 5, "decision: give 2 to 5 options")
-		ids := map[string]bool{}
-		for i, o := range d.Options {
-			add(optionID.MatchString(o.ID), "decision options %d: id must be 1 to 40 lowercase letters, digits or underscores", i+1)
-			add(!ids[o.ID], "decision options %d: another option already has the id %s", i+1, o.ID)
-			ids[o.ID] = true
-			add(within(o.Label, 80), "decision options %d: label must be 1 to 80 characters", i+1)
-			add(within(o.Consequence, 200), "decision options %d: consequence must say in 1 to 200 characters what the option leads to", i+1)
+		validateOptions := func(options []OptionIn, prefix string) {
+			add(len(options) >= 2 && len(options) <= 5, "%s: give 2 to 5 options", prefix)
+			ids := map[string]bool{}
+			for i, o := range options {
+				add(optionID.MatchString(o.ID), "%s options %d: id must be 1 to 40 lowercase letters, digits or underscores", prefix, i+1)
+				add(!ids[o.ID], "%s options %d: another option already has the id %s", prefix, i+1, o.ID)
+				ids[o.ID] = true
+				add(within(o.Label, 80), "%s options %d: label must be 1 to 80 characters", prefix, i+1)
+				add(within(o.Consequence, 200), "%s options %d: consequence must say in 1 to 200 characters what the option leads to", prefix, i+1)
+			}
+		}
+		if d.QuestionSet == nil {
+			validateOptions(d.Options, "decision")
+		} else {
+			add(len(d.Options) == 0, "decision: give options or a question set, not both")
+			var shape struct {
+				QuestionSet struct {
+					Questions []map[string]json.RawMessage `json:"questions"`
+				} `json:"question_set"`
+			}
+			_ = json.Unmarshal(keys["decision"], &shape)
+			for i, q := range shape.QuestionSet.Questions {
+				_, ok := q["help_text"]
+				add(ok, "decision question %d: help_text must be present, or null", i+1)
+			}
+			qs := d.QuestionSet.Questions
+			add(len(qs) >= 1 && len(qs) <= 64, "decision: give 1 to 64 questions")
+			ids := map[string]bool{}
+			for i, q := range qs {
+				prefix := fmt.Sprintf("decision question %d", i+1)
+				add(optionID.MatchString(q.ID), "%s: id must be 1 to 40 lowercase letters, digits or underscores", prefix)
+				add(!ids[q.ID], "%s: another question already has the id %s", prefix, q.ID)
+				ids[q.ID] = true
+				add(within(q.Prompt, 4000), "%s: prompt must be 1 to 4000 characters", prefix)
+				add(q.HelpText == nil || within(*q.HelpText, 4000), "%s: help text must be null or 1 to 4000 characters", prefix)
+				add(q.Required != nil, "%s: required must be a boolean", prefix)
+				add(q.AllowOther != nil, "%s: allow_other must be a boolean", prefix)
+				add(q.Options != nil, "%s: options must be an array", prefix)
+				switch q.Mode {
+				case "single", "multiple":
+					validateOptions(q.Options, prefix)
+				case "text":
+					add(len(q.Options) == 0, "%s: text questions cannot have options", prefix)
+					add(q.AllowOther == nil || !*q.AllowOther, "%s: text questions cannot allow another answer", prefix)
+				default:
+					add(false, "%s: mode must be single, multiple or text", prefix)
+				}
+			}
 		}
 		if e := d.ExpiresAt; e != nil {
 			now := time.Now()

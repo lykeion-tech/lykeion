@@ -28,6 +28,10 @@ sql:
               pointer: true
           - db_type: jsonb
             go_type: encoding/json.RawMessage
+          - column: inbox_item.question_set
+            go_type: encoding/json.RawMessage
+          - column: inbox_item.answers
+            go_type: encoding/json.RawMessage
           - column: coresearch_cell.outputs
             go_type: encoding/json.RawMessage
           - column: coresearch_run.facts

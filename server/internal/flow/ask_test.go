@@ -3,6 +3,8 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -269,5 +272,101 @@ func TestJevUnavailableRaisesOnServerChecks(t *testing.T) {
 	l.askBy(t, l.latestRun(t, c.ID, "leader"), "")
 	if n := l.agentDecisions(t, c.ID); n != 1 {
 		t.Fatalf("%d agent decisions", n)
+	}
+}
+
+func TestDecisionStateIncludesEveryQuestion(t *testing.T) {
+	var d handin.DecisionIn
+	if err := json.Unmarshal([]byte(`{"kind":"scope","title":"Choose scope","body":"Several questions","options":null,"question_set":{"questions":[{"id":"one","prompt":"Which population?","help_text":"Choose one","required":true,"mode":"single","options":[{"id":"a","label":"Adults","consequence":"Study adults"},{"id":"b","label":"Children","consequence":"Study children"}],"allow_other":false},{"id":"two","prompt":"Which locations?","help_text":null,"required":false,"mode":"text","options":[],"allow_other":false}]},"expires_at":null,"from_member":null}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	state := decisionState(d)
+	for _, want := range []string{"Which population?", "Choose one", "Adults", "Study children", "Which locations?"} {
+		if !strings.Contains(state, want) {
+			t.Errorf("Jev state omitted %q: %s", want, state)
+		}
+	}
+}
+
+func TestJevChecksEveryQuestionInSet(t *testing.T) {
+	l := newLab(t)
+	s := l.jev(t, 200, levels(nil))
+	s.choose = "fits"
+	var d handin.DecisionIn
+	if err := json.Unmarshal([]byte(`{"kind":"scope","title":"Choose scope","body":"Several questions","options":null,"question_set":{"questions":[{"id":"one","prompt":"First question?","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false},{"id":"two","prompt":"Second question?","help_text":null,"required":false,"mode":"text","options":[],"allow_other":false}]},"expires_at":null,"from_member":null}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.e.fitCheck(context.Background(), uuid.New(), d); got != fitFits {
+		t.Fatalf("fit %q", got)
+	}
+	calls := s.calls()
+	if len(calls) != 2 {
+		t.Fatalf("Jev calls: %d, want 2", len(calls))
+	}
+	for i, phrase := range []string{"First question?", "Second question?"} {
+		if !strings.Contains(calls[i].State, phrase) {
+			t.Errorf("call %d lacks %q", i, phrase)
+		}
+	}
+}
+
+func TestQuestionSetPersistsAndCancels(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Scope researcher", "claude", "", "Ask the researcher.")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	run := l.latestRun(t, c.ID, "agent")
+	decision := map[string]any{"kind": "scope", "title": "Choose scope", "body": "Several questions", "options": nil, "question_set": map[string]any{"questions": []any{map[string]any{"id": "details", "prompt": "Which group?", "help_text": nil, "required": true, "mode": "text", "options": []any{}, "allow_other": false}}}, "expires_at": nil, "from_member": nil}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: *run.CardID, AgentRun: run.ID, Column: run.BoardColumn, Role: run.Role, Round: run.Round}, "hand_in", map[string]any{"agent_run_id": run.ID, "attempt": 1, "hand_in": map[string]any{"status": "ask", "answer": "I need a scope.", "reason": nil, "decision": decision}})
+		return err
+	})
+	l.settle(t, run, "completed", "", "")
+	var raw []byte
+	if err := l.env.Owner.QueryRow(context.Background(), `SELECT question_set FROM inbox_item WHERE card_id=$1 AND kind='agent_decision'`, c.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Which group?") {
+		t.Fatalf("question set was not saved: %s", raw)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		ids, err := tx.Q.CancelCardDecisions(context.Background(), db.CancelCardDecisionsParams{WorkspaceID: tx.WS, CardID: c.ID})
+		if err == nil && len(ids) != 1 {
+			t.Fatalf("cancelled %d decisions", len(ids))
+		}
+		return err
+	})
+	if got := l.count(t, `SELECT count(*) FROM inbox_item WHERE card_id=$1 AND status='cancelled'`, c.ID); got != 1 {
+		t.Fatalf("cancelled decision count %d", got)
+	}
+}
+
+func TestJevRejectsSetWhenAnyQuestionDoesNotFit(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req jevRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		calls++
+		choice := "fits"
+		if strings.Contains(req.State, "Second question?") {
+			choice = "decide_yourself"
+		}
+		answers := map[string]any{}
+		for id := range req.Questions {
+			answers[id] = map[string]any{"type": "choice", "choice": choice, "probabilities": map[string]float64{choice: 0.9}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": jev.Model, "answers": answers})
+	}))
+	defer srv.Close()
+	e := &Engine{Jev: &jev.Client{BaseURL: srv.URL, Key: "k", Model: jev.Model}}
+	var d handin.DecisionIn
+	if err := json.Unmarshal([]byte(`{"kind":"scope","title":"Scope","body":"Questions","options":null,"question_set":{"questions":[{"id":"a","prompt":"First question?","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false},{"id":"b","prompt":"Second question?","help_text":null,"required":false,"mode":"text","options":[],"allow_other":false}]},"expires_at":null,"from_member":null}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.fitCheck(context.Background(), uuid.New(), d); got != fitDecide || calls != 2 {
+		t.Fatalf("Jev verdict %q after %d calls", got, calls)
 	}
 }

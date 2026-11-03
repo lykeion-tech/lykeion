@@ -424,12 +424,28 @@ var fitOptions = map[string]string{
 // fitCheck asks Jev whether an agent's question is the researcher's to
 // answer. It runs with no transaction open.
 func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.DecisionIn) string {
-	a, err := e.Jev.Choice(ctx, decisionState(d), fitQuestion, fitOptions)
-	if err != nil {
-		slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)
-		return fitUnavailable
+	questions := []handin.DecisionIn{d}
+	if d.QuestionSet != nil {
+		questions = make([]handin.DecisionIn, 0, len(d.QuestionSet.Questions))
+		for _, q := range d.QuestionSet.Questions {
+			one := d
+			one.QuestionSet = &handin.QuestionSetIn{Questions: []handin.QuestionIn{q}}
+			questions = append(questions, one)
+		}
 	}
-	return a.Choice
+	result := fitFits
+	for _, question := range questions {
+		a, err := e.Jev.Choice(ctx, decisionState(question), fitQuestion, fitOptions)
+		if err != nil {
+			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)
+			result = fitUnavailable
+			continue
+		}
+		if a.Choice == fitDecide {
+			return fitDecide
+		}
+	}
+	return result
 }
 
 // raiseAgentDecision puts a lead's question to the study's owner: the study
@@ -472,12 +488,19 @@ func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card
 	if err != nil {
 		return err
 	}
+	var questions json.RawMessage
+	if d.QuestionSet != nil {
+		questions, err = json.Marshal(d.QuestionSet)
+		if err != nil {
+			return err
+		}
+	}
 	expires := now.Add(service.DecisionWindow)
 	if d.ExpiresAt != nil {
 		expires = *d.ExpiresAt
 	}
 	if err := tx.Q.InsertAgentDecision(ctx, db.InsertAgentDecisionParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID,
-		Text: d.Title + "\n\n" + d.Body, Options: raw, ExpiresAt: &expires, RaisedRunID: run.ID, FromMember: ptrOr(d.FromMember), DecisionKind: d.Kind}); err != nil {
+		Text: d.Title + "\n\n" + d.Body, Options: raw, QuestionSet: questions, ExpiresAt: &expires, RaisedRunID: run.ID, FromMember: ptrOr(d.FromMember), DecisionKind: d.Kind}); err != nil {
 		return err
 	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
@@ -493,9 +516,22 @@ func (e *Engine) raiseAgentDecision(ctx context.Context, tx *store.Tx, c db.Card
 // decisionState is an agent's question as Jev reads it.
 func decisionState(d handin.DecisionIn) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Kind: %s\nTitle: %s\n\n%s\n\nOptions:\n", d.Kind, d.Title, d.Body)
-	for _, o := range d.Options {
-		fmt.Fprintf(&b, "- %s: %s\n", o.Label, o.Consequence)
+	fmt.Fprintf(&b, "Kind: %s\nTitle: %s\n\n%s\n", d.Kind, d.Title, d.Body)
+	if d.QuestionSet != nil {
+		for _, q := range d.QuestionSet.Questions {
+			fmt.Fprintf(&b, "\nQuestion: %s\n", q.Prompt)
+			if q.HelpText != nil {
+				fmt.Fprintf(&b, "%s\n", *q.HelpText)
+			}
+			for _, o := range q.Options {
+				fmt.Fprintf(&b, "- %s: %s\n", o.Label, o.Consequence)
+			}
+		}
+	} else {
+		b.WriteString("\nOptions:\n")
+		for _, o := range d.Options {
+			fmt.Fprintf(&b, "- %s: %s\n", o.Label, o.Consequence)
+		}
 	}
 	return b.String()
 }

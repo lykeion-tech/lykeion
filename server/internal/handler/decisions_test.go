@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -8,14 +9,15 @@ import (
 )
 
 type decisionRow struct {
-	ID           string  `json:"id"`
-	Kind         string  `json:"kind"`
-	Text         string  `json:"text"`
-	Kept         bool    `json:"kept"`
-	CanAnswer    bool    `json:"can_answer"`
-	DecideBy     string  `json:"decide_by"`
-	SnoozedUntil *string `json:"snoozed_until"`
-	ArchivedAt   *string `json:"archived_at"`
+	QuestionSet  json.RawMessage `json:"question_set"`
+	ID           string          `json:"id"`
+	Kind         string          `json:"kind"`
+	Text         string          `json:"text"`
+	Kept         bool            `json:"kept"`
+	CanAnswer    bool            `json:"can_answer"`
+	DecideBy     string          `json:"decide_by"`
+	SnoozedUntil *string         `json:"snoozed_until"`
+	ArchivedAt   *string         `json:"archived_at"`
 }
 
 const stopOptions = `[{"id":"close","label":"Close","consequence":"c"},{"id":"park","label":"Park","consequence":"p"}]`
@@ -425,5 +427,39 @@ func TestReadingOpenDoubtsResolvesIt(t *testing.T) {
 	}
 	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND status = 'dismissed' AND resolved_at IS NOT NULL`, id); n != 1 {
 		t.Fatal("open doubts stayed open after reading")
+	}
+}
+
+func TestTextOnlyDecisionVisibilityAndArchive(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	owner := s.signIn(t, "owner-set@lab.org")
+	w := s.workspace(t, owner, "question-set")
+	member := s.member(t, owner, w.ID, "member-set@lab.org", "member")
+	card := s.idleCard(t, owner, w.ID, "question")
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id,card_id,user_id,kind,text,options,question_set,raised_by,decision_kind)
+	 VALUES ($1,$2,$3,'agent_decision','question','[]','{"questions":[{"id":"q","prompt":"Which population?","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false}]}','agent','scope') RETURNING id`, w.ID, card.ID, s.userID(t, owner)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.decisions(t, owner, w.ID, ""); len(got) != 1 || !got[0].CanAnswer || len(got[0].QuestionSet) == 0 || got[0].QuestionSet[0] != '{' {
+		t.Fatalf("owner list: %+v", got)
+	}
+	if got := s.decisions(t, member, w.ID, ""); len(got) != 1 || got[0].CanAnswer {
+		t.Fatalf("member list: %+v", got)
+	}
+	if got := s.decisionCount(t, owner, w.ID); got != 1 {
+		t.Fatalf("owner count %d", got)
+	}
+	if got := s.decisionCount(t, member, w.ID); got != 0 {
+		t.Fatalf("member count %d", got)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/archive", owner, w.ID, nil, nil); code != 409 {
+		t.Fatalf("archive open decision: %d", code)
+	}
+	other := s.signIn(t, "outsider-set@lab.org")
+	otherWS := s.workspace(t, other, "other-question-set")
+	if got := s.decisions(t, other, otherWS.ID, ""); len(got) != 0 {
+		t.Fatalf("cross workspace: %+v", got)
 	}
 }

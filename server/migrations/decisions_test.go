@@ -115,3 +115,35 @@ func TestDecisionReferencesClearOnDelete(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionSetMigrationPreservesLegacyAndRollsBack(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	u, ws, card := seedWorkspace(t, env)
+	var id string
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO inbox_item(workspace_id,user_id,card_id,kind,text,options) VALUES ($1,$2,$3,'needs_decision','legacy','[{"id":"park","label":"Park","consequence":"Wait"}]') RETURNING id`, ws, u, card).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	down, err := fs.ReadFile(migrations.FS, "0051_decisions_question_sets.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := fs.ReadFile(migrations.FS, "0051_decisions_question_sets.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = env.Owner.Exec(ctx, string(down)); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	var text string
+	if err = env.Owner.QueryRow(ctx, `SELECT text FROM inbox_item WHERE id=$1`, id).Scan(&text); err != nil || text != "legacy" {
+		t.Fatalf("legacy after rollback %q %v", text, err)
+	}
+	if _, err = env.Owner.Exec(ctx, string(up)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	var preserved bool
+	if err = env.Owner.QueryRow(ctx, `SELECT text='legacy' AND jsonb_array_length(options)=1 AND question_set IS NULL AND answers IS NULL FROM inbox_item WHERE id=$1`, id).Scan(&preserved); err != nil || !preserved {
+		t.Fatalf("legacy after apply %v %v", preserved, err)
+	}
+}

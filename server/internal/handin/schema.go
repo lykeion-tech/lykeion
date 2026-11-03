@@ -39,7 +39,11 @@ func decision() obj {
 	return desc(nullObj(object(
 		"kind", enum("scope", "change_question", "ethics", "cost", "access"),
 		"title", str(), "body", str(),
-		"options", list(object("id", str(), "label", str(), "consequence", str())),
+		"options", obj{"anyOf": []any{list(object("id", str(), "label", str(), "consequence", str())), obj{"type": "null"}}},
+		"question_set", nullObj(object("questions", list(object(
+			"id", str(), "prompt", str(), "help_text", nullStr(), "required", obj{"type": "boolean"},
+			"mode", enum("single", "multiple", "text"), "options", list(object("id", str(), "label", str(), "consequence", str())),
+			"allow_other", obj{"type": "boolean"})))),
 		"expires_at", desc(nullStr(), "When the question expires, as an RFC 3339 time at most 30 days ahead; null for 7 days."),
 		"from_member", desc(nullStr(), "The Team member whose question this is; null when it is your own."))),
 		"The question for the researcher when status is ask; null otherwise.")

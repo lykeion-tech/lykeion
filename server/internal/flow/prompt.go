@@ -91,6 +91,7 @@ const (
 		"- `answer`: what you found or did, written for the researcher in plain language.\n" +
 		"- `decision`: null unless `status` is `ask`. Then it holds the question: `kind`, `title` (one line), `body`, 2 to 5 `options` (each an `id` of lowercase letters, digits or underscores, a `label` and a one-line `consequence`), " +
 		"`expires_at` (null for 7 days, or a time at most 30 days ahead) and `from_member`. " +
+		"When using `question_set`, leave `options` null; supply 1–64 questions with a prompt, required flag and mode (`single`, `multiple` or `text`). Each choice question has 2–5 options with id, label and consequence. Text questions have no options and cannot allow another answer. Set `allow_other` for choice questions to permit a custom answer. All questions must fit the same kind. Leave `question_set` null for the original single-choice decision. " +
 		"`kind` is one of: `scope` (the question has readings that lead to different studies), `change_question` (the work shows the study should ask something else), " +
 		"`ethics` (human participants, clinical or personal data, dual-use), `cost` (compute, paid data or paid connectors above the study's limit), " +
 		"`access` (data, credentials or files the lab has not attached). Never ask about method, tools, evidence or retries: decide those yourself.\n"

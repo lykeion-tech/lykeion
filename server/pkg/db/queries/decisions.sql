@@ -5,7 +5,7 @@
 
 -- name: ListDecisions :many
 SELECT sqlc.embed(i),
-  (jsonb_array_length(i.options) > 0
+  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)
@@ -19,7 +19,7 @@ LIMIT 200;
 
 -- name: GetDecision :one
 SELECT sqlc.embed(i),
-  (jsonb_array_length(i.options) > 0
+  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.id = @id AND i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid);
@@ -29,7 +29,7 @@ WHERE i.id = @id AND i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL O
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
-  AND jsonb_array_length(i.options) > 0 AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
+  AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL) AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
   AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid));
 
 -- name: SetDecisionTriage :exec
@@ -44,7 +44,7 @@ UPDATE inbox_item SET kept = true, touched_at = now() WHERE id = @id AND workspa
 -- name: SetDecisionArchived :execrows
 UPDATE inbox_item SET archived_at = CASE WHEN @archived::bool THEN now() ELSE NULL END, touched_at = now()
 WHERE id = @id AND workspace_id = @workspace_id
-  AND NOT (@archived::bool AND status = 'open' AND jsonb_array_length(options) > 0);
+  AND NOT (@archived::bool AND status = 'open' AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL));
 
 -- Reading an item that only informs also resolves and dismisses it.
 -- name: MarkDecisionRead :one
@@ -70,7 +70,7 @@ RETURNING *;
 -- name: CancelCardDecisions :many
 UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'open' AND resolved_at IS NULL
-  AND jsonb_array_length(options) > 0
+  AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
 RETURNING id;
 
 -- name: HasOpenAgentDecision :one
@@ -80,9 +80,9 @@ SELECT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND c
 -- An agent's question to the researcher; the partial unique index keeps one
 -- open per study.
 -- name: InsertAgentDecision :exec
-INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, default_option, expires_at,
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, options, question_set, default_option, expires_at,
   raised_by, raised_run_id, from_member, decision_kind)
-VALUES (@workspace_id, @card_id::uuid, @user_id, 'agent_decision', @text, @options::jsonb, '', @expires_at,
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'agent_decision', @text, @options::jsonb, sqlc.narg(question_set)::jsonb, '', @expires_at,
   'agent', @raised_run_id::uuid, @from_member, @decision_kind);
 
 -- name: DueDecisions :many

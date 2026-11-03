@@ -2,6 +2,7 @@ package handin
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -98,6 +99,77 @@ func TestOnlyLeadsAsk(t *testing.T) {
 	for _, k := range []Kind{Auditor, Objector, Autoresearch} {
 		if _, probs := Parse(k, raw); !slices.Contains(probs, "status: must be done or could_not_do") {
 			t.Errorf("%s: problems %q", k, probs)
+		}
+	}
+}
+
+func TestAskQuestionSetShapes(t *testing.T) {
+	options := []any{map[string]any{"id": "adults", "label": "Adults", "consequence": "Study adults."}, map[string]any{"id": "children", "label": "Children", "consequence": "Study children."}}
+	question := func(id, mode string, options []any, other bool) map[string]any {
+		return map[string]any{"id": id, "prompt": "Which population?", "help_text": nil, "required": true, "mode": mode, "options": options, "allow_other": other}
+	}
+	questions := []any{question("one", "single", options, true), question("many", "multiple", options, true), question("details", "text", []any{}, false)}
+	raw := ask(t, func(d map[string]any) { d["options"] = nil; d["question_set"] = map[string]any{"questions": questions} })
+	if _, problems := Parse(Grounding, raw); len(problems) != 0 {
+		t.Fatalf("valid mixed question set: %v", problems)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(map[string]any)
+	}{
+		{"duplicate id", func(d map[string]any) {
+			q := question("same", "text", []any{}, false)
+			d["question_set"] = map[string]any{"questions": []any{q, q}}
+		}},
+		{"too few choices", func(d map[string]any) {
+			d["question_set"] = map[string]any{"questions": []any{question("q", "single", options[:1], false)}}
+		}},
+		{"text with options", func(d map[string]any) {
+			d["question_set"] = map[string]any{"questions": []any{question("q", "text", options, false)}}
+		}},
+		{"text with custom", func(d map[string]any) {
+			d["question_set"] = map[string]any{"questions": []any{question("q", "text", []any{}, true)}}
+		}},
+		{"unknown mode", func(d map[string]any) {
+			d["question_set"] = map[string]any{"questions": []any{question("q", "unknown", options, false)}}
+		}},
+		{"both representations", func(d map[string]any) { d["options"] = options }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := ask(t, func(d map[string]any) {
+				d["options"] = nil
+				d["question_set"] = map[string]any{"questions": questions}
+				tc.edit(d)
+			})
+			if _, problems := Parse(Grounding, raw); len(problems) == 0 {
+				t.Fatal("invalid question set accepted")
+			}
+		})
+	}
+}
+
+func TestQuestionSetRequiresExplicitNullableFields(t *testing.T) {
+	q := map[string]any{"id": "q", "prompt": "Which population?", "required": false, "mode": "text", "options": []any{}, "allow_other": false}
+	raw := ask(t, func(d map[string]any) { d["options"] = nil; d["question_set"] = map[string]any{"questions": []any{q}} })
+	if _, problems := Parse(Grounding, raw); len(problems) == 0 {
+		t.Fatal("question with omitted help_text accepted")
+	}
+}
+
+func TestQuestionSetCountLimit(t *testing.T) {
+	question := func(i int) map[string]any {
+		return map[string]any{"id": fmt.Sprintf("q_%d", i), "prompt": "Which population?", "help_text": nil, "required": false, "mode": "text", "options": []any{}, "allow_other": false}
+	}
+	for _, count := range []int{0, 1, 64, 65} {
+		questions := make([]any, count)
+		for i := range questions {
+			questions[i] = question(i)
+		}
+		raw := ask(t, func(d map[string]any) { d["options"] = nil; d["question_set"] = map[string]any{"questions": questions} })
+		_, problems := Parse(Grounding, raw)
+		want := count >= 1 && count <= 64
+		if (len(problems) == 0) != want {
+			t.Errorf("count %d: %v", count, problems)
 		}
 	}
 }

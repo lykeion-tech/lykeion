@@ -658,7 +658,7 @@ const resolveOpenOwnerItem = `-- name: ResolveOpenOwnerItem :one
 UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3 AND resolved_at IS NULL
   AND kind = 'waiting_for_machine'
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
 `
 
 type ResolveOpenOwnerItemParams struct {
@@ -703,6 +703,8 @@ func (q *Queries) ResolveOpenOwnerItem(ctx context.Context, arg ResolveOpenOwner
 		&i.Kept,
 		&i.ArchivedAt,
 		&i.TouchedAt,
+		&i.QuestionSet,
+		&i.Answers,
 	)
 	return i, err
 }
