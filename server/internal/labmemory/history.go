@@ -34,9 +34,30 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 	if err != nil {
 		return "", err
 	}
-	rows, err := tx.Q.LabPriorTurns(ctx, run.ID)
+	history, sources, err := currentHistory(ctx, tx, run)
 	if err != nil {
 		return "", err
+	}
+	n, err := tx.Q.RecordLabLaunchSources(ctx, db.RecordLabLaunchSourcesParams{Sources: sources, RunID: run.ID})
+	if err != nil {
+		return "", err
+	}
+	if n != 1 {
+		return "", service.ErrConflict
+	}
+	if len(history) == 0 {
+		return run.Prompt, nil
+	}
+	return run.Prompt + "\n\nEarlier conversation:\n" + strings.Join(history, "\n"), nil
+}
+
+// currentHistory checks the chain of earlier answers both at start and before publishing
+// an answer. A model can use any answer it saw, even if it omits its citations.
+func currentHistory(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]string, []uuid.UUID, error) {
+	asker := *run.RequesterID
+	rows, err := tx.Q.LabPriorTurns(ctx, run.ID)
+	if err != nil {
+		return nil, nil, err
 	}
 	versions := make(map[string]string)
 	current := func(c answerCite) (bool, error) {
@@ -85,7 +106,7 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 		}
 		lines, valid, e := checkedHistory(row, current)
 		if e != nil {
-			return "", e
+			return nil, nil, e
 		}
 		if valid {
 			history = append(history, lines...)
@@ -93,17 +114,35 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 			included[row.ID] = true
 		}
 	}
-	n, err := tx.Q.RecordLabLaunchSources(ctx, db.RecordLabLaunchSourcesParams{Sources: sources, RunID: run.ID})
+	return history, sources, nil
+}
+
+func launchStillVisible(ctx context.Context, tx *store.Tx, run db.AgentRun) (bool, error) {
+	launched, err := tx.Q.LabLaunchedSources(ctx, run.ID)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	if n != 1 {
-		return "", service.ErrConflict
+	// A missing launch receipt cannot vouch for what this session saw.
+	if launched == nil {
+		return false, nil
 	}
-	if len(history) == 0 {
-		return run.Prompt, nil
+	if len(launched) == 0 {
+		return true, nil
 	}
-	return run.Prompt + "\n\nEarlier conversation:\n" + strings.Join(history, "\n"), nil
+	_, current, err := currentHistory(ctx, tx, run)
+	if err != nil {
+		return false, err
+	}
+	visible := map[uuid.UUID]bool{}
+	for _, id := range current {
+		visible[id] = true
+	}
+	for _, id := range launched {
+		if !visible[id] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, error)) ([]string, bool, error) {

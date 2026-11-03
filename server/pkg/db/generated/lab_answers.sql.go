@@ -15,6 +15,7 @@ import (
 const labEvidenceLog = `-- name: LabEvidenceLog :many
 SELECT ref,via,(CASE WHEN min(read_version)=max(read_version) THEN min(read_version) ELSE '' END)::text AS read_version
 FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=$1::uuid
+ AND attempt=(SELECT r.attempt FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.id=$1::uuid)
  GROUP BY ref,via ORDER BY min(id)
 `
 

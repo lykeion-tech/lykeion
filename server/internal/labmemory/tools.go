@@ -216,11 +216,12 @@ func (t Tools) server(role middleware.Role, token string) *mcp.Server {
 			if e != nil {
 				return ErrNotFound
 			}
-			refs, next, e := linkPage(ctx, tx, asker, ref, in)
+			var version string
+			refs, next, e := linkPage(ctx, tx, asker, ref, in, &version)
 			if e != nil {
 				return e
 			}
-			if e = c.log(ctx, tx, ref, "links", ""); e != nil {
+			if e = c.log(ctx, tx, ref, "links", version); e != nil {
 				return e
 			}
 			result, e = c.hits(ctx, tx, asker, refs, ref.String(), 0)

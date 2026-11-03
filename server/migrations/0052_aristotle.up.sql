@@ -1,3 +1,7 @@
+ALTER TABLE agent_run DROP CONSTRAINT agent_run_failure_reason_check,
+  ADD CONSTRAINT agent_run_failure_reason_check CHECK (failure_reason IN ('runtime_offline','timeout','provider_network','context_exhausted','agent_error','runtime_access_denied','coresearch_access_revoked',
+    'sign_in','cli_missing','cli_too_old','door','cli_broken','sandbox','fence_breach','hand_in_invalid','lab_context_changed'));
+
 CREATE TABLE lab_chat (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
@@ -45,6 +49,7 @@ CREATE TABLE lab_read (
   ref text NOT NULL,
   via text NOT NULL DEFAULT '',
   read_version text NOT NULL DEFAULT '',
+  attempt integer NOT NULL DEFAULT 1,
   created_at timestamptz NOT NULL DEFAULT now(),
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE
@@ -304,9 +309,11 @@ GRANT EXECUTE ON FUNCTION lab_pending_workspace_work(text,uuid,int),lab_ack_work
 -- Freeze only server-validated, visible evidence alongside the accepted answer.
 ALTER TABLE lab_message ADD COLUMN evidence jsonb NOT NULL DEFAULT '[]',
  ADD COLUMN history_safe boolean,
+ ADD COLUMN launch_attempt integer,
+ ADD COLUMN stale_attempt integer,
  ADD COLUMN launch_sources uuid[];
--- NULL denotes a legacy or unvalidated message. A validated answer whose
--- evidence was redacted during hand-in is still terminal, but cannot be replayed.
+-- NULL denotes a legacy or unvalidated message. Historical reuse additionally
+-- requires checked evidence and a verified launch-dependency chain.
 -- Only the checked answer recorder may publish or change an answer row.
 -- Questions and plain settlement failures are the other server write paths.
 DROP POLICY owner ON lab_message;
@@ -319,12 +326,12 @@ CREATE POLICY owner_append ON lab_message FOR INSERT WITH CHECK (
  AND r.id=lab_message.agent_run_id AND r.lab_chat_id=lab_message.chat_id
  AND r.requester_id=app_user() AND r.kind='aristotle' AND r.status='failed'))));
 -- The start transaction records which answer IDs the CLI actually received.
--- Only this field on a private question can be updated by the application.
+-- Only launch validation fields on a private question can be updated.
 CREATE POLICY owner_launch ON lab_message FOR UPDATE USING (
  workspace_id=app_workspace() AND owner_id=app_user() AND kind='question')
  WITH CHECK (workspace_id=app_workspace() AND owner_id=app_user() AND kind='question');
 REVOKE UPDATE ON lab_message FROM lykeion_app;
-GRANT UPDATE(launch_sources) ON lab_message TO lykeion_app;
+GRANT UPDATE(launch_attempt,launch_sources,stale_attempt) ON lab_message TO lykeion_app;
 CREATE UNIQUE INDEX lab_turn_outcome ON lab_message(agent_run_id)
  WHERE agent_run_id IS NOT NULL AND kind IN ('answer','failure');
 
@@ -337,6 +344,9 @@ LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
  JOIN public.member m ON (m.workspace_id,m.user_id)=(r.workspace_id,r.requester_id)
  WHERE r.id=$1 AND r.workspace_id=public.app_workspace() AND r.requester_id=public.app_user()
  AND r.kind='aristotle' AND r.status='running'
+ AND EXISTS (SELECT 1 FROM public.lab_message q WHERE q.workspace_id=r.workspace_id AND q.chat_id=r.lab_chat_id
+ AND q.owner_id=r.requester_id AND q.agent_run_id=r.id AND q.kind='question'
+ AND q.launch_attempt=r.attempt AND q.launch_sources IS NOT NULL AND q.stale_attempt IS DISTINCT FROM r.attempt)
  ON CONFLICT DO NOTHING RETURNING id
 $$;
 REVOKE ALL ON FUNCTION lab_record_answer(uuid,jsonb) FROM PUBLIC;

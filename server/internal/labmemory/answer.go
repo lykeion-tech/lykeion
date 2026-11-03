@@ -17,6 +17,10 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
+// FreshTurnProblem requests a new CLI session when the old one has seen
+// evidence that cannot be published under the current access or versions.
+const FreshTurnProblem = "Lab evidence changed during this turn. A fresh attempt is required."
+
 type Answers struct{ Store *store.Store }
 
 type answerCite struct {
@@ -73,9 +77,29 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 	if run.Status != "running" {
 		return nil, service.ErrConflict
 	}
-	h, probs := handin.Parse(handin.Aristotle, raw)
-	if len(probs) > 0 {
-		return probs, nil
+	stale, err := tx.Q.LabAttemptNeedsRestart(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if stale {
+		return []string{FreshTurnProblem}, nil
+	}
+	denyStale := func() ([]string, error) {
+		n, e := tx.Q.MarkLabAttemptStale(ctx, run.ID)
+		if e != nil {
+			return nil, e
+		}
+		if n != 1 {
+			return nil, service.ErrConflict
+		}
+		return []string{FreshTurnProblem}, nil
+	}
+	safe, err := launchStillVisible(ctx, tx, run)
+	if err != nil {
+		return nil, err
+	}
+	if !safe {
+		return denyStale()
 	}
 	log, err := tx.Q.LabEvidenceLog(ctx, run.ID)
 	if err != nil {
@@ -107,43 +131,39 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 	for _, row := range log {
 		ref, e := ParseRef(row.Ref)
 		if e != nil {
-			result.HistorySafe = false
-			continue
+			return denyStale()
 		}
 		cite, visible, e := lookup(ref)
 		if e != nil {
 			return nil, e
 		}
-		if !visible {
-			result.HistorySafe = false
-			continue
-		}
-		// A version that changed between tool use and hand-in cannot vouch
-		// for old text in a later turn. Navigation origins expose no fact body.
-		if row.Via != "links" && row.ReadVersion != cite.Version {
-			result.HistorySafe = false
+		// The old session can repeat content from any of its reads, including
+		// an uncited source in a gap. Rereading cannot erase that exposure.
+		navigationOnly := row.Via == "links" && ref.Kind == "study" && row.ReadVersion == studyDirectoryPin
+		if !visible || (!navigationOnly && row.ReadVersion != cite.Version) {
+			return denyStale()
 		}
 		readHere[ref] = true
 		via := row.Via
 		switch via {
 		case "read", "search", "links":
 		default:
-			from, e := ParseRef(row.Via)
+			from, e := ParseRef(via)
 			if e != nil {
-				via = ""
-				break
+				return denyStale()
 			}
 			if _, visible, e = lookup(from); e != nil {
 				return nil, e
 			}
 			if !visible {
-				via = ""
+				return denyStale()
 			}
 		}
-		if via == "" {
-			result.HistorySafe = false
-		}
 		result.Evidence = append(result.Evidence, answerEvidence{cite, via})
+	}
+	h, probs := handin.Parse(handin.Aristotle, raw)
+	if len(probs) > 0 {
+		return probs, nil
 	}
 	for i, s := range h.Statements {
 		stmt := answerStatement{Kind: s.Kind, Text: s.Text, Cites: []answerCite{}}
@@ -199,6 +219,8 @@ func failureBody(reason *string) string {
 	why := "the run failed"
 	if reason != nil {
 		switch *reason {
+		case agent.ReasonLabContextChanged:
+			why = "lab evidence changed during the turn. Ask again to use the latest evidence"
 		case agent.ReasonHandInInvalid:
 			why = "the answer did not pass its citation checks"
 		case agent.ReasonRuntimeOffline:

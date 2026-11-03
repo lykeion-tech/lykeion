@@ -483,6 +483,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "" && (runCtx.Err() == nil || ctx.Err() != nil):
 		r.HandIn = handInJSON(res.Output)
 		slog.Warn("hand-in kept until the server answers", "run", r.AgentRunID, "attempt", r.Attempt, "err", handInErr)
+	case errors.Is(handInErr, errLabContextChanged):
+		r.FailureReason = agent.ReasonLabContextChanged
+		fail(handInErr)
 	case handInErr != nil:
 		r.FailureReason = agent.ReasonRuntimeOffline
 		fail(handInErr)

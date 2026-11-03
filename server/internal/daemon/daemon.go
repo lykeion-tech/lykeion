@@ -601,6 +601,9 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 		probs, err := d.postHandIn(ctx, r, r.HandIn)
 		var refused *apiclient.HTTPError
 		switch {
+		case errors.Is(err, errLabContextChanged):
+			r.HandIn = nil
+			r.Kind, r.FailureReason, r.Error = "fail", agent.ReasonLabContextChanged, err.Error()
 		case errors.As(err, &refused) && !waitsForServer(err):
 			// The attempt is no longer one that takes a hand-in (swept, or
 			// cancelled): its report still settles it, as a machine failure.

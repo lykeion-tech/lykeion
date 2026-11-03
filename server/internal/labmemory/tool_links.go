@@ -14,7 +14,11 @@ var errPage = errors.New("invalid links page; use the returned next_after and a 
 
 const maxLinks = 20
 
-func linkPage(ctx context.Context, tx *store.Tx, asker uuid.UUID, ref Ref, in refInput) ([]Ref, string, error) {
+// Study navigation discloses only the independently logged target refs/titles.
+// It never exposes the source study body or loads its full tree.
+const studyDirectoryPin = "study-directory-v1"
+
+func linkPage(ctx context.Context, tx *store.Tx, asker uuid.UUID, ref Ref, in refInput, version *string) ([]Ref, string, error) {
 	limit := in.Limit
 	if limit == 0 {
 		limit = maxLinks
@@ -23,12 +27,14 @@ func linkPage(ctx context.Context, tx *store.Tx, asker uuid.UUID, ref Ref, in re
 		return nil, "", errPage
 	}
 	if ref.Kind == "study" {
+		*version = studyDirectoryPin
 		return studyLinks(ctx, tx, ref, in.After, limit)
 	}
 	f, err := Read(ctx, tx, asker, ref)
 	if err != nil {
 		return nil, "", err
 	}
+	*version = pin(f).Version
 	if ref.Kind == "workspace" {
 		return directoryLinks(ctx, tx, in, limit)
 	}

@@ -134,7 +134,7 @@ var (
 // and the network's fault from the agent's. Runtime access denial is recorded
 // only by the server.
 var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked",
-	agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid}
+	agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid, agent.ReasonLabContextChanged}
 
 // Infra reports whether a reason is the machine's or its tooling's fault
 // rather than the agent's, so the run is not held against the agent.
@@ -1440,10 +1440,22 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		} else if t.Status != "cancelled" && !runningOn(t, ref) {
 			return ErrConflict
 		}
+		if r.FailureReason == agent.ReasonLabContextChanged && t.Kind != "aristotle" {
+			return ErrBadReport
+		}
 		if t.Kind == "aristotle" && t.Status != "cancelled" {
 			answered, err := tx.Q.LabTurnHasAnswer(ctx, t.ID)
 			if err != nil {
 				return err
+			}
+			if !answered && r.FailureReason == agent.ReasonLabContextChanged {
+				stale, err := tx.Q.LabAttemptNeedsRestart(ctx, t.ID)
+				if err != nil {
+					return err
+				}
+				if !stale {
+					return ErrBadReport
+				}
 			}
 			if ok && !answered {
 				return ErrConflict
@@ -1499,7 +1511,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			}
 		case Infra(r.FailureReason) && t.CardID != nil:
 			err = s.parkInfra(ctx, tx, t, r.FailureReason, r.Error, spent)
-		case Infra(r.FailureReason) && t.Attempt < t.MaxAttempts:
+		case (Infra(r.FailureReason) || r.FailureReason == agent.ReasonLabContextChanged) && t.Attempt < t.MaxAttempts:
 			// A run with no study retries a bounded number of times, then
 			// fails where its requester sees it.
 			err = tx.Q.RequeueAgentRun(ctx, db.RequeueAgentRunParams{WorkspaceID: ref.WorkspaceID, ID: run, CostUsd: spent, Error: r.Error, FailureReason: &r.FailureReason})

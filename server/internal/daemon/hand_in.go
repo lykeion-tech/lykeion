@@ -21,6 +21,8 @@ import (
 // maxHandInReasks is how many times a run is asked to correct its hand-in.
 const maxHandInReasks = 2
 
+var errLabContextChanged = errors.New("lab evidence changed during the turn")
+
 // maxOutputBytes is the server's limit on one output; a larger file is never sent.
 const maxOutputBytes = 100 << 20
 
@@ -65,6 +67,9 @@ func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec f
 		// A refused output is fixed before the hand-in, which is kept once accepted.
 		if len(probs) == 0 {
 			if probs, err = d.postHandIn(ctx, attempt, handInJSON(res.Output)); err != nil {
+				if errors.Is(err, errLabContextChanged) {
+					return res, nil, err
+				}
 				return res, nil, &unsentHandIn{err}
 			}
 		}
@@ -135,11 +140,15 @@ func handInJSON(output string) json.RawMessage {
 func (d *daemon) postHandIn(ctx context.Context, attempt Report, handIn json.RawMessage) ([]string, error) {
 	body := map[string]any{"workspace_id": attempt.WorkspaceID, "runtime_id": attempt.RuntimeID, "attempt": attempt.Attempt, "hand_in": handIn}
 	var reply struct {
-		Accepted bool     `json:"accepted"`
-		Problems []string `json:"problems"`
+		FreshAttemptRequired bool     `json:"fresh_attempt_required"`
+		Accepted             bool     `json:"accepted"`
+		Problems             []string `json:"problems"`
 	}
 	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+attempt.AgentRunID.String()+"/hand-in", body, &reply); err != nil {
 		return nil, err
+	}
+	if reply.FreshAttemptRequired {
+		return nil, errLabContextChanged
 	}
 	if !reply.Accepted && len(reply.Problems) == 0 {
 		return []string{"the hand-in was not accepted"}, nil

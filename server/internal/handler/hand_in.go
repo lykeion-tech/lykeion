@@ -74,7 +74,11 @@ func (h *H) daemonHandIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(probs) > 0 {
-		writeJSON(w, 200, map[string]any{"accepted": false, "problems": probs})
+		reply := map[string]any{"accepted": false, "problems": probs}
+		if len(probs) == 1 && probs[0] == labmemory.FreshTurnProblem {
+			reply["fresh_attempt_required"] = true
+		}
+		writeJSON(w, 200, reply)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"accepted": true})

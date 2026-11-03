@@ -52,7 +52,7 @@ func (x *turn) log(ref, via string) {
 			version = pin(fact).Version
 		}
 	}
-	x.exec("INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version) VALUES($1,$2,$3,$4,$5)", x.ws, x.run.ID, ref, via, version)
+	x.exec("INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version,attempt) VALUES($1,$2,$3,$4,$5,$6)", x.ws, x.run.ID, ref, via, version, x.ref.Attempt)
 }
 func (x *turn) submit(ctx context.Context, kind string, cites ...string) ([]string, error) {
 	if cites == nil {
@@ -219,8 +219,9 @@ func TestAnswerLessonMustBeCheckedAndActive(t *testing.T) {
 	x := runningTurn(t)
 	id := uuid.New()
 	ref := Ref{"lesson", id}.String()
-	x.exec("INSERT INTO lesson(id,workspace_id,kind,text,cites,model) VALUES($1,$2,'lab','Lesson',$3,'test')", id, x.ws, `[{"ref":"record:`+x.record.String()+`","version":"live"}]`)
+	x.exec("INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())", id, x.ws, `[{"ref":"record:`+x.record.String()+`","version":"live"}]`)
 	x.log(ref, "read")
+	x.exec("UPDATE lesson SET checked_at=NULL WHERE id=$1", id)
 	if p, e := x.submit(t.Context(), "lesson", ref); e != nil || len(p) == 0 {
 		t.Fatal(e, p)
 	}
@@ -229,7 +230,7 @@ func TestAnswerLessonMustBeCheckedAndActive(t *testing.T) {
 		t.Fatal(e, p)
 	}
 	x.exec("UPDATE lesson SET status='active' WHERE id=$1", id)
-	if p, e := x.submit(t.Context(), "lesson", ref); e != nil || len(p) > 0 {
+	if p, e := x.submit(t.Context(), "lesson", ref); e != nil || len(p) != 1 || p[0] != FreshTurnProblem {
 		t.Fatal(e, p)
 	}
 }
@@ -360,7 +361,7 @@ func TestAcceptedAnswerSurvivesFailureAndSweep(t *testing.T) {
 }
 
 func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
-	for _, change := range []string{"unchanged", "lesson set aside", "team unshared", "team unshared after read"} {
+	for _, change := range []string{"unchanged", "lesson set aside", "team unshared"} {
 		t.Run(change, func(t *testing.T) {
 			x := runningTurn(t)
 			ctx := t.Context()
@@ -380,9 +381,6 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 				kind = "lesson"
 			}
 			x.log(r.String(), "read")
-			if change == "team unshared after read" {
-				hide()
-			}
 			raw, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: kind, Text: "sensitive-previous-answer", Cites: []string{r.String()}}}})
 			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw); e != nil || len(p) > 0 {
 				t.Fatal(e, p)
@@ -505,5 +503,96 @@ func TestLaunchDropsOnlyAnswersThatSawRedactedHistory(t *testing.T) {
 	say("gap", "new independent result")
 	if prompt := next("Fourth question"); !strings.Contains(prompt, "new independent result") || strings.Contains(prompt, "dependent restatement") || strings.Contains(prompt, "sensitive lesson") {
 		t.Fatal(prompt)
+	}
+}
+
+func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
+	for _, source := range []string{"tool read", "launch history"} {
+		t.Run(source, func(t *testing.T) {
+			x := runningTurn(t)
+			ctx := t.Context()
+			team := x.team()
+			x.exec("UPDATE field_pack SET visibility='workspace' WHERE id=$1", team)
+			ref := Ref{"study", x.study}
+			x.log(ref.String(), "read")
+			raw := func(k, text string, cites ...string) []byte {
+				if cites == nil {
+					cites = []string{}
+				}
+				b, _ := json.Marshal(map[string]any{"statements": []any{handin.Statement{Kind: k, Text: text, Cites: cites}}})
+				return b
+			}
+			if source == "launch history" {
+				if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "private-method", ref.String())); e != nil || len(p) > 0 {
+					t.Fatal(e, p)
+				}
+				if _, e := x.runs.Complete(ctx, x.user, x.ref, x.run.ID, service.Report{}); e != nil {
+					t.Fatal(e)
+				}
+				x.run = enqueueQuestion(t, x.fixture, x.runs, db.LabChat{ID: *x.run.LabChatID, WorkspaceID: x.ws, OwnerID: x.user}, "Follow up", "")
+				cs, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+				if e != nil || len(cs) != 1 {
+					t.Fatal(e, cs)
+				}
+				x.ref.Attempt = cs[0].AgentRun.Attempt
+				prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+				if e != nil || !strings.Contains(prompt, "private-method") {
+					t.Fatal(e, prompt)
+				}
+			}
+			x.exec("UPDATE field_pack SET visibility='private' WHERE id=$1", team)
+			for _, claim := range [][]byte{raw("gap", "private-method"), raw("fact", "private-method", ref.String())} {
+				p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, claim)
+				if e != nil || len(p) == 0 {
+					t.Fatalf("accepted revoked private content (%s): %v %v", source, e, p)
+				}
+			}
+			// Reading the narrower projection cannot remove information from
+			// the existing model session, and dropping every cite cannot help.
+			x.log(ref.String(), "read")
+			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("gap", "private-method")); e != nil || len(p) != 1 || p[0] != FreshTurnProblem {
+				t.Fatal(e, p)
+			}
+			e := x.runs.Store.InWorkspace(ctx, x.ws, x.user, func(tx *store.Tx) error {
+				_, err := tx.Q.RecordLabAnswer(ctx, db.RecordLabAnswerParams{RunID: x.run.ID, Answer: []byte(`{"statements":[],"evidence":[]}`)})
+				return err
+			})
+			if !errors.Is(e, pgx.ErrNoRows) {
+				t.Fatalf("recorder admitted a stale session: %v", e)
+			}
+			var n int
+			if e := x.env.Owner.QueryRow(ctx, "SELECT count(*) FROM lab_message WHERE kind='answer' AND agent_run_id=$1", x.run.ID).Scan(&n); e != nil || n != 0 {
+				t.Fatal(e, n)
+			}
+			oldAttempt := x.ref.Attempt
+			retried, e := x.runs.Fail(ctx, x.user, x.ref, x.run.ID, service.Report{FailureReason: agent.ReasonLabContextChanged, Error: FreshTurnProblem})
+			if e != nil || retried.Status != "queued" {
+				t.Fatal(e, retried.Status)
+			}
+			claims, e := x.runs.Claim(ctx, x.user, []service.RuntimeRef{x.ref}, 1)
+			if e != nil || len(claims) != 1 || claims[0].AgentRun.Attempt != oldAttempt+1 || claims[0].AgentRun.SessionID != "" {
+				t.Fatal(e, claims)
+			}
+			x.ref.Attempt = claims[0].AgentRun.Attempt
+			prompt, e := x.runs.StartLab(ctx, x.user, x.ref, x.run.ID, LaunchPrompt)
+			if e != nil || strings.Contains(prompt, "private-method") {
+				t.Fatal(e, prompt)
+			}
+			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "Updated projection", ref.String())); e != nil || len(p) == 0 || p[0] == FreshTurnProblem {
+				t.Fatal("old reads authorized a new attempt", e, p)
+			}
+			x.log(ref.String(), "read")
+			if p, e := x.h.Submit(ctx, x.user, x.ref, x.run.ID, raw("fact", "Updated projection", ref.String())); e != nil || len(p) > 0 {
+				t.Fatal(e, p)
+			}
+
+		})
+	}
+}
+
+func TestDaemonCannotRequestUnverifiedContextRestart(t *testing.T) {
+	x := runningTurn(t)
+	if _, e := x.runs.Fail(t.Context(), x.user, x.ref, x.run.ID, service.Report{FailureReason: agent.ReasonLabContextChanged, Error: FreshTurnProblem}); !errors.Is(e, service.ErrBadReport) {
+		t.Fatal(e)
 	}
 }

@@ -13,7 +13,8 @@ import (
 )
 
 const appendLabRead = `-- name: AppendLabRead :exec
-INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version) VALUES($1,$2,$3,$4,$5)
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version,attempt) VALUES($1,$2,$3,$4,$5,
+ (SELECT r.attempt FROM agent_run r WHERE r.workspace_id=$1::uuid AND r.id=$2::uuid))
 `
 
 type AppendLabReadParams struct {

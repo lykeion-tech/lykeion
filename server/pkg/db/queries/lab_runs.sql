@@ -31,8 +31,26 @@ WHERE r.id=sqlc.arg(run_id)::uuid AND r.kind='aristotle' AND r.workspace_id=app_
 ORDER BY COALESCE(o.created_at,m.created_at),o.id,m.created_at,m.id;
 
 -- name: RecordLabLaunchSources :execrows
-UPDATE lab_message SET launch_sources=sqlc.arg(sources)::uuid[]
+UPDATE lab_message SET launch_sources=sqlc.arg(sources)::uuid[], launch_attempt=(SELECT attempt FROM agent_run WHERE workspace_id=app_workspace() AND id=sqlc.arg(run_id)::uuid)
 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND kind='question' AND agent_run_id=sqlc.arg(run_id)::uuid;
+
+-- name: LabLaunchedSources :one
+SELECT CASE WHEN m.launch_attempt=r.attempt THEN m.launch_sources ELSE NULL::uuid[] END::uuid[] AS sources
+FROM lab_message m JOIN agent_run r ON r.workspace_id=m.workspace_id AND r.id=m.agent_run_id
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.kind='question' AND m.agent_run_id=sqlc.arg(run_id)::uuid;
+
+-- name: MarkLabAttemptStale :execrows
+UPDATE lab_message m SET stale_attempt=r.attempt
+FROM agent_run r WHERE r.id=sqlc.arg(run_id)::uuid AND r.workspace_id=app_workspace()
+ AND r.requester_id=app_user() AND r.status='running' AND r.kind='aristotle'
+ AND m.workspace_id=r.workspace_id AND m.owner_id=r.requester_id AND m.chat_id=r.lab_chat_id
+ AND m.agent_run_id=r.id AND m.kind='question';
+
+-- name: LabAttemptNeedsRestart :one
+SELECT EXISTS(SELECT 1 FROM agent_run r JOIN lab_message m ON m.workspace_id=r.workspace_id
+ AND m.agent_run_id=r.id AND m.chat_id=r.lab_chat_id AND m.owner_id=r.requester_id
+ WHERE r.id=sqlc.arg(run_id)::uuid AND r.workspace_id=app_workspace() AND r.requester_id=app_user()
+ AND r.kind='aristotle' AND m.kind='question' AND m.stale_attempt=r.attempt)::boolean;
 
 -- name: LockDepartingLabRuns :many
 SELECT * FROM agent_run

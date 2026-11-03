@@ -13,6 +13,9 @@ ALTER TABLE inbox_item DROP CONSTRAINT inbox_item_workspace_id_id_key;
 DROP POLICY run_read ON lab_chat;
 DROP FUNCTION lab_run_can_read(uuid, uuid);
 DELETE FROM agent_run WHERE kind = 'aristotle';
+ALTER TABLE agent_run DROP CONSTRAINT agent_run_failure_reason_check,
+  ADD CONSTRAINT agent_run_failure_reason_check CHECK (failure_reason IN ('runtime_offline','timeout','provider_network','context_exhausted','agent_error','runtime_access_denied','coresearch_access_revoked',
+    'sign_in','cli_missing','cli_too_old','door','cli_broken','sandbox','fence_breach','hand_in_invalid'));
 ALTER TABLE agent_run
   DROP CONSTRAINT agent_run_kind_shape,
   DROP CONSTRAINT agent_run_kind_check,

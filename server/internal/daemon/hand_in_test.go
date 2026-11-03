@@ -610,3 +610,59 @@ func TestCancelledRunKeepsNoHandIn(t *testing.T) {
 		t.Fatalf("outcome = %s, %d input tokens", status, input)
 	}
 }
+
+func TestAristotleRestartsChangedContextWithFreshReads(t *testing.T) {
+	for _, changes := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d changes", changes), func(t *testing.T) {
+			f := labHandInFixture(t)
+			f.runs.OnSettlement = (labmemory.Answers{Store: f.runs.Store}).SettlementHook(f.runs.OnSettlement)
+			turns := 0
+			calls, paths, _ := handInRun(t, f, func(o agent.ExecOptions) {
+				turns++
+				if o.Resume != "" {
+					t.Errorf("stale session was resumed: %s", o.Resume)
+				}
+				client, e := mcp.NewClient(&mcp.Implementation{Name: "test-cli", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: o.DoorURL, HTTPClient: &http.Client{Transport: bearer(o.DoorToken)}}, nil)
+				if e != nil {
+					t.Error(e)
+					return
+				}
+				defer client.Close()
+				got, e := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "call_tool", Arguments: callIn{Server: "lab", Tool: "read", Args: map[string]any{"ref": "workspace:context"}}})
+				if e != nil || got.IsError {
+					t.Errorf("lab read: %v %v", e, got)
+					return
+				}
+				if turns > 1 && !strings.Contains(text(got), "new projection 1") {
+					t.Error("fresh attempt did not reread updated evidence")
+				}
+				if turns <= changes {
+					_, e = f.env.Owner.Exec(t.Context(), "UPDATE workspace SET research_context=$2 WHERE id=$1", f.ws, fmt.Sprintf("new projection %d", turns))
+					if e != nil {
+						t.Error(e)
+					}
+					f.handInOutput = `{"statements":[{"kind":"gap","text":"stale secret","cites":[]}]}`
+				} else {
+					f.handInOutput = `{"statements":[{"kind":"fact","text":"Updated context","cites":["workspace:context"]}]}`
+				}
+			}, nil, func() bool {
+				var n int
+				return f.env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_message WHERE agent_run_id=$1 AND kind IN ('answer','failure')", f.id).Scan(&n) == nil && n == 1
+			})
+			if len(calls) != 2 || handInPosts(paths) != 2 || len(f.reasks(t)) != 0 {
+				t.Fatal(calls, paths)
+			}
+			var kind, body, statements string
+			must(t, f.env.Owner.QueryRow(t.Context(), "SELECT kind,body,statements::text FROM lab_message WHERE agent_run_id=$1 AND kind IN ('answer','failure')", f.id).Scan(&kind, &body, &statements))
+			if strings.Contains(statements+body, "stale secret") {
+				t.Fatal(kind, body, statements)
+			}
+			if changes == 1 && (kind != "answer" || f.status(t) != "completed" || !strings.Contains(statements, "Updated context")) {
+				t.Fatal(kind, body, statements)
+			}
+			if changes == 2 && (kind != "failure" || f.status(t) != "failed" || !strings.Contains(body, "lab evidence changed")) {
+				t.Fatal(kind, body, statements)
+			}
+		})
+	}
+}

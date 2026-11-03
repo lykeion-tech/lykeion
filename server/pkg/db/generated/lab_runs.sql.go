@@ -116,6 +116,33 @@ func (q *Queries) InsertLabQuestion(ctx context.Context, arg InsertLabQuestionPa
 	return err
 }
 
+const labAttemptNeedsRestart = `-- name: LabAttemptNeedsRestart :one
+SELECT EXISTS(SELECT 1 FROM agent_run r JOIN lab_message m ON m.workspace_id=r.workspace_id
+ AND m.agent_run_id=r.id AND m.chat_id=r.lab_chat_id AND m.owner_id=r.requester_id
+ WHERE r.id=$1::uuid AND r.workspace_id=app_workspace() AND r.requester_id=app_user()
+ AND r.kind='aristotle' AND m.kind='question' AND m.stale_attempt=r.attempt)::boolean
+`
+
+func (q *Queries) LabAttemptNeedsRestart(ctx context.Context, runID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, labAttemptNeedsRestart, runID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const labLaunchedSources = `-- name: LabLaunchedSources :one
+SELECT CASE WHEN m.launch_attempt=r.attempt THEN m.launch_sources ELSE NULL::uuid[] END::uuid[] AS sources
+FROM lab_message m JOIN agent_run r ON r.workspace_id=m.workspace_id AND r.id=m.agent_run_id
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.kind='question' AND m.agent_run_id=$1::uuid
+`
+
+func (q *Queries) LabLaunchedSources(ctx context.Context, runID uuid.UUID) ([]uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, labLaunchedSources, runID)
+	var sources []uuid.UUID
+	err := row.Scan(&sources)
+	return sources, err
+}
+
 const labPriorTurns = `-- name: LabPriorTurns :many
 SELECT m.id, m.kind, prior_q.launch_sources, CASE WHEN m.kind='question' THEN m.body ELSE '' END::text AS question, m.statements, m.evidence, COALESCE(m.history_safe,false)::boolean AS history_safe
 FROM agent_run r JOIN lab_message m ON m.workspace_id=r.workspace_id AND m.chat_id=r.lab_chat_id
@@ -250,8 +277,24 @@ func (q *Queries) LockDepartingLabRuns(ctx context.Context, arg LockDepartingLab
 	return items, nil
 }
 
+const markLabAttemptStale = `-- name: MarkLabAttemptStale :execrows
+UPDATE lab_message m SET stale_attempt=r.attempt
+FROM agent_run r WHERE r.id=$1::uuid AND r.workspace_id=app_workspace()
+ AND r.requester_id=app_user() AND r.status='running' AND r.kind='aristotle'
+ AND m.workspace_id=r.workspace_id AND m.owner_id=r.requester_id AND m.chat_id=r.lab_chat_id
+ AND m.agent_run_id=r.id AND m.kind='question'
+`
+
+func (q *Queries) MarkLabAttemptStale(ctx context.Context, runID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markLabAttemptStale, runID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const recordLabLaunchSources = `-- name: RecordLabLaunchSources :execrows
-UPDATE lab_message SET launch_sources=$1::uuid[]
+UPDATE lab_message SET launch_sources=$1::uuid[], launch_attempt=(SELECT attempt FROM agent_run WHERE workspace_id=app_workspace() AND id=$2::uuid)
 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND kind='question' AND agent_run_id=$2::uuid
 `
 

@@ -56,7 +56,8 @@ SELECT EXISTS(SELECT 1 FROM member WHERE workspace_id=sqlc.arg(workspace_id)::uu
  AND workspace_id=app_workspace() AND user_id=sqlc.arg(user_id)::uuid AND user_id=app_user())::boolean;
 
 -- name: AppendLabRead :exec
-INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version) VALUES(@workspace_id,@agent_run_id,@ref,@via,@read_version);
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version,attempt) VALUES(@workspace_id,@agent_run_id,@ref,@via,@read_version,
+ (SELECT r.attempt FROM agent_run r WHERE r.workspace_id=sqlc.arg(workspace_id)::uuid AND r.id=sqlc.arg(agent_run_id)::uuid));
 
 -- The run may discover only its own requester before switching identity.
 -- name: LabRunRequester :one
