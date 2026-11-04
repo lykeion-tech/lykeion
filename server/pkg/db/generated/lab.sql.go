@@ -210,7 +210,7 @@ SELECT c.title::text AS title, jsonb_build_object('study',jsonb_build_object('id
  COALESCE((SELECT jsonb_agg(x.ref ORDER BY x.ref) FROM (
  SELECT 'record:'||r.id::text AS ref FROM readable_records r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.id
  UNION ALL SELECT 'comment:'||m.id::text FROM comment m WHERE m.workspace_id=c.workspace_id AND m.card_id=c.id
- UNION ALL SELECT 'decision:'||i.id::text FROM inbox_item i WHERE i.workspace_id=c.workspace_id AND i.card_id=c.id AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+ UNION ALL SELECT 'decision:'||i.id::text FROM inbox_item i WHERE i.workspace_id=c.workspace_id AND i.card_id=c.id AND i.kind<>'manual_decision' AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
  ) x),'[]'::jsonb)::jsonb AS links, '[]'::jsonb AS cites
 FROM card c WHERE $2::text='study' AND c.workspace_id=$1::uuid AND c.id=$3::uuid
 UNION ALL
@@ -226,7 +226,7 @@ WHERE $2='comment' AND c.workspace_id=$1::uuid AND c.id=$3::uuid
 UNION ALL
 SELECT 'Decision', to_jsonb(i)::text, i.status, false, jsonb_build_array('study:'||i.card_id::text), '[]'::jsonb
 FROM inbox_item i JOIN card c ON c.workspace_id=i.workspace_id AND c.id=i.card_id
-WHERE $2='decision' AND i.workspace_id=$1::uuid AND i.id=$3::uuid AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+WHERE $2='decision' AND i.workspace_id=$1::uuid AND i.id=$3::uuid AND i.kind<>'manual_decision' AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
 UNION ALL
 SELECT 'Lab lesson', l.text, l.written_at::text, false, '[]'::jsonb, l.cites
 FROM lesson l WHERE $2='lesson' AND l.workspace_id=$1::uuid AND l.id=$3::uuid AND l.status='active' AND l.checked_at IS NOT NULL
@@ -312,6 +312,38 @@ func (q *Queries) LabLessonDirectory(ctx context.Context, arg LabLessonDirectory
 	return items, nil
 }
 
+const labManualFact = `-- name: LabManualFact :one
+SELECT i.title::text AS title,to_jsonb(i)::text AS text,i.status::text AS version,false AS superseded,
+ CASE WHEN i.card_id IS NULL THEN '[]'::jsonb ELSE jsonb_build_array('study:'||i.card_id::text) END::jsonb AS links,
+ '[]'::jsonb AS cites
+FROM inbox_item i WHERE i.workspace_id=app_workspace() AND i.id=$1::uuid AND i.kind='manual_decision'
+ AND i.user_id=app_user() AND (i.card_id IS NULL OR EXISTS(SELECT 1 FROM card c WHERE c.workspace_id=i.workspace_id AND c.id=i.card_id))
+`
+
+type LabManualFactRow struct {
+	Title      string          `json:"title"`
+	Text       string          `json:"text"`
+	Version    string          `json:"version"`
+	Superseded bool            `json:"superseded"`
+	Links      json.RawMessage `json:"links"`
+	Cites      json.RawMessage `json:"cites"`
+}
+
+// Private projections are never used by maintenance or shared fact enumeration.
+func (q *Queries) LabManualFact(ctx context.Context, id uuid.UUID) (LabManualFactRow, error) {
+	row := q.db.QueryRow(ctx, labManualFact, id)
+	var i LabManualFactRow
+	err := row.Scan(
+		&i.Title,
+		&i.Text,
+		&i.Version,
+		&i.Superseded,
+		&i.Links,
+		&i.Cites,
+	)
+	return i, err
+}
+
 const labRunRequester = `-- name: LabRunRequester :one
 SELECT r.requester_id FROM agent_run r JOIN lab_chat c
   ON c.workspace_id=r.workspace_id AND c.id=r.lab_chat_id AND c.owner_id=r.requester_id
@@ -380,7 +412,7 @@ SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
  UNION ALL SELECT kind, id FROM (SELECT 'decision'::text AS kind,i.id FROM inbox_item i
    WHERE i.workspace_id = $1 AND i.card_id = $2
    AND (i.id,'decision'::text) > ($3::uuid,$4::text)
-   AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)
+   AND ((i.kind='manual_decision' AND i.user_id=app_user()) OR (i.kind<>'manual_decision' AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)))
    ORDER BY i.id LIMIT $5::integer) decisions
 ) link ORDER BY link.id,link.kind LIMIT $5::integer
 `
@@ -637,6 +669,38 @@ type RecordLabFlagParams struct {
 func (q *Queries) RecordLabFlag(ctx context.Context, arg RecordLabFlagParams) error {
 	_, err := q.db.Exec(ctx, recordLabFlag, arg.LessonID, arg.Reason)
 	return err
+}
+
+const searchPrivateLabDecisions = `-- name: SearchPrivateLabDecisions :many
+SELECT i.id FROM inbox_item i WHERE i.workspace_id=app_workspace() AND i.user_id=app_user() AND i.kind='manual_decision'
+ AND (i.card_id IS NULL OR EXISTS(SELECT 1 FROM card c WHERE c.workspace_id=i.workspace_id AND c.id=i.card_id))
+ AND strpos(lower(i.title||E'\n'||i.context),lower($1::text))>0
+ ORDER BY i.id LIMIT $2::int
+`
+
+type SearchPrivateLabDecisionsParams struct {
+	Query    string `json:"query"`
+	PageSize int32  `json:"page_size"`
+}
+
+func (q *Queries) SearchPrivateLabDecisions(ctx context.Context, arg SearchPrivateLabDecisionsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, searchPrivateLabDecisions, arg.Query, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchLabChat = `-- name: TouchLabChat :exec

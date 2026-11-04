@@ -15,12 +15,14 @@ import (
 
 var ErrNotFound = errors.New("lab fact not found")
 
-// Fact is workspace-shared evidence. Study facts include the assigned Team's
+// Fact is authorized evidence; manual decisions are creator-private evidence.
+// Maintenance reads contain only workspace-shared evidence. Study facts include
+// the assigned Team's
 // id/name/stage/column already visible in the study directory to all members.
 // Team definitions include active shipped/workspace-shared manifests only, even
 // for an uploader; private manifests/methods are unavailable through this API.
-// Writer/tool code must use this same baseline for reads, citation versions and
-// lesson maintenance; owner-only details need a separate scope/ref contract.
+// Shared facts have one baseline for citation versions and lesson maintenance.
+// Private manual decisions are available only through an authorized member Read.
 type Fact struct {
 	Ref         Ref
 	Title, Text string
@@ -54,6 +56,15 @@ func Read(ctx context.Context, tx *store.Tx, user uuid.UUID, r Ref) (Fact, error
 	if !allowed {
 		return Fact{}, ErrNotFound
 	}
+	if r.Kind == "decision" {
+		row, err := tx.Q.LabManualFact(ctx, r.ID)
+		if err == nil {
+			return project(ctx, tx, r, db.LabFactRow(row))
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return Fact{}, err
+		}
+	}
 	return read(ctx, tx, r)
 }
 
@@ -77,6 +88,10 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 	if err != nil {
 		return Fact{}, err
 	}
+	return project(ctx, tx, r, row)
+}
+
+func project(ctx context.Context, tx *store.Tx, r Ref, row db.LabFactRow) (Fact, error) {
 	f := Fact{Ref: r, Title: row.Title, Text: row.Text, Version: row.Version, Superseded: row.Superseded}
 	var links []string
 	if err := json.Unmarshal(row.Links, &links); err != nil {
@@ -127,7 +142,8 @@ func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 // It does not establish membership and must not be exposed as a public read tool.
 // Call Read for evidence returned to an asker. Maintenance callers must first
 // explicitly select their workspace on the transaction. Its fact baseline and
-// versions match member Read results, independent of caller identity.
+// versions match member Read results for shared facts. Private manual decisions
+// have no maintenance version.
 func Version(ctx context.Context, tx *store.Tx, r Ref) (string, error) {
 	if tx == nil || tx.Q == nil || tx.WS == uuid.Nil {
 		return "", ErrNotFound
@@ -141,7 +157,7 @@ func Version(ctx context.Context, tx *store.Tx, r Ref) (string, error) {
 
 // ReadMaintenance is an internal privileged shared-fact read. It requires an
 // explicit workspace selected by the maintenance caller; no asker is impersonated.
-// It deliberately uses exactly the same projection as public member reads.
+// It uses the shared projection and excludes private manual decisions.
 func ReadMaintenance(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 	if tx == nil || !tx.IsMaintenance() || tx.Q == nil || tx.WS == uuid.Nil {
 		return Fact{}, ErrNotFound

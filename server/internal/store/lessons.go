@@ -65,13 +65,22 @@ func (t *Tx) LessonDecision(ctx context.Context, id int64, card uuid.UUID) (*uui
 	err := t.raw.QueryRow(ctx, `SELECT i.id FROM event e JOIN inbox_item i ON (e.workspace_id,e.card_id)=(i.workspace_id,i.card_id)
  AND e.payload->>'inbox_item_id'=i.id::text
  WHERE e.workspace_id=$1 AND e.id=$2 AND e.card_id=$3 AND e.type='inbox.resolved' AND i.status IN ('decided','expired')
- AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)`, t.WS, id, card).Scan(&decision)
+ AND i.kind<>'manual_decision' AND (jsonb_array_length(i.options)>0 OR i.question_set IS NOT NULL)`, t.WS, id, card).Scan(&decision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	return &decision, err
 }
 func (t *Tx) QueueLessonStudy(ctx context.Context, card uuid.UUID, decision *uuid.UUID, trigger string, due time.Time) error {
+	if decision != nil {
+		var shared bool
+		if err := t.raw.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM inbox_item WHERE workspace_id=$1 AND id=$2 AND card_id=$3 AND kind<>'manual_decision' AND (jsonb_array_length(options)>0 OR question_set IS NOT NULL))`, t.WS, *decision, card).Scan(&shared); err != nil {
+			return err
+		}
+		if !shared {
+			return errors.New("shared lesson decision required")
+		}
+	}
 	// Recheck status after taking the row lock: a batch writer can submit between ticks.
 	var id uuid.UUID
 	err := t.raw.QueryRow(ctx, `SELECT id FROM lesson_job WHERE workspace_id=$1 AND card_id=$2 AND lesson_id IS NULL AND status='queued' AND batch_id='' AND due_at > $3::timestamptz - interval '15 minutes'

@@ -165,6 +165,26 @@ func deferIncompleteRewrite(ctx context.Context, tx *store.Tx, id uuid.UUID, tok
 	}
 }
 func (w *Writer) prompt(ctx context.Context, tx *store.Tx, j store.WriterJob) (*promptBuilder, string, error) {
+	// Persisted work may outlive permissions or contain an invalid private trigger.
+	// Validate identities before including even their reference in provider input.
+	triggers := make([]string, 0, len(j.Triggers))
+	for _, trigger := range j.Triggers {
+		if strings.HasPrefix(trigger, "decision:") {
+			ref, err := labmemory.ParseRef(trigger)
+			if err != nil {
+				continue
+			}
+			_, err = labmemory.ReadMaintenance(ctx, tx, ref)
+			if errors.Is(err, labmemory.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, "", err
+			}
+		}
+		triggers = append(triggers, trigger)
+	}
+	j.Triggers = triggers
 	p := &promptBuilder{promptData: promptData{Triggers: j.Triggers}, WriterInput: store.WriterInput{Versions: map[string]string{}}}
 	if j.Lesson != nil {
 		source, err := tx.RewriteSource(ctx, *j.Lesson, false)

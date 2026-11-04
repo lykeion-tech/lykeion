@@ -204,7 +204,20 @@ func (t Tools) server(role middleware.Role, token string) *mcp.Server {
 		}
 		err = c.authorized(ctx, func(tx *store.Tx, asker uuid.UUID) error {
 			var e error
-			result, e = c.hits(ctx, tx, asker, refs, "search", in.Limit)
+			private, err := tx.Q.SearchPrivateLabDecisions(ctx, db.SearchPrivateLabDecisionsParams{Query: in.Query, PageSize: int32(in.Limit)})
+			if err != nil {
+				return err
+			}
+			refs = append(kindRefs("decision", private), refs...)
+			seen := map[Ref]bool{}
+			unique := make([]Ref, 0, len(refs))
+			for _, ref := range refs {
+				if !seen[ref] {
+					unique = append(unique, ref)
+					seen[ref] = true
+				}
+			}
+			result, e = c.hits(ctx, tx, asker, unique, "search", in.Limit)
 			return e
 		})
 		return nil, result, toolError(err)
