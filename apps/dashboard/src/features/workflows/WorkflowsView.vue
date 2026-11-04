@@ -35,9 +35,6 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
           >
             <strong>{{ w.name }}</strong>
             <small>{{ w.description }}</small>
-            <small class="workflow-source"
-              >From Terminal-Bench-Science {{ workflows.data.value.release }}</small
-            >
           </RouterLink>
         </div>
       </section>
@@ -95,11 +92,5 @@ const groups = computed(() => byDomain(workflows.data.value?.workflows ?? [], se
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.workflow-card .workflow-source {
-  align-self: flex-start;
-  margin-top: auto;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--input);
-}
+
 </style>

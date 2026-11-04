@@ -11,6 +11,7 @@ const props = defineProps<{
   label?: string;
   openUp?: boolean;
   cliOnly?: boolean;
+  emptyLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
 const cliLabel = (cli: string) => (cli === 'codex' ? 'Codex' : 'Claude Code');
@@ -19,12 +20,16 @@ const choices = computed(() =>
 );
 const open = ref(false),
   up = ref(false),
+  upHeight = ref<number>(),
   root = ref<HTMLElement>(),
   menuEl = ref<HTMLElement>();
 // The menu drops below the pill; where the window has no room for it there,
 // it opens upward as it does from L2's docked composer.
 async function toggle() {
   up.value = !!props.openUp;
+  const anchor = root.value?.getBoundingClientRect?.();
+  const scrollFrame = root.value?.closest?.('.aristotle-scroll')?.getBoundingClientRect();
+  upHeight.value = anchor ? Math.max(0, Math.min(320, anchor.top - Math.max(0, scrollFrame?.top ?? 0) - 8)) : undefined;
   open.value = !open.value;
   await nextTick();
   const menu = menuEl.value?.getBoundingClientRect?.();
@@ -54,7 +59,7 @@ onUnmounted(() => {
 </script>
 <template>
   <span v-if="!cli && !models.length && (!disabled || !modelValue)" class="cli-pill cli-pill--empty"
-    ><span class="cli-pill-name">Default</span></span
+    ><span class="cli-pill-name">{{ emptyLabel || 'Default' }}</span></span
   >
   <div v-else ref="root" class="cli-switcher">
     <button
@@ -111,6 +116,8 @@ onUnmounted(() => {
           ? {
               top: 'auto',
               bottom: 'calc(100% + 8px)',
+              maxHeight: upHeight === undefined ? undefined : `${upHeight}px`,
+              boxSizing: 'border-box',
               boxShadow: '0 -18px 48px rgba(0, 0, 0, 0.6)',
             }
           : undefined

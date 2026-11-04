@@ -223,7 +223,10 @@ const selectedCli = ref<string>();
 const availableClis = computed(() => ownOnlineClis(runtimes.data.value ?? [], me.data.value?.id));
 const harness = computed(
   () =>
-    conversation.value?.snapshot_harness ?? selectedCli.value ?? agent.value?.harness ?? 'claude',
+    conversation.value?.snapshot_harness ?? selectedCli.value ??
+    (agent.value?.harness && availableClis.value.includes(agent.value.harness)
+      ? agent.value.harness
+      : availableClis.value[0] ?? agent.value?.harness ?? 'claude'),
 );
 function chooseCli(value: string) {
   if (value === harness.value) return;
