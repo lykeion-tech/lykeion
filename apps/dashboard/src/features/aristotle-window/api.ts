@@ -23,6 +23,7 @@ export interface LabMessage {
   body: string;
   statements: LabStatement[];
   evidence: LabRef[];
+  agent_run_id?: string;
   current_draft?: ManualDecisionDraft;
   proposal?: unknown;
 }

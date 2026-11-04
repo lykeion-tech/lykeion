@@ -179,3 +179,30 @@ func TestManualDraftQuestionDisplayIsolation(t *testing.T) {
 		t.Fatal("ordinary Aristotle question was interpreted as a draft envelope")
 	}
 }
+
+func TestManualDraftMessageRunLink(t *testing.T) {
+	run := uuid.New()
+	for _, kind := range []string{"question", "answer"} {
+		row := db.LabMessage{ID: uuid.New(), Kind: kind, AgentRunID: &run}
+		raw, err := json.Marshal(labDraftMessage(row))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err = json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["agent_run_id"] != run.String() {
+			t.Fatalf("missing authoritative run link: %s", raw)
+		}
+		raw, _ = json.Marshal(labPlainMessage(row))
+		if err = json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		var plain map[string]any
+		json.Unmarshal(raw, &plain)
+		if _, exists := plain["agent_run_id"]; exists {
+			t.Fatal("ordinary response changed")
+		}
+	}
+}

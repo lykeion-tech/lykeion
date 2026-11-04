@@ -57,6 +57,7 @@ async function fixture(page: Page) {
       messages = [
         {
           id: 'question-away',
+          agent_run_id: 'run-away',
           kind: 'question',
           body: 'Draft context',
           current_draft: { ...draft },
@@ -65,6 +66,7 @@ async function fixture(page: Page) {
         },
         {
           id: '22222222-2222-2222-2222-222222222222',
+          agent_run_id: 'run-away',
           kind: 'answer',
           body: '',
           proposal: {

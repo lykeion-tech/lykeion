@@ -67,10 +67,38 @@ func TestManualDecisionCrossUserAcceptance(t *testing.T) {
 	if _, err = s.H.AgentRuns.StartLab(t.Context(), who, runtime, run, labmemory.LaunchPrompt); err != nil {
 		t.Fatal(err)
 	}
+	// Admit a later edited question before the first answer completes.
+	var second struct{ Message struct{ ID string } }
+	secondInput := map[string]any{"user_request": "Second queued question", "current_draft": map[string]any{"title": "Human edited B", "context": "Preserve B", "deadline": nil, "card_id": study.ID}, "harness": "claude", "request_id": uuid.NewString()}
+	if code := s.call(t, "POST", chatPath+"/questions", creator, ws, secondInput, &second); code != 202 {
+		t.Fatal(code)
+	}
 	raw, _ := json.Marshal(map[string]any{"message": "A proposal for your review", "draft": map[string]any{"title": "Private AI proposal", "context": "Private acceptance context", "deadline": nil, "card_id": study.ID}, "statements": []any{}})
 	h := handin.HandIns{Runs: s.H.AgentRuns, Aristotle: labmemory.Answers{Store: s.H.Store}}
 	if problems, err := h.Submit(t.Context(), who, runtime, run, raw); err != nil || len(problems) > 0 {
 		t.Fatal(err, problems)
+	}
+	var history struct {
+		Messages []struct {
+			ID         string
+			Kind       string
+			AgentRunID string `json:"agent_run_id"`
+		}
+		NextCursor string `json:"next_cursor"`
+	}
+	if code := s.call(t, "GET", chatPath+"/messages?limit=1", creator, ws, nil, &history); code != 200 || len(history.Messages) != 1 || history.Messages[0].Kind != "answer" || history.Messages[0].AgentRunID != run.String() {
+		t.Fatalf("answer linkage: %d %+v", code, history)
+	}
+	if code := s.call(t, "GET", chatPath+"/messages?limit=1&cursor="+history.NextCursor, creator, ws, nil, &history); code != 200 || len(history.Messages) != 1 || history.Messages[0].ID != second.Message.ID || history.Messages[0].AgentRunID == run.String() || history.Messages[0].AgentRunID == "" {
+		t.Fatalf("interleaved question linkage: %d %+v", code, history)
+	}
+	if code := s.call(t, "GET", chatPath+"/messages?limit=1&cursor="+history.NextCursor, creator, ws, nil, &history); code != 200 || len(history.Messages) != 1 || history.Messages[0].ID != asked.Message.ID || history.Messages[0].AgentRunID != run.String() {
+		t.Fatalf("frozen question linkage: %d %+v", code, history)
+	}
+	for _, token := range []string{other, admin, owner} {
+		if code := s.call(t, "GET", chatPath+"/messages", token, ws, nil, nil); code != 404 {
+			t.Fatalf("private message linkage leaked: %d", code)
+		}
 	}
 	if n := s.count(t, "SELECT count(*) FROM inbox_item WHERE workspace_id=$1 AND kind='manual_decision'", ws); n != 2 {
 		t.Fatalf("AI created a note: %d", n)

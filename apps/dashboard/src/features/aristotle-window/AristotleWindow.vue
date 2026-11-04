@@ -122,7 +122,9 @@ watch([turns, () => messages.isSuccess.value, () => messages.isFetching.value, (
     const proposal = parseManualDecisionProposal(message.proposal);
     if (!proposal) continue;
     if (handledProposals.has(message.id)) return;
-    const question = list.slice(0, index).reverse().find(item => item.kind === 'question');
+    const question = message.agent_run_id
+      ? list.find(item => item.kind === 'question' && item.agent_run_id === message.agent_run_id)
+      : undefined;
     if (question?.current_draft) {
       handledProposals.add(message.id);
       emit('manualProposal', { messageId: message.id, draft: proposal.draft, input: question.current_draft });

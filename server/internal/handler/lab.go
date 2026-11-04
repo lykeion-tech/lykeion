@@ -24,6 +24,7 @@ import (
 )
 
 type labMessage struct {
+	AgentRunID   *uuid.UUID                   `json:"agent_run_id,omitempty"`
 	CurrentDraft *handin.ManualDraft          `json:"current_draft,omitempty"`
 	Proposal     *labmemory.DraftProposal     `json:"proposal,omitempty"`
 	ID           uuid.UUID                    `json:"id"`
@@ -40,6 +41,7 @@ func labPlainMessage(m db.LabMessage) labMessage {
 
 func labDraftMessage(m db.LabMessage) labMessage {
 	out := labPlainMessage(m)
+	out.AgentRunID = m.AgentRunID
 	var turn labmemory.DraftTurn
 	if m.Kind == "question" && json.Unmarshal([]byte(m.Body), &turn) == nil {
 		out.Body = turn.UserRequest

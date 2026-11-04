@@ -8,6 +8,7 @@ import { labRecordTitle, labKey } from './api';
 import type { Card, StudyRecord } from '../../api/types';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
+import { mergeManualDecisionDraft, type ManualDecisionDraft } from '../decisions/manualDecisionDraft';
 import AristotleWindow from './AristotleWindow.vue';
 import LabAnswer from './LabAnswer.vue';
 
@@ -59,7 +60,7 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
         : opts.method === 'POST'
           ? {
               chat: { id: 'c', title: 'New chat' },
-              message: { id: 'q', kind: 'question', body: starter },
+              message: { id: 'q', agent_run_id: 'run', kind: 'question', body: starter },
             }
           : path.includes('/messages')
             ? { messages: [], next_cursor: '' }
@@ -163,7 +164,7 @@ it('follows cursors for older chats and messages and replaces revoked answers on
       return { chats: [{ id: 'older', title: 'Second' }], next_cursor: '' };
     if (path.endsWith('?cursor=msg-token'))
       return {
-        messages: [{ id: 'q', kind: 'question', body: 'Earlier question' }],
+        messages: [{ id: 'q', agent_run_id: 'run', kind: 'question', body: 'Earlier question' }],
         next_cursor: '',
       };
     if (path.includes('/messages'))
@@ -322,22 +323,22 @@ it('saves manual edits before a purpose-specific turn and preserves them offline
 });
 it('accepts only valid final proposals and never parses streamed or unknown output', async () => {
   const onManualProposal = vi.fn();
-  const question = { id: 'q', kind: 'question', body: 'Draft please', current_draft: manual, statements: [], evidence: [] };
+  const question = { id: 'q', agent_run_id: 'run', kind: 'question', body: 'Draft please', current_draft: manual, statements: [], evidence: [] };
   let proposal: unknown = { message: 'Proposal', draft: { ...manual, title: 'Suggested', unknown: true } };
-  const pages = (path: string) => path.includes('/messages') ? { messages: [question, { id: 'a1', kind: 'answer', body: '{title: stream}', proposal, statements: [], evidence: [] }], next_cursor: '', pending: false } : undefined;
+  const pages = (path: string) => path.includes('/messages') ? { messages: [question, { id: 'a1', agent_run_id: 'run', kind: 'answer', body: '{title: stream}', proposal, statements: [], evidence: [] }], next_cursor: '', pending: false } : undefined;
   const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual,  onManualProposal });
   expect(onManualProposal).not.toHaveBeenCalled();
   expect(textOf(t.root)).not.toContain('{title: stream}');
   proposal = { message: 'A suggestion', draft: { ...manual, title: 'Suggested' } };
   // A real completion has a new immutable message identity.
-  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ messages: [question, { id: 'a2', kind: 'answer', body: '', proposal, statements: [], evidence: [] }], pending: false, next_cursor: '' })));
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ messages: [question, { id: 'a2', agent_run_id: 'run', kind: 'answer', body: '', proposal, statements: [], evidence: [] }], pending: false, next_cursor: '' })));
   await t.client.invalidateQueries({ queryKey: labKey('lab') }); await settle();
   expect(onManualProposal).toHaveBeenCalledWith(expect.objectContaining({ draft: { ...manual, title: 'Suggested' }, input: manual }));
   expect(textOf(t.root)).toContain('Proposal');
 });
 it('stops a draft question without restoring composer text and permits a fresh turn', async () => {
   let pending = true;
-  const t = await mount(false, false, path => path.includes('/messages') ? { messages: [{ id: 'q', kind: 'question', body: 'Previous question', current_draft: manual, statements: [], evidence: [] }], next_cursor: '', pending } : undefined, { draftChat: 'draft', manualDraft: manual,  });
+  const t = await mount(false, false, path => path.includes('/messages') ? { messages: [{ id: 'q', agent_run_id: 'run', kind: 'question', body: 'Previous question', current_draft: manual, statements: [], evidence: [] }], next_cursor: '', pending } : undefined, { draftChat: 'draft', manualDraft: manual,  });
   pending = false;
   await t.click('Stop drafting');
   expect(t.calls.some(c => c.path === '/api/lab/chats/draft/questions/q/cancel')).toBe(true);
@@ -355,8 +356,8 @@ it('does not replay an old proposal after the person cleared and saved its conte
   const pages = (path: string) => path.includes('/messages') ? { messages, pending: false, next_cursor: '' } : undefined;
   const first = await mount(false, false, pages, { draftChat: 'draft', manualDraft: current,  onManualProposal: autosave });
   messages = [
-    { id: 'q-old', kind: 'question', body: 'Help', current_draft: manual, statements: [], evidence: [] },
-    { id: 'a-old', kind: 'answer', body: '', proposal: { message: 'Proposed context', draft: { ...manual, context: 'AI context' } }, statements: [], evidence: [] },
+    { id: 'q-old', agent_run_id: 'old', kind: 'question', body: 'Help', current_draft: manual, statements: [], evidence: [] },
+    { id: 'a-old', agent_run_id: 'old', kind: 'answer', body: '', proposal: { message: 'Proposed context', draft: { ...manual, context: 'AI context' } }, statements: [], evidence: [] },
   ];
   await first.client.invalidateQueries({ queryKey: labKey('lab') }); await settle();
   expect(current.context).toBe('AI context');
@@ -370,8 +371,8 @@ it('recovers an unapplied completion that finished while the draft view was unmo
   const apply = vi.fn();
   const pages = (path: string) => path.includes('/messages') ? {
     messages: [
-      { id: 'q-away', kind: 'question', body: 'Draft while away', current_draft: manual, statements: [], evidence: [] },
-      { id: 'a-away', kind: 'answer', body: '', proposal: { message: 'Finished while away', draft: { ...manual, context: 'Recovered proposal' } }, statements: [], evidence: [] },
+      { id: 'q-away', agent_run_id: 'away', kind: 'question', body: 'Draft while away', current_draft: manual, statements: [], evidence: [] },
+      { id: 'a-away', agent_run_id: 'away', kind: 'answer', body: '', proposal: { message: 'Finished while away', draft: { ...manual, context: 'Recovered proposal' } }, statements: [], evidence: [] },
     ], pending: false, next_cursor: '',
   } : undefined;
   await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, onManualProposal: apply });
@@ -381,9 +382,9 @@ it('recovers an unapplied completion that finished while the draft view was unmo
 it('recovers the newest unapplied proposal across a page boundary using its frozen question', async () => {
   const apply = vi.fn();
   const base = { ...manual, context: 'Frozen input' };
-  const latest = { id: 'a-new', kind: 'answer', body: '', proposal: { message: 'New proposal', draft: { ...base, context: 'New context' } }, statements: [], evidence: [] };
+  const latest = { id: 'a-new', agent_run_id: 'new', kind: 'answer', body: '', proposal: { message: 'New proposal', draft: { ...base, context: 'New context' } }, statements: [], evidence: [] };
   const pages = (path: string) => path.endsWith('?cursor=older')
-    ? { messages: [{ id: 'a-old', kind: 'answer', body: '', proposal: { message: 'Old', draft: manual }, statements: [], evidence: [] }, { id: 'q-new', kind: 'question', body: 'New question', current_draft: base, statements: [], evidence: [] }], next_cursor: '', pending: false }
+    ? { messages: [{ id: 'a-old', agent_run_id: 'old', kind: 'answer', body: '', proposal: { message: 'Old', draft: manual }, statements: [], evidence: [] }, { id: 'q-new', agent_run_id: 'new', kind: 'question', body: 'New question', current_draft: base, statements: [], evidence: [] }], next_cursor: '', pending: false }
     : path.includes('/messages') ? { messages: [latest], next_cursor: 'older', pending: false } : undefined;
   const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, appliedMessageId: 'a-old', onManualProposal: apply });
   await settle();
@@ -395,8 +396,8 @@ it('recovers the newest unapplied proposal across a page boundary using its froz
 it('does not replay older proposals when the applied answer is paged past', async () => {
   const apply = vi.fn();
   const pair = (id: string) => [
-    { id: 'q-' + id, kind: 'question', body: id, current_draft: manual, statements: [], evidence: [] },
-    { id, kind: 'answer', body: '', proposal: { message: id, draft: { ...manual, context: id } }, statements: [], evidence: [] },
+    { id: 'q-' + id, agent_run_id: id, kind: 'question', body: id, current_draft: manual, statements: [], evidence: [] },
+    { id, agent_run_id: id, kind: 'answer', body: '', proposal: { message: id, draft: { ...manual, context: id } }, statements: [], evidence: [] },
   ];
   const pages = (path: string) => path.endsWith('?cursor=older') ? { messages: pair('old'), next_cursor: '', pending: false } : path.includes('/messages') ? { messages: pair('applied'), next_cursor: 'older', pending: false } : undefined;
   const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, appliedMessageId: 'applied', onManualProposal: apply });
@@ -404,4 +405,36 @@ it('does not replay older proposals when the applied answer is paged past', asyn
   await t.click('Earlier messages');
   expect(textOf(t.root)).toContain('old');
   expect(apply).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('matches interleaved answers to their actual question (paged=%s) across pending marker and reload', async paged => {
+  const input = { ...manual, context: 'A' };
+  let current: ManualDecisionDraft = { ...manual, context: 'B' };
+  const q1 = { id: 'q1', agent_run_id: 'run1', kind: 'question', body: 'First', current_draft: input, statements: [], evidence: [] };
+  const q2 = { id: 'q2', agent_run_id: 'run2', kind: 'question', body: 'Second', current_draft: current, statements: [], evidence: [] };
+  const answer = { id: 'a1', agent_run_id: 'run1', kind: 'answer', body: '', proposal: { message: 'First answer', draft: { ...input, context: 'AI A' } }, statements: [], evidence: [] };
+  const pages = (path: string) => path.endsWith('?cursor=older') ? { messages: [q1], next_cursor: '', pending: true } : path.includes('/messages') ? { messages: paged ? [q2, answer] : [q1, q2, answer], next_cursor: paged ? 'older' : '', pending: true } : undefined;
+  const apply = vi.fn((value: any) => { current = mergeManualDecisionDraft(current, value.draft, value.input); });
+  const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: current, onManualProposal: apply });
+  await settle();
+  expect(apply).toHaveBeenCalledExactlyOnceWith({ messageId: 'a1', draft: answer.proposal.draft, input });
+  expect(current.context).toBe('B');
+  // Marker PUT remains pending while newer human edits and history refresh occur.
+  current.context = 'Human after proposal';
+  await t.client.invalidateQueries({ queryKey: labKey('lab') }); await settle();
+  expect(apply).toHaveBeenCalledTimes(1);
+  await mount(false, false, pages, { draftChat: 'draft', manualDraft: current, appliedMessageId: 'a1', onManualProposal: apply });
+  expect(apply).toHaveBeenCalledTimes(1);
+  expect(current.context).toBe('Human after proposal');
+});
+
+it('keeps an uncorrelated legacy proposal visible without guessing its frozen input', async () => {
+  const apply = vi.fn();
+  const pages = (path: string) => path.includes('/messages') ? { messages: [
+    { id: 'q', kind: 'question', current_draft: manual, body: 'Help', statements: [], evidence: [] },
+    { id: 'a', kind: 'answer', proposal: { message: 'Legacy proposal', draft: manual }, body: '', statements: [], evidence: [] },
+  ], next_cursor: '', pending: false } : undefined;
+  const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, onManualProposal: apply });
+  expect(apply).not.toHaveBeenCalled();
+  expect(textOf(t.root)).toContain('Legacy proposal');
 });
