@@ -71,10 +71,6 @@ onMounted(() => titleInput.value?.focus?.());
         </select></label
       >
     </div>
-    <p class="hint">
-      Only you can see this note. A deadline sends a reminder; the note stays open until you resolve
-      or dismiss it.
-    </p>
     <p v-if="error && modelValue.title" role="alert" class="inline-error">{{ error }}</p>
     <div class="form-actions">
       <slot /><button

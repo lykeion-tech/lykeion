@@ -64,3 +64,7 @@ it('explains when the selected machine is offline', async () => {
   expect(textOf(t.root)).toContain('Your selected machine is offline');
   expect(all(t.root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Send')?.props.disabled).toBe(true);
 });
+it('hides the composer for an archived draft', async () => {
+  const t = await mount({ readonly: true });
+  expect(all(t.root).some((n) => n.props['aria-label'] === 'Describe your decision')).toBe(false);
+});
