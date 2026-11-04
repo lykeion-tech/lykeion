@@ -184,6 +184,11 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'colleagues', title: 'Colleagues' },
   },
   {
+    path: '/colleagues/:memberId',
+    component: ColleaguesView,
+    meta: { page: 'colleagues', title: 'Colleagues', ownHeader: true },
+  },
+  {
     path: '/machines/:machineId?',
     redirect: (route) => ({
       path: '/settings',

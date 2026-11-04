@@ -28,7 +28,7 @@ func (q *Queries) ArchiveManualDraft(ctx context.Context, id uuid.UUID) (int64, 
 
 const createManualDraftChat = `-- name: CreateManualDraftChat :one
 INSERT INTO lab_chat(workspace_id,owner_id,purpose,draft)
-VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context":"","deadline":null,"card_id":null}') RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id
+VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context":"","deadline":null,"card_id":null}') RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id, builder_runtime_id
 `
 
 func (q *Queries) CreateManualDraftChat(ctx context.Context) (LabChat, error) {
@@ -47,6 +47,7 @@ func (q *Queries) CreateManualDraftChat(ctx context.Context) (LabChat, error) {
 		&i.DraftSource,
 		&i.ArchivedAt,
 		&i.AppliedMessageID,
+		&i.BuilderRuntimeID,
 	)
 	return i, err
 }
@@ -128,7 +129,7 @@ func (q *Queries) GetPrivateManualDraftQuestion(ctx context.Context, arg GetPriv
 
 const saveManualDraft = `-- name: SaveManualDraft :one
 UPDATE lab_chat SET draft= $1::jsonb,applied_message_id=$2::uuid,updated_at=clock_timestamp()
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $3 AND purpose='manual_decision_draft' AND deleted_at IS NULL AND archived_at IS NULL RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $3 AND purpose='manual_decision_draft' AND deleted_at IS NULL AND archived_at IS NULL RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id, builder_runtime_id
 `
 
 type SaveManualDraftParams struct {
@@ -153,6 +154,7 @@ func (q *Queries) SaveManualDraft(ctx context.Context, arg SaveManualDraftParams
 		&i.DraftSource,
 		&i.ArchivedAt,
 		&i.AppliedMessageID,
+		&i.BuilderRuntimeID,
 	)
 	return i, err
 }

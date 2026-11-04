@@ -15,6 +15,7 @@ export const careerStages = [
 export type CareerStage = '' | (typeof careerStages)[number];
 
 export interface Me {
+  avatar_url: string;
   id: string;
   email: string;
   name: string;
@@ -361,6 +362,7 @@ export interface Runtime {
 }
 
 export interface Member {
+  avatar_url: string;
   user_id: string;
   role: Role;
   created_at: string;

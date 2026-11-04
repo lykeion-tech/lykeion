@@ -584,13 +584,22 @@
   margin-top: 0;
 }
 .agent-detail-page .agent-panel {
+  --agent-property-label-width: 72px;
+  --agent-property-value-offset: 40px;
   background: transparent;
   border-radius: 0;
 }
 .agent-detail-page .agent-panel dl {
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: var(--agent-property-label-width) minmax(0, 1fr);
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border);
+}
+.agent-detail-page .agent-panel dd {
+  margin-inline-start: var(--agent-property-value-offset);
+}
+.agent-detail-page .agent-stats {
+  grid-template-columns: calc(var(--agent-property-label-width) + var(--agent-property-value-offset)) minmax(0, 1fr);
+  column-gap: 0;
 }
 .agent-detail-page .agent-builtin-note {
   padding: 0 12px;

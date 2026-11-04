@@ -609,6 +609,14 @@ type CoresearchVersion struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
+type DecisionDraftReceipt struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	ChatID      uuid.UUID `json:"chat_id"`
+	DecisionID  uuid.UUID `json:"decision_id"`
+	InputHash   []byte    `json:"input_hash"`
+}
+
 type Event struct {
 	ID          int64           `json:"id"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
@@ -698,6 +706,7 @@ type LabChat struct {
 	DraftSource      *uuid.UUID      `json:"draft_source"`
 	ArchivedAt       *time.Time      `json:"archived_at"`
 	AppliedMessageID *uuid.UUID      `json:"applied_message_id"`
+	BuilderRuntimeID *uuid.UUID      `json:"builder_runtime_id"`
 }
 
 type LabCursor struct {
@@ -981,6 +990,7 @@ type User struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	CareerStage string     `json:"career_stage"`
 	OnboardedAt *time.Time `json:"onboarded_at"`
+	AvatarUrl   string     `json:"avatar_url"`
 }
 
 type VerificationCode struct {

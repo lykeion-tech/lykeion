@@ -45,6 +45,7 @@ const context = ref('');
 const prefixEditing = ref(false);
 const prefix = ref('');
 const logoInput = ref<HTMLInputElement>();
+const avatarInput = ref<HTMLInputElement>();
 let generation = 0;
 let baseline: Workspace | undefined;
 const myRole = computed(() => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role);
@@ -170,6 +171,8 @@ function patchMe(body: Record<string, unknown>) {
     async (own) => {
       await api('PATCH', '/api/me', body);
       await refreshAccount(own, keys.me);
+      if (typeof body.avatar_url === 'string' && own.workspace)
+        await client.invalidateQueries({ queryKey: keys.members(own.workspace) });
       if (
         own.current() &&
         typeof body.name === 'string' &&
@@ -181,6 +184,26 @@ function patchMe(body: Record<string, unknown>) {
     undefined,
     true,
   );
+}
+async function avatarChanged(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || busy.value) return;
+  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 512 * 1024) {
+    error.value = 'Choose a PNG or JPEG of at most 512 KB.';
+    return;
+  }
+  const account = me.data.value?.id;
+  const reader = new FileReader();
+  reader.onerror = () => {
+    error.value = 'Could not read the image.';
+  };
+  reader.onload = () => {
+    if (me.data.value?.id === account && typeof reader.result === 'string')
+      void patchMe({ avatar_url: reader.result });
+  };
+  reader.readAsDataURL(file);
 }
 function changeCareer(el: HTMLSelectElement) {
   const requested = el.value;
@@ -388,6 +411,28 @@ async function copySlug() {
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
+            <div class="setting-row avatar-row">
+              <span>Avatar<small>Click to upload avatar</small></span>
+              <input
+                ref="avatarInput"
+                type="file"
+                accept="image/png,image/jpeg"
+                hidden
+                @change="avatarChanged"
+              />
+              <button
+                type="button"
+                class="profile-avatar"
+                aria-label="Change your avatar"
+                :disabled="busy"
+                @click="avatarInput?.click()"
+              >
+                <img v-if="me.data.value?.avatar_url" :src="me.data.value.avatar_url" alt="" />
+                <span v-else>{{
+                  (me.data.value?.name || me.data.value?.email || '?')[0].toUpperCase()
+                }}</span>
+              </button>
+            </div>
             <label class="setting-row"
               ><span>Name</span
               ><input
@@ -899,6 +944,10 @@ async function copySlug() {
 .profile-avatar {
   height: 64px;
   width: 64px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
   background: var(--border);
   font-size: 26px;

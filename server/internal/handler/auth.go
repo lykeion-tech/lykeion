@@ -1,8 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/subtle"
+	"encoding/base64"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"net"
 	"net/http"
 	"slices"
@@ -168,13 +173,14 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 		Timezone    *string `json:"timezone"`
 		CareerStage *string `json:"career_stage"`
 		Onboarded   *bool   `json:"onboarded"`
+		AvatarURL   *string `json:"avatar_url"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid profile: "+err.Error())
 		return
 	}
 	switch {
-	case in.Name == nil && in.Timezone == nil && in.CareerStage == nil && in.Onboarded == nil:
+	case in.Name == nil && in.Timezone == nil && in.CareerStage == nil && in.Onboarded == nil && in.AvatarURL == nil:
 		writeErr(w, 400, "nothing to change")
 		return
 	case in.Name != nil && strings.TrimSpace(*in.Name) == "":
@@ -185,6 +191,10 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	case in.Onboarded != nil && !*in.Onboarded:
 		writeErr(w, 400, "onboarded can only be set to true")
+		return
+	}
+	if in.AvatarURL != nil && !validUserAvatar(*in.AvatarURL) {
+		writeErr(w, 400, "Choose a PNG or JPEG image of at most 512 KB.")
 		return
 	}
 	if in.Timezone != nil {
@@ -199,12 +209,37 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 		in.Name = &name
 	}
 	u, err := h.Store.Global().UpdateMe(r.Context(), db.UpdateMeParams{Name: in.Name, Timezone: in.Timezone,
-		CareerStage: in.CareerStage, Onboarded: in.Onboarded != nil, ID: middleware.IdentityFrom(r.Context()).UserID})
+		CareerStage: in.CareerStage, AvatarUrl: in.AvatarURL, Onboarded: in.Onboarded != nil, ID: middleware.IdentityFrom(r.Context()).UserID})
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, 200, u)
+}
+
+func validUserAvatar(value string) bool {
+	if value == "" {
+		return true
+	}
+	var mime string
+	switch {
+	case strings.HasPrefix(value, "data:image/png;base64,"):
+		mime = "image/png"
+	case strings.HasPrefix(value, "data:image/jpeg;base64,"):
+		mime = "image/jpeg"
+	default:
+		return false
+	}
+	encoded := value[strings.IndexByte(value, ',')+1:]
+	if len(encoded) > base64.StdEncoding.EncodedLen(512*1024) {
+		return false
+	}
+	data, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(data) == 0 || len(data) > 512*1024 || http.DetectContentType(data) != mime {
+		return false
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	return err == nil && config.Width > 0 && config.Height > 0 && config.Width <= 4096 && config.Height <= 4096 && ((mime == "image/png" && format == "png") || (mime == "image/jpeg" && format == "jpeg"))
 }
 
 // cliToken gives a signed-in browser a fresh session token to hand to the CLI.

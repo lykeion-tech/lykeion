@@ -15,7 +15,7 @@ SELECT * FROM "user" WHERE id = @id;
 -- Changes only the fields given; onboarded stamps onboarded_at once and never clears it.
 -- name: UpdateMe :one
 UPDATE "user" SET name = COALESCE(sqlc.narg(name), name), timezone = COALESCE(sqlc.narg(timezone), timezone),
-  career_stage = COALESCE(sqlc.narg(career_stage), career_stage),
+  career_stage = COALESCE(sqlc.narg(career_stage), career_stage), avatar_url = COALESCE(sqlc.narg(avatar_url), avatar_url),
   onboarded_at = CASE WHEN @onboarded::boolean THEN COALESCE(onboarded_at, now()) ELSE onboarded_at END
 WHERE id = @id
 RETURNING *;

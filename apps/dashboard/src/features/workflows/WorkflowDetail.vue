@@ -220,6 +220,10 @@ const unavailable = computed(
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 20px;
 }
+.workflow-tree {
+  width: 224px;
+  max-width: 100%;
+}
 .workflow-tree-toolbar {
   display: grid;
   justify-items: stretch;
