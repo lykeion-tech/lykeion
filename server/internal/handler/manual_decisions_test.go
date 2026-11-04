@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 type manualRow struct {
@@ -97,6 +99,31 @@ func TestManualDecisionAlternateInboxRoutes(t *testing.T) {
 			t.Fatalf("foreign %s %d", action, code)
 		}
 	}
+	for _, alternate := range []struct {
+		action string
+		body   map[string]any
+	}{
+		{"decide", map[string]any{"option": "park"}},
+		{"answers", map[string]any{"answers": []any{map[string]any{"question_id": "q", "option_ids": []string{"park"}}}}},
+	} {
+		if code := s.call(t, "POST", path+"/"+alternate.action, b, w.ID, alternate.body, nil); code != 404 {
+			t.Fatalf("foreign %s %d", alternate.action, code)
+		}
+		if code := s.call(t, "POST", path+"/"+alternate.action, a, w.ID, alternate.body, nil); code != 403 {
+			t.Fatalf("manual note accepted %s: %d", alternate.action, code)
+		}
+	}
+	snooze := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	triage := map[string]any{"decide_by": "today", "snoozed_until": snooze}
+	if code := s.call(t, "PUT", path+"/triage", b, w.ID, triage, nil); code != 404 {
+		t.Fatalf("foreign triage %d", code)
+	}
+	if code := s.call(t, "PUT", path+"/triage", a, w.ID, triage, nil); code != 204 {
+		t.Fatalf("creator triage %d", code)
+	}
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND decide_by='today' AND snoozed_until=$2 AND status='open' AND resolved_at IS NULL AND chosen_option='' AND answers IS NULL`, item.ID, snooze); n != 1 {
+		t.Fatal("triage did not preserve open manual lifecycle")
+	}
 	if code := s.call(t, "POST", path+"/read", a, w.ID, nil, nil); code != 204 {
 		t.Fatalf("read %d", code)
 	}
@@ -157,6 +184,30 @@ func TestManualDecisionConcurrentEditClose(t *testing.T) {
 	go func() {
 		done <- s.call(t, "PATCH", "/api/decisions/"+item.ID+"/manual", a, w.ID, map[string]any{"title": "must not commit"}, nil)
 	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		var query string
+		err = s.Env.Owner.QueryRow(ctx, `SELECT COALESCE((SELECT query FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid)) LIMIT 1),'')`, tx.Conn().PgConn().PID()).Scan(&query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if query != "" {
+			if !strings.Contains(query, "LockDecision") {
+				t.Fatalf("edit blocked before reaching note lock: %s", query)
+			}
+			break
+		}
+		select {
+		case code := <-done:
+			t.Fatalf("edit completed before close released note lock: %d", code)
+		case <-ctx.Done():
+			t.Fatal("edit never reached the held note lock: ", ctx.Err())
+		case <-tick.C:
+		}
+	}
 	if err = tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
