@@ -19,12 +19,12 @@ vi.mock('../../api/queries', () => ({
 }));
 vi.mock('../aristotle-window/AristotleWindow.vue', () => ({
   default: {
-    props: ['manualDraft', 'submitManualQuestion'],
+    props: ['manualDraft', 'submitManualQuestion', 'appliedMessageId'],
     emits: ['manualProposal'],
     setup:
       (props: any, { emit }: any) =>
       () =>
-        h('div', [
+        h('div', { 'data-applied-id': props.appliedMessageId }, [
           h(
             'button',
             {
@@ -48,6 +48,7 @@ vi.mock('../aristotle-window/AristotleWindow.vue', () => ({
               'aria-label': 'Test final proposal',
               onClick: () =>
                 emit('manualProposal', {
+                  messageId: '22222222-2222-2222-2222-222222222222',
                   draft: { ...props.manualDraft, title: 'AI title' },
                   input: props.manualDraft,
                 }),
@@ -98,10 +99,15 @@ const click = async (root: ReturnType<typeof node>, label: string) => {
 };
 function backend(initial = blankManualDecisionDraft()) {
   let draft = initial;
+  let marker: string | null = null;
   api.mockImplementation(async (method: string, path: string, body: any) => {
     if (path.endsWith('/draft')) {
-      if (method === 'PUT') draft = body;
-      return { chat_id: 'd1', purpose: 'manual_decision_draft', draft };
+      if (method === 'PUT') {
+        const { applied_message_id, ...fields } = body;
+        draft = fields;
+        if (applied_message_id !== undefined) marker = applied_message_id;
+      }
+      return { chat_id: 'd1', purpose: 'manual_decision_draft', draft, applied_message_id: marker };
     }
     if (path === '/api/lab/chats' && method === 'POST') return { chat: { id: 'd1' } };
     if (path === '/api/decisions/manual') return { id: 'note1' };
@@ -421,20 +427,151 @@ it.each([401, 403, 404])(
   },
 );
 
-it.each([401, 403, 404])('releases Create busy state after draft-save denial %s and authorized recovery', async status => {
-  const original = { ...blankManualDecisionDraft(), title: 'Ready to create' };
-  backend(original);
-  const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
-  api.mockRejectedValue(Object.assign(new Error('Access denied'), { status }));
-  await (all(root).find(n => n.tag === 'form')!.props.onSubmit as Function)({ preventDefault() {} });
+it.each([401, 403, 404])(
+  'releases Create busy state after draft-save denial %s and authorized recovery',
+  async (status) => {
+    const original = { ...blankManualDecisionDraft(), title: 'Ready to create' };
+    backend(original);
+    const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
+    api.mockRejectedValue(Object.assign(new Error('Access denied'), { status }));
+    await (all(root).find((n) => n.tag === 'form')!.props.onSubmit as Function)({
+      preventDefault() {},
+    });
+    await settle();
+    expect(textOf(root)).toContain('unavailable');
+    expect(api.mock.calls.some((c) => c[1] === '/api/decisions/manual')).toBe(false);
+    backend(original);
+    await client.invalidateQueries({ queryKey: labKey('w1') });
+    await settle();
+    expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.disabled).toBe(false);
+    expect(button(root, 'Create')?.props.disabled).toBe(false);
+    await (all(root).find((n) => n.tag === 'form')!.props.onSubmit as Function)({
+      preventDefault() {},
+    });
+    await settle();
+    expect(api.mock.calls.some((c) => c[1] === '/api/decisions/manual')).toBe(true);
+  },
+);
+
+it('restores the persisted application marker before rendering the drafting conversation', async () => {
+  backend({ ...blankManualDecisionDraft(), title: 'Human reversion' });
+  const normal = api.getMockImplementation()!;
+  api.mockImplementation(async (method, path, ...args) => {
+    const result = await normal(method, path, ...args);
+    return path.endsWith('/draft')
+      ? { ...result, applied_message_id: '22222222-2222-2222-2222-222222222222' }
+      : result;
+  });
+  const { root } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  expect(
+    all(root).some((n) => n.props['data-applied-id'] === '22222222-2222-2222-2222-222222222222'),
+  ).toBe(true);
+  expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe(
+    'Human reversion',
+  );
+});
+it('atomically persists proposal plus marker and preserves later user reversion on reload', async () => {
+  let form = { ...blankManualDecisionDraft(), title: 'Original' };
+  let marker: string | null = null;
+  api.mockImplementation(async (method, path, body) => {
+    if (path.endsWith('/draft')) {
+      if (method === 'PUT') {
+        const { applied_message_id, ...fields } = body;
+        form = fields;
+        if (applied_message_id !== undefined) marker = applied_message_id;
+      }
+      return {
+        chat_id: 'd1',
+        purpose: 'manual_decision_draft',
+        draft: form,
+        applied_message_id: marker,
+      };
+    }
+    return { chats: [] };
+  });
+  const first = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  await click(first.root, 'Test final proposal');
+  expect(
+    api.mock.calls.some(
+      (c) =>
+        c[0] === 'PUT' &&
+        c[2].title === 'AI title' &&
+        c[2].applied_message_id === '22222222-2222-2222-2222-222222222222',
+    ),
+  ).toBe(true);
+  await (all(first.root).find((n) => n.props['aria-label'] === 'Title')!.props.onInput as Function)(
+    { target: { value: 'Original' } },
+  );
   await settle();
-  expect(textOf(root)).toContain('unavailable');
-  expect(api.mock.calls.some(c => c[1] === '/api/decisions/manual')).toBe(false);
-  backend(original);
-  await client.invalidateQueries({ queryKey: labKey('w1') }); await settle();
-  expect(all(root).find(n => n.props['aria-label'] === 'Title')?.props.disabled).toBe(false);
-  expect(button(root, 'Create')?.props.disabled).toBe(false);
-  await (all(root).find(n => n.tag === 'form')!.props.onSubmit as Function)({ preventDefault() {} });
+  first.app.unmount();
+  first.client.clear();
+  const restored = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  expect(all(restored.root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe(
+    'Original',
+  );
+  expect(
+    all(restored.root).some((n) => n.props['data-applied-id'] === marker && marker !== null),
+  ).toBe(true);
+});
+it('retries failed proposal marker writes atomically with the current human edits', async () => {
+  backend({ ...blankManualDecisionDraft(), title: 'Original' });
+  const { root } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  api.mockRejectedValue(new Error('Network offline'));
+  await click(root, 'Test final proposal');
+  expect(textOf(root)).toContain('Not saved');
+  await (all(root).find((n) => n.props['aria-label'] === 'Title')!.props.onInput as Function)({
+    target: { value: 'Human reversion' },
+  });
   await settle();
-  expect(api.mock.calls.some(c => c[1] === '/api/decisions/manual')).toBe(true);
+  api.mockResolvedValue({});
+  await click(root, 'Retry saving draft');
+  const last = api.mock.calls.filter((c) => c[0] === 'PUT').at(-1)!;
+  expect(last[2]).toEqual({
+    ...blankManualDecisionDraft(),
+    title: 'Human reversion',
+    applied_message_id: '22222222-2222-2222-2222-222222222222',
+  });
+  expect(textOf(root)).toContain('Draft saved');
+});
+
+it('keeps newer edits and the application marker when a proposal save is still in flight', async () => {
+  let form = { ...blankManualDecisionDraft(), title: 'Original' };
+  let marker: string | null = null;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  api.mockImplementation(async (method, path, body) => {
+    if (path.endsWith('/draft')) {
+      if (method === 'PUT') {
+        if (first) {
+          first = false;
+          await pending;
+        }
+        const { applied_message_id, ...fields } = body;
+        form = fields;
+        if (applied_message_id !== undefined) marker = applied_message_id;
+      }
+      return {
+        chat_id: 'd1',
+        purpose: 'manual_decision_draft',
+        draft: form,
+        applied_message_id: marker,
+      };
+    }
+    return { chats: [] };
+  });
+  const { root } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  await click(root, 'Test final proposal');
+  await (all(root).find((n) => n.props['aria-label'] === 'Title')!.props.onInput as Function)({
+    target: { value: 'Newer human title' },
+  });
+  await settle();
+  expect(textOf(root)).not.toContain('Draft saved');
+  release();
+  await settle();
+  expect(form.title).toBe('Newer human title');
+  expect(marker).toBe('22222222-2222-2222-2222-222222222222');
+  expect(textOf(root)).toContain('Draft saved');
 });

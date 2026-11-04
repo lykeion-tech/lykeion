@@ -27,6 +27,8 @@ const route = useRoute(),
 const chat = ref(''),
   ai = ref(false),
   draft = ref(blankManualDecisionDraft());
+const appliedMessageId = ref<string | null>(null);
+let pendingAppliedMessageId: string | null = null;
 const busy = ref(false),
   error = ref(''),
   saveState = ref(''),
@@ -85,6 +87,7 @@ const saved = useQuery({
       purpose: string;
       draft: ManualDecisionDraft;
       archived_at?: string | null;
+      applied_message_id?: string | null;
     }>(
       'GET',
       `/api/lab/chats/${encodeURIComponent(queryKey[6] as string)}/draft`,
@@ -107,6 +110,8 @@ watch(
     chat.value = typeof route.query.draft === 'string' ? route.query.draft : '';
     ai.value = route.query.mode === 'ai';
     draft.value = blankManualDecisionDraft();
+    appliedMessageId.value = null;
+    pendingAppliedMessageId = null;
     loaded.value = false;
     denied.value = false;
     created.value = false;
@@ -133,6 +138,8 @@ watch(
       return;
     }
     draft.value = valid;
+    appliedMessageId.value = value.applied_message_id ?? null;
+    pendingAppliedMessageId = null;
     denied.value = false;
     loaded.value = true;
   },
@@ -154,6 +161,8 @@ function clearPrivateDraft() {
   denied.value = true;
   busy.value = false;
   draft.value = blankManualDecisionDraft();
+  appliedMessageId.value = null;
+  pendingAppliedMessageId = null;
   saveState.value = '';
 }
 watch(
@@ -205,7 +214,8 @@ async function start(withAI: boolean) {
 function save(value = draft.value, afterSave?: () => Promise<unknown>): Promise<void> {
   const visit = scope(),
     snapshot = { ...value },
-    savedRevision = revision;
+    savedRevision = revision,
+    marker = pendingAppliedMessageId;
   if (!visit.id || !loaded.value || archived.value)
     return Promise.reject(new Error('Load a draft before saving.'));
   const invalid = manualDecisionDraftError(snapshot, true);
@@ -223,10 +233,12 @@ function save(value = draft.value, afterSave?: () => Promise<unknown>): Promise<
         await api(
           'PUT',
           `/api/lab/chats/${encodeURIComponent(visit.id)}/draft`,
-          snapshot,
+          marker ? { ...snapshot, applied_message_id: marker } : snapshot,
           undefined,
           { workspace: visit.ws },
         );
+        if (visit.current() && marker && pendingAppliedMessageId === marker)
+          pendingAppliedMessageId = null;
         if (visit.current() && revision === savedRevision) {
           saveState.value = 'Draft saved';
           error.value = '';
@@ -270,8 +282,15 @@ function edit(value: ManualDecisionDraft) {
 function retrySave() {
   void save().catch(() => {});
 }
-function proposal(value: { draft: ManualDecisionDraft; input: ManualDecisionDraft }) {
+function proposal(value: {
+  messageId: string;
+  draft: ManualDecisionDraft;
+  input: ManualDecisionDraft;
+}) {
   if (!loaded.value || created.value || busy.value || archived.value) return;
+  if (!value.messageId || value.messageId === appliedMessageId.value) return;
+  appliedMessageId.value = value.messageId;
+  pendingAppliedMessageId = value.messageId;
   edit(mergeManualDecisionDraft(draft.value, value.draft, value.input));
 }
 async function create() {
@@ -410,6 +429,8 @@ async function create() {
           :user-id="owner"
           :draft-chat="chat"
           :manual-draft="draft"
+          :applied-message-id="appliedMessageId"
+          :manual-draft-busy="busy"
           :readonly="archived"
           :submit-manual-question="submitManualQuestion"
           @manual-proposal="proposal"

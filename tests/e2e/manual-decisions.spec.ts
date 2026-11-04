@@ -10,6 +10,8 @@ async function fixture(page: Page) {
     card_id: null as string | null,
   };
   let archived = false;
+  let marker: string | null = null;
+  let messages: unknown[] = [];
   const writes: { path: string; method: string; body: any }[] = [];
   await page.route('**/api/**', async (route) => {
     const request = route.request(),
@@ -26,14 +28,19 @@ async function fixture(page: Page) {
     else if (path === '/api/lab/chats')
       data = { chats: archived ? [] : [{ id: 'd1', title: draft.title }], next_cursor: '' };
     else if (path.endsWith('/draft')) {
-      if (method === 'PUT') draft = body;
+      if (method === 'PUT') {
+        const { applied_message_id, ...fields } = body;
+        draft = fields;
+        if (applied_message_id !== undefined) marker = applied_message_id;
+      }
       data = {
         chat_id: 'd1',
         purpose: 'manual_decision_draft',
         draft,
+        applied_message_id: marker,
         archived_at: archived ? '2026-11-04T00:00:00Z' : null,
       };
-    } else if (path.endsWith('/messages')) data = { messages: [], pending: false, next_cursor: '' };
+    } else if (path.endsWith('/messages')) data = { messages, pending: false, next_cursor: '' };
     else if (path.endsWith('/questions'))
       return route.fulfill({
         status: 409,
@@ -45,7 +52,31 @@ async function fixture(page: Page) {
     } else if (path === '/api/decisions/manual') data = { id: 'note1' };
     return route.fulfill({ json: data });
   });
-  return writes;
+  return Object.assign(writes, {
+    completeWhileAway() {
+      messages = [
+        {
+          id: 'question-away',
+          kind: 'question',
+          body: 'Draft context',
+          current_draft: { ...draft },
+          statements: [],
+          evidence: [],
+        },
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          kind: 'answer',
+          body: '',
+          proposal: {
+            message: 'Completion while away',
+            draft: { ...draft, context: 'AI context' },
+          },
+          statements: [],
+          evidence: [],
+        },
+      ];
+    },
+  });
 }
 
 test('blank creation is keyboard accessible, survives reload and archives only after Create', async ({
@@ -121,4 +152,36 @@ test('Agent starting screen keeps its original choices and disabled AI behavior'
     path: '/private/tmp/manual-decisions-agent-unchanged.png',
     fullPage: true,
   });
+});
+
+test('recovers an away completion once and preserves a saved human reversion after reload', async ({
+  page,
+}) => {
+  const writes = await fixture(page);
+  await page.goto('/#/decisions/new?draft=d1');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Original title');
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to decisions', exact: true }).click();
+  await expect(page).toHaveURL(/#\/decisions$/);
+  writes.completeWhileAway();
+  await page.goto('/#/decisions/new?draft=d1&mode=ai');
+  await expect(page.getByRole('textbox', { name: 'Context', exact: true })).toHaveValue(
+    'AI context',
+  );
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
+  expect(
+    writes.some(
+      (w) =>
+        w.method === 'PUT' &&
+        w.body.context === 'AI context' &&
+        w.body.applied_message_id === '22222222-2222-2222-2222-222222222222',
+    ),
+  ).toBe(true);
+  await page.getByRole('button', { name: 'Minimize', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Context', exact: true }).fill('');
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Completion while away', { exact: false })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Context', exact: true })).toHaveValue('');
+  expect(writes.some((w) => w.path === '/api/decisions/manual')).toBe(false);
 });

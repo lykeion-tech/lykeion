@@ -15,8 +15,8 @@ import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
 import { parseManualDecisionProposal, type ManualDecisionDraft, type ManualDecisionTurn } from '../decisions/manualDecisionDraft';
 
-const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
-const emit = defineEmits<{ manualProposal: [value: { draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
+const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
+const emit = defineEmits<{ manualProposal: [value: { messageId: string; draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
 const drafting = computed(() => !!props.draftChat);
 const open = ref(!!props.draftChat),
   focused = ref(false),
@@ -111,25 +111,29 @@ const turns = computed(() =>
         .flatMap((p) => p.messages) ?? []),
 );
 const handledProposals = new Set<string>();
-let historyLoaded = false;
-watch([() => messages.data.value?.pages[0], () => messages.isSuccess.value], ([page, success]) => {
-  if (!drafting.value || props.readonly || !success || !page) return;
-  // Initial history is already part of the saved draft's editing history.
-  // Reapplying it would undo deliberate reversions after a reload. Only the
-  // newest page can introduce live completions; loading older pages cannot.
-  if (!historyLoaded) {
-    for (const message of page.messages) if (message.kind === 'answer') handledProposals.add(message.id);
-    historyLoaded = true;
+watch([turns, () => messages.isSuccess.value, () => messages.isFetching.value, () => props.appliedMessageId, () => props.manualDraftBusy], ([list, success]) => {
+  if (!drafting.value || props.readonly || props.manualDraftBusy || !success) return;
+  // The durable marker fences every older completion. Restore happens before
+  // this window mounts, so a later human reversion is never replayed over.
+  for (let index = list.length - 1; index >= 0; index--) {
+    const message = list[index]!;
+    if (message.id === props.appliedMessageId) return;
+    if (message.kind !== 'answer') continue;
+    const proposal = parseManualDecisionProposal(message.proposal);
+    if (!proposal) continue;
+    if (handledProposals.has(message.id)) return;
+    const question = list.slice(0, index).reverse().find(item => item.kind === 'question');
+    if (question?.current_draft) {
+      handledProposals.add(message.id);
+      emit('manualProposal', { messageId: message.id, draft: proposal.draft, input: question.current_draft });
+      return;
+    }
+    // A page may end between the answer and its frozen input. Read the prior
+    // page before merging; never infer the input from the current form.
+    if (messages.hasNextPage.value && !messages.isFetching.value) void messages.fetchNextPage();
     return;
   }
-  let input: ManualDecisionDraft | undefined;
-  for (const message of page.messages) {
-    if (message.kind === 'question') input = message.current_draft;
-    if (message.kind !== 'answer' || !input || handledProposals.has(message.id)) continue;
-    handledProposals.add(message.id);
-    const proposal = parseManualDecisionProposal(message.proposal);
-    if (proposal) emit('manualProposal', { draft: proposal.draft, input });
-  }
+  if (messages.hasNextPage.value && !messages.isFetching.value) void messages.fetchNextPage();
 }, { immediate: true });
 const currentStudy = computed(() =>
   !drafting.value && props.studyId && props.studyTitle
