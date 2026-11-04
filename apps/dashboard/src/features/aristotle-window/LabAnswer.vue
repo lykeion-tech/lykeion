@@ -43,7 +43,6 @@ async function submit() {
       v-for="(statement, i) in message.statements"
       :key="i"
       class="statement"
-      :class="{ gap: statement.kind === 'gap' }"
     >
       <span v-if="statement.kind === 'lesson'" class="tag lesson">Lesson</span>{{ statement.text }}
       <template v-for="cite in statement.cites.filter((source) => !source.ref.startsWith('study:'))" :key="cite.ref">
@@ -128,12 +127,6 @@ a,
 .cite,
 .flag {
   color: var(--primary-text);
-}
-.gap {
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 6px 9px;
-  color: var(--muted);
 }
 details.lesson {
   display: inline;

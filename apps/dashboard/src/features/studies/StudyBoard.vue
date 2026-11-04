@@ -514,15 +514,18 @@ onUnmounted(() => {
             @click="open(card.id)"
           >
             <small class="card-id"
-              >{{ number(card) }}<span v-if="card.ending === 'stopped'" class="chip chip-stopped">{{ endLabel(card) }}</span><span v-if="card.queued" class="chip chip-queued">queued</span
+              >{{ number(card) }}<span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{ endLabel(card) }}</span><span
+                v-if="cardStateLabel(card) && column.id !== 'blocked'"
+                class="chip"
+                :class="'chip-' + card.state"
+                >{{ cardStateLabel(card) }}</span><span v-if="column.id === 'blocked'" class="chip">{{
+                columnName(card.board_column)
+              }}</span
               ><span
                 v-if="card.flag === 'escalated' || card.state === 'blocked'"
                 class="chip chip-escalated"
                 :title="card.hold_text || undefined"
-                >{{ blockBadge(card) }}</span
-              ><span v-if="column.id === 'blocked'" class="chip">{{
-                columnName(card.board_column)
-              }}</span></small
+                >{{ blockBadge(card) }}</span></small
             ><span>{{ studyDisplayTitle(card.title) }}</span>
             <span
               v-if="display.properties.includes('Question') && card.question"
@@ -566,14 +569,6 @@ onUnmounted(() => {
               }}</span>
               <span v-if="display.properties.includes('Role') && card.role && card.role !== 'agent'"
                 ><Icon name="bot" :size="12" />{{ roleLabel(card.role) }}</span
-              ><span
-                v-if="cardStateLabel(card) && column.id !== 'blocked'"
-                class="chip"
-                :class="'chip-' + card.state"
-                >{{ cardStateLabel(card) }}</span
-              ><span v-if="card.ending && card.ending !== 'stopped'" class="chip" :class="'chip-' + card.ending">{{
-                endLabel(card)
-              }}</span
               ><span v-if="display.properties.includes('Updated')" class="push-right"
                 >Updated {{ timeAgo(card.updated_at) }}</span
               >
