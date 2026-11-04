@@ -19,6 +19,12 @@ const has = (type: string, key: readonly unknown[], card: string | null = 'c1') 
   expect(invalidationsFor('w1', ev(type, card))).toContainEqual(key);
 
 describe('event to query map', () => {
+  it('refreshes projects and studies when a project is deleted', () => {
+    const event = { ...ev('research.deleted', null), payload: { research_id: 'p1' } };
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.researches('w1'));
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.research('w1', 'p1'));
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.cards('w1'));
+  });
   it('card events refresh the board, the card, its event lines and the Inbox', () => {
     for (const type of ['card.created', 'card.steered', 'card.escalated', 'card.deleted']) {
       has(type, keys.cards('w1'));

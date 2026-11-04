@@ -14,6 +14,7 @@ import {
   useResearch,
   useResearches,
   useWorkspace,
+  useWorkspaces,
 } from '../../api/queries';
 import type { Research } from '../../api/types';
 import Modal from '../../ui/Modal.vue';
@@ -26,6 +27,11 @@ const list = useResearches(),
 const client = useQueryClient(),
   router = useRouter();
 const workspace = useWorkspace();
+const workspaces = useWorkspaces();
+const canDelete = computed(() => {
+  const role = workspaces.data.value?.find((item) => item.id === workspaceId.value)?.role;
+  return role === 'owner' || role === 'admin';
+});
 const cards = useCards();
 const metrics = (id: string) => {
   const linked = (cards.data.value ?? []).filter((c) => c.research_id === id);
@@ -137,6 +143,9 @@ function outsidePicker(event: PointerEvent) {
 onMounted(() => document.addEventListener('pointerdown', outsidePicker));
 onUnmounted(() => document.removeEventListener('pointerdown', outsidePicker));
 const expanded = ref(false);
+const deleting = ref<Research | null>(null);
+const deleteBusy = ref(false);
+const deleteError = ref('');
 const editor = ref(false),
   name = ref(''),
   description = ref(''),
@@ -151,9 +160,15 @@ watch(
     picker.value = null;
     error.value = '';
     busy.value = false;
+    deleting.value = null;
+    deleteBusy.value = false;
+    deleteError.value = '';
   },
   { flush: 'sync' },
 );
+watch(canDelete, (allowed) => {
+  if (!allowed) deleting.value = null;
+});
 onUnmounted(() => visit++);
 const failure = computed(() => (props.id ? detail.error.value : list.error.value));
 function edit() {
@@ -167,6 +182,33 @@ function edit() {
   error.value = '';
   expanded.value = false;
   editor.value = true;
+}
+function requestDelete(project: Research) {
+  if (!canDelete.value) return;
+  deleteError.value = '';
+  deleting.value = project;
+}
+async function deleteProject() {
+  const project = deleting.value;
+  if (!project || deleteBusy.value || !canDelete.value) return;
+  const ws = workspaceId.value,
+    v = visit;
+  deleteBusy.value = true;
+  deleteError.value = '';
+  try {
+    await api('DELETE', `/api/researches/${project.id}`, undefined, undefined, { workspace: ws });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.researches(ws) }),
+      client.invalidateQueries({ queryKey: keys.research(ws, project.id) }),
+      client.invalidateQueries({ queryKey: keys.cards(ws) }),
+      client.invalidateQueries({ queryKey: ['ws', ws, 'card'] }),
+    ]);
+    if (v === visit && ws === workspaceId.value) deleting.value = null;
+  } catch (e) {
+    if (v === visit && ws === workspaceId.value) deleteError.value = (e as Error).message;
+  } finally {
+    if (v === visit && ws === workspaceId.value) deleteBusy.value = false;
+  }
 }
 async function save() {
   const ws = workspaceId.value,
@@ -230,6 +272,7 @@ async function save() {
             <th scope="col">Progress</th>
             <th scope="col">Lead</th>
             <th scope="col">Created</th>
+            <th scope="col" aria-label="Actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -281,6 +324,18 @@ async function save() {
             <td class="table-secondary" :title="new Date(r.created_at).toLocaleString()">
               {{ timeAgo(r.created_at) }}
             </td>
+            <td class="project-actions">
+              <button
+                v-if="canDelete"
+                type="button"
+                class="icon-button project-delete"
+                :aria-label="`Delete project ${r.name}`"
+                title="Delete project"
+                @click="requestDelete(r)"
+              >
+                <Icon name="trash" :size="15" />
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -295,6 +350,26 @@ async function save() {
       {{ failure.message }} <button @click="id ? detail.refetch() : list.refetch()">Retry</button>
     </p>
     <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">Loading Projects…</p>
+    <Modal
+      v-if="deleting"
+      :title="`Delete ${deleting.name}?`"
+      :before-close="() => !deleteBusy"
+      @close="deleting = null"
+    >
+      <div class="project-delete-dialog">
+        <h2>Delete {{ deleting.name }}?</h2>
+        <p>
+          Studies in this project will be kept and removed from the project. This cannot be undone.
+        </p>
+        <p v-if="deleteError" class="inline-error" role="alert">{{ deleteError }}</p>
+        <footer>
+          <button class="button" :disabled="deleteBusy" @click="deleting = null">Cancel</button>
+          <button class="button danger" :disabled="deleteBusy" @click="deleteProject">
+            {{ deleteBusy ? 'Deleting…' : 'Delete project' }}
+          </button>
+        </footer>
+      </div>
+    </Modal>
     <Modal
       v-if="editor"
       :title="id ? 'Edit Project' : 'New Project'"
@@ -758,7 +833,7 @@ async function save() {
   overflow: hidden;
 }
 .project-directory {
-  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 60px;
+  --directory-columns: minmax(240px, 1fr) repeat(3, 122px) 64px 84px 32px;
   padding: 8px 20px 32px;
 }
 .projects-table tr {
@@ -775,6 +850,31 @@ async function save() {
 .projects-table td:last-child {
   text-align: right;
 }
+.project-actions .project-delete {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.project-delete-dialog {
+  padding: 24px;
+  max-width: 440px;
+}
+.project-delete-dialog h2 {
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+.project-delete-dialog p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.project-delete-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
 .projects-table th {
   height: 32px;
   padding-top: 0;

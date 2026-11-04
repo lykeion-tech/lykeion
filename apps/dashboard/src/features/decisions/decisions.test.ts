@@ -357,11 +357,17 @@ it('keeps question set input after a failed submit and shows history to non-answ
   expect(textOf(history)).toContain('Children'); expect(textOf(history)).toContain('Another outcome'); expect(textOf(history)).toContain('Not answered');
 });
 
-it('groups archived decisions first and allows restoring them', async () => {
+it('folds archived decisions separately and allows restoring them', async () => {
   rows.value = [item({ id: 'current', kind: 'done', options: null }), item({ id: 'old', kind: 'done', options: null, archived_at: '2026-11-04T08:00:00Z' })];
   const root = mount(DecisionRail, {});
   expect(textOf(root)).toContain('Archived');
-  expect(all(root).filter((n) => n.props.to !== undefined && n.props.to !== '/decisions/new').map((n) => n.props.to)).toEqual(['/decisions/old', '/decisions/current']);
+  expect(all(root).filter((n) => n.props.to !== undefined && n.props.to !== '/decisions/new').map((n) => n.props.to)).toEqual(['/decisions/current']);
+  const archived = buttons(root).find((n) => n.props['aria-expanded'] === false);
+  expect(archived).toBeDefined();
+  await click(archived);
+  await new Promise((r) => setTimeout(r));
+  expect(all(root).filter((n) => n.props.to !== undefined && n.props.to !== '/decisions/new').map((n) => n.props.to)).toEqual(['/decisions/current', '/decisions/old']);
+  expect(buttons(root).find((n) => n.props['aria-expanded'] === true)).toBeDefined();
   api.mockResolvedValue(undefined);
   await click(buttons(root).find((n) => n.props['aria-label'] === 'Restore decision'));
   expect(api).toHaveBeenCalledWith('POST', '/api/decisions/old/revive');

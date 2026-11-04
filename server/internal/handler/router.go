@@ -329,6 +329,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/researches", h.createResearch)
 			r.Get("/api/researches/{id}", h.getResearch)
 			r.Patch("/api/researches/{id}", h.updateResearch)
+			r.With(middleware.RequireAdmin).Delete("/api/researches/{id}", h.deleteResearch)
 			r.Get("/api/agents", h.listAgents)
 			r.Post("/api/agents", h.createAgent)
 			r.Get("/api/agents/{id}", h.getAgent)

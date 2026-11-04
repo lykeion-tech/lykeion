@@ -164,6 +164,92 @@ func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) 
 	return i, err
 }
 
+const deleteResearch = `-- name: DeleteResearch :execrows
+DELETE FROM research WHERE workspace_id = $1 AND id = $2
+`
+
+type DeleteResearchParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteResearch(ctx context.Context, arg DeleteResearchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteResearch, arg.WorkspaceID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const detachResearchStudies = `-- name: DetachResearchStudies :many
+UPDATE card SET research_id = NULL, version = version + 1
+WHERE workspace_id = $1 AND research_id = $2
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date
+`
+
+type DetachResearchStudiesParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ResearchID  *uuid.UUID `json:"research_id"`
+}
+
+func (q *Queries) DetachResearchStudies(ctx context.Context, arg DetachResearchStudiesParams) ([]Card, error) {
+	rows, err := q.db.Query(ctx, detachResearchStudies, arg.WorkspaceID, arg.ResearchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Card
+	for rows.Next() {
+		var i Card
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Number,
+			&i.Title,
+			&i.Question,
+			&i.OwnerID,
+			&i.Deadline,
+			&i.SpentUsd,
+			&i.BoardColumn,
+			&i.State,
+			&i.Flag,
+			&i.Ending,
+			&i.EndReason,
+			&i.Rounds,
+			&i.Version,
+			&i.CreatedAt,
+			&i.Round,
+			&i.HandoffNote,
+			&i.GatingUntil,
+			&i.Position,
+			&i.ResearchID,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.Origin,
+			&i.PackID,
+			&i.BlockKind,
+			&i.ScopeFrom,
+			&i.ScopeTo,
+			&i.Redos,
+			&i.Machine,
+			&i.Workflow,
+			&i.WorkflowRelease,
+			&i.GroundingCriteria,
+			&i.LegacyColumn,
+			&i.StudyCli,
+			&i.AuditorCli,
+			&i.StartDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getResearch = `-- name: GetResearch :one
 SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 AND id = $2
 `
@@ -226,6 +312,34 @@ func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockResearchForDelete = `-- name: LockResearchForDelete :one
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+`
+
+type LockResearchForDeleteParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) LockResearchForDelete(ctx context.Context, arg LockResearchForDeleteParams) (Research, error) {
+	row := q.db.QueryRow(ctx, lockResearchForDelete, arg.WorkspaceID, arg.ID)
+	var i Research
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.Priority,
+		&i.LeadType,
+		&i.LeadID,
+	)
+	return i, err
 }
 
 const researchStudies = `-- name: ResearchStudies :many

@@ -26,13 +26,14 @@ const past = useDecisions(true);
 const cards = useCards();
 const me = useMe();
 const error = ref('');
+const archivedExpanded = ref(false);
 const shown = computed(() => {
   const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
   return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 });
 const groups = computed(() => [
-  { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
   { id: 'current', label: '', items: shown.value.filter((item) => !item.archived_at) },
+  { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
 ].filter((group) => group.items.length));
 const listError = computed(() => open.error.value ?? past.error.value);
 const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
@@ -81,8 +82,12 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
         {{ (listError ?? { message: error }).message }}
       </p>
       <template v-for="group in groups" :key="group.id">
-      <h2 v-if="group.label" class="decision-group-title">{{ group.label }}</h2>
-      <div v-for="item in group.items" :key="item.id" class="decision-row-wrap">
+      <h2 v-if="group.label" class="decision-group-title">
+        <button class="archive-toggle" :aria-expanded="archivedExpanded" @click="archivedExpanded = !archivedExpanded">
+          <Icon :name="archivedExpanded ? 'down' : 'right'" :size="12" />{{ group.label }}
+        </button>
+      </h2>
+      <div v-for="item in group.id === 'archived' && !archivedExpanded ? [] : group.items" :key="item.id" class="decision-row-wrap">
         <RouterLink
           :to="'/decisions/' + item.id"
           class="decision-row"
@@ -203,6 +208,17 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+}
+.archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 .decision-row-wrap {
   position: relative;

@@ -198,6 +198,44 @@ func (h *H) updateResearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+func (h *H) deleteResearch(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
+			return err
+		}
+		if _, err := tx.Q.LockResearchForDelete(r.Context(), db.LockResearchForDeleteParams{WorkspaceID: ws, ID: id}); err != nil {
+			return err
+		}
+		studies, err := tx.Q.DetachResearchStudies(r.Context(), db.DetachResearchStudiesParams{WorkspaceID: ws, ResearchID: &id})
+		if err != nil {
+			return err
+		}
+		for _, study := range studies {
+			if err := tx.Emit(r.Context(), "card.properties_updated", &study.ID, store.User(user), map[string]any{"fields": []string{"research_id"}, "research_id": study.ResearchID, "previous_research_id": id, "assignee_type": study.AssigneeType, "assignee_id": study.AssigneeID}); err != nil {
+				return err
+			}
+		}
+		n, err := tx.Q.DeleteResearch(r.Context(), db.DeleteResearchParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return pgx.ErrNoRows
+		}
+		return tx.Emit(r.Context(), "research.deleted", nil, store.User(user), map[string]any{"research_id": id})
+	})
+	if answer(w, r, err) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 type nullableUUID struct {
 	Set bool
 	V   *uuid.UUID

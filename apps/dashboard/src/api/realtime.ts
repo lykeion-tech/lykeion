@@ -88,6 +88,7 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
     case 'research':
       return [
         keys.researches(ws),
+        ...(e.type === 'research.deleted' ? [keys.cards(ws), ['ws', ws, 'card']] : []),
         ...(typeof e.payload.research_id === 'string'
           ? [keys.research(ws, e.payload.research_id)]
           : []),

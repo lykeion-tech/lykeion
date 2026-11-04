@@ -24,3 +24,14 @@ WHERE workspace_id = @workspace_id AND assignee_type = 'member' AND assignee_id 
 -- name: ClearDepartedMemberProjectLeads :many
 UPDATE research SET lead_type = NULL, lead_id = NULL, updated_at = now()
 WHERE workspace_id = @workspace_id AND lead_type = 'member' AND lead_id = @user_id RETURNING *;
+
+-- name: LockResearchForDelete :one
+SELECT * FROM research WHERE workspace_id = @workspace_id AND id = @id FOR UPDATE;
+
+-- name: DeleteResearch :execrows
+DELETE FROM research WHERE workspace_id = @workspace_id AND id = @id;
+
+-- name: DetachResearchStudies :many
+UPDATE card SET research_id = NULL, version = version + 1
+WHERE workspace_id = @workspace_id AND research_id = @research_id
+RETURNING *;
