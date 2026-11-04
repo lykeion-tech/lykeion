@@ -71,6 +71,45 @@ func (q *Queries) GetManualDraftRequest(ctx context.Context, arg GetManualDraftR
 	return i, err
 }
 
+const getPrivateManualDraftQuestion = `-- name: GetPrivateManualDraftQuestion :one
+SELECT m.id, m.workspace_id, m.chat_id, m.owner_id, m.kind, m.body, m.statements, m.context_card_id, m.context_ref, m.agent_run_id, m.created_at, m.evidence, m.history_safe, m.launch_attempt, m.stale_attempt, m.launch_sources, m.proposal, m.request_id FROM lab_message m JOIN lab_chat c
+ ON (c.workspace_id,c.id,c.owner_id)=(m.workspace_id,m.chat_id,m.owner_id)
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user()
+ AND m.chat_id= $1 AND m.id= $2 AND m.kind='question'
+ AND c.purpose='manual_decision_draft' AND c.deleted_at IS NULL
+`
+
+type GetPrivateManualDraftQuestionParams struct {
+	ChatID uuid.UUID `json:"chat_id"`
+	ID     uuid.UUID `json:"id"`
+}
+
+func (q *Queries) GetPrivateManualDraftQuestion(ctx context.Context, arg GetPrivateManualDraftQuestionParams) (LabMessage, error) {
+	row := q.db.QueryRow(ctx, getPrivateManualDraftQuestion, arg.ChatID, arg.ID)
+	var i LabMessage
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ChatID,
+		&i.OwnerID,
+		&i.Kind,
+		&i.Body,
+		&i.Statements,
+		&i.ContextCardID,
+		&i.ContextRef,
+		&i.AgentRunID,
+		&i.CreatedAt,
+		&i.Evidence,
+		&i.HistorySafe,
+		&i.LaunchAttempt,
+		&i.StaleAttempt,
+		&i.LaunchSources,
+		&i.Proposal,
+		&i.RequestID,
+	)
+	return i, err
+}
+
 const saveManualDraft = `-- name: SaveManualDraft :one
 UPDATE lab_chat SET draft= $1::jsonb,updated_at=clock_timestamp()
 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND purpose='manual_decision_draft' AND deleted_at IS NULL RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source

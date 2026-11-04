@@ -16,3 +16,10 @@ UPDATE lab_message SET request_id= @request_id::uuid WHERE workspace_id=app_work
 -- name: GetManualDraftRequest :one
 SELECT m.* FROM lab_message m JOIN lab_chat c ON c.id=m.chat_id AND c.workspace_id=m.workspace_id AND c.owner_id=m.owner_id
 WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.chat_id= @chat_id AND m.request_id= @request_id AND c.purpose='manual_decision_draft' AND c.deleted_at IS NULL;
+
+-- name: GetPrivateManualDraftQuestion :one
+SELECT m.* FROM lab_message m JOIN lab_chat c
+ ON (c.workspace_id,c.id,c.owner_id)=(m.workspace_id,m.chat_id,m.owner_id)
+WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user()
+ AND m.chat_id= @chat_id AND m.id= @id AND m.kind='question'
+ AND c.purpose='manual_decision_draft' AND c.deleted_at IS NULL;

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/handin"
@@ -155,4 +156,57 @@ func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabCh
 		return
 	}
 	writeJSON(w, 202, map[string]any{"message": labDraftMessage(msg)})
+}
+
+// Cancellation retains the private question and form. It never restores text
+// into the composer or changes another turn in the conversation.
+func (h *H) cancelManualDraftQuestion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tx := middleware.TxFrom(ctx)
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		fail(w, r, err)
+		return
+	}
+	chat, err := privateLabChat(r, tx)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if chat.Purpose != labmemory.ManualDraftPurpose {
+		fail(w, r, pgx.ErrNoRows)
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "question"))
+	if err != nil {
+		fail(w, r, pgx.ErrNoRows)
+		return
+	}
+	question, err := tx.Q.GetPrivateManualDraftQuestion(ctx, db.GetPrivateManualDraftQuestionParams{ChatID: chat.ID, ID: id})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if question.AgentRunID == nil {
+		fail(w, r, pgx.ErrNoRows)
+		return
+	}
+	run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{WorkspaceID: tx.WS, ID: *question.AgentRunID})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if run.Kind != "aristotle" || run.LabPurpose != labmemory.ManualDraftPurpose || run.LabChatID == nil || *run.LabChatID != chat.ID || run.RequesterID == nil || *run.RequesterID != user(r) || run.ResponsibleUserID != user(r) {
+		fail(w, r, pgx.ErrNoRows)
+		return
+	}
+	switch run.Status {
+	case "completed", "failed", "cancelled":
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err = h.AgentRuns.CancelInTx(ctx, tx, user(r), run); err != nil {
+		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
