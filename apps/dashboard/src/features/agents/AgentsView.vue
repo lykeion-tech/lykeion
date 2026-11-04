@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import SelectPicker from '../../ui/SelectPicker.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
 import Aristotle from '../coresearch/Aristotle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -18,7 +17,7 @@ import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
 import { timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
-defineProps<{ create?: boolean }>();
+const props = defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
   members = useMembers(),
@@ -28,6 +27,15 @@ const client = useQueryClient(),
 const editor = ref(false),
   busy = ref(false),
   error = ref('');
+const directory = ref<HTMLElement>();
+const scrollbarWidth = ref(0);
+let directoryObserver: ResizeObserver | undefined;
+function measureScrollbar() {
+  if (directory.value) {
+    const width = directory.value.offsetWidth - directory.value.clientWidth;
+    scrollbarWidth.value = Number.isFinite(width) ? width : 0;
+  }
+}
 const empty = () => ({
   name: '',
   description: '',
@@ -45,6 +53,12 @@ const modelChoices = computed(() => {
       r.harness === draft.value.harness,
   );
   const models = runtime?.models ?? [];
+  if (draft.value.harness === 'claude') {
+    return [
+      { value: '', label: 'Default (Recommended)' },
+      ...models.filter((model) => model.value !== '' && model.value !== 'default'),
+    ];
+  }
   return models.some((model) => model.value === '')
     ? models
     : [{ value: '', label: 'Default' }, ...models];
@@ -116,8 +130,19 @@ function leaveFilter(event: FocusEvent) {
 function outsideFilter(event: PointerEvent) {
   if (!filterAnchor.value?.contains(event.target as Node | null)) closeFilter();
 }
-onMounted(() => document.addEventListener('pointerdown', outsideFilter));
-onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
+onMounted(() => {
+  document.addEventListener('pointerdown', outsideFilter);
+  if (directory.value && typeof ResizeObserver !== 'undefined') {
+    directoryObserver = new ResizeObserver(measureScrollbar);
+    directoryObserver.observe(directory.value);
+  }
+  measureScrollbar();
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsideFilter);
+  directoryObserver?.disconnect();
+});
+watch(() => list.data.value?.length, () => nextTick(measureScrollbar));
 const inTab = (a: AgentDefinition, t: typeof tab.value) =>
   t === 'archived'
     ? !!a.archived_at
@@ -145,6 +170,14 @@ function edit() {
   editor.value = true;
   error.value = '';
 }
+watch(() => props.create, (create) => {
+  if (create) edit();
+}, { immediate: true });
+function closeEditor() {
+  if (busy.value) return;
+  editor.value = false;
+  if (props.create) void router.replace('/agents');
+}
 async function save() {
   const ws = workspaceId.value,
     v = visit;
@@ -165,41 +198,12 @@ async function save() {
 }
 </script>
 <template>
-  <section class="directory-page agent-directory">
-    <template v-if="create"
-      ><header class="agent-create-header">
-        <RouterLink to="/agents" class="icon-button" aria-label="Back to agents"
-          ><Icon name="back" :size="16"
-        /></RouterLink>
-        <div>
-          <h1>Create an agent</h1>
-          <p>Choose a starting point</p>
-        </div>
-      </header>
-      <div class="agent-create-start">
-        <small>Agent creation</small>
-        <h2>How would you like to start?</h2>
-        <div class="agent-create-options">
-          <button class="agent-create-option" @click="edit">
-            <span class="option-icon"><Icon name="file" :size="18" /></span>
-            <strong>Start blank</strong>
-            <span>Set the name, instructions, and harness yourself.</span>
-            <em>Continue <Icon name="right" :size="12" /></em>
-          </button>
-          <button class="agent-create-option" disabled>
-            <span class="option-icon"><Icon name="chat" :size="18" /></span>
-            <strong>Build with AI</strong>
-            <span>Create an editable configuration through conversation.</span>
-            <em>Not available yet</em>
-          </button>
-        </div>
-      </div></template
-    ><template v-else
-      ><Teleport to="#page-header-actions">
-        <button class="button primary directory-header-action" @click="router.push('/agents/new')">
-          <Icon name="plus" :size="14" />New agent
-        </button>
-      </Teleport>
+  <section ref="directory" class="directory-page agent-directory" :style="{ '--agent-scrollbar-width': `${scrollbarWidth}px` }">
+    <Teleport to="#page-header-actions">
+      <button class="button primary directory-header-action" @click="edit">
+        <Icon name="plus" :size="14" />New agent
+      </button>
+    </Teleport>
       <div v-if="list.data.value?.length" class="agent-toolbar">
         <label class="agent-search"
           ><Icon name="search" :size="14" /><input
@@ -320,65 +324,47 @@ async function save() {
         <Icon name="bot" :size="30" />
         <h2>No agents yet</h2>
         <p>Create a profile to assign responsibility for a study.</p>
-        <button class="button" @click="router.push('/agents/new')">Create agent</button>
-      </div></template
-    >
+        <button class="button" @click="edit">Create agent</button>
+      </div>
     <p v-if="list.error.value" class="inline-error" role="alert">
       {{ list.error.value.message }}
       <button @click="list.refetch()">Retry</button>
     </p>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <Modal v-if="editor" :title="'New agent'" @close="editor = false"
-      ><form class="directory-form agent-form" @submit.prevent="save">
-        <h2>New agent</h2>
-        <label
-          >Name<input v-model="draft.name" required maxlength="64" aria-label="Agent name" /></label
-        ><label
-          >Description<textarea
-            v-model="draft.description"
-            maxlength="1000"
-            aria-label="Agent description"
-          />
-        </label>
+    <Modal v-if="editor" title="Create Agent" @close="closeEditor">
+      <form class="directory-form agent-form" @submit.prevent="save">
+        <div class="agent-form-heading">
+          <div><h2>Create Agent</h2><p>Create a new AI agent for your workspace.</p></div>
+          <button type="button" class="icon-button" aria-label="Close" :disabled="busy" @click="closeEditor"><Icon name="close" :size="16" /></button>
+        </div>
+        <label>Name<input v-model="draft.name" required maxlength="64" aria-label="Agent name" placeholder="e.g. Deep Research Agent" /></label>
+        <label>Description<input v-model="draft.description" maxlength="1000" aria-label="Agent description" placeholder="What does this agent do?" /></label>
+        <fieldset class="agent-visibility">
+          <legend>Visibility</legend>
+          <div class="agent-visibility-options">
+            <label :class="{ selected: draft.visibility === 'workspace' }"><input v-model="draft.visibility" type="radio" value="workspace" /><span><b>Workspace</b><small>All members can assign</small></span></label>
+            <label :class="{ selected: draft.visibility === 'private' }"><input v-model="draft.visibility" type="radio" value="private" /><span><b>Private</b><small>Only you can assign</small></span></label>
+          </div>
+        </fieldset>
         <div class="new-agent-model-field">
           <span>Harness</span>
           <div class="coresearch new-agent-model-picker">
-            <ModelSwitcher
-              v-model="draft.harness"
-              :models="backends.map((backend) => ({ value: backend.id, label: backend.label }))"
-              label="Harness"
-            />
+            <ModelSwitcher v-model="draft.harness" :models="backends.map((backend) => ({ value: backend.id, label: backend.label }))" label="Harness" open-up />
           </div>
         </div>
         <div class="new-agent-model-field">
           <span>Model</span>
           <div class="coresearch new-agent-model-picker">
-            <ModelSwitcher v-model="draft.model" :models="modelChoices" label="Model" />
+            <ModelSwitcher v-model="draft.model" :models="modelChoices" label="Model" open-up />
           </div>
         </div>
-        <label
-          >Visibility<SelectPicker
-            ><select v-model="draft.visibility" aria-label="Visibility">
-              <option value="workspace">Workspace</option>
-              <option value="private">Private</option>
-            </select></SelectPicker
-          ></label
-        ><label
-          >Instructions<textarea
-            v-model="draft.instructions"
-            aria-label="Agent instructions"
-            class="instructions-input"
-          />
-        </label>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <footer>
-          <button type="button" class="button" @click="editor = false">Cancel</button
-          ><button class="button primary" :disabled="busy || !draft.name.trim()">
-            Create agent
-          </button>
+          <button type="button" class="button" :disabled="busy" @click="closeEditor">Cancel</button>
+          <button class="button primary" :disabled="busy || !draft.name.trim()">Create</button>
         </footer>
-      </form></Modal
-    >
+      </form>
+    </Modal>
   </section>
 </template>
 <style src="../../ui/directory.css" />
@@ -440,16 +426,75 @@ async function save() {
   width: 100%;
   max-width: none;
   margin: 0;
+  gap: 14px;
+}
+.agent-directory :deep(dialog.modal) {
+  width: 440px;
+}
+.agent-form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.agent-form-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.agent-visibility {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.agent-visibility legend,
+.new-agent-model-field > span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.agent-visibility-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.agent-visibility-options label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+}
+.agent-visibility-options label.selected {
+  border-color: var(--text);
+  background: var(--input);
+}
+.agent-visibility-options input {
+  width: auto;
+  flex: none;
+}
+.agent-visibility-options b,
+.agent-visibility-options small {
+  display: block;
+}
+.agent-visibility-options small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
 }
 
 .agent-directory {
-  padding: 4px 4px 32px 20px;
+  padding: 4px 20px 32px;
 }
 .agent-filter {
   margin-left: auto;
 }
-.agent-toolbar {
-  margin-right: 16px;
+.agent-directory .agent-toolbar {
+  padding-inline: 0;
+  margin-right: calc(-1 * var(--agent-scrollbar-width, 0px));
 }
 .agent-sort {
   margin-left: 0;

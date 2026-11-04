@@ -127,13 +127,15 @@ const unavailable = computed(
       </div>
       <div v-else class="workflow-body workflow-files" role="tabpanel">
         <div class="workflow-tree">
-          <p class="workflow-count">{{ w.files.length }} files</p>
-          <label class="agent-search"
-            ><Icon name="search" :size="14" /><input
-              v-model="filter"
-              placeholder="Search files..."
-              aria-label="Search files"
-          /></label>
+          <div class="workflow-tree-toolbar">
+            <p class="workflow-count">{{ w.files.length }} files</p>
+            <label class="agent-search"
+              ><Icon name="search" :size="14" /><input
+                v-model="filter"
+                placeholder="Search files..."
+                aria-label="Search files"
+            /></label>
+          </div>
           <ul>
             <li v-for="[name, list] in tree.folders" :key="name">
               <button type="button" :aria-expanded="expanded(name)" @click="toggle(name)">
@@ -178,6 +180,13 @@ const unavailable = computed(
 </template>
 <style src="../agents/agent-detail.css" />
 <style scoped>
+.workflow-detail {
+  --gutter: 16px;
+  scrollbar-gutter: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .workflow-detail .team-heading {
   flex: 1;
   min-width: 0;
@@ -186,6 +195,9 @@ const unavailable = computed(
   flex: none;
 }
 .workflow-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 20px var(--gutter);
 }
 .workflow-facts {
@@ -207,6 +219,21 @@ const unavailable = computed(
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 20px;
+}
+.workflow-tree-toolbar {
+  display: grid;
+  justify-items: stretch;
+  width: 224px;
+  max-width: 100%;
+  gap: 8px;
+}
+.workflow-tree-toolbar .agent-search {
+  min-width: 0;
+  width: 100%;
+}
+.workflow-tree-toolbar .workflow-count {
+  margin: 0;
+  text-align: right;
 }
 .workflow-tree ul {
   list-style: none;

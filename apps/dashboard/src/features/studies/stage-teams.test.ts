@@ -511,12 +511,13 @@ describe('new agent model picker', () => {
       () => ({ create: true }),
       '/agents/new',
       (c) => {
+        c.setQueryData(keys.agents('w'), []);
         c.setQueryData(keys.runtimes('w'), [
           {
             owner_id: 'u1',
             status: 'online',
             harness: 'claude',
-            models: [{ value: 'opus', label: 'Opus' }],
+            models: [{ value: 'default', label: 'Default (recommended)' }, { value: 'opus', label: 'Opus' }],
           },
           {
             owner_id: 'u1',
@@ -528,18 +529,23 @@ describe('new agent model picker', () => {
       },
     );
     try {
-      await t.click(/Start blank/);
+      expect(t.text()).toContain('Create Agent');
+      expect(t.text()).not.toContain('Start blank');
+      expect(t.text()).not.toContain('Build with AI');
       const picker = () =>
         t.nodes().find((n) => String(n.props['aria-label']).startsWith('Model:'))!;
-      expect(picker().props['aria-label']).toBe('Model: Default');
+      expect(picker().props['aria-label']).toBe('Model: Default (Recommended)');
       await (picker().props.onClick as () => Promise<void>)();
       await nextTick();
+      expect(t.nodes().find((n) => n.props['aria-label'] === 'Model options')?.props.style).toMatchObject({ bottom: 'calc(100% + 8px)' });
+      expect(t.nodes().filter((n) => n.props.role === 'option' && /default/i.test(textOf(n)))).toHaveLength(1);
       await t.click(/^Opus$/);
       expect(picker().props['aria-label']).toBe('Model: Opus');
       const harness = t.nodes().find((n) => n.props['aria-label'] === 'Harness: Claude Code')!;
       expect(harness).toBeDefined();
       await (harness.props.onClick as () => Promise<void>)();
       await nextTick();
+      expect(t.nodes().find((n) => n.props['aria-label'] === 'Harness options')?.props.style).toMatchObject({ bottom: 'calc(100% + 8px)' });
       await t.click(/^Codex$/);
       expect(picker().props['aria-label']).toBe('Model: Default');
       await (picker().props.onClick as () => Promise<void>)();
@@ -594,6 +600,10 @@ describe('TeamDetail', () => {
       },
     );
     try {
+      const breadcrumb = t.nodes().find((n) => n.props['aria-label'] === 'Team navigation')!;
+      expect(textOf(breadcrumb)).toContain('Teams');
+      expect(textOf(breadcrumb)).toContain('Hypotheses Team');
+      expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/teams');
       const header = () => t.nodes().find((n) => n.props.class === 'agent-meta')!;
       expect(textOf(header())).toContain('Claude Code');
       expect(textOf(header())).not.toContain('Codex');
