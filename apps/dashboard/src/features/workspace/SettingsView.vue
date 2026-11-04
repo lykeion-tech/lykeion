@@ -1208,6 +1208,12 @@ async function copySlug() {
   color: var(--muted);
   margin: 0;
 }
+.table-description code {
+  background: var(--input);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .label-scope {
   width: max-content;
   margin: 0 0 16px;
