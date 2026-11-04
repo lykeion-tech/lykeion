@@ -22,6 +22,16 @@ func TestLabChatDeletionUpgradeFrom0052AndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	draftDown, e := fs.ReadFile(migrations.FS, "0055_manual_decision_drafts.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = conn.Exec(ctx, string(draftDown)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = conn.Exec(ctx, `DELETE FROM schema_migrations WHERE version=55`); e != nil {
+		t.Fatal(e)
+	}
 	if _, err = conn.Exec(ctx, string(down)); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +59,16 @@ func TestLabChatDeletionUpgradeFrom0052AndRollback(t *testing.T) {
 	}
 	if _, err = conn.Exec(ctx, `UPDATE lab_chat SET deleted_at=now(),title='' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
+	}
+	draftDown, e = fs.ReadFile(migrations.FS, "0055_manual_decision_drafts.down.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = conn.Exec(ctx, string(draftDown)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = conn.Exec(ctx, `DELETE FROM schema_migrations WHERE version=55`); e != nil {
+		t.Fatal(e)
 	}
 	if _, err = conn.Exec(ctx, string(down)); err != nil {
 		t.Fatal(err)

@@ -63,7 +63,8 @@ func strictSchema(kv ...any) string {
 }
 
 var schemas = map[Kind]string{
-	Aristotle: strictSchema("statements", list(object("kind", enum("fact", "lesson", "gap"), "text", str(), "cites", list(str())))),
+	ManualDecisionDraft: strictSchema("message", str(), "draft", object("title", str(), "context", str(), "deadline", nullStr(), "card_id", nullStr()), "statements", list(object("kind", enum("fact", "lesson", "gap"), "text", str(), "cites", list(str())))),
+	Aristotle:           strictSchema("statements", list(object("kind", enum("fact", "lesson", "gap"), "text", str(), "cites", list(str())))),
 	Grounding: build(
 		"papers", list(object("id", str(), "why", str())),
 		"datasets", list(object("accession", str(), "why", str())),

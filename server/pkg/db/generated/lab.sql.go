@@ -38,7 +38,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 }
 
 const createLabChat = `-- name: CreateLabChat :one
-INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source
 `
 
 func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
@@ -52,6 +52,9 @@ func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Purpose,
+		&i.Draft,
+		&i.DraftSource,
 	)
 	return i, err
 }
@@ -91,7 +94,7 @@ func (q *Queries) FlagLabLesson(ctx context.Context, id uuid.UUID) (uuid.UUID, e
 }
 
 const getLabQuestion = `-- name: GetLabQuestion :one
-SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user()
+SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources, proposal, request_id FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user()
 AND agent_run_id= $1::uuid AND kind='question'
 `
 
@@ -115,12 +118,14 @@ func (q *Queries) GetLabQuestion(ctx context.Context, runID uuid.UUID) (LabMessa
 		&i.LaunchAttempt,
 		&i.StaleAttempt,
 		&i.LaunchSources,
+		&i.Proposal,
+		&i.RequestID,
 	)
 	return i, err
 }
 
 const getPrivateAnswerSources = `-- name: GetPrivateAnswerSources :one
-SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
+SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.proposal,m.context_card_id,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
 FROM lab_message m JOIN lab_message q ON q.workspace_id=m.workspace_id AND q.chat_id=m.chat_id
 AND q.owner_id=m.owner_id AND q.agent_run_id=m.agent_run_id AND q.kind='question'
 WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.chat_id= $1 AND m.id= $2 AND m.kind='answer'
@@ -136,6 +141,8 @@ type GetPrivateAnswerSourcesRow struct {
 	Kind          string          `json:"kind"`
 	LaunchSources []uuid.UUID     `json:"launch_sources"`
 	Question      string          `json:"question"`
+	Proposal      json.RawMessage `json:"proposal"`
+	ContextCardID *uuid.UUID      `json:"context_card_id"`
 	Statements    json.RawMessage `json:"statements"`
 	Evidence      json.RawMessage `json:"evidence"`
 	HistorySafe   bool            `json:"history_safe"`
@@ -149,6 +156,8 @@ func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAns
 		&i.Kind,
 		&i.LaunchSources,
 		&i.Question,
+		&i.Proposal,
+		&i.ContextCardID,
 		&i.Statements,
 		&i.Evidence,
 		&i.HistorySafe,
@@ -157,7 +166,7 @@ func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAns
 }
 
 const getPrivateLabChat = `-- name: GetPrivateLabChat :one
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
 `
 
 func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat, error) {
@@ -171,6 +180,9 @@ func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Purpose,
+		&i.Draft,
+		&i.DraftSource,
 	)
 	return i, err
 }
@@ -475,19 +487,26 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 }
 
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
-AND ($1::timestamptz IS NULL OR (updated_at,id)<($1,$2::uuid))
-ORDER BY updated_at DESC,id DESC LIMIT $3::int
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
+AND purpose=COALESCE(NULLIF($1::text,''),'answer')
+AND ($2::timestamptz IS NULL OR (updated_at,id)<($2,$3::uuid))
+ORDER BY updated_at DESC,id DESC LIMIT $4::int
 `
 
 type ListPrivateLabChatsParams struct {
+	Purpose    string     `json:"purpose"`
 	BeforeTime *time.Time `json:"before_time"`
 	BeforeID   uuid.UUID  `json:"before_id"`
 	PageSize   int32      `json:"page_size"`
 }
 
 func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabChatsParams) ([]LabChat, error) {
-	rows, err := q.db.Query(ctx, listPrivateLabChats, arg.BeforeTime, arg.BeforeID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listPrivateLabChats,
+		arg.Purpose,
+		arg.BeforeTime,
+		arg.BeforeID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -503,6 +522,9 @@ func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabCha
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Purpose,
+			&i.Draft,
+			&i.DraftSource,
 		); err != nil {
 			return nil, err
 		}
@@ -515,7 +537,7 @@ func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabCha
 }
 
 const listPrivateLabMessages = `-- name: ListPrivateLabMessages :many
-SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1
+SELECT id, workspace_id, chat_id, owner_id, kind, body, statements, context_card_id, context_ref, agent_run_id, created_at, evidence, history_safe, launch_attempt, stale_attempt, launch_sources, proposal, request_id FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1
 AND ($2::timestamptz IS NULL OR (created_at,id)<($2,$3::uuid))
 ORDER BY created_at DESC,id DESC LIMIT $4::int
 `
@@ -558,6 +580,8 @@ func (q *Queries) ListPrivateLabMessages(ctx context.Context, arg ListPrivateLab
 			&i.LaunchAttempt,
 			&i.StaleAttempt,
 			&i.LaunchSources,
+			&i.Proposal,
+			&i.RequestID,
 		); err != nil {
 			return nil, err
 		}
@@ -570,7 +594,7 @@ func (q *Queries) ListPrivateLabMessages(ctx context.Context, arg ListPrivateLab
 }
 
 const lockPrivateLabChatRuns = `-- name: LockPrivateLabChatRuns :many
-SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
+SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
  AND r.kind='aristotle' AND r.lab_chat_id= $1::uuid ORDER BY r.id FOR UPDATE
 `
 
@@ -634,6 +658,7 @@ func (q *Queries) LockPrivateLabChatRuns(ctx context.Context, chatID uuid.UUID) 
 			&i.InfraFailures,
 			&i.AttachmentSnapshot,
 			&i.LabChatID,
+			&i.LabPurpose,
 		); err != nil {
 			return nil, err
 		}

@@ -90,6 +90,7 @@ type AgentRun struct {
 	InfraFailures         int32           `json:"infra_failures"`
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
+	LabPurpose            string          `json:"lab_purpose"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -685,13 +686,16 @@ type InboxItem struct {
 }
 
 type LabChat struct {
-	ID          uuid.UUID  `json:"id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	OwnerID     uuid.UUID  `json:"owner_id"`
-	Title       string     `json:"title"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	DeletedAt   *time.Time `json:"deleted_at"`
+	ID          uuid.UUID       `json:"id"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	OwnerID     uuid.UUID       `json:"owner_id"`
+	Title       string          `json:"title"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	DeletedAt   *time.Time      `json:"deleted_at"`
+	Purpose     string          `json:"purpose"`
+	Draft       json.RawMessage `json:"draft"`
+	DraftSource *uuid.UUID      `json:"draft_source"`
 }
 
 type LabCursor struct {
@@ -734,6 +738,8 @@ type LabMessage struct {
 	LaunchAttempt *int32          `json:"launch_attempt"`
 	StaleAttempt  *int32          `json:"stale_attempt"`
 	LaunchSources []uuid.UUID     `json:"launch_sources"`
+	Proposal      json.RawMessage `json:"proposal"`
+	RequestID     *uuid.UUID      `json:"request_id"`
 }
 
 type LabRead struct {

@@ -34,7 +34,7 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if err != nil {
 		return db.AgentRun{}, err
 	}
-	run, err := tx.Q.InsertLabAgentRun(ctx, db.InsertLabAgentRunParams{ChatID: chat.ID, Asker: asker, AgentID: &a.ID, Harness: harness, Model: model, Skill: a.Instructions + "\n\n" + Protocol()})
+	run, err := tx.Q.InsertLabAgentRun(ctx, db.InsertLabAgentRunParams{ChatID: chat.ID, Asker: asker, AgentID: &a.ID, Harness: harness, Model: model, Skill: a.Instructions + "\n\n" + protocolForChat(chat)})
 	if err != nil {
 		return run, err
 	}
@@ -48,5 +48,15 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if err = runs.NotifyQueued(ctx, tx, run); err != nil {
 		return run, err
 	}
+	if chat.Purpose == ManualDraftPurpose {
+		return run, tx.EmitPrivate(ctx, asker, "lab.message.created", store.User(asker), map[string]any{"chat_id": chat.ID, "owner_id": asker})
+	}
 	return run, tx.Emit(ctx, "lab.message.created", nil, store.User(asker), map[string]any{"chat_id": chat.ID, "owner_id": asker})
+}
+
+func protocolForChat(chat db.LabChat) string {
+	if chat.Purpose == ManualDraftPurpose {
+		return ManualDraftProtocol()
+	}
+	return Protocol()
 }

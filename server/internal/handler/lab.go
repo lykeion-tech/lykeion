@@ -2,6 +2,9 @@ package handler
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strconv"
@@ -12,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
@@ -20,16 +24,28 @@ import (
 )
 
 type labMessage struct {
-	ID         uuid.UUID                    `json:"id"`
-	Kind       string                       `json:"kind"`
-	Body       string                       `json:"body"`
-	Statements []labmemory.DisplayStatement `json:"statements"`
-	Evidence   []labmemory.DisplayRef       `json:"evidence"`
-	CreatedAt  time.Time                    `json:"created_at"`
+	CurrentDraft *handin.ManualDraft          `json:"current_draft,omitempty"`
+	Proposal     *labmemory.DraftProposal     `json:"proposal,omitempty"`
+	ID           uuid.UUID                    `json:"id"`
+	Kind         string                       `json:"kind"`
+	Body         string                       `json:"body"`
+	Statements   []labmemory.DisplayStatement `json:"statements"`
+	Evidence     []labmemory.DisplayRef       `json:"evidence"`
+	CreatedAt    time.Time                    `json:"created_at"`
 }
 
 func labPlainMessage(m db.LabMessage) labMessage {
-	return labMessage{m.ID, m.Kind, m.Body, []labmemory.DisplayStatement{}, []labmemory.DisplayRef{}, m.CreatedAt}
+	return labMessage{ID: m.ID, Kind: m.Kind, Body: m.Body, Statements: []labmemory.DisplayStatement{}, Evidence: []labmemory.DisplayRef{}, CreatedAt: m.CreatedAt}
+}
+
+func labDraftMessage(m db.LabMessage) labMessage {
+	out := labPlainMessage(m)
+	var turn labmemory.DraftTurn
+	if m.Kind == "question" && json.Unmarshal([]byte(m.Body), &turn) == nil {
+		out.Body = turn.UserRequest
+		out.CurrentDraft = &turn.CurrentDraft
+	}
+	return out
 }
 
 func labCursor(t time.Time, id uuid.UUID) string {
@@ -72,10 +88,34 @@ func (h *H) listLabChats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := middleware.TxFrom(r.Context()).Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: p.before, BeforeID: p.id, PageSize: p.limit + 1})
-	if err != nil {
-		fail(w, r, err)
-		return
+	tx := middleware.TxFrom(r.Context())
+	rows := []db.LabChat{}
+	before, id := p.before, p.id
+	for len(rows) <= int(p.limit) {
+		page, err := tx.Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: before, BeforeID: id, PageSize: p.limit + 1, Purpose: r.URL.Query().Get("purpose")})
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		for _, chat := range page {
+			if chat.Purpose == labmemory.ManualDraftPurpose {
+				ok, e := labmemory.DraftReadable(r.Context(), tx, chat)
+				if e != nil {
+					fail(w, r, e)
+					return
+				}
+				if !ok {
+					continue
+				}
+			}
+			rows = append(rows, chat)
+		}
+		if len(page) < int(p.limit+1) {
+			break
+		}
+		last := page[len(page)-1]
+		before = &last.UpdatedAt
+		id = last.ID
 	}
 	next := ""
 	if len(rows) > int(p.limit) {
@@ -90,7 +130,24 @@ func (h *H) listLabChats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) createLabChat(w http.ResponseWriter, r *http.Request) {
-	row, err := middleware.TxFrom(r.Context()).Q.CreateLabChat(r.Context())
+	var in struct {
+		Purpose string `json:"purpose"`
+	}
+	if err := readJSON(r, &in); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, 400, "invalid chat")
+		return
+	}
+	var row db.LabChat
+	var err error
+	switch in.Purpose {
+	case "", "answer":
+		row, err = middleware.TxFrom(r.Context()).Q.CreateLabChat(r.Context())
+	case labmemory.ManualDraftPurpose:
+		row, err = middleware.TxFrom(r.Context()).Q.CreateManualDraftChat(r.Context())
+	default:
+		writeErr(w, 400, "invalid purpose")
+		return
+	}
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -175,6 +232,15 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
+		if chat.Purpose == labmemory.ManualDraftPurpose {
+			ok, e := labmemory.DraftReadable(ctx, tx, chat)
+			if e != nil {
+				return e
+			}
+			if !ok {
+				return pgx.ErrNoRows
+			}
+		}
 		pending, e = tx.Q.LabChatHasPendingRuns(ctx, chat.ID)
 		if e != nil {
 			return e
@@ -194,6 +260,17 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 		reader := labmemory.NewDisplayReader(tx, who, chat.ID)
 		for _, row := range rows {
 			m := labPlainMessage(row)
+			if chat.Purpose == labmemory.ManualDraftPurpose {
+				if row.Kind == "question" {
+					if _, e := labmemory.DraftQuestionStudy(ctx, tx, who, row.Body, row.ContextCardID); e != nil {
+						if errors.Is(e, labmemory.ErrNotFound) {
+							continue
+						}
+						return e
+					}
+				}
+				m = labDraftMessage(row)
+			}
 			if row.Kind == "answer" {
 				ss, ee, safe, e := reader.Answer(ctx, row)
 				if e != nil {
@@ -203,6 +280,12 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 				if safe {
 					m.Statements = ss
 					m.Evidence = ee
+					if chat.Purpose == labmemory.ManualDraftPurpose && len(row.Proposal) > 0 {
+						var p labmemory.DraftProposal
+						if json.Unmarshal(row.Proposal, &p) == nil {
+							m.Proposal = &p
+						}
+					}
 				} else {
 					m.Kind = "failure"
 					m.Body = "This answer is unavailable because its evidence has changed."
@@ -226,6 +309,10 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 	chat, err := privateLabChat(r, tx)
 	if err != nil {
 		fail(w, r, err)
+		return
+	}
+	if chat.Purpose == labmemory.ManualDraftPurpose {
+		h.askManualDraft(w, r, chat)
 		return
 	}
 	var in struct {

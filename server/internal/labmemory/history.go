@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -27,6 +28,15 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 			return "", service.ErrNotYours
 		}
 		return "", err
+	}
+	if run.LabPurpose == ManualDraftPurpose {
+		question, e := tx.Q.GetLabQuestion(ctx, run.ID)
+		if e != nil {
+			return "", e
+		}
+		if _, e = DraftQuestionStudy(ctx, tx, asker, question.Body, question.ContextCardID); e != nil {
+			return "", e
+		}
 	}
 	// Dispatched attempts from an older server may still contain frozen history.
 	// Rebuild the base exclusively from the current question, even on upgrade.
@@ -55,6 +65,19 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 // an answer. A model can use any answer it saw, even if it omits its citations.
 func currentHistory(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]string, []uuid.UUID, error) {
 	asker := *run.RequesterID
+	if run.LabPurpose == ManualDraftPurpose {
+		chat, e := tx.Q.GetPrivateLabChat(ctx, *run.LabChatID)
+		if e != nil {
+			return nil, nil, e
+		}
+		ok, e := DraftReadable(ctx, tx, chat)
+		if e != nil {
+			return nil, nil, e
+		}
+		if !ok {
+			return nil, nil, ErrNotFound
+		}
+	}
 	rows, err := tx.Q.LabPriorTurns(ctx, run.ID)
 	if err != nil {
 		return nil, nil, err
@@ -88,6 +111,14 @@ func currentHistory(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]strin
 	sources := []uuid.UUID{}
 	for _, row := range rows {
 		if row.Kind == "question" {
+			if run.LabPurpose == ManualDraftPurpose {
+				if _, e := DraftQuestionStudy(ctx, tx, asker, row.Question, row.ContextCardID); e != nil {
+					if errors.Is(e, ErrNotFound) {
+						continue
+					}
+					return nil, nil, e
+				}
+			}
 			history = append(history, "question: "+row.Question)
 			continue
 		}
@@ -148,7 +179,7 @@ func launchStillVisible(ctx context.Context, tx *store.Tx, run db.AgentRun) (boo
 func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, error)) ([]string, bool, error) {
 	var evidence []answerEvidence
 	var statements []answerStatement
-	if !row.HistorySafe || json.Unmarshal(row.Evidence, &evidence) != nil || json.Unmarshal(row.Statements, &statements) != nil || len(statements) == 0 {
+	if !row.HistorySafe || json.Unmarshal(row.Evidence, &evidence) != nil || json.Unmarshal(row.Statements, &statements) != nil || (len(statements) == 0 && len(row.Proposal) == 0) {
 		return nil, false, nil
 	}
 	visible := map[string]string{}
@@ -173,6 +204,18 @@ func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, err
 			}
 		}
 		lines = append(lines, "answer ("+s.Kind+"): "+s.Text)
+	}
+	if len(row.Proposal) > 0 {
+		var p DraftProposal
+		if json.Unmarshal(row.Proposal, &p) != nil || len(handin.ValidateManualDraft(p.Draft, false)) > 0 {
+			return nil, false, nil
+		}
+		if p.Draft.CardID != nil {
+			if _, ok := visible["study:"+*p.Draft.CardID]; !ok {
+				return nil, false, nil
+			}
+		}
+		lines = append(lines, "proposal (not a fact): "+string(row.Proposal))
 	}
 	return lines, true, nil
 }

@@ -38,6 +38,7 @@ type answerStatement struct {
 	Cites []answerCite `json:"cites"`
 }
 type checkedAnswer struct {
+	Proposal    *DraftProposal    `json:"proposal,omitempty"`
 	HistorySafe bool              `json:"history_safe"`
 	Statements  []answerStatement `json:"statements"`
 	Evidence    []answerEvidence  `json:"evidence"`
@@ -53,6 +54,13 @@ func pin(f Fact) answerCite {
 // Answer runs inside the authenticated, locked attempt, under the requester's
 // RLS identity. Read also checks the facts behind each checked, active lesson.
 func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw json.RawMessage) ([]string, error) {
+	if run.LabPurpose != "" && run.LabPurpose != "answer" {
+		return nil, service.ErrNotYours
+	}
+	return a.answer(ctx, tx, run, raw, handin.Aristotle)
+}
+
+func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw json.RawMessage, k handin.Kind) ([]string, error) {
 	if run.Kind != "aristotle" || run.WorkspaceID != tx.WS || run.RequesterID == nil || run.LabChatID == nil {
 		return nil, service.ErrNotYours
 	}
@@ -94,6 +102,34 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		}
 		return []string{FreshTurnProblem}, nil
 	}
+	chat, err := tx.Q.GetPrivateLabChat(ctx, *run.LabChatID)
+	if err != nil {
+		return nil, err
+	}
+	if chat.Purpose != run.LabPurpose {
+		return nil, service.ErrNotYours
+	}
+	var draftContext *uuid.UUID
+	if k == handin.ManualDecisionDraft {
+		readable, e := DraftReadable(ctx, tx, chat)
+		if e != nil {
+			return nil, e
+		}
+		if !readable {
+			return denyStale()
+		}
+		question, e := tx.Q.GetLabQuestion(ctx, run.ID)
+		if e != nil {
+			return nil, e
+		}
+		draftContext, e = DraftQuestionStudy(ctx, tx, asker, question.Body, question.ContextCardID)
+		if errors.Is(e, ErrNotFound) {
+			return denyStale()
+		}
+		if e != nil {
+			return nil, e
+		}
+	}
 	safe, err := launchStillVisible(ctx, tx, run)
 	if err != nil {
 		return nil, err
@@ -127,6 +163,16 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		return c, true, nil
 	}
 	result := checkedAnswer{Evidence: []answerEvidence{}, HistorySafe: true}
+	if draftContext != nil {
+		cite, visible, e := lookup(Ref{Kind: "study", ID: *draftContext})
+		if e != nil {
+			return nil, e
+		}
+		if !visible {
+			return denyStale()
+		}
+		result.Evidence = append(result.Evidence, answerEvidence{cite, "read"})
+	}
 	readHere := map[Ref]bool{}
 	for _, row := range log {
 		ref, e := ParseRef(row.Ref)
@@ -161,9 +207,31 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		}
 		result.Evidence = append(result.Evidence, answerEvidence{cite, via})
 	}
-	h, probs := handin.Parse(handin.Aristotle, raw)
+	h, probs := handin.Parse(k, raw)
 	if len(probs) > 0 {
 		return probs, nil
+	}
+	if k == handin.ManualDecisionDraft {
+		card, e := DraftStudy(ctx, tx, asker, *h.Draft)
+		if errors.Is(e, ErrNotFound) {
+			return []string{"draft study is unavailable"}, nil
+		}
+		if e != nil {
+			return nil, e
+		}
+		if card != nil {
+			canonical := card.String()
+			h.Draft.CardID = &canonical
+			cite, visible, e := lookup(Ref{Kind: "study", ID: *card})
+			if e != nil {
+				return nil, e
+			}
+			if !visible {
+				return denyStale()
+			}
+			result.Evidence = append(result.Evidence, answerEvidence{cite, "read"})
+		}
+		result.Proposal = &DraftProposal{Message: h.Message, Draft: *h.Draft}
 	}
 	for i, s := range h.Statements {
 		stmt := answerStatement{Kind: s.Kind, Text: s.Text, Cites: []answerCite{}}
@@ -207,10 +275,18 @@ func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 	if err != nil {
 		return nil, err
 	}
+	if k == handin.ManualDecisionDraft {
+		if _, err = tx.Q.SetManualDraftSource(ctx, db.SetManualDraftSourceParams{ID: *run.LabChatID, Source: id}); err != nil {
+			return nil, err
+		}
+	}
 	return nil, emitAnswerEvent(ctx, tx, run, id)
 }
 
 func emitAnswerEvent(ctx context.Context, tx *store.Tx, run db.AgentRun, id uuid.UUID) error {
+	if run.LabPurpose == ManualDraftPurpose {
+		return tx.EmitPrivate(ctx, *run.RequesterID, "lab.message.created", store.System, map[string]any{"message_id": id, "chat_id": *run.LabChatID, "owner_id": *run.RequesterID})
+	}
 	return tx.Emit(ctx, "lab.message.created", nil, store.System, map[string]any{"message_id": id, "chat_id": *run.LabChatID, "owner_id": *run.RequesterID})
 }
 

@@ -109,6 +109,7 @@ SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user(
 
 -- name: ListPrivateLabChats :many
 SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
+AND purpose=COALESCE(NULLIF(@purpose::text,''),'answer')
 AND (sqlc.narg(before_time)::timestamptz IS NULL OR (updated_at,id)<(sqlc.narg(before_time),@before_id::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT @page_size::int;
 
@@ -126,7 +127,7 @@ SELECT * FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_us
 AND agent_run_id= @run_id::uuid AND kind='question';
 
 -- name: GetPrivateAnswerSources :one
-SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
+SELECT m.id,m.kind,q.launch_sources,''::text AS question,m.proposal,m.context_card_id,m.statements,m.evidence,COALESCE(m.history_safe,false)::boolean AS history_safe
 FROM lab_message m JOIN lab_message q ON q.workspace_id=m.workspace_id AND q.chat_id=m.chat_id
 AND q.owner_id=m.owner_id AND q.agent_run_id=m.agent_run_id AND q.kind='question'
 WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user() AND m.chat_id= @chat_id AND m.id= @id AND m.kind='answer';

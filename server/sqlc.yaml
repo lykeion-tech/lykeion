@@ -28,6 +28,10 @@ sql:
               pointer: true
           - db_type: jsonb
             go_type: encoding/json.RawMessage
+          - column: lab_chat.draft
+            go_type: encoding/json.RawMessage
+          - column: lab_message.proposal
+            go_type: encoding/json.RawMessage
           - column: inbox_item.question_set
             go_type: encoding/json.RawMessage
           - column: inbox_item.answers

@@ -21,14 +21,15 @@ import (
 type Kind string
 
 const (
-	Aristotle       Kind = "aristotle"
-	Grounding       Kind = "grounding"
-	Hypotheses      Kind = "hypotheses"
-	Experimentation Kind = "experimentation"
-	Auditor         Kind = "auditor"
-	Autoresearch    Kind = "autoresearch"
-	Validation      Kind = "validation"
-	Objector        Kind = "objector"
+	Aristotle           Kind = "aristotle"
+	ManualDecisionDraft Kind = "manual_decision_draft"
+	Grounding           Kind = "grounding"
+	Hypotheses          Kind = "hypotheses"
+	Experimentation     Kind = "experimentation"
+	Auditor             Kind = "auditor"
+	Autoresearch        Kind = "autoresearch"
+	Validation          Kind = "validation"
+	Objector            Kind = "objector"
 )
 
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
@@ -228,7 +229,16 @@ type Statement struct {
 }
 
 // HandIn holds every field of every kind; Parse refuses fields outside the chosen schema.
+type ManualDraft struct {
+	Title    string  `json:"title"`
+	Context  string  `json:"context"`
+	Deadline *string `json:"deadline"`
+	CardID   *string `json:"card_id"`
+}
+
 type HandIn struct {
+	Message      string         `json:"message"`
+	Draft        *ManualDraft   `json:"draft"`
 	Statements   []Statement    `json:"statements"`
 	Status       string         `json:"status"` // done | could_not_do | ask
 	Decision     *DecisionIn    `json:"decision"`
@@ -301,6 +311,9 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		if !ok {
 			probs = append(probs, fmt.Sprintf(format, a...))
 		}
+	}
+	if k == ManualDecisionDraft {
+		return parseManualDraft(h, keys)
 	}
 	if k == Aristotle {
 		add(len(h.Statements) >= 1 && len(h.Statements) <= 40, "statements: give 1 to 40 statements")

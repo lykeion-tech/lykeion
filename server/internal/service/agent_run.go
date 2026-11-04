@@ -401,12 +401,19 @@ func agentRunEvent(t db.AgentRun) map[string]any {
 	return map[string]any{"agent_run_id": t.ID, "role": t.Role, "column": t.BoardColumn, "round": t.Round, "status": t.Status, "attempt": t.Attempt}
 }
 
+func emitAgentRunEvent(ctx context.Context, tx *store.Tx, run db.AgentRun, typ string, actor store.Actor, payload any) error {
+	if run.Kind == "aristotle" && run.LabPurpose == "manual_decision_draft" && run.RequesterID != nil {
+		return tx.EmitPrivate(ctx, *run.RequesterID, typ, actor, payload)
+	}
+	return tx.Emit(ctx, typ, run.CardID, actor, payload)
+}
+
 // NotifyQueued wakes the responsible user's daemons after this transaction
 // commits. The event carries run metadata only.
 func (s *AgentRuns) NotifyQueued(ctx context.Context, tx *store.Tx, t db.AgentRun) error {
 	p := agentRunEvent(t)
 	p["owner_id"] = t.ResponsibleUserID
-	return tx.Emit(ctx, "agent_run.queued", t.CardID, store.System, p)
+	return emitAgentRunEvent(ctx, tx, t, "agent_run.queued", store.System, p)
 }
 
 // Enqueue adds an agent run in the caller's transaction. The owner is responsible
@@ -464,7 +471,7 @@ func failRemovedHarness(ctx context.Context, tx *store.Tx, t db.AgentRun) (db.Ag
 	if err := saveSettlement(ctx, tx, f); err != nil {
 		return f, err
 	}
-	return f, tx.Emit(ctx, "agent_run.failed", f.CardID, store.System, agentRunEvent(f))
+	return f, emitAgentRunEvent(ctx, tx, f, "agent_run.failed", store.System, agentRunEvent(f))
 }
 
 // Register brings the daemon's runtimes online. A missing version or platform
@@ -915,7 +922,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						}
 						refused = append(refused, f)
 						progress = true
-						return tx.Emit(ctx, "agent_run.failed", f.CardID, store.System, agentRunEvent(f))
+						return emitAgentRunEvent(ctx, tx, f, "agent_run.failed", store.System, agentRunEvent(f))
 					}
 					if mcp == nil {
 						mcp = []agent.MCPServer{}
@@ -1036,7 +1043,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						mcpURL = s.LabMCPURL
 					}
 					c = &Claimed{Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
-					return tx.Emit(ctx, "agent_run.dispatched", t.CardID, store.System, agentRunEvent(t))
+					return emitAgentRunEvent(ctx, tx, t, "agent_run.dispatched", store.System, agentRunEvent(t))
 				}()
 				if err != nil {
 					return err
@@ -1297,7 +1304,7 @@ func startLocked(ctx context.Context, tx *store.Tx, ref RuntimeRef, t db.AgentRu
 	if err := tx.Q.StartMachineAttempt(ctx, db.StartMachineAttemptParams{WorkspaceID: tx.WS, AgentRunID: t.ID, Attempt: ref.Attempt, RuntimeID: ref.RuntimeID}); err != nil {
 		return err
 	}
-	return tx.Emit(ctx, "agent_run.started", t.CardID, store.System, agentRunEvent(t))
+	return emitAgentRunEvent(ctx, tx, t, "agent_run.started", store.System, agentRunEvent(t))
 }
 
 // OnAttempt runs fn on run's attempt ref, with the run locked, in the
@@ -1511,7 +1518,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 			if err := saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
 				return err
 			}
-			return tx.Emit(ctx, "agent_run.usage_updated", out.CardID, store.System, agentRunEvent(out))
+			return emitAgentRunEvent(ctx, tx, out, "agent_run.usage_updated", store.System, agentRunEvent(out))
 		}
 		if err := tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: ref.WorkspaceID, AgentRunID: run}); err != nil {
 			return err
@@ -1545,7 +1552,7 @@ func (s *AgentRuns) settle(ctx context.Context, user uuid.UUID, ref RuntimeRef, 
 		if err = saveReceipt(ctx, tx, out, t.RuntimeID); err != nil {
 			return err
 		}
-		if err = tx.Emit(ctx, "agent_run."+out.Status, out.CardID, store.System, agentRunEvent(out)); err != nil {
+		if err = emitAgentRunEvent(ctx, tx, out, "agent_run."+out.Status, store.System, agentRunEvent(out)); err != nil {
 			return err
 		}
 		ended = true
@@ -1695,7 +1702,7 @@ func cancelLocked(ctx context.Context, tx *store.Tx, user, run uuid.UUID) (db.Ag
 	if user == uuid.Nil {
 		actor = store.System
 	}
-	return t, tx.Emit(ctx, "agent_run.cancelled", t.CardID, actor, agentRunEvent(t))
+	return t, emitAgentRunEvent(ctx, tx, t, "agent_run.cancelled", actor, agentRunEvent(t))
 }
 
 // CancelCardRuns cancels every open run of a study about to be deleted, in the
@@ -1904,7 +1911,7 @@ func (s *AgentRuns) Sweep(ctx context.Context) error {
 			if terminal(out.Status) {
 				event = "agent_run." + out.Status
 			}
-			if err := tx.Emit(ctx, event, out.CardID, store.System, agentRunEvent(out)); err != nil {
+			if err := emitAgentRunEvent(ctx, tx, out, event, store.System, agentRunEvent(out)); err != nil {
 				return err
 			}
 		}

@@ -32,6 +32,10 @@ type HandIns struct {
 	Aristotle    AristotleOps
 }
 
+type DraftOps interface {
+	Draft(context.Context, *store.Tx, db.AgentRun, json.RawMessage) ([]string, error)
+}
+
 type AristotleOps interface {
 	Answer(context.Context, *store.Tx, db.AgentRun, json.RawMessage) ([]string, error)
 }
@@ -72,7 +76,15 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 			if s.Aristotle == nil || t.RequesterID == nil || *t.RequesterID != user {
 				return service.ErrNotYours
 			}
-			probs, err = s.Aristotle.Answer(ctx, tx, t, raw)
+			if t.LabPurpose == string(ManualDecisionDraft) {
+				drafts, ok := s.Aristotle.(DraftOps)
+				if !ok {
+					return service.ErrConflict
+				}
+				probs, err = drafts.Draft(ctx, tx, t, raw)
+			} else {
+				probs, err = s.Aristotle.Answer(ctx, tx, t, raw)
+			}
 			return err
 		}
 		if k == Autoresearch {

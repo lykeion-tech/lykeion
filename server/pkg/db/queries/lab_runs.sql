@@ -1,6 +1,6 @@
 -- name: InsertLabAgentRun :one
-INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,agent_id,board_column,round,role,harness,prompt,skill,requested_model,continuity_scope,created_at)
-SELECT c.workspace_id,'aristotle',c.owner_id,c.owner_id,c.id,sqlc.narg(agent_id),'',0,'aristotle',@harness,'',@skill,@model,'lab-chat:'||c.id::text,clock_timestamp()
+INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,agent_id,board_column,round,role,harness,prompt,skill,requested_model,continuity_scope,created_at,lab_purpose)
+SELECT c.workspace_id,'aristotle',c.owner_id,c.owner_id,c.id,sqlc.narg(agent_id),'',0,'aristotle',@harness,'',@skill,@model,'lab-chat:'||c.id::text||CASE WHEN c.purpose='answer' THEN '' ELSE ':'||c.purpose END,clock_timestamp(),c.purpose
 FROM lab_chat c WHERE c.deleted_at IS NULL AND c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.owner_id= @asker::uuid AND c.id= @chat_id::uuid
 AND EXISTS(SELECT 1 FROM member m WHERE m.workspace_id=c.workspace_id AND m.user_id=c.owner_id)
 RETURNING *;
@@ -19,7 +19,7 @@ AND q.workspace_id=r.workspace_id AND q.owner_id=app_user() AND q.chat_id=r.lab_
 RETURNING r.*;
 
 -- name: LabPriorTurns :many
-SELECT m.id, m.kind, prior_q.launch_sources, CASE WHEN m.kind='question' THEN m.body ELSE '' END::text AS question, m.statements, m.evidence, COALESCE(m.history_safe,false)::boolean AS history_safe
+SELECT m.id, m.kind, prior_q.launch_sources, CASE WHEN m.kind='question' THEN m.body ELSE '' END::text AS question, m.proposal, m.context_card_id, m.statements, m.evidence, COALESCE(m.history_safe,false)::boolean AS history_safe
 FROM agent_run r JOIN lab_message m ON m.workspace_id=r.workspace_id AND m.chat_id=r.lab_chat_id
  AND m.owner_id=r.requester_id
 LEFT JOIN agent_run o ON o.workspace_id=m.workspace_id AND o.id=m.agent_run_id
