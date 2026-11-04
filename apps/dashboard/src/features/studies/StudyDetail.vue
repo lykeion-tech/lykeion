@@ -1515,11 +1515,15 @@ function pin() {
   line-height: 24px;
   font-weight: 600;
 }
-.activity-card,
-.jev-card {
+.activity-card {
   margin: 12px 0;
 }
+/* Split the existing 40px gap evenly when a review card sits between runs. */
+.activity-card:has(+ .jev-card) :deep(.agent-card) {
+  margin-bottom: 20px;
+}
 .jev-card {
+  margin: 20px 0;
   display: flex;
   align-items: center;
   gap: 12px;
