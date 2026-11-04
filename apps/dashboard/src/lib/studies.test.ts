@@ -152,7 +152,7 @@ describe('study labels', () => {
     expect(stateLabel(card({ state: 'done' }))).toBe('Done');
     expect(stateLabel(card({ ending: 'released' }))).toBe('');
     expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe(
-      'Stopped · no usable data',
+      'Stopped',
     );
     expect(endLabel(card({ ending: 'released' }))).toBe('Released');
     expect(roleLabel('literature-scout')).toBe('Literature scout');
