@@ -9,6 +9,7 @@ import { workspaceId } from '../../api/session';
 import { ApiError } from '../../api/client';
 import { askLab, createChat, deleteChat, labKey, useChats, useMessages } from './api';
 import { useWindowPlacement } from './useWindowPlacement';
+import { readJSON, writeJSON } from '../../storage';
 import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
@@ -31,6 +32,66 @@ const placement = useWindowPlacement(
   panel,
 );
 const { style, logHeight } = placement;
+const fabKey = 'lykeion.aristotle-button:' + workspaceId.value + ':' + props.userId;
+const savedFab = readJSON<{ right: number; bottom: number }>(fabKey, { right: 20, bottom: 20 });
+const fabPosition = ref({
+  right: Number.isFinite(savedFab?.right) ? savedFab.right : 20,
+  bottom: Number.isFinite(savedFab?.bottom) ? savedFab.bottom : 20,
+});
+const fabViewport = ref({ width: window.innerWidth, height: window.innerHeight });
+function clampFab() {
+  fabPosition.value = {
+    right: Math.max(0, Math.min(fabPosition.value.right, Math.max(0, fabViewport.value.width - 48))),
+    bottom: Math.max(0, Math.min(fabPosition.value.bottom, Math.max(0, fabViewport.value.height - 48))),
+  };
+}
+const fabStyle = computed(() => ({ right: fabPosition.value.right + 'px', bottom: fabPosition.value.bottom + 'px' }));
+let stopFabDrag: (() => void) | undefined;
+let fabDragged = false;
+function startFabDrag(event: PointerEvent) {
+  if (event.button !== 0) return;
+  stopFabDrag?.();
+  fabDragged = false;
+  const x = event.clientX, y = event.clientY, { right, bottom } = fabPosition.value;
+  const move = (next: PointerEvent) => {
+    if (next.pointerId !== event.pointerId) return;
+    const dx = next.clientX - x, dy = next.clientY - y;
+    if (!fabDragged && Math.hypot(dx, dy) < 4) return;
+    fabDragged = true;
+    fabPosition.value = { right: right - dx, bottom: bottom - dy };
+    clampFab();
+  };
+  const stop = (next?: PointerEvent) => {
+    if (next && next.pointerId !== event.pointerId) return;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', stop);
+    window.removeEventListener('pointercancel', stop);
+    if (fabDragged) writeJSON(fabKey, fabPosition.value);
+    stopFabDrag = undefined;
+  };
+  stopFabDrag = () => stop();
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', stop);
+  window.addEventListener('pointercancel', stop);
+}
+function clickFab() {
+  if (fabDragged) { fabDragged = false; return; }
+  toggle();
+}
+function moveFabWithKeys(event: KeyboardEvent) {
+  const offsets: Record<string, [number, number]> = { ArrowLeft: [10, 0], ArrowRight: [-10, 0], ArrowUp: [0, 10], ArrowDown: [0, -10] };
+  const offset = offsets[event.key];
+  if (!offset) return;
+  event.preventDefault();
+  fabPosition.value = { right: fabPosition.value.right + offset[0], bottom: fabPosition.value.bottom + offset[1] };
+  clampFab();
+  writeJSON(fabKey, fabPosition.value);
+}
+function resizeFab() {
+  fabViewport.value = { width: window.innerWidth, height: window.innerHeight };
+  clampFab();
+}
+clampFab();
 const chats = useChats(() => props.userId, open),
   messages = useMessages(() => props.userId, open, chat);
 const recent = computed(() => chats.data.value?.pages.flatMap((page) => page.chats) ?? []);
@@ -267,11 +328,14 @@ function outside(e: Event) {
 onMounted(() => {
   document.addEventListener('pointerdown', outside);
   window.addEventListener('resize', placeMenu);
+  window.addEventListener('resize', resizeFab);
 });
 onUnmounted(() => {
   alive = false;
   document.removeEventListener('pointerdown', outside);
   window.removeEventListener('resize', placeMenu);
+  window.removeEventListener('resize', resizeFab);
+  stopFabDrag?.();
 });
 </script>
 <template>
@@ -281,9 +345,12 @@ onUnmounted(() => {
     class="aristotle-fab"
     aria-label="Ask Aristotle"
     aria-keyshortcuts="Meta+J Control+J"
-    @click="toggle"
+    :style="fabStyle"
+    @pointerdown="startFabDrag"
+    @keydown="moveFabWithKeys"
+    @click="clickFab"
   >
-    <Aristotle still /><span class="fab-tip">Ask Aristotle <kbd>⌘J</kbd></span>
+    <Aristotle still />
   </button>
   <section
     v-else
@@ -505,36 +572,16 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   padding: 0;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
 }
+.aristotle-fab:active { cursor: grabbing; }
 .aristotle-fab:hover {
   border-color: var(--primary);
 }
 .aristotle-fab .aristotle-art {
   width: 31px;
   height: 44px;
-}
-.fab-tip {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  padding: 5px 10px;
-  border-radius: 9px;
-  background: var(--text);
-  color: var(--surface);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-}
-.aristotle-fab:is(:hover, :focus-visible) .fab-tip {
-  opacity: 1;
-}
-.fab-tip kbd {
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--surface) 22%, var(--text));
-  padding: 1px 4px;
 }
 .lab-window {
   width: min(416px, calc(100vw - 16px));
@@ -713,11 +760,17 @@ header {
   flex: 1;
   min-width: 0;
   border: 0;
+  outline: none;
+  box-shadow: none;
   background: none;
   color: var(--text);
   font: inherit;
   font-size: 14px;
   padding: 6px;
+}
+.lab-window .composer input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 .composer input::placeholder {
   color: var(--muted);
