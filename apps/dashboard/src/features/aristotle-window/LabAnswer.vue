@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { Flag } from '@lucide/vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import { labKey, sourcePath, type LabMessage, type LabRef } from './api';
-defineProps<{ message: LabMessage; evidence: boolean }>();
+const props = defineProps<{ message: LabMessage; evidence: boolean }>();
+const evidenceSources = computed(() => {
+  const seen = new Set<string>();
+  return props.message.evidence.filter((item) => {
+    const key = sourcePath(item) ?? item.ref;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+});
 const flagging = ref(''),
   reason = ref(''),
   busy = ref(false),
@@ -89,7 +98,7 @@ async function submit() {
     <section v-if="evidence" class="evidence">
       <strong>Evidence</strong>
       <p v-if="!message.evidence.length">No records were read for this answer.</p>
-      <div v-for="item in message.evidence" :key="item.ref + '|' + item.via" class="source">
+      <div v-for="item in evidenceSources" :key="sourcePath(item) ?? item.ref" class="source">
         <RouterLink v-if="sourcePath(item)" :to="sourcePath(item)!">{{ item.title }}</RouterLink
         ><span v-else>{{ item.title }}</span>
       </div>
