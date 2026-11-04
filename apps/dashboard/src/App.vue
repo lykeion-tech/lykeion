@@ -671,7 +671,7 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
     </main>
-    <AristotleWindow v-if="workspaceId && me.data.value?.id && !unauthorized" ref="labWindow"
+    <AristotleWindow v-if="workspaceId && me.data.value?.id && !unauthorized && route.path !== '/decisions/new'" ref="labWindow"
       :key="workspaceId + ':' + me.data.value.id" :user-id="me.data.value.id"
       :study-id="cardId" :study-title="shownCard ? studyDisplayTitle(shownCard.title) : undefined" />
     <CreateStudy

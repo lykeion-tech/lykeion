@@ -9,7 +9,7 @@ import {
   type MaybeRefOrGetter,
 } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import { useRunMessages, useDecisions, useAutoresearchRun } from './queries';
+import { useRunMessages, useDecisions, useDecisionCount, useAutoresearchRun } from './queries';
 import { keys } from './keys';
 import type { AgentRun, RunMessage } from './types';
 import { api, ApiError } from './client';
@@ -397,7 +397,7 @@ describe('shared library queries and mutations', () => {
       },
     };
     const fetch = vi.fn(async (path: string) =>
-      Response.json(path === '/api/decisions?view=open' ? [item] : response),
+      Response.json(path === '/api/me' ? { id: 'me' } : path === '/api/decisions?view=open' ? [item] : response),
     );
     vi.stubGlobal('fetch', fetch);
     const inbox = observe(() => useDecisions(false));
@@ -405,11 +405,21 @@ describe('shared library queries and mutations', () => {
     await vi.waitFor(() => expect(inbox.data.value?.[0]?.card_id).toBeNull());
     expect(inbox.data.value?.[0]?.autoresearch_run_id).toBe('r1');
     await vi.waitFor(() => expect(run.data.value).toEqual(response));
-    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
-      '/api/decisions?view=open',
-      '/api/autoresearch-runs/r1',
+    expect(fetch.mock.calls.map(([path]) => path).sort()).toEqual([
+      '/api/autoresearch-runs/r1', '/api/decisions?view=open', '/api/me',
     ]);
     expect(client.getQueryData(keys.autoresearchRun('w1', 'r1'))).toEqual(response);
+  });
+  it('scopes private decision lists and counts to the current authenticated owner', async () => {
+    client.setQueryData(keys.me, { id: 'first' });
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => path === '/api/me' ? Response.json({ id: 'first' }) : Response.json(path.endsWith('/count') ? { open: 2, due_soon: 1 } : [{ id: 'private-note' }])));
+    const rows = observe(() => useDecisions(false)), count = observe(() => useDecisionCount());
+    await vi.waitFor(() => expect(rows.data.value?.[0]?.id).toBe('private-note'));
+    await vi.waitFor(() => expect(count.data.value?.open).toBe(2));
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    client.setQueryData(keys.me, { id: 'second' });
+    await vi.waitFor(() => expect(rows.data.value).toBeUndefined());
+    expect(count.data.value).toBeUndefined();
   });
   it('uses shared authoritative list/detail keys and keeps bodies out of list projections', async () => {
     const library = await import('./library');

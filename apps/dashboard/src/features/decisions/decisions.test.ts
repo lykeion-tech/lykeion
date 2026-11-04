@@ -221,7 +221,7 @@ it('warns on the badge when a decision expires soon', () => {
   count.value = { open: 3, due_soon: 1 };
   const due = badge(mount(DecisionBadge, {}));
   expect(due.props.class).toContain('due');
-  expect(due.props['aria-label']).toBe('Open decisions, 1 expiring soon');
+  expect(due.props['aria-label']).toBe('Open decisions, 1 due soon');
 });
 
 it('marks a reminded row, offers no Archive on an open decision and shows unread only to its addressee', async () => {
@@ -302,7 +302,7 @@ it('drops a decided row from the Open list once the list refreshes', async () =>
     rows.value = rows.value.filter((r) => r.id !== 'd1');
   });
   const rail = mount(DecisionRail, {});
-  const rowLinks = () => all(rail).filter((n) => n.props.to !== undefined);
+  const rowLinks = () => all(rail).filter((n) => n.props.to !== undefined && n.props.to !== '/decisions/new');
   expect(rowLinks().map((n) => n.props.to)).toEqual(['/decisions/d1', '/decisions/d2']);
   const options = mount(DecisionOptions, { item: rows.value[0] });
   await click(buttonFor(options, 'Park'));
@@ -361,7 +361,7 @@ it('groups archived decisions first and allows restoring them', async () => {
   rows.value = [item({ id: 'current', kind: 'done', options: null }), item({ id: 'old', kind: 'done', options: null, archived_at: '2026-11-04T08:00:00Z' })];
   const root = mount(DecisionRail, {});
   expect(textOf(root)).toContain('Archived');
-  expect(all(root).filter((n) => n.props.to !== undefined).map((n) => n.props.to)).toEqual(['/decisions/old', '/decisions/current']);
+  expect(all(root).filter((n) => n.props.to !== undefined && n.props.to !== '/decisions/new').map((n) => n.props.to)).toEqual(['/decisions/old', '/decisions/current']);
   api.mockResolvedValue(undefined);
   await click(buttons(root).find((n) => n.props['aria-label'] === 'Restore decision'));
   expect(api).toHaveBeenCalledWith('POST', '/api/decisions/old/revive');
@@ -459,4 +459,24 @@ it('applies the same date filter to the rail and selected activity', async () =>
   await new Promise((r) => setTimeout(r));
   expect(textOf(rail)).toContain('No decisions match these filters');
   expect(textOf(activity)).toContain('does not match the current filters');
+});
+
+
+it('links Add to creation and renders a private manual note without expiry wording', () => {
+  rows.value = [item({ kind: 'manual_decision', title: 'Private title', context: 'Private context', card_id: null, deadline: '2020-01-01', reminded_at: '2020-01-01', options: null })];
+  const root = mount(DecisionRail, {});
+  expect(all(root).find(n => n.props['aria-label'] === 'Add decision')?.props.to).toBe('/decisions/new');
+  expect(textOf(root)).toContain('Private title');
+  expect(textOf(root)).toContain('Private context');
+  expect(textOf(root)).toContain('Overdue');
+  expect(textOf(root)).toContain('Reminder sent');
+  expect(textOf(root)).not.toContain('Expires');
+});
+it('never renders cached manual rows for a foreign creator or after access failure', async () => {
+  rows.value = [item({ kind: 'manual_decision', title: 'Private title', options: null })];
+  const rail = mount(DecisionRail, {}), detail = mount(DecisionsView, { itemId: 'd1' });
+  me.value = { id: 'other' }; await new Promise(r => setTimeout(r));
+  expect(textOf(rail)).not.toContain('Private title'); expect(textOf(detail)).not.toContain('Private title');
+  me.value = { id: 'me' }; decisionsError.value = new Error('Forbidden'); await new Promise(r => setTimeout(r));
+  expect(textOf(rail)).not.toContain('Private title'); expect(textOf(detail)).not.toContain('Private title');
 });

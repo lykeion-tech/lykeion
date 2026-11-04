@@ -3,6 +3,8 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { decisionFilters, matchesDecisionFilters } from './decisionFilters';
+import { workspaceId } from '../../api/session';
+import { manualDeadlineLabel } from './manualDecisionDraft';
 import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -26,7 +28,7 @@ const me = useMe();
 const error = ref('');
 const shown = computed(() => {
   const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
-  return [...items.values()].filter((item) => matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 });
 const groups = computed(() => [
   { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
@@ -35,11 +37,11 @@ const groups = computed(() => [
 const listError = computed(() => open.error.value ?? past.error.value);
 const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
 const titleOf = (item: DecisionItem) =>
-  item.kind === 'agent_decision'
+  item.kind === 'manual_decision' ? item.title ?? '' : item.kind === 'agent_decision'
     ? agentDecisionParts(item.text).title
     : inboxTitle(item, cards.data.value?.find((card) => card.id === item.card_id)?.title);
 const line = (item: DecisionItem) =>
-  item.kind === 'agent_decision'
+  item.kind === 'manual_decision' ? item.context || 'Private note' : item.kind === 'agent_decision'
     ? agentDecisionParts(item.text).body || kindOf(item).label
     : (inboxText(item, titleOf(item)) ?? `${kindOf(item).label}: ${item.text}`);
 const decideByText = (item: DecisionItem) =>
@@ -48,7 +50,7 @@ const decideByText = (item: DecisionItem) =>
 const unread = (item: DecisionItem) => !item.read_at && item.user_id === me.data.value?.id;
 // An open decision is answered, not archived.
 const archivable = (item: DecisionItem) => item.status !== 'open' || (!item.options?.length && !item.question_set?.questions?.length);
-// The reminder went out: the item expires within a day.
+// Manual reminders do not expire the note.
 const expiresSoon = (item: DecisionItem) => item.status === 'open' && !!item.reminded_at;
 const snoozed = (item: DecisionItem) =>
   !!item.snoozed_until && Date.parse(item.snoozed_until) > Date.now();
@@ -72,7 +74,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   <aside class="sidebar decision-rail">
     <header>
       <span class="rail-title">Decisions</span>
-      <button class="icon-button add-decision" aria-label="Add decision (coming soon)" title="Add decision (coming soon)" disabled><Icon name="plus" :size="16" /></button>
+      <RouterLink to="/decisions/new" class="icon-button add-decision" aria-label="Add decision" title="Add decision"><Icon name="plus" :size="16" /></RouterLink>
     </header>
     <nav aria-label="Decisions">
       <p v-if="listError || error" role="alert" class="inline-error">
@@ -107,7 +109,8 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
           </span>
           <small v-if="decideByText(item)" class="decide-by">{{ decideByText(item) }}</small>
           <small v-if="snoozed(item)" class="snoozed-mark">Snoozed</small>
-          <small v-if="expiresSoon(item)" class="expires-soon">Expires soon</small>
+          <small v-if="item.kind === 'manual_decision' && item.deadline" class="decide-by">{{ manualDeadlineLabel(item.deadline, me.data.value?.timezone ?? 'UTC') }}</small>
+          <small v-if="expiresSoon(item)" class="expires-soon">{{ item.kind === 'manual_decision' ? 'Reminder sent' : 'Expires soon' }}</small>
           <i v-if="unread(item)" class="unread" />
         </span>
       </div>

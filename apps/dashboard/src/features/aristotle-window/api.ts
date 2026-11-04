@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { useInfiniteQuery } from '@tanstack/vue-query';
 import { api } from '../../api/client';
+import type { ManualDecisionDraft } from '../decisions/manualDecisionDraft';
 import type { Card, StudyRecord } from '../../api/types';
 import { workspaceId } from '../../api/session';
 
@@ -22,6 +23,8 @@ export interface LabMessage {
   body: string;
   statements: LabStatement[];
   evidence: LabRef[];
+  current_draft?: ManualDecisionDraft;
+  proposal?: unknown;
 }
 export interface LabChat {
   id: string;
@@ -49,13 +52,14 @@ export function useChats(user: () => string, open: Ref<boolean>) {
     gcTime: 0,
   });
 }
-export function useMessages(user: () => string, open: Ref<boolean>, chat: Ref<string>) {
+export function useMessages(user: () => string, open: Ref<boolean>, chat: Ref<string>, purpose: () => string = () => 'answer') {
   return useInfiniteQuery({
     queryKey: computed(() => [
       ...labKey(workspaceId.value),
       user(),
       'messages',
       open.value ? chat.value : '',
+      purpose(),
     ]),
     enabled: computed(() => open.value && !!chat.value && !!workspaceId.value && !!user()),
     initialPageParam: '',

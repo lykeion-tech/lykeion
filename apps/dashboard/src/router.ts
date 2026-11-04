@@ -17,6 +17,7 @@ import AgentsView from './features/agents/AgentsView.vue';
 import AgentDetail from './features/agents/AgentDetail.vue';
 import StudyDetail from './features/studies/StudyDetail.vue';
 import DecisionsView from './features/decisions/DecisionsView.vue';
+import ManualDecisionCreate from './features/decisions/ManualDecisionCreate.vue';
 import ColleaguesView from './features/workspace/ColleaguesView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
 import TeamDetail from './features/teams/TeamDetail.vue';
@@ -137,6 +138,11 @@ const routes: RouteRecordRaw[] = [
       default: { scope: 'mine' },
       detail: (route) => ({ id: param(route, 'cardId') ?? '', citation: typeof route.query.cite === 'string' ? route.query.cite : undefined }),
     },
+  },
+  {
+    path: '/decisions/new',
+    component: ManualDecisionCreate,
+    meta: { page: 'decisions', title: 'New decision', ownHeader: true },
   },
   {
     path: '/decisions/:itemId?',

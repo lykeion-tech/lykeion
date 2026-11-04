@@ -72,22 +72,29 @@ export const useInvitations = (enabled: MaybeRefOrGetter<boolean>) =>
     queryFn: () => api<Invitation[]>('GET', `/api/workspaces/${ws.value}/invitations`),
     enabled: computed(() => inWorkspace.value && toValue(enabled)),
   });
-export const useDecisions = (history: MaybeRefOrGetter<boolean>) =>
-  useQuery({
-    queryKey: computed(() => keys.decisions(ws.value, toValue(history))),
-    queryFn: async () =>
+export const useDecisions = (history: MaybeRefOrGetter<boolean>) => {
+  const me = useMe();
+  return useQuery({
+    queryKey: computed(() => [...keys.decisions(ws.value, toValue(history)), me.data.value?.id ?? '']),
+    queryFn: async ({ queryKey, signal }) =>
       (await api<DecisionItem[] | null>(
         'GET',
-        toValue(history) ? '/api/decisions?view=history' : '/api/decisions?view=open',
+        queryKey[3] === 'history' ? '/api/decisions?view=history' : '/api/decisions?view=open',
+        undefined, undefined, { workspace: queryKey[1], signal },
       )) ?? [],
-    enabled: inWorkspace,
+    enabled: computed(() => inWorkspace.value && !!me.data.value?.id),
+    gcTime: 0,
   });
-export const useDecisionCount = () =>
-  useQuery({
-    queryKey: computed(() => keys.decisionCount(ws.value)),
-    queryFn: () => api<{ open: number; due_soon: number }>('GET', '/api/decisions/count'),
-    enabled: inWorkspace,
+};
+export const useDecisionCount = () => {
+  const me = useMe();
+  return useQuery({
+    queryKey: computed(() => [...keys.decisionCount(ws.value), me.data.value?.id ?? '']),
+    queryFn: ({ queryKey, signal }) => api<{ open: number; due_soon: number }>('GET', '/api/decisions/count', undefined, undefined, { workspace: queryKey[1], signal }),
+    enabled: computed(() => inWorkspace.value && !!me.data.value?.id),
+    gcTime: 0,
   });
+};
 
 // A card's own reads; a card id of '' disables them.
 function ofCard<T>(

@@ -4,7 +4,7 @@ import { useDecisionCount } from '../../api/queries';
 
 const count = useDecisionCount();
 const open = computed(() => count.data.value?.open ?? 0);
-// Decisions whose reminder went out expire within a day.
+// Both question expiries and manual note reminders contribute to this count.
 const dueSoon = computed(() => count.data.value?.due_soon ?? 0);
 </script>
 <template>
@@ -13,7 +13,7 @@ const dueSoon = computed(() => count.data.value?.due_soon ?? 0);
     class="decision-badge type-caption"
     :class="{ due: dueSoon > 0 }"
     role="status"
-    :aria-label="dueSoon > 0 ? `Open decisions, ${dueSoon} expiring soon` : 'Open decisions'"
+    :aria-label="dueSoon > 0 ? `Open decisions, ${dueSoon} due soon` : 'Open decisions'"
     >{{ open }}</span
   >
 </template>

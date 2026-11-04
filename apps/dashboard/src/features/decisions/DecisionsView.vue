@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
+import ManualDecisionControls from './ManualDecisionControls.vue';
 import DecisionOptions from './DecisionOptions.vue';
 import DecisionFilters from './DecisionFilters.vue';
 import { matchesDecisionFilters } from './decisionFilters';
@@ -21,7 +22,7 @@ const resolved = useDecisions(true);
 const me = useMe();
 const cards = useCards();
 const selected = computed(() =>
-  [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId),
+  [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId && i.workspace_id === workspaceId.value && (i.kind !== 'manual_decision' || (i.user_id === me.data.value?.id && !open.error.value && !resolved.error.value))),
 );
 const selectedReport = ref<DecisionItem>();
 const display = computed(() => selected.value ?? selectedReport.value);
@@ -30,6 +31,7 @@ const study = computed(() => cards.data.value?.find((card) => card.id === displa
 const question = computed(() => {
   const item = display.value;
   if (!item) return { title: '', body: '' };
+  if (item.kind === 'manual_decision') return { title: item.title ?? '', body: item.context ?? '' };
   if (item.kind === 'agent_decision') return agentDecisionParts(item.text);
   return { title: study.value?.title || (item.card_id ? inboxTitle(item) : decisionKindOf(item.kind).label), body: item.text };
 });
@@ -111,7 +113,7 @@ watch(
         <div class="card-body">
           <div class="question-panel">
             <div class="status-line">
-              <span class="status-pill">{{ display.status === 'open' ? 'Pending' : display.status }}</span>
+              <span class="status-pill">{{ display.status === 'open' ? (display.kind === 'manual_decision' ? 'Open' : 'Pending') : display.status }}</span>
               <div class="status-actions">
                 <span class="card-time">{{ timeAgo(display.created_at) }}</span>
                 <RouterLink v-if="display.card_id" class="study-link" :to="'/studies/' + display.card_id">Open study →</RouterLink>
@@ -120,7 +122,8 @@ watch(
             <h2>{{ question.title }}</h2>
             <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
             <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
-            <DecisionOptions v-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
+            <ManualDecisionControls v-if="display.kind === 'manual_decision'" :key="display.id" :item="display" />
+            <DecisionOptions v-else-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
           <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>

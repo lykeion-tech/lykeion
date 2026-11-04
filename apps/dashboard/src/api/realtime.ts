@@ -118,6 +118,8 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
       return [keys.runtimes(ws), keys.storage(ws), keys.cards(ws), ['ws', ws, 'card']];
     case 'member':
       return [
+        keys.decisionsAll(ws),
+        keys.decisionCount(ws),
         keys.coresearchProjects(ws),
         keys.coresearchConversations(ws),
         ['ws', ws, 'coresearch'],

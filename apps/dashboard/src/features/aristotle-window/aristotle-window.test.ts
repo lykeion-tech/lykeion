@@ -37,7 +37,7 @@ const answer = {
     { kind: 'gap', text: 'No record.', cites: [] },
   ],
 };
-async function mount(onlyAnswer = false, offline = false, pages?: (path: string) => unknown) {
+async function mount(onlyAnswer = false, offline = false, pages?: (path: string) => unknown, extra: Record<string, unknown> = {}) {
   vi.stubGlobal('window', {
     innerWidth: 1000,
     innerHeight: 800,
@@ -84,7 +84,7 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
     render: () =>
       onlyAnswer
         ? h(LabAnswer, { message: answer, evidence: true })
-        : h(AristotleWindow, { userId: 'me', studyId: 's', studyTitle: 'Lab study' }),
+        : h(AristotleWindow, { userId: 'me', studyId: 's', studyTitle: 'Lab study', ...extra }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
@@ -301,4 +301,46 @@ it('does not send a question while chat deletion is pending', async () => {
   finish();
   await settle();
   expect(textOf(t.root)).not.toContain('Previous chat');
+});
+
+
+const manual = { title: 'Human title', context: '', deadline: null, card_id: null };
+it('saves manual edits before a purpose-specific turn and preserves them offline', async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  const t = await mount(false, true, undefined, { draftChat: 'draft', manualDraft: manual, saveManualDraft: save });
+  await t.tryDraft('Refine this note');
+  expect(save).toHaveBeenCalledOnce();
+  const post = t.calls.find(c => c.path === '/api/lab/chats/draft/questions');
+  expect(post?.body).toMatchObject({ user_request: 'Refine this note', current_draft: manual, harness: 'claude' });
+  expect(post?.body.request_id).toMatch(/^[a-f0-9-]{36}$/);
+  expect(textOf(t.root)).toContain('Your draft is saved');
+  expect(t.composer().props.value).toBe('Refine this note');
+  expect(t.calls.some(c => c.path === '/api/decisions/manual')).toBe(false);
+  expect(t.calls.some(c => c.path === '/api/lab/chats' && c.method === 'GET')).toBe(false);
+});
+it('accepts only valid final proposals and never parses streamed or unknown output', async () => {
+  const onManualProposal = vi.fn();
+  const question = { id: 'q', kind: 'question', body: 'Draft please', current_draft: manual, statements: [], evidence: [] };
+  let proposal: unknown = { message: 'Proposal', draft: { ...manual, title: 'Suggested', unknown: true } };
+  const pages = (path: string) => path.includes('/messages') ? { messages: [question, { id: 'a1', kind: 'answer', body: '{title: stream}', proposal, statements: [], evidence: [] }], next_cursor: '', pending: false } : undefined;
+  const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, saveManualDraft: vi.fn(), onManualProposal });
+  expect(onManualProposal).not.toHaveBeenCalled();
+  expect(textOf(t.root)).not.toContain('{title: stream}');
+  proposal = { message: 'A suggestion', draft: { ...manual, title: 'Suggested' } };
+  // A real completion has a new immutable message identity.
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ messages: [question, { id: 'a2', kind: 'answer', body: '', proposal, statements: [], evidence: [] }], pending: false, next_cursor: '' })));
+  await t.client.invalidateQueries({ queryKey: labKey('lab') }); await settle();
+  expect(onManualProposal).toHaveBeenCalledWith({ draft: { ...manual, title: 'Suggested' }, input: manual });
+  expect(textOf(t.root)).toContain('Proposal');
+});
+it('stops a draft question without restoring composer text and permits a fresh turn', async () => {
+  let pending = true;
+  const t = await mount(false, false, path => path.includes('/messages') ? { messages: [{ id: 'q', kind: 'question', body: 'Previous question', current_draft: manual, statements: [], evidence: [] }], next_cursor: '', pending } : undefined, { draftChat: 'draft', manualDraft: manual, saveManualDraft: vi.fn().mockResolvedValue(undefined) });
+  pending = false;
+  await t.click('Stop drafting');
+  expect(t.calls.some(c => c.path === '/api/lab/chats/draft/questions/q/cancel')).toBe(true);
+  expect(t.composer().props.value).toBe('');
+  expect(textOf(t.root)).toContain('Previous question');
+  await t.tryDraft('A fresh question');
+  expect(t.calls.some(c => c.path.endsWith('/questions') && c.body.user_request === 'A fresh question')).toBe(true);
 });

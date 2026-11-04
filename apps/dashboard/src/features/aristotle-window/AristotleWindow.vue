@@ -6,16 +6,19 @@ import Aristotle from '../coresearch/Aristotle.vue';
 import { ownOnlineClis } from '../coresearch/api';
 import { useRuntimes } from '../../api/queries';
 import { workspaceId } from '../../api/session';
-import { ApiError } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { askLab, createChat, deleteChat, labKey, useChats, useMessages } from './api';
 import { useWindowPlacement } from './useWindowPlacement';
 import { readJSON, writeJSON } from '../../storage';
 import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
+import { parseManualDecisionProposal, type ManualDecisionDraft } from '../decisions/manualDecisionDraft';
 
-const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string }>();
-const open = ref(false),
+const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; readonly?: boolean; manualDraft?: ManualDecisionDraft; saveManualDraft?: () => Promise<void> }>();
+const emit = defineEmits<{ manualProposal: [value: { draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
+const drafting = computed(() => !!props.draftChat);
+const open = ref(!!props.draftChat),
   focused = ref(false),
   evidence = ref(true);
 type Menu = '' | 'chats' | 'options' | 'context' | 'model';
@@ -25,7 +28,7 @@ const menu = ref<Menu>(''),
   minimize = ref<HTMLButtonElement>();
 const log = ref<HTMLElement>(),
   composer = ref<HTMLInputElement>(),
-  chat = ref(''),
+  chat = ref(props.draftChat ?? ''),
   selectedTitle = ref('New chat');
 const placement = useWindowPlacement(
   'lykeion.aristotle-window:' + workspaceId.value + ':' + props.userId,
@@ -92,11 +95,12 @@ function resizeFab() {
   clampFab();
 }
 clampFab();
-const chats = useChats(() => props.userId, open),
-  messages = useMessages(() => props.userId, open, chat);
+const normalOpen = computed(() => open.value && !drafting.value);
+const chats = useChats(() => props.userId, normalOpen),
+  messages = useMessages(() => props.userId, open, chat, () => drafting.value ? 'manual_decision_draft' : 'answer');
 const recent = computed(() => chats.data.value?.pages.flatMap((page) => page.chats) ?? []);
 const title = computed(
-  () => recent.value.find((c) => c.id === chat.value)?.title || selectedTitle.value,
+  () => drafting.value ? 'Draft with Aristotle' : recent.value.find((c) => c.id === chat.value)?.title || selectedTitle.value,
 );
 const turns = computed(() =>
   messages.isError.value
@@ -106,8 +110,20 @@ const turns = computed(() =>
         .reverse()
         .flatMap((p) => p.messages) ?? []),
 );
+const handledProposals = new Set<string>();
+watch(turns, list => {
+  if (!drafting.value || props.readonly || messages.isError.value) return;
+  let input: ManualDecisionDraft | undefined;
+  for (const message of list) {
+    if (message.kind === 'question') input = message.current_draft;
+    if (message.kind !== 'answer' || !input || handledProposals.has(message.id)) continue;
+    handledProposals.add(message.id);
+    const proposal = parseManualDecisionProposal(message.proposal);
+    if (proposal) emit('manualProposal', { draft: proposal.draft, input });
+  }
+});
 const currentStudy = computed(() =>
-  props.studyId && props.studyTitle
+  !drafting.value && props.studyId && props.studyTitle
     ? { ref: 'study:' + props.studyId, title: 'This study: ' + props.studyTitle }
     : null,
 );
@@ -253,9 +269,24 @@ function pick(value: { ref: string; title: string }) {
   composer.value?.focus();
 }
 let alive = true;
+const initialOwner = props.userId, initialWorkspace = workspaceId.value, initialChat = props.draftChat;
+const currentVisit = () => alive && props.userId === initialOwner && workspaceId.value === initialWorkspace && props.draftChat === initialChat;
+const cancelling = ref(false);
+const pending = computed(() => !!messages.data.value?.pages[0]?.pending);
+let retryTurn: { key: string; id: string } | undefined;
+async function stopDraft() {
+  const question = [...turns.value].reverse().find(message => message.kind === 'question');
+  if (!drafting.value || props.readonly || !question || cancelling.value) return;
+  cancelling.value = true; error.value = '';
+  try {
+    await api('POST', `/api/lab/chats/${encodeURIComponent(chat.value)}/questions/${encodeURIComponent(question.id)}/cancel`, undefined, undefined, { workspace: initialWorkspace });
+    if (currentVisit()) await client.invalidateQueries({ queryKey: labKey(initialWorkspace) });
+  } catch (e) { if (currentVisit()) error.value = (e as Error).message; }
+  finally { if (currentVisit()) cancelling.value = false; }
+}
 async function ask(question = draft.value) {
   const text = question.trim();
-  if (sending.value || deleting.value || !text) return;
+  if (props.readonly || sending.value || deleting.value || !text || (drafting.value && pending.value)) return;
   draft.value = question;
   error.value = '';
   offline.value = false;
@@ -273,24 +304,36 @@ async function ask(question = draft.value) {
   };
   sending.value = true;
   try {
+    if (drafting.value) {
+      const currentDraft = props.manualDraft && { ...props.manualDraft };
+      if (!currentDraft || !props.saveManualDraft) throw new Error('Load a draft before asking Aristotle.');
+      await props.saveManualDraft();
+      if (!currentVisit()) return;
+      const turn = { user_request: text, current_draft: currentDraft, harness: harness.value, model: model.value };
+      const key = JSON.stringify(turn);
+      if (retryTurn?.key !== key) retryTurn = { key, id: crypto.randomUUID() };
+      await api('POST', `/api/lab/chats/${encodeURIComponent(chat.value)}/questions`, { ...turn, request_id: retryTurn.id }, undefined, { workspace: ws });
+      retryTurn = undefined;
+    } else {
     if (!chat.value) {
       const { chat: created } = await createChat(ws);
-      if (!alive) return;
+      if (!currentVisit()) return;
       chat.value = created.id;
       selectedTitle.value = created.title;
     }
     await askLab(ws, chat.value, payload);
-    if (!alive) return;
+    }
+    if (!currentVisit()) return;
     if (draft.value === question) draft.value = '';
     focused.value = false;
     placement.setHeight(Math.max(300, logHeight.value));
     await client.invalidateQueries({ queryKey: labKey(ws) });
   } catch (e) {
-    if (!alive) return;
+    if (!currentVisit()) return;
     offline.value = e instanceof ApiError && e.status === 409 && e.body.code === 'no_machine';
-    error.value = offline.value ? 'Your machine is offline' : (e as Error).message;
+    error.value = offline.value ? (drafting.value ? 'Your machine is offline. Your draft is saved; connect your machine to continue.' : 'Your machine is offline') : (e as Error).message;
   } finally {
-    sending.value = false;
+    if (currentVisit()) sending.value = false;
   }
 }
 watch(
@@ -317,7 +360,7 @@ function localKey(e: KeyboardEvent) {
       closeMenu(true);
     } else toggle();
   }
-  if (e.key === '@' && e.target === composer.value && !draft.value) {
+  if (!drafting.value && e.key === '@' && e.target === composer.value && !draft.value) {
     e.preventDefault();
     showMenu('context', composer.value ?? null);
   }
@@ -326,6 +369,7 @@ function outside(e: Event) {
   if (menu.value && !panel.value?.contains(e.target as Node)) menu.value = '';
 }
 onMounted(() => {
+  if (drafting.value) { placement.setHeight(340); nextTick(() => composer.value?.focus?.()); }
   document.addEventListener('pointerdown', outside);
   window.addEventListener('resize', placeMenu);
   window.addEventListener('resize', resizeFab);
@@ -367,14 +411,15 @@ onUnmounted(() => {
       </button>
       <button
         class="title"
-        aria-label="Switch chat"
+        :aria-label="drafting ? 'Draft with Aristotle' : 'Switch chat'"
+        :disabled="drafting"
         data-lab-menu="chats"
         :aria-expanded="menu === 'chats'"
         title="Switch chat"
         @click="toggleMenu('chats', $event)"
       >
         <span>{{ title }}</span
-        ><ChevronDown :size="13" />
+        ><ChevronDown v-if="!drafting" :size="13" />
       </button>
       <button
         class="ib grip"
@@ -408,18 +453,19 @@ onUnmounted(() => {
       </p>
       <p v-else-if="chat && messages.isPending.value">Loading conversation…</p>
       <template v-else>
-        <LabWelcome v-if="focused && !turns.length" :can-ask="true" @ask="ask" />
+        <LabWelcome v-if="!drafting && focused && !turns.length" :can-ask="true" @ask="ask" />
         <template v-for="message in turns" :key="message.id">
           <div v-if="message.kind === 'question'" class="question">{{ message.body }}</div>
+          <p v-if="drafting && message.kind === 'answer' && parseManualDecisionProposal(message.proposal)" class="proposal"><strong>Proposal</strong> · {{ parseManualDecisionProposal(message.proposal)?.message }}</p>
           <LabAnswer
-            v-else-if="message.kind === 'answer'"
+            v-if="message.kind === 'answer'"
             :message="message"
             :evidence="evidence"
           />
-          <div v-else class="failure">{{ message.body }}</div>
+          <div v-if="message.kind !== 'question' && message.kind !== 'answer'" class="failure">{{ message.body }}</div>
         </template>
         <p v-if="messages.data.value?.pages[0]?.pending" role="status">
-          Reading the lab’s records…
+          {{ drafting ? 'Drafting your note…' : 'Reading the lab’s records…' }}
         </p>
       </template>
     </div>
@@ -432,10 +478,12 @@ onUnmounted(() => {
     <p v-if="error" class="error" role="alert">
       {{ error }} <RouterLink v-if="offline" to="/machines">Machines</RouterLink>
     </p>
-    <form class="composer" @submit.prevent="ask()">
+    <p v-if="readonly" class="error">Archived conversation · Read-only</p>
+    <form v-else class="composer" @submit.prevent="ask()">
       <button
         type="button"
         class="ib"
+        v-if="!drafting"
         title="Add a study, record or file · @"
         aria-label="Add a study, record or file"
         data-lab-menu="context"
@@ -478,12 +526,13 @@ onUnmounted(() => {
       >
         <CircleDot :size="16" />
       </button>
+      <button v-if="drafting && pending" type="button" class="ib" aria-label="Stop drafting" :disabled="cancelling" @click="stopDraft">Stop</button>
       <button
         class="send"
         type="submit"
         aria-label="Ask"
         title="Ask"
-        :disabled="sending || !!deleting || !draft.trim()"
+        :disabled="sending || !!deleting || !draft.trim() || (drafting && pending)"
       >
         <ArrowUp :size="17" />
       </button>
@@ -515,7 +564,7 @@ onUnmounted(() => {
         >
           Composer only
         </button>
-        <button :disabled="sending" @click="switchChat('')">New chat</button>
+        <button v-if="!drafting" :disabled="sending" @click="switchChat('')">New chat</button>
       </template>
       <template v-else-if="menu === 'chats'">
         <div class="chat-menu-header">
