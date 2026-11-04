@@ -334,7 +334,9 @@ CREATE POLICY owner_append ON lab_message FOR INSERT WITH CHECK (
  AND (kind='question' OR (kind='failure' AND EXISTS (
  SELECT 1 FROM agent_run r WHERE r.workspace_id=lab_message.workspace_id
  AND r.id=lab_message.agent_run_id AND r.lab_chat_id=lab_message.chat_id
- AND r.requester_id=app_user() AND r.kind='aristotle' AND r.status='failed'))));
+ AND r.requester_id=app_user() AND r.kind='aristotle'
+ AND (r.status='failed' OR (r.status='cancelled'
+ AND lab_message.body='Aristotle could not answer: the run was cancelled.'))))));
 -- The start transaction records which answer IDs the CLI actually received.
 -- Only launch validation fields on a private question can be updated.
 CREATE POLICY owner_launch ON lab_message FOR UPDATE USING (

@@ -121,6 +121,7 @@ func TestLegacyAristotleRunIsRefusedBeforeClaim(t *testing.T) {
 
 func TestAristotleRemovalCancelsWorkAcrossRejoin(t *testing.T) {
 	f, runs, chat := labQueue(t)
+	runs.OnSettlement = (Answers{Store: runs.Store}).OnSettlement
 	ctx := t.Context()
 	owner := uuid.New()
 	f.exec(`INSERT INTO "user"(id,email,name) VALUES($1,'remover@example.org','Owner')`, owner)
@@ -154,6 +155,9 @@ func TestAristotleRemovalCancelsWorkAcrossRejoin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := runs.RecoverSettlements(ctx); err != nil {
+		t.Fatal(err)
+	}
 	f.exec(`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'member')`, f.ws, f.user)
 	for _, id := range []uuid.UUID{first.ID, second.ID} {
 		var status string
@@ -161,6 +165,12 @@ func TestAristotleRemovalCancelsWorkAcrossRejoin(t *testing.T) {
 		err = f.env.Owner.QueryRow(ctx, `SELECT status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=r.id) FROM agent_run r WHERE id=$1`, id).Scan(&status, &tokens, &settlements)
 		if err != nil || status != "cancelled" || tokens != 0 || settlements != 1 {
 			t.Fatalf("status=%s tokens=%d settlements=%d err=%v", status, tokens, settlements, err)
+		}
+	}
+	for _, id := range []uuid.UUID{first.ID, second.ID} {
+		var failures int
+		if err := f.env.Owner.QueryRow(ctx, "SELECT count(*) FROM lab_message WHERE agent_run_id=$1 AND kind='failure' AND body='Aristotle could not answer: the run was cancelled.'", id).Scan(&failures); err != nil || failures != 1 {
+			t.Fatal(err, failures)
 		}
 	}
 	if got, err := runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1); err != nil || len(got) != 0 {

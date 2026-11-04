@@ -245,7 +245,7 @@ func failureBody(reason *string) string {
 }
 func (a Answers) OnSettlement(ctx context.Context, n service.Settlement) error {
 	r := n.AgentRun
-	if r.Kind != "aristotle" || r.Status != "failed" || r.RequesterID == nil || r.LabChatID == nil {
+	if r.Kind != "aristotle" || (r.Status != "failed" && r.Status != "cancelled") || r.RequesterID == nil || r.LabChatID == nil {
 		return nil
 	}
 	return a.Store.InWorkspace(ctx, r.WorkspaceID, *r.RequesterID, func(tx *store.Tx) error {
@@ -259,15 +259,17 @@ func (a Answers) OnSettlement(ctx context.Context, n service.Settlement) error {
 		if e != nil {
 			return e
 		}
-		if current.Status != "failed" || current.Kind != "aristotle" || current.RequesterID == nil || *current.RequesterID != *r.RequesterID || current.LabChatID == nil {
+		if (current.Status != "failed" && current.Status != "cancelled") || current.Kind != "aristotle" || current.RequesterID == nil || *current.RequesterID != *r.RequesterID || current.LabChatID == nil {
 			return nil
 		}
-		if _, e = tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: tx.WS, UserID: *r.RequesterID}); errors.Is(e, pgx.ErrNoRows) {
-			return nil
-		} else if e != nil {
-			return e
+		// A removed member still owns the private chat. Record only a fixed
+		// terminal message, so it is present if they later rejoin. Access to
+		// the chat remains guarded by membership at the API boundary.
+		body := failureBody(current.FailureReason)
+		if current.Status == "cancelled" {
+			body = "Aristotle could not answer: the run was cancelled."
 		}
-		id, e := tx.Q.RecordLabFailure(ctx, db.RecordLabFailureParams{RunID: r.ID, Body: failureBody(current.FailureReason)})
+		id, e := tx.Q.RecordLabFailure(ctx, db.RecordLabFailureParams{RunID: r.ID, Body: body})
 		if errors.Is(e, pgx.ErrNoRows) {
 			return nil
 		}

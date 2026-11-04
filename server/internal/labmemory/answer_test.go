@@ -621,3 +621,110 @@ func TestFactsOnlyRestartRejectsHandInFromEarlierLessonRead(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+
+func TestCancelledRunLeavesPrivateFailureAcrossRejoin(t *testing.T) {
+	x := runningTurn(t)
+	ctx := t.Context()
+	x.exec("UPDATE agent_run SET status='cancelled',error='private question',failure_reason='sign_in' WHERE id=$1", x.run.ID)
+	x.exec("DELETE FROM member WHERE workspace_id=$1 AND user_id=$2", x.ws, x.user)
+	x.run.Status = "cancelled"
+	a := Answers{Store: x.runs.Store}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if e := a.OnSettlement(ctx, service.Settlement{ID: x.run.ID, AgentRun: x.run}); e != nil {
+				t.Error(e)
+			}
+		}()
+	}
+	wg.Wait()
+	x.exec("INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'member')", x.ws, x.user)
+	if e := a.OnSettlement(ctx, service.Settlement{ID: x.run.ID, AgentRun: x.run}); e != nil {
+		t.Fatal(e)
+	}
+	if e := x.runs.Store.InWorkspace(ctx, x.ws, x.user, func(tx *store.Tx) error {
+		rows, e := tx.Q.ListPrivateLabMessages(ctx, db.ListPrivateLabMessagesParams{ChatID: *x.run.LabChatID, PageSize: 10})
+		if e != nil {
+			return e
+		}
+		if len(rows) != 2 {
+			t.Fatalf("messages = %d", len(rows))
+		}
+		var failures int
+		for _, row := range rows {
+			if row.Kind == "failure" {
+				failures++
+				if row.Body != "Aristotle could not answer: the run was cancelled." {
+					t.Fatal(row.Body)
+				}
+			}
+		}
+		if failures != 1 {
+			t.Fatal(failures)
+		}
+		return nil
+	}); e != nil {
+		t.Fatal(e)
+	}
+	var events int
+	var payload string
+	if e := x.env.Owner.QueryRow(ctx, `SELECT count(*),min(payload::text) FROM event WHERE type='lab.message.created' AND payload->>'message_id' IN (SELECT id::text FROM lab_message WHERE agent_run_id=$1 AND kind='failure')`, x.run.ID).Scan(&events, &payload); e != nil || events != 1 || strings.Contains(payload, "private question") || strings.Contains(payload, "cancelled") {
+		t.Fatal(e, events, payload)
+	}
+}
+
+func TestCancelledSettlementPreservesAcceptedAnswer(t *testing.T) {
+	x := runningTurn(t)
+	if p, e := x.submit(t.Context(), "gap"); e != nil || len(p) != 0 {
+		t.Fatal(e, p)
+	}
+	x.exec("UPDATE agent_run SET status='cancelled' WHERE id=$1", x.run.ID)
+	x.run.Status = "cancelled"
+	if e := (Answers{Store: x.runs.Store}).OnSettlement(t.Context(), service.Settlement{ID: x.run.ID, AgentRun: x.run}); e != nil {
+		t.Fatal(e)
+	}
+	var answers, failures int
+	if e := x.env.Owner.QueryRow(t.Context(), `SELECT count(*) FILTER(WHERE kind='answer'),count(*) FILTER(WHERE kind='failure') FROM lab_message WHERE agent_run_id=$1`, x.run.ID).Scan(&answers, &failures); e != nil || answers != 1 || failures != 0 {
+		t.Fatal(e, answers, failures)
+	}
+}
+
+func TestConcurrentCancellationAndHandInPublishOneOutcome(t *testing.T) {
+	x := runningTurn(t)
+	ctx := t.Context()
+	x.runs.OnSettlement = (Answers{Store: x.runs.Store}).OnSettlement
+	start := make(chan struct{})
+	handed := make(chan error, 1)
+	reported := make(chan error, 1)
+	go func() {
+		<-start
+		p, e := x.submit(ctx, "gap")
+		if len(p) != 0 {
+			e = errors.New("invalid gap")
+		}
+		handed <- e
+	}()
+	go func() {
+		<-start
+		e := x.runs.Cancel(ctx, x.ws, x.user, x.run.ID)
+		reported <- e
+	}()
+	close(start)
+	submitErr, failErr := <-handed, <-reported
+	if failErr != nil || submitErr != nil && !errors.Is(submitErr, service.ErrConflict) {
+		t.Fatal(submitErr, failErr)
+	}
+	var status, kind string
+	var n, events int
+	if e := x.env.Owner.QueryRow(ctx, `SELECT status,(SELECT min(kind) FROM lab_message WHERE agent_run_id=r.id AND kind<>'question'),
+ (SELECT count(*) FROM lab_message WHERE agent_run_id=r.id AND kind<>'question'),
+ (SELECT count(*) FROM event WHERE type='lab.message.created' AND payload->>'message_id' IN
+ (SELECT id::text FROM lab_message WHERE agent_run_id=r.id AND kind<>'question')) FROM agent_run r WHERE id=$1`, x.run.ID).Scan(&status, &kind, &n, &events); e != nil {
+		t.Fatal(e)
+	}
+	if n != 1 || events != 1 || status != "cancelled" || (kind != "answer" && kind != "failure") {
+		t.Fatal(submitErr, status, kind, n, events)
+	}
+}
