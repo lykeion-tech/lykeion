@@ -7,15 +7,17 @@ import (
 )
 
 type listedRun struct {
-	ID             string
-	Role           string
-	AgentID        *string `json:"agent_id"`
-	AgentName      *string `json:"agent_name"`
-	Assignment     string
-	LatestText     string          `json:"latest_text"`
-	Answer         string          `json:"answer"`
-	HandIn         json.RawMessage `json:"hand_in"`
-	LastActivityAt *string         `json:"last_activity_at"`
+	ID               string
+	Role             string
+	AgentID          *string `json:"agent_id"`
+	AgentName        *string `json:"agent_name"`
+	Assignment       string
+	LatestText       string          `json:"latest_text"`
+	Answer           string          `json:"answer"`
+	HandIn           json.RawMessage `json:"hand_in"`
+	HandInID         string          `json:"hand_in_id"`
+	HandInMessageSeq int32           `json:"hand_in_message_seq"`
+	LastActivityAt   *string         `json:"last_activity_at"`
 }
 
 func (l *teamLab) runs(t *testing.T) map[string]listedRun {
@@ -164,14 +166,14 @@ func TestRunsListCarriesOnlyCurrentAttemptHandIn(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"papers"`
 	}
-	if err := json.Unmarshal(got.HandIn, &hand); err != nil || hand.Answer != "Found evidence." || len(hand.Papers) != 1 || hand.Papers[0].ID != "doi:10.1/example" {
+	if err := json.Unmarshal(got.HandIn, &hand); err != nil || got.HandInID == "" || hand.Answer != "Found evidence." || len(hand.Papers) != 1 || hand.Papers[0].ID != "doi:10.1/example" {
 		t.Fatalf("accepted hand-in %s: %v", got.HandIn, err)
 	}
 	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE record SET superseded_at = now() WHERE agent_run_id = $1 AND kind = 'hand_in'", leader.id); err != nil {
 		t.Fatal(err)
 	}
 	got = l.runs(t)[leader.id]
-	if got.Answer != "" || (len(got.HandIn) != 0 && string(got.HandIn) != "null") {
+	if got.Answer != "" || got.HandInID != "" || (len(got.HandIn) != 0 && string(got.HandIn) != "null") {
 		t.Fatalf("superseded hand-in: %+v", got)
 	}
 	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE record SET superseded_at = null WHERE agent_run_id = $1 AND kind = 'hand_in'", leader.id); err != nil {

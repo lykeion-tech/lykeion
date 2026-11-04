@@ -50,6 +50,7 @@ async function render(messages: RunMessage[], overrides: Partial<AgentRun> = {},
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
   });
   client.setQueryData(keys.runMessages('w', 'r', attempt), messages);
+  client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
   const app = createSSRApp({
     render: () => h(RunTurn, { run: { ...run, ...overrides } }),
   });
@@ -414,6 +415,14 @@ describe('hand-in answers and re-asks', () => {
     expect(html).toContain('Two papers fit.');
     expect(html).not.toContain('working on it');
   });
+  it('previews a structured progress message using its readable answer', async () => {
+    const html = await renderCard({
+      latest_text: '{"answer":"Checking sources.","status":"done"}',
+      answer: '',
+    });
+    expect(html).toContain('Checking sources.');
+    expect(html).not.toContain('&quot;answer&quot;');
+  });
   it("tells a failed objector plainly, never with the harness's raw error", async () => {
     const html = await renderCard({
       role: 'objector',
@@ -433,6 +442,213 @@ describe('hand-in answers and re-asks', () => {
     expect(html).toContain('Lykeion asked for the hand-in to be corrected (2 problems)');
     expect(html).toContain('papers: id not found');
     expect(transcriptBlocks([reask]).map((b) => b.kind)).toEqual(['reask']);
+  });
+});
+describe('accepted study hand-ins', () => {
+  const handIn = {
+    status: 'done',
+    answer: 'The evidence is mixed.',
+    papers: [{ id: 'doi:10.1/test', why: 'Relevant review' }],
+    datasets: [],
+  };
+  it('renders an accepted hand-in as a readable answer and source rather than raw JSON', async () => {
+    const html = await render([msg(1, 'text', JSON.stringify(handIn))], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('The evidence is mixed.');
+    expect(html).toContain('doi:10.1/test');
+    expect(html).toContain('Recorded structured message');
+  });
+  it.each([
+    [
+      'hypotheses',
+      {
+        hypotheses: [
+          {
+            text: 'Activity improves sleep',
+            prediction_shape: 'direction',
+            direction: 'increase',
+            cites: ['doi:10.1/test'],
+          },
+        ],
+      },
+      'Hypotheses',
+      'Activity improves sleep',
+    ],
+    [
+      'experimentation',
+      {
+        values: [{ name: 'difference', value: '0.50', file: 'result.csv' }],
+        outputs: ['result.csv'],
+      },
+      'Recorded values',
+      '0.50',
+    ],
+    [
+      'validation',
+      {
+        assessments: [
+          { hypothesis: 'H1', measurement: 'effect', test: { kind: 't', statistic: 2.3, p: 0.04 } },
+        ],
+        verdicts: [
+          {
+            claim: 'Claim A',
+            verdict: 'not_enough_info',
+            source: 'paper',
+            quote: 'The evidence is unclear.',
+          },
+        ],
+      },
+      'Claim verdicts',
+      'not_enough_info',
+    ],
+  ])('renders %s recorded items for a single agent', async (column, fields, section, evidence) => {
+    const hand = { status: 'done', answer: 'Report text.', ...fields };
+    const html = await render([msg(1, 'text', JSON.stringify(hand))], {
+      board_column: column as AgentRun['board_column'],
+      role: 'agent',
+      hand_in: hand,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain(section);
+    expect(html).toContain(evidence);
+    expect(html).toContain('Recorded structured message');
+  });
+  it('shows the accepted answer even when the adapter recorded no matching text message', async () => {
+    const html = await render([msg(1, 'text', 'Earlier progress.')], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Earlier progress.');
+    expect(html).toContain('The evidence is mixed.');
+  });
+  it('keeps an identical interim message distinct from the accepted report', async () => {
+    const html = await render([msg(1, 'text', JSON.stringify(handIn))], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Recorded structured message');
+    expect(html).toContain('Grounding report');
+  });
+  it('replaces only the identified final message with the accepted report', async () => {
+    const raw = JSON.stringify(handIn);
+    const html = await render([msg(1, 'text', raw), msg(2, 'text', raw)], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'accepted-record',
+      hand_in_message_seq: 2,
+    } as Partial<AgentRun>);
+    expect((html.match(/Recorded structured message/g) ?? []).length).toBe(1);
+    expect(html).toContain('Grounding report');
+  });
+  it('retains a referenced message when it does not match the accepted record', async () => {
+    const message = { status: 'done', answer: 'Earlier update.' };
+    const html = await render([msg(2, 'text', JSON.stringify(message))], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'r1',
+      hand_in_message_seq: 2,
+    } as Partial<AgentRun>);
+    expect(html).toContain('Earlier update.');
+    expect(html).toContain('The evidence is mixed.');
+    expect(html).toContain('Recorded structured message');
+  });
+  it('keeps the full answer of an earlier message even when it matches the accepted answer', async () => {
+    const answer = 'Unresolved concern. '.repeat(15);
+    const hand = { status: 'done', answer, papers: [] };
+    const interim = { status: 'done', answer, concerns: ['Different concern'] };
+    const html = await render([msg(1, 'text', JSON.stringify(interim))], {
+      role: 'leader',
+      hand_in: hand,
+      hand_in_id: 'r1',
+    } as Partial<AgentRun>);
+    expect((html.match(/<p>Unresolved concern\./g) ?? []).length).toBe(2);
+  });
+  it('preserves unrecognized accepted fields and shows incomplete status', async () => {
+    const hand = {
+      status: 'could_not_do',
+      answer: 'Unable to continue.',
+      reason: 'No data.',
+      legacy: 'Keep me',
+    };
+    const html = await render([], {
+      role: 'agent',
+      hand_in: hand,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Could not complete');
+    expect(html).toContain('No data.');
+    expect(html).toContain('Keep me');
+  });
+  it('preserves an unknown accepted status', async () => {
+    const html = await render([], {
+      role: 'agent',
+      hand_in: { status: 'legacy_state', answer: 'Earlier report.' },
+      hand_in_id: 'old',
+    } as Partial<AgentRun>);
+    expect(html).toContain('legacy_state');
+  });
+  it('keeps complete interim progress and original malformed fields available', async () => {
+    const progress = 'A'.repeat(180) + ' important limitation';
+    const html = await render(
+      [msg(1, 'text', JSON.stringify({ status: 'done', answer: progress }))],
+      {
+        role: 'leader',
+        hand_in: { status: 'done', answer: 'Final answer.', papers: [{}] },
+        hand_in_id: 'r1',
+      } as Partial<AgentRun>,
+    );
+    expect(html).toContain(progress);
+    expect(html).toContain('Recorded hand-in data');
+    expect(html).toContain('&quot;papers&quot;');
+  });
+  it('keeps progress visible and malformed accepted records accessible', async () => {
+    const html = await render([msg(1, 'text', '{"answer":"Still checking.","status":"done"}')], {
+      hand_in: { legacy: 'Unusual historical data' },
+      hand_in_id: 'record-1',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Still checking.');
+    expect(html).toContain('Unusual historical data');
+  });
+  it('marks validation as awaiting review when no review attempt is available', async () => {
+    const html = await render([], {
+      board_column: 'validation',
+      role: 'agent',
+      hand_in: { status: 'done', answer: 'Checked.' },
+      hand_in_id: 'v1',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Review pending');
+  });
+  it('shows a could-not-do reason without presenting a success', async () => {
+    const hand = {
+      status: 'could_not_do',
+      answer: 'I could not search.',
+      reason: 'Sources unavailable.',
+    };
+    const html = await render([msg(1, 'text', JSON.stringify(hand))], {
+      role: 'auditor',
+      hand_in: hand,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('Audit report');
+    expect(html).toContain('Sources unavailable.');
+    expect(html).not.toContain('Passed');
+  });
+  it('keeps an ordinary JSON-shaped progress message and earlier attempt', async () => {
+    const old = { ...msg(1, 'text', JSON.stringify(handIn)), attempt: 1 };
+    const ordinary = msg(2, 'text', '{"answer":"still working","status":"done"}');
+    const html = await render([old, ordinary, msg(3, 'text', JSON.stringify(handIn))], {
+      role: 'leader',
+      hand_in: handIn,
+      hand_in_id: 'accepted-record',
+    } as Partial<AgentRun>);
+    expect(html).toContain('still working');
+    expect(html).toContain('&quot;papers&quot;');
+    expect(html).toContain('doi:10.1/test');
   });
 });
 describe('live status line', () => {

@@ -34,6 +34,25 @@ func (l *teamLab) handIn(t *testing.T, r teamRun, h any) handInOut {
 	return out
 }
 
+func TestAcceptedHandInRecordsFinalMessageSequence(t *testing.T) {
+	l, leader := groundingLab(t)
+	input := maps.Clone(leader.ref)
+	hand := grounding()
+	hand["no_qualifying"] = map[string]any{"reason": "No qualifying sources found."}
+	input["hand_in"] = hand
+	input["message_seq"] = 7
+	var out handInOut
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+leader.id+"/hand-in", l.personal, "", input, &out); code != 200 || !out.Accepted {
+		t.Fatalf("hand-in: %d %+v", code, out)
+	}
+	if n := l.s.count(t, "SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='hand_in' AND body->>'message_seq'='7'", leader.id); n != 1 {
+		t.Fatalf("accepted message sequence records: %d", n)
+	}
+	if got := l.runs(t)[leader.id].HandInMessageSeq; got != 7 {
+		t.Fatalf("listed message sequence: %d", got)
+	}
+}
+
 // record stores a record on the study as the sources server or the engine
 // would, in r's column and round minus back.
 func (l *teamLab) record(t *testing.T, r teamRun, back int, kind, key string, body any, run *string) {

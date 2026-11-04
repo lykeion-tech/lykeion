@@ -104,10 +104,13 @@ SELECT t.*, a.name AS agent_name,
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
   COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting,
   COALESCE(h.body->'hand_in'->>'answer', '')::text AS answer,
-  h.body->'hand_in' AS hand_in
+  h.body->'hand_in' AS hand_in,
+  COALESCE(h.id::text, '')::text AS hand_in_id,
+  CASE WHEN h.body->>'message_seq' ~ '^[0-9]{1,9}$'
+    THEN (h.body->>'message_seq')::int ELSE 0 END::int AS hand_in_message_seq
 FROM agent_run t
 LEFT JOIN LATERAL (
-  SELECT r.body FROM record r
+  SELECT r.id, r.body FROM record r
   WHERE r.workspace_id = t.workspace_id AND r.card_id = t.card_id AND r.agent_run_id = t.id
     AND r.kind = 'hand_in' AND r.superseded_at IS NULL AND r.body->>'attempt' = t.attempt::text
   ORDER BY r.created_at DESC LIMIT 1

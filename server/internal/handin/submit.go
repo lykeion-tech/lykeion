@@ -50,6 +50,7 @@ type handInBody struct {
 	AgentRunID uuid.UUID       `json:"agent_run_id"`
 	Attempt    int32           `json:"attempt"`
 	HandIn     json.RawMessage `json:"hand_in"`
+	MessageSeq int32           `json:"message_seq,omitempty"`
 }
 
 // Submit checks the hand-in of run's attempt ref.Attempt and, when nothing is
@@ -59,6 +60,10 @@ type handInBody struct {
 // marked for a fresh session. A hand-in already recorded for the attempt is
 // accepted again and writes nothing.
 func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage) ([]string, error) {
+	return s.SubmitWithMessageSeq(ctx, user, ref, run, raw, 0)
+}
+
+func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage, messageSeq int32) ([]string, error) {
 	var probs []string
 	var unavailable bool
 	err := s.Runs.OnAttempt(ctx, user, ref, run, func(tx *store.Tx, t db.AgentRun) error {
@@ -165,7 +170,7 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 		if probs = append(probs, more...); len(probs) > 0 {
 			return nil
 		}
-		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw}); err != nil {
+		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq}); err != nil {
 			return err
 		}
 		for _, r := range recs {

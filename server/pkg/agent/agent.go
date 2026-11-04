@@ -101,6 +101,8 @@ type Result struct {
 	// Output is the run's final answer: Claude's structured output, or its
 	// result text when it has none; Codex's last message.
 	Output string
+	// OutputMessageSeq is assigned by the daemon when an adapter identifies the final text message.
+	OutputMessageSeq int32
 	// ClaudeSnapshot is the cumulative usage baseline for resuming SessionID,
 	// present only after a clean terminal result.
 	ClaudeSnapshot []byte

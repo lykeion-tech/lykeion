@@ -58,9 +58,10 @@ func (h *H) daemonHandIn(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		service.RuntimeRef
-		HandIn json.RawMessage `json:"hand_in"`
+		HandIn     json.RawMessage `json:"hand_in"`
+		MessageSeq int32           `json:"message_seq"`
 	}
-	if err := readJSON(r, &in); err != nil || in.WorkspaceID == uuid.Nil || in.RuntimeID == uuid.Nil || in.Attempt <= 0 || len(in.HandIn) == 0 {
+	if err := readJSON(r, &in); err != nil || in.WorkspaceID == uuid.Nil || in.RuntimeID == uuid.Nil || in.Attempt <= 0 || len(in.HandIn) == 0 || in.MessageSeq < 0 {
 		writeErr(w, 400, "workspace_id, runtime_id, positive attempt and hand_in required")
 		return
 	}
@@ -68,7 +69,7 @@ func (h *H) daemonHandIn(w http.ResponseWriter, r *http.Request) {
 	if h.Engine != nil {
 		s.SentBack = h.Engine.SentBack
 	}
-	probs, err := s.Submit(r.Context(), user(r), in.RuntimeRef, id, in.HandIn)
+	probs, err := s.SubmitWithMessageSeq(r.Context(), user(r), in.RuntimeRef, id, in.HandIn, in.MessageSeq)
 	if err != nil {
 		agentRunFail(w, r, err)
 		return

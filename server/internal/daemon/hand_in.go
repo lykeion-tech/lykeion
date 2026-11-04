@@ -66,6 +66,7 @@ func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec f
 		}
 		// A refused output is fixed before the hand-in, which is kept once accepted.
 		if len(probs) == 0 {
+			attempt.HandInMessageSeq = res.OutputMessageSeq
 			if probs, err = d.postHandIn(ctx, attempt, handInJSON(res.Output)); err != nil {
 				if errors.Is(err, errLabContextChanged) {
 					return res, nil, err
@@ -139,13 +140,24 @@ func handInJSON(output string) json.RawMessage {
 // problems with it.
 func (d *daemon) postHandIn(ctx context.Context, attempt Report, handIn json.RawMessage) ([]string, error) {
 	body := map[string]any{"workspace_id": attempt.WorkspaceID, "runtime_id": attempt.RuntimeID, "attempt": attempt.Attempt, "hand_in": handIn}
+	if attempt.HandInMessageSeq > 0 {
+		body["message_seq"] = attempt.HandInMessageSeq
+	}
 	var reply struct {
 		FreshAttemptRequired bool     `json:"fresh_attempt_required"`
 		Accepted             bool     `json:"accepted"`
 		Problems             []string `json:"problems"`
 	}
-	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+attempt.AgentRunID.String()+"/hand-in", body, &reply); err != nil {
-		return nil, err
+	endpoint := "/api/daemon/agent-runs/" + attempt.AgentRunID.String() + "/hand-in"
+	if err := d.api.Do(ctx, "POST", endpoint, body, &reply); err != nil {
+		var httpErr *apiclient.HTTPError
+		if attempt.HandInMessageSeq <= 0 || !errors.As(err, &httpErr) || httpErr.Status != http.StatusBadRequest {
+			return nil, err
+		}
+		delete(body, "message_seq")
+		if err = d.api.Do(ctx, "POST", endpoint, body, &reply); err != nil {
+			return nil, err
+		}
 	}
 	if reply.FreshAttemptRequired {
 		return nil, errLabContextChanged

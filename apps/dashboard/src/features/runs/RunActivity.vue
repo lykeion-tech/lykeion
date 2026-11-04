@@ -4,7 +4,7 @@ import Icon from '../../ui/Icon.vue';
 import RunStep from './RunStep.vue';
 import type { RunMessage } from '../../api/types';
 import { activitySteps, isActivityGroup } from './run-transcript';
-const props = defineProps<{ messages: RunMessage[]; active?: boolean }>();
+const props = defineProps<{ messages: RunMessage[]; active?: boolean; studyColumn?: string }>();
 const steps = computed(() => activitySteps(props.messages));
 const callCount = computed(() => steps.value.filter((step) => step.tool).length);
 const grouped = computed(() => isActivityGroup(steps.value));
@@ -25,11 +25,24 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
       >
     </summary>
     <ol class="activity-steps" aria-label="Recorded activity">
-      <RunStep v-for="step in steps" :key="step.key" :step="step" :active="active" nested />
+      <RunStep
+        v-for="step in steps"
+        :key="step.key"
+        :step="step"
+        :active="active"
+        :study-column="studyColumn"
+        nested
+      />
     </ol>
   </details>
   <ol v-else class="run-activity activity-single" aria-label="Recorded activity">
-    <RunStep v-for="step in steps" :key="step.key" :step="step" :active="active" />
+    <RunStep
+      v-for="step in steps"
+      :key="step.key"
+      :step="step"
+      :active="active"
+      :study-column="studyColumn"
+    />
   </ol>
 </template>
 <style scoped>

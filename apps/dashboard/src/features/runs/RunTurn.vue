@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
+import StudyHandIn from './StudyHandIn.vue';
+import { matchesAccepted, structuredMessage } from './study-hand-in';
 import CopyButton from '../coresearch/CopyButton.vue';
 import {
   attemptDivider,
@@ -8,7 +10,7 @@ import {
   transcriptBlocks,
   visibleTranscriptMessages,
 } from './run-transcript';
-import { useRunMessages } from '../../api/queries';
+import { useCardReview, useRunMessages } from '../../api/queries';
 import type { AgentRun } from '../../api/types';
 import { readableAssignment, systemRun } from '../../lib/studies';
 import { durationLabel } from './run-timeline';
@@ -32,6 +34,29 @@ const RecordedMarkdown = defineAsyncComponent({
 const props = defineProps<{ run: AgentRun; study?: { title: string; question: string } }>();
 const assignment = computed(() => readableAssignment(props.run, props.study));
 const messages = useRunMessages(() => props.run, true);
+const finalKey = computed(() => {
+  const r = props.run;
+  if (!r.hand_in_id || !r.hand_in || !r.hand_in_message_seq) return '';
+  const message = (messages.data.value ?? []).find(
+    (m) => m.attempt === r.attempt && m.seq === r.hand_in_message_seq && m.type === 'text',
+  );
+  return message &&
+    typeof message.content === 'string' &&
+    matchesAccepted(message.content, r.hand_in)
+    ? `${message.attempt}:${message.seq}`
+    : '';
+});
+const review = useCardReview(() =>
+  props.run.board_column === 'validation' ? props.run.card_id : '',
+);
+const reviewState = computed(() => {
+  if (review.isPending.value || review.isError.value) return 'unknown';
+  return review.data.value
+    ?.find((item) => item.column === 'validation')
+    ?.attempts.some((attempt) => attempt.round === props.run.round)
+    ? 'available'
+    : 'pending';
+});
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
 const blocks = computed(() =>
   transcriptBlocks(
@@ -104,12 +129,37 @@ const ending = computed(() => {
       :dividers="dividers"
       :ending="ending"
       :queued="run.status === 'queued'"
+      :study-column="run.board_column"
     >
       <template #text="{ block }">
-        <div v-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
+        <StudyHandIn
+          v-if="finalKey && block.key === finalKey && run.hand_in"
+          :hand-in="run.hand_in"
+          :role="run.role"
+          :column="run.board_column"
+          :review-state="reviewState"
+        />
+        <template v-else-if="structuredMessage(block.text)">
+          <RecordedMarkdown
+            class="lyk-reading"
+            :content="String(structuredMessage(block.text)?.answer || '')"
+          />
+          <details>
+            <summary>Recorded structured message</summary>
+            <pre class="recorded-text-fallback">{{ block.text }}</pre>
+          </details>
+        </template>
+        <div v-else-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
         <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
       </template>
     </RunTimeline>
+    <StudyHandIn
+      v-if="run.hand_in && run.hand_in_id && !finalKey"
+      :hand-in="run.hand_in"
+      :role="run.role"
+      :column="run.board_column"
+      :review-state="reviewState"
+    />
     <p v-if="run.error && !systemRun(run.role)" class="run-error">{{ run.error }}</p>
   </div>
 </template>

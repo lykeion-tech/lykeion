@@ -216,13 +216,12 @@ it.each(['running', 'dispatched'] as const)(
     expect(all(root).some((n) => String(n.props.class).includes('live-dot'))).toBe(true);
   },
 );
-it('shows the run environment when open', async () => {
+it('omits the run environment while retaining machine notices', async () => {
   const { root, clickHeader } = setup({ machine_name: 'Old bench', machine_owner_id: 'u' });
   expect(textOf(root)).not.toContain('Old bench');
   await clickHeader();
-  expect(textOf(root)).toContain('Old bench (Owner)');
-  expect(textOf(root)).toContain('Claude Code');
-  expect(textOf(root)).toContain('Recorded model');
+  expect(textOf(root)).not.toContain('Old bench (Owner)');
+  expect(all(root).some((n) => n.props['aria-label'] === 'Run environment')).toBe(false);
   expect(textOf(root)).not.toContain('Runs on: Bench');
   expect(textOf(root)).toContain('The study machine needs attention.');
 });

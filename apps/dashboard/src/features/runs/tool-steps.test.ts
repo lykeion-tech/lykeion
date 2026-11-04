@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { transcriptBlocks, activitySteps } from './run-transcript';
+import { transcriptBlocks, activitySteps, isMemberResult } from './run-transcript';
+import { memberResult } from './study-hand-in';
 import type { RunMessage } from '../../api/types';
 const msg = (
   seq: number,
@@ -10,6 +11,37 @@ const msg = (
 ): RunMessage => ({ agent_run_id: 'r', attempt, seq, type, content, tool, created_at: '' });
 const call = (seq: number, id: string, input: unknown = { command: 'python check.py' }) =>
   msg(seq, 'tool_use', { type: 'tool_use', id, name: 'Bash', input }, 'Bash');
+describe('member hand-in tool output', () => {
+  it('finds the member tool name inside a Codex event', () => {
+    expect(
+      isMemberResult(
+        msg(1, 'tool_use', {
+          item: { type: 'mcp_tool_call', server: 'lyk_door', tool: 'member_result' },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isMemberResult(
+        msg(2, 'tool_use', {
+          item: { type: 'mcp_tool_call', server: 'other', tool: 'member_result' },
+        }),
+      ),
+    ).toBe(false);
+  });
+  it('recognizes a completed member_result envelope and preserves trailing comments', () => {
+    const result = memberResult(
+      'mcp__lyk_door__member_result',
+      '{"status":"done","hand_in":{"agent_run_id":"r1","attempt":1,"hand_in":{"answer":"Two sources.","papers":[]}}}\n\nResearcher comment',
+    );
+    expect(result?.handIn.answer).toBe('Two sources.');
+    expect(result?.trailing).toBe('Researcher comment');
+  });
+  it('leaves unrelated, working and malformed tool outputs alone', () => {
+    expect(memberResult('other', '{"status":"done","hand_in":{}}')).toBeNull();
+    expect(memberResult('member_result', '{"status":"working","hand_in":null}')).toBeNull();
+    expect(memberResult('member_result', '{broken')).toBeNull();
+  });
+});
 describe('logical tool steps', () => {
   it('exposes recorded notebook code as a tool step without treating file writes as cells', () => {
     const source = 'print("transcript UI check")';

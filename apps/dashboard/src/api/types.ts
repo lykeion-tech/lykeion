@@ -143,7 +143,13 @@ export interface Card {
   teams: Record<string, { pack_id: string; name: string; stage: string }>;
   redos: number;
   off_label: string[];
-  attachments: { id: string; name: string; size_bytes: number; content_type: string; record_key?:string }[];
+  attachments: {
+    id: string;
+    name: string;
+    size_bytes: number;
+    content_type: string;
+    record_key?: string;
+  }[];
   services: { name: string }[];
   // What every Grounding source must meet, as the researcher wrote them.
 }
@@ -230,6 +236,10 @@ export interface AgentRun {
   latest_text: string;
   // The answer of the run's latest hand-in, as Markdown; '' before one.
   answer: string;
+  // The accepted hand-in for this attempt, when available.
+  hand_in?: Record<string, unknown> | null;
+  hand_in_id?: string;
+  hand_in_message_seq?: number;
   // When the current attempt last recorded a message; null before its first.
   last_activity_at: string | null;
   // How each earlier attempt ended and on which machine. GET /api/cards/:id/runs only.
@@ -325,8 +335,14 @@ export interface DecisionQuestion {
   options: DecisionOption[];
   allow_other: boolean;
 }
-export interface DecisionQuestionSet { questions: DecisionQuestion[] }
-export interface DecisionQuestionAnswer { question_id: string; option_ids: string[]; text: string | null }
+export interface DecisionQuestionSet {
+  questions: DecisionQuestion[];
+}
+export interface DecisionQuestionAnswer {
+  question_id: string;
+  option_ids: string[];
+  text: string | null;
+}
 
 export interface RuntimeModel {
   value: string;

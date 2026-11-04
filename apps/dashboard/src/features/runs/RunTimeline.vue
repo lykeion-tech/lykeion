@@ -9,6 +9,7 @@ const props = defineProps<{
   attempt?: number;
   ending?: { mark: string; text: string };
   queued?: boolean;
+  studyColumn?: string;
   // A line for each earlier attempt of a retried run, in attempt order, drawn
   // before the first block of a later attempt, or last when none follows.
   dividers?: { attempt: number; text: string }[];
@@ -66,6 +67,7 @@ const marked = computed(() =>
         <RunActivity
           v-else
           :messages="block.messages"
+          :study-column="studyColumn"
           :active="active && (attempt === undefined || block.messages[0]?.attempt === attempt)"
         />
       </li>

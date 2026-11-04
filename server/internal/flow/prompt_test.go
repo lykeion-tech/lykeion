@@ -29,6 +29,33 @@ func TestThePromptListsTheFiles(t *testing.T) {
 	}
 }
 
+func TestStageReportTemplatesForEveryStudyRole(t *testing.T) {
+	stages := map[string][]string{
+		board.Grounding:       {"Question and scope", "Findings", "Sources", "Disagreements and limitations", "Evidence gaps"},
+		board.Hypotheses:      {"Hypotheses", "Predictions and controls", "Supporting sources", "Alternatives and uncertainty"},
+		board.Experimentation: {"Objective", "Data and method", "Results", "Outputs and reproducibility", "Limitations or failures"},
+		board.Validation:      {"What was checked", "Assessments or verdicts and evidence", "Objections and limitations", "Review status"},
+	}
+	for column, headings := range stages {
+		for _, role := range []string{"leader", "agent"} {
+			p := Protocol(role, column, column, nil)
+			for _, h := range headings {
+				if !strings.Contains(p, h) {
+					t.Errorf("%s %s missing %q", column, role, h)
+				}
+			}
+		}
+		for role, headings := range map[string][]string{"member": {"Assignment", "Findings", "Handoff"}, "auditor": {"Conclusion", "Concerns", "References"}} {
+			p := Protocol(role, column, column, nil)
+			for _, h := range headings {
+				if !strings.Contains(p, h) {
+					t.Errorf("%s %s missing %q", column, role, h)
+				}
+			}
+		}
+	}
+}
+
 func TestNoPromptNamesAReportingStage(t *testing.T) {
 	for _, col := range board.Stages {
 		for _, role := range []string{"agent", "leader", "member", "auditor"} {

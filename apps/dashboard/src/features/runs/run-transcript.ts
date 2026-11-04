@@ -243,6 +243,13 @@ const filePath = (input: Record<string, unknown>) =>
 const searched = (input: Record<string, unknown>) =>
   string(input.query, input.pattern, input.globPattern, input.Query, input.Pattern);
 const toolName = (tool: string) => tool.replace(/ToolCall$/, '');
+export function isMemberResult(message: RunMessage): boolean {
+  const call = toolCall(message);
+  return (
+    call.tool === 'mcp__lyk_door__member_result' ||
+    (call.server === 'lyk_door' && call.tool === 'member_result')
+  );
+}
 
 export function activityStep(message: RunMessage) {
   const call = toolCall(message);

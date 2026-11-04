@@ -186,6 +186,50 @@ func TestHandInAcceptedOnSecondTry(t *testing.T) {
 	}
 }
 
+func TestPostHandInCarriesFinalMessageSequence(t *testing.T) {
+	var seq int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			MessageSeq int32 `json:"message_seq"`
+		}
+		must(t, json.NewDecoder(r.Body).Decode(&body))
+		seq = body.MessageSeq
+		io.WriteString(w, `{"accepted":true}`)
+	}))
+	defer srv.Close()
+	d := &daemon{api: &apiclient.Client{Server: srv.URL}}
+	r := Report{HandInMessageSeq: 17}
+	b, err := json.Marshal(r)
+	must(t, err)
+	var replay Report
+	must(t, json.Unmarshal(b, &replay))
+	probs, err := d.postHandIn(t.Context(), replay, json.RawMessage(`{}`))
+	must(t, err)
+	if len(probs) != 0 || seq != 17 {
+		t.Fatalf("sequence %d, problems %v", seq, probs)
+	}
+}
+
+func TestPostHandInSupportsOlderServers(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		must(t, json.NewDecoder(r.Body).Decode(&body))
+		calls++
+		if _, present := body["message_seq"]; present {
+			http.Error(w, "unknown field", 400)
+			return
+		}
+		io.WriteString(w, `{"accepted":true}`)
+	}))
+	defer srv.Close()
+	d := &daemon{api: &apiclient.Client{Server: srv.URL}}
+	probs, err := d.postHandIn(t.Context(), Report{HandInMessageSeq: 17}, json.RawMessage(`{}`))
+	if err != nil || len(probs) != 0 || calls != 2 {
+		t.Fatalf("calls %d, problems %v, error %v", calls, probs, err)
+	}
+}
+
 func TestOutputsSavedBeforeSubmit(t *testing.T) {
 	f := fixture(t)
 	write := func(o agent.ExecOptions) {

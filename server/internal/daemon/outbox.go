@@ -47,7 +47,8 @@ type Report struct {
 	Messages      []wireMsg     `json:"messages,omitempty"`
 	// HandIn is a completed attempt's final answer the server has not yet
 	// taken: it is posted as the hand-in before the report itself.
-	HandIn json.RawMessage `json:"hand_in,omitempty"`
+	HandIn           json.RawMessage `json:"hand_in,omitempty"`
+	HandInMessageSeq int32           `json:"hand_in_message_seq,omitempty"`
 	// Rerun is a rerun's result, posted in place of a completion: a report
 	// of kind "rerun" settles its run through the rerun's result route.
 	Rerun      *rerunResult `json:"rerun,omitempty"`

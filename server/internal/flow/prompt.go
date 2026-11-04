@@ -177,6 +177,34 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 // in a column: "leader", "agent" (a study's single agent), "auditor", or a
 // member's name. It is Lykeion's counterpart of the operating protocol a
 // squad leader reads.
+func reportTemplate(role, column string) string {
+	var headings string
+	switch role {
+	case "auditor":
+		headings = "Conclusion; Concerns; References"
+	case "leader", "agent":
+		switch column {
+		case board.Grounding:
+			headings = "Question and scope; Findings; Sources; Disagreements and limitations; Evidence gaps"
+		case board.Hypotheses:
+			headings = "Hypotheses; Predictions and controls; Supporting sources; Alternatives and uncertainty"
+		case board.Experimentation:
+			headings = "Objective; Data and method; Results; Outputs and reproducibility; Limitations or failures"
+		case board.Validation:
+			headings = "What was checked; Assessments or verdicts and evidence; Objections and limitations; Review status"
+		}
+	default:
+		headings = "Assignment; Findings; Handoff"
+	}
+	if headings == "" {
+		return ""
+	}
+	return "Write the hand-in's `answer` in Markdown using these headings in order: " + headings + ". " +
+		"Be concise and report only what you actually did or found. State when a section is unavailable or not applicable; never invent evidence or results. " +
+		"If you could not complete the work, say why. Validation review status is pending until Lykeion's checks determine it; do not claim a gate passed. " +
+		"If the researcher requested a specific final line, preserve that line at the end.\n\n"
+}
+
 func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 	var b strings.Builder
 	b.WriteString("## How you work in Lykeion\n\n")
@@ -221,6 +249,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 		b.WriteString("Do the task and end with your hand-in. It has the column's fields, but the items are optional: hand in the ones your task produced. The leader decides what goes into the column's hand-in. " +
 			"A question only the researcher can answer goes to the leader: hand in `ask` with the decision, and the leader raises it for you.\n\n")
 	}
+	b.WriteString(reportTemplate(role, column))
 	if role != "auditor" {
 		b.WriteString(handInIntro + itemsPrompt(column))
 	}

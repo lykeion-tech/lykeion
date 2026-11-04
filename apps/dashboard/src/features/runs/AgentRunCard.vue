@@ -9,10 +9,10 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { deliveryLine } from '../studies/comment-delivery';
 import { registerDraftVisit } from '../../state/resource-draft';
-import { backendLabel } from '../../lib/backends';
 import RunTurn from './RunTurn.vue';
+import { structuredMessage } from './study-hand-in';
 import RunReactions from './RunReactions.vue';
-import { columnName, roleLabel, systemRun, timeAgo } from '../../lib/studies';
+import { roleLabel, systemRun, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
 const props = defineProps<{
@@ -80,22 +80,6 @@ async function sendReply() {
     replyBusy.value = false;
   }
 }
-// Only what the run and its machine's daemon recorded; nothing is filled in.
-const environment = computed(() => {
-  const r = props.run;
-  const machine = props.runtime;
-  const ownerId = r.machine_owner_id || machine?.owner_id;
-  const owner = members.data.value?.find((m) => m.user_id === ownerId);
-  const ownerName = owner?.name || owner?.email || (ownerId ? 'Former member' : '');
-  const machineName = machine ? machine.custom_name || machine.device_name : r.machine_name;
-  const machineLabel = machineName ? `${machineName}${ownerName ? ` (${ownerName})` : ''}` : '';
-  return [
-    { key: 'Machine', value: machineLabel },
-    { key: 'Runtime', value: backendLabel(r.harness) },
-    { key: 'Model', value: r.model },
-    { key: 'Stage', value: columnName(r.board_column) },
-  ].filter((e) => e.value);
-});
 const name = computed(() => agentDisplayName(props.run.agent_name || roleLabel(props.run.role)));
 function replyStatus(item: Comment) {
   if (item.delivery) return deliveryLine(item.delivery, { working: active.value, who: name.value });
@@ -120,7 +104,8 @@ const state = computed(
 // text for a three-line preview. The runs listing carries both, so a card
 // never reads the run's messages.
 const preview = computed(() => {
-  const text = props.run.answer || props.run.latest_text;
+  const latest = props.run.latest_text;
+  const text = props.run.answer || String(structuredMessage(latest)?.answer ?? latest);
   if (text)
     return text
       .replace(/```[\s\S]*?(```|$)/g, ' ')
@@ -176,11 +161,6 @@ const lastActive = computed(
       </template>
       <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
         <RunTurn :run="run" :study="studyCard.data.value" />
-        <p class="run-environment" aria-label="Run environment">
-          <span v-for="e in environment" :key="e.key"
-            ><span class="environment-label">{{ e.key }}:</span> {{ e.value }}</span
-          >
-        </p>
         <p v-if="studyCard.data.value?.machine_notice" class="machine-notice" role="status">
           {{ studyCard.data.value.machine_notice }}
         </p>
@@ -332,20 +312,6 @@ const lastActive = computed(
 .open-transcript {
   margin-top: 20px;
   min-width: 0;
-}
-.run-environment {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 18px;
-  padding: 12px 0 0 6px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.environment-label {
-  color: var(--text);
 }
 .machine-notice {
   margin-top: 6px;

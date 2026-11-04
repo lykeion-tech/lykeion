@@ -3,8 +3,20 @@ import { computed } from 'vue';
 import { CheckCircle2, Circle, CircleX, LoaderCircle } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import RunStepCode from './RunStepCode.vue';
-import { recordedContent, type ActivityStep } from './run-transcript';
-const props = defineProps<{ step: ActivityStep; active?: boolean; nested?: boolean }>();
+import StudyHandIn from './StudyHandIn.vue';
+import { memberResult } from './study-hand-in';
+import { recordedContent, isMemberResult, type ActivityStep } from './run-transcript';
+const props = defineProps<{
+  step: ActivityStep;
+  active?: boolean;
+  nested?: boolean;
+  studyColumn?: string;
+}>();
+const member = computed(() =>
+  props.studyColumn && props.step.messages[0] && isMemberResult(props.step.messages[0])
+    ? memberResult('member_result', props.step.output)
+    : null,
+);
 const fallback = computed(() => {
   const step = props.step;
   if (step.notebook || step.command || step.detail || (!step.tool && step.output)) return '';
@@ -60,7 +72,15 @@ const fallback = computed(() => {
           <span class="step-detail-label">{{ step.tool ? 'Input' : 'Content' }}</span>
           <pre class="step-output" tabindex="0">{{ fallback }}</pre>
         </template>
-        <template v-if="step.output">
+        <template v-if="member">
+          <StudyHandIn :hand-in="member.handIn" role="member" :column="studyColumn || ''" />
+          <p v-if="member.trailing" class="step-output">{{ member.trailing }}</p>
+          <details>
+            <summary>Recorded tool output</summary>
+            <pre class="step-output" tabindex="0">{{ step.output }}</pre>
+          </details>
+        </template>
+        <template v-else-if="step.output">
           <span class="step-detail-label">Output</span>
           <pre class="step-output" tabindex="0">{{ step.output }}</pre>
         </template>

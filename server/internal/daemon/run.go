@@ -215,6 +215,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	defer func() { cancel(); <-watched }()
 	var sinkErr error
 	var sequence int32
+	var lastTextSeq int32
 	var sequenceMu sync.Mutex
 	messageRef := Report{AgentRunID: r.AgentRunID, WorkspaceID: r.WorkspaceID, RuntimeID: r.RuntimeID, Attempt: r.Attempt}
 	var namer *stepNamer
@@ -246,6 +247,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if err != nil {
 			sinkErr = errors.Join(sinkErr, err)
 			return err
+		}
+		if m.Type == "text" {
+			lastTextSeq = seq
 		}
 		if namer != nil {
 			namer.saw(seq, m)
@@ -384,6 +388,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	takesComments := c.AgentRun.Harness == "claude" && c.OutputSchema != "" && c.AgentRun.CardID != nil
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
+		lastTextSeq = 0
 		turnOpts := opts
 		if takesComments {
 			input := make(chan string, 16)
@@ -407,6 +412,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		res, ok := <-sess.Done
 		if !ok {
 			res.Err = errors.New("backend closed without a result")
+		}
+		// Codex's adapter defines Output as the last emitted agent_message.
+		if c.AgentRun.Harness == "codex" && res.Output != "" {
+			res.OutputMessageSeq = lastTextSeq
 		}
 		streamErr = errors.Join(streamErr, sandboxNote(res.Err))
 		return res, streamErr, nil
@@ -484,6 +493,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	switch {
 	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "" && (runCtx.Err() == nil || ctx.Err() != nil):
 		r.HandIn = handInJSON(res.Output)
+		r.HandInMessageSeq = res.OutputMessageSeq
 		slog.Warn("hand-in kept until the server answers", "run", r.AgentRunID, "attempt", r.Attempt, "err", handInErr)
 	case errors.Is(handInErr, errLabContextChanged):
 		r.FailureReason = agent.ReasonLabContextChanged
