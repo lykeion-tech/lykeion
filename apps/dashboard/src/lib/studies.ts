@@ -95,7 +95,7 @@ export function stateLabel(card: Card): string {
 export function endLabel(card: Card): string {
   if (card.ending === 'released')
     return card.end_reason ? `Released · ${card.end_reason}` : 'Released';
-  if (card.ending === 'stopped') return `Stopped · ${card.end_reason}`;
+  if (card.ending === 'stopped') return 'Stopped';
   return '';
 }
 export function roleLabel(role: string): string {

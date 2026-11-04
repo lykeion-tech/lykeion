@@ -514,7 +514,7 @@ onUnmounted(() => {
             @click="open(card.id)"
           >
             <small class="card-id"
-              >{{ number(card) }}<span v-if="card.queued" class="chip chip-queued">queued</span
+              >{{ number(card) }}<span v-if="card.ending === 'stopped'" class="chip chip-stopped">{{ endLabel(card) }}</span><span v-if="card.queued" class="chip chip-queued">queued</span
               ><span
                 v-if="card.flag === 'escalated' || card.state === 'blocked'"
                 class="chip chip-escalated"
@@ -571,7 +571,7 @@ onUnmounted(() => {
                 class="chip"
                 :class="'chip-' + card.state"
                 >{{ cardStateLabel(card) }}</span
-              ><span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+              ><span v-if="card.ending && card.ending !== 'stopped'" class="chip" :class="'chip-' + card.ending">{{
                 endLabel(card)
               }}</span
               ><span v-if="display.properties.includes('Updated')" class="push-right"
