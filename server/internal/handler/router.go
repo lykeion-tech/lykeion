@@ -254,6 +254,7 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/api/lab/chats/{id}/questions/{question}/cancel", h.cancelManualDraftQuestion)
 			r.Get("/api/lab/chats/{id}/draft", h.getManualDraft)
 			r.Put("/api/lab/chats/{id}/draft", h.saveManualDraft)
+			r.Post("/api/lab/chats/{id}/archive", h.archiveManualDraft)
 			r.Post("/api/lessons/{id}/flag", h.flagLabLesson)
 			r.Post("/api/coresearch/bootstrap", h.bootstrapAristotle)
 			r.Get("/api/coresearch/conversations", h.listCoresearchConversations)

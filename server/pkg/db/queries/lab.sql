@@ -110,6 +110,7 @@ SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user(
 -- name: ListPrivateLabChats :many
 SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND purpose=COALESCE(NULLIF(@purpose::text,''),'answer')
+AND (archived_at IS NOT NULL)= @archived::boolean
 AND (sqlc.narg(before_time)::timestamptz IS NULL OR (updated_at,id)<(sqlc.narg(before_time),@before_id::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT @page_size::int;
 

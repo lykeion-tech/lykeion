@@ -696,6 +696,7 @@ type LabChat struct {
 	Purpose     string          `json:"purpose"`
 	Draft       json.RawMessage `json:"draft"`
 	DraftSource *uuid.UUID      `json:"draft_source"`
+	ArchivedAt  *time.Time      `json:"archived_at"`
 }
 
 type LabCursor struct {

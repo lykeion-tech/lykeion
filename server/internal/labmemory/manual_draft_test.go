@@ -215,3 +215,37 @@ func TestManualDraftDeletedInputStudyCannotLaunchOrPublish(t *testing.T) {
 		})
 	}
 }
+
+func TestManualDraftArchivedTurnCanSettle(t *testing.T) {
+	x := runningDraft(t)
+	ref := Ref{Kind: "record", ID: x.record}.String()
+	x.log(ref, "read")
+	e := x.runs.Store.InWorkspace(t.Context(), x.ws, x.user, func(tx *store.Tx) error { _, e := tx.Q.ArchiveManualDraft(t.Context(), *x.run.LabChatID); return e })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref)); e != nil || len(p) > 0 {
+		t.Fatal(e, p)
+	}
+	e = x.runs.Store.InWorkspace(t.Context(), x.ws, x.user, func(tx *store.Tx) error {
+		chat, e := tx.Q.GetPrivateLabChat(t.Context(), *x.run.LabChatID)
+		if e != nil {
+			return e
+		}
+		if chat.ArchivedAt == nil || chat.DraftSource == nil {
+			t.Fatal("archive or retained proposal lost")
+		}
+		ok, e := DraftReadable(t.Context(), tx, chat)
+		if !ok || e != nil {
+			t.Fatal(ok, e)
+		}
+		_, e = Enqueue(t.Context(), tx, x.runs, chat, x.user, "new request", nil, "claude", "")
+		if e == nil {
+			t.Fatal("archived chat queued new turn")
+		}
+		return nil
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+}

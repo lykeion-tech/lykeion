@@ -32,7 +32,7 @@ func (h *H) getManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, pgx.ErrNoRows)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft})
+	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt})
 }
 func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 	tx := middleware.TxFrom(r.Context())
@@ -47,6 +47,10 @@ func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chat, e = labmemory.SaveDraft(r.Context(), tx, chat.ID, d)
+	if errors.Is(e, labmemory.ErrDraftArchived) {
+		writeErr(w, 400, e.Error())
+		return
+	}
 	if errors.Is(e, labmemory.ErrNotFound) {
 		e = pgx.ErrNoRows
 	}
@@ -54,7 +58,7 @@ func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft})
+	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt})
 }
 
 func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabChat) {
@@ -78,6 +82,10 @@ func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabCh
 	chat, e := tx.Q.GetPrivateLabChat(ctx, chat.ID)
 	if e != nil {
 		fail(w, r, e)
+		return
+	}
+	if chat.ArchivedAt != nil {
+		writeErr(w, 400, labmemory.ErrDraftArchived.Error())
 		return
 	}
 	readable, e := labmemory.DraftReadable(ctx, tx, chat)
@@ -176,6 +184,10 @@ func (h *H) cancelManualDraftQuestion(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, pgx.ErrNoRows)
 		return
 	}
+	if chat.ArchivedAt != nil {
+		writeErr(w, 400, labmemory.ErrDraftArchived.Error())
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "question"))
 	if err != nil {
 		fail(w, r, pgx.ErrNoRows)
@@ -206,6 +218,36 @@ func (h *H) cancelManualDraftQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	if err = h.AgentRuns.CancelInTx(ctx, tx, user(r), run); err != nil {
 		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Archive retires the editable form without deleting its private history or
+// cancelling work already admitted. Creation succeeds independently of this call.
+func (h *H) archiveManualDraft(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tx := middleware.TxFrom(ctx)
+	if _, e := tx.Q.LockWorkspaceExecution(ctx, tx.WS); e != nil {
+		fail(w, r, e)
+		return
+	}
+	chat, e := privateLabChat(r, tx)
+	if e != nil {
+		fail(w, r, e)
+		return
+	}
+	if chat.Purpose != labmemory.ManualDraftPurpose {
+		fail(w, r, pgx.ErrNoRows)
+		return
+	}
+	n, e := tx.Q.ArchiveManualDraft(ctx, chat.ID)
+	if e != nil {
+		fail(w, r, e)
+		return
+	}
+	if n != 1 {
+		fail(w, r, pgx.ErrNoRows)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

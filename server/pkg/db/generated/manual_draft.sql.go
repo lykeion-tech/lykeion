@@ -12,9 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const archiveManualDraft = `-- name: ArchiveManualDraft :execrows
+UPDATE lab_chat SET archived_at=COALESCE(archived_at,clock_timestamp())
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1
+ AND purpose='manual_decision_draft' AND deleted_at IS NULL
+`
+
+func (q *Queries) ArchiveManualDraft(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveManualDraft, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createManualDraftChat = `-- name: CreateManualDraftChat :one
 INSERT INTO lab_chat(workspace_id,owner_id,purpose,draft)
-VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context":"","deadline":null,"card_id":null}') RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source
+VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context":"","deadline":null,"card_id":null}') RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at
 `
 
 func (q *Queries) CreateManualDraftChat(ctx context.Context) (LabChat, error) {
@@ -31,6 +45,7 @@ func (q *Queries) CreateManualDraftChat(ctx context.Context) (LabChat, error) {
 		&i.Purpose,
 		&i.Draft,
 		&i.DraftSource,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -112,7 +127,7 @@ func (q *Queries) GetPrivateManualDraftQuestion(ctx context.Context, arg GetPriv
 
 const saveManualDraft = `-- name: SaveManualDraft :one
 UPDATE lab_chat SET draft= $1::jsonb,updated_at=clock_timestamp()
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND purpose='manual_decision_draft' AND deleted_at IS NULL RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND purpose='manual_decision_draft' AND deleted_at IS NULL AND archived_at IS NULL RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at
 `
 
 type SaveManualDraftParams struct {
@@ -134,6 +149,7 @@ func (q *Queries) SaveManualDraft(ctx context.Context, arg SaveManualDraftParams
 		&i.Purpose,
 		&i.Draft,
 		&i.DraftSource,
+		&i.ArchivedAt,
 	)
 	return i, err
 }

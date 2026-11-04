@@ -22,6 +22,16 @@ func TestLabChatDeletionUpgradeFrom0052AndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	archiveDown, archiveErr := fs.ReadFile(migrations.FS, "0056_manual_draft_archives.down.sql")
+	if archiveErr != nil {
+		t.Fatal(archiveErr)
+	}
+	if _, archiveErr = conn.Exec(ctx, string(archiveDown)); archiveErr != nil {
+		t.Fatal(archiveErr)
+	}
+	if _, archiveErr = conn.Exec(ctx, `DELETE FROM schema_migrations WHERE version=56`); archiveErr != nil {
+		t.Fatal(archiveErr)
+	}
 	draftDown, e := fs.ReadFile(migrations.FS, "0055_manual_decision_drafts.down.sql")
 	if e != nil {
 		t.Fatal(e)
@@ -59,6 +69,16 @@ func TestLabChatDeletionUpgradeFrom0052AndRollback(t *testing.T) {
 	}
 	if _, err = conn.Exec(ctx, `UPDATE lab_chat SET deleted_at=now(),title='' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
+	}
+	archiveDown, archiveErr = fs.ReadFile(migrations.FS, "0056_manual_draft_archives.down.sql")
+	if archiveErr != nil {
+		t.Fatal(archiveErr)
+	}
+	if _, archiveErr = conn.Exec(ctx, string(archiveDown)); archiveErr != nil {
+		t.Fatal(archiveErr)
+	}
+	if _, archiveErr = conn.Exec(ctx, `DELETE FROM schema_migrations WHERE version=56`); archiveErr != nil {
+		t.Fatal(archiveErr)
 	}
 	draftDown, e = fs.ReadFile(migrations.FS, "0055_manual_decision_drafts.down.sql")
 	if e != nil {

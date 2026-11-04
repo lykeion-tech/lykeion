@@ -14,6 +14,8 @@ import (
 
 const ManualDraftPurpose = "manual_decision_draft"
 
+var ErrDraftArchived = errors.New("draft conversation is archived")
+
 type DraftProposal struct {
 	Message string             `json:"message"`
 	Draft   handin.ManualDraft `json:"draft"`
@@ -76,6 +78,9 @@ func SaveDraft(ctx context.Context, tx *store.Tx, id uuid.UUID, d handin.ManualD
 	chat, e := tx.Q.GetPrivateLabChat(ctx, id)
 	if e != nil {
 		return chat, e
+	}
+	if chat.ArchivedAt != nil {
+		return chat, ErrDraftArchived
 	}
 	ok, e := DraftReadable(ctx, tx, chat)
 	if e != nil {

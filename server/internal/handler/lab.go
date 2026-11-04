@@ -92,7 +92,7 @@ func (h *H) listLabChats(w http.ResponseWriter, r *http.Request) {
 	rows := []db.LabChat{}
 	before, id := p.before, p.id
 	for len(rows) <= int(p.limit) {
-		page, err := tx.Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: before, BeforeID: id, PageSize: p.limit + 1, Purpose: r.URL.Query().Get("purpose")})
+		page, err := tx.Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: before, BeforeID: id, PageSize: p.limit + 1, Purpose: r.URL.Query().Get("purpose"), Archived: r.URL.Query().Get("archived") == "true"})
 		if err != nil {
 			fail(w, r, err)
 			return

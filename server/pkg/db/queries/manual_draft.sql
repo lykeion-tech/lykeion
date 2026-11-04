@@ -4,7 +4,7 @@ VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context"
 
 -- name: SaveManualDraft :one
 UPDATE lab_chat SET draft= @draft::jsonb,updated_at=clock_timestamp()
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id AND purpose='manual_decision_draft' AND deleted_at IS NULL RETURNING *;
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id AND purpose='manual_decision_draft' AND deleted_at IS NULL AND archived_at IS NULL RETURNING *;
 
 -- name: SetManualDraftSource :execrows
 UPDATE lab_chat SET draft_source= @source::uuid
@@ -23,3 +23,8 @@ SELECT m.* FROM lab_message m JOIN lab_chat c
 WHERE m.workspace_id=app_workspace() AND m.owner_id=app_user()
  AND m.chat_id= @chat_id AND m.id= @id AND m.kind='question'
  AND c.purpose='manual_decision_draft' AND c.deleted_at IS NULL;
+
+-- name: ArchiveManualDraft :execrows
+UPDATE lab_chat SET archived_at=COALESCE(archived_at,clock_timestamp())
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id
+ AND purpose='manual_decision_draft' AND deleted_at IS NULL;

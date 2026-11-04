@@ -38,7 +38,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 }
 
 const createLabChat = `-- name: CreateLabChat :one
-INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at
 `
 
 func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
@@ -55,6 +55,7 @@ func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
 		&i.Purpose,
 		&i.Draft,
 		&i.DraftSource,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -166,7 +167,7 @@ func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAns
 }
 
 const getPrivateLabChat = `-- name: GetPrivateLabChat :one
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
 `
 
 func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat, error) {
@@ -183,6 +184,7 @@ func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat,
 		&i.Purpose,
 		&i.Draft,
 		&i.DraftSource,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -487,14 +489,16 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 }
 
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND purpose=COALESCE(NULLIF($1::text,''),'answer')
-AND ($2::timestamptz IS NULL OR (updated_at,id)<($2,$3::uuid))
-ORDER BY updated_at DESC,id DESC LIMIT $4::int
+AND (archived_at IS NOT NULL)= $2::boolean
+AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
+ORDER BY updated_at DESC,id DESC LIMIT $5::int
 `
 
 type ListPrivateLabChatsParams struct {
 	Purpose    string     `json:"purpose"`
+	Archived   bool       `json:"archived"`
 	BeforeTime *time.Time `json:"before_time"`
 	BeforeID   uuid.UUID  `json:"before_id"`
 	PageSize   int32      `json:"page_size"`
@@ -503,6 +507,7 @@ type ListPrivateLabChatsParams struct {
 func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabChatsParams) ([]LabChat, error) {
 	rows, err := q.db.Query(ctx, listPrivateLabChats,
 		arg.Purpose,
+		arg.Archived,
 		arg.BeforeTime,
 		arg.BeforeID,
 		arg.PageSize,
@@ -525,6 +530,7 @@ func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabCha
 			&i.Purpose,
 			&i.Draft,
 			&i.DraftSource,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
