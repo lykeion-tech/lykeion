@@ -15,7 +15,7 @@ import (
 const insertLabAgentRun = `-- name: InsertLabAgentRun :one
 INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,agent_id,board_column,round,role,harness,prompt,skill,requested_model,continuity_scope,created_at)
 SELECT c.workspace_id,'aristotle',c.owner_id,c.owner_id,c.id,$1,'',0,'aristotle',$2,'',$3,$4,'lab-chat:'||c.id::text,clock_timestamp()
-FROM lab_chat c WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.owner_id= $5::uuid AND c.id= $6::uuid
+FROM lab_chat c WHERE c.deleted_at IS NULL AND c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.owner_id= $5::uuid AND c.id= $6::uuid
 AND EXISTS(SELECT 1 FROM member m WHERE m.workspace_id=c.workspace_id AND m.user_id=c.owner_id)
 RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id
 `

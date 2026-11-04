@@ -77,7 +77,7 @@ INSERT INTO lab_message(workspace_id,chat_id,owner_id,kind,body,agent_run_id)
 SELECT r.workspace_id,c.id,c.owner_id,'failure',$1,r.id
 FROM agent_run r JOIN lab_chat c ON (c.workspace_id,c.id,c.owner_id)=(r.workspace_id,r.lab_chat_id,r.requester_id)
 WHERE r.id=$2::uuid AND r.workspace_id=app_workspace() AND r.requester_id=app_user()
-AND r.kind='aristotle' AND r.status IN ('failed','cancelled')
+AND c.deleted_at IS NULL AND r.kind='aristotle' AND r.status IN ('failed','cancelled')
 ON CONFLICT DO NOTHING RETURNING id
 `
 

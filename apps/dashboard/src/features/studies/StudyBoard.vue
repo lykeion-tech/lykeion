@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, type Directive } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -40,6 +40,33 @@ import {
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
 import { useStudyComposer } from '../../state/study-composer';
+const metadataObservers = new WeakMap<HTMLElement, { resize?: ResizeObserver; mutation?: MutationObserver }>();
+const vMetadataRows: Directive<HTMLElement> = {
+  mounted(el) {
+    const update = () => {
+      const assignee = el.querySelector<HTMLElement>('.card-assignee');
+      const owner = el.querySelector<HTMLElement>('.card-owner-separated');
+      owner?.classList.toggle('same-row', !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2);
+    };
+    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    const mutation = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(update);
+    resize?.observe(el);
+    mutation?.observe(el, { childList: true, subtree: true, characterData: true });
+    metadataObservers.set(el, { resize, mutation });
+    update();
+  },
+  updated(el) {
+    const assignee = el.querySelector<HTMLElement>('.card-assignee');
+    const owner = el.querySelector<HTMLElement>('.card-owner-separated');
+    owner?.classList.toggle('same-row', !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2);
+  },
+  unmounted(el) {
+    const observers = metadataObservers.get(el);
+    observers?.resize?.disconnect();
+    observers?.mutation?.disconnect();
+    metadataObservers.delete(el);
+  },
+};
 const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace' | 'mine' }>(), {
   scope: 'workspace',
 });
@@ -503,7 +530,7 @@ onUnmounted(() => {
               >{{ card.question }}</span
             >
             <span v-if="card.waiting" class="card-waiting">{{ card.waiting }}</span>
-            <div class="card-metadata">
+            <div v-metadata-rows class="card-metadata">
               <span
                 v-if="display.properties.includes('Assignee') && card.assignee_id"
                 class="card-assignee"
@@ -925,6 +952,12 @@ onUnmounted(() => {
   width: 1px;
   height: 11px;
   flex: none;
+  background: transparent;
+}
+.card-owner-separated:not(.same-row) {
+  transform: translateX(-7px);
+}
+.card-owner-separated.same-row::before {
   background: color-mix(in srgb, var(--muted) 65%, var(--text));
 }
 .card-aristotle {
@@ -1358,7 +1391,11 @@ onUnmounted(() => {
 }
 .board-column {
   display: flex;
+  flex: 0 0 340px;
   flex-direction: column;
+  width: 340px;
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
 }
 .board-column > header {

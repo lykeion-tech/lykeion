@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { ArrowUp, Brain, ChevronDown, CircleDot, GripVertical, Minus, Plus, X } from '@lucide/vue';
+import { ArrowUp, Brain, ChevronDown, CircleDot, GripVertical, Minus, Plus, Trash2, X } from '@lucide/vue';
 import Aristotle from '../coresearch/Aristotle.vue';
 import { ownOnlineClis } from '../coresearch/api';
 import { useRuntimes } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { ApiError } from '../../api/client';
-import { askLab, createChat, labKey, useChats, useMessages } from './api';
+import { askLab, createChat, deleteChat, labKey, useChats, useMessages } from './api';
 import { useWindowPlacement } from './useWindowPlacement';
 import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
@@ -16,7 +16,7 @@ import LabContextPicker from './LabContextPicker.vue';
 const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string }>();
 const open = ref(false),
   focused = ref(false),
-  evidence = ref(false);
+  evidence = ref(true);
 type Menu = '' | 'chats' | 'options' | 'context' | 'model';
 const menu = ref<Menu>(''),
   panel = ref<HTMLElement>(),
@@ -63,7 +63,9 @@ const model = ref(''),
   draft = ref(''),
   sending = ref(false),
   error = ref(''),
-  offline = ref(false);
+  offline = ref(false),
+  deleting = ref(''),
+  deleteError = ref('');
 const client = useQueryClient(),
   runtimes = useRuntimes();
 const healthy = computed(() => (runtimes.data.value ?? []).filter((r) => !r.unhealthy_reason));
@@ -168,6 +170,22 @@ function switchChat(id: string, name = 'New chat') {
   focused.value = false;
   placement.setHeight(id ? 340 : 0);
 }
+async function removeChat(id: string) {
+  if (sending.value || deleting.value) return;
+  const ws = workspaceId.value;
+  deleting.value = id;
+  deleteError.value = '';
+  try {
+    await deleteChat(ws, id);
+    if (!alive || workspaceId.value !== ws) return;
+    if (chat.value === id) switchChat('');
+    await client.invalidateQueries({ queryKey: labKey(ws) });
+  } catch (e) {
+    if (alive && workspaceId.value === ws) deleteError.value = (e as Error).message;
+  } finally {
+    deleting.value = '';
+  }
+}
 function pick(value: { ref: string; title: string }) {
   picked.value = value;
   menu.value = '';
@@ -176,7 +194,7 @@ function pick(value: { ref: string; title: string }) {
 let alive = true;
 async function ask(question = draft.value) {
   const text = question.trim();
-  if (sending.value || !text) return;
+  if (sending.value || deleting.value || !text) return;
   draft.value = question;
   error.value = '';
   offline.value = false;
@@ -398,12 +416,12 @@ onUnmounted(() => {
         type="submit"
         aria-label="Ask"
         title="Ask"
-        :disabled="sending || !draft.trim()"
+        :disabled="sending || !!deleting || !draft.trim()"
       >
         <ArrowUp :size="17" />
       </button>
     </form>
-    <div v-if="menu" class="menu" ref="menuBox" tabindex="-1" :style="menuStyle">
+    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context' }" ref="menuBox" tabindex="-1" :style="menuStyle">
       <template v-if="menu === 'options'">
         <button
           @click="
@@ -433,16 +451,15 @@ onUnmounted(() => {
         <button :disabled="sending" @click="switchChat('')">New chat</button>
       </template>
       <template v-else-if="menu === 'chats'">
-        <small>Recent chats</small>
-        <button :disabled="sending" @click="switchChat('')">New chat</button>
-        <button
-          v-for="c in recent"
-          :key="c.id"
-          :disabled="sending"
-          @click="switchChat(c.id, c.title)"
-        >
-          {{ c.title || 'New chat' }}
-        </button>
+        <div class="chat-menu-header">
+          <small>Recent chats</small>
+          <button class="chat-new" aria-label="New chat" title="New chat" :disabled="sending || !!deleting" @click="switchChat('')"><Plus :size="16" /></button>
+        </div>
+        <div v-for="c in recent" :key="c.id" class="chat-menu-row">
+          <button class="chat-select" :disabled="sending || !!deleting" @click="switchChat(c.id, c.title)">{{ c.title || 'New chat' }}</button>
+          <button class="chat-delete" :aria-label="'Delete ' + (c.title || 'chat')" title="Delete chat" :disabled="sending || !!deleting" @click="removeChat(c.id)"><Trash2 :size="15" /></button>
+        </div>
+        <p v-if="deleteError" role="alert" class="chat-delete-error">{{ deleteError }}</p>
         <button v-if="chats.isError.value" @click="chats.refetch()">Retry loading chats</button>
         <button
           v-if="chats.hasNextPage.value"
@@ -732,6 +749,10 @@ header {
   border-radius: 12px;
   box-shadow: 0 5px 20px color-mix(in srgb, var(--text) 16%, transparent);
 }
+.menu.context-menu {
+  right: auto;
+  left: 10px;
+}
 .menu small,
 .menu a {
   padding: 5px 9px;
@@ -756,6 +777,14 @@ header {
 .menu :deep(button:hover) {
   background: var(--input);
 }
+.chat-menu-header, .chat-menu-row { display: flex; align-items: center; min-width: 0; }
+.chat-menu-header small { flex: 1; }
+.menu .chat-new, .menu .chat-delete { flex: none; justify-content: center; width: 30px; height: 30px; padding: 0; color: var(--muted); }
+.chat-menu-row .chat-select { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.chat-delete { opacity: 0; }
+.chat-menu-row:hover .chat-delete, .chat-menu-row:focus-within .chat-delete { opacity: 1; }
+@media (hover: none) { .chat-delete { opacity: 1; } }
+.chat-delete-error { margin: 5px 9px; color: var(--danger-text); font-size: 12px; }
 .menu button:disabled {
   color: var(--muted);
   cursor: default;

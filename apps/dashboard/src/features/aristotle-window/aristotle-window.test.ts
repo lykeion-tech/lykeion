@@ -262,3 +262,43 @@ it('keeps waiting for the second question when the first fails out of order', as
   expect(textOf(t.root)).toContain('Reading the lab’s records');
   expect(textOf(t.root)).not.toContain('Retry question');
 });
+
+it('places new chat in the menu header and deletes the selected chat', async () => {
+  const pages = (path: string) => path.includes('/messages')
+    ? { messages: [{ id: 'old', kind: 'question', body: 'Previous question', statements: [], evidence: [] }], next_cursor: '' }
+    : { chats: [{ id: 'c', title: 'Previous chat' }], next_cursor: '' };
+  const t = await mount(false, false, pages);
+  await t.click('Ask Aristotle');
+  await t.click('Switch chat');
+  expect(all(t.root).some((n) => n.tag === 'button' && n.props['aria-label'] === 'New chat')).toBe(true);
+  await t.click('Previous chat');
+  expect(textOf(t.root)).toContain('Previous question');
+  await t.click('Switch chat');
+  await t.click('Delete Previous chat');
+  expect(t.calls.find((c) => c.method === 'DELETE')?.path).toBe('/api/lab/chats/c');
+  expect(textOf(t.root)).not.toContain('Previous question');
+});
+
+it('does not send a question while chat deletion is pending', async () => {
+  const pages = (path: string) => path.includes('/messages')
+    ? { messages: [], next_cursor: '' }
+    : { chats: [{ id: 'c', title: 'Previous chat' }], next_cursor: '' };
+  const t = await mount(false, false, pages);
+  await t.click('Ask Aristotle');
+  await t.click('Switch chat');
+  await t.click('Previous chat');
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', async (path: string, opts: RequestInit) => {
+    if (opts.method === 'DELETE') await pending;
+    return originalFetch(path, opts);
+  });
+  await t.click('Switch chat');
+  await t.click('Delete Previous chat');
+  await t.tryDraft('A question during deletion');
+  expect(t.calls.some((c) => c.path.endsWith('/questions'))).toBe(false);
+  finish();
+  await settle();
+  expect(textOf(t.root)).not.toContain('Previous chat');
+});

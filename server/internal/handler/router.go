@@ -249,6 +249,7 @@ func NewRouter(h *H) http.Handler {
 			r.Use(middleware.Scope(h.Store, middleware.FromHeader))
 			r.Get("/api/lab/chats", h.listLabChats)
 			r.Post("/api/lab/chats", h.createLabChat)
+			r.Delete("/api/lab/chats/{id}", h.deleteLabChat)
 			r.Post("/api/lab/chats/{id}/questions", h.askLabQuestion)
 			r.Post("/api/lessons/{id}/flag", h.flagLabLesson)
 			r.Post("/api/coresearch/bootstrap", h.bootstrapAristotle)

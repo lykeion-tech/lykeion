@@ -46,7 +46,7 @@ async function submit() {
       :class="{ gap: statement.kind === 'gap' }"
     >
       <span v-if="statement.kind === 'lesson'" class="tag lesson">Lesson</span>{{ statement.text }}
-      <template v-for="cite in statement.cites" :key="cite.ref">
+      <template v-for="cite in statement.cites.filter((source) => !source.ref.startsWith('study:'))" :key="cite.ref">
         <RouterLink v-if="sourcePath(cite)" class="cite" :to="sourcePath(cite)!">{{
           cite.title
         }}</RouterLink>
