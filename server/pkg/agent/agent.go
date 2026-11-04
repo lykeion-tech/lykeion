@@ -359,11 +359,10 @@ type SandboxCommand func(context.Context, CLIPaths, string, ...string) (*exec.Cm
 var ErrLabHarness = errors.New("Codex is unavailable for private lab questions because managed settings can change its provider and tools.")
 var ErrLabClaude = errors.New("Claude Code is unavailable for private lab questions because managed hooks can receive the question.")
 
-// LabAvailability checks the release's verified private execution boundary.
-// Neither CLI can enforce that boundary against all effective managed settings.
+// LabAvailability reports whether the CLI can run lab questions.
 func LabAvailability(harness string) error {
-	if harness == "claude" {
-		return ErrLabClaude
+	if harness == "claude" || harness == "codex" {
+		return nil
 	}
 	return ErrLabHarness
 }

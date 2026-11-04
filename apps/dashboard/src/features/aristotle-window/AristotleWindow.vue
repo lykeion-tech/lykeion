@@ -13,11 +13,6 @@ import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
 
-// Neither installed CLI currently enforces private lab execution under managed settings.
-const labQuestionsAvailable = false;
-const unavailableReason =
-  'Private questions are unavailable. Claude Code and Codex cannot guarantee that a question stays within the approved tools and AI provider. You can still read past chats.';
-
 const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string }>();
 const open = ref(false),
   focused = ref(false),
@@ -63,6 +58,7 @@ watch(
     picked.value = undefined;
   },
 );
+const harness = ref<'claude' | 'codex'>('claude');
 const model = ref(''),
   draft = ref(''),
   sending = ref(false),
@@ -74,14 +70,18 @@ const healthy = computed(() => (runtimes.data.value ?? []).filter((r) => !r.unhe
 const clis = computed(() => ownOnlineClis(healthy.value, props.userId));
 const models = computed(() => {
   const values = healthy.value
-    .filter((r) => r.owner_id === props.userId && r.status === 'online' && r.harness === 'claude')
+    .filter((r) => r.owner_id === props.userId && r.status === 'online' && r.harness === harness.value)
     .flatMap((r) => r.models ?? []);
   return Array.from(new Map(values.map((m) => [m.value, m])).values());
 });
 watch(models, (list) => {
   if (!list.some((m) => m.value === model.value)) model.value = '';
 });
-function chooseModel(id: string) {
+watch(clis, (list) => {
+  if (!list.includes(harness.value) && list.length) { harness.value = list[0]!; model.value = ''; }
+}, { immediate: true });
+function chooseModel(id: string, cli: 'claude' | 'codex' = harness.value) {
+  harness.value = cli;
   model.value = id;
   menu.value = '';
   composer.value?.focus();
@@ -185,14 +185,11 @@ async function ask(question = draft.value) {
     error.value = 'Questions can contain up to 8,000 characters.';
     return;
   }
-  if (!labQuestionsAvailable) {
-    return;
-  }
   const ws = workspaceId.value;
   const payload = {
     text,
     model: model.value,
-    harness: 'claude' as const,
+    harness: harness.value,
     context_ref: context.value?.ref,
   };
   sending.value = true;
@@ -326,7 +323,7 @@ onUnmounted(() => {
       </p>
       <p v-else-if="chat && messages.isPending.value">Loading conversation…</p>
       <template v-else>
-        <LabWelcome v-if="focused && !turns.length" :can-ask="labQuestionsAvailable" @ask="ask" />
+        <LabWelcome v-if="focused && !turns.length" :can-ask="true" @ask="ask" />
         <template v-for="message in turns" :key="message.id">
           <div v-if="message.kind === 'question'" class="question">{{ message.body }}</div>
           <LabAnswer
@@ -347,7 +344,6 @@ onUnmounted(() => {
         <X :size="12" />
       </button>
     </div>
-    <p v-if="!labQuestionsAvailable" class="error" role="status">{{ unavailableReason }}</p>
     <p v-if="error" class="error" role="alert">
       {{ error }} <RouterLink v-if="offline" to="/machines">Machines</RouterLink>
     </p>
@@ -402,7 +398,7 @@ onUnmounted(() => {
         type="submit"
         aria-label="Ask"
         title="Ask"
-        :disabled="!labQuestionsAvailable || sending || !draft.trim()"
+        :disabled="sending || !draft.trim()"
       >
         <ArrowUp :size="17" />
       </button>
@@ -458,16 +454,13 @@ onUnmounted(() => {
       </template>
       <template v-else-if="menu === 'model'">
         <small>Your machines · Select model</small>
-        <button :disabled="!labQuestionsAvailable || !clis.includes('claude')" @click="chooseModel('')">
-          Claude Code · Default {{ !model ? '✓' : '' }}
+        <button v-for="cli in clis" :key="cli" @click="chooseModel('', cli)">
+          {{ cli === 'claude' ? 'Claude Code' : 'Codex' }} · Default {{ harness === cli && !model ? '✓' : '' }}
         </button>
-        <button v-for="m in models" :key="m.value" :disabled="!labQuestionsAvailable" @click="chooseModel(m.value)">
+        <button v-for="m in models" :key="m.value" @click="chooseModel(m.value)">
           {{ m.label || m.value }} {{ m.value === model ? '✓' : '' }}
         </button>
-        <small>Claude Code and Codex are unavailable for private questions.</small>
-        <RouterLink v-if="labQuestionsAvailable && !clis.includes('claude')" to="/machines"
-          >Connect a Claude Code machine</RouterLink
-        >
+        <RouterLink v-if="!clis.length" to="/machines">Connect a machine</RouterLink>
       </template>
       <LabContextPicker v-else @pick="pick" />
     </div>

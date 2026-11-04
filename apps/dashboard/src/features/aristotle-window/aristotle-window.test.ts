@@ -114,7 +114,7 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
   };
   return { root, click, calls, composer, client, tryDraft };
 }
-it('opens and minimizes, suggests removable study context and hides unavailable starters', async () => {
+it('opens and minimizes, suggests removable study context and shows starters', async () => {
   const t = await mount();
   await t.click('Ask Aristotle');
   expect(textOf(t.root)).toContain('This study: Lab study');
@@ -123,23 +123,22 @@ it('opens and minimizes, suggests removable study context and hides unavailable 
   expect(textOf(t.root)).not.toContain('Ask the lab');
   (t.composer().props.onFocus as Function)();
   await settle();
-  expect(all(t.root).filter((n) => n.tag === 'button' && textOf(n).endsWith('?'))).toHaveLength(0);
+  expect(all(t.root).filter((n) => n.tag === 'button' && textOf(n).endsWith('?'))).toHaveLength(4);
   expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
-  expect(textOf(t.root)).toContain('Private questions are unavailable');
   expect(textOf(t.root)).not.toContain('Start voice chat');
   await t.click('Minimize');
   expect(t.composer()).toBeUndefined();
 });
-it('preserves the draft and refuses submission before sending it', async () => {
+it('preserves the draft when the machine is offline', async () => {
   const t = await mount(false, true);
   await t.click('Ask Aristotle');
   (t.composer().props.onFocus as Function)();
   await settle();
   await t.tryDraft(starter);
-  expect(textOf(t.root)).toContain('Private questions are unavailable');
-  expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
+  expect(t.calls.some((c) => c.path.endsWith('/questions'))).toBe(true);
+  expect(textOf(t.root)).toContain('Your machine is offline');
   expect(t.composer().props.value ?? t.composer().value).toBe(starter);
-  expect(all(t.root).find((n) => n.props.href === '/machines')).toBeUndefined();
+  expect(all(t.root).find((n) => n.props.href === '/machines')).toBeDefined();
 });
 it('renders marked statements, links, evidence paths and flags a lesson', async () => {
   const t = await mount(true);
@@ -194,7 +193,7 @@ it('follows cursors for older chats and messages and replaces revoked answers on
   expect(textOf(t.root)).not.toContain('Measured.');
   expect(textOf(t.root)).not.toContain('Replication');
 });
-it('shows Codex as unavailable, excludes other members’ models, and keeps the question', async () => {
+it('uses the owner Codex runtime without exposing other members models', async () => {
   const t = await mount();
   t.client.setQueryData(keys.runtimes('lab'), [
     { owner_id: 'me', harness: 'codex', status: 'online' },
@@ -207,14 +206,13 @@ it('shows Codex as unavailable, excludes other members’ models, and keeps the 
   ]);
   await t.click('Ask Aristotle');
   await t.click('Select model');
-  expect(textOf(t.root)).toContain('Claude Code and Codex are unavailable');
+  expect(textOf(t.root)).toContain('Codex · Default');
   expect(textOf(t.root)).not.toContain('Private model');
   await t.click('Select model');
   (t.composer().props.onFocus as Function)();
   await settle();
   await t.tryDraft(starter);
-  expect(t.calls.some((c) => c.path.endsWith('/questions'))).toBe(false);
-  expect(t.composer().props.value).toBe(starter);
+  expect(t.calls.find((c) => c.path.endsWith('/questions'))?.body.harness).toBe('codex');
 });
 it('offers canonical text and binary file records and excludes detached or mismatched attachments', () => {
   const card = { attachments: [{ id: 'file', record_key: 'c1', name: 'Protocol' }] } as Card;

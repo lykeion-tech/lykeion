@@ -79,7 +79,7 @@ export const createChat = (ws: string) =>
 export const askLab = (
   ws: string,
   id: string,
-  question: { text: string; model: string; harness: 'claude'; context_ref?: string },
+  question: { text: string; model: string; harness: 'claude' | 'codex'; context_ref?: string },
 ) =>
   api<{ message: LabMessage }>(
     'POST',
