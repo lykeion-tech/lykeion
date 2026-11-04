@@ -728,6 +728,9 @@ func TestLabDoorForwardsOnlyLab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Fatal("lab read-only annotation missing")
+		}
 		names = append(names, tool.Name)
 	}
 	if !slices.Equal(names, []string{"call_tool"}) {
@@ -740,6 +743,38 @@ func TestLabDoorForwardsOnlyLab(t *testing.T) {
 		res, err := s.CallTool(t.Context(), &mcp.CallToolParams{Name: "call_tool", Arguments: callIn{Server: tc.server, Tool: tc.tool, Args: map[string]any{"ref": "workspace:context"}}})
 		if err != nil || res.IsError == tc.allow || tc.allow && text(res) != "workspace:context" {
 			t.Fatal(tc, res, err)
+		}
+	}
+}
+
+func TestDoorReadOnlyAnnotationIsLabOnly(t *testing.T) {
+	for _, lab := range []bool{false, true} {
+		d := &Door{Lab: lab}
+		if err := d.Start(); err != nil {
+			t.Fatal(err)
+		}
+		client, err := mcp.NewClient(&mcp.Implementation{Name: "annotation-test", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}}, nil)
+		if err != nil {
+			d.Close()
+			t.Fatal(err)
+		}
+		found := false
+		for tool, err := range client.Tools(t.Context(), nil) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tool.Name == "call_tool" {
+				found = true
+				readOnly := tool.Annotations != nil && tool.Annotations.ReadOnlyHint
+				if readOnly != lab {
+					t.Errorf("Lab=%v: read-only hint=%v", lab, readOnly)
+				}
+			}
+		}
+		client.Close()
+		d.Close()
+		if !found {
+			t.Fatal("call_tool missing")
 		}
 	}
 }

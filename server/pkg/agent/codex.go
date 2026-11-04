@@ -58,7 +58,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		// Best-effort native-tool restrictions. These CLI settings do not prove
 		// provider or managed MCP isolation; generic MCP resource operations
 		// remain available in supported releases. Keep the account's CLI auth.
-		args = append(args, "--strict-config")
+		catalog, err := prepareLabCodexCatalog(ctx, bin, o)
+		if err != nil {
+			cleanup(true)
+			return nil, err
+		}
+		args = append(args, "--strict-config", "-c", "model_catalog_json="+string(raw(catalog)))
 		if !o.Coresearch {
 			args = append(args, "--ignore-user-config")
 		}
@@ -307,4 +312,60 @@ func prepareCoresearchCodexProject(dir, account string) error {
 		return err
 	}
 	return root.MkdirAll(".codex", 0700)
+}
+
+// Model tool_mode is independent of the code_mode feature flag. A bundled
+// model requesting code mode hides direct MCP tools when the host is disabled.
+// Read only the binary's offline catalog; no provider refresh is requested.
+func prepareLabCodexCatalog(ctx context.Context, bin string, o ExecOptions) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, codexCatalogTimeout)
+	defer cancel()
+	cmd, err := command(ctx, bin, "", o, "debug", "models", "--bundled")
+	if err != nil {
+		return "", err
+	}
+	var data []byte
+	parse := func(line []byte, _ emitMessage, _ *Result) (bool, error) {
+		if len(data)+len(line)+1 > codexCatalogLimit {
+			return false, errors.New("Codex lab catalog exceeds size limit")
+		}
+		data = append(data, line...)
+		data = append(data, '\n')
+		return json.Valid(data), nil
+	}
+	session, err := run(ctx, cmd, func(bool) {}, parse, nil, func(Message) error { return nil })
+	if err != nil {
+		return "", err
+	}
+	if result := <-session.Done; result.Err != nil {
+		return "", fmt.Errorf("load offline Codex lab catalog: %w", result.Err)
+	}
+	var catalog struct {
+		Models []map[string]json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return "", fmt.Errorf("parse Codex lab catalog: %w", err)
+	}
+	if len(catalog.Models) == 0 {
+		return "", errors.New("Codex lab catalog is empty")
+	}
+	for _, model := range catalog.Models {
+		model["tool_mode"] = raw("direct")
+		model["apply_patch_tool_type"] = raw(nil)
+		model["shell_type"] = raw("disabled")
+		model["experimental_supported_tools"] = raw([]string{})
+		model["multi_agent_version"] = raw("disabled")
+		for _, key := range []string{"supports_parallel_tool_calls", "supports_search_tool", "include_skills_usage_instructions", "include_plugin_usage_instructions", "include_apps_usage_instructions"} {
+			model[key] = raw(false)
+		}
+	}
+	path := filepath.Join(o.Dir, ".lyk-codex-models.json")
+	exists, err := regularFileExists(path)
+	if err == nil && exists {
+		err = os.Remove(path)
+	}
+	if err == nil {
+		err = privateFile(path, raw(catalog))
+	}
+	return path, err
 }

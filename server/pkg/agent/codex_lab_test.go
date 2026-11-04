@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,9 +46,26 @@ echo '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}'
 				t.Fatal(err)
 			}
 			args := string(data)
-			for _, want := range []string{"-s\nread-only\n", "--ignore-user-config\n", "--strict-config\n", "--ignore-rules\n", "--disable\nshell_tool\n", "--disable\nunified_exec\n", "--disable\napps\n", "--disable\ncode_mode\n", "--disable\nbrowser_use\n", "web_search=\"disabled\"", "skills.bundled.enabled=false", "tools.update_plan.enabled=false", "mcp_servers.lyk_door.enabled_tools=[\"call_tool\"]", "mcp_servers.lyk_door.bearer_token_env_var=\"LYK_DOOR_TOKEN\""} {
+			for _, want := range []string{"-s\nread-only\n", "--ignore-user-config\n", "--strict-config\n", "--ignore-rules\n", "--disable\nshell_tool\n", "--disable\nunified_exec\n", "--disable\napps\n", "--disable\ncode_mode\n", "--disable\nbrowser_use\n", "web_search=\"disabled\"", "skills.bundled.enabled=false", "model_catalog_json=", "tools.update_plan.enabled=false", "mcp_servers.lyk_door.enabled_tools=[\"call_tool\"]", "mcp_servers.lyk_door.bearer_token_env_var=\"LYK_DOOR_TOKEN\""} {
 				if !strings.Contains(args, want) {
 					t.Errorf("missing %q", want)
+				}
+			}
+			for _, arg := range strings.Split(args, "\n") {
+				if encoded, ok := strings.CutPrefix(arg, "model_catalog_json="); ok {
+					var path string
+					if err := json.Unmarshal([]byte(encoded), &path); err != nil {
+						t.Fatal(err)
+					}
+					catalog, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, want := range []string{`"tool_mode":"direct"`, `"apply_patch_tool_type":null`, `"shell_type":"disabled"`, `"slug":"gpt-5.6-sol"`} {
+						if !strings.Contains(string(catalog), want) {
+							t.Errorf("missing catalog setting %s in %s", want, catalog)
+						}
+					}
 				}
 			}
 			if strings.Count(args, "--ignore-user-config\n") != 1 {

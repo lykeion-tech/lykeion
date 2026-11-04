@@ -27,8 +27,10 @@ func TestLabCodexNativeInventory(t *testing.T) {
 		t.Skip("set LYK_TEST_CODEX_BIN to inspect the installed native tool inventory")
 	}
 
+	var doorCalls atomic.Int32
 	mockDoor := mcp.NewServer(&mcp.Implementation{Name: "lyk_door", Version: "1"}, nil)
-	mcp.AddTool(mockDoor, &mcp.Tool{Name: "call_tool"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(mockDoor, &mcp.Tool{Name: "call_tool", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+		doorCalls.Add(1)
 		return &mcp.CallToolResult{}, nil, nil
 	})
 	door := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mockDoor }, &mcp.StreamableHTTPOptions{Stateless: true}))
@@ -60,6 +62,7 @@ url=` + string(raw(personal.URL))
 		{"read_mcp_resource", map[string]string{"server": "lyk_door", "uri": "fixture://probe"}},
 		{"list_mcp_resources", map[string]string{"server": "personal"}},
 		{"read_mcp_resource", map[string]string{"server": "personal", "uri": "fixture://probe"}},
+		{"mcp__lyk_door.call_tool", map[string]string{}},
 	}
 	var turns atomic.Int32
 	fakeModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +102,7 @@ url=` + string(raw(personal.URL))
 				if item.Type == "function_call_output" {
 					var out string
 					if err := json.Unmarshal(item.Output, &out); err != nil {
-						t.Error(err)
+						out = string(item.Output)
 					}
 					results = append(results, out)
 				}
@@ -122,6 +125,9 @@ url=` + string(raw(personal.URL))
 		id := fmt.Sprintf("resp_%d", n)
 		event("response.created", map[string]any{"response": map[string]any{"id": id}})
 		item := map[string]any{"type": "function_call", "id": fmt.Sprintf("fc_%d", n), "call_id": fmt.Sprintf("c_%d", n), "name": calls[n].name, "arguments": string(raw(calls[n].args))}
+		if namespace, name, ok := strings.Cut(calls[n].name, "."); ok {
+			item["namespace"], item["name"] = namespace, name
+		}
 		event("response.output_item.done", map[string]any{"output_index": 0, "item": item})
 		event("response.completed", map[string]any{"response": map[string]any{"id": id, "status": "completed", "output": []any{item}, "usage": map[string]int{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}})
 	}))
@@ -142,44 +148,16 @@ url=` + string(raw(personal.URL))
 	cmd := exec.CommandContext(ctx, bin, append(args, "synthetic lab probe")...)
 	cmd.Dir, cmd.Env = home, env
 	output, err := cmd.CombinedOutput()
-	if turns.Load() != int32(len(calls)+1) || personalRequests.Load() != 0 {
-		t.Fatalf("turns=%d personal requests=%d CLI=%v %s", turns.Load(), personalRequests.Load(), err, output)
+	if turns.Load() != int32(len(calls)+1) || personalRequests.Load() != 0 || doorCalls.Load() != 1 {
+		t.Fatalf("turns=%d personal requests=%d door calls=%d CLI=%v %s", turns.Load(), personalRequests.Load(), doorCalls.Load(), err, output)
 	}
 }
 
 func labProbeCatalog(t *testing.T, bin, home string, env []string) string {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), bin, "debug", "models", "--bundled")
-	cmd.Dir, cmd.Env = home, env
-	data, err := cmd.Output()
+	path, err := prepareLabCodexCatalog(t.Context(), bin, ExecOptions{Dir: home, Env: env, Sandbox: testSandbox})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var catalog struct {
-		Models []map[string]json.RawMessage `json:"models"`
-	}
-	if err = json.Unmarshal(data, &catalog); err != nil {
-		t.Fatal(err)
-	}
-	for _, model := range catalog.Models {
-		if string(model["slug"]) != `"gpt-5.5"` {
-			continue
-		}
-		model["apply_patch_tool_type"] = raw(nil)
-		model["shell_type"] = raw("disabled")
-		model["experimental_supported_tools"] = raw([]string{})
-		model["tool_mode"] = raw("direct")
-		model["multi_agent_version"] = raw("disabled")
-		for _, k := range []string{"supports_parallel_tool_calls", "supports_search_tool", "include_skills_usage_instructions", "include_plugin_usage_instructions", "include_apps_usage_instructions"} {
-			model[k] = raw(false)
-		}
-		catalog.Models = []map[string]json.RawMessage{model}
-		path := filepath.Join(home, "sanitized-model.json")
-		if err = os.WriteFile(path, raw(catalog), 0600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	t.Fatal("test model absent from installed CLI catalog")
-	return ""
+	return path
 }
