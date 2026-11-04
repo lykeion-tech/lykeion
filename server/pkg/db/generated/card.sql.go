@@ -22,11 +22,15 @@ SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t
     FROM agent_run_receipt rc LEFT JOIN runtime rt ON rt.workspace_id = rc.workspace_id AND rt.id = rc.runtime_id
     WHERE rc.workspace_id = t.workspace_id AND rc.agent_run_id = t.id AND rc.attempt < t.attempt), '[]')::jsonb AS attempt_ends,
   COALESCE(agent_run_waiting(t.workspace_id, t.id), '')::text AS waiting,
-  COALESCE((SELECT r.body->'hand_in'->>'answer' FROM record r
-    WHERE r.workspace_id = t.workspace_id AND r.card_id = t.card_id AND r.agent_run_id = t.id
-      AND r.kind = 'hand_in' AND r.superseded_at IS NULL
-    ORDER BY (r.body->>'attempt')::int DESC, r.created_at DESC LIMIT 1), '')::text AS answer
+  COALESCE(h.body->'hand_in'->>'answer', '')::text AS answer,
+  h.body->'hand_in' AS hand_in
 FROM agent_run t
+LEFT JOIN LATERAL (
+  SELECT r.body FROM record r
+  WHERE r.workspace_id = t.workspace_id AND r.card_id = t.card_id AND r.agent_run_id = t.id
+    AND r.kind = 'hand_in' AND r.superseded_at IS NULL AND r.body->>'attempt' = t.attempt::text
+  ORDER BY r.created_at DESC LIMIT 1
+) h ON true
 LEFT JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 LEFT JOIN agent_run_message m ON m.workspace_id = t.workspace_id AND m.agent_run_id = t.id AND m.attempt = t.attempt
   AND m.seq = (SELECT max(seq) FROM agent_run_message n WHERE n.workspace_id = t.workspace_id AND n.agent_run_id = t.id AND n.attempt = t.attempt)
@@ -96,6 +100,7 @@ type CardAgentRunsRow struct {
 	AttemptEnds           json.RawMessage `json:"attempt_ends"`
 	Waiting               string          `json:"waiting"`
 	Answer                string          `json:"answer"`
+	HandIn                interface{}     `json:"hand_in"`
 }
 
 // A card's runs with what the study page shows about each: the name of the
@@ -170,6 +175,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.AttemptEnds,
 			&i.Waiting,
 			&i.Answer,
+			&i.HandIn,
 		); err != nil {
 			return nil, err
 		}

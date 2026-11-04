@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -11,9 +12,10 @@ type listedRun struct {
 	AgentID        *string `json:"agent_id"`
 	AgentName      *string `json:"agent_name"`
 	Assignment     string
-	LatestText     string  `json:"latest_text"`
-	Answer         string  `json:"answer"`
-	LastActivityAt *string `json:"last_activity_at"`
+	LatestText     string          `json:"latest_text"`
+	Answer         string          `json:"answer"`
+	HandIn         json.RawMessage `json:"hand_in"`
+	LastActivityAt *string         `json:"last_activity_at"`
 }
 
 func (l *teamLab) runs(t *testing.T) map[string]listedRun {
@@ -146,6 +148,41 @@ func TestRunsListCarriesAnswer(t *testing.T) {
 	l.record(t, leader, 0, "hand_in", "", map[string]any{"agent_run_id": leader.id, "attempt": 1, "hand_in": map[string]any{"answer": "Two papers fit."}}, &leader.id)
 	if got := l.runs(t)[leader.id].Answer; got != "Two papers fit." {
 		t.Fatalf("answer %q", got)
+	}
+}
+
+func TestRunsListCarriesOnlyCurrentAttemptHandIn(t *testing.T) {
+	l, leader := groundingLab(t)
+	if got := l.runs(t)[leader.id]; len(got.HandIn) != 0 && string(got.HandIn) != "null" {
+		t.Fatalf("unexpected hand-in %s", got.HandIn)
+	}
+	l.record(t, leader, 0, "hand_in", "", map[string]any{"agent_run_id": leader.id, "attempt": 1, "hand_in": map[string]any{"answer": "Found evidence.", "papers": []any{map[string]any{"id": "doi:10.1/example", "why": "relevant"}}}}, &leader.id)
+	got := l.runs(t)[leader.id]
+	var hand struct {
+		Answer string `json:"answer"`
+		Papers []struct {
+			ID string `json:"id"`
+		} `json:"papers"`
+	}
+	if err := json.Unmarshal(got.HandIn, &hand); err != nil || hand.Answer != "Found evidence." || len(hand.Papers) != 1 || hand.Papers[0].ID != "doi:10.1/example" {
+		t.Fatalf("accepted hand-in %s: %v", got.HandIn, err)
+	}
+	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE record SET superseded_at = now() WHERE agent_run_id = $1 AND kind = 'hand_in'", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	got = l.runs(t)[leader.id]
+	if got.Answer != "" || (len(got.HandIn) != 0 && string(got.HandIn) != "null") {
+		t.Fatalf("superseded hand-in: %+v", got)
+	}
+	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE record SET superseded_at = null WHERE agent_run_id = $1 AND kind = 'hand_in'", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.s.Env.Owner.Exec(context.Background(), "UPDATE agent_run SET attempt = 2 WHERE id = $1", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	got = l.runs(t)[leader.id]
+	if got.Answer != "" || (len(got.HandIn) != 0 && string(got.HandIn) != "null") {
+		t.Fatalf("stale hand-in: %+v", got)
 	}
 }
 
