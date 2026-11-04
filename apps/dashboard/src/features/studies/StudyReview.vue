@@ -477,7 +477,7 @@ const unlinkedObjections = computed(() =>
         <section v-if="selected && attempt" class="selected-check" aria-label="Selected check">
           <div class="selected-title">
             <span class="type-caption">SELECTED</span
-            ><b>{{ selected.item.label }} · {{ checkLabel(selected.check.id) }}</b>
+            ><b>{{ selected.item.label }}</b>
           </div>
           <div class="selected-status">
             <b :style="{ color: colors[selected.check.status] }">{{
@@ -489,10 +489,6 @@ const unlinkedObjections = computed(() =>
           <blockquote :style="{ borderLeftColor: colors[selected.check.status] }">
             {{ selected.item.quote }}
           </blockquote>
-          <p class="type-caption">
-            cites {{ selected.item.cites.join(', ') }} · {{ columnName(shown) }} · try
-            {{ attempt.attempt }}
-          </p>
         </section>
         <div class="stage-tiles" aria-label="Review stages">
           <button
@@ -675,8 +671,10 @@ const unlinkedObjections = computed(() =>
 .spoke-hit {
   cursor: pointer;
 }
-.spoke-hit:focus-visible {
+.spoke-hit:focus {
   outline: none;
+}
+.spoke-hit:focus-visible {
   stroke: var(--text);
   stroke-opacity: 0.3;
 }
@@ -709,8 +707,7 @@ const unlinkedObjections = computed(() =>
   flex-wrap: wrap;
 }
 .selected-title > span,
-.selected-status > span,
-.selected-check > .type-caption {
+.selected-status > span {
   color: var(--muted);
 }
 .selected-title b {

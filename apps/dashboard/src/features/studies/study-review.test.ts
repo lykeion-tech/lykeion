@@ -120,7 +120,8 @@ it("draws one spoke per Jev check and selects the weakest item's lowest check", 
   expect(spokeButtons(root)).toHaveLength(4);
   expect(textOf(selected(root))).toContain('The second paper found no benefit.');
   expect(textOf(selected(root))).toContain('Does the second paper qualify?');
-  expect(textOf(selected(root))).toContain('cites doi:second, r2 · Grounding · try 1');
+  expect(textOf(selected(root))).not.toContain('cites doi:second');
+  expect(textOf(selected(root))).not.toContain('Criterion 1');
   expect(all(root).find((n) => n.props['aria-label'] === 'Support index')?.text).toBe('60');
 });
 
@@ -193,7 +194,7 @@ it('shows the newest attempt by time, including after a review arrives', async (
   await new Promise((resolve) => setTimeout(resolve, 0));
   await nextTick();
   expect(labelled(root, 'Show Validation review').props['aria-pressed']).toBe(true);
-  expect(textOf(root)).toContain('Validation · try 2');
+  expect(textOf(labelled(root, 'Show Validation review'))).toContain('try 2');
 });
 
 it('preserves a selected historical stage when the card or review updates', async () => {
