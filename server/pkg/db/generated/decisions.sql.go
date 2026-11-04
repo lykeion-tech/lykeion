@@ -183,10 +183,13 @@ func (q *Queries) CloseManualDecision(ctx context.Context, arg CloseManualDecisi
 
 const countDecisions = `-- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.workspace_id = $1 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
+WHERE i.workspace_id = $1
+  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
-  AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL) AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
-  AND ($3::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid))
+  AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
+  AND (i.kind = 'manual_decision' OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+    AND ($3::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid))))
 `
 
 type CountDecisionsParams struct {
@@ -200,7 +203,7 @@ type CountDecisionsRow struct {
 	DueSoon int64 `json:"due_soon"`
 }
 
-// due_soon counts those whose reminder has gone out: they expire within a day.
+// due_soon counts open items whose reminder has gone out, including manual notes.
 func (q *Queries) CountDecisions(ctx context.Context, arg CountDecisionsParams) (CountDecisionsRow, error) {
 	row := q.db.QueryRow(ctx, countDecisions, arg.WorkspaceID, arg.Viewer, arg.IsAdmin)
 	var i CountDecisionsRow
@@ -461,10 +464,12 @@ func (q *Queries) ExpireDecision(ctx context.Context, arg ExpireDecisionParams) 
 
 const getDecision = `-- name: GetDecision :one
 SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
-  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.id = $3 AND i.workspace_id = $4 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
+WHERE i.id = $3 AND i.workspace_id = $4
+  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
 `
 
 type GetDecisionParams struct {
@@ -653,10 +658,12 @@ func (q *Queries) InsertManualDecision(ctx context.Context, arg InsertManualDeci
 const listDecisions = `-- name: ListDecisions :many
 
 SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
-  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.workspace_id = $3 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
+WHERE i.workspace_id = $3
+  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT $4::bool)
 ORDER BY
   CASE WHEN $4::bool THEN NULL ELSE i.snoozed_until > now() END NULLS FIRST,
@@ -678,8 +685,8 @@ type ListDecisionsRow struct {
 	MayAnswer bool      `json:"may_answer"`
 }
 
-// A decision item is visible to every member who can open its study, and to
-// the person a studyless item (a machine, Autoresearch) was raised for.
+// Manual notes are visible only to their creator while their linked study
+// is accessible. Other items are visible to study readers or their addressee.
 // may_answer is whether the viewer may answer it: the study's owner, a
 // workspace owner or admin, or the person a studyless item was raised for.
 func (q *Queries) ListDecisions(ctx context.Context, arg ListDecisionsParams) ([]ListDecisionsRow, error) {

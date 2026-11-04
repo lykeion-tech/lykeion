@@ -50,8 +50,8 @@ func (h *H) listDecisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// countDecisions counts the open items the caller may answer now, and how
-// many of them expire within a day.
+// countDecisions counts answerable open items and private manual notes, plus
+// the items whose reminder has been sent.
 func (h *H) countDecisions(w http.ResponseWriter, r *http.Request) {
 	var n db.CountDecisionsRow
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) (err error) {

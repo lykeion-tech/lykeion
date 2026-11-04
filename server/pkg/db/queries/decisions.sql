@@ -1,14 +1,16 @@
--- A decision item is visible to every member who can open its study, and to
--- the person a studyless item (a machine, Autoresearch) was raised for.
+-- Manual notes are visible only to their creator while their linked study
+-- is accessible. Other items are visible to study readers or their addressee.
 -- may_answer is whether the viewer may answer it: the study's owner, a
 -- workspace owner or admin, or the person a studyless item was raised for.
 
 -- name: ListDecisions :many
 SELECT sqlc.embed(i),
-  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)
+WHERE i.workspace_id = @workspace_id
+  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT @history::bool)
 ORDER BY
   CASE WHEN @history::bool THEN NULL ELSE i.snoozed_until > now() END NULLS FIRST,
@@ -19,18 +21,23 @@ LIMIT 200;
 
 -- name: GetDecision :one
 SELECT sqlc.embed(i),
-  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.id = @id AND i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid);
+WHERE i.id = @id AND i.workspace_id = @workspace_id
+  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)));
 
--- due_soon counts those whose reminder has gone out: they expire within a day.
+-- due_soon counts open items whose reminder has gone out, including manual notes.
 -- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
-WHERE i.workspace_id = @workspace_id AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)
+WHERE i.workspace_id = @workspace_id
+  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
-  AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL) AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
-  AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid));
+  AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
+  AND (i.kind = 'manual_decision' OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+    AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid))));
 
 -- name: SetDecisionTriage :exec
 UPDATE inbox_item SET decide_by = @decide_by, decide_by_date = @decide_by_date, snoozed_until = @snoozed_until, touched_at = now()

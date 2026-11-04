@@ -261,6 +261,7 @@ export interface DecisionItem {
   autoresearch_run_id: string | null;
   user_id: string;
   kind:
+    | 'manual_decision'
     | 'agent_decision'
     | 'autoresearch_card'
     | 'autoresearch_report'
@@ -285,7 +286,7 @@ export interface DecisionItem {
   default_option: string;
   status: 'open' | 'decided' | 'expired' | 'dismissed' | string;
   expires_at: string | null;
-  // Set once the day-before reminder went out: the item expires within a day.
+  // Set once a reminder went out; manual notes remain open after their deadline.
   reminded_at: string | null;
   chosen_option: string;
   guidance: string;
@@ -300,6 +301,12 @@ export interface DecisionItem {
   kept: boolean;
   archived_at: string | null;
   can_answer: boolean;
+  title?: string;
+  context?: string;
+  deadline?: string | null;
+  can_edit?: boolean;
+  can_resolve?: boolean;
+  can_dismiss?: boolean;
 }
 
 export interface DecisionOption {

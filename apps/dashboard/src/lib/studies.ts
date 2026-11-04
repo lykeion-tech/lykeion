@@ -401,6 +401,7 @@ export const decisionKindLabel: Record<string, string> = {
 // How each item kind reads in the rail and on a decision; the lookup falls
 // back for a kind the dashboard does not know yet.
 const decisionKinds: Record<DecisionItem['kind'], { label: string; mark: string }> = {
+  manual_decision: { label: 'Decision', mark: '?' },
   agent_decision: { label: 'Agent decision', mark: '?' },
   autoresearch_card: { label: 'Autoresearch study', mark: '↻' },
   autoresearch_report: { label: 'Autoresearch report', mark: '↻' },

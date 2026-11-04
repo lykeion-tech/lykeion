@@ -218,3 +218,103 @@ func TestManualDecisionConcurrentEditClose(t *testing.T) {
 		t.Fatal("terminal note edited")
 	}
 }
+
+func TestManualDecisionListsCountsHistoryPrivacy(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "owner@lab.org")
+	w := s.workspace(t, owner, "lab")
+	creator := s.member(t, owner, w.ID, "creator@lab.org", "member")
+	admin := s.member(t, owner, w.ID, "admin@lab.org", "admin")
+	other := s.member(t, owner, w.ID, "other@lab.org", "member")
+	study := s.idleCard(t, owner, w.ID, "shared study")
+	s.seedDecision(t, w.ID, study.ID, s.userID(t, owner), "shared question")
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO inbox_item(workspace_id,card_id,user_id,kind,text,options,default_option) VALUES ($1,$2,$3,'agent_decision','agent question',$4::jsonb,'park')`, w.ID, study.ID, s.userID(t, owner), stopOptions); err != nil {
+		t.Fatal(err)
+	}
+	linked := s.createManual(t, creator, w.ID, study.ID)
+	unlinked := s.createManual(t, creator, w.ID, "")
+	foreign := s.createManual(t, other, w.ID, study.ID)
+	assertViews := func(tok string, open, history, count int) {
+		t.Helper()
+		for _, view := range []struct {
+			query string
+			want  int
+		}{{"", open}, {"?view=history", history}} {
+			rows := s.decisions(t, tok, w.ID, view.query)
+			if len(rows) != view.want {
+				t.Fatalf("views %s: got %+v want %d", view.query, rows, view.want)
+			}
+			for _, row := range rows {
+				if row.Kind == "manual_decision" && (tok != creator && row.ID != foreign.ID || tok != other && row.ID == foreign.ID) {
+					t.Fatalf("private row leaked: %+v", row)
+				}
+			}
+		}
+		if n := s.decisionCount(t, tok, w.ID); n != count {
+			t.Fatalf("count got %d want %d", n, count)
+		}
+	}
+	assertViews(creator, 4, 0, 2)
+	assertViews(owner, 2, 0, 2)
+	assertViews(admin, 2, 0, 2)
+	assertViews(other, 3, 0, 1)
+	var projected []manualRow
+	if code := s.call(t, "GET", "/api/decisions", creator, w.ID, nil, &projected); code != 200 {
+		t.Fatal(code)
+	}
+	for _, row := range projected {
+		if row.Kind == "manual_decision" && (row.CanAnswer || !row.CanEdit || !row.CanResolve) {
+			t.Fatalf("manual capabilities %+v", row)
+		}
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET reminded_at=now() WHERE id=$1`, linked.ID); err != nil {
+		t.Fatal(err)
+	}
+	var counts struct {
+		Open    int
+		DueSoon int `json:"due_soon"`
+	}
+	s.call(t, "GET", "/api/decisions/count", creator, w.ID, nil, &counts)
+	if counts.Open != 2 || counts.DueSoon != 1 {
+		t.Fatalf("reminded manual counts %+v", counts)
+	}
+	action := func(id, verb string) {
+		t.Helper()
+		if code := s.call(t, "POST", "/api/decisions/"+id+"/"+verb, creator, w.ID, nil, nil); code != 204 {
+			t.Fatalf("%s: %d", verb, code)
+		}
+	}
+	action(linked.ID, "read")
+	action(linked.ID, "keep")
+	action(linked.ID, "archive")
+	assertViews(creator, 3, 1, 1)
+	action(linked.ID, "revive")
+	if code := s.call(t, "PUT", "/api/decisions/"+linked.ID+"/triage", creator, w.ID, map[string]any{"snoozed_until": time.Now().Add(24 * time.Hour)}, nil); code != 204 {
+		t.Fatal(code)
+	}
+	assertViews(creator, 4, 0, 1)
+	if code := s.call(t, "POST", "/api/decisions/"+unlinked.ID+"/dismiss", creator, w.ID, nil, nil); code != 200 {
+		t.Fatal(code)
+	}
+	assertViews(creator, 3, 1, 0)
+	action(unlinked.ID, "archive")
+	action(unlinked.ID, "revive")
+	assertViews(creator, 3, 1, 0)
+	for _, tok := range []string{owner, admin, other} {
+		if code := s.call(t, "POST", "/api/decisions/"+linked.ID+"/read", tok, w.ID, nil, nil); code != 404 {
+			t.Fatalf("foreign read %d", code)
+		}
+	}
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND status='open' AND resolved_at IS NULL AND kept AND read_at IS NOT NULL`, linked.ID); n != 1 {
+		t.Fatal("triage/read changed manual lifecycle")
+	}
+	if n := s.count(t, `SELECT count(*) FROM event WHERE card_id=$1 AND payload::text LIKE '%'||$2||'%'`, study.ID, linked.ID); n != 0 {
+		t.Fatal("manual identity in study activity")
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `DELETE FROM member WHERE workspace_id=$1 AND user_id=$2`, w.ID, s.userID(t, creator)); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "GET", "/api/decisions", creator, w.ID, nil, nil); code != 403 && code != 404 {
+		t.Fatalf("revoked member list %d", code)
+	}
+}
