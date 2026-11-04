@@ -352,9 +352,16 @@ p {
   background: #fff;
 }
 .hero-action-secondary {
+  gap: 8px;
   color: #fff;
-  border-color: #d7d9de;
-  background: #f6f6f7;
+  border-color: rgb(255 255 255 / 18%);
+  background: rgb(0 0 0 / 16%);
+  backdrop-filter: blur(4px);
+}
+.download-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
 .hero-action:disabled {
   opacity: 0.9;

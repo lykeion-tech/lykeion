@@ -151,6 +151,18 @@ const nav = [
         <div class="hero-actions">
           <a class="hero-action hero-action-primary" :href="paths.login">Start free trial</a>
           <button class="hero-action hero-action-secondary" type="button" disabled>
+            <svg
+              class="download-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3v11m-4-4 4 4 4-4M5 17v3h14v-3" />
+            </svg>
             Download Desktop
           </button>
         </div>
