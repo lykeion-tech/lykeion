@@ -31,6 +31,7 @@ import (
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/handler"
+	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
@@ -78,9 +79,14 @@ func TestUILab(t *testing.T) {
 		t.Fatal("LYK_UI_LAB must name a loopback IP and port")
 	}
 	buildLyk(t)
-	t.Setenv("HOME", filepath.Dir(t.TempDir())) // Keep fixture executables readable without exposing the developer's home.
+	// Explicit opt-in keeps real Codex sign-in for a sandboxed provider check.
+	// The daemon state and synthetic fixture skills remain disposable.
+	realCodex := os.Getenv("LYK_UI_REAL_CODEX") == "1"
+	if !realCodex {
+		t.Setenv("HOME", filepath.Dir(t.TempDir())) // Keep fixture executables readable without exposing the developer's home.
+		t.Setenv("CODEX_HOME", "")
+	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("CODEX_HOME", "")
 	t.Setenv("LYK_TOKEN", "")
 	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "lyk.json"))
 	// Published-source responses stay outside the product API and use its real parser.
@@ -89,8 +95,12 @@ func TestUILab(t *testing.T) {
 	previousHTTP := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: uiSkillSourceTransport{fallback: previousHTTP.Transport, release: lateSourceRelease, started: lateSourceStarted, startedOnce: &lateStartedOnce}}
 	t.Cleanup(func() { lateReleaseOnce.Do(func() { close(lateSourceRelease) }); http.DefaultClient = previousHTTP })
+	fixtureSkillHome := os.Getenv("HOME")
+	if realCodex {
+		fixtureSkillHome = t.TempDir()
+	}
 	for _, name := range []string{"runtime-review", "runtime-duplicate", "runtime-single"} {
-		dir := filepath.Join(os.Getenv("HOME"), ".claude", "skills", name)
+		dir := filepath.Join(fixtureSkillHome, ".claude", "skills", name)
 		must(t, os.MkdirAll(filepath.Join(dir, "references"), 0700))
 		must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: Runtime folder fixture.\n---\n\n# Runtime review\n"), 0600))
 		must(t, os.WriteFile(filepath.Join(dir, "references", "raw.bin"), []byte{0, 255, 128, 13, 10}, 0600))
@@ -116,6 +126,11 @@ func TestUILab(t *testing.T) {
 	if dir := os.Getenv("LYK_TEST_SHIPPED_DIR"); dir != "" {
 		// Browser tests ship and replace Team versions on disk while the lab runs.
 		h.Shipped = os.DirFS(dir)
+	}
+	if realCodex {
+		runs.LabMCPURL = base + "/mcp/lab"
+		runs.OnSettlement = (labmemory.Answers{Store: st}).SettlementHook(runs.OnSettlement)
+		h.Lab = (labmemory.Tools{Store: st, Blobs: blobs}).Handler()
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", handler.NewRouter(h))
@@ -500,11 +515,17 @@ func TestUILab(t *testing.T) {
 	fake := filepath.Join(t.TempDir(), "ui-fake-claude")
 	must(t, os.WriteFile(fake, script, 0700))
 	uiAvailabilityFixture(t, mux, daemon.Config{Server: base, Token: tok.Token, Harnesses: map[string]string{"claude": fake}, Slots: 1, Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond}, sourceFixtureAuth)
+	harnesses := map[string]string{"claude": fake}
+	if realCodex {
+		bin, err := exec.LookPath("codex")
+		must(t, err)
+		harnesses = map[string]string{"codex": bin}
+	}
 	daemonDone := make(chan error, 1)
 	daemonState, daemonHome := t.TempDir(), t.TempDir()
 	go func() {
 		daemonDone <- daemon.Run(ctx, daemon.Config{Server: base, Token: tok.Token, StateDir: daemonState, Home: daemonHome,
-			Device: "lab-mac", Harnesses: map[string]string{"claude": fake}, Slots: 4,
+			Device: "lab-mac", Harnesses: harnesses, Slots: 4,
 			Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
 	}()
 
