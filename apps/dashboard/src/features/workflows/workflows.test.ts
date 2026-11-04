@@ -165,7 +165,7 @@ describe('Workflows pages', () => {
     const m = await mount(WorkflowsView, {});
     expect(m.text()).toContain('Earth sciences');
     expect(m.text()).toContain('Zeta flow');
-    expect(m.text()).toContain('From Terminal-Bench-Science 1.2');
+    expect(m.text()).not.toContain('From Terminal-Bench-Science');
   });
 
   it('the Files tab shows tests and marks unembedded files', async () => {

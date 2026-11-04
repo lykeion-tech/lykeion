@@ -23,12 +23,15 @@ const open = useDecisions(false);
 const past = useDecisions(true);
 const cards = useCards();
 const me = useMe();
-const menu = ref('');
 const error = ref('');
 const shown = computed(() => {
   const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
   return [...items.values()].filter((item) => matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 });
+const groups = computed(() => [
+  { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
+  { id: 'current', label: '', items: shown.value.filter((item) => !item.archived_at) },
+].filter((group) => group.items.length));
 const listError = computed(() => open.error.value ?? past.error.value);
 const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
 const titleOf = (item: DecisionItem) =>
@@ -54,7 +57,6 @@ async function act(item: DecisionItem, action: () => Promise<unknown>) {
   error.value = '';
   try {
     await action();
-    menu.value = '';
     await Promise.all([
       client.invalidateQueries({ queryKey: keys.decisionsAll(item.workspace_id) }),
       client.invalidateQueries({ queryKey: keys.decisionCount(item.workspace_id) }),
@@ -63,25 +65,7 @@ async function act(item: DecisionItem, action: () => Promise<unknown>) {
     error.value = (e as Error).message;
   }
 }
-// The server replaces both triage fields, so each change sends the other as is.
-const triage = (
-  item: DecisionItem,
-  change: { decide_by?: string; decide_by_date?: string; snoozed_until?: string | null },
-) =>
-  act(item, () =>
-    api('PUT', `/api/decisions/${item.id}/triage`, {
-      decide_by: item.decide_by,
-      decide_by_date: item.decide_by_date ?? undefined,
-      snoozed_until: item.snoozed_until,
-      ...change,
-    }),
-  );
-const decideBy = (item: DecisionItem, by: string) => triage(item, { decide_by: by });
-const decideOnDate = (item: DecisionItem, date: string) =>
-  date && triage(item, { decide_by: 'date', decide_by_date: date });
-const snoozeUntil = (item: DecisionItem, date: string) =>
-  date && triage(item, { snoozed_until: new Date(`${date}T09:00:00`).toISOString() });
-const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
+const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   act(item, () => api('POST', `/api/decisions/${item.id}/${verb}`));
 </script>
 <template>
@@ -94,7 +78,9 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
       <p v-if="listError || error" role="alert" class="inline-error">
         {{ (listError ?? { message: error }).message }}
       </p>
-      <div v-for="item in shown" :key="item.id" class="decision-row-wrap">
+      <template v-for="group in groups" :key="group.id">
+      <h2 v-if="group.label" class="decision-group-title">{{ group.label }}</h2>
+      <div v-for="item in group.items" :key="item.id" class="decision-row-wrap">
         <RouterLink
           :to="'/decisions/' + item.id"
           class="decision-row"
@@ -105,51 +91,27 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
             ><b>{{ titleOf(item) }}</b
             ><small>{{ line(item) }}</small></span
           >
-          <span class="decision-side"
-            ><small>{{ timeAgo(item.created_at) }}</small
-            ><small v-if="decideByText(item)" class="decide-by">{{ decideByText(item) }}</small
-            ><small v-if="snoozed(item)" class="snoozed-mark">Snoozed</small
-            ><small v-if="expiresSoon(item)" class="expires-soon">Expires soon</small
-            ><i v-if="unread(item)" class="unread"
-          /></span>
         </RouterLink>
-        <button
-          class="icon-button row-menu"
-          aria-label="Organise"
-          :aria-expanded="menu === item.id"
-          @click="menu = menu === item.id ? '' : item.id"
-        >
-          …
-        </button>
-        <div v-if="menu === item.id" class="row-menu-panel" role="menu">
-          <template v-if="!item.archived_at && item.status === 'open'">
-            <span class="type-caption">Decide by</span>
-            <button v-for="(label, by) in decideByLabel" :key="by" @click="decideBy(item, by)">
-              {{ label }}
+        <span class="decision-side">
+          <span class="decision-time-slot">
+            <small class="decision-time">{{ timeAgo(item.created_at) }}</small>
+            <button
+              class="icon-button row-archive"
+              :aria-label="item.archived_at ? 'Restore decision' : 'Archive decision'"
+              :title="item.archived_at ? 'Restore decision' : archivable(item) ? 'Archive decision' : 'Answer this decision before archiving'"
+              :disabled="!item.archived_at && !archivable(item)"
+              @click="post(item, item.archived_at ? 'revive' : 'archive')"
+            >
+              <Icon :name="item.archived_at ? 'refresh' : 'archive'" :size="14" />
             </button>
-            <label
-              >Decide by…
-              <input
-                type="date"
-                aria-label="Decide by date"
-                @change="decideOnDate(item, ($event.target as HTMLInputElement).value)"
-            /></label>
-            <label
-              >Snooze until…
-              <input
-                type="date"
-                aria-label="Snooze until"
-                @change="snoozeUntil(item, ($event.target as HTMLInputElement).value)"
-            /></label>
-            <button v-if="snoozed(item)" @click="triage(item, { snoozed_until: null })">
-              Unsnooze
-            </button>
-          </template>
-          <button v-if="!item.kept" @click="post(item, 'keep')">Keep</button>
-          <button v-if="item.archived_at" @click="post(item, 'revive')">Revive</button>
-          <button v-else-if="archivable(item)" @click="post(item, 'archive')">Archive</button>
-        </div>
+          </span>
+          <small v-if="decideByText(item)" class="decide-by">{{ decideByText(item) }}</small>
+          <small v-if="snoozed(item)" class="snoozed-mark">Snoozed</small>
+          <small v-if="expiresSoon(item)" class="expires-soon">Expires soon</small>
+          <i v-if="unread(item)" class="unread" />
+        </span>
       </div>
+      </template>
       <p v-if="!shown.length" class="decision-empty">
         {{ decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
       </p>
@@ -184,12 +146,12 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 10px;
-  border-radius: 6px;
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
 }
-.decision-row:hover,
-.decision-row.selected {
+.decision-row-wrap:hover,
+.decision-row-wrap:has(.decision-row.selected) {
   background: var(--hover);
 }
 .decision-text {
@@ -233,8 +195,19 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
 }
 .add-decision { margin-left: auto; }
 .rail-title { font-weight: 700; }
+.decision-group-title {
+  margin: 8px 10px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
 .decision-row-wrap {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 6px;
 }
 .decision-row.snoozed {
   opacity: 0.55;
@@ -246,37 +219,21 @@ const post = (item: DecisionItem, verb: 'keep' | 'archive' | 'revive') =>
 .decision-side .expires-soon {
   color: var(--danger-text);
 }
-.row-menu {
-  position: absolute;
-  top: 6px;
-  right: 2px;
+.decision-time-slot {
+  display: grid;
+  place-items: center;
+}
+.decision-time-slot > * {
+  grid-area: 1 / 1;
+}
+.row-archive {
+  width: 20px;
+  height: 16px;
   opacity: 0;
 }
-.decision-row-wrap:hover .row-menu,
-.row-menu:focus-visible,
-.row-menu[aria-expanded='true'] {
-  opacity: 1;
-}
-.row-menu-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-  margin: 2px 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 12px;
-}
-.row-menu-panel button,
-.row-menu-panel label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 6px;
-  border-radius: 4px;
-  text-align: left;
-}
-.row-menu-panel button:hover {
-  background: var(--hover);
-}
+.row-archive:disabled { display: none; }
+.decision-row-wrap:hover .row-archive,
+.row-archive:focus-visible { opacity: 1; }
+.decision-row-wrap:has(.row-archive:not(:disabled)):hover .decision-time,
+.decision-row-wrap:has(.row-archive:focus-visible) .decision-time { visibility: hidden; }
 </style>

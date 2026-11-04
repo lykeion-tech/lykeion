@@ -232,13 +232,12 @@ it('marks a reminded row, offers no Archive on an open decision and shows unread
   const root = mount(DecisionRail, {});
   expect(textOf(root)).toContain('Expires soon');
   expect(all(root).filter((n) => n.props.class === 'unread')).toHaveLength(1);
-  const menus = buttons(root).filter((n) => n.props['aria-label'] === 'Organise');
-  await click(menus[0]);
-  await new Promise((r) => setTimeout(r));
-  expect(buttonFor(root, 'Archive')).toBeUndefined();
-  await click(menus[1]);
-  await new Promise((r) => setTimeout(r));
-  expect(buttonFor(root, 'Archive')).toBeDefined();
+  const archiveButtons = buttons(root).filter((n) => n.props['aria-label'] === 'Archive decision');
+  expect(archiveButtons[0]?.props.disabled).toBe(true);
+  expect(archiveButtons[1]?.props.disabled).toBe(false);
+  api.mockResolvedValue(undefined);
+  await click(archiveButtons[1]);
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d2/archive');
 });
 
 it('shows an agent question with its options and only its addressee reads it', async () => {
@@ -358,10 +357,20 @@ it('keeps question set input after a failed submit and shows history to non-answ
   expect(textOf(history)).toContain('Children'); expect(textOf(history)).toContain('Another outcome'); expect(textOf(history)).toContain('Not answered');
 });
 
+it('groups archived decisions first and allows restoring them', async () => {
+  rows.value = [item({ id: 'current', kind: 'done', options: null }), item({ id: 'old', kind: 'done', options: null, archived_at: '2026-11-04T08:00:00Z' })];
+  const root = mount(DecisionRail, {});
+  expect(textOf(root)).toContain('Archived');
+  expect(all(root).filter((n) => n.props.to !== undefined).map((n) => n.props.to)).toEqual(['/decisions/old', '/decisions/current']);
+  api.mockResolvedValue(undefined);
+  await click(buttons(root).find((n) => n.props['aria-label'] === 'Restore decision'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/old/revive');
+});
+
 it('does not offer archive for an open text-only question set', async () => {
   rows.value = [item({ kind: 'agent_decision', options: [], question_set: { questions: [questionSet.questions[2]] } } as never)];
-  const root = mount(DecisionRail, {}); await click(buttons(root).find((n) => n.props['aria-label'] === 'Organise')); await new Promise((r) => setTimeout(r));
-  expect(buttonFor(root, 'Archive')).toBeUndefined();
+  const root = mount(DecisionRail, {});
+  expect(buttons(root).find((n) => n.props['aria-label'] === 'Archive decision')?.props.disabled).toBe(true);
 });
 
 it('requires a text answer, permits skipped optional questions and disables controls for non-answerers', async () => {

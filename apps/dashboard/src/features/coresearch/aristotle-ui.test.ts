@@ -298,6 +298,13 @@ describe('Aristotle UI', () => {
     await settle();
     expect(deleteButton()).toBeTruthy();
   });
+  it('defaults to the available CLI when the agent preference is offline', async () => {
+    const { root, client, settle } = await mount();
+    client.setQueryData(keys.runtimes('lab'), [{ id: 'x', owner_id: 'me', status: 'online', harness: 'codex', models: [] }]);
+    await settle();
+    expect(byLabel(root, 'CLI and model: Codex · Default')).toBeTruthy();
+    expect(textOf(root)).not.toContain('No available own machine');
+  });
   it('chooses an online CLI and its model for a new conversation', async () => {
     const fetch = vi
       .fn()
@@ -505,13 +512,13 @@ describe('Aristotle UI', () => {
     await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
     expect(bodies()[2].request_id).not.toBe(bodies()[0].request_id);
   });
-  it('blocks unavailable machines while retaining settings access', async () => {
+  it('blocks unavailable machines without showing the machine notice', async () => {
     const { root, settle } = await mount('/coresearch/new', false);
     edit(root, 'Question');
     await settle();
     expect(byLabel(root, 'Send').props.disabled).toBe(true);
-    expect(textOf(root)).toContain('No available own machine with claude');
-    expect(all(root).some((n) => n.props.href === '/settings?tab=machines')).toBe(true);
+    expect(textOf(root)).not.toContain('No available own machine');
+    expect(textOf(root)).toContain('No CLI available');
   });
   it('restores last valid conversation and falls back from a stale ID', async () => {
     storage.set('lykeion.aristotle.last:me:lab', 'deleted');
@@ -524,7 +531,7 @@ describe('Aristotle UI', () => {
       { ...welcome, snapshot_harness: 'codex', snapshot_model: 'frozen' },
     ]);
     await settle();
-    expect(textOf(root)).toContain('No available own machine with codex');
+    expect(byLabel(root, 'Send').props.disabled).toBe(true);
   });
   it('opens query settings on reload and saves starter label/prompt through the real agent patch', async () => {
     const fetch = vi

@@ -635,7 +635,11 @@ onUnmounted(() => {
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,
         }"
       >
-        <h1>{{ heading }}</h1>
+        <div v-if="current === 'workflows'" class="workflow-heading">
+          <h1>{{ heading }}</h1>
+          <span class="workflow-attribution">Workflows are ported from Terminal-Bench-Science.</span>
+        </div>
+        <h1 v-else>{{ heading }}</h1>
         <span id="page-header-count" class="page-header-count" />
         <div id="page-header-actions" class="page-header-actions" />
       </header>
@@ -925,6 +929,15 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+.workflow-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.workflow-attribution {
+  color: var(--muted);
+  font-size: 12px;
+}
 .page-header-count {
   margin-left: 8px;
   color: var(--muted);
