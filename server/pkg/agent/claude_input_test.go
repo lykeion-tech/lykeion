@@ -140,7 +140,7 @@ done
 read -r prompt
 echo '{"type":"result","subtype":"success","is_error":false,"structured_output":{"answer":"synthetic saved auth"}}'
 `)
-	session, err := (Claude{Bin: bin}).execute(t.Context(), "synthetic question", ExecOptions{
+	session, err := (Claude{Bin: bin}).Execute(t.Context(), "synthetic question", ExecOptions{
 		Lab: true, ReadOnly: true, Dir: t.TempDir(), ConfigHome: config,
 		Sandbox: testSandbox, OutputSchema: testSchema,
 	})

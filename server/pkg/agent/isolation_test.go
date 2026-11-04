@@ -92,3 +92,27 @@ func TestLabClaudeDefaultsProviderAndDropsPersonalRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestLabEnvKeepsRunDoorAndBothCLIConfigHomes(t *testing.T) {
+	t.Setenv("LYK_DOOR_TOKEN", "ambient-must-not-leak")
+	t.Setenv("LYK_DOOR", "ambient-route")
+	t.Setenv("CODEX_HOME", "/ambient-codex")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/ambient-claude")
+	config := t.TempDir()
+	env := ChildEnv(ExecOptions{Lab: true, ConfigHome: config, Env: []string{"LYK_DOOR_TOKEN=synthetic-run-token", "LYK_DOOR=untrusted-route"}})
+	for _, want := range []string{"LYK_DOOR_TOKEN=synthetic-run-token", "CODEX_HOME=" + config, "CLAUDE_CONFIG_DIR=" + config} {
+		if !slices.Contains(env, want) {
+			t.Fatal("missing required run setting", strings.SplitN(want, "=", 2)[0])
+		}
+	}
+	for _, entry := range ChildEnv(ExecOptions{Lab: true}) {
+		if strings.HasPrefix(entry, "LYK_DOOR_TOKEN=") || strings.HasPrefix(entry, "LYK_DOOR=") {
+			t.Fatal("ambient door inherited")
+		}
+	}
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "LYK_DOOR=") {
+			t.Fatal("unapproved door route inherited")
+		}
+	}
+}

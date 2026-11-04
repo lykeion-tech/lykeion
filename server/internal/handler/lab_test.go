@@ -15,7 +15,6 @@ import (
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
-	"lykeion/server/pkg/agent"
 )
 
 const labChats = "/api/lab/chats"
@@ -43,19 +42,25 @@ func seedHistoricalLabQuestion(t *testing.T, s *server, chat, body, model string
 	return id
 }
 
-func TestPrivateLabQuestionsAreRefusedBeforeStorage(t *testing.T) {
-	s, a, _, _, ws, _ := csFixture(t)
-	csRegister(t, s, a, ws, "online", "claude")
-	id := newLabChat(t, s, a, ws)
-	for _, h := range []string{"claude", "codex"} {
-		var out struct{ Code, Error string }
-		if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": "private", "harness": h}, &out); code != 503 || out.Code != "lab_unavailable" || out.Error != agent.LabAvailability(h).Error() {
-			t.Fatal(code, out)
-		}
-	}
-	var n int
-	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM lab_message WHERE chat_id=$1)+(SELECT count(*) FROM agent_run WHERE lab_chat_id=$1)`, id).Scan(&n); err != nil || n != 0 {
-		t.Fatal(err, n)
+func TestPrivateLabQuestionsAreAdmittedAndClaimed(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		t.Run(harness, func(t *testing.T) {
+			s, a, _, _, ws, _ := csFixture(t)
+			rt := csRegister(t, s, a, ws, "online", harness)
+			id := newLabChat(t, s, a, ws)
+			var out struct{ Message struct{ ID string } }
+			if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": "private", "harness": harness}, &out); code != 202 || out.Message.ID == "" {
+				t.Fatal(code, out)
+			}
+			claims, err := s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(s.userID(t, a)), []service.RuntimeRef{rt}, 1)
+			if err != nil || len(claims) != 1 || claims[0].AgentRun.Harness != harness {
+				t.Fatal(err, len(claims))
+			}
+			var n int
+			if err := s.Env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_message WHERE chat_id=$1 AND kind='question'", id).Scan(&n); err != nil || n != 1 {
+				t.Fatal(err, n)
+			}
+		})
 	}
 }
 
@@ -117,9 +122,9 @@ func TestPrivateLabUnavailableWithoutOwnMachine(t *testing.T) {
 	for _, tt := range []struct {
 		cli, code string
 		status    int
-	}{{"claude", "lab_unavailable", 503}, {"codex", "lab_unavailable", 503}} {
+	}{{"claude", "no_machine", 409}, {"codex", "no_machine", 409}} {
 		var out struct{ Code, Error string }
-		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": tt.cli}, &out); code != tt.status || out.Code != tt.code || out.Error != agent.LabAvailability(tt.cli).Error() {
+		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": tt.cli}, &out); code != tt.status || out.Code != tt.code || out.Error != "Your machine is offline" {
 			t.Fatalf("%s: %d %+v", tt.cli, code, out)
 		}
 	}
@@ -127,7 +132,7 @@ func TestPrivateLabUnavailableWithoutOwnMachine(t *testing.T) {
 	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET unhealthy_reason='sign_in' WHERE id=$1", own.RuntimeID); err != nil {
 		t.Fatal(err)
 	}
-	if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": "claude"}, nil); code != 503 {
+	if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "why", "harness": "claude"}, nil); code != 409 {
 		t.Fatal("unhealthy own runtime", code)
 	}
 	var count int
@@ -188,7 +193,7 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, ref := range []string{"study:" + card.ID, "record:" + record} {
-		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "Read context", "context_ref": ref, "harness": "claude"}, nil); code != 503 {
+		if code := s.call(t, "POST", path, a, ws, map[string]string{"text": "Read context", "context_ref": ref, "harness": "claude"}, nil); code != 202 {
 			t.Fatal(code)
 		}
 
@@ -202,7 +207,7 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 	}
 }
 
-func TestLegacyLabRunCannotBeClaimedByFreshFallback(t *testing.T) {
+func TestLabRunCanBeClaimedByFreshFallback(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	stale := csRegister(t, s, a, ws, "stale-advertiser", "claude")
 	fresh := csRegister(t, s, a, ws, "fresh-fallback", "claude")
@@ -212,10 +217,11 @@ func TestLegacyLabRunCannotBeClaimedByFreshFallback(t *testing.T) {
 	chat := newLabChat(t, s, a, ws)
 	seedHistoricalLabQuestion(t, s, chat, "your lab", "chosen")
 	owner := uuid.MustParse(s.userID(t, a))
-	for _, ref := range []service.RuntimeRef{stale, fresh} {
-		if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{ref}, 1); err != nil || len(claims) != 0 {
-			t.Fatal("legacy private claim", err, claims)
-		}
+	if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{stale}, 1); err != nil || len(claims) != 0 {
+		t.Fatal("stale runtime claimed work", err, len(claims))
+	}
+	if claims, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{fresh}, 1); err != nil || len(claims) != 1 || claims[0].AgentRun.RequestedModel != "" {
+		t.Fatal("fresh fallback did not claim with its default model", err, len(claims))
 	}
 
 }
@@ -303,37 +309,34 @@ func TestChatsHiddenAnswerInvalidatesDependentGapAcrossPages(t *testing.T) {
 	read("failure")
 }
 
-// A daemon from a previous release can retain a dispatched run or bearer.
-// Neither the historical prompt nor new lab evidence may reach that daemon.
-func TestLegacyLabDaemonCannotFetchPromptOrEvidence(t *testing.T) {
+// A valid run-scoped bearer reaches the lab evidence handler after admission.
+func TestLabDaemonCanFetchEvidenceAndStart(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
-	s.H.Lab = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("reached the lab evidence handler") })
+	reached := false
+	s.H.Lab = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true; w.WriteHeader(204) })
 	server := httptest.NewServer(NewRouter(s.H))
 	defer server.Close()
 	s.Server = server
+	rt := csRegister(t, s, a, ws, "online", "claude")
 	chat := newLabChat(t, s, a, ws)
-	rt := csRegister(t, s, a, ws, "old-daemon", "claude")
-	q := seedHistoricalLabQuestion(t, s, chat, "private", "")
-	var run uuid.UUID
-	if err := s.Env.Owner.QueryRow(t.Context(), `UPDATE agent_run SET status='running',attempt=1,runtime_id=$2 WHERE id=(SELECT agent_run_id FROM lab_message WHERE id=$1) RETURNING id`, q, rt.RuntimeID).Scan(&run); err != nil {
-		t.Fatal(err)
+	if code := s.call(t, "POST", labChats+"/"+chat+"/questions", a, ws, map[string]string{"text": "synthetic question", "harness": "claude"}, nil); code != 202 {
+		t.Fatal(code)
 	}
-	token := "ltk_" + uuid.NewString()
-	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,$4,now()+interval '1 hour')`, auth.Hash(token), ws, run, service.Scopes("aristotle")); err != nil {
-		t.Fatal(err)
+	claims, err := s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(s.userID(t, a)), []service.RuntimeRef{rt}, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatal(err, len(claims))
 	}
-	if status := s.call(t, "POST", "/mcp/lab", token, "", nil, nil); status != 503 {
-		t.Fatal("lab MCP", status)
+	run := claims[0].AgentRun
+	rt.Attempt = run.Attempt
+	if code := s.call(t, "POST", "/api/daemon/agent-runs/"+run.ID.String()+"/start?lab_history=1", s.personalToken(t, a), "", rt, nil); code != 200 {
+		t.Fatal("start", code)
 	}
-	rt.Attempt = 1
-	for _, suffix := range []string{"/start", "/start?lab_history=1"} {
-		if status := s.call(t, "POST", "/api/daemon/agent-runs/"+run.String()+suffix, s.personalToken(t, a), "", rt, nil); status != 503 {
-			t.Fatal("lab launch", suffix, status)
-		}
+	if status := s.call(t, "POST", "/mcp/lab", claims[0].Token, "", nil, nil); status != 204 || !reached {
+		t.Fatal("lab MCP", status, reached)
 	}
 }
 
-func TestOldDaemonLabStatusAndHandInStopTheAttempt(t *testing.T) {
+func TestUnsupportedLabStatusAndHandInStopTheAttempt(t *testing.T) {
 	for _, first := range []string{"status", "hand-in"} {
 		t.Run(first, func(t *testing.T) {
 			s, a, _, _, ws, _ := csFixture(t)
@@ -343,7 +346,7 @@ func TestOldDaemonLabStatusAndHandInStopTheAttempt(t *testing.T) {
 			chat := newLabChat(t, s, a, ws)
 			q := seedHistoricalLabQuestion(t, s, chat, "synthetic secret", "")
 			var run string
-			err := s.Env.Owner.QueryRow(t.Context(), `UPDATE agent_run SET status='running',attempt=1,runtime_id=$2,started_at=now()
+			err := s.Env.Owner.QueryRow(t.Context(), `UPDATE agent_run SET harness='cursor',status='running',attempt=1,runtime_id=$2,started_at=now()
  WHERE id=(SELECT agent_run_id FROM lab_message WHERE id=$1) RETURNING id::text`, q, rt.RuntimeID).Scan(&run)
 			if err != nil {
 				t.Fatal(err)

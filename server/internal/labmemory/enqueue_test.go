@@ -27,7 +27,7 @@ func enqueueQuestion(t *testing.T, f *fixture, runs *service.AgentRuns, chat db.
 	var run db.AgentRun
 	err := runs.Store.InWorkspace(t.Context(), f.ws, f.user, func(tx *store.Tx) error {
 		var err error
-		run, err = enqueueTurn(t.Context(), tx, runs, chat, f.user, question, &f.study, nil, "claude", model)
+		run, err = Enqueue(t.Context(), tx, runs, chat, f.user, question, &f.study, "claude", model)
 		return err
 	})
 	if err != nil {
@@ -57,48 +57,16 @@ func TestEnqueueMakesAnAristotleRunForTheAsker(t *testing.T) {
 	}
 }
 
-// Seed a dispatched attempt from a previous release so historical settlement,
-// retry and redaction checks do not depend on admitting new lab questions.
+// Exercise the public admission and launch paths in settlement/history fixtures.
 func historicalClaim(t *testing.T, f *fixture, runs *service.AgentRuns, ref service.RuntimeRef) ([]service.Claimed, error) {
 	t.Helper()
-	var run db.AgentRun
-	err := runs.Store.InWorkspace(t.Context(), f.ws, f.user, func(tx *store.Tx) error {
-		q, err := tx.Q.ClaimAgentRun(t.Context(), db.ClaimAgentRunParams{WorkspaceID: f.ws, RuntimeID: &ref.RuntimeID})
-		if err != nil {
-			return err
-		}
-		rt, err := tx.Q.GetRuntime(t.Context(), db.GetRuntimeParams{WorkspaceID: f.ws, ID: ref.RuntimeID})
-		if err != nil {
-			return err
-		}
-		if err = tx.Q.AcceptMachineAttempt(t.Context(), db.AcceptMachineAttemptParams{WorkspaceID: f.ws, AgentRunID: q.ID, Attempt: q.Attempt, RuntimeID: rt.ID, DaemonID: rt.DaemonID, OwnerID: f.user, ResponsibleUserID: f.user}); err != nil {
-			return err
-		}
-		run, err = tx.Q.GetAgentRun(t.Context(), db.GetAgentRunParams{WorkspaceID: f.ws, ID: q.ID})
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return []service.Claimed{{AgentRun: run}}, nil
+	return runs.Claim(t.Context(), f.user, []service.RuntimeRef{ref}, 1)
 }
 func historicalStart(ctx context.Context, runs *service.AgentRuns, user uuid.UUID, ref service.RuntimeRef, id uuid.UUID) (string, error) {
-	var prompt string
-	err := runs.OnAttempt(ctx, user, ref, id, func(tx *store.Tx, t db.AgentRun) error {
-		_, err := tx.Q.StartAgentRun(ctx, db.StartAgentRunParams{ID: id, WorkspaceID: tx.WS, RuntimeID: &ref.RuntimeID})
-		if err != nil {
-			return err
-		}
-		if err = tx.Q.StartMachineAttempt(ctx, db.StartMachineAttemptParams{WorkspaceID: tx.WS, AgentRunID: id, Attempt: ref.Attempt, RuntimeID: ref.RuntimeID}); err != nil {
-			return err
-		}
-		prompt, err = LaunchPrompt(ctx, tx, t)
-		return err
-	})
-	return prompt, err
+	return runs.StartLab(ctx, user, ref, id, LaunchPrompt)
 }
 
-func TestLegacyAristotleRunIsRefusedBeforeClaim(t *testing.T) {
+func TestAristotleRunIsClaimedByOwnRuntime(t *testing.T) {
 	f, runs, chat := labQueue(t)
 	ctx := t.Context()
 	rows, err := runs.Register(ctx, f.user, f.ws, "personal", "machine", []string{"claude"}, nil, agent.Platform{OS: "linux"})
@@ -108,13 +76,13 @@ func TestLegacyAristotleRunIsRefusedBeforeClaim(t *testing.T) {
 	ref := service.RuntimeRef{WorkspaceID: f.ws, RuntimeID: rows[0].ID}
 	run := enqueueQuestion(t, f, runs, chat, "private question", "")
 	got, err := runs.Claim(ctx, f.user, []service.RuntimeRef{ref}, 1)
-	if err != nil || len(got) != 0 {
+	if err != nil || len(got) != 1 || got[0].AgentRun.ID != run.ID {
 		t.Fatal(err, len(got))
 	}
 	var status string
 	var tokens int
 	err = f.env.Owner.QueryRow(ctx, `SELECT status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id) FROM agent_run r WHERE id=$1`, run.ID).Scan(&status, &tokens)
-	if err != nil || status != "cancelled" || tokens != 0 {
+	if err != nil || status != "dispatched" || tokens != 1 {
 		t.Fatal(err, status, tokens)
 	}
 }
@@ -184,8 +152,8 @@ func TestAristotleRemovalCancelsWorkAcrossRejoin(t *testing.T) {
 	}
 }
 
-func TestLabQuestionsRefusedBeforePersistence(t *testing.T) {
-	for _, harness := range []string{"claude", "codex"} {
+func TestUnsupportedLabQuestionsRefusedBeforePersistence(t *testing.T) {
+	for _, harness := range []string{"cursor", "antigravity"} {
 		t.Run(harness, func(t *testing.T) {
 			f, runs, chat := labQueue(t)
 			err := runs.Store.InWorkspace(t.Context(), f.ws, f.user, func(tx *store.Tx) error {
@@ -204,7 +172,7 @@ func TestLabQuestionsRefusedBeforePersistence(t *testing.T) {
 	}
 }
 
-func TestUnavailableLabRolloutCancelsOpenRunsAndRevokesTokens(t *testing.T) {
+func TestUnsupportedLabHarnessCancelsOpenRunsAndRevokesTokens(t *testing.T) {
 	f, runs, chat := labQueue(t)
 	ctx := t.Context()
 	ordinary := uuid.New()
@@ -214,7 +182,7 @@ func TestUnavailableLabRolloutCancelsOpenRunsAndRevokesTokens(t *testing.T) {
 	for _, status := range []string{"queued", "dispatched", "running"} {
 		r := enqueueQuestion(t, f, runs, chat, status, "")
 		ids[status] = r.ID
-		f.exec("UPDATE agent_run SET status=$2,attempt=1 WHERE id=$1", r.ID, status)
+		f.exec("UPDATE agent_run SET status=$2,attempt=1,harness='cursor' WHERE id=$1", r.ID, status)
 		f.exec(`INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,ARRAY['aristotle:ask'],now()+interval '1 hour')`, r.ID.String(), f.ws, r.ID)
 	}
 	for range 2 {
@@ -235,6 +203,31 @@ func TestUnavailableLabRolloutCancelsOpenRunsAndRevokesTokens(t *testing.T) {
  FROM agent_run r WHERE id=$1`, id).Scan(&status, &tokens, &settlements, &events)
 		if err != nil || status != "cancelled" || tokens != 0 || settlements != 1 || events != 1 {
 			t.Fatal(initial, err, status, tokens, settlements, events)
+		}
+	}
+}
+
+// Reconciliation must leave supported queued, dispatched and running work intact.
+func TestSupportedLabRunsSurviveAvailabilityReconciliation(t *testing.T) {
+	f, runs, chat := labQueue(t)
+	ids := map[uuid.UUID]string{}
+	for _, harness := range []string{"claude", "codex"} {
+		for _, status := range []string{"queued", "dispatched", "running"} {
+			r := enqueueQuestion(t, f, runs, chat, "supported", "")
+			f.exec("UPDATE agent_run SET status=$2,harness=$3,attempt=1 WHERE id=$1", r.ID, status, harness)
+			f.exec(`INSERT INTO agent_run_token(token_hash,workspace_id,agent_run_id,role,attempt,scopes,expires_at) VALUES($1,$2,$3,'aristotle',1,ARRAY['aristotle:ask'],now()+interval '1 hour')`, r.ID.String(), f.ws, r.ID)
+			ids[r.ID] = status
+		}
+	}
+	if err := runs.CancelUnavailableLabRuns(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range ids {
+		var status string
+		var tokens, settlements int
+		err := f.env.Owner.QueryRow(t.Context(), `SELECT status,(SELECT count(*) FROM agent_run_token WHERE agent_run_id=r.id),(SELECT count(*) FROM agent_run_settlement WHERE agent_run_id=r.id) FROM agent_run r WHERE id=$1`, id).Scan(&status, &tokens, &settlements)
+		if err != nil || status != want || tokens != 1 || settlements != 0 {
+			t.Fatal(err, status, tokens, settlements)
 		}
 	}
 }

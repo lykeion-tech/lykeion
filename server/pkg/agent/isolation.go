@@ -252,11 +252,12 @@ func labClaudeEnv(o ExecOptions) []string {
 	}
 	for _, entry := range o.Env {
 		k, v, ok := strings.Cut(entry, "=")
-		if ok && (k == "PATH" || k == "CLAUDE_CODE_OAUTH_TOKEN") {
+		if ok && (k == "PATH" || k == "CLAUDE_CODE_OAUTH_TOKEN" || k == "LYK_DOOR_TOKEN") {
 			values[k] = v
 		}
 	}
 	if o.ConfigHome != "" {
+		values["CODEX_HOME"] = o.ConfigHome
 		values["CLAUDE_CONFIG_DIR"] = o.ConfigHome
 	}
 	// Host-managed provider mode disables Claude's saved OAuth/Keychain lookup.
