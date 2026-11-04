@@ -18,7 +18,7 @@ const answerQuestionSet = `-- name: AnswerQuestionSet :one
 UPDATE inbox_item SET status = 'decided', answers = $1::jsonb, decided_by = $2::uuid,
   decided_at = now(), resolved_at = now(), touched_at = now()
 WHERE id = $3 AND workspace_id = $4
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 
 type AnswerQuestionSetParams struct {
@@ -70,6 +70,9 @@ func (q *Queries) AnswerQuestionSet(ctx context.Context, arg AnswerQuestionSetPa
 		&i.TouchedAt,
 		&i.QuestionSet,
 		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
 	)
 	return i, err
 }
@@ -147,7 +150,7 @@ const decideItem = `-- name: DecideItem :one
 UPDATE inbox_item SET status = 'decided', chosen_option = $1, guidance = $2, decided_by = $3::uuid,
   decided_at = now(), resolved_at = now(), touched_at = now()
 WHERE id = $4 AND workspace_id = $5
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 
 type DecideItemParams struct {
@@ -203,6 +206,9 @@ func (q *Queries) DecideItem(ctx context.Context, arg DecideItemParams) (InboxIt
 		&i.TouchedAt,
 		&i.QuestionSet,
 		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
 	)
 	return i, err
 }
@@ -269,7 +275,7 @@ func (q *Queries) DueReminders(ctx context.Context, at time.Time) ([]DueReminder
 const expireDecision = `-- name: ExpireDecision :one
 UPDATE inbox_item SET status = 'expired', chosen_option = default_option, resolved_at = now(), touched_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 
 type ExpireDecisionParams struct {
@@ -316,12 +322,15 @@ func (q *Queries) ExpireDecision(ctx context.Context, arg ExpireDecisionParams) 
 		&i.TouchedAt,
 		&i.QuestionSet,
 		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
 	)
 	return i, err
 }
 
 const getDecision = `-- name: GetDecision :one
-SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers,
+SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
   ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
@@ -382,6 +391,9 @@ func (q *Queries) GetDecision(ctx context.Context, arg GetDecisionParams) (GetDe
 		&i.InboxItem.TouchedAt,
 		&i.InboxItem.QuestionSet,
 		&i.InboxItem.Answers,
+		&i.InboxItem.Title,
+		&i.InboxItem.Context,
+		&i.InboxItem.Deadline,
 		&i.MayAnswer,
 	)
 	return i, err
@@ -444,7 +456,7 @@ func (q *Queries) InsertAgentDecision(ctx context.Context, arg InsertAgentDecisi
 
 const listDecisions = `-- name: ListDecisions :many
 
-SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers,
+SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
   ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
@@ -522,6 +534,9 @@ func (q *Queries) ListDecisions(ctx context.Context, arg ListDecisionsParams) ([
 			&i.InboxItem.TouchedAt,
 			&i.InboxItem.QuestionSet,
 			&i.InboxItem.Answers,
+			&i.InboxItem.Title,
+			&i.InboxItem.Context,
+			&i.InboxItem.Deadline,
 			&i.MayAnswer,
 		); err != nil {
 			return nil, err
@@ -535,7 +550,7 @@ func (q *Queries) ListDecisions(ctx context.Context, arg ListDecisionsParams) ([
 }
 
 const lockDecision = `-- name: LockDecision :one
-SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers FROM inbox_item WHERE id = $1 AND workspace_id = $2 FOR UPDATE
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline FROM inbox_item WHERE id = $1 AND workspace_id = $2 FOR UPDATE
 `
 
 type LockDecisionParams struct {
@@ -580,6 +595,9 @@ func (q *Queries) LockDecision(ctx context.Context, arg LockDecisionParams) (Inb
 		&i.TouchedAt,
 		&i.QuestionSet,
 		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
 	)
 	return i, err
 }
@@ -590,7 +608,7 @@ UPDATE inbox_item SET read_at = COALESCE(read_at, now()), touched_at = now(),
   status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND status = 'open' THEN 'dismissed' ELSE status END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3
   AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND resolved_at IS NULL))
-RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 
 type MarkDecisionReadParams struct {
@@ -637,6 +655,9 @@ func (q *Queries) MarkDecisionRead(ctx context.Context, arg MarkDecisionReadPara
 		&i.TouchedAt,
 		&i.QuestionSet,
 		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
 	)
 	return i, err
 }

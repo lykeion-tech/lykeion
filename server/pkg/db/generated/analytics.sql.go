@@ -14,7 +14,7 @@ import (
 )
 
 const analyticsEvents = `-- name: AnalyticsEvents :many
-SELECT e.id, e.workspace_id, e.card_id, e.type, e.actor_type, e.actor_id, e.payload, e.created_at FROM event e
+SELECT e.id, e.workspace_id, e.card_id, e.type, e.actor_type, e.actor_id, e.payload, e.created_at, e.recipient_id FROM event e
 JOIN card c ON c.id = e.card_id AND c.workspace_id = e.workspace_id
 WHERE e.workspace_id = $1 AND e.type IN (
  'agent_run.dispatched', 'agent_run.started', 'agent_run.completed',
@@ -49,6 +49,7 @@ func (q *Queries) AnalyticsEvents(ctx context.Context, arg AnalyticsEventsParams
 			&i.ActorID,
 			&i.Payload,
 			&i.CreatedAt,
+			&i.RecipientID,
 		); err != nil {
 			return nil, err
 		}

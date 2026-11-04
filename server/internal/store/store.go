@@ -172,6 +172,18 @@ func (t *Tx) Savepoint(ctx context.Context, fn func(*Tx) error) error {
 // Inserts are serialised per workspace, so event ids commit in id order and a
 // reader resuming after id N never skips a lower id that committed later.
 func (t *Tx) Emit(ctx context.Context, typ string, card *uuid.UUID, actor Actor, payload any) error {
+	return t.emit(ctx, nil, typ, card, actor, payload)
+}
+
+// EmitPrivate records an event for one person without adding study activity.
+func (t *Tx) EmitPrivate(ctx context.Context, recipient uuid.UUID, typ string, actor Actor, payload any) error {
+	if recipient == uuid.Nil {
+		return errors.New("private event requires a recipient")
+	}
+	return t.emit(ctx, &recipient, typ, nil, actor, payload)
+}
+
+func (t *Tx) emit(ctx context.Context, recipient *uuid.UUID, typ string, card *uuid.UUID, actor Actor, payload any) error {
 	if payload == nil {
 		payload = map[string]any{}
 	}
@@ -187,7 +199,7 @@ func (t *Tx) Emit(ctx context.Context, typ string, card *uuid.UUID, actor Actor,
 		actorID = &actor.ID
 	}
 	e, err := t.Q.InsertEvent(ctx, db.InsertEventParams{
-		WorkspaceID: t.WS, CardID: card, Type: typ, ActorType: actor.Type, ActorID: actorID, Payload: b,
+		WorkspaceID: t.WS, RecipientID: recipient, CardID: card, Type: typ, ActorType: actor.Type, ActorID: actorID, Payload: b,
 	})
 	if err != nil {
 		return err

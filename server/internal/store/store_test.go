@@ -281,3 +281,61 @@ func TestAfterCommitInASavepointRunsWithItsTransaction(t *testing.T) {
 		t.Fatalf("a rolled-back transaction ran %v", ran)
 	}
 }
+
+func TestPrivateEventEmissionAndVisibleCursor(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	var published []db.Event
+	s := &Store{Pool: env.App, Publish: func(_ context.Context, events []db.Event) { published = append(published, events...) }}
+	user, ws := seed(t, s)
+	published = nil
+	other := uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user"(id,email) VALUES($1,'private-other@test')`, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'admin')`, ws, other); err != nil {
+		t.Fatal(err)
+	}
+	var before int64
+	if err := s.InWorkspace(ctx, ws, other, func(tx *Tx) error { var err error; before, err = tx.Q.LatestEventID(ctx, ws); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		return tx.EmitPrivate(ctx, user, "manual.created", User(user), map[string]string{"secret": "private"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(published) != 1 || published[0].RecipientID == nil || *published[0].RecipientID != user || published[0].CardID != nil {
+		t.Fatalf("private event shape: %+v", published)
+	}
+	if err := s.InWorkspace(ctx, ws, other, func(tx *Tx) error {
+		after, err := tx.Q.LatestEventID(ctx, ws)
+		if err != nil {
+			return err
+		}
+		if after != before {
+			t.Errorf("foreign cursor advanced from %d to %d", before, after)
+		}
+		rows, err := tx.Q.EventsAfter(ctx, db.EventsAfterParams{WorkspaceID: ws, After: before, Lim: 500})
+		if len(rows) != 0 {
+			t.Errorf("foreign replay: %+v", rows)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	published = nil
+	rollback := errors.New("rollback")
+	err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error {
+		if err := tx.EmitPrivate(ctx, user, "manual.rolled_back", User(user), nil); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) || len(published) != 0 {
+		t.Fatalf("rollback=%v published=%v", err, published)
+	}
+	if err := s.InWorkspace(ctx, ws, user, func(tx *Tx) error { return tx.EmitPrivate(ctx, uuid.Nil, "invalid", System, nil) }); err == nil {
+		t.Fatal("accepted empty recipient")
+	}
+}

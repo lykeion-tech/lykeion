@@ -617,6 +617,7 @@ type Event struct {
 	ActorID     *uuid.UUID      `json:"actor_id"`
 	Payload     json.RawMessage `json:"payload"`
 	CreatedAt   time.Time       `json:"created_at"`
+	RecipientID *uuid.UUID      `json:"recipient_id"`
 }
 
 type FieldPack struct {
@@ -678,6 +679,9 @@ type InboxItem struct {
 	TouchedAt         time.Time       `json:"touched_at"`
 	QuestionSet       json.RawMessage `json:"question_set"`
 	Answers           json.RawMessage `json:"answers"`
+	Title             string          `json:"title"`
+	Context           string          `json:"context"`
+	Deadline          pgtype.Date     `json:"deadline"`
 }
 
 type LabChat struct {

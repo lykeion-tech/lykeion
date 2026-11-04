@@ -13,7 +13,7 @@ import (
 )
 
 const cardEventsAfter = `-- name: CardEventsAfter :many
-SELECT id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at FROM event WHERE workspace_id = $1 AND card_id = $2::uuid AND id > $3
+SELECT id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at, recipient_id FROM event WHERE workspace_id = $1 AND recipient_id IS NULL AND card_id = $2::uuid AND id > $3
 ORDER BY id LIMIT 500
 `
 
@@ -41,6 +41,7 @@ func (q *Queries) CardEventsAfter(ctx context.Context, arg CardEventsAfterParams
 			&i.ActorID,
 			&i.Payload,
 			&i.CreatedAt,
+			&i.RecipientID,
 		); err != nil {
 			return nil, err
 		}
@@ -53,7 +54,7 @@ func (q *Queries) CardEventsAfter(ctx context.Context, arg CardEventsAfterParams
 }
 
 const eventsAfter = `-- name: EventsAfter :many
-SELECT id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at FROM event WHERE workspace_id = $1 AND id > $2 ORDER BY id LIMIT $3
+SELECT id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at, recipient_id FROM event WHERE workspace_id = $1 AND (recipient_id IS NULL OR recipient_id = app_user()) AND id > $2 ORDER BY id LIMIT $3
 `
 
 type EventsAfterParams struct {
@@ -80,6 +81,7 @@ func (q *Queries) EventsAfter(ctx context.Context, arg EventsAfterParams) ([]Eve
 			&i.ActorID,
 			&i.Payload,
 			&i.CreatedAt,
+			&i.RecipientID,
 		); err != nil {
 			return nil, err
 		}
@@ -92,9 +94,9 @@ func (q *Queries) EventsAfter(ctx context.Context, arg EventsAfterParams) ([]Eve
 }
 
 const insertEvent = `-- name: InsertEvent :one
-INSERT INTO event (workspace_id, card_id, type, actor_type, actor_id, payload)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at
+INSERT INTO event (workspace_id, card_id, type, actor_type, actor_id, payload, recipient_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, workspace_id, card_id, type, actor_type, actor_id, payload, created_at, recipient_id
 `
 
 type InsertEventParams struct {
@@ -104,6 +106,7 @@ type InsertEventParams struct {
 	ActorType   string          `json:"actor_type"`
 	ActorID     *uuid.UUID      `json:"actor_id"`
 	Payload     json.RawMessage `json:"payload"`
+	RecipientID *uuid.UUID      `json:"recipient_id"`
 }
 
 func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event, error) {
@@ -114,6 +117,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		arg.ActorType,
 		arg.ActorID,
 		arg.Payload,
+		arg.RecipientID,
 	)
 	var i Event
 	err := row.Scan(
@@ -125,15 +129,16 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		&i.ActorID,
 		&i.Payload,
 		&i.CreatedAt,
+		&i.RecipientID,
 	)
 	return i, err
 }
 
 const latestEventID = `-- name: LatestEventID :one
-SELECT COALESCE(max(id), 0)::bigint FROM event WHERE workspace_id = $1
+SELECT COALESCE(max(id), 0)::bigint FROM event WHERE workspace_id = $1 AND (recipient_id IS NULL OR recipient_id = app_user())
 `
 
-// The newest event id of the workspace, 0 when it has none: where a new
+// The newest visible event id of the workspace, 0 when it has none: where a new
 // realtime subscription starts.
 func (q *Queries) LatestEventID(ctx context.Context, workspaceID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, latestEventID, workspaceID)

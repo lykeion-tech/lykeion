@@ -41,6 +41,8 @@ type Hub struct {
 var upgrader = websocket.Upgrader{} // Default origin protection requires the same host.
 func channel(ws uuid.UUID) string   { return "lyk:ws:" + ws.String() }
 
+func recipientChannel(ws, user uuid.UUID) string { return channel(ws) + ":user:" + user.String() }
+
 // OwnerChannel wakes the daemons owned by a card's responsible user.
 func OwnerChannel(owner uuid.UUID) string { return "lyk:owner:" + owner.String() }
 
@@ -52,7 +54,10 @@ func (h *Hub) Publish(ctx context.Context, evs []db.Event) {
 	done := map[string]bool{}
 	for _, e := range evs {
 		chans := []string{channel(e.WorkspaceID)}
-		if e.Type == "agent_run.queued" || e.Type == "coresearch.work.queued" {
+		if e.RecipientID != nil {
+			chans = []string{recipientChannel(e.WorkspaceID, *e.RecipientID)}
+		}
+		if e.RecipientID == nil && (e.Type == "agent_run.queued" || e.Type == "coresearch.work.queued") {
 			var payload struct {
 				OwnerID uuid.UUID `json:"owner_id"`
 			}
@@ -245,7 +250,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		rd := redis.NewClient(&opt)
 		defer rd.Close()
 		attempt, stop := context.WithTimeout(ctx, redisTimeout)
-		ps := rd.Subscribe(attempt, channel(sub.Workspace))
+		ps := rd.Subscribe(attempt, channel(sub.Workspace), recipientChannel(sub.Workspace, user))
 		defer ps.Close()
 		if _, err := ps.ReceiveTimeout(attempt, redisTimeout); err == nil {
 			wake = ps.Channel()
