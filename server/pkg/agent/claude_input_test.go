@@ -108,3 +108,47 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"verified t
 		})
 	}
 }
+
+// The fixture models saved-auth selection without reading real credentials or
+// invoking Claude. Host-managed mode must not suppress the normal lookup path.
+func TestLabClaudeSavedAuthLaunch(t *testing.T) {
+	config := t.TempDir()
+	if err := os.WriteFile(filepath.Join(config, ".credentials.json"), []byte("synthetic-sign-in"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	t.Setenv("CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST", "1")
+	bin := script(t, `
+if [ "$1" = "--version" ]; then
+  echo '2.1.317 (Claude Code)'
+  exit 0
+fi
+[ -z "${CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST+x}" ] || exit 21
+[ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || exit 22
+[ -r "$CLAUDE_CONFIG_DIR/.credentials.json" ] || exit 23
+restricted=no
+strict=no
+structured=no
+for arg in "$@"; do
+  case "$arg" in
+    --restricted) restricted=yes ;;
+    --strict-mcp-config) strict=yes ;;
+    StructuredOutput) structured=yes ;;
+  esac
+done
+[ "$restricted:$strict:$structured" = "yes:yes:yes" ] || exit 24
+read -r prompt
+echo '{"type":"result","subtype":"success","is_error":false,"structured_output":{"answer":"synthetic saved auth"}}'
+`)
+	session, err := (Claude{Bin: bin}).execute(t.Context(), "synthetic question", ExecOptions{
+		Lab: true, ReadOnly: true, Dir: t.TempDir(), ConfigHome: config,
+		Sandbox: testSandbox, OutputSchema: testSchema,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, res := collectWithin(t, session, 10*time.Second)
+	if res.Err != nil || res.Output != `{"answer":"synthetic saved auth"}` {
+		t.Fatalf("saved-auth launch failed: output=%q err=%v", res.Output, res.Err)
+	}
+}

@@ -47,7 +47,8 @@ func resolveLabClaude(bin string) (string, error) {
 	return filepath.EvalSymlinks(path)
 }
 
-// A new CLI release must pass the lab provider and native tool inventory probes.
+// Keep lab execution on the CLI version exercised by the compatibility probes.
+// This version check does not establish provider or tool isolation.
 func checkLabClaude(ctx context.Context, bin string, o ExecOptions) error {
 	probe, cancel := context.WithTimeout(ctx, VersionTimeout)
 	defer cancel()
@@ -191,6 +192,8 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
 	if o.Lab {
+		// Retain the CLI restrictions, while recognizing that managed settings
+		// may override configuration and hooks outside these command-line controls.
 		args = append(args, "--restricted", "--setting-sources", "", "--tools", "StructuredOutput", "--disable-slash-commands")
 	}
 	if o.Coresearch {

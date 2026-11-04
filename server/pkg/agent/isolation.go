@@ -239,7 +239,9 @@ func childEnv(o ExecOptions, cacheDir string) []string {
 }
 
 // labClaudeEnv allows account sign-in and process basics. Personal gateways,
-// TLS/proxy settings, provider switches, hooks and API keys never enter a lab CLI.
+// TLS/proxy settings, provider switches, hooks and API keys are filtered from
+// this environment. Managed CLI configuration can still affect provider routing
+// and hooks; this is not a complete provider or tool isolation boundary.
 func labClaudeEnv(o ExecOptions) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
@@ -257,7 +259,8 @@ func labClaudeEnv(o ExecOptions) []string {
 	if o.ConfigHome != "" {
 		values["CLAUDE_CONFIG_DIR"] = o.ConfigHome
 	}
-	values["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"] = "1"
+	// Host-managed provider mode disables Claude's saved OAuth/Keychain lookup.
+	// Leave it unset so the account's ordinary CLI sign-in remains usable.
 	values["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
 	values["ENABLE_TOOL_SEARCH"] = "false"
 	values["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
