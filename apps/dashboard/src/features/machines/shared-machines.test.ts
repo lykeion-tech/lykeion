@@ -569,7 +569,7 @@ describe('Shared machines', () => {
     ['u2', 'Ada'],
     ['former', 'Former member'],
     [null, 'Owner'],
-  ])('shows recorded or current owner for a live runtime (%s)', async (owner, label) => {
+  ])('omits run environment for a live runtime (%s)', async (owner, label) => {
     fetching();
     const t = await mount(AgentRunCard, () => ({
       study: 'Study',
@@ -592,7 +592,7 @@ describe('Shared machines', () => {
     }));
     try {
       await t.click(/Run 1/);
-      expect(t.text()).toContain(`Bench (${label})`);
+      expect(t.text()).not.toContain(`Bench (${label})`);
       expect(t.text()).not.toContain('Runs on: Bench');
       expect(t.text()).toContain(
         "This study's machine is no longer shared with you; choose another.",
@@ -794,7 +794,7 @@ describe('Shared machines', () => {
       t.unmount();
     }
   });
-  it('shows a deleted runtime snapshot and owner in the run environment', async () => {
+  it('omits a deleted runtime snapshot from the run card', async () => {
     fetching();
     const t = await mount(AgentRunCard, () => ({
       study: 'Study',
@@ -817,7 +817,7 @@ describe('Shared machines', () => {
     }));
     try {
       await t.click(/Run 1/);
-      expect(t.text()).toContain('Old bench (Ada)');
+      expect(t.text()).not.toContain('Old bench (Ada)');
     } finally {
       t.unmount();
     }
