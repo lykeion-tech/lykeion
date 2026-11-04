@@ -137,7 +137,8 @@ it.each(['Start blank', 'Create with AI'])(
       { workspace: 'w1' },
     );
     expect(router.currentRoute.value.query.draft).toBe('d1');
-    expect(textOf(root)).toContain('Review your note');
+    expect(textOf(root)).toContain('Save a decision');
+    expect(all(root).find((n) => n.props['aria-label'] === 'Back to starting options')?.props.href).toBe('/decisions/new');
     expect(api.mock.calls.some((c) => c[1] === '/api/decisions/manual')).toBe(false);
   },
 );

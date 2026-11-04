@@ -13,6 +13,7 @@ import { readJSON, writeJSON } from '../../storage';
 import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
+import RunStatus from '../runs/RunStatus.vue';
 import { parseManualDecisionProposal, type ManualDecisionDraft, type ManualDecisionTurn } from '../decisions/manualDecisionDraft';
 
 const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
@@ -477,9 +478,9 @@ onUnmounted(() => {
           />
           <div v-if="message.kind !== 'question' && message.kind !== 'answer'" class="failure">{{ message.body }}</div>
         </template>
-        <p v-if="messages.data.value?.pages[0]?.pending" role="status">
-          {{ drafting ? 'Drafting your note…' : 'Reading the lab’s records…' }}
-        </p>
+        <div v-if="messages.data.value?.pages[0]?.pending" class="working" role="status">
+          <RunStatus text="Working…" working />
+        </div>
       </template>
     </div>
     <div v-if="context" class="chip">
@@ -759,12 +760,17 @@ header {
   padding: 10px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   border-top: 1px solid var(--border);
   box-sizing: border-box;
 }
 .log > * {
   flex: none;
+}
+.working {
+  color: var(--muted);
+  font-size: var(--type-small);
+  line-height: 1.45;
 }
 .log p,
 .error {

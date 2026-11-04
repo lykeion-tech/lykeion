@@ -204,7 +204,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 .add-decision { margin-left: auto; }
 .rail-title { font-weight: 700; }
 .decision-group-title {
-  margin: 8px 10px 4px;
+  margin: 0 0 4px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -213,12 +213,17 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0;
+  width: 100%;
+  padding: 4px 10px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+.archive-toggle:hover {
+  background: var(--hover);
 }
 .decision-row-wrap {
   position: relative;

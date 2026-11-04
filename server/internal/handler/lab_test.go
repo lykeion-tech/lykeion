@@ -64,6 +64,24 @@ func TestPrivateLabQuestionsAreAdmittedAndClaimed(t *testing.T) {
 	}
 }
 
+func TestLabRecentChatsExcludeEmptyConversations(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	empty := newLabChat(t, s, a, ws)
+	used := newLabChat(t, s, a, ws)
+	seedHistoricalLabQuestion(t, s, used, "A question", "")
+	var got struct {
+		Chats []struct {
+			ID string `json:"id"`
+		} `json:"chats"`
+	}
+	if code := s.call(t, "GET", labChats, a, ws, nil, &got); code != 200 {
+		t.Fatal(code)
+	}
+	if len(got.Chats) != 1 || got.Chats[0].ID != used {
+		t.Fatalf("recent chats %+v; empty %s", got.Chats, empty)
+	}
+}
+
 func TestLabPendingAcrossOverlappingQuestions(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	csRegister(t, s, a, ws, "parallel", "claude")

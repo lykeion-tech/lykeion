@@ -60,6 +60,9 @@
 .agent-status.archived {
   color: var(--muted);
 }
+.agent-status.unavailable {
+  color: var(--error);
+}
 .agent-description {
   margin-top: 2px;
   font-size: 14px;
@@ -340,7 +343,7 @@
 .agent-pane {
   display: flex;
   flex-direction: column;
-  max-width: 736px;
+  min-width: 0;
   padding: 32px;
 }
 .agent-pane h2 {
@@ -560,8 +563,16 @@
   padding-right: 0;
 }
 .agent-detail-page .agent-identity h1 {
+  display: inline;
   font-size: 20px;
   line-height: 27px;
+}
+.agent-detail-page .agent-title {
+  display: block;
+}
+.agent-detail-page .agent-identity h1.long-name {
+  font-size: 16px;
+  line-height: 22px;
 }
 .agent-detail-page .agent-description {
   font-size: 12px;
@@ -569,7 +580,8 @@
 }
 .agent-detail-page .agent-status {
   display: inline-block;
-  margin-top: 6px;
+  margin-left: 6px;
+  margin-top: 0;
 }
 .agent-detail-page .agent-panel {
   background: transparent;

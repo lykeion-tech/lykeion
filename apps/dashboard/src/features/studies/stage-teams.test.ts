@@ -356,7 +356,8 @@ describe('AssignPicker', () => {
           {
             ...storeTeam('t', 'Grounding Team', 'grounding', 'shipped'),
             avatar_url: 'emoji:🔬',
-            agent_clis: ['codex'],
+            agent_clis: ['claude', 'codex'],
+            leader_cli: 'codex',
           },
         ]);
         client.setQueryData(keys.runtimes('w'), [
@@ -371,6 +372,8 @@ describe('AssignPicker', () => {
       expect(p.text()).toContain('🔬');
       expect(p.nodes().some((n) => n.props['aria-label'] === 'Claude Code')).toBe(true);
       expect(p.nodes().some((n) => n.props['aria-label'] === 'Codex')).toBe(true);
+      expect(all(p.button(/Grounding Team/)!).filter((n) => n.props.class === 'picker-cli')).toHaveLength(1);
+      expect(all(p.button(/Grounding Team/)!).some((n) => n.props.title === 'Team leader: Codex')).toBe(true);
       expect(all(p.button(/Scientist/)!).some((n) => n.props['aria-label'] === 'CLI online')).toBe(
         true,
       );
@@ -505,6 +508,23 @@ describe('AssignPicker', () => {
 });
 
 describe('new agent model picker', () => {
+  it('shows availability only for a healthy online runtime of the current researcher', async () => {
+    const t = await mount(AgentsView, () => ({}), '/agents', (c) => {
+      c.setQueryData(keys.agents('w'), [
+        { id: 'a', name: 'Claude agent', harness: 'claude', owner_id: 'u1', archived_at: null, updated_at: '2026-01-01', description: '' },
+        { id: 'b', name: 'Codex agent', harness: 'codex', owner_id: 'u1', archived_at: null, updated_at: '2026-01-01', description: '' },
+      ]);
+      c.setQueryData(keys.runtimes('w'), [
+        { owner_id: 'u1', harness: 'claude', status: 'online', unhealthy_reason: 'sign_in' },
+        { owner_id: 'u1', harness: 'codex', status: 'online', unhealthy_reason: null },
+      ]);
+    });
+    try {
+      expect(t.nodes().filter((n) => n.props['aria-label'] === 'Active')).toHaveLength(1);
+      expect(t.nodes().filter((n) => n.props['aria-label'] === 'Inactive')).toHaveLength(1);
+      expect(t.text()).not.toContain('Status');
+    } finally { t.unmount(); }
+  });
   it('uses the selected harness models and resets the model when the harness changes', async () => {
     const t = await mount(
       AgentsView,

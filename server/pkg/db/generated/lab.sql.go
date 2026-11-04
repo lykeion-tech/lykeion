@@ -493,6 +493,7 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
 SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND purpose=COALESCE(NULLIF($1::text,''),'answer')
+AND (purpose <> 'answer' OR EXISTS (SELECT 1 FROM lab_message m WHERE m.workspace_id=lab_chat.workspace_id AND m.chat_id=lab_chat.id AND m.owner_id=lab_chat.owner_id AND m.kind='question'))
 AND (archived_at IS NOT NULL)= $2::boolean
 AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT $5::int

@@ -135,6 +135,33 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('shows agent availability from the current researcher’s runtime health', async () => {
+    const { root, client, settle } = await mount('/agents/aristotle', true, true);
+    const status = () => all(root).find((n) => String(n.props.class).includes('agent-status'))!;
+    expect(textOf(status())).toBe('Active');
+    client.setQueryData(keys.runtimes('lab'), [{ owner_id: 'me', status: 'online', harness: 'claude', unhealthy_reason: 'sign_in' }]);
+    await settle();
+    expect(textOf(status())).toBe('Inactive');
+    expect(String(status().props.class)).toContain('unavailable');
+    client.setQueryData(keys.agent('lab', 'aristotle'), { ...agent, archived_at: '2026-01-01' });
+    await settle();
+    expect(textOf(status())).toBe('Archived');
+  });
+  it('shows the built-in note only for built-in agents', async () => {
+    const { root, client, settle } = await mount('/agents/aristotle', true, true);
+    const note = "Built-in Agents can't be changed. Duplicate this Agent to make one of your own.";
+    expect(textOf(root)).toContain(note);
+
+    const custom = { ...agent, built_in_key: '', name: 'Custom agent', source: 'custom' };
+    client.setQueryData(keys.agent('lab', 'aristotle'), custom);
+    client.setQueryData(keys.agents('lab'), [custom]);
+    await settle();
+    expect(textOf(root)).not.toContain(note);
+
+    client.setQueryData(keys.agents('lab'), [{ ...custom, source: 'built_in' }]);
+    await settle();
+    expect(textOf(root)).toContain(note);
+  });
   it('keeps the agent inspector visible when switching detail tabs', async () => {
     const { root, settle } = await mount('/agents/aristotle', true, true);
     const inspector = all(root).find((n) => n.props.class === 'agent-inspector')!;

@@ -5,8 +5,7 @@ import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../../lib/te
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import { workspaceId } from '../../api/session';
-import { useMe, useRuntimes, useTeams } from '../../api/queries';
-import type { StoreTeam } from '../../api/types';
+import { useTeams } from '../../api/queries';
 import { matchesQuery } from '../../lib/search';
 
 const search = ref('');
@@ -16,6 +15,15 @@ const stage = ref('');
 const filterOpen = ref(false);
 const filterAnchor = ref<HTMLElement>();
 const filterTrigger = ref<HTMLButtonElement>();
+const directory = ref<HTMLElement>();
+const scrollbarWidth = ref(0);
+let directoryObserver: ResizeObserver | undefined;
+function measureScrollbar() {
+  if (directory.value) {
+    const width = directory.value.offsetWidth - directory.value.clientWidth;
+    scrollbarWidth.value = Number.isFinite(width) ? width : 0;
+  }
+}
 function closeFilter(restoreFocus = false) {
   filterOpen.value = false;
   if (restoreFocus) filterTrigger.value?.focus();
@@ -33,20 +41,20 @@ function leaveFilter(event: FocusEvent) {
   if ((event.relatedTarget as HTMLElement | null)?.closest?.('.select-picker-popup')) return;
   if (!filterAnchor.value?.contains(event.relatedTarget as Node | null)) closeFilter();
 }
-onMounted(() => document.addEventListener('pointerdown', outsideFilter));
-onUnmounted(() => document.removeEventListener('pointerdown', outsideFilter));
+onMounted(() => {
+  document.addEventListener('pointerdown', outsideFilter);
+  if (directory.value && typeof ResizeObserver !== 'undefined') {
+    directoryObserver = new ResizeObserver(measureScrollbar);
+    directoryObserver.observe(directory.value);
+  }
+  measureScrollbar();
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsideFilter);
+  directoryObserver?.disconnect();
+});
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const everything = useTeams('', '');
-const me = useMe();
-const runtimes = useRuntimes();
-function teamOnline(team: StoreTeam) {
-  return !!team.agent_clis?.length && team.agent_clis.every((cli) =>
-    (runtimes.data.value ?? []).some((runtime) =>
-      runtime.owner_id === me.data.value?.id && runtime.harness === cli &&
-      runtime.status === 'online' && !runtime.unhealthy_reason,
-    ),
-  );
-}
 const teams = useTeams(() => (domain.value === generalPurposeDomain ? '' : domain.value), stage);
 const rows = computed(() =>
   (teams.data.value ?? [])
@@ -74,7 +82,7 @@ watch(workspaceId, () => closeFilter());
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 </script>
 <template>
-  <section class="directory-page directory-table-page team-directory">
+  <section ref="directory" class="directory-page directory-table-page team-directory" :style="{ '--team-scrollbar-width': `${scrollbarWidth}px` }">
     <Teleport to="#page-header-actions">
       <RouterLink to="/teams/new" class="button primary directory-header-action"
         ><Icon name="plus" :size="14" />New team</RouterLink
@@ -140,7 +148,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
         </div>
       </div>
       <button class="button agent-sort" @click="newestFirst = !newestFirst">
-        <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
+        <Icon name="up" :size="13" :class="{ 'sort-descending': newestFirst }" />Last updated
       </button>
     </div>
     <div v-if="everything.data.value?.length" class="team-table-scroll">
@@ -163,7 +171,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
                     :size="18" /><Icon v-else name="network" :size="18" />
-                    <span v-if="teamOnline(t)" class="availability-dot" role="img" aria-label="Team CLIs online" title="Team CLIs online"></span></span
+                    <span class="availability-dot" role="img" aria-label="Active" title="Active"></span></span
                 ><span class="team-label"
                   ><span>{{ teamDisplayParts(t.name).label }}</span
                   ><small v-if="t.manifest.description">{{ t.manifest.description }}</small></span
@@ -202,8 +210,11 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 <style src="../../ui/directory-table.css" />
 <style scoped>
 .team-directory {
-  padding: 4px 4px 32px 20px;
+  padding: 4px 20px 32px;
   scrollbar-gutter: stable;
+}
+.team-toolbar {
+  margin-right: calc(-1 * var(--team-scrollbar-width, 0px));
 }
 .team-toolbar .agent-sort {
   margin-left: 0;

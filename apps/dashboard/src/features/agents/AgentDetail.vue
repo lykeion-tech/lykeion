@@ -35,6 +35,7 @@ import { notify } from '../../state/notice';
 import { agentNameWithoutCli } from '../../lib/agent-name';
 import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import AgentCustomize from './AgentCustomize.vue';
+import { agentAvailable } from './availability';
 import '../coresearch/l2.css';
 
 const props = defineProps<{ id: string }>();
@@ -112,6 +113,7 @@ const denied = computed(
   () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
 );
 const agent = computed(() => (denied.value ? undefined : detail.data.value));
+const available = computed(() => !!agent.value && agentAvailable(agent.value, runtimes.data.value ?? [], me.data.value?.id));
 const modelLabel = computed(() => {
   const current = agent.value;
   if (!current?.model) return 'Harness default';
@@ -349,11 +351,17 @@ function toggle(id: string) {
                 <Aristotle v-if="builtin" still /><Icon v-else name="bot" :size="26" />
               </EmojiIcon>
               <div>
-                <h1>{{ agentNameWithoutCli(agent.name, agent.harness) }}</h1>
+                <div class="agent-title">
+                  <h1
+                    :class="{ 'long-name': [...agentNameWithoutCli(agent.name, agent.harness)].length > 20 }"
+                  >
+                    {{ agentNameWithoutCli(agent.name, agent.harness) }}
+                  </h1>
+                  <span class="agent-status" :class="{ archived: agent.archived_at, unavailable: !agent.archived_at && !available }">{{
+                    agent.archived_at ? 'Archived' : available ? 'Active' : 'Inactive'
+                  }}</span>
+                </div>
                 <p v-if="agent.description" class="agent-description">{{ agent.description }}</p>
-                <span class="agent-status" :class="{ archived: agent.archived_at }">{{
-                  agent.archived_at ? 'Archived' : 'Active'
-                }}</span>
               </div>
             </div>
             <div class="agent-panel">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
@@ -40,37 +40,7 @@ let revision = 0,
 let generation = 0,
   writeQueue: Promise<void> = Promise.resolve();
 const owner = computed(() => me.data.value?.id ?? '');
-const showArchived = ref(false);
 const archived = computed(() => !!saved.data.value?.archived_at);
-const recent = useInfiniteQuery({
-  queryKey: computed(() => [
-    ...labKey(workspaceId.value),
-    owner.value,
-    purpose,
-    'drafts',
-    showArchived.value,
-  ]),
-  enabled: computed(() => !!workspaceId.value && !!owner.value),
-  initialPageParam: '',
-  queryFn: ({ queryKey, pageParam, signal }) =>
-    api<{ chats: { id: string; title: string }[]; next_cursor: string }>(
-      'GET',
-      '/api/lab/chats?purpose=' +
-        purpose +
-        (queryKey[6] ? '&archived=true' : '') +
-        (pageParam ? '&cursor=' + encodeURIComponent(pageParam) : ''),
-      undefined,
-      undefined,
-      { workspace: queryKey[1] as string, signal },
-    ),
-  getNextPageParam: (last) => last.next_cursor || undefined,
-  staleTime: 0,
-  gcTime: 0,
-  refetchInterval: 15000,
-});
-const recentDrafts = computed(() =>
-  recent.isError.value ? [] : (recent.data.value?.pages.flatMap((page) => page.chats) ?? []),
-);
 const saved = useQuery({
   queryKey: computed(() => [
     ...labKey(workspaceId.value),
@@ -345,7 +315,10 @@ async function create() {
 <template>
   <section class="directory-page manual-create">
     <header class="agent-create-header">
-      <RouterLink to="/decisions" class="icon-button" aria-label="Back to decisions"
+      <RouterLink
+        :to="chat ? '/decisions/new' : '/decisions'"
+        class="icon-button"
+        :aria-label="chat ? 'Back to starting options' : 'Back to decisions'"
         ><Icon name="back" :size="16"
       /></RouterLink>
       <div>
@@ -371,30 +344,6 @@ async function create() {
           ><em>Continue <Icon name="right" :size="12" /></em>
         </button>
       </div>
-      <section class="drafts">
-        <div class="draft-list-heading">
-          <h3>{{ showArchived ? 'Archived drafts' : 'Unfinished drafts' }}</h3>
-          <button class="button" @click="showArchived = !showArchived">
-            {{ showArchived ? 'Show unfinished drafts' : 'Show archived drafts' }}
-          </button>
-        </div>
-        <RouterLink
-          v-for="item in recentDrafts"
-          :key="item.id"
-          :to="{ path: '/decisions/new', query: { draft: item.id, mode: 'ai' } }"
-          >{{ item.title || 'Untitled draft' }}</RouterLink
-        ><button
-          v-if="recent.hasNextPage.value"
-          class="button"
-          :disabled="recent.isFetching.value"
-          @click="recent.fetchNextPage()"
-        >
-          More drafts
-        </button>
-      </section>
-      <p v-if="recent.isError.value" role="alert">
-        Drafts could not be loaded. <button class="button" @click="recent.refetch()">Retry</button>
-      </p>
     </div>
     <div v-else class="form-wrap">
       <p v-if="denied || (saved.isError.value && !loaded)" role="alert">
@@ -405,7 +354,7 @@ async function create() {
           Could not refresh this draft. Your current edits are kept.
           <button class="button" @click="saved.refetch()">Retry refresh</button>
         </p>
-        <h2>{{ archived ? 'Archived draft' : 'Review your note' }}</h2>
+        <h2>{{ archived ? 'Archived draft' : 'Save a decision' }}</h2>
         <p class="save-state" role="status">
           {{ saveState || 'Your draft is private and saved across visits.' }}
           <button v-if="saveState === 'Not saved' && !archived" class="button" @click="retrySave">
@@ -420,9 +369,6 @@ async function create() {
           @submit="create"
           ><RouterLink to="/decisions" class="button">Cancel</RouterLink></ManualDecisionForm
         >
-        <button v-if="!ai && !created && !archived" class="button draft-with-ai" @click="ai = true">
-          Draft with Aristotle
-        </button>
         <AristotleWindow
           v-if="ai && !created"
           :key="workspaceId + ':' + owner + ':' + chat"
@@ -460,33 +406,7 @@ async function create() {
   font-size: 12px;
   margin-bottom: 28px;
 }
-.draft-with-ai {
-  margin-top: 20px;
-}
-.drafts {
-  width: 100%;
-  max-width: 768px;
-  margin-top: 32px;
-  display: grid;
-  gap: 12px;
-  font-size: 13px;
-}
-.draft-list-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-.drafts h3 {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 500;
-}
-.drafts a:hover {
-  text-decoration: underline;
-}
-.agent-create-option:focus-visible,
-.drafts a:focus-visible {
+.agent-create-option:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
 }

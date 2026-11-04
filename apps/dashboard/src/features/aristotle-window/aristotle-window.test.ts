@@ -13,6 +13,10 @@ import AristotleWindow from './AristotleWindow.vue';
 import LabAnswer from './LabAnswer.vue';
 
 vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
+vi.mock('vue-spinner', async () => {
+  const { h } = await import('vue');
+  return { RingLoader: { render: () => h('div', { class: 'v-spinner' }) } };
+});
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
@@ -131,6 +135,18 @@ it('opens and minimizes, suggests removable study context and shows starters', a
   expect(textOf(t.root)).not.toContain('Start voice chat');
   await t.click('Minimize');
   expect(t.composer()).toBeUndefined();
+});
+it('keeps new chats unsaved until the first message is sent', async () => {
+  const t = await mount();
+  await t.click('Ask Aristotle');
+  await t.click('Switch chat');
+  await t.click('New chat');
+  await t.click('Switch chat');
+  await t.click('New chat');
+  expect(t.calls.some((c) => c.method === 'POST')).toBe(false);
+  await t.tryDraft('Hello Aristotle');
+  expect(t.calls.filter((c) => c.path === '/api/lab/chats' && c.method === 'POST')).toHaveLength(1);
+  expect(t.calls.some((c) => c.path === '/api/lab/chats/c/questions' && c.body.text === 'Hello Aristotle')).toBe(true);
 });
 it('preserves the draft when the machine is offline', async () => {
   const t = await mount(false, true);
@@ -262,7 +278,8 @@ it('keeps waiting for the second question when the first fails out of order', as
   await t.click('Ask Aristotle');
   await t.click('Switch chat');
   await t.click('Overlapping questions');
-  expect(textOf(t.root)).toContain('Reading the lab’s records');
+  expect(textOf(t.root)).toContain('Working…');
+  expect(all(t.root).some((n) => String(n.props.class).includes('v-spinner'))).toBe(true);
   expect(textOf(t.root)).not.toContain('Retry question');
 });
 

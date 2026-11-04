@@ -17,6 +17,7 @@ import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
 import { timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
+import { agentAvailable as isAgentAvailable } from './availability';
 const props = defineProps<{ create?: boolean }>();
 const list = useAgents(),
   me = useMe(),
@@ -158,6 +159,8 @@ const rows = computed(() =>
     .sort((a, b) => (newestFirst.value ? -1 : 1) * a.updated_at.localeCompare(b.updated_at)),
 );
 const owner = (id: string) => members.data.value?.find((m) => m.user_id === id);
+const agentAvailable = (agent: AgentDefinition) =>
+  isAgentAvailable(agent, runtimes.data.value ?? [], me.data.value?.id);
 watch(workspaceId, () => {
   visit++;
   editor.value = false;
@@ -248,13 +251,12 @@ async function save() {
           </div>
         </div>
         <button class="button agent-sort" @click="newestFirst = !newestFirst">
-          <Icon :name="newestFirst ? 'down' : 'up'" :size="13" />Last updated
+          <Icon name="up" :size="13" :class="{ 'sort-descending': newestFirst }" />Last updated
         </button>
       </div>
       <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
         <div class="agent-row agent-head" role="row">
-          <span role="columnheader">Name</span><span role="columnheader">Status</span
-          ><span role="columnheader">Owner</span><span role="columnheader">Source</span
+          <span role="columnheader">Name</span><span role="columnheader">Owner</span><span role="columnheader">Source</span
           ><span role="columnheader">Harness</span
           ><span role="columnheader" aria-sort="descending"
             ><span class="directory-last-value">Last updated</span></span
@@ -281,7 +283,7 @@ async function save() {
                 :value="a.avatar_url.slice(6)"
                 :size="20"
               /><template v-else>{{ agentDisplayName(a.name)[0] }}</template>
-              <span v-if="!a.archived_at" class="avatar-active-dot" role="img" aria-label="Active" title="Active"></span></span
+              <span v-if="!a.archived_at" class="avatar-active-dot" :class="{ inactive: !agentAvailable(a) }" role="img" :aria-label="agentAvailable(a) ? 'Active' : 'Inactive'" :title="agentAvailable(a) ? 'Active' : 'Inactive'"></span></span
             ><span
               ><b
                 >{{ agentNameWithoutCli(a.name, a.harness)
@@ -294,9 +296,6 @@ async function save() {
                 ></b
               ><small>{{ a.description }}</small></span
             ></span
-          ><span role="cell" :class="a.archived_at ? 'muted' : 'agent-active'">{{
-            a.archived_at ? 'Archived' : 'Active'
-          }}</span
           ><span role="cell" class="agent-owner"
             ><span class="avatar small">{{
               (owner(a.owner_id)?.name || owner(a.owner_id)?.email || '?')[0]
@@ -409,7 +408,7 @@ async function save() {
   text-align: center;
 }
 .agent-directory {
-  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 128px;
+  --directory-columns: minmax(240px, 1fr) repeat(3, 122px) 128px;
 }
 .agent-directory .agent-row > :last-child {
   text-align: right;
@@ -556,6 +555,9 @@ async function save() {
   height: 7px;
   border-radius: 50%;
   background: #39a35a;
+}
+.avatar-active-dot.inactive {
+  background: var(--error);
 }
 .avatar :deep(.aristotle-art) {
   width: 28px;

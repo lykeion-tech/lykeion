@@ -36,6 +36,7 @@ type storeTeam struct {
 	AvatarURL   string          `json:"avatar_url"`
 	Visibility  string          `json:"visibility"`
 	AgentCLIs   []string        `json:"agent_clis"`
+	LeaderCLI   string          `json:"leader_cli,omitempty"`
 }
 
 // shownManifest is a stored manifest without its version.
@@ -63,6 +64,15 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			clis := []string{}
+			var identity struct {
+				Leader struct {
+					Name string `json:"name"`
+				} `json:"leader"`
+			}
+			if err := json.Unmarshal(manifest, &identity); err != nil {
+				return err
+			}
+			leaderCLI := ""
 			members, err := tx.Q.TeamAgentsFor(r.Context(), db.TeamAgentsForParams{WorkspaceID: ws, PackID: p.ID, UserID: user})
 			if err != nil {
 				return err
@@ -75,11 +85,14 @@ func (h *H) listTeams(w http.ResponseWriter, r *http.Request) {
 				if (a.Harness == "claude" || a.Harness == "codex") && !slices.Contains(clis, a.Harness) {
 					clis = append(clis, a.Harness)
 				}
+				if member.Member == identity.Leader.Name {
+					leaderCLI = a.Harness
+				}
 			}
 			slices.Sort(clis)
 			out = append(out, storeTeam{ID: p.ID, WorkspaceID: p.WorkspaceID, Name: p.Name, Sha256: p.Sha256,
 				Manifest: manifest, Source: p.Source, UploadedBy: p.UploadedBy, CreatedAt: p.CreatedAt,
-				Domain: p.Domain, Stage: p.Stage, Added: p.Added, AvatarURL: p.AvatarUrl, Visibility: p.Visibility, AgentCLIs: clis})
+				Domain: p.Domain, Stage: p.Stage, Added: p.Added, AvatarURL: p.AvatarUrl, Visibility: p.Visibility, AgentCLIs: clis, LeaderCLI: leaderCLI})
 		}
 		return nil
 	})

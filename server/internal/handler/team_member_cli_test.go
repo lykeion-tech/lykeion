@@ -16,6 +16,11 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 		t.Fatalf("study %d", code)
 	}
 	var detail struct {
+		Manifest struct {
+			Leader struct {
+				Name string `json:"name"`
+			} `json:"leader"`
+		} `json:"manifest"`
 		MyAgents map[string]struct {
 			ID      string `json:"id"`
 			Harness string `json:"harness"`
@@ -34,7 +39,10 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	if code := s.call(t, "GET", "/api/teams/"+id, other, ws.ID, nil, &otherDetail); code != 200 || len(otherDetail.MyAgents) != 0 {
 		t.Fatalf("other user's agents: status %d, agents %v", code, otherDetail.MyAgents)
 	}
-	for _, member := range detail.MyAgents {
+	for name, member := range detail.MyAgents {
+		if name != detail.Manifest.Leader.Name {
+			continue
+		}
 		var updated struct {
 			Harness string `json:"harness"`
 		}
@@ -49,6 +57,7 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	var teams []struct {
 		ID        string   `json:"id"`
 		AgentCLIs []string `json:"agent_clis"`
+		LeaderCLI string   `json:"leader_cli"`
 	}
 	if code := s.call(t, "GET", "/api/teams", auth, ws.ID, nil, &teams); code != 200 {
 		t.Fatalf("teams %d", code)
@@ -56,6 +65,9 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	for _, team := range teams {
 		if team.ID == id && !slices.Contains(team.AgentCLIs, "codex") {
 			t.Fatalf("own CLIs %v", team.AgentCLIs)
+		}
+		if team.ID == id && team.LeaderCLI != "codex" {
+			t.Fatalf("leader CLI %q", team.LeaderCLI)
 		}
 	}
 	teams = nil
@@ -65,6 +77,9 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	for _, team := range teams {
 		if team.ID == id && len(team.AgentCLIs) != 0 {
 			t.Fatalf("other user's CLIs: %v", team.AgentCLIs)
+		}
+		if team.ID == id && team.LeaderCLI != "" {
+			t.Fatalf("other user's leader CLI: %q", team.LeaderCLI)
 		}
 	}
 }

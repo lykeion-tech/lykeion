@@ -990,7 +990,6 @@ function tabKey(event: KeyboardEvent, index: number) {
   grid-template-columns: 180px minmax(0, 1fr);
   gap: 18px;
   font-size: 13px;
-  max-width: 820px;
 }
 .team-settings dt {
   color: var(--muted);

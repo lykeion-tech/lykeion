@@ -352,6 +352,7 @@ async function save() {
     <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">Loading Projects…</p>
     <Modal
       v-if="deleting"
+      class="project-delete-modal"
       :title="`Delete ${deleting.name}?`"
       :before-close="() => !deleteBusy"
       @close="deleting = null"
@@ -855,9 +856,11 @@ async function save() {
   height: 28px;
   color: var(--muted);
 }
+.project-delete-modal {
+  width: 420px;
+}
 .project-delete-dialog {
   padding: 24px;
-  max-width: 440px;
 }
 .project-delete-dialog h2 {
   margin-bottom: 12px;
@@ -872,7 +875,11 @@ async function save() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 24px;
+  margin-top: 20px;
+}
+.project-delete-dialog .danger {
+  color: var(--danger-text);
+  background: var(--danger-bg);
 }
 
 .projects-table th {

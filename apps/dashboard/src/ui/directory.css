@@ -173,6 +173,9 @@
   margin-left: auto;
   gap: 5px;
 }
+.agent-sort .sort-descending {
+  transform: rotate(180deg);
+}
 .directory-page {
   --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 80px;
 }
@@ -230,7 +233,11 @@ a.agent-row:hover {
 .agent-active {
   color: #2f7d3b;
 }
-.agent-active::before {
+.agent-unavailable {
+  color: var(--error);
+}
+.agent-active::before,
+.agent-unavailable::before {
   content: '●';
   margin-right: 5px;
   font-size: 9px;

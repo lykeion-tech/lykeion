@@ -460,6 +460,7 @@ export interface TeamManifest {
 export interface StoreTeam {
   avatar_url: string;
   agent_clis?: ('claude' | 'codex')[];
+  leader_cli?: 'claude' | 'codex';
   id: string;
   created_at: string;
   name: string;

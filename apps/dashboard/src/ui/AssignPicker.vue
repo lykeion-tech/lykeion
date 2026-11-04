@@ -321,13 +321,12 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
               ></span></span
             ><span><TeamName :name="t.name" /></span
             ><span
-              v-for="cli in t.agent_clis ?? []"
-              :key="cli"
+              v-if="t.leader_cli"
               class="picker-cli"
               role="img"
-              :aria-label="backendLabel(cli)"
-              :title="backendLabel(cli)"
-              ><CliIcon :cli="cli" /></span
+              :aria-label="backendLabel(t.leader_cli)"
+              :title="`Team leader: ${backendLabel(t.leader_cli)}`"
+              ><CliIcon :cli="t.leader_cli" /></span
             ><small v-if="group.label !== 'Built-in Teams' && t.stage"
               >Built for {{ stageName(t.stage) }}</small
             ><small v-else-if="group.label !== 'Built-in Teams'">No stage label</small>
