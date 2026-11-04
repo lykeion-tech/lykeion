@@ -53,3 +53,10 @@ CREATE TRIGGER preserve_event_recipient BEFORE UPDATE ON event FOR EACH ROW EXEC
 DROP TRIGGER lab_enqueue_event ON event;
 CREATE TRIGGER lab_enqueue_event AFTER INSERT ON event FOR EACH ROW
  WHEN (NEW.recipient_id IS NULL) EXECUTE FUNCTION lab_enqueue_event();
+
+CREATE OR REPLACE FUNCTION lab_events_after(consumer text, lim int) RETURNS SETOF event
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT e.* FROM public.event e
+  WHERE e.recipient_id IS NULL AND e.id > COALESCE((SELECT c.last_event_id FROM public.lab_cursor c WHERE c.consumer = $1), 0)
+  ORDER BY e.id LIMIT GREATEST(0, $2)
+$$;

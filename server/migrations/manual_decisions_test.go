@@ -333,3 +333,43 @@ func TestPrivateEventHiddenAfterNoteDeletion(t *testing.T) {
 		}
 	}
 }
+
+func TestPrivateEventExcludedFromLegacyLabReplay(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	ws, user := uuid.New(), uuid.New()
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO "user"(id,email) VALUES($1,'legacy-replay@test')`, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO workspace(id,slug,name) VALUES($1,'legacy-replay','legacy-replay')`, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, `INSERT INTO event(workspace_id,recipient_id,type,actor_type,payload) VALUES($1,$2,'manual.private','user','{"secret":"private"}'),($1,NULL,'legacy.shared','system','{}')`, ws, user); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := env.App.Query(ctx, `SELECT type,payload FROM lab_events_after('fresh-private-regression',1000) WHERE workspace_id=$1`, ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	shared := false
+	for rows.Next() {
+		var typ string
+		var payload []byte
+		if err := rows.Scan(&typ, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if typ == "legacy.shared" {
+			shared = true
+		}
+		if typ == "manual.private" || strings.Contains(string(payload), "secret") {
+			t.Errorf("legacy maintenance replay exposed private event: %s %s", typ, payload)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !shared {
+		t.Error("shared event absent from legacy replay")
+	}
+}

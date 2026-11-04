@@ -1,3 +1,10 @@
+CREATE OR REPLACE FUNCTION lab_events_after(consumer text, lim int) RETURNS SETOF event
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT e.* FROM public.event e
+  WHERE e.id > COALESCE((SELECT c.last_event_id FROM public.lab_cursor c WHERE c.consumer = $1), 0)
+  ORDER BY e.id LIMIT GREATEST(0, $2)
+$$;
+
 DROP TRIGGER lab_enqueue_event ON event;
 CREATE TRIGGER lab_enqueue_event AFTER INSERT ON event FOR EACH ROW EXECUTE FUNCTION lab_enqueue_event();
 DELETE FROM event WHERE recipient_id IS NOT NULL;
