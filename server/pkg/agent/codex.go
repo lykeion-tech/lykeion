@@ -18,9 +18,6 @@ type Codex struct{ Bin string }
 const codexCredFile = "auth.json"
 
 func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
-	if o.Lab {
-		return nil, ErrLabHarness
-	}
 	bin := c.Bin
 	if bin == "" {
 		bin = "codex"
@@ -52,7 +49,26 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	// These flags belong to exec, before the optional resume subcommand.
 	// Codex's own web search answers from OpenAI's side, past the sources
 	// server that every cited source must come through, so it is off.
-	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access", "-c", `web_search="disabled"`}
+	sandbox := "danger-full-access"
+	if o.Lab {
+		sandbox = "read-only"
+	}
+	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", sandbox, "-c", `web_search="disabled"`}
+	if o.Lab {
+		// Best-effort native-tool restrictions. These CLI settings do not prove
+		// provider or managed MCP isolation; generic MCP resource operations
+		// remain available in supported releases. Keep the account's CLI auth.
+		args = append(args, "--strict-config")
+		if !o.Coresearch {
+			args = append(args, "--ignore-user-config")
+		}
+		for _, feature := range []string{"shell_tool", "unified_exec", "skill_search", "image_generation", "view_image", "goals", "sleep_tool", "tool_suggest", "code_mode", "code_mode_host", "request_permissions_tool", "browser_use"} {
+			args = append(args, "--disable", feature)
+		}
+		for _, setting := range []string{"skills.bundled.enabled=false", "skills.include_instructions=false", "project_doc_max_bytes=0", "orchestrator.skills.enabled=false", "orchestrator.mcp.enabled=false", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false"} {
+			args = append(args, "-c", setting)
+		}
+	}
 	if o.Guest {
 		// Login profiles replace the trusted run PATH before shell tools run.
 		args = append(args, "-c", "allow_login_shell=false")
@@ -80,7 +96,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			args = append(args, "--disable", feature)
 		}
 	}
-	if clash := personalClash(personal, o); !o.Coresearch && (clash != "" || personal.Unreadable) {
+	if clash := personalClash(personal, o); !o.Coresearch && !o.Lab && (clash != "" || personal.Unreadable) {
 		// -c deep-merges into a personal entry of the same name, so its headers
 		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
 		// Personal servers are not re-supplied: their secrets would sit in argv.
@@ -96,7 +112,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 				return nil, err
 			}
 		}
-	} else if !o.Coresearch {
+	} else if !o.Coresearch && !o.Lab {
 		if override, err := codexPersonalMCPOff(personal); err != nil {
 			cleanup(true)
 			return nil, err
@@ -108,6 +124,9 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		// The door's token stays out of argv: Codex reads it from the env.
 		args = append(args, "-c", fmt.Sprintf("mcp_servers.lyk_door.url=%s", raw(o.DoorURL)), "-c", `mcp_servers.lyk_door.bearer_token_env_var="LYK_DOOR_TOKEN"`,
 			"-c", fmt.Sprintf("mcp_servers.lyk_door.tool_timeout_sec=%d", int(doorCallTimeout.Seconds())))
+	}
+	if o.Lab && o.DoorURL != "" {
+		args = append(args, "-c", `mcp_servers.lyk_door.enabled_tools=["call_tool"]`)
 	}
 	if o.OutputSchema != "" {
 		// Replace only the adapter's prior file; never follow a planted link.
