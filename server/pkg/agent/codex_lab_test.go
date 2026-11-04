@@ -81,3 +81,11 @@ echo '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}'
 		})
 	}
 }
+
+func TestLabCodexCatalogRejectsNullModels(t *testing.T) {
+	bin := catalogScript(t, testCatalog, `{"models":[null]}`, filepath.Join(t.TempDir(), "args"))
+	_, err := prepareLabCodexCatalog(t.Context(), bin, ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox})
+	if err == nil {
+		t.Fatal("expected a malformed catalog error")
+	}
+}

@@ -350,6 +350,9 @@ func prepareLabCodexCatalog(ctx context.Context, bin string, o ExecOptions) (str
 		return "", errors.New("Codex lab catalog is empty")
 	}
 	for _, model := range catalog.Models {
+		if model == nil {
+			return "", errors.New("Codex lab catalog contains a null model")
+		}
 		model["tool_mode"] = raw("direct")
 		model["apply_patch_tool_type"] = raw(nil)
 		model["shell_type"] = raw("disabled")
