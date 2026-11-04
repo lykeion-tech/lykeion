@@ -135,6 +135,13 @@ func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabCh
 		fail(w, r, e)
 		return
 	}
+	if _, _, e = tx.DecisionDraftReceipt(ctx, chat.ID, user(r)); e == nil {
+		writeErr(w, 409, "this draft has already created a decision")
+		return
+	} else if !errors.Is(e, pgx.ErrNoRows) {
+		fail(w, r, e)
+		return
+	}
 	if in.Harness != "claude" && in.Harness != "codex" {
 		writeErr(w, 400, "select a supported CLI")
 		return

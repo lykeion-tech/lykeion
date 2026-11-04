@@ -175,6 +175,18 @@ it('has only the editable note fields, authorized studies and explicit submissio
   });
   expect(submit).toHaveBeenCalled();
 });
+it('prevents creation while a turn is pending without disabling edits', async () => {
+  const submit = vi.fn();
+  const { root } = await mount(ManualDecisionForm, {
+    modelValue: { title: 'Reviewed title', context: '', deadline: null, card_id: null },
+    submitDisabled: true,
+    onSubmit: submit,
+  });
+  expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.disabled).toBe(false);
+  expect(button(root, 'Create').props.disabled).toBe(true);
+  await (all(root).find((n) => n.tag === 'form')!.props.onSubmit as Function)({ preventDefault() {} });
+  expect(submit).not.toHaveBeenCalled();
+});
 it.each(['', '&mode=ai'])(
   'restores saved blank and AI drafts, saves edits, submits only reviewed values: %s',
   async (mode) => {

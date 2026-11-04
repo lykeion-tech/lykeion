@@ -8,7 +8,7 @@ import (
 )
 
 func TestDecisionDraftBindsToSelectedMachine(t *testing.T) {
-	s, a, b, _, ws, _ := csFixture(t)
+	s, a, b, outsider, ws, _ := csFixture(t)
 	first := csRegister(t, s, a, ws, "builder-one", "claude")
 	second := csRegister(t, s, a, ws, "builder-two", "claude")
 	foreign := csRegister(t, s, b, ws, "builder-other", "claude")
@@ -44,6 +44,10 @@ func TestDecisionDraftBindsToSelectedMachine(t *testing.T) {
 	}
 	if code := s.call(t, "GET", path+"/draft", b, ws, nil, nil); code != 404 {
 		t.Fatalf("foreign read: %d", code)
+	}
+	otherWorkspace := s.workspace(t, outsider, "builder-other-workspace").ID
+	if code := s.call(t, "GET", path+"/draft", outsider, otherWorkspace, nil, nil); code != 404 {
+		t.Fatalf("cross-workspace read: %d", code)
 	}
 	turn := map[string]any{"user_request": "Draft this", "current_draft": map[string]any{"title": "", "context": "", "deadline": nil, "card_id": nil}, "harness": "claude", "request_id": uuid.NewString()}
 	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET status='offline' WHERE id=$1`, first.RuntimeID); err != nil {

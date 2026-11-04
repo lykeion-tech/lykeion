@@ -134,6 +134,15 @@ func TestLabEventsAfterAdvances(t *testing.T) {
 
 func TestAristotleMigrationReversible(t *testing.T) {
 	env := testutil.Setup(t)
+	for _, name := range []string{"0060_decision_draft_receipt.down.sql", "0059_decision_builder_machine.down.sql", "0058_project_delete.down.sql", "0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0054_manual_decisions.down.sql", "0053_lab_chat_deletion.down.sql"} {
+		q, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = env.Owner.Exec(t.Context(), string(q)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
 	for _, name := range []string{"0052_aristotle.down.sql", "0052_aristotle.up.sql"} {
 		q, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
@@ -156,6 +165,15 @@ func TestAristotleMigrationReversible(t *testing.T) {
 					t.Fatalf("%s security after reapply=%v err=%v", table, protected, err)
 				}
 			}
+		}
+	}
+	for _, name := range []string{"0053_lab_chat_deletion.up.sql", "0054_manual_decisions.up.sql", "0055_manual_decision_drafts.up.sql", "0056_manual_draft_archives.up.sql", "0057_manual_draft_application.up.sql", "0058_project_delete.up.sql", "0059_decision_builder_machine.up.sql", "0060_decision_draft_receipt.up.sql"} {
+		q, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = env.Owner.Exec(t.Context(), string(q)); err != nil {
+			t.Fatalf("%s: %v", name, err)
 		}
 	}
 }

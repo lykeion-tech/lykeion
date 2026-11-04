@@ -7,6 +7,7 @@ const props = withDefaults(
     modelValue: ManualDecisionDraft;
     busy?: boolean;
     readonly?: boolean;
+    submitDisabled?: boolean;
     submitLabel?: string;
   }>(),
   { submitLabel: 'Create' },
@@ -24,7 +25,7 @@ function change(key: keyof ManualDecisionDraft, value: string) {
 onMounted(() => titleInput.value?.focus?.());
 </script>
 <template>
-  <form class="manual-form" @submit.prevent="!error && !busy && !readonly && emit('submit')">
+  <form class="manual-form" @submit.prevent="!error && !busy && !readonly && !submitDisabled && emit('submit')">
     <label
       >Title<input
         ref="titleInput"
@@ -80,7 +81,7 @@ onMounted(() => titleInput.value?.focus?.());
         v-if="!readonly"
         type="submit"
         class="button primary"
-        :disabled="busy || !!error"
+        :disabled="busy || submitDisabled || !!error"
       >
         {{ busy ? 'Saving…' : submitLabel }}
       </button>

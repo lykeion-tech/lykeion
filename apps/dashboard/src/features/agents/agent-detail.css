@@ -580,7 +580,7 @@
 }
 .agent-detail-page .agent-status {
   display: inline-block;
-  margin-left: 6px;
+  margin-left: 0;
   margin-top: 0;
 }
 .agent-detail-page .agent-panel {
@@ -588,6 +588,7 @@
   border-radius: 0;
 }
 .agent-detail-page .agent-panel dl {
+  grid-template-columns: 72px minmax(0, 1fr);
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border);
 }

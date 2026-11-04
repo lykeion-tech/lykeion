@@ -29,6 +29,7 @@ type manualDecisionInput struct {
 
 var errManualClosed = errors.New("manual decision is closed")
 var errDraftReceiptConflict = errors.New("draft already used for another decision")
+var errDraftTurnPending = errors.New("wait for the drafting turn to finish")
 
 func parseManualDecision(r *http.Request) (manualDecisionInput, pgtype.Date, error) {
 	var in manualDecisionInput
@@ -80,6 +81,11 @@ func (h *H) saveManualDecision(w http.ResponseWriter, r *http.Request, create bo
 	}
 	var out db.InboxItem
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if create && in.DraftChatID != nil {
+			if _, e := tx.Q.LockWorkspaceExecution(r.Context(), ws); e != nil {
+				return e
+			}
+		}
 		if !create {
 			row, err := tx.Q.GetDecision(r.Context(), db.GetDecisionParams{ID: id, WorkspaceID: ws, Viewer: user})
 			if err != nil {
@@ -128,6 +134,13 @@ func (h *H) saveManualDecision(w http.ResponseWriter, r *http.Request, create bo
 			if chat.ArchivedAt != nil {
 				return errDraftReceiptConflict
 			}
+			pending, e := tx.Q.LabChatHasPendingRuns(r.Context(), *in.DraftChatID)
+			if e != nil {
+				return e
+			}
+			if pending {
+				return errDraftTurnPending
+			}
 		}
 		if create {
 			out, err = tx.Q.InsertManualDecision(r.Context(), db.InsertManualDecisionParams{WorkspaceID: ws, UserID: user, Title: in.Title, Context: in.Context, Deadline: date, CardID: in.CardID})
@@ -158,7 +171,7 @@ func (h *H) saveManualDecision(w http.ResponseWriter, r *http.Request, create bo
 		}
 		return tx.EmitPrivate(r.Context(), user, typ, store.User(user), map[string]string{"inbox_item_id": out.ID.String()})
 	})
-	if errors.Is(err, errManualClosed) || errors.Is(err, errDraftReceiptConflict) {
+	if errors.Is(err, errManualClosed) || errors.Is(err, errDraftReceiptConflict) || errors.Is(err, errDraftTurnPending) {
 		writeErr(w, 409, err.Error())
 		return
 	}

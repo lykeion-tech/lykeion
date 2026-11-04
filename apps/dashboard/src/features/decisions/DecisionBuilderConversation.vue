@@ -20,7 +20,7 @@ const props = defineProps<{
   model: string;
   submitManualQuestion: (turn: ManualDecisionTurn) => Promise<void>;
 }>();
-const emit = defineEmits<{ manualProposal: [value: { messageId: string; draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
+const emit = defineEmits<{ manualProposal: [value: { messageId: string; draft: ManualDecisionDraft; input: ManualDecisionDraft }]; pendingChange: [pending: boolean] }>();
 const client = useQueryClient();
 const open = ref(true), chat = computed(() => props.draftChat);
 const messages = useMessages(() => props.userId, open, chat, () => 'manual_decision_draft');
@@ -28,6 +28,7 @@ const turns = computed(() => messages.isError.value ? [] : (messages.data.value?
 const pending = computed(() => !!messages.data.value?.pages[0]?.pending);
 const online = computed(() => !!props.runtime && props.runtime.owner_id === props.userId && props.runtime.status === 'online' && !props.runtime.unhealthy_reason);
 const input = ref(''), sending = ref(false), cancelling = ref(false), error = ref('');
+watch([pending, sending, () => messages.isPending.value], ([running, submitting, loading]) => emit('pendingChange', running || submitting || loading), { immediate: true });
 const handled = new Set<string>();
 let retry: { key: string; id: string } | undefined;
 watch([turns, () => messages.isSuccess.value, () => messages.isFetching.value, () => props.appliedMessageId, () => props.manualDraftBusy], ([list, success]) => {
@@ -90,7 +91,7 @@ async function stop() {
         <div v-if="message.kind === 'question'" class="question">{{ message.body }}</div>
         <template v-else-if="message.kind === 'answer'">
           <p v-if="parseManualDecisionProposal(message.proposal)" class="proposal">{{ parseManualDecisionProposal(message.proposal)?.message }}</p>
-          <LabAnswer :message="message" :evidence="true" />
+          <LabAnswer :message="message" :evidence="false" />
         </template>
         <p v-else class="failure">{{ message.body }}</p>
       </template>
@@ -106,15 +107,15 @@ async function stop() {
   </section>
 </template>
 <style scoped>
-.builder-conversation { display:flex; flex-direction:column; min-height:520px; border:1px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
+.builder-conversation { display:flex; flex-direction:column; min-height:520px; height:100%; box-sizing:border-box; border:1px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
 header { padding:20px; border-bottom:1px solid var(--border); }
 h2 { font-size:16px; margin:0 0 5px; }
 header p,.notice,.empty { color:var(--muted); font-size:12px; margin:0; line-height:1.5; }
-.conversation-log { flex:1; min-height:250px; max-height:55vh; overflow:auto; display:flex; flex-direction:column; gap:18px; padding:20px; font-size:13px; }
+.conversation-log { flex:1; min-height:250px; max-height:calc(100vh - 355px); overflow:auto; display:flex; flex-direction:column; gap:18px; padding:20px; font-size:13px; }
 .conversation-log > * { flex:none; }
 .question { align-self:flex-end; max-width:85%; padding:8px 12px; border-radius:12px; background:var(--input); white-space:pre-wrap; overflow-wrap:anywhere; }
 .proposal,.failure { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .notice { padding:8px 20px; }
-.composer { display:flex; gap:8px; align-items:flex-end; padding:14px; border-top:1px solid var(--border); }
+.composer { display:flex; gap:8px; align-items:flex-end; margin-top:auto; padding:14px; border-top:1px solid var(--border); }
 textarea { flex:1; min-width:0; resize:vertical; padding:9px; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:6px; font:inherit; }
 </style>

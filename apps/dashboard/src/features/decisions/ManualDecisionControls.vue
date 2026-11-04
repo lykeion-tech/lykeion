@@ -78,9 +78,7 @@ function triage(clear = false) {
 </script>
 <template>
   <div v-if="owner" class="manual-controls">
-    <p class="private-label">
-      Private note · Only you<template v-if="deadline"> · {{ deadline }}</template>
-    </p>
+    <p v-if="deadline" class="private-label">{{ deadline }}</p>
     <ManualDecisionForm
       v-if="editing && item.can_edit"
       v-model="form"

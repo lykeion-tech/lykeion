@@ -357,7 +357,7 @@ function toggle(id: string) {
                   >
                     {{ agentNameWithoutCli(agent.name, agent.harness) }}
                   </h1>
-                  <span class="agent-status" :class="{ archived: agent.archived_at, unavailable: !agent.archived_at && !available }">{{
+                  {{ ' ' }}<span class="agent-status" :class="{ archived: agent.archived_at, unavailable: !agent.archived_at && !available }">{{
                     agent.archived_at ? 'Archived' : available ? 'Active' : 'Inactive'
                   }}</span>
                 </div>
@@ -381,7 +381,7 @@ function toggle(id: string) {
                 <dd>{{ modelLabel }}</dd>
               </dl>
               <h3>
-                Studies <small>{{ assigned.length }}</small>
+                Studies
               </h3>
               <div class="agent-stats">
                 <div>

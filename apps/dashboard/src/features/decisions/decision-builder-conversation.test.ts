@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { nextTick, ref } from 'vue';
+import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import DecisionBuilderConversation from './DecisionBuilderConversation.vue';
@@ -10,9 +10,9 @@ const pages = ref<any>({ pages: [{ messages: [], pending: false }] });
 vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => sendAPI(...args), ApiError: class extends Error { status = 0; body = {}; } }));
 vi.mock('../aristotle-window/api', () => ({
   labKey: (ws: string) => ['ws', ws, 'lab'],
-  useMessages: () => ({ data: pages, isError: ref(false), isSuccess: ref(true), isFetching: ref(false), hasNextPage: ref(false), fetchNextPage: vi.fn(), refetch: vi.fn() }),
+  useMessages: () => ({ data: pages, isError: ref(false), isPending: ref(false), isSuccess: ref(true), isFetching: ref(false), hasNextPage: ref(false), fetchNextPage: vi.fn(), refetch: vi.fn() }),
 }));
-vi.mock('../aristotle-window/LabAnswer.vue', () => ({ default: { render: () => null } }));
+vi.mock('../aristotle-window/LabAnswer.vue', () => ({ default: { props:['evidence'], render(this: any) { return h('div', { 'data-show-evidence': this.evidence }); } } }));
 vi.mock('../runs/RunStatus.vue', () => ({ default: { render: () => null } }));
 const draft = { title: 'Human title', context: '', deadline: null, card_id: null };
 const runtime = { id: 'r', owner_id: 'me', harness: 'claude', status: 'online', unhealthy_reason: null };
@@ -49,6 +49,7 @@ it('applies only a valid structured proposal with the matching frozen input', as
   await nextTick();
   expect(t.proposal).toHaveBeenCalledWith({ messageId:'a', draft:{...draft,title:'Suggested'}, input:draft });
   expect(textOf(t.root)).toContain('Here is a draft');
+  expect(all(t.root).some((n) => n.props['data-show-evidence'] === false)).toBe(true);
 });
 it('stops the pending turn without restoring its text', async () => {
   pages.value = { pages: [{ pending:true, messages:[{id:'q', kind:'question', body:'Original', agent_run_id:'run'}] }] };

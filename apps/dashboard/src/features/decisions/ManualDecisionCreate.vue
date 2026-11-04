@@ -30,6 +30,7 @@ const chat = ref(''),
   ai = ref(false),
   draft = ref(blankManualDecisionDraft());
 const setup = ref(false), selectedRuntimeID = ref(''), selectedModel = ref('');
+const builderPending = ref(false);
 const availableRuntimes = computed(() => (runtimes.data.value ?? []).filter((runtime) =>
   runtime.owner_id === me.data.value?.id && runtime.status === 'online' && !runtime.unhealthy_reason &&
   (runtime.harness === 'claude' || runtime.harness === 'codex'),
@@ -104,6 +105,7 @@ watch(
     loaded.value = false;
     denied.value = false;
     created.value = false;
+    builderPending.value = false;
     busy.value = false;
     error.value = '';
     saveState.value = '';
@@ -286,6 +288,7 @@ async function create() {
   if (
     busy.value ||
     created.value ||
+    (ai.value && builderPending.value) ||
     archived.value ||
     !loaded.value ||
     manualDecisionDraftError(draft.value)
@@ -332,7 +335,7 @@ async function create() {
 }
 </script>
 <template>
-  <section class="directory-page manual-create">
+  <section class="directory-page manual-create" :class="{ 'manual-create-studio': chat && ai }">
     <header class="agent-create-header">
       <button v-if="setup && !chat" class="icon-button" aria-label="Back to starting options" @click="setup = false"><Icon name="back" :size="16" /></button>
       <RouterLink
@@ -361,7 +364,7 @@ async function create() {
         <button class="agent-create-option" :disabled="busy || !owner" @click="setup = true">
           <span class="option-icon"><Icon name="chat" :size="18" /></span
           ><strong>Create with AI</strong
-          ><span>Draft an editable note through a conversation with Aristotle.</span
+          ><span>Draft an editable note through a conversation.</span
           ><em>Continue <Icon name="right" :size="12" /></em>
         </button>
       </div>
@@ -381,7 +384,6 @@ async function create() {
           <option v-for="model in setupRuntime?.models ?? []" :key="model.value" :value="model.value">{{ model.label }}</option>
         </select>
       </label>
-      <p v-if="!availableRuntimes.length">Connect a healthy machine to start. <RouterLink to="/machines">Machines</RouterLink></p>
       <div class="setup-actions"><button class="button" @click="setup = false">Cancel</button><button class="button primary" :disabled="busy || !setupRuntime" @click="start(true)">Start conversation</button></div>
     </div>
     <div v-if="chat" :class="ai ? 'studio-wrap' : 'form-wrap'">
@@ -405,6 +407,7 @@ async function create() {
           :manual-draft-busy="busy"
           :readonly="archived"
           :submit-manual-question="submitManualQuestion"
+          @pending-change="builderPending = $event"
           @manual-proposal="proposal"
         />
         <div class="decision-editor">
@@ -418,6 +421,7 @@ async function create() {
         <ManualDecisionForm
           :model-value="draft"
           :busy="busy || created"
+          :submit-disabled="ai && builderPending"
           :readonly="archived"
           @update:model-value="edit"
           @submit="create"
@@ -434,13 +438,17 @@ async function create() {
 .manual-create {
   color: var(--text);
 }
+.manual-create-studio { display:flex; flex-direction:column; padding-bottom:0; }
 .form-wrap {
   max-width: 680px;
   margin: 48px auto;
   padding-bottom: 120px;
 }
-.studio-wrap { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:24px; align-items:start; }
-.studio-wrap .decision-editor { border:1px solid var(--border); border-radius:8px; padding:20px; min-width:0; }
+.studio-wrap { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:24px; flex:1; box-sizing:border-box; align-items:stretch; }
+.studio-wrap .decision-editor { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:8px; padding:20px; min-width:0; }
+.studio-wrap .decision-editor :deep(.manual-form) { flex:1; max-width:none; }
+.studio-wrap .decision-editor :deep(.manual-form > label:nth-child(2)) { flex:1; }
+.studio-wrap .decision-editor :deep(.manual-form > label:nth-child(2) textarea) { flex:1; min-height:125px; }
 .builder-setup { max-width:480px; margin:28px auto; padding:24px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
 .builder-setup h2 { margin:0 0 8px; font-size:20px; }
 .builder-setup p { color:var(--muted); font-size:13px; line-height:1.5; }
