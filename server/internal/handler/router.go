@@ -371,6 +371,9 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/decisions", h.listDecisions)
 			r.Get("/api/decisions/count", h.countDecisions)
+			r.Post("/api/decisions/manual", h.createManualDecision)
+			r.Patch("/api/decisions/{id}/manual", h.editManualDecision)
+			r.Post("/api/decisions/{id}/dismiss", h.dismissManualDecision)
 			r.Post("/api/decisions/{id}/read", h.readDecision)
 			r.Put("/api/decisions/{id}/triage", h.triageDecision)
 			r.Post("/api/decisions/{id}/keep", h.keepDecision)

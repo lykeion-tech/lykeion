@@ -894,7 +894,25 @@ func (h *H) resolveInbox(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The shared legacy route dispatches private notes before machine actions.
+	var manual bool
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		item, e := tx.Q.GetDecision(r.Context(), db.GetDecisionParams{ID: id, WorkspaceID: ws, Viewer: user})
+		if e == nil {
+			manual = item.InboxItem.Kind == "manual_decision"
+		}
+		return e
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if manual {
+		h.closeManualDecision(w, r, "decided")
+		return
+	}
+
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		item, err := tx.Q.ResolveOpenOwnerItem(r.Context(), db.ResolveOpenOwnerItemParams{ID: id, WorkspaceID: ws, UserID: user})
 		if err != nil {
 			return err

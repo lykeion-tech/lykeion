@@ -111,3 +111,18 @@ RETURNING *;
 UPDATE inbox_item SET reminded_at = @at::timestamptz
 WHERE id = @id AND workspace_id = @workspace_id AND status = 'open' AND reminded_at IS NULL
 RETURNING card_id;
+
+-- name: InsertManualDecision :one
+INSERT INTO inbox_item(workspace_id,user_id,kind,text,title,context,deadline,card_id)
+VALUES (@workspace_id,@user_id,'manual_decision','',@title,@context,@deadline,@card_id)
+RETURNING *;
+
+-- name: EditManualDecision :one
+UPDATE inbox_item SET title= @title,context= @context,deadline= @deadline,card_id= @card_id,touched_at=now()
+WHERE id= @id AND workspace_id= @workspace_id AND user_id= @user_id AND kind='manual_decision' AND status='open' AND resolved_at IS NULL
+RETURNING *;
+
+-- name: CloseManualDecision :one
+UPDATE inbox_item SET status= @status,resolved_at=now(),decided_at=now(),decided_by= @user_id,touched_at=now()
+WHERE id= @id AND workspace_id= @workspace_id AND user_id= @user_id AND kind='manual_decision' AND status='open' AND resolved_at IS NULL
+RETURNING *;

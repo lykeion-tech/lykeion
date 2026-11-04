@@ -119,6 +119,68 @@ func (q *Queries) CancelCardDecisions(ctx context.Context, arg CancelCardDecisio
 	return items, nil
 }
 
+const closeManualDecision = `-- name: CloseManualDecision :one
+UPDATE inbox_item SET status= $1,resolved_at=now(),decided_at=now(),decided_by= $2,touched_at=now()
+WHERE id= $3 AND workspace_id= $4 AND user_id= $2 AND kind='manual_decision' AND status='open' AND resolved_at IS NULL
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
+`
+
+type CloseManualDecisionParams struct {
+	Status      string     `json:"status"`
+	UserID      *uuid.UUID `json:"user_id"`
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+}
+
+func (q *Queries) CloseManualDecision(ctx context.Context, arg CloseManualDecisionParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, closeManualDecision,
+		arg.Status,
+		arg.UserID,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+		&i.QuestionSet,
+		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
+	)
+	return i, err
+}
+
 const countDecisions = `-- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $1 AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)
@@ -270,6 +332,74 @@ func (q *Queries) DueReminders(ctx context.Context, at time.Time) ([]DueReminder
 		return nil, err
 	}
 	return items, nil
+}
+
+const editManualDecision = `-- name: EditManualDecision :one
+UPDATE inbox_item SET title= $1,context= $2,deadline= $3,card_id= $4,touched_at=now()
+WHERE id= $5 AND workspace_id= $6 AND user_id= $7 AND kind='manual_decision' AND status='open' AND resolved_at IS NULL
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
+`
+
+type EditManualDecisionParams struct {
+	Title       string      `json:"title"`
+	Context     string      `json:"context"`
+	Deadline    pgtype.Date `json:"deadline"`
+	CardID      *uuid.UUID  `json:"card_id"`
+	ID          uuid.UUID   `json:"id"`
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+	UserID      uuid.UUID   `json:"user_id"`
+}
+
+func (q *Queries) EditManualDecision(ctx context.Context, arg EditManualDecisionParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, editManualDecision,
+		arg.Title,
+		arg.Context,
+		arg.Deadline,
+		arg.CardID,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.UserID,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+		&i.QuestionSet,
+		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
+	)
+	return i, err
 }
 
 const expireDecision = `-- name: ExpireDecision :one
@@ -452,6 +582,72 @@ func (q *Queries) InsertAgentDecision(ctx context.Context, arg InsertAgentDecisi
 		arg.DecisionKind,
 	)
 	return err
+}
+
+const insertManualDecision = `-- name: InsertManualDecision :one
+INSERT INTO inbox_item(workspace_id,user_id,kind,text,title,context,deadline,card_id)
+VALUES ($1,$2,'manual_decision','',$3,$4,$5,$6)
+RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
+`
+
+type InsertManualDecisionParams struct {
+	WorkspaceID uuid.UUID   `json:"workspace_id"`
+	UserID      uuid.UUID   `json:"user_id"`
+	Title       string      `json:"title"`
+	Context     string      `json:"context"`
+	Deadline    pgtype.Date `json:"deadline"`
+	CardID      *uuid.UUID  `json:"card_id"`
+}
+
+func (q *Queries) InsertManualDecision(ctx context.Context, arg InsertManualDecisionParams) (InboxItem, error) {
+	row := q.db.QueryRow(ctx, insertManualDecision,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Title,
+		arg.Context,
+		arg.Deadline,
+		arg.CardID,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.UserID,
+		&i.Kind,
+		&i.Text,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+		&i.AutoresearchRunID,
+		&i.RuntimeID,
+		&i.Cause,
+		&i.Options,
+		&i.DefaultOption,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.RemindedAt,
+		&i.ChosenOption,
+		&i.Guidance,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.RaisedBy,
+		&i.RaisedRunID,
+		&i.FromMember,
+		&i.DecisionKind,
+		&i.DecideBy,
+		&i.DecideByDate,
+		&i.SnoozedUntil,
+		&i.Kept,
+		&i.ArchivedAt,
+		&i.TouchedAt,
+		&i.QuestionSet,
+		&i.Answers,
+		&i.Title,
+		&i.Context,
+		&i.Deadline,
+	)
+	return i, err
 }
 
 const listDecisions = `-- name: ListDecisions :many

@@ -19,11 +19,16 @@ import (
 // decisionView is an Inbox item as the dashboard and the CLI read it.
 type decisionView struct {
 	db.InboxItem
-	CanAnswer bool `json:"can_answer"`
+	CanAnswer  bool `json:"can_answer"`
+	CanEdit    bool `json:"can_edit"`
+	CanResolve bool `json:"can_resolve"`
+	CanDismiss bool `json:"can_dismiss"`
 }
 
 func viewDecision(item db.InboxItem, mayAnswer bool) decisionView {
-	return decisionView{InboxItem: item, CanAnswer: mayAnswer && item.Status == "open" && item.ResolvedAt == nil && item.ArchivedAt == nil}
+	open := item.Status == "open" && item.ResolvedAt == nil
+	manual := item.Kind == "manual_decision" && open
+	return decisionView{InboxItem: item, CanAnswer: mayAnswer && open && item.ArchivedAt == nil && item.Kind != "manual_decision", CanEdit: manual, CanResolve: manual, CanDismiss: manual}
 }
 
 // listDecisions lists the open items (snoozed ones last), or with
@@ -80,6 +85,9 @@ func (h *H) readDecision(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			return err
+		}
+		if item.Kind == "manual_decision" {
+			return tx.EmitPrivate(r.Context(), user, "inbox.read", store.User(user), map[string]string{"inbox_item_id": id.String()})
 		}
 		if err := tx.Emit(r.Context(), "inbox.read", nil, store.User(user), map[string]string{"inbox_item_id": id.String()}); err != nil {
 			return err
