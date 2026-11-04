@@ -133,7 +133,7 @@ func TestHandInReasksTwiceThenFails(t *testing.T) {
 	if calls[0].resume != "" || strings.Contains(calls[0].prompt, "could not accept") {
 		t.Fatalf("first turn = %+v", calls[0])
 	}
-	want := "Lykeion could not accept your hand-in:\n- claim 1 cites no source\nFix these and give your hand-in again."
+	want := "Lykeion could not accept your hand-in:\n- claim 1 cites no source\nFix these and give your hand-in again. This is a validation retry, not a review or a new redo. Do not add review replies for these validation errors; preserve any replies required by an actual review redo."
 	for _, c := range calls {
 		if c.schema == "" {
 			t.Fatalf("a turn ran without the hand-in schema: %+v", c)
@@ -711,5 +711,14 @@ func TestAristotleRestartsChangedContextWithFreshReads(t *testing.T) {
 				t.Fatal(kind, body, statements)
 			}
 		})
+	}
+}
+
+func TestReaskDistinguishesValidationFromReviewReplies(t *testing.T) {
+	p := reaskPrompt([]string{"paper 1: id must be doi:…"})
+	for _, want := range []string{"not a review", "replies", "Do not add"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("re-ask missing %q: %s", want, p)
+		}
 	}
 }

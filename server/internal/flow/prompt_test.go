@@ -257,3 +257,14 @@ func TestTheProtocolSaysWhenToAsk(t *testing.T) {
 		t.Errorf("a member is not told its question goes to the leader")
 	}
 }
+
+func TestStudyRolesReceiveExactSourceToolArguments(t *testing.T) {
+	for _, role := range []string{"leader", "agent", "member", "auditor"} {
+		p := Protocol(role, board.Grounding, "", nil)
+		for _, want := range []string{`"database": "europepmc"`, `"query":`, `"source_id":`, `list_source_tools`, "no other arguments"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s missing source contract %q", role, want)
+			}
+		}
+	}
+}

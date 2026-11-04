@@ -103,7 +103,7 @@ func reaskPrompt(probs []string) string {
 	for _, p := range probs {
 		b.WriteString("- " + p + "\n")
 	}
-	b.WriteString("Fix these and give your hand-in again.")
+	b.WriteString("Fix these and give your hand-in again. This is a validation retry, not a review or a new redo. Do not add review replies for these validation errors; preserve any replies required by an actual review redo.")
 	return b.String()
 }
 

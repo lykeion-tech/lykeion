@@ -150,3 +150,36 @@ func TestAHandInDoorsToolsNameNoProtocol(t *testing.T) {
 		t.Fatalf("a Validation door's tools no longer say how to cite:\n%s", got)
 	}
 }
+
+func TestStudyDoorListsSourceSchemasWithoutJev(t *testing.T) {
+	l := newLykeion(t)
+	d := &Door{Server: l.URL, Sources: l.URL + "/mcp/sources", RunToken: "ltk_run", CallToken: "ltk_call", HandIn: true, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: t.TempDir()} }}
+	must(t, d.Start())
+	t.Cleanup(d.Close)
+	got, err := doorTool(t, d, "list_source_tools", map[string]any{})
+	if err != nil || !strings.Contains(got, "search_literature") || !strings.Contains(got, "input_schema") {
+		t.Fatalf("source schemas: %q %v", got, err)
+	}
+	if strings.Contains(got, "list_connectors") || strings.Contains(got, `"name":"fetch"`) {
+		t.Fatalf("unavailable source tools leaked: %s", got)
+	}
+}
+
+func TestStudyDoorExposesTypedLiteratureTools(t *testing.T) {
+	l := newLykeion(t)
+	d := &Door{Server: l.URL, Sources: l.URL + "/mcp/sources", RunToken: "ltk_run", CallToken: "ltk_call", HandIn: true, Child: func() agent.ExecOptions { return agent.ExecOptions{Dir: t.TempDir()} }}
+	must(t, d.Start())
+	t.Cleanup(d.Close)
+	for _, tool := range []string{"search_literature", "fetch_text"} {
+		if !slices.Contains(doorTools(t, d), tool) {
+			t.Errorf("missing direct tool %s", tool)
+		}
+	}
+	got, err := doorTool(t, d, "search_literature", map[string]any{"database": "europepmc", "query": "walking"})
+	if err != nil || !strings.Contains(got, "walking") {
+		t.Fatalf("direct search %q: %v", got, err)
+	}
+	if len(l.posts) != 1 || l.posts[0]["server"] != "sources" || l.posts[0]["tool"] != "search_literature" {
+		t.Fatalf("search not recorded: %v", l.posts)
+	}
+}

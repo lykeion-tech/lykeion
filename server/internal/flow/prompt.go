@@ -109,7 +109,11 @@ const keptFiles = "Leave any file you want kept, or want the leader or a later r
 	"`read_output` reads a file saved earlier in this study, by its name; refer to a saved file by that name, never by a path in a run folder.\n"
 
 // sourcesTools names the sources server's tools, which find_tools does not list.
-const sourcesTools = "Literature and datasets come from Lykeion's sources server: `call_tool` with `\"server\": \"sources\"` and the tool `search_literature`, `fetch_text`, `search_datasets` or `open_dataset`.\n"
+const sourcesTools = "Literature and datasets come from Lykeion's sources server, called through `call_tool` with `\"server\": \"sources\"`. " +
+	"For literature search use the direct `search_literature` tool with args `{\"database\": \"europepmc\", \"query\": \"search terms\"}`; database must be `openalex`, `europepmc` or `arxiv` (not `pubmed`). " +
+	"To read a search hit use the direct `fetch_text` tool with args `{\"source_id\": \"<id from the hit>\"}`, not `id` or `url`. This lookup ID is for fetching only; when handing in a paper, use its DOI, PMID or arXiv identifier returned by the source, not its Europe PMC or OpenAlex lookup ID. " +
+	"Use no other arguments for either tool (including `limit`). For datasets use `search_datasets` with `query`, then `open_dataset` with `accession`. " +
+	"Call `list_source_tools` for the current input schemas; this does not require Jev.\n"
 
 // workOutputs tells an Experimentation run how its code runs and how the
 // files its scripts wrote are kept, since the run folder is cleared when the

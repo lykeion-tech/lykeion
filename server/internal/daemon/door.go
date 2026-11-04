@@ -196,6 +196,9 @@ func (d *Door) Start() error {
 		if d.HandIn {
 			mcp.AddTool(srv, &mcp.Tool{Name: "read_output", Description: readOutputDescription}, d.readOutput)
 			mcp.AddTool(srv, &mcp.Tool{Name: "find_tools", Description: findToolsDescription}, d.findTools)
+			mcp.AddTool(srv, &mcp.Tool{Name: "list_source_tools", Description: "List built-in source tools and their exact input schemas without Jev."}, d.listSourceTools)
+			mcp.AddTool(srv, &mcp.Tool{Name: "search_literature", Description: "Search the recorded literature sources. Choose database openalex, europepmc or arxiv."}, d.searchLiterature)
+			mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Read a source using its source_id returned by search_literature."}, d.fetchText)
 		}
 		if d.Leader {
 			mcp.AddTool(srv, &mcp.Tool{Name: "ask_member", Description: askMemberDescription}, d.askMember)
@@ -692,7 +695,7 @@ func (d *Door) route(ctx context.Context, need string, notify bool) (toolroute.R
 }
 
 const (
-	findToolsDescription  = "Find the skills and connector tools that fit a need. Answers the matches; call a tool with call_tool. Nothing fitting is a plain answer, not an error."
+	findToolsDescription  = "Find skills and connector tools using Jev. Built-in sources are not included; use list_source_tools to inspect them. Call a connector tool with call_tool. Nothing fitting is a plain answer, not an error."
 	readOutputDescription = "Read a file saved earlier in this study by its name, as it was saved: the newest one of that name. Text comes back whole; a binary or very large file answers only its name, size and type."
 	// maxReadOutput is the largest output read_output returns inline.
 	maxReadOutput = 256 << 10
@@ -715,6 +718,39 @@ func (d *Door) findTools(ctx context.Context, _ *mcp.CallToolRequest, in findToo
 		return nil, nil, err
 	}
 	b, err := json.Marshal(res)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
+}
+
+type literatureSearchIn struct {
+	Database string `json:"database" jsonschema:"Required: openalex, europepmc, or arxiv"`
+	Query    string `json:"query" jsonschema:"Search terms"`
+}
+type literatureFetchIn struct {
+	SourceID string `json:"source_id" jsonschema:"Source ID returned by the literature search"`
+}
+
+func (d *Door) searchLiterature(ctx context.Context, req *mcp.CallToolRequest, in literatureSearchIn) (*mcp.CallToolResult, any, error) {
+	return d.callTool(ctx, req, callIn{Server: "sources", Tool: "search_literature", Args: map[string]any{"database": in.Database, "query": in.Query}})
+}
+func (d *Door) fetchText(ctx context.Context, req *mcp.CallToolRequest, in literatureFetchIn) (*mcp.CallToolResult, any, error) {
+	return d.callTool(ctx, req, callIn{Server: "sources", Tool: "fetch_text", Args: map[string]any{"source_id": in.SourceID}})
+}
+
+// listSourceTools exposes only the source tools this door can call, without Jev routing.
+func (d *Door) listSourceTools(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	t, ok := d.find("sources")
+	if !ok {
+		return nil, nil, errors.New("sources unavailable")
+	}
+	tools, err := d.list(ctx, t)
+	if err != nil {
+		return nil, nil, fmt.Errorf("source tool schemas unavailable: %w", err)
+	}
+	tools = slices.DeleteFunc(tools, func(tool toolroute.Tool) bool { return !sourcesTools[tool.Name] })
+	b, err := json.Marshal(tools)
 	if err != nil {
 		return nil, nil, err
 	}
