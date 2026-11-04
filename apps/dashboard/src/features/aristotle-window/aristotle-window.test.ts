@@ -3,6 +3,7 @@ import { h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
+import { api } from '../../api/client';
 import { labRecordTitle, labKey } from './api';
 import type { Card, StudyRecord } from '../../api/types';
 import { keys } from '../../api/keys';
@@ -80,11 +81,12 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
     ],
   });
   await router.push('/studies/s');
+  const submitManualQuestion = extra.draftChat ? (turn: unknown) => api('POST', `/api/lab/chats/${extra.draftChat}/questions`, turn, undefined, { workspace: 'lab' }) : undefined;
   const app = createTreeApp({
     render: () =>
       onlyAnswer
         ? h(LabAnswer, { message: answer, evidence: true })
-        : h(AristotleWindow, { userId: 'me', studyId: 's', studyTitle: 'Lab study', ...extra }),
+        : h(AristotleWindow, { userId: 'me', studyId: 's', studyTitle: 'Lab study', submitManualQuestion, ...extra }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
@@ -306,8 +308,8 @@ it('does not send a question while chat deletion is pending', async () => {
 
 const manual = { title: 'Human title', context: '', deadline: null, card_id: null };
 it('saves manual edits before a purpose-specific turn and preserves them offline', async () => {
-  const save = vi.fn().mockResolvedValue(undefined);
-  const t = await mount(false, true, undefined, { draftChat: 'draft', manualDraft: manual, saveManualDraft: save });
+  const save = vi.fn((turn: unknown) => api('POST', '/api/lab/chats/draft/questions', turn, undefined, { workspace: 'lab' }));
+  const t = await mount(false, true, undefined, { draftChat: 'draft', manualDraft: manual, submitManualQuestion: save });
   await t.tryDraft('Refine this note');
   expect(save).toHaveBeenCalledOnce();
   const post = t.calls.find(c => c.path === '/api/lab/chats/draft/questions');
@@ -323,7 +325,7 @@ it('accepts only valid final proposals and never parses streamed or unknown outp
   const question = { id: 'q', kind: 'question', body: 'Draft please', current_draft: manual, statements: [], evidence: [] };
   let proposal: unknown = { message: 'Proposal', draft: { ...manual, title: 'Suggested', unknown: true } };
   const pages = (path: string) => path.includes('/messages') ? { messages: [question, { id: 'a1', kind: 'answer', body: '{title: stream}', proposal, statements: [], evidence: [] }], next_cursor: '', pending: false } : undefined;
-  const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual, saveManualDraft: vi.fn(), onManualProposal });
+  const t = await mount(false, false, pages, { draftChat: 'draft', manualDraft: manual,  onManualProposal });
   expect(onManualProposal).not.toHaveBeenCalled();
   expect(textOf(t.root)).not.toContain('{title: stream}');
   proposal = { message: 'A suggestion', draft: { ...manual, title: 'Suggested' } };
@@ -335,7 +337,7 @@ it('accepts only valid final proposals and never parses streamed or unknown outp
 });
 it('stops a draft question without restoring composer text and permits a fresh turn', async () => {
   let pending = true;
-  const t = await mount(false, false, path => path.includes('/messages') ? { messages: [{ id: 'q', kind: 'question', body: 'Previous question', current_draft: manual, statements: [], evidence: [] }], next_cursor: '', pending } : undefined, { draftChat: 'draft', manualDraft: manual, saveManualDraft: vi.fn().mockResolvedValue(undefined) });
+  const t = await mount(false, false, path => path.includes('/messages') ? { messages: [{ id: 'q', kind: 'question', body: 'Previous question', current_draft: manual, statements: [], evidence: [] }], next_cursor: '', pending } : undefined, { draftChat: 'draft', manualDraft: manual,  });
   pending = false;
   await t.click('Stop drafting');
   expect(t.calls.some(c => c.path === '/api/lab/chats/draft/questions/q/cancel')).toBe(true);
@@ -343,4 +345,23 @@ it('stops a draft question without restoring composer text and permits a fresh t
   expect(textOf(t.root)).toContain('Previous question');
   await t.tryDraft('A fresh question');
   expect(t.calls.some(c => c.path.endsWith('/questions') && c.body.user_request === 'A fresh question')).toBe(true);
+});
+
+
+it('does not replay an old proposal after the person cleared and saved its context then reloaded', async () => {
+  let current = { ...manual };
+  let messages: unknown[] = [];
+  const autosave = vi.fn((value: any) => { current = value.draft; });
+  const pages = (path: string) => path.includes('/messages') ? { messages, pending: false, next_cursor: '' } : undefined;
+  const first = await mount(false, false, pages, { draftChat: 'draft', manualDraft: current,  onManualProposal: autosave });
+  messages = [
+    { id: 'q-old', kind: 'question', body: 'Help', current_draft: manual, statements: [], evidence: [] },
+    { id: 'a-old', kind: 'answer', body: '', proposal: { message: 'Proposed context', draft: { ...manual, context: 'AI context' } }, statements: [], evidence: [] },
+  ];
+  await first.client.invalidateQueries({ queryKey: labKey('lab') }); await settle();
+  expect(current.context).toBe('AI context');
+  current = { ...current, context: '' }; autosave.mockClear();
+  await mount(false, false, pages, { draftChat: 'draft', manualDraft: current,  onManualProposal: autosave });
+  expect(autosave).not.toHaveBeenCalled();
+  expect(current.context).toBe('');
 });

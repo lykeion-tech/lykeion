@@ -86,3 +86,11 @@ export function manualDeadlineLabel(
   const today = `${part('year')}-${part('month')}-${part('day')}`;
   return today > deadline ? `Overdue · ${deadline}` : `Due ${deadline}`;
 }
+
+export interface ManualDecisionTurn {
+  user_request: string;
+  current_draft: ManualDecisionDraft;
+  harness: 'claude' | 'codex';
+  model: string;
+  request_id: string;
+}

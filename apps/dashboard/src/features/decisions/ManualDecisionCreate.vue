@@ -17,6 +17,7 @@ import {
   mergeManualDecisionDraft,
   parseManualDecisionDraft,
   type ManualDecisionDraft,
+  type ManualDecisionTurn,
 } from './manualDecisionDraft';
 const purpose = 'manual_decision_draft';
 const route = useRoute(),
@@ -30,7 +31,10 @@ const busy = ref(false),
   error = ref(''),
   saveState = ref(''),
   loaded = ref(false),
+  denied = ref(false),
   created = ref(false);
+let revision = 0,
+  accessEpoch = 0;
 let generation = 0,
   writeQueue: Promise<void> = Promise.resolve();
 const owner = computed(() => me.data.value?.id ?? '');
@@ -74,8 +78,9 @@ const saved = useQuery({
     chat.value,
   ]),
   enabled: computed(() => !!chat.value && !!owner.value && !!workspaceId.value),
-  queryFn: ({ queryKey, signal }) =>
-    api<{
+  queryFn: async ({ queryKey, signal }) => {
+    const access = accessEpoch;
+    const result = await api<{
       chat_id: string;
       purpose: string;
       draft: ManualDecisionDraft;
@@ -86,7 +91,10 @@ const saved = useQuery({
       undefined,
       undefined,
       { workspace: queryKey[1] as string, signal },
-    ),
+    );
+    if (access !== accessEpoch) throw new Error('Draft access changed. Retry loading the draft.');
+    return result;
+  },
   staleTime: 0,
   gcTime: 0,
   refetchInterval: 15000,
@@ -95,10 +103,12 @@ watch(
   [workspaceId, owner, () => route.query.draft],
   () => {
     generation++;
+    revision++;
     chat.value = typeof route.query.draft === 'string' ? route.query.draft : '';
     ai.value = route.query.mode === 'ai';
     draft.value = blankManualDecisionDraft();
     loaded.value = false;
+    denied.value = false;
     created.value = false;
     busy.value = false;
     error.value = '';
@@ -107,7 +117,7 @@ watch(
   { immediate: true, flush: 'sync' },
 );
 watch(
-  [() => saved.data.value, () => saved.isSuccess.value],
+  [() => saved.data.value, () => saved.isSuccess.value, () => saved.dataUpdatedAt.value],
   ([value, success]) => {
     if (
       !success ||
@@ -123,17 +133,32 @@ watch(
       return;
     }
     draft.value = valid;
+    denied.value = false;
     loaded.value = true;
   },
   { immediate: true },
 );
+function accessFailure(value: unknown) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'status' in value &&
+    [401, 403, 404].includes(Number(value.status))
+  );
+}
+function clearPrivateDraft() {
+  accessEpoch++;
+  generation++;
+  revision++;
+  loaded.value = false;
+  denied.value = true;
+  draft.value = blankManualDecisionDraft();
+  saveState.value = '';
+}
 watch(
-  () => saved.isError.value,
-  (failed) => {
-    if (failed) {
-      loaded.value = false;
-      draft.value = blankManualDecisionDraft();
-    }
+  () => saved.error.value,
+  (value) => {
+    if (accessFailure(value)) clearPrivateDraft();
   },
 );
 onUnmounted(() => generation++);
@@ -146,6 +171,7 @@ function scope() {
     ws,
     id,
     user,
+    access: accessEpoch,
     current: () =>
       generation === visit && workspaceId.value === ws && owner.value === user && chat.value === id,
   };
@@ -175,9 +201,10 @@ async function start(withAI: boolean) {
     if (visit.current()) busy.value = false;
   }
 }
-function save(value = draft.value): Promise<void> {
+function save(value = draft.value, afterSave?: () => Promise<unknown>): Promise<void> {
   const visit = scope(),
-    snapshot = { ...value };
+    snapshot = { ...value },
+    savedRevision = revision;
   if (!visit.id || !loaded.value || archived.value)
     return Promise.reject(new Error('Load a draft before saving.'));
   const invalid = manualDecisionDraftError(snapshot, true);
@@ -189,33 +216,58 @@ function save(value = draft.value): Promise<void> {
   const next = writeQueue
     .catch(() => {})
     .then(async () => {
-      // Captured workspace/chat always belong to the original edit. Navigation
-      // must not turn an already queued save into a write to another draft.
-      if (owner.value !== visit.user) return;
-      await api(
-        'PUT',
-        `/api/lab/chats/${encodeURIComponent(visit.id)}/draft`,
-        snapshot,
-        undefined,
-        { workspace: visit.ws },
-      );
-      if (visit.current()) {
-        saveState.value = 'Draft saved';
-        error.value = '';
+      if (owner.value !== visit.user || visit.access !== accessEpoch)
+        throw new Error('Draft access changed.');
+      try {
+        await api(
+          'PUT',
+          `/api/lab/chats/${encodeURIComponent(visit.id)}/draft`,
+          snapshot,
+          undefined,
+          { workspace: visit.ws },
+        );
+        if (visit.current() && revision === savedRevision) {
+          saveState.value = 'Draft saved';
+          error.value = '';
+        }
+      } catch (e) {
+        if (visit.current()) {
+          if (accessFailure(e)) clearPrivateDraft();
+          else if (revision === savedRevision) saveState.value = 'Not saved';
+          error.value = (e as Error).message;
+        }
+        throw e;
+      }
+      // Question submission also saves its frozen input on the server. Keep it
+      // inside this queue so later human edits are persisted after that write.
+      if (afterSave) {
+        if (!visit.current()) throw new Error('Draft visit changed.');
+        try {
+          await afterSave();
+        } catch (e) {
+          if (visit.current() && accessFailure(e)) clearPrivateDraft();
+          throw e;
+        }
       }
     });
   writeQueue = next;
-  return next.catch((e) => {
-    if (visit.current()) {
-      saveState.value = 'Not saved';
-      error.value = (e as Error).message;
-    }
-    throw e;
-  });
+  return next;
+}
+function submitManualQuestion(turn: ManualDecisionTurn): Promise<void> {
+  const visit = scope();
+  return save(turn.current_draft, () =>
+    api('POST', `/api/lab/chats/${encodeURIComponent(visit.id)}/questions`, turn, undefined, {
+      workspace: visit.ws,
+    }),
+  );
 }
 function edit(value: ManualDecisionDraft) {
+  revision++;
   draft.value = value;
   void save(value).catch(() => {});
+}
+function retrySave() {
+  void save().catch(() => {});
 }
 function proposal(value: { draft: ManualDecisionDraft; input: ManualDecisionDraft }) {
   if (!loaded.value || created.value || busy.value || archived.value) return;
@@ -325,13 +377,20 @@ async function create() {
       </p>
     </div>
     <div v-else class="form-wrap">
-      <p v-if="saved.isError.value" role="alert">
+      <p v-if="denied || (saved.isError.value && !loaded)" role="alert">
         This draft is unavailable. <button class="button" @click="saved.refetch()">Retry</button>
       </p>
       <template v-else-if="loaded">
+        <p v-if="saved.isError.value" role="alert">
+          Could not refresh this draft. Your current edits are kept.
+          <button class="button" @click="saved.refetch()">Retry refresh</button>
+        </p>
         <h2>{{ archived ? 'Archived draft' : 'Review your note' }}</h2>
         <p class="save-state" role="status">
           {{ saveState || 'Your draft is private and saved across visits.' }}
+          <button v-if="saveState === 'Not saved' && !archived" class="button" @click="retrySave">
+            Retry saving draft
+          </button>
         </p>
         <ManualDecisionForm
           :model-value="draft"
@@ -351,7 +410,7 @@ async function create() {
           :draft-chat="chat"
           :manual-draft="draft"
           :readonly="archived"
-          :save-manual-draft="save"
+          :submit-manual-question="submitManualQuestion"
           @manual-proposal="proposal"
         />
       </template>

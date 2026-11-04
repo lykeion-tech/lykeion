@@ -13,9 +13,9 @@ import { readJSON, writeJSON } from '../../storage';
 import LabWelcome from './LabWelcome.vue';
 import LabAnswer from './LabAnswer.vue';
 import LabContextPicker from './LabContextPicker.vue';
-import { parseManualDecisionProposal, type ManualDecisionDraft } from '../decisions/manualDecisionDraft';
+import { parseManualDecisionProposal, type ManualDecisionDraft, type ManualDecisionTurn } from '../decisions/manualDecisionDraft';
 
-const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; readonly?: boolean; manualDraft?: ManualDecisionDraft; saveManualDraft?: () => Promise<void> }>();
+const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
 const emit = defineEmits<{ manualProposal: [value: { draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
 const drafting = computed(() => !!props.draftChat);
 const open = ref(!!props.draftChat),
@@ -111,17 +111,26 @@ const turns = computed(() =>
         .flatMap((p) => p.messages) ?? []),
 );
 const handledProposals = new Set<string>();
-watch(turns, list => {
-  if (!drafting.value || props.readonly || messages.isError.value) return;
+let historyLoaded = false;
+watch([() => messages.data.value?.pages[0], () => messages.isSuccess.value], ([page, success]) => {
+  if (!drafting.value || props.readonly || !success || !page) return;
+  // Initial history is already part of the saved draft's editing history.
+  // Reapplying it would undo deliberate reversions after a reload. Only the
+  // newest page can introduce live completions; loading older pages cannot.
+  if (!historyLoaded) {
+    for (const message of page.messages) if (message.kind === 'answer') handledProposals.add(message.id);
+    historyLoaded = true;
+    return;
+  }
   let input: ManualDecisionDraft | undefined;
-  for (const message of list) {
+  for (const message of page.messages) {
     if (message.kind === 'question') input = message.current_draft;
     if (message.kind !== 'answer' || !input || handledProposals.has(message.id)) continue;
     handledProposals.add(message.id);
     const proposal = parseManualDecisionProposal(message.proposal);
     if (proposal) emit('manualProposal', { draft: proposal.draft, input });
   }
-});
+}, { immediate: true });
 const currentStudy = computed(() =>
   !drafting.value && props.studyId && props.studyTitle
     ? { ref: 'study:' + props.studyId, title: 'This study: ' + props.studyTitle }
@@ -306,13 +315,11 @@ async function ask(question = draft.value) {
   try {
     if (drafting.value) {
       const currentDraft = props.manualDraft && { ...props.manualDraft };
-      if (!currentDraft || !props.saveManualDraft) throw new Error('Load a draft before asking Aristotle.');
-      await props.saveManualDraft();
-      if (!currentVisit()) return;
+      if (!currentDraft || !props.submitManualQuestion) throw new Error('Load a draft before asking Aristotle.');
       const turn = { user_request: text, current_draft: currentDraft, harness: harness.value, model: model.value };
       const key = JSON.stringify(turn);
       if (retryTurn?.key !== key) retryTurn = { key, id: crypto.randomUUID() };
-      await api('POST', `/api/lab/chats/${encodeURIComponent(chat.value)}/questions`, { ...turn, request_id: retryTurn.id }, undefined, { workspace: ws });
+      await props.submitManualQuestion({ ...turn, request_id: retryTurn.id });
       retryTurn = undefined;
     } else {
     if (!chat.value) {

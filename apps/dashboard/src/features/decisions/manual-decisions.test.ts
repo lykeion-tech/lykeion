@@ -19,23 +19,42 @@ vi.mock('../../api/queries', () => ({
 }));
 vi.mock('../aristotle-window/AristotleWindow.vue', () => ({
   default: {
-    props: ['manualDraft'],
+    props: ['manualDraft', 'submitManualQuestion'],
     emits: ['manualProposal'],
     setup:
       (props: any, { emit }: any) =>
       () =>
-        h(
-          'button',
-          {
-            'aria-label': 'Test final proposal',
-            onClick: () =>
-              emit('manualProposal', {
-                draft: { ...props.manualDraft, title: 'AI title' },
-                input: props.manualDraft,
-              }),
-          },
-          'Aristotle',
-        ),
+        h('div', [
+          h(
+            'button',
+            {
+              'aria-label': 'Test ask',
+              onClick: async () => {
+                const turn = {
+                  user_request: 'Refine',
+                  current_draft: { ...props.manualDraft },
+                  harness: 'claude',
+                  model: '',
+                  request_id: '11111111-1111-1111-1111-111111111111',
+                };
+                return props.submitManualQuestion(turn);
+              },
+            },
+            'Ask',
+          ),
+          h(
+            'button',
+            {
+              'aria-label': 'Test final proposal',
+              onClick: () =>
+                emit('manualProposal', {
+                  draft: { ...props.manualDraft, title: 'AI title' },
+                  input: props.manualDraft,
+                }),
+            },
+            'Aristotle',
+          ),
+        ]),
   },
 }));
 const cleanups: (() => void)[] = [];
@@ -166,7 +185,7 @@ it('merges a final proposal without creating a note', async () => {
 it('hides the form when authorization refresh fails', async () => {
   backend({ ...blankManualDecisionDraft(), title: 'Private' });
   const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
-  api.mockRejectedValue(new Error('Not found'));
+  api.mockRejectedValue(Object.assign(new Error('Not found'), { status: 404 }));
   await client.invalidateQueries({ queryKey: labKey('w1') });
   await settle();
   expect(all(root).some((n) => n.props.value === 'Private')).toBe(false);
@@ -306,3 +325,98 @@ it('opens an archived draft read-only without a Create or AI send action', async
   expect(button(root, 'Create')).toBeUndefined();
   expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.disabled).toBe(true);
 });
+
+it('keeps dirty edits through failed PUT and transient GET and retries the working copy', async () => {
+  const original = { ...blankManualDecisionDraft(), title: 'Server title' };
+  backend(original);
+  const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
+  api.mockRejectedValue(new Error('Network offline'));
+  const title = all(root).find((n) => n.props['aria-label'] === 'Title')!;
+  await (title.props.onInput as Function)({ target: { value: 'Unsaved private edit' } });
+  await settle();
+  await client.invalidateQueries({ queryKey: labKey('w1') });
+  await settle();
+  expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe(
+    'Unsaved private edit',
+  );
+  expect(textOf(root)).toContain('Not saved');
+  backend(original);
+  await client.invalidateQueries({ queryKey: labKey('w1') });
+  await settle();
+  expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe(
+    'Unsaved private edit',
+  );
+  await click(root, 'Retry saving draft');
+  expect(api.mock.calls.some((c) => c[0] === 'PUT' && c[2].title === 'Unsaved private edit')).toBe(
+    true,
+  );
+});
+it.each([401, 403, 404])(
+  'clears dirty private content when authorization returns %s',
+  async (status) => {
+    backend({ ...blankManualDecisionDraft(), title: 'Private' });
+    const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
+    api.mockRejectedValue(Object.assign(new Error('Access denied'), { status }));
+    await client.invalidateQueries({ queryKey: labKey('w1') });
+    await settle();
+    expect(all(root).some((n) => n.props.value === 'Private')).toBe(false);
+  },
+);
+it('serializes question snapshot A before newer form B and reports pending B honestly', async () => {
+  let server = { ...blankManualDecisionDraft(), title: 'A' };
+  let finishQuestion!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    finishQuestion = resolve;
+  });
+  let questionStarted = false;
+  api.mockImplementation(async (method, path, body) => {
+    if (path.endsWith('/questions')) {
+      questionStarted = true;
+      await blocked;
+      server = body.current_draft;
+      return {};
+    }
+    if (path.endsWith('/draft')) {
+      if (method === 'PUT') server = body;
+      return { chat_id: 'd1', purpose: 'manual_decision_draft', draft: server };
+    }
+    return { chats: [] };
+  });
+  const { root } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1&mode=ai');
+  const sending = (button(root, 'Test ask').props.onClick as Function)();
+  await settle();
+  expect(questionStarted).toBe(true);
+  await (all(root).find((n) => n.props['aria-label'] === 'Title')!.props.onInput as Function)({
+    target: { value: 'B' },
+  });
+  await settle();
+  const pendingStatus = textOf(root);
+  finishQuestion();
+  await sending;
+  await settle();
+  expect(server.title).toBe('B');
+  expect(pendingStatus).not.toContain('Draft saved');
+  expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe('B');
+  expect(textOf(root)).toContain('Draft saved');
+});
+it.each([401, 403, 404])(
+  'scrubs a rejected autosave on %s and can reauthorize the same saved snapshot',
+  async (status) => {
+    const original = { ...blankManualDecisionDraft(), title: 'Private saved title' };
+    backend(original);
+    const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
+    api.mockRejectedValue(Object.assign(new Error('Access denied'), { status }));
+    await (all(root).find((n) => n.props['aria-label'] === 'Title')!.props.onInput as Function)({
+      target: { value: 'Private dirty edit' },
+    });
+    await settle();
+    expect(all(root).some((n) => n.props.value === 'Private dirty edit')).toBe(false);
+    expect(textOf(root)).toContain('unavailable');
+    backend(original);
+    await client.invalidateQueries({ queryKey: labKey('w1') });
+    await settle();
+    expect(all(root).find((n) => n.props['aria-label'] === 'Title')?.props.value).toBe(
+      'Private saved title',
+    );
+  },
+);
