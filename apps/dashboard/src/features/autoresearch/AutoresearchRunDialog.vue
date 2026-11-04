@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { defineAsyncComponent, defineComponent, h, computed, ref, watch } from 'vue';
+import { defineAsyncComponent, defineComponent, h, computed, ref } from 'vue';
 import { useAutoresearchRun } from '../../api/queries';
-import { workspaceId } from '../../api/session';
 import Modal from '../../ui/Modal.vue';
 import Icon from '../../ui/Icon.vue';
 const formattingFailed = ref(false);
@@ -23,8 +22,6 @@ const RecordedMarkdown = defineAsyncComponent({
 const props = defineProps<{ runId: string }>();
 const emit = defineEmits<{ close: [] }>();
 const detail = useAutoresearchRun(() => props.runId);
-const tab = ref<'report' | 'raw'>('report');
-watch([workspaceId, () => props.runId], () => (tab.value = 'report'));
 const run = computed(() => detail.data.value?.run);
 const label = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.value?.status ?? ''));
@@ -49,23 +46,10 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
               detail.data.value?.execution_mode === 'run_only' ? 'Run only' : 'Create a study'
             }}</span>
             <span>·</span><span>{{ label(run.source) }}</span>
-            <span v-if="run.report" class="run-badge available">Report available</span>
           </div>
           <p class="run-planned">Planned · {{ new Date(run.planned_at).toLocaleString() }}</p>
         </template>
       </header>
-      <nav v-if="run?.report" class="run-tabs" role="tablist" aria-label="Autoresearch report">
-        <button
-          v-for="view in ['report', 'raw'] as const"
-          :key="view"
-          role="tab"
-          :aria-selected="tab === view"
-          :aria-controls="'run-' + view"
-          @click="tab = view"
-        >
-          {{ view === 'report' ? 'Report' : 'Raw' }}
-        </button>
-      </nav>
       <div class="run-body">
         <p v-if="detail.error.value" class="inline-error" role="alert">
           {{ detail.error.value.message }}
@@ -79,16 +63,13 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
         <template v-if="run">
           <p v-if="run.reason" class="run-reason">{{ run.reason }}</p>
           <template v-if="run.report">
-            <div v-if="tab === 'report'" id="run-report" role="tabpanel" aria-label="Report">
+            <div id="run-report">
               <p v-if="formattingFailed" class="formatting-notice" role="status">
                 Markdown formatting is unavailable; showing recorded text.
               </p>
               <div v-if="formattingFailed" class="recorded-text-fallback">{{ run.report }}</div>
               <RecordedMarkdown v-else :content="run.report" />
             </div>
-            <pre v-else id="run-raw" role="tabpanel" aria-label="Raw" class="run-raw">{{
-              run.report
-            }}</pre>
           </template>
           <div v-else class="run-empty">
             <Icon name="file" :size="28" />
@@ -167,10 +148,6 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   padding: 4px 7px;
   font-size: 11px;
 }
-.run-badge.available {
-  background: var(--recommend-bg);
-  color: var(--recommend-text);
-}
 .run-badge.failed {
   background: var(--error-bg);
   color: var(--error-text);
@@ -179,23 +156,6 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
-}
-.run-tabs {
-  display: flex;
-  flex-shrink: 0;
-  gap: 24px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-}
-.run-tabs button {
-  background: none;
-  border: 0;
-  padding: 12px 0;
-  color: var(--muted);
-}
-.run-tabs button[aria-selected='true'] {
-  color: var(--text);
-  border-bottom: 2px solid var(--text);
 }
 .run-body {
   padding: 24px;
@@ -207,14 +167,6 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
 }
 .run-body :deep(.markdown-body h1) {
   font-size: 20px;
-}
-.run-raw {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font:
-    12px/1.75 ui-monospace,
-    monospace;
 }
 .run-reason {
   border: 1px solid var(--error-border);
