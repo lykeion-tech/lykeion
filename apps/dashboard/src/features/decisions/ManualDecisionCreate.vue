@@ -5,10 +5,11 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
-import { useMe } from '../../api/queries';
+import { useMe, useRuntimes } from '../../api/queries';
 import { keys } from '../../api/keys';
 import type { DecisionItem } from '../../api/types';
-import AristotleWindow from '../aristotle-window/AristotleWindow.vue';
+import DecisionBuilderConversation from './DecisionBuilderConversation.vue';
+import { backendLabel } from '../../lib/backends';
 import { labKey } from '../aristotle-window/api';
 import ManualDecisionForm from './ManualDecisionForm.vue';
 import {
@@ -23,10 +24,27 @@ const purpose = 'manual_decision_draft';
 const route = useRoute(),
   router = useRouter(),
   client = useQueryClient(),
-  me = useMe();
+  me = useMe(),
+  runtimes = useRuntimes();
 const chat = ref(''),
   ai = ref(false),
   draft = ref(blankManualDecisionDraft());
+const setup = ref(false), selectedRuntimeID = ref(''), selectedModel = ref('');
+const availableRuntimes = computed(() => (runtimes.data.value ?? []).filter((runtime) =>
+  runtime.owner_id === me.data.value?.id && runtime.status === 'online' && !runtime.unhealthy_reason &&
+  (runtime.harness === 'claude' || runtime.harness === 'codex'),
+));
+watch(availableRuntimes, (list) => {
+  if (!selectedRuntimeID.value && list.length) selectedRuntimeID.value = list[0]!.id;
+}, { immediate: true });
+const setupRuntime = computed(() => availableRuntimes.value.find((runtime) => runtime.id === selectedRuntimeID.value));
+watch(selectedRuntimeID, () => { selectedModel.value = ''; });
+watch([workspaceId, () => me.data.value?.id], () => {
+  setup.value = false;
+  selectedRuntimeID.value = '';
+  selectedModel.value = '';
+  if (availableRuntimes.value.length) selectedRuntimeID.value = availableRuntimes.value[0]!.id;
+});
 const appliedMessageId = ref<string | null>(null);
 let pendingAppliedMessageId: string | null = null;
 const busy = ref(false),
@@ -58,6 +76,7 @@ const saved = useQuery({
       draft: ManualDecisionDraft;
       archived_at?: string | null;
       applied_message_id?: string | null;
+      runtime_id?: string | null;
     }>(
       'GET',
       `/api/lab/chats/${encodeURIComponent(queryKey[6] as string)}/draft`,
@@ -157,7 +176,7 @@ function scope() {
   };
 }
 async function start(withAI: boolean) {
-  if (busy.value || !owner.value) return;
+  if (busy.value || !owner.value || (withAI && !setupRuntime.value)) return;
   const visit = scope();
   busy.value = true;
   error.value = '';
@@ -165,14 +184,14 @@ async function start(withAI: boolean) {
     const result = await api<{ chat: { id: string } }>(
       'POST',
       '/api/lab/chats',
-      { purpose },
+      withAI ? { purpose, runtime_id: setupRuntime.value!.id } : { purpose },
       undefined,
       { workspace: visit.ws },
     );
     if (!visit.current()) return;
     await router.replace({
       path: '/decisions/new',
-      query: { draft: result.chat.id, ...(withAI ? { mode: 'ai' } : {}) },
+      query: { draft: result.chat.id, ...(withAI ? { mode: 'ai', ...(selectedModel.value ? { model: selectedModel.value } : {}) } : {}) },
     });
     await client.invalidateQueries({ queryKey: labKey(visit.ws) });
   } catch (e) {
@@ -279,7 +298,7 @@ async function create() {
   try {
     await save(snapshot);
     if (!visit.current()) return;
-    const note = await api<DecisionItem>('POST', '/api/decisions/manual', snapshot, undefined, {
+    const note = await api<DecisionItem>('POST', '/api/decisions/manual', { ...snapshot, draft_chat_id: visit.id }, undefined, {
       workspace: visit.ws,
     });
     if (!visit.current()) return;
@@ -315,7 +334,9 @@ async function create() {
 <template>
   <section class="directory-page manual-create">
     <header class="agent-create-header">
+      <button v-if="setup && !chat" class="icon-button" aria-label="Back to starting options" @click="setup = false"><Icon name="back" :size="16" /></button>
       <RouterLink
+        v-else
         :to="chat ? '/decisions/new' : '/decisions'"
         class="icon-button"
         :aria-label="chat ? 'Back to starting options' : 'Back to decisions'"
@@ -327,7 +348,7 @@ async function create() {
       </div>
     </header>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <div v-if="!chat" class="agent-create-start">
+    <div v-if="!chat && !setup" class="agent-create-start">
       <small>Decision creation</small>
       <h2>How would you like to start?</h2>
       <div class="agent-create-options">
@@ -337,7 +358,7 @@ async function create() {
           ><span>Write a private note, with an optional deadline and study.</span
           ><em>Continue <Icon name="right" :size="12" /></em>
         </button>
-        <button class="agent-create-option" :disabled="busy || !owner" @click="start(true)">
+        <button class="agent-create-option" :disabled="busy || !owner" @click="setup = true">
           <span class="option-icon"><Icon name="chat" :size="18" /></span
           ><strong>Create with AI</strong
           ><span>Draft an editable note through a conversation with Aristotle.</span
@@ -345,7 +366,25 @@ async function create() {
         </button>
       </div>
     </div>
-    <div v-else class="form-wrap">
+    <div v-if="!chat && setup" class="builder-setup" role="dialog" aria-label="Choose a machine">
+      <h2>Choose a machine</h2>
+      <p>Choose the machine and CLI for this conversation. The Decision is not tied to a machine.</p>
+      <label>Machine and CLI
+        <select v-model="selectedRuntimeID" aria-label="Machine and CLI">
+          <option v-if="!availableRuntimes.length" value="">No available machines</option>
+          <option v-for="runtime in availableRuntimes" :key="runtime.id" :value="runtime.id">{{ runtime.custom_name || runtime.device_name }} · {{ backendLabel(runtime.harness) }}</option>
+        </select>
+      </label>
+      <label>Model
+        <select v-model="selectedModel" aria-label="Builder model">
+          <option value="">Harness default</option>
+          <option v-for="model in setupRuntime?.models ?? []" :key="model.value" :value="model.value">{{ model.label }}</option>
+        </select>
+      </label>
+      <p v-if="!availableRuntimes.length">Connect a healthy machine to start. <RouterLink to="/machines">Machines</RouterLink></p>
+      <div class="setup-actions"><button class="button" @click="setup = false">Cancel</button><button class="button primary" :disabled="busy || !setupRuntime" @click="start(true)">Start conversation</button></div>
+    </div>
+    <div v-if="chat" :class="ai ? 'studio-wrap' : 'form-wrap'">
       <p v-if="denied || (saved.isError.value && !loaded)" role="alert">
         This draft is unavailable. <button class="button" @click="saved.refetch()">Retry</button>
       </p>
@@ -354,6 +393,21 @@ async function create() {
           Could not refresh this draft. Your current edits are kept.
           <button class="button" @click="saved.refetch()">Retry refresh</button>
         </p>
+        <DecisionBuilderConversation
+          v-if="ai && !created"
+          :key="workspaceId + ':' + owner + ':' + chat"
+          :user-id="owner"
+          :draft-chat="chat"
+          :runtime="runtimes.data.value?.find((runtime) => runtime.id === saved.data.value?.runtime_id)"
+          :model="typeof route.query.model === 'string' ? route.query.model : ''"
+          :manual-draft="draft"
+          :applied-message-id="appliedMessageId"
+          :manual-draft-busy="busy"
+          :readonly="archived"
+          :submit-manual-question="submitManualQuestion"
+          @manual-proposal="proposal"
+        />
+        <div class="decision-editor">
         <h2>{{ archived ? 'Archived draft' : 'Save a decision' }}</h2>
         <p class="save-state" role="status">
           {{ saveState || 'Your draft is private and saved across visits.' }}
@@ -369,18 +423,7 @@ async function create() {
           @submit="create"
           ><RouterLink to="/decisions" class="button">Cancel</RouterLink></ManualDecisionForm
         >
-        <AristotleWindow
-          v-if="ai && !created"
-          :key="workspaceId + ':' + owner + ':' + chat"
-          :user-id="owner"
-          :draft-chat="chat"
-          :manual-draft="draft"
-          :applied-message-id="appliedMessageId"
-          :manual-draft-busy="busy"
-          :readonly="archived"
-          :submit-manual-question="submitManualQuestion"
-          @manual-proposal="proposal"
-        />
+        </div>
       </template>
       <p v-else role="status">Loading draft…</p>
     </div>
@@ -396,6 +439,14 @@ async function create() {
   margin: 48px auto;
   padding-bottom: 120px;
 }
+.studio-wrap { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:24px; align-items:start; }
+.studio-wrap .decision-editor { border:1px solid var(--border); border-radius:8px; padding:20px; min-width:0; }
+.builder-setup { max-width:480px; margin:28px auto; padding:24px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.builder-setup h2 { margin:0 0 8px; font-size:20px; }
+.builder-setup p { color:var(--muted); font-size:13px; line-height:1.5; }
+.builder-setup label { display:flex; flex-direction:column; gap:6px; margin-top:16px; font-size:13px; }
+.builder-setup select { padding:9px; border:1px solid var(--border); border-radius:6px; color:var(--text); background:var(--surface); }
+.setup-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
 .form-wrap h2 {
   font-size: 24px;
   font-weight: 500;
@@ -411,6 +462,7 @@ async function create() {
   outline-offset: 3px;
 }
 @media (max-width: 700px) {
+  .studio-wrap { grid-template-columns:1fr; padding:16px; }
   .agent-create-start {
     padding-top: 8vh;
   }

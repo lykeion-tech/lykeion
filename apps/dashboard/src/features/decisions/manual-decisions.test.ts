@@ -12,12 +12,14 @@ import { labKey } from '../aristotle-window/api';
 const api = vi.fn();
 const me = ref({ id: 'me', timezone: 'Europe/Copenhagen' });
 const cards = ref([{ id: '11111111-1111-1111-1111-111111111111', title: 'Viewer study' }]);
+const runtimes = ref([{ id: 'runtime-1', owner_id: 'me', harness: 'claude', device_name: 'My Mac', status: 'online', unhealthy_reason: null, models: [] }]);
 vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => api(...args) }));
 vi.mock('../../api/queries', () => ({
   useMe: () => ({ data: me }),
   useCards: () => ({ data: cards }),
+  useRuntimes: () => ({ data: runtimes }),
 }));
-vi.mock('../aristotle-window/AristotleWindow.vue', () => ({
+vi.mock('./DecisionBuilderConversation.vue', () => ({
   default: {
     props: ['manualDraft', 'submitManualQuestion', 'appliedMessageId'],
     emits: ['manualProposal'],
@@ -68,6 +70,7 @@ afterEach(() => {
   api.mockReset();
   workspaceId.value = 'w1';
   me.value = { id: 'me', timezone: 'Europe/Copenhagen' };
+  runtimes.value = [{ id: 'runtime-1', owner_id: 'me', harness: 'claude', device_name: 'My Mac', status: 'online', unhealthy_reason: null, models: [] }];
 });
 async function mount(component: any, props: any = {}, path = '/decisions/new') {
   workspaceId.value = 'w1';
@@ -107,7 +110,7 @@ function backend(initial = blankManualDecisionDraft()) {
         draft = fields;
         if (applied_message_id !== undefined) marker = applied_message_id;
       }
-      return { chat_id: 'd1', purpose: 'manual_decision_draft', draft, applied_message_id: marker };
+      return { chat_id: 'd1', purpose: 'manual_decision_draft', draft, applied_message_id: marker, runtime_id: 'runtime-1' };
     }
     if (path === '/api/lab/chats' && method === 'POST') return { chat: { id: 'd1' } };
     if (path === '/api/decisions/manual') return { id: 'note1' };
@@ -121,6 +124,17 @@ it('offers both starting choices without creating a note', async () => {
   expect(textOf(root)).toContain('Create with AI');
   expect(api.mock.calls.some((c) => c[0] === 'POST')).toBe(false);
 });
+it('cannot start the AI studio without a healthy machine', async () => {
+  backend();
+  runtimes.value = [];
+  const { root } = await mount(ManualDecisionCreate);
+  const choice = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Create with AI'))!;
+  await (choice.props.onClick as Function)();
+  await settle();
+  expect(textOf(root)).toContain('No available machines');
+  expect(button(root, 'Start conversation').props.disabled).toBe(true);
+  expect(api.mock.calls.some((c) => c[0] === 'POST')).toBe(false);
+});
 it.each(['Start blank', 'Create with AI'])(
   'persists a purpose-bound draft for %s without creating a note',
   async (label) => {
@@ -129,10 +143,15 @@ it.each(['Start blank', 'Create with AI'])(
     const choice = all(root).find((n) => n.tag === 'button' && textOf(n).includes(label))!;
     await (choice.props.onClick as Function)();
     await settle();
+    if (label === 'Create with AI') {
+      expect(api.mock.calls.some((c) => c[0] === 'POST')).toBe(false);
+      expect(textOf(root)).toContain('Choose a machine');
+      await click(root, 'Start conversation');
+    }
     expect(api).toHaveBeenCalledWith(
       'POST',
       '/api/lab/chats',
-      { purpose: 'manual_decision_draft' },
+      label === 'Create with AI' ? { purpose: 'manual_decision_draft', runtime_id: 'runtime-1' } : { purpose: 'manual_decision_draft' },
       undefined,
       { workspace: 'w1' },
     );
@@ -176,7 +195,7 @@ it.each(['', '&mode=ai'])(
     expect(api).toHaveBeenCalledWith(
       'POST',
       '/api/decisions/manual',
-      { title: 'My reviewed edit', context: 'Details', deadline: '2099-11-04', card_id: null },
+      { title: 'My reviewed edit', context: 'Details', deadline: '2099-11-04', card_id: null, draft_chat_id: 'd1' },
       undefined,
       { workspace: 'w1' },
     );
