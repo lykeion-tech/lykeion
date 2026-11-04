@@ -3,7 +3,7 @@ INSERT INTO lab_chat(workspace_id,owner_id,purpose,draft)
 VALUES(app_workspace(),app_user(),'manual_decision_draft','{"title":"","context":"","deadline":null,"card_id":null}') RETURNING *;
 
 -- name: SaveManualDraft :one
-UPDATE lab_chat SET draft= @draft::jsonb,updated_at=clock_timestamp()
+UPDATE lab_chat SET draft= @draft::jsonb,applied_message_id=sqlc.narg(applied_message_id)::uuid,updated_at=clock_timestamp()
 WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id AND purpose='manual_decision_draft' AND deleted_at IS NULL AND archived_at IS NULL RETURNING *;
 
 -- name: SetManualDraftSource :execrows

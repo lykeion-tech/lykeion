@@ -32,7 +32,7 @@ func (h *H) getManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, pgx.ErrNoRows)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt})
+	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt, "applied_message_id": chat.AppliedMessageID})
 }
 func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 	tx := middleware.TxFrom(r.Context())
@@ -41,12 +41,24 @@ func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, e)
 		return
 	}
-	var d handin.ManualDraft
-	if e = readJSON(r, &d); e != nil || len(handin.ValidateManualDraft(d, true)) > 0 {
+	var in struct {
+		handin.ManualDraft
+		AppliedMessageID json.RawMessage `json:"applied_message_id"`
+	}
+	if e = readJSON(r, &in); e != nil || len(handin.ValidateManualDraft(in.ManualDraft, true)) > 0 {
 		writeErr(w, 400, "invalid draft")
 		return
 	}
-	chat, e = labmemory.SaveDraft(r.Context(), tx, chat.ID, d)
+	var applied []*uuid.UUID
+	if len(in.AppliedMessageID) > 0 {
+		var marker *uuid.UUID
+		if json.Unmarshal(in.AppliedMessageID, &marker) != nil {
+			writeErr(w, 400, "invalid applied message")
+			return
+		}
+		applied = append(applied, marker)
+	}
+	chat, e = labmemory.SaveDraft(r.Context(), tx, chat.ID, in.ManualDraft, applied...)
 	if errors.Is(e, labmemory.ErrDraftArchived) {
 		writeErr(w, 400, e.Error())
 		return
@@ -58,7 +70,7 @@ func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt})
+	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt, "applied_message_id": chat.AppliedMessageID})
 }
 
 func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabChat) {

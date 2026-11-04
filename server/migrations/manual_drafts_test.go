@@ -116,7 +116,7 @@ func TestManualDraftRollbackWithoutDrafts(t *testing.T) {
 	if _, e := env.Owner.Exec(t.Context(), `INSERT INTO lab_message(workspace_id,chat_id,owner_id,agent_run_id,kind,body) VALUES($1,$2,$3,$4,'question','normal message')`, ws, chat, who, run); e != nil {
 		t.Fatal(e)
 	}
-	for _, name := range []string{"0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0055_manual_decision_drafts.up.sql", "0056_manual_draft_archives.up.sql"} {
+	for _, name := range []string{"0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0055_manual_decision_drafts.up.sql", "0056_manual_draft_archives.up.sql", "0057_manual_draft_application.up.sql"} {
 		raw, e := fs.ReadFile(migrations.FS, name)
 		if e != nil {
 			t.Fatal(e)

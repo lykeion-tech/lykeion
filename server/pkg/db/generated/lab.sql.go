@@ -38,7 +38,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 }
 
 const createLabChat = `-- name: CreateLabChat :one
-INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id
 `
 
 func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
@@ -56,6 +56,7 @@ func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
 		&i.Draft,
 		&i.DraftSource,
 		&i.ArchivedAt,
+		&i.AppliedMessageID,
 	)
 	return i, err
 }
@@ -167,7 +168,7 @@ func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAns
 }
 
 const getPrivateLabChat = `-- name: GetPrivateLabChat :one
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
 `
 
 func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat, error) {
@@ -185,6 +186,7 @@ func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat,
 		&i.Draft,
 		&i.DraftSource,
 		&i.ArchivedAt,
+		&i.AppliedMessageID,
 	)
 	return i, err
 }
@@ -489,7 +491,7 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 }
 
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
-SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND purpose=COALESCE(NULLIF($1::text,''),'answer')
 AND (archived_at IS NOT NULL)= $2::boolean
 AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
@@ -531,6 +533,7 @@ func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabCha
 			&i.Draft,
 			&i.DraftSource,
 			&i.ArchivedAt,
+			&i.AppliedMessageID,
 		); err != nil {
 			return nil, err
 		}

@@ -249,3 +249,81 @@ func TestManualDraftArchivedTurnCanSettle(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestManualDraftAppliedMarkerPersistsWithEdits(t *testing.T) {
+	x := runningDraft(t)
+	ref := Ref{Kind: "record", ID: x.record}.String()
+	x.log(ref, "read")
+	if p, e := x.h.Submit(t.Context(), x.user, x.ref, x.run.ID, draftRaw(nil, ref)); e != nil || len(p) > 0 {
+		t.Fatal(e, p)
+	}
+	var answer uuid.UUID
+	if e := x.env.Owner.QueryRow(t.Context(), `SELECT id FROM lab_message WHERE agent_run_id=$1 AND kind='answer'`, x.run.ID).Scan(&answer); e != nil {
+		t.Fatal(e)
+	}
+	e := x.runs.Store.InWorkspace(t.Context(), x.ws, x.user, func(tx *store.Tx) error {
+		chat, e := tx.Q.GetPrivateLabChat(t.Context(), *x.run.LabChatID)
+		if e != nil {
+			return e
+		}
+		if chat.AppliedMessageID != nil {
+			t.Fatal("completion marked unapplied proposal as applied")
+		}
+		saved, e := SaveDraft(t.Context(), tx, chat.ID, handin.ManualDraft{Title: "Review evidence"}, &answer)
+		if e != nil {
+			return e
+		}
+		if saved.AppliedMessageID == nil || *saved.AppliedMessageID != answer {
+			t.Fatal("marker missing")
+		}
+		// A later human reversion is authoritative and must survive reopening.
+		saved, e = SaveDraft(t.Context(), tx, chat.ID, handin.ManualDraft{Title: "My earlier title"})
+		if e != nil {
+			return e
+		}
+		if saved.AppliedMessageID == nil || *saved.AppliedMessageID != answer {
+			t.Fatal("ordinary edit erased marker")
+		}
+		other, e := tx.Q.CreateManualDraftChat(t.Context())
+		if e != nil {
+			return e
+		}
+		if _, e = SaveDraft(t.Context(), tx, other.ID, handin.ManualDraft{Title: "wrong chat"}, &answer); e == nil {
+			t.Fatal("foreign chat proposal accepted")
+		}
+		bad := uuid.New()
+		if _, e = SaveDraft(t.Context(), tx, chat.ID, handin.ManualDraft{Title: "invalid overwrite"}, &bad); e == nil {
+			t.Fatal("invented answer accepted")
+		}
+		return nil
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	var title string
+	var applied uuid.UUID
+	if e = x.env.Owner.QueryRow(t.Context(), `SELECT draft->>'title',applied_message_id FROM lab_chat WHERE id=$1`, *x.run.LabChatID).Scan(&title, &applied); e != nil || title != "My earlier title" || applied != answer {
+		t.Fatal(e, title, applied)
+	}
+	x.exec("UPDATE record SET superseded_at=now() WHERE id=$1", x.record)
+	e = x.runs.Store.InWorkspace(t.Context(), x.ws, x.user, func(tx *store.Tx) error {
+		chat, e := tx.Q.GetPrivateLabChat(t.Context(), *x.run.LabChatID)
+		if e != nil {
+			return e
+		}
+		ok, e := DraftReadable(t.Context(), tx, chat)
+		if e != nil {
+			return e
+		}
+		if ok {
+			t.Fatal("revoked applied proposal readable")
+		}
+		if _, e = SaveDraft(t.Context(), tx, chat.ID, handin.ManualDraft{Title: "revoked"}, &answer); e == nil {
+			t.Fatal("revoked proposal accepted")
+		}
+		return nil
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+}

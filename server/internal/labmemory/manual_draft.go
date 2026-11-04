@@ -65,13 +65,19 @@ func DraftReadable(ctx context.Context, tx *store.Tx, chat db.LabChat) (bool, er
 		}
 		return false, e
 	}
+	if chat.AppliedMessageID != nil {
+		ok, e := NewDisplayReader(tx, chat.OwnerID, chat.ID).visible(ctx, *chat.AppliedMessageID)
+		if e != nil || !ok {
+			return ok, e
+		}
+	}
 	if chat.DraftSource != nil {
 		return NewDisplayReader(tx, chat.OwnerID, chat.ID).visible(ctx, *chat.DraftSource)
 	}
 	return true, nil
 }
 
-func SaveDraft(ctx context.Context, tx *store.Tx, id uuid.UUID, d handin.ManualDraft) (db.LabChat, error) {
+func SaveDraft(ctx context.Context, tx *store.Tx, id uuid.UUID, d handin.ManualDraft, applied ...*uuid.UUID) (db.LabChat, error) {
 	if _, e := tx.Q.LockWorkspaceExecution(ctx, tx.WS); e != nil {
 		return db.LabChat{}, e
 	}
@@ -95,8 +101,29 @@ func SaveDraft(ctx context.Context, tx *store.Tx, id uuid.UUID, d handin.ManualD
 	if _, e = DraftStudy(ctx, tx, chat.OwnerID, d); e != nil {
 		return chat, e
 	}
+	marker := chat.AppliedMessageID
+	if len(applied) > 0 {
+		marker = applied[0]
+	}
+	if marker != nil {
+		row, e := tx.Q.GetPrivateAnswerSources(ctx, db.GetPrivateAnswerSourcesParams{ChatID: chat.ID, ID: *marker})
+		if e != nil {
+			return chat, e
+		}
+		var proposal DraftProposal
+		if json.Unmarshal(row.Proposal, &proposal) != nil || len(handin.ValidateManualDraft(proposal.Draft, false)) > 0 {
+			return chat, pgx.ErrNoRows
+		}
+		ok, e := NewDisplayReader(tx, chat.OwnerID, chat.ID).visible(ctx, *marker)
+		if e != nil {
+			return chat, e
+		}
+		if !ok {
+			return chat, pgx.ErrNoRows
+		}
+	}
 	raw, _ := json.Marshal(d)
-	return tx.Q.SaveManualDraft(ctx, db.SaveManualDraftParams{ID: id, Draft: raw})
+	return tx.Q.SaveManualDraft(ctx, db.SaveManualDraftParams{ID: id, Draft: raw, AppliedMessageID: marker})
 }
 
 func (a Answers) Draft(ctx context.Context, tx *store.Tx, run db.AgentRun, raw json.RawMessage) ([]string, error) {

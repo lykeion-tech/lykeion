@@ -686,17 +686,18 @@ type InboxItem struct {
 }
 
 type LabChat struct {
-	ID          uuid.UUID       `json:"id"`
-	WorkspaceID uuid.UUID       `json:"workspace_id"`
-	OwnerID     uuid.UUID       `json:"owner_id"`
-	Title       string          `json:"title"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	DeletedAt   *time.Time      `json:"deleted_at"`
-	Purpose     string          `json:"purpose"`
-	Draft       json.RawMessage `json:"draft"`
-	DraftSource *uuid.UUID      `json:"draft_source"`
-	ArchivedAt  *time.Time      `json:"archived_at"`
+	ID               uuid.UUID       `json:"id"`
+	WorkspaceID      uuid.UUID       `json:"workspace_id"`
+	OwnerID          uuid.UUID       `json:"owner_id"`
+	Title            string          `json:"title"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	DeletedAt        *time.Time      `json:"deleted_at"`
+	Purpose          string          `json:"purpose"`
+	Draft            json.RawMessage `json:"draft"`
+	DraftSource      *uuid.UUID      `json:"draft_source"`
+	ArchivedAt       *time.Time      `json:"archived_at"`
+	AppliedMessageID *uuid.UUID      `json:"applied_message_id"`
 }
 
 type LabCursor struct {
