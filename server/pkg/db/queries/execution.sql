@@ -79,7 +79,8 @@ WHERE id = (
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
       OR (t.kind='aristotle' AND r.last_seen_at>now()-interval '60 seconds' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
           AND EXISTS(SELECT 1 FROM lab_chat lc JOIN member m ON m.workspace_id=lc.workspace_id AND m.user_id=lc.owner_id
-                     WHERE lc.workspace_id=t.workspace_id AND lc.id=t.lab_chat_id AND lc.owner_id=r.owner_id)
+                     WHERE lc.workspace_id=t.workspace_id AND lc.id=t.lab_chat_id AND lc.owner_id=r.owner_id
+                       AND (lc.builder_runtime_id IS NULL OR lc.builder_runtime_id=r.id))
           AND NOT EXISTS(SELECT 1 FROM agent_run o WHERE o.workspace_id=t.workspace_id AND o.lab_chat_id=t.lab_chat_id AND o.id<>t.id
                          AND (o.status IN ('dispatched','running') OR (o.status='queued' AND (o.created_at,o.id)<(t.created_at,t.id)))))
       OR (t.kind='coresearch' AND t.responsible_user_id=r.owner_id AND cc.owner_id=r.owner_id AND cc.cli=r.harness

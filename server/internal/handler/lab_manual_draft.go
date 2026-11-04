@@ -13,6 +13,7 @@ import (
 	db "lykeion/server/pkg/db/generated"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -32,7 +33,12 @@ func (h *H) getManualDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, pgx.ErrNoRows)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt, "applied_message_id": chat.AppliedMessageID})
+	runtimeID, e := tx.DecisionBuilderRuntime(r.Context(), chat.ID, user(r))
+	if e != nil {
+		fail(w, r, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"chat_id": chat.ID, "purpose": chat.Purpose, "draft": chat.Draft, "archived_at": chat.ArchivedAt, "applied_message_id": chat.AppliedMessageID, "runtime_id": runtimeID})
 }
 func (h *H) saveManualDraft(w http.ResponseWriter, r *http.Request) {
 	tx := middleware.TxFrom(r.Context())
@@ -137,6 +143,24 @@ func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabCh
 		writeJSON(w, 503, map[string]string{"code": "lab_unavailable", "error": e.Error()})
 		return
 	}
+	boundRuntime, e := tx.DecisionBuilderRuntime(ctx, chat.ID, user(r))
+	if e != nil {
+		fail(w, r, e)
+		return
+	}
+	var selected *db.Runtime
+	if boundRuntime != nil {
+		runtime, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *boundRuntime})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (runtime.OwnerID != user(r) || runtime.Status != "online" || runtime.UnhealthyReason != nil || time.Since(runtime.LastSeenAt) > time.Minute || runtime.Harness != in.Harness) {
+			writeJSON(w, 409, map[string]string{"code": "no_machine", "error": "Your selected machine is offline"})
+			return
+		}
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		selected = &runtime
+	}
 	available, e := tx.Q.AristotleRuntimeAvailable(ctx, db.AristotleRuntimeAvailableParams{Harness: in.Harness, RequireHealthy: true})
 	if e != nil {
 		fail(w, r, e)
@@ -147,7 +171,22 @@ func (h *H) askManualDraft(w http.ResponseWriter, r *http.Request, chat db.LabCh
 		return
 	}
 	if in.Model != "" {
-		ok, e := tx.Q.AristotleRuntimeModelAvailable(ctx, db.AristotleRuntimeModelAvailableParams{Harness: in.Harness, Model: in.Model})
+		ok := false
+		if selected != nil {
+			var models []struct {
+				Value string `json:"value"`
+			}
+			if json.Unmarshal(selected.Models, &models) == nil {
+				for _, model := range models {
+					if model.Value == in.Model {
+						ok = true
+						break
+					}
+				}
+			}
+		} else {
+			ok, e = tx.Q.AristotleRuntimeModelAvailable(ctx, db.AristotleRuntimeModelAvailableParams{Harness: in.Harness, Model: in.Model})
+		}
 		if e != nil {
 			fail(w, r, e)
 			return

@@ -133,11 +133,32 @@ func (h *H) listLabChats(w http.ResponseWriter, r *http.Request) {
 
 func (h *H) createLabChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Purpose string `json:"purpose"`
+		Purpose   string     `json:"purpose"`
+		RuntimeID *uuid.UUID `json:"runtime_id"`
 	}
 	if err := readJSON(r, &in); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, "invalid chat")
 		return
+	}
+	if in.RuntimeID != nil {
+		if in.Purpose != labmemory.ManualDraftPurpose {
+			writeErr(w, 400, "machine binding requires a Decision draft")
+			return
+		}
+		tx := middleware.TxFrom(r.Context())
+		runtime, err := tx.Q.GetRuntime(r.Context(), db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *in.RuntimeID})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && runtime.OwnerID != user(r) {
+			fail(w, r, pgx.ErrNoRows)
+			return
+		}
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		if runtime.Status != "online" || runtime.UnhealthyReason != nil || time.Since(runtime.LastSeenAt) > time.Minute {
+			writeJSON(w, 409, map[string]string{"code": "no_machine", "error": "Your machine is offline"})
+			return
+		}
 	}
 	var row db.LabChat
 	var err error
@@ -153,6 +174,12 @@ func (h *H) createLabChat(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	if in.RuntimeID != nil {
+		if err := middleware.TxFrom(r.Context()).SetDecisionBuilderRuntime(r.Context(), row.ID, user(r), *in.RuntimeID); err != nil {
+			fail(w, r, err)
+			return
+		}
 	}
 	writeJSON(w, 201, map[string]any{"chat": row})
 }
