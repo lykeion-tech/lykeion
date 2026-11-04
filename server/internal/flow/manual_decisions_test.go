@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -67,7 +68,25 @@ func TestManualDecisionReminderLifecycle(t *testing.T) {
 				t.Fatalf("early: %d", n)
 			}
 			l.manualSweep(t, at)
-			l.manualSweep(t, at.Add(48*time.Hour))
+			loc, err := time.LoadLocation(tc.zone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			deadlineDay, err := time.ParseInLocation("2006-01-02", tc.deadline, loc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, boundary := range []time.Time{deadlineDay, deadlineDay.AddDate(0, 0, 1)} {
+				for _, offset := range []time.Duration{-time.Microsecond, 0, time.Microsecond} {
+					l.manualSweep(t, boundary.Add(offset))
+					if status, _, _, _ := l.decision(t, id); status != "open" {
+						t.Fatalf("at %s: status %s", boundary.Add(offset), status)
+					}
+					if n := l.manualReminderCount(t, id); n != 1 {
+						t.Fatalf("at %s: reminders %d", boundary.Add(offset), n)
+					}
+				}
+			}
 			if n := l.manualReminderCount(t, id); n != 1 {
 				t.Fatalf("reminders: %d", n)
 			}
@@ -156,6 +175,7 @@ func TestManualDecisionReminderResolveRace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer tx.Rollback(ctx)
 		if _, err = tx.Exec(ctx, `SELECT id FROM inbox_item WHERE id=$1 FOR UPDATE`, id); err != nil {
 			t.Fatal(err)
 		}
@@ -167,6 +187,38 @@ func TestManualDecisionReminderResolveRace(t *testing.T) {
 			}
 			result <- err
 		}()
+		waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		tick := time.NewTicker(time.Millisecond)
+		for {
+			var query string
+			err = l.env.Owner.QueryRow(waitCtx, `SELECT COALESCE((SELECT query FROM pg_stat_activity WHERE datname=current_database() AND $1::int=ANY(pg_blocking_pids(pid)) LIMIT 1),'')`, tx.Conn().PgConn().PID()).Scan(&query)
+			if err != nil {
+				tick.Stop()
+				cancel()
+				t.Fatal(err)
+			}
+			if query != "" {
+				if !strings.Contains(query, "remind_manual_decision") {
+					tick.Stop()
+					cancel()
+					t.Fatalf("unexpected blocked query: %s", query)
+				}
+				break
+			}
+			select {
+			case err := <-result:
+				tick.Stop()
+				cancel()
+				t.Fatalf("reminder completed before row lock released: %v", err)
+			case <-waitCtx.Done():
+				tick.Stop()
+				cancel()
+				t.Fatal("reminder never contended on held row: ", waitCtx.Err())
+			case <-tick.C:
+			}
+		}
+		tick.Stop()
+		cancel()
 		if _, err = tx.Exec(ctx, `UPDATE inbox_item SET `+change+` WHERE id=$1`, id); err != nil {
 			t.Fatal(err)
 		}
