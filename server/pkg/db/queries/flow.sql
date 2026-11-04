@@ -40,7 +40,7 @@ SELECT count(*) FROM inbox_item WHERE workspace_id = @workspace_id AND card_id =
 -- The study's open items of a kind whose cause went away are dismissed.
 -- name: ResolveCardInboxKind :many
 UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind AND resolved_at IS NULL
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = @kind AND kind <> 'manual_decision' AND resolved_at IS NULL
 RETURNING id;
 
 -- Moves a study on, restarts its column or blocks it once the column is

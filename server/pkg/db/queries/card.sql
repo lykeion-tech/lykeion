@@ -76,7 +76,7 @@ ORDER BY created_at, id;
 -- a person are resolved and cancelled, whoever they were addressed to.
 -- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind <> 'manual_decision' AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id;
 
 -- What a held study waits on: the text of its open item for a person.

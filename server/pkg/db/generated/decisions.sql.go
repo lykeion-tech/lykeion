@@ -89,7 +89,7 @@ func (q *Queries) ArchiveStale(ctx context.Context, at time.Time) error {
 const cancelCardDecisions = `-- name: CancelCardDecisions :many
 UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2::uuid AND status = 'open' AND resolved_at IS NULL
-  AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
+  AND kind <> 'manual_decision' AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
 RETURNING id
 `
 
@@ -308,6 +308,36 @@ func (q *Queries) DueDecisions(ctx context.Context, at time.Time) ([]DueDecision
 	return items, nil
 }
 
+const dueManualReminders = `-- name: DueManualReminders :many
+SELECT workspace_id::uuid,id::uuid,user_id::uuid FROM due_manual_reminders($1::timestamptz)
+`
+
+type DueManualRemindersRow struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DueManualReminders(ctx context.Context, at time.Time) ([]DueManualRemindersRow, error) {
+	rows, err := q.db.Query(ctx, dueManualReminders, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DueManualRemindersRow
+	for rows.Next() {
+		var i DueManualRemindersRow
+		if err := rows.Scan(&i.WorkspaceID, &i.ID, &i.UserID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const dueReminders = `-- name: DueReminders :many
 SELECT workspace_id::uuid AS workspace_id, id::uuid AS id FROM due_reminders($1::timestamptz)
 `
@@ -407,7 +437,7 @@ func (q *Queries) EditManualDecision(ctx context.Context, arg EditManualDecision
 
 const expireDecision = `-- name: ExpireDecision :one
 UPDATE inbox_item SET status = 'expired', chosen_option = default_option, resolved_at = now(), touched_at = now()
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1 AND workspace_id = $2 AND kind <> 'manual_decision'
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 
@@ -867,7 +897,7 @@ func (q *Queries) MarkDecisionRead(ctx context.Context, arg MarkDecisionReadPara
 
 const markReminded = `-- name: MarkReminded :one
 UPDATE inbox_item SET reminded_at = $1::timestamptz
-WHERE id = $2 AND workspace_id = $3 AND status = 'open' AND reminded_at IS NULL
+WHERE id = $2 AND workspace_id = $3 AND kind <> 'manual_decision' AND status = 'open' AND reminded_at IS NULL
 RETURNING card_id
 `
 
@@ -882,6 +912,23 @@ func (q *Queries) MarkReminded(ctx context.Context, arg MarkRemindedParams) (*uu
 	var card_id *uuid.UUID
 	err := row.Scan(&card_id)
 	return card_id, err
+}
+
+const remindManualDecision = `-- name: RemindManualDecision :one
+SELECT remind_manual_decision($1::uuid,$2::uuid,$3::timestamptz)::boolean
+`
+
+type RemindManualDecisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	ID          uuid.UUID `json:"id"`
+	At          time.Time `json:"at"`
+}
+
+func (q *Queries) RemindManualDecision(ctx context.Context, arg RemindManualDecisionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, remindManualDecision, arg.WorkspaceID, arg.ID, arg.At)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setDecisionArchived = `-- name: SetDecisionArchived :execrows

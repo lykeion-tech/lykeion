@@ -319,7 +319,7 @@ func (q *Queries) LiveRecordsByKeys(ctx context.Context, arg LiveRecordsByKeysPa
 
 const resolveCardInboxKind = `-- name: ResolveCardInboxKind :many
 UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
-WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = $3 AND resolved_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = $3 AND kind <> 'manual_decision' AND resolved_at IS NULL
 RETURNING id
 `
 

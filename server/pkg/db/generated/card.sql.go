@@ -740,7 +740,7 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
-WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND kind <> 'manual_decision' AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
 RETURNING id
 `
 

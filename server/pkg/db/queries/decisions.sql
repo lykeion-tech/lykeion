@@ -83,7 +83,7 @@ RETURNING *;
 -- name: CancelCardDecisions :many
 UPDATE inbox_item SET status = 'cancelled', resolved_at = now(), touched_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'open' AND resolved_at IS NULL
-  AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
+  AND kind <> 'manual_decision' AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
 RETURNING id;
 
 -- name: HasOpenAgentDecision :one
@@ -111,12 +111,12 @@ SELECT archive_stale_decisions(@at::timestamptz);
 -- chose it.
 -- name: ExpireDecision :one
 UPDATE inbox_item SET status = 'expired', chosen_option = default_option, resolved_at = now(), touched_at = now()
-WHERE id = @id AND workspace_id = @workspace_id
+WHERE id = @id AND workspace_id = @workspace_id AND kind <> 'manual_decision'
 RETURNING *;
 
 -- name: MarkReminded :one
 UPDATE inbox_item SET reminded_at = @at::timestamptz
-WHERE id = @id AND workspace_id = @workspace_id AND status = 'open' AND reminded_at IS NULL
+WHERE id = @id AND workspace_id = @workspace_id AND kind <> 'manual_decision' AND status = 'open' AND reminded_at IS NULL
 RETURNING card_id;
 
 -- name: InsertManualDecision :one
@@ -133,3 +133,9 @@ RETURNING *;
 UPDATE inbox_item SET status= @status,resolved_at=now(),decided_at=now(),decided_by= @user_id,touched_at=now()
 WHERE id= @id AND workspace_id= @workspace_id AND user_id= @user_id AND kind='manual_decision' AND status='open' AND resolved_at IS NULL
 RETURNING *;
+
+-- name: DueManualReminders :many
+SELECT workspace_id::uuid,id::uuid,user_id::uuid FROM due_manual_reminders(@at::timestamptz);
+
+-- name: RemindManualDecision :one
+SELECT remind_manual_decision(@workspace_id::uuid,@id::uuid,@at::timestamptz)::boolean;

@@ -319,6 +319,16 @@ func (e *Engine) sweepDecisions(ctx context.Context, now time.Time) error {
 			errs = append(errs, fmt.Errorf("remind decision %s: %w", r.ID, err))
 		}
 	}
+	manual, err := e.Store.Global().DueManualReminders(ctx, now)
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		for _, r := range manual {
+			if _, err := e.Store.Global().RemindManualDecision(ctx, db.RemindManualDecisionParams{WorkspaceID: r.WorkspaceID, ID: r.ID, At: now}); err != nil {
+				errs = append(errs, fmt.Errorf("remind manual decision %s: %w", r.ID, err))
+			}
+		}
+	}
 	if err := e.Store.Global().ArchiveStale(ctx, now); err != nil {
 		errs = append(errs, err)
 	}
@@ -343,7 +353,7 @@ func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time
 		if err != nil {
 			return err
 		}
-		if it.Status != "open" || it.ResolvedAt != nil || it.ExpiresAt == nil || it.ExpiresAt.After(now) {
+		if it.Kind == "manual_decision" || it.Status != "open" || it.ResolvedAt != nil || it.ExpiresAt == nil || it.ExpiresAt.After(now) {
 			return nil
 		}
 		expired, err := tx.Q.ExpireDecision(ctx, db.ExpireDecisionParams{ID: d.ID, WorkspaceID: d.WorkspaceID})
