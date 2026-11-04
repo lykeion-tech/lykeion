@@ -372,6 +372,11 @@ function tabKey(event: KeyboardEvent, index: number) {
   <section class="agent-page team-detail-page">
     <template v-if="manifest">
       <div class="agent-page-header">
+        <nav class="detail-breadcrumb team-breadcrumb" aria-label="Team navigation">
+          <RouterLink to="/teams"><Icon name="back" :size="14" />Teams</RouterLink>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">{{ teamDisplayParts(manifest.name).label }}</span>
+        </nav>
         <header class="agent-hero">
           <div class="agent-identity">
             <EmojiIcon
@@ -756,6 +761,10 @@ function tabKey(event: KeyboardEvent, index: number) {
 </template>
 <style src="../agents/agent-detail.css" />
 <style scoped>
+.team-detail-page {
+  --gutter: 16px;
+  scrollbar-gutter: auto;
+}
 .team-work-search {
   display: inline-flex;
   align-items: center;

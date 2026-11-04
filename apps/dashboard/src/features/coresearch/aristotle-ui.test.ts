@@ -135,6 +135,23 @@ function edit(root: ReturnType<typeof node>, value: string) {
 const response = (body: unknown, status = 201) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 describe('Aristotle UI', () => {
+  it('keeps the agent inspector visible when switching detail tabs', async () => {
+    const { root, settle } = await mount('/agents/aristotle', true, true);
+    const inspector = all(root).find((n) => n.props.class === 'agent-inspector')!;
+    expect(inspector).toBeTruthy();
+    const breadcrumb = all(root).find((n) => n.props['aria-label'] === 'Agent navigation')!;
+    expect(textOf(breadcrumb)).toContain('Agents');
+    expect(textOf(breadcrumb)).toContain('Aristotle');
+    expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/agents');
+    expect(textOf(inspector)).toContain('Aristotle');
+    expect(textOf(inspector)).toContain('Harness default');
+    expect(textOf(root)).toContain("Built-in Agents can't be changed. Duplicate this Agent to make one of your own.");
+    const work = all(root).find((n) => n.props.role === 'tab' && textOf(n).trim() === 'Work')!;
+    (work.props.onClick as () => void)();
+    await settle();
+    expect(textOf(all(root).find((n) => n.props.class === 'agent-inspector')!)).toContain('Aristotle');
+    expect(all(root).some((n) => n.props['aria-label'] === 'Search studies')).toBe(true);
+  });
   it('duplicates the agent using the chosen name', async () => {
     const fetch = vi.fn(async (url: string, init: { method: string }) => response(init.method === 'POST' || String(url).endsWith('/api/agents/copied') ? { ...agent, id: 'copied' } : [], 200));
     vi.stubGlobal('fetch', fetch);
@@ -264,7 +281,7 @@ describe('Aristotle UI', () => {
       },
     ]);
     await settle();
-    expect(textOf(root).match(/Sonnet 5\.5/g)).toHaveLength(2);
+    expect(textOf(root).match(/Sonnet 5\.5/g)).toHaveLength(1);
     client.setQueryData(keys.runtimes('lab'), [
       {
         owner_id: 'me',
@@ -280,10 +297,10 @@ describe('Aristotle UI', () => {
       },
     ]);
     await settle();
-    expect(textOf(root).match(/sonnet/g)).toHaveLength(2);
+    expect(textOf(root).match(/sonnet/g)).toHaveLength(1);
     client.setQueryData(keys.runtimes('lab'), []);
     await settle();
-    expect(textOf(root).match(/sonnet/g)).toHaveLength(2);
+    expect(textOf(root).match(/sonnet/g)).toHaveLength(1);
   });
   it('only offers deletion for custom agents', async () => {
     const { root, client, settle } = await mount('/agents/aristotle', true, true);

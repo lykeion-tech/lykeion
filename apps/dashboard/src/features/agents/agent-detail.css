@@ -87,6 +87,31 @@
 .agent-actions .button {
   gap: 5px;
 }
+.detail-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.detail-breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.detail-breadcrumb a:hover,
+.detail-breadcrumb [aria-current='page'] {
+  color: var(--text);
+}
+.detail-breadcrumb [aria-current='page'] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-breadcrumb {
+  padding: 16px var(--gutter) 0;
+}
 .agent-more {
   position: relative;
 }
@@ -482,5 +507,124 @@
   }
   .agent-identity {
     flex-wrap: wrap;
+  }
+}
+
+/* Agent detail shell */
+.agent-detail-page {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 16px;
+  --gutter: 24px;
+  scrollbar-gutter: auto;
+}
+.agent-detail-page .agent-page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  min-height: 64px;
+  flex: none;
+}
+.agent-detail-page .agent-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+.agent-detail-page .agent-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.agent-detail-page .agent-inspector,
+.agent-detail-page .agent-content {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-width: 0;
+}
+.agent-detail-page .agent-inspector {
+  flex: 1;
+  overflow: auto;
+}
+.agent-detail-page .agent-identity {
+  padding: 24px 20px;
+  margin: 0 20px;
+  border-bottom: 1px solid var(--border);
+  padding-left: 0;
+  padding-right: 0;
+}
+.agent-detail-page .agent-identity h1 {
+  font-size: 20px;
+  line-height: 27px;
+}
+.agent-detail-page .agent-description {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.agent-detail-page .agent-status {
+  display: inline-block;
+  margin-top: 6px;
+}
+.agent-detail-page .agent-panel {
+  background: transparent;
+  border-radius: 0;
+}
+.agent-detail-page .agent-panel dl {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-detail-page .agent-builtin-note {
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.agent-detail-page .agent-content {
+  overflow: auto;
+}
+.agent-detail-page .agent-tabs-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  padding: 0 24px;
+  overflow-x: auto;
+}
+.agent-detail-page .agent-tabs-bar button {
+  white-space: nowrap;
+}
+.agent-detail-page .agent-overview {
+  display: block;
+}
+.agent-detail-page .agent-split {
+  grid-template-columns: 192px minmax(0, 1fr);
+  min-height: calc(100% - 48px);
+}
+.agent-detail-page .agent-subnav {
+  padding-left: 16px;
+}
+@media (max-width: 900px) {
+  .agent-detail-page .agent-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .agent-detail-page .agent-sidebar {
+    min-height: auto;
+  }
+  .agent-detail-page .agent-inspector {
+    overflow: visible;
+  }
+  .agent-detail-page .agent-content {
+    min-height: 50vh;
+    overflow: visible;
+  }
+  .agent-detail-page .agent-split {
+    grid-template-columns: 1fr;
+  }
+  .agent-detail-page .agent-identity {
+    flex-wrap: nowrap;
   }
 }

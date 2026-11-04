@@ -279,7 +279,7 @@ async function logOut() {
         <template v-else-if="step === 'Machines'">
           <h2>Machines</h2>
           <p class="sub">Connect a computer so agents can run research.</p>
-          <p class="muted">
+          <p class="muted machine-hint">
             Not connected yet? Run <code>lyk login</code> then <code>lyk daemon start</code>.
           </p>
           <div class="runtime-box">
@@ -402,6 +402,12 @@ async function logOut() {
   </div>
 </template>
 <style scoped>
+.machine-hint code {
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--canvas);
+}
 .wizard {
   display: flex;
   gap: 14px;
