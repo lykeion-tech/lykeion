@@ -38,7 +38,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 }
 
 const createLabChat = `-- name: CreateLabChat :one
-INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at
+INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at
 `
 
 func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
@@ -51,8 +51,31 @@ func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
 		&i.Title,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const deletePrivateLabChat = `-- name: DeletePrivateLabChat :execrows
+UPDATE lab_chat SET deleted_at=clock_timestamp(),title=''
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) DeletePrivateLabChat(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePrivateLabChat, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deletePrivateLabMessages = `-- name: DeletePrivateLabMessages :exec
+DELETE FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1
+`
+
+func (q *Queries) DeletePrivateLabMessages(ctx context.Context, chatID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deletePrivateLabMessages, chatID)
+	return err
 }
 
 const flagLabLesson = `-- name: FlagLabLesson :one
@@ -134,7 +157,7 @@ func (q *Queries) GetPrivateAnswerSources(ctx context.Context, arg GetPrivateAns
 }
 
 const getPrivateLabChat = `-- name: GetPrivateLabChat :one
-SELECT id, workspace_id, owner_id, title, created_at, updated_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $1
 `
 
 func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat, error) {
@@ -147,6 +170,7 @@ func (q *Queries) GetPrivateLabChat(ctx context.Context, id uuid.UUID) (LabChat,
 		&i.Title,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -419,7 +443,7 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 }
 
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
-SELECT id, workspace_id, owner_id, title, created_at, updated_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user()
+SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND ($1::timestamptz IS NULL OR (updated_at,id)<($1,$2::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT $3::int
 `
@@ -446,6 +470,7 @@ func (q *Queries) ListPrivateLabChats(ctx context.Context, arg ListPrivateLabCha
 			&i.Title,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -512,6 +537,82 @@ func (q *Queries) ListPrivateLabMessages(ctx context.Context, arg ListPrivateLab
 	return items, nil
 }
 
+const lockPrivateLabChatRuns = `-- name: LockPrivateLabChatRuns :many
+SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
+ AND r.kind='aristotle' AND r.lab_chat_id= $1::uuid ORDER BY r.id FOR UPDATE
+`
+
+func (q *Queries) LockPrivateLabChatRuns(ctx context.Context, chatID uuid.UUID) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, lockPrivateLabChatRuns, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
+			&i.CoresearchChatID,
+			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
+			&i.AttachmentSnapshot,
+			&i.LabChatID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queueLabFlagRewrite = `-- name: QueueLabFlagRewrite :exec
 INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
 SELECT app_workspace(),$1::uuid,ARRAY['flag'],now()
@@ -540,7 +641,7 @@ func (q *Queries) RecordLabFlag(ctx context.Context, arg RecordLabFlagParams) er
 
 const touchLabChat = `-- name: TouchLabChat :exec
 UPDATE lab_chat SET updated_at=clock_timestamp(),title=CASE WHEN title='' THEN $1::text ELSE title END
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= $2
 `
 
 type TouchLabChatParams struct {

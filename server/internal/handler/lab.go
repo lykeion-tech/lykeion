@@ -98,6 +98,52 @@ func (h *H) createLabChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"chat": row})
 }
 
+// deleteLabChat retains only the run identities needed to stop daemons and
+// settle usage. All private conversation content is purged in this transaction.
+func (h *H) deleteLabChat(w http.ResponseWriter, r *http.Request) {
+	tx := middleware.TxFrom(r.Context())
+	ctx := r.Context()
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		fail(w, r, err)
+		return
+	}
+	chat, err := privateLabChat(r, tx)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	runs, err := tx.Q.LockPrivateLabChatRuns(ctx, chat.ID)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if _, err = tx.Q.DeletePrivateLabChat(ctx, chat.ID); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if err = tx.PurgeDeletedLabChat(ctx, chat.ID); err != nil {
+		fail(w, r, err)
+		return
+	}
+	for _, run := range runs {
+		if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
+			if err = h.AgentRuns.CancelInTx(ctx, tx, user(r), run); err != nil {
+				fail(w, r, err)
+				return
+			}
+		}
+		if err = tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: tx.WS, AgentRunID: run.ID}); err != nil {
+			fail(w, r, err)
+			return
+		}
+	}
+	if err = tx.Q.DeletePrivateLabMessages(ctx, chat.ID); err != nil {
+		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func privateLabChat(r *http.Request, tx *store.Tx) (db.LabChat, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

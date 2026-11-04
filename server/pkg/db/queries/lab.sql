@@ -105,16 +105,16 @@ SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
 INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) RETURNING *;
 
 -- name: GetPrivateLabChat :one
-SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id;
+SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= @id;
 
 -- name: ListPrivateLabChats :many
-SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user()
+SELECT * FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND (sqlc.narg(before_time)::timestamptz IS NULL OR (updated_at,id)<(sqlc.narg(before_time),@before_id::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT @page_size::int;
 
 -- name: TouchLabChat :exec
 UPDATE lab_chat SET updated_at=clock_timestamp(),title=CASE WHEN title='' THEN @title::text ELSE title END
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id;
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL AND id= @id;
 
 -- name: ListPrivateLabMessages :many
 SELECT * FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= @chat_id
@@ -143,3 +143,14 @@ VALUES(app_workspace(),@lesson_id,app_user(),@reason);
 INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
 SELECT app_workspace(),@lesson_id::uuid,ARRAY['flag'],now()
 WHERE NOT EXISTS(SELECT 1 FROM lesson_job WHERE workspace_id=app_workspace() AND lesson_id= @lesson_id AND status='queued' AND 'flag'=ANY(triggers));
+
+-- name: LockPrivateLabChatRuns :many
+SELECT r.* FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
+ AND r.kind='aristotle' AND r.lab_chat_id= @chat_id::uuid ORDER BY r.id FOR UPDATE;
+
+-- name: DeletePrivateLabChat :execrows
+UPDATE lab_chat SET deleted_at=clock_timestamp(),title=''
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id AND deleted_at IS NULL;
+
+-- name: DeletePrivateLabMessages :exec
+DELETE FROM lab_message WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= @chat_id;

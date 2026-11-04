@@ -76,6 +76,8 @@ export function useMessages(user: () => string, open: Ref<boolean>, chat: Ref<st
 }
 export const createChat = (ws: string) =>
   api<{ chat: LabChat }>('POST', root, {}, undefined, { workspace: ws });
+export const deleteChat = (ws: string, id: string) =>
+  api('DELETE', root + '/' + encodeURIComponent(id), undefined, undefined, { workspace: ws });
 export const askLab = (
   ws: string,
   id: string,
