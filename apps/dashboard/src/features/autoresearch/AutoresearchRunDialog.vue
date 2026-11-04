@@ -23,7 +23,6 @@ const props = defineProps<{ runId: string }>();
 const emit = defineEmits<{ close: [] }>();
 const detail = useAutoresearchRun(() => props.runId);
 const run = computed(() => detail.data.value?.run);
-const label = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.value?.status ?? ''));
 </script>
 <template>
@@ -38,15 +37,6 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
           </button>
         </div>
         <template v-if="run">
-          <div class="run-meta">
-            <span class="run-badge" :class="{ failed: run.status === 'failed' }">{{
-              label(run.status)
-            }}</span>
-            <span>{{
-              detail.data.value?.execution_mode === 'run_only' ? 'Run only' : 'Create a study'
-            }}</span>
-            <span>·</span><span>{{ label(run.source) }}</span>
-          </div>
           <p class="run-planned">Planned · {{ new Date(run.planned_at).toLocaleString() }}</p>
         </template>
       </header>
@@ -77,8 +67,8 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
             <p>
               {{
                 waiting
-                  ? 'A submitted report will appear here. Execution status is shown above.'
-                  : 'This run has no submitted report. Execution status is shown above.'
+                  ? 'A submitted report will appear here.'
+                  : 'This run has no submitted report.'
               }}
             </p>
           </div>
@@ -90,7 +80,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
             ? run.status === 'running'
               ? 'Report available · Run still in progress'
               : 'Full report · As submitted by the agent'
-            : 'Run status and report availability are separate'
+            : ''
         }}</span>
         <button class="button" @click="emit('close')">Close</button>
       </footer>
@@ -133,32 +123,13 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   margin: 0;
   overflow-wrap: anywhere;
 }
-.run-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.run-badge {
-  background: var(--fill-chip);
-  border-radius: 5px;
-  padding: 4px 7px;
-  font-size: 11px;
-}
-.run-badge.failed {
-  background: var(--error-bg);
-  color: var(--error-text);
-}
 .run-planned {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
 .run-body {
-  padding: 24px;
+  padding: 4px 24px 24px;
   min-height: 300px;
   min-width: 0;
   overflow: auto;
