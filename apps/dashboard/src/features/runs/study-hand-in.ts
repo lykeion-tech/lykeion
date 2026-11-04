@@ -1,3 +1,30 @@
+// The run list truncates latest_text, sometimes in the middle of a JSON string.
+export function messagePreview(text: string): string {
+  if (!/^\s*\{\s*"/.test(text)) return text;
+  try {
+    const value: unknown = JSON.parse(text);
+    return value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      typeof (value as Record<string, unknown>).answer === 'string'
+      ? String((value as Record<string, unknown>).answer)
+      : '';
+  } catch {
+    const match = /^\s*\{\s*"answer"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(text);
+    if (!match) return '';
+    let value = match[1] ?? '';
+    // The excerpt can end within a JSON escape or Unicode escape.
+    for (let n = 0; n < 6; n++) {
+      try {
+        return JSON.parse('"' + value + '"') as string;
+      } catch {
+        value = value.slice(0, -1);
+      }
+    }
+    return '';
+  }
+}
+
 // These are recorded messages, not proof that any message is the accepted report.
 export function structuredMessage(text: string): Record<string, unknown> | null {
   try {

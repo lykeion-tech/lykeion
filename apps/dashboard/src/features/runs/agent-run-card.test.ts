@@ -255,3 +255,24 @@ it('explains when a running Codex cannot receive live input', async () => {
   await nextTick();
   expect(textOf(root)).toContain('Codex cannot receive replies during this run');
 });
+
+it('shows readable text for a truncated structured answer in a stopped run', async () => {
+  const { root } = setup({
+    answer: '',
+    status: 'cancelled',
+    latest_text: '{"answer":"A useful finding.\\n\\nAnother incomplete',
+  });
+  await nextTick();
+  expect(textOf(root)).toContain('A useful finding. Another incomplete');
+  expect(textOf(root)).not.toContain('{"answer"');
+});
+
+it('does not expose a structured excerpt when its answer is not available', async () => {
+  const { root } = setup({
+    answer: '',
+    status: 'cancelled',
+    latest_text: '{"status":"done","papers":[',
+  });
+  await nextTick();
+  expect(textOf(root)).not.toContain('{"status"');
+});

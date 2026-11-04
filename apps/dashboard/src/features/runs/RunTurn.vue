@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
 import StudyHandIn from './StudyHandIn.vue';
-import { matchesAccepted, structuredMessage } from './study-hand-in';
+import { matchesAccepted, messagePreview, structuredMessage } from './study-hand-in';
 import CopyButton from '../coresearch/CopyButton.vue';
 import {
   attemptDivider,
@@ -64,7 +64,7 @@ const blocks = computed(() =>
       (message) => message.type !== 'thinking',
     ),
     { joinText: false },
-  ),
+  ).filter((block) => block.kind !== 'reask'),
 );
 // One divider per earlier attempt: each recorded ending, and any earlier
 // attempt with messages but no recorded ending.
@@ -144,11 +144,12 @@ const ending = computed(() => {
             class="lyk-reading"
             :content="String(structuredMessage(block.text)?.answer || '')"
           />
-          <details>
-            <summary>Recorded structured message</summary>
-            <pre class="recorded-text-fallback">{{ block.text }}</pre>
-          </details>
         </template>
+        <RecordedMarkdown
+          v-else-if="/^\s*\{\s*&quot;answer&quot;\s*:/.test(block.text)"
+          class="lyk-reading"
+          :content="messagePreview(block.text) || 'Report text unavailable.'"
+        />
         <div v-else-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
         <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
       </template>

@@ -918,6 +918,11 @@ footer {
 .server-checks :deep(.recall) {
   color: var(--muted);
 }
+.server-checks :deep(.recall) {
+  margin: 12px 0 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .validation-details {
   margin-top: 16px;
 }

@@ -159,7 +159,7 @@ async function toggle(emoji: string) {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 3px 8px;
-  background: transparent;
+  background: var(--fill-chip);
   color: inherit;
   cursor: pointer;
 }
@@ -173,7 +173,7 @@ async function toggle(emoji: string) {
   top: 28px;
   right: 0;
   padding: 8px;
-  background: var(--surface);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px #0004;

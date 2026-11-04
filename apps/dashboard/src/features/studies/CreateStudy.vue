@@ -212,7 +212,6 @@ async function submit() {
         { workspace },
       );
       if (current()) {
-        notify('Sent to agent. You’ll get an Inbox notification when the study is created.');
         emit('close');
       }
     } catch (e) {

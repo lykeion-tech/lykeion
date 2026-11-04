@@ -105,10 +105,24 @@ describe('board columns', () => {
     expect(boardColumnOf(card({ flag: 'escalated' }))).toBe('blocked');
     expect(boardColumnOf(card({ flag: '' }))).toBe('grounding');
     expect(boardColumnOf(card({ state: 'blocked', block_kind: 'low_score' }))).toBe('blocked');
-    expect(boardColumnOf(card({ state: 'done' }))).toBe('grounding');
+    expect(boardColumnOf(card({ state: 'done' }))).toBe('done');
+    expect(boardColumnOf(card({ state: 'working', board_column: 'grounding' }))).toBe('grounding');
     expect(
       boardColumnOf(card({ flag: 'escalated', ending: 'stopped', board_column: 'done' })),
     ).toBe('done');
+  });
+  it('groups completed studies in Done without moving active or blocked studies', () => {
+    const completed = studies.stages.map((stage) =>
+      card({ id: `done-${stage}`, board_column: stage, state: 'done' }),
+    );
+    const active = card({ id: 'active', state: 'working', board_column: 'grounding' });
+    const blocked = card({ id: 'blocked', state: 'blocked', board_column: 'validation' });
+    const grouped = groupByColumn([...completed, active, blocked]);
+    expect(grouped.done.map((item) => item.id).sort()).toEqual(
+      completed.map((item) => item.id).sort(),
+    );
+    expect(grouped.grounding.map((item) => item.id)).toEqual(['active']);
+    expect(grouped.blocked.map((item) => item.id)).toEqual(['blocked']);
   });
   it('orders every column by creation time, newest first', () => {
     const g = groupByColumn([
@@ -151,9 +165,7 @@ describe('study labels', () => {
   it('names the state, the ending and the role', () => {
     expect(stateLabel(card({ state: 'done' }))).toBe('Done');
     expect(stateLabel(card({ ending: 'released' }))).toBe('');
-    expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe(
-      'Stopped',
-    );
+    expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe('Stopped');
     expect(endLabel(card({ ending: 'released' }))).toBe('Released');
     expect(roleLabel('literature-scout')).toBe('Literature scout');
   });

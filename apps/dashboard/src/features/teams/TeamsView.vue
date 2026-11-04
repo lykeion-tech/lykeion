@@ -5,7 +5,8 @@ import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../../lib/te
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import { workspaceId } from '../../api/session';
-import { useTeams } from '../../api/queries';
+import { useMe, useRuntimes, useTeams } from '../../api/queries';
+import type { StoreTeam } from '../../api/types';
 import { matchesQuery } from '../../lib/search';
 
 const search = ref('');
@@ -55,6 +56,23 @@ onUnmounted(() => {
 });
 const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const everything = useTeams('', '');
+const me = useMe();
+const runtimes = useRuntimes();
+function teamOnline(team: StoreTeam) {
+  return (
+    !!me.data.value?.id &&
+    !!team.agent_clis?.length &&
+    team.agent_clis.every((harness) =>
+      (runtimes.data.value ?? []).some(
+        (runtime) =>
+          runtime.owner_id === me.data.value?.id &&
+          runtime.harness === harness &&
+          runtime.status === 'online' &&
+          !runtime.unhealthy_reason,
+      ),
+    )
+  );
+}
 const teams = useTeams(() => (domain.value === generalPurposeDomain ? '' : domain.value), stage);
 const rows = computed(() =>
   (teams.data.value ?? [])
@@ -82,7 +100,11 @@ watch(workspaceId, () => closeFilter());
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 </script>
 <template>
-  <section ref="directory" class="directory-page directory-table-page team-directory" :style="{ '--team-scrollbar-width': `${scrollbarWidth}px` }">
+  <section
+    ref="directory"
+    class="directory-page directory-table-page team-directory"
+    :style="{ '--team-scrollbar-width': `${scrollbarWidth}px` }"
+  >
     <Teleport to="#page-header-actions">
       <RouterLink to="/teams/new" class="button primary directory-header-action"
         ><Icon name="plus" :size="14" />New team</RouterLink
@@ -171,7 +193,13 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
                     :size="18" /><Icon v-else name="network" :size="18" />
-                    <span class="availability-dot" role="img" aria-label="Active" title="Active"></span></span
+                  <span
+                    class="availability-dot"
+                    :class="{ inactive: !teamOnline(t) }"
+                    role="img"
+                    :aria-label="teamOnline(t) ? 'Active' : 'Inactive'"
+                    :title="teamOnline(t) ? 'Active' : 'Inactive'"
+                  ></span></span
                 ><span class="team-label"
                   ><span>{{ teamDisplayParts(t.name).label }}</span
                   ><small v-if="t.manifest.description">{{ t.manifest.description }}</small></span
@@ -348,6 +376,9 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   height: 7px;
   border-radius: 50%;
   background: #39a35a;
+}
+.team-icon .availability-dot.inactive {
+  background: var(--error);
 }
 .team-table td {
   display: flex;

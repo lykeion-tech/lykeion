@@ -26,6 +26,7 @@ import {
   endLabel,
   filterCategories as categories,
   filterOptions,
+  boardColumnOf,
   groupByColumn,
   boardActivity,
   matchesFilters,
@@ -514,7 +515,7 @@ onUnmounted(() => {
             @click="open(card.id)"
           >
             <small class="card-id"
-              >{{ number(card) }}<span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{ endLabel(card) }}</span><span
+              >{{ number(card) }}<span v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')" class="chip" :class="'chip-' + card.ending">{{ endLabel(card) }}</span><span
                 v-if="cardStateLabel(card) && column.id !== 'blocked'"
                 class="chip"
                 :class="'chip-' + card.state"
@@ -619,7 +620,7 @@ onUnmounted(() => {
             <span v-if="group.id === 'blocked'" class="chip">{{
               columnName(card.board_column)
             }}</span>
-            <span v-if="card.ending" class="chip" :class="'chip-' + card.ending">{{
+            <span v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')" class="chip" :class="'chip-' + card.ending">{{
               endLabel(card)
             }}</span>
             <span v-if="card.role">{{ roleLabel(card.role) }}</span>

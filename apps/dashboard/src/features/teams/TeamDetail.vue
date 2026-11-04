@@ -391,7 +391,7 @@ function tabKey(event: KeyboardEvent, index: number) {
               <div class="agent-title">
                 <h1>{{ teamDisplayParts(manifest.name).label }}</h1>
                 <span
-                  v-if="store.isSuccess.value"
+                  v-if="store.isSuccess.value && !builtIn"
                   class="agent-status"
                   :class="{ archived: !added && !builtIn }"
                   >{{ availability }}</span

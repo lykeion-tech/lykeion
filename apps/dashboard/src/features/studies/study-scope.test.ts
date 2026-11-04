@@ -179,3 +179,15 @@ describe('study page scope', () => {
     expect(textOf(t.root)).toContain('Other study');
   });
 });
+
+it('hides the stopped badge on cards in Done', async () => {
+  const t = await mount();
+  t.client.setQueryData(keys.cards('lab'), [
+    card('Example study', 'me', { board_column: 'done', state: 'stopped', ending: 'stopped' }),
+  ]);
+  await t.settle();
+  const item = all(t.root).find(
+    (n) => n.tag === 'button' && n.props['data-card'] === 'Example study',
+  )!;
+  expect(textOf(item)).not.toContain('Stopped');
+});

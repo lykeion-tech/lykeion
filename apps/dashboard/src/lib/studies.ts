@@ -76,6 +76,7 @@ export const columnName = (id: string) => boardColumns.find((c) => c.id === id)?
 // board_column still names the column it is stuck in, and it returns there
 // when the block clears.
 export function boardColumnOf(card: Card): BoardColumn {
+  if (card.state === 'done') return 'done';
   return !card.ending && (card.state === 'blocked' || card.flag === 'escalated')
     ? 'blocked'
     : card.board_column;

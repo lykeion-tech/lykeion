@@ -249,7 +249,11 @@ const entries = computed(() => {
       entries.push({
         kind: 'jev',
         at: current.created_at,
-        text: `Jev · ${columnName(current.board_column)} · nothing to review yet`,
+        text: ['grounding', 'hypotheses', 'experimentation', 'validation'].includes(
+          current.board_column,
+        )
+          ? `Jev · ${columnName(current.board_column)} · nothing to review yet`
+          : 'Jev · nothing to review yet',
         column: current.board_column,
       });
     }

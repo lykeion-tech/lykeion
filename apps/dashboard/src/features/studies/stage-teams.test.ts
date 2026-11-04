@@ -372,8 +372,12 @@ describe('AssignPicker', () => {
       expect(p.text()).toContain('🔬');
       expect(p.nodes().some((n) => n.props['aria-label'] === 'Claude Code')).toBe(true);
       expect(p.nodes().some((n) => n.props['aria-label'] === 'Codex')).toBe(true);
-      expect(all(p.button(/Grounding Team/)!).filter((n) => n.props.class === 'picker-cli')).toHaveLength(1);
-      expect(all(p.button(/Grounding Team/)!).some((n) => n.props.title === 'Team leader: Codex')).toBe(true);
+      expect(
+        all(p.button(/Grounding Team/)!).filter((n) => n.props.class === 'picker-cli'),
+      ).toHaveLength(1);
+      expect(
+        all(p.button(/Grounding Team/)!).some((n) => n.props.title === 'Team leader: Codex'),
+      ).toBe(true);
       expect(all(p.button(/Scientist/)!).some((n) => n.props['aria-label'] === 'CLI online')).toBe(
         true,
       );
@@ -509,21 +513,44 @@ describe('AssignPicker', () => {
 
 describe('new agent model picker', () => {
   it('shows availability only for a healthy online runtime of the current researcher', async () => {
-    const t = await mount(AgentsView, () => ({}), '/agents', (c) => {
-      c.setQueryData(keys.agents('w'), [
-        { id: 'a', name: 'Claude agent', harness: 'claude', owner_id: 'u1', archived_at: null, updated_at: '2026-01-01', description: '' },
-        { id: 'b', name: 'Codex agent', harness: 'codex', owner_id: 'u1', archived_at: null, updated_at: '2026-01-01', description: '' },
-      ]);
-      c.setQueryData(keys.runtimes('w'), [
-        { owner_id: 'u1', harness: 'claude', status: 'online', unhealthy_reason: 'sign_in' },
-        { owner_id: 'u1', harness: 'codex', status: 'online', unhealthy_reason: null },
-      ]);
-    });
+    const t = await mount(
+      AgentsView,
+      () => ({}),
+      '/agents',
+      (c) => {
+        c.setQueryData(keys.agents('w'), [
+          {
+            id: 'a',
+            name: 'Claude agent',
+            harness: 'claude',
+            owner_id: 'u1',
+            archived_at: null,
+            updated_at: '2026-01-01',
+            description: '',
+          },
+          {
+            id: 'b',
+            name: 'Codex agent',
+            harness: 'codex',
+            owner_id: 'u1',
+            archived_at: null,
+            updated_at: '2026-01-01',
+            description: '',
+          },
+        ]);
+        c.setQueryData(keys.runtimes('w'), [
+          { owner_id: 'u1', harness: 'claude', status: 'online', unhealthy_reason: 'sign_in' },
+          { owner_id: 'u1', harness: 'codex', status: 'online', unhealthy_reason: null },
+        ]);
+      },
+    );
     try {
       expect(t.nodes().filter((n) => n.props['aria-label'] === 'Active')).toHaveLength(1);
       expect(t.nodes().filter((n) => n.props['aria-label'] === 'Inactive')).toHaveLength(1);
       expect(t.text()).not.toContain('Status');
-    } finally { t.unmount(); }
+    } finally {
+      t.unmount();
+    }
   });
   it('uses the selected harness models and resets the model when the harness changes', async () => {
     const t = await mount(
@@ -537,7 +564,10 @@ describe('new agent model picker', () => {
             owner_id: 'u1',
             status: 'online',
             harness: 'claude',
-            models: [{ value: 'default', label: 'Default (recommended)' }, { value: 'opus', label: 'Opus' }],
+            models: [
+              { value: 'default', label: 'Default (recommended)' },
+              { value: 'opus', label: 'Opus' },
+            ],
           },
           {
             owner_id: 'u1',
@@ -557,15 +587,21 @@ describe('new agent model picker', () => {
       expect(picker().props['aria-label']).toBe('Model: Default (Recommended)');
       await (picker().props.onClick as () => Promise<void>)();
       await nextTick();
-      expect(t.nodes().find((n) => n.props['aria-label'] === 'Model options')?.props.style).toMatchObject({ bottom: 'calc(100% + 8px)' });
-      expect(t.nodes().filter((n) => n.props.role === 'option' && /default/i.test(textOf(n)))).toHaveLength(1);
+      expect(
+        t.nodes().find((n) => n.props['aria-label'] === 'Model options')?.props.style,
+      ).toMatchObject({ bottom: 'calc(100% + 8px)' });
+      expect(
+        t.nodes().filter((n) => n.props.role === 'option' && /default/i.test(textOf(n))),
+      ).toHaveLength(1);
       await t.click(/^Opus$/);
       expect(picker().props['aria-label']).toBe('Model: Opus');
       const harness = t.nodes().find((n) => n.props['aria-label'] === 'Harness: Claude Code')!;
       expect(harness).toBeDefined();
       await (harness.props.onClick as () => Promise<void>)();
       await nextTick();
-      expect(t.nodes().find((n) => n.props['aria-label'] === 'Harness options')?.props.style).toMatchObject({ bottom: 'calc(100% + 8px)' });
+      expect(
+        t.nodes().find((n) => n.props['aria-label'] === 'Harness options')?.props.style,
+      ).toMatchObject({ bottom: 'calc(100% + 8px)' });
       await t.click(/^Codex$/);
       expect(picker().props['aria-label']).toBe('Model: Default');
       await (picker().props.onClick as () => Promise<void>)();
@@ -578,7 +614,64 @@ describe('new agent model picker', () => {
   });
 });
 
+describe('Team availability', () => {
+  it('shows a Team as inactive without all of its healthy runtimes', async () => {
+    const t = await mount(
+      TeamsView,
+      () => ({}),
+      '/teams',
+      (c) => {
+        c.setQueryData(keys.teams('w', '', ''), [
+          {
+            ...storeTeam('t1', 'Grounding Team', 'grounding', 'shipped'),
+            agent_clis: ['codex', 'claude'],
+          },
+        ]);
+        c.setQueryData(keys.runtimes('w'), [
+          { owner_id: 'u1', harness: 'codex', status: 'online' },
+        ]);
+      },
+    );
+    try {
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Inactive')).toBe(true);
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Active')).toBe(false);
+    } finally {
+      t.unmount();
+    }
+  });
+  it('shows a Team as active when all of its runtimes are healthy', async () => {
+    const t = await mount(
+      TeamsView,
+      () => ({}),
+      '/teams',
+      (c) => {
+        c.setQueryData(keys.teams('w', '', ''), [
+          { ...storeTeam('t1', 'Grounding Team', 'grounding', 'shipped'), agent_clis: ['codex'] },
+        ]);
+        c.setQueryData(keys.runtimes('w'), [
+          { owner_id: 'u1', harness: 'codex', status: 'online' },
+        ]);
+      },
+    );
+    try {
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Active')).toBe(true);
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
 describe('TeamDetail', () => {
+  it('does not show the built-in label in the Team header', async () => {
+    const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
+    try {
+      expect(
+        t.nodes().some((n) => n.props.class === 'agent-status' && textOf(n).includes('Built in')),
+      ).toBe(false);
+    } finally {
+      t.unmount();
+    }
+  });
   it('updates the researcher’s built-in Team member CLI', async () => {
     const base = manifest('Hypotheses Team', 'hypotheses');
     const team = {
@@ -1399,7 +1492,12 @@ describe('study right-pane surfaces', () => {
 
   it('reveals a cited source on the same study while its pane is maximized', async () => {
     const citation = ref('');
-    const t = await mount(StudyDetail, () => ({ id: 'c', citation: citation.value }), '/', seedStudy);
+    const t = await mount(
+      StudyDetail,
+      () => ({ id: 'c', citation: citation.value }),
+      '/',
+      seedStudy,
+    );
     try {
       await t.click(/^Properties$/);
       const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
@@ -1525,4 +1623,27 @@ describe('a Workflow study', () => {
       t.unmount();
     }
   });
+});
+
+it('does not describe a stopped study as a Done Jev review', async () => {
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client, {
+        assignee_type: 'agent',
+        board_column: 'done',
+        state: 'done',
+        ending: 'stopped',
+      });
+      client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
+    },
+  );
+  try {
+    await vi.waitFor(() => expect(t.text()).toContain('Jev · nothing to review yet'));
+    expect(t.text()).not.toContain('Jev · Done');
+  } finally {
+    t.unmount();
+  }
 });

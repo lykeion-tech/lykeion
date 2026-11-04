@@ -10,7 +10,7 @@ import { workspaceId } from '../../api/session';
 import { deliveryLine } from '../studies/comment-delivery';
 import { registerDraftVisit } from '../../state/resource-draft';
 import RunTurn from './RunTurn.vue';
-import { structuredMessage } from './study-hand-in';
+import { messagePreview } from './study-hand-in';
 import RunReactions from './RunReactions.vue';
 import { roleLabel, systemRun, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
@@ -105,7 +105,7 @@ const state = computed(
 // never reads the run's messages.
 const preview = computed(() => {
   const latest = props.run.latest_text;
-  const text = props.run.answer || String(structuredMessage(latest)?.answer ?? latest);
+  const text = props.run.answer || messagePreview(latest);
   if (text)
     return text
       .replace(/```[\s\S]*?(```|$)/g, ' ')

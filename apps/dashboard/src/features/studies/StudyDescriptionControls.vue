@@ -213,7 +213,7 @@ async function attach(event: Event) {
   top: 28px;
   left: 0;
   padding: 8px;
-  background: var(--surface, #202024);
+  background: var(--fill-menu);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px #0004;
@@ -248,7 +248,7 @@ async function attach(event: Event) {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 3px 8px;
-  background: transparent;
+  background: var(--fill-chip);
   color: inherit;
   cursor: pointer;
 }

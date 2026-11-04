@@ -103,10 +103,7 @@ function entries(value: unknown, prefix = ''): [string, string][] {
       class="lyk-reading"
       :content="handIn.answer"
     />
-    <details v-else>
-      <summary>Recorded hand-in</summary>
-      <pre>{{ JSON.stringify(handIn, null, 2) }}</pre>
-    </details>
+    <p v-else>Report text unavailable.</p>
     <p v-if="column === 'validation'">
       {{
         reviewState === 'pending'
@@ -134,10 +131,6 @@ function entries(value: unknown, prefix = ''): [string, string][] {
         </p>
       </div>
     </details>
-    <details>
-      <summary>Recorded hand-in data</summary>
-      <pre>{{ JSON.stringify(handIn, null, 2) }}</pre>
-    </details>
   </section>
 </template>
 <style scoped>
@@ -156,10 +149,6 @@ function entries(value: unknown, prefix = ''): [string, string][] {
 .study-hand-in summary {
   cursor: pointer;
   font-weight: 600;
-}
-.study-hand-in pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .hand-in-item {
   padding: 8px 0 0 12px;

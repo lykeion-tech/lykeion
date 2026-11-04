@@ -433,14 +433,14 @@ describe('hand-in answers and re-asks', () => {
     expect(html).toContain('Did not run (runtime offline)');
     expect(html).not.toContain('continuity scope');
   });
-  it('folds a re-ask into one line with its problems', async () => {
+  it('hides hand-in correction messages from the study transcript', async () => {
     const reask = msg(2, 'status', {
       handin_reask: 1,
       problems: ['papers: id not found', 'status: bad'],
     });
     const html = await render([msg(1, 'text', 'Handing in.'), reask]);
-    expect(html).toContain('Lykeion asked for the hand-in to be corrected (2 problems)');
-    expect(html).toContain('papers: id not found');
+    expect(html).not.toContain('Lykeion asked for the hand-in to be corrected');
+    expect(html).not.toContain('papers: id not found');
     expect(transcriptBlocks([reask]).map((b) => b.kind)).toEqual(['reask']);
   });
 });
@@ -459,7 +459,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect(html).toContain('The evidence is mixed.');
     expect(html).toContain('doi:10.1/test');
-    expect(html).toContain('Recorded structured message');
+    expect(html).not.toContain('Recorded structured message');
   });
   it.each([
     [
@@ -514,7 +514,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect(html).toContain(section);
     expect(html).toContain(evidence);
-    expect(html).toContain('Recorded structured message');
+    expect(html).not.toContain('Recorded structured message');
   });
   it('shows the accepted answer even when the adapter recorded no matching text message', async () => {
     const html = await render([msg(1, 'text', 'Earlier progress.')], {
@@ -531,7 +531,7 @@ describe('accepted study hand-ins', () => {
       hand_in: handIn,
       hand_in_id: 'accepted-record',
     } as Partial<AgentRun>);
-    expect(html).toContain('Recorded structured message');
+    expect(html).not.toContain('Recorded structured message');
     expect(html).toContain('Grounding report');
   });
   it('replaces only the identified final message with the accepted report', async () => {
@@ -542,7 +542,7 @@ describe('accepted study hand-ins', () => {
       hand_in_id: 'accepted-record',
       hand_in_message_seq: 2,
     } as Partial<AgentRun>);
-    expect((html.match(/Recorded structured message/g) ?? []).length).toBe(1);
+    expect((html.match(/The evidence is mixed\./g) ?? []).length).toBe(2);
     expect(html).toContain('Grounding report');
   });
   it('retains a referenced message when it does not match the accepted record', async () => {
@@ -555,7 +555,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect(html).toContain('Earlier update.');
     expect(html).toContain('The evidence is mixed.');
-    expect(html).toContain('Recorded structured message');
+    expect(html).not.toContain('Recorded structured message');
   });
   it('keeps the full answer of an earlier message even when it matches the accepted answer', async () => {
     const answer = 'Unresolved concern. '.repeat(15);
@@ -568,7 +568,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect((html.match(/<p>Unresolved concern\./g) ?? []).length).toBe(2);
   });
-  it('preserves unrecognized accepted fields and shows incomplete status', async () => {
+  it('shows incomplete status without displaying unrecognized raw fields', async () => {
     const hand = {
       status: 'could_not_do',
       answer: 'Unable to continue.',
@@ -582,7 +582,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect(html).toContain('Could not complete');
     expect(html).toContain('No data.');
-    expect(html).toContain('Keep me');
+    expect(html).not.toContain('Keep me');
   });
   it('preserves an unknown accepted status', async () => {
     const html = await render([], {
@@ -592,7 +592,7 @@ describe('accepted study hand-ins', () => {
     } as Partial<AgentRun>);
     expect(html).toContain('legacy_state');
   });
-  it('keeps complete interim progress and original malformed fields available', async () => {
+  it('keeps complete interim progress without exposing malformed fields', async () => {
     const progress = 'A'.repeat(180) + ' important limitation';
     const html = await render(
       [msg(1, 'text', JSON.stringify({ status: 'done', answer: progress }))],
@@ -603,16 +603,17 @@ describe('accepted study hand-ins', () => {
       } as Partial<AgentRun>,
     );
     expect(html).toContain(progress);
-    expect(html).toContain('Recorded hand-in data');
-    expect(html).toContain('&quot;papers&quot;');
+    expect(html).not.toContain('Recorded hand-in data');
+    expect(html).not.toContain('&quot;papers&quot;');
   });
-  it('keeps progress visible and malformed accepted records accessible', async () => {
+  it('keeps progress visible and indicates missing report text', async () => {
     const html = await render([msg(1, 'text', '{"answer":"Still checking.","status":"done"}')], {
       hand_in: { legacy: 'Unusual historical data' },
       hand_in_id: 'record-1',
     } as Partial<AgentRun>);
     expect(html).toContain('Still checking.');
-    expect(html).toContain('Unusual historical data');
+    expect(html).not.toContain('Unusual historical data');
+    expect(html).toContain('Report text unavailable');
   });
   it('marks validation as awaiting review when no review attempt is available', async () => {
     const html = await render([], {
@@ -647,7 +648,7 @@ describe('accepted study hand-ins', () => {
       hand_in_id: 'accepted-record',
     } as Partial<AgentRun>);
     expect(html).toContain('still working');
-    expect(html).toContain('&quot;papers&quot;');
+    expect(html).not.toContain('&quot;papers&quot;');
     expect(html).toContain('doi:10.1/test');
   });
 });
@@ -830,4 +831,13 @@ describe('single-mode study environment', () => {
       client.clear();
     }
   });
+});
+
+it('renders an interrupted structured answer as readable text in the transcript', async () => {
+  const html = await render([msg(1, 'text', '{"answer":"A finding.\\nMore details')], {
+    status: 'cancelled',
+  });
+  expect(html).toContain('A finding.');
+  expect(html).toContain('More details');
+  expect(html).not.toContain('&quot;answer&quot;');
 });
