@@ -97,6 +97,13 @@ test('real sandboxed Codex proposes a note that is created only after human revi
           .archived_at,
     )
     .toBeTruthy();
+  const archivedPath = '/api/lab/chats?purpose=manual_decision_draft&archived=true';
+  const creatorArchive = await page.request.get(archivedPath, { headers });
+  expect(creatorArchive.status()).toBe(200);
+  const creatorArchiveText = await creatorArchive.text();
+  for (const privateValue of [chatId, note.title, note.context]) {
+    expect(creatorArchiveText).toContain(privateValue);
+  }
   const contexts = [];
   try {
     for (const role of ['member', 'admin']) {
@@ -114,14 +121,22 @@ test('real sandboxed Codex proposes a note that is created only after human revi
           await context.request.post(`/api/invitations/${(await invitation.json()).token}/accept`)
         ).status(),
       ).toBe(200);
-      for (const path of [
-        '/api/decisions',
-        '/api/decisions?view=history',
-        '/api/lab/chats?purpose=manual_decision_draft&archived=true',
-      ]) {
+      for (const path of ['/api/decisions', '/api/decisions?view=history']) {
         const result = await context.request.get(path, { headers });
         expect(result.status()).toBe(200);
         expect(await result.text()).not.toContain(note.id);
+      }
+      const archived = await context.request.get(archivedPath, { headers });
+      expect(archived.status()).toBe(200);
+      const archivedText = await archived.text();
+      for (const [field, privateValue] of Object.entries({
+        chat_id: chatId,
+        draft_title: note.title,
+        draft_context: note.context,
+      })) {
+        expect
+          .soft(archivedText, `${role} archived list leaked private ${field}`)
+          .not.toContain(privateValue);
       }
       expect(
         (await context.request.get(`/api/lab/chats/${chatId}/draft`, { headers })).status(),
