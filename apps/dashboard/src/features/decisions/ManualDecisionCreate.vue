@@ -152,6 +152,7 @@ function clearPrivateDraft() {
   revision++;
   loaded.value = false;
   denied.value = true;
+  busy.value = false;
   draft.value = blankManualDecisionDraft();
   saveState.value = '';
 }

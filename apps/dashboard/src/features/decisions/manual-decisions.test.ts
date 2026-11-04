@@ -420,3 +420,21 @@ it.each([401, 403, 404])(
     );
   },
 );
+
+it.each([401, 403, 404])('releases Create busy state after draft-save denial %s and authorized recovery', async status => {
+  const original = { ...blankManualDecisionDraft(), title: 'Ready to create' };
+  backend(original);
+  const { root, client } = await mount(ManualDecisionCreate, {}, '/decisions/new?draft=d1');
+  api.mockRejectedValue(Object.assign(new Error('Access denied'), { status }));
+  await (all(root).find(n => n.tag === 'form')!.props.onSubmit as Function)({ preventDefault() {} });
+  await settle();
+  expect(textOf(root)).toContain('unavailable');
+  expect(api.mock.calls.some(c => c[1] === '/api/decisions/manual')).toBe(false);
+  backend(original);
+  await client.invalidateQueries({ queryKey: labKey('w1') }); await settle();
+  expect(all(root).find(n => n.props['aria-label'] === 'Title')?.props.disabled).toBe(false);
+  expect(button(root, 'Create')?.props.disabled).toBe(false);
+  await (all(root).find(n => n.tag === 'form')!.props.onSubmit as Function)({ preventDefault() {} });
+  await settle();
+  expect(api.mock.calls.some(c => c[1] === '/api/decisions/manual')).toBe(true);
+});
