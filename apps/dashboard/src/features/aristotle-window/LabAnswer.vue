@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import { labKey, sourcePath, type LabMessage, type LabRef } from './api';
-const props = defineProps<{ message: LabMessage; evidence: boolean }>();
+defineProps<{ message: LabMessage; evidence: boolean }>();
 const flagging = ref(''),
   reason = ref(''),
   busy = ref(false),
@@ -36,13 +36,6 @@ async function submit() {
     busy.value = false;
   }
 }
-function viaSource(via: string) {
-  return props.message.evidence.find((source) => source.ref === via);
-}
-function viaPath(via: string) {
-  const source = viaSource(via);
-  return source && sourcePath(source);
-}
 </script>
 <template>
   <article class="answer">
@@ -52,10 +45,7 @@ function viaPath(via: string) {
       class="statement"
       :class="{ gap: statement.kind === 'gap' }"
     >
-      <span v-if="statement.kind !== 'gap'" class="tag" :class="statement.kind">{{
-        statement.kind === 'lesson' ? 'Lesson' : 'Fact'
-      }}</span
-      >{{ statement.text }}
+      <span v-if="statement.kind === 'lesson'" class="tag lesson">Lesson</span>{{ statement.text }}
       <template v-for="cite in statement.cites" :key="cite.ref">
         <RouterLink v-if="sourcePath(cite)" class="cite" :to="sourcePath(cite)!">{{
           cite.title
@@ -103,13 +93,6 @@ function viaPath(via: string) {
       <div v-for="item in message.evidence" :key="item.ref + '|' + item.via" class="source">
         <RouterLink v-if="sourcePath(item)" :to="sourcePath(item)!">{{ item.title }}</RouterLink
         ><span v-else>{{ item.title }}</span>
-        <small v-if="item.via"
-          >via
-          <RouterLink v-if="viaPath(item.via)" :to="viaPath(item.via)!">{{
-            viaSource(item.via)?.title
-          }}</RouterLink>
-          <template v-else>{{ viaSource(item.via)?.title || item.via }}</template>
-        </small>
       </div>
     </section>
   </article>
@@ -131,10 +114,6 @@ function viaPath(via: string) {
 .tag {
   font-weight: 600;
   margin-right: 4px;
-}
-.fact {
-  background: color-mix(in srgb, #22a35a 18%, var(--surface));
-  color: color-mix(in srgb, #22a35a 70%, var(--text));
 }
 .tag.lesson {
   background: color-mix(in srgb, #d99a1e 20%, var(--surface));

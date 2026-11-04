@@ -142,8 +142,10 @@ it('preserves the draft when the machine is offline', async () => {
 });
 it('renders marked statements, links, evidence paths and flags a lesson', async () => {
   const t = await mount(true);
-  for (const s of ['Fact', 'Lesson', 'No record.', 'Replication', 'search'])
+  for (const s of ['Lesson', 'No record.', 'Replication', 'Evidence'])
     expect(textOf(t.root)).toContain(s);
+  expect(textOf(t.root)).not.toContain('via search');
+  expect(all(t.root).some((n) => n.tag === 'span' && textOf(n) === 'Fact')).toBe(false);
   expect(all(t.root).some((n) => n.props.href === '/studies/s')).toBe(true);
   await t.click('Flag lesson');
   await t.click('Submit flag');
