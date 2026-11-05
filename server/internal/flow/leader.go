@@ -130,7 +130,11 @@ func (e *Engine) Delegate(ctx context.Context, tx *store.Tx, w service.Writer, m
 	if err != nil {
 		return db.Record{}, uuid.Nil, err
 	}
-	rec, err := records.WriteAs(ctx, tx, w, "delegation", map[string]any{"member": member, "step": step, "agent_run_id": run.ID})
+	leader, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{WorkspaceID: tx.WS, ID: w.AgentRun})
+	if err != nil {
+		return db.Record{}, uuid.Nil, err
+	}
+	rec, err := records.WriteAs(ctx, tx, w, "delegation", map[string]any{"member": member, "step": step, "agent_run_id": run.ID, "leader_attempt": leader.Attempt})
 	return rec, run.ID, err
 }
 
@@ -168,7 +172,7 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if e.Jev != nil && t.Status == "completed" {
 		var h *handInBody
 		err := e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) (err error) {
-			h, _, err = runHandIn(ctx, tx, t.ID)
+			h, _, err = runHandIn(ctx, tx, t)
 			return err
 		})
 		if err != nil {
@@ -191,11 +195,14 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		if len(latest) > 0 && leads(latest[0].Role) && latest[0].ID != t.ID {
 			return nil
 		}
-		h, summary, err := runHandIn(ctx, tx, t.ID)
+		h, summary, err := runHandIn(ctx, tx, t)
 		if err != nil || summary {
 			return err
 		}
 		if t.Status == "completed" && h != nil && h.Status == "could_not_do" {
+			if h.BlockedByEnvironment != nil && slices.Contains(h.EnvironmentFailures, *h.BlockedByEnvironment) {
+				return e.holdEnvironment(ctx, tx, c, ptrOr(h.Reason))
+			}
 			return e.askOwner(ctx, tx, c, ptrOr(h.Reason))
 		}
 		if t.Status == "completed" && h != nil && h.Status == "ask" && h.Decision != nil {
@@ -207,33 +214,65 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 
 // runHandIn is the hand-in a run recorded, and whether the run already
 // declared its column done.
-func runHandIn(ctx context.Context, tx *store.Tx, run uuid.UUID) (*handInBody, bool, error) {
-	recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &run})
+func runHandIn(ctx context.Context, tx *store.Tx, run db.AgentRun) (*handInBody, bool, error) {
+	recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &run.ID})
 	if err != nil {
 		return nil, false, err
 	}
 	var h *handInBody
+	var summary, hasAttempt bool
 	for _, r := range recs {
+		if r.Kind == "hand_in" && records.Body[handInRecord](r).Attempt > 0 {
+			hasAttempt = true
+		}
+		if r.SupersededAt != nil {
+			continue
+		}
 		switch r.Kind {
 		case "summary":
-			return h, true, nil
+			summary = true
 		case "hand_in":
-			b := records.Body[handInRecord](r).HandIn
+			rec := records.Body[handInRecord](r)
+			if rec.HandIn.BlockedByEnvironment != nil && (rec.Attempt < 1 || rec.Attempt != run.Attempt) {
+				continue
+			}
+			if rec.HandIn.BlockedByEnvironment == nil && run.Attempt != 0 && rec.Attempt != 0 && rec.Attempt != run.Attempt {
+				continue
+			}
+			b := rec.HandIn
+			b.EnvironmentFailures = rec.EnvironmentFailures
 			h = &b
 		}
 	}
-	return h, false, nil
+	// A non-done current hand-in cannot have produced a summary. Older
+	// summaries have no attempt field, so never let one mask that hand-in.
+	return h, summary && ((h != nil && h.Status == "done") || (h == nil && !hasAttempt)), nil
 }
 
 // handInRecord is the part of a hand_in record the engine reads.
 type handInRecord struct {
-	HandIn handInBody `json:"hand_in"`
+	HandIn              handInBody `json:"hand_in"`
+	Attempt             int32      `json:"attempt"`
+	EnvironmentFailures []string   `json:"environment_failures"`
 }
 
 type handInBody struct {
-	Status   string             `json:"status"`
-	Reason   *string            `json:"reason"`
-	Decision *handin.DecisionIn `json:"decision"`
+	Status               string             `json:"status"`
+	Reason               *string            `json:"reason"`
+	Decision             *handin.DecisionIn `json:"decision"`
+	BlockedByEnvironment *string            `json:"blocked_by_environment"`
+	EnvironmentFailures  []string           `json:"-"`
+}
+
+func (e *Engine) holdEnvironment(ctx context.Context, tx *store.Tx, c db.Card, reason string) error {
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "blocked",
+		Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
+		return err
+	}
+	if err := tx.Q.InsertEnvironmentHold(ctx, db.InsertEnvironmentHoldParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Text: couldNotDoText(c.Number, reason)}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "blocked"})
 }
 
 // askOwner holds a study whose lead could not do its column, as a block

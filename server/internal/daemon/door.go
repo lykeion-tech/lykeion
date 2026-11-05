@@ -102,10 +102,12 @@ type Door struct {
 	// own, outside every folder the run's code may write.
 	connectorDir string
 	// interp answers a language's interpreter; nil means Study.Interpreter.
-	interp           func(lang string) (string, []string, error)
-	kernels          *kernels.Sessions
-	executionMu      sync.Mutex
-	kernelGeneration uint64
+	interp              func(lang string) (string, []string, error)
+	kernels             *kernels.Sessions
+	executionMu         sync.Mutex
+	environmentMu       sync.Mutex
+	environmentFailures map[string]bool
+	kernelGeneration    uint64
 	// policy is what the run's code may touch, built once, before the first
 	// code runs; tmp is the run's private temp folder in it and placeholders
 	// the read-only stand-ins it made, which Close removes. sandboxErr is why

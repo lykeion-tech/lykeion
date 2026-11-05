@@ -88,6 +88,8 @@ const (
 	handInIntro = "Your final answer is your hand-in: Lykeion checks it, and asks you to correct it if something is missing. Its fields:\n" +
 		"- `status`: `done`, or `could_not_do` when something outside the work blocked it (no data attached, a source that would not open); then `reason` says plainly what blocked it, and is null otherwise. " +
 		"`ask` puts a question only the researcher can answer: see `decision`.\n" +
+		"- `blocked_by_environment`: if a local Python, R or Julia environment was unavailable and prevented the work, name `python`, `r` or `julia`; otherwise null. Do not use this for missing research data.\n" +
+		"- `blocked_by_member_run`: when reporting a delegated member's environment failure, give the exact member ticket UUID; otherwise null.\n" +
 		"- `answer`: what you found or did, written for the researcher in plain language.\n" +
 		"- `decision`: null unless `status` is `ask`. Then it holds the question: `kind`, `title` (one line), `body`, 2 to 5 `options` (each an `id` of lowercase letters, digits or underscores, a `label` and a one-line `consequence`), " +
 		"`expires_at` (null for 7 days, or a time at most 30 days ahead) and `from_member`. " +

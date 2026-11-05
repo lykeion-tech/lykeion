@@ -77,14 +77,14 @@ ORDER BY created_at, id;
 -- a person are resolved and cancelled, whoever they were addressed to.
 -- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind <> 'manual_decision' AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
+WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind <> 'manual_decision' AND (kind IN ('escalated', 'blocked', 'scoring_unavailable') OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable') AND resolved_at IS NULL
 RETURNING id;
 
 -- What a held study waits on: the text of its open item for a person.
 -- name: CardHoldText :one
 SELECT text FROM inbox_item
 WHERE workspace_id = @workspace_id AND card_id = @card_id AND resolved_at IS NULL
-  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid') OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable')
 ORDER BY created_at DESC LIMIT 1;
 
 -- name: DeleteCard :exec

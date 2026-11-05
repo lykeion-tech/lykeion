@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/daemon/envs"
 )
 
 const setupDescription = "Set up this study's environment: python chooses one Python version, conda adds packages from conda-forge then bioconda, and lock installs an explicit conda lock file or environment.yml inside the working folder or attachments. A study keeps one Python version; a new Python has only ipykernel, so install any other packages you need. lean selects a Lean toolchain with an optional mathlib revision; its shared base is built by the daemon and used read-only by the study. Setup has a 30 minute limit."
@@ -80,6 +81,7 @@ func (d *Door) setUp(ctx context.Context, _ *mcp.CallToolRequest, in setupIn) (*
 		before := d.Study.PythonGeneration()
 		var err error
 		output, err = d.Study.SetUpConda(ctx, in.Python, in.Conda, in.Lock)
+		d.recordEnvironmentError(envs.Python, err)
 		if d.Study.PythonGeneration() != before {
 			if restartErr := d.refreshPythonSession(ctx); restartErr != nil {
 				return nil, nil, errors.Join(err, restartErr)
@@ -87,6 +89,9 @@ func (d *Door) setUp(ctx context.Context, _ *mcp.CallToolRequest, in setupIn) (*
 		}
 		if err != nil {
 			return nil, nil, err
+		}
+		if _, _, readyErr := d.interpreter(envs.Python); readyErr == nil {
+			d.setEnvironmentFailure(envs.Python, false)
 		}
 		output = "A new Python includes only ipykernel; install other packages as needed.\n" + output
 	}

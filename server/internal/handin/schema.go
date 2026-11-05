@@ -54,6 +54,10 @@ func build(extra ...any) string {
 	return strictSchema(kv...)
 }
 
+func buildStudy(extra ...any) string {
+	return build(append([]any{"blocked_by_environment", desc(nullStr(), "If a local Python, R or Julia environment prevented the work, use python, r or julia; otherwise null."), "blocked_by_member_run", desc(nullStr(), "For a delegated member's environment failure, the exact member ticket UUID; otherwise null.")}, extra...)...)
+}
+
 func strictSchema(kv ...any) string {
 	b, err := json.Marshal(object(kv...))
 	if err != nil {
@@ -65,12 +69,12 @@ func strictSchema(kv ...any) string {
 var schemas = map[Kind]string{
 	ManualDecisionDraft: strictSchema("message", str(), "draft", object("title", str(), "context", str(), "deadline", nullStr(), "card_id", nullStr()), "statements", list(object("kind", enum("fact", "lesson", "gap"), "text", str(), "cites", list(str())))),
 	Aristotle:           strictSchema("statements", list(object("kind", enum("fact", "lesson", "gap"), "text", str(), "cites", list(str())))),
-	Grounding: build(
+	Grounding: buildStudy(
 		"papers", list(object("id", str(), "why", str())),
 		"datasets", list(object("accession", str(), "why", str())),
 		"no_qualifying", nullObj(object("reason", str())),
 		"replies", list(reply())),
-	Hypotheses: build(
+	Hypotheses: buildStudy(
 		"hypotheses", list(object(
 			"text", str(),
 			"prediction_shape", enum("direction", "outcomes", "range"),
@@ -80,14 +84,14 @@ var schemas = map[Kind]string{
 			"control", nullStr(), "no_control", nullStr(),
 			"cites", list(str()))),
 		"replies", list(reply())),
-	Experimentation: build(
+	Experimentation: buildStudy(
 		"outputs", list(str()),
 		"values", list(object("name", str(), "value", str(), "file", str())),
 		"replies", list(reply())),
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),
 		"replies", list(reply())),
-	Validation: build(
+	Validation: buildStudy(
 		"assessments", list(object(
 			"hypothesis", str(),
 			"measurement", desc(str(), "The name of the recorded value that measures the hypothesis: the effect itself, such as a difference, or the treated group's raw value."),

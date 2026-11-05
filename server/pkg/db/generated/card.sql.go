@@ -235,7 +235,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 const cardHoldText = `-- name: CardHoldText :one
 SELECT text FROM inbox_item
 WHERE workspace_id = $1 AND card_id = $2 AND resolved_at IS NULL
-  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
+  AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid') OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable')
 ORDER BY created_at DESC LIMIT 1
 `
 
@@ -917,7 +917,7 @@ func (q *Queries) ReserveComment(ctx context.Context, arg ReserveCommentParams) 
 
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
-WHERE workspace_id = $1 AND card_id = $2 AND kind <> 'manual_decision' AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
+WHERE workspace_id = $1 AND card_id = $2 AND kind <> 'manual_decision' AND (kind IN ('escalated', 'blocked', 'scoring_unavailable') OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable') AND resolved_at IS NULL
 RETURNING id
 `
 

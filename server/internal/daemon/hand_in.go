@@ -35,7 +35,7 @@ const maxOutputProblems = 20
 // turn's usage, and the problems still unresolved. A turn that fails ends the
 // asking: its result carries the error and no problems are returned. The error
 // is the daemon's own: a call to the server that did not get an answer.
-func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec func(prompt, resume string) agent.Result, say func(agent.Message) error) (agent.Result, []string, error) {
+func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec func(prompt, resume string) agent.Result, say func(agent.Message) error, door *Door) (agent.Result, []string, error) {
 	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
 	// Cardless Aristotle and Autoresearch runs submit only their hand-ins.
 	outputs := c.AgentRun.Kind != "autoresearch" && c.AgentRun.Kind != "aristotle"
@@ -67,11 +67,14 @@ func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec f
 		// A refused output is fixed before the hand-in, which is kept once accepted.
 		if len(probs) == 0 {
 			attempt.HandInMessageSeq = res.OutputMessageSeq
+			if door != nil {
+				attempt.EnvironmentFailures = door.EnvironmentFailures()
+			}
 			if probs, err = d.postHandIn(ctx, attempt, handInJSON(res.Output)); err != nil {
 				if errors.Is(err, errLabContextChanged) {
 					return res, nil, err
 				}
-				return res, nil, &unsentHandIn{err}
+				return res, nil, &unsentHandIn{err: err, environmentFailures: attempt.EnvironmentFailures}
 			}
 		}
 		if len(probs) == 0 || asked == maxHandInReasks {
@@ -109,7 +112,10 @@ func reaskPrompt(probs []string) string {
 
 // unsentHandIn is a hand-in post that got no verdict: the answer is whole,
 // and only the server is missing.
-type unsentHandIn struct{ err error }
+type unsentHandIn struct {
+	err                 error
+	environmentFailures []string
+}
 
 func (e *unsentHandIn) Error() string { return e.err.Error() }
 func (e *unsentHandIn) Unwrap() error { return e.err }
@@ -140,6 +146,9 @@ func handInJSON(output string) json.RawMessage {
 // problems with it.
 func (d *daemon) postHandIn(ctx context.Context, attempt Report, handIn json.RawMessage) ([]string, error) {
 	body := map[string]any{"workspace_id": attempt.WorkspaceID, "runtime_id": attempt.RuntimeID, "attempt": attempt.Attempt, "hand_in": handIn}
+	if len(attempt.EnvironmentFailures) > 0 {
+		body["environment_failures"] = attempt.EnvironmentFailures
+	}
 	if attempt.HandInMessageSeq > 0 {
 		body["message_seq"] = attempt.HandInMessageSeq
 	}

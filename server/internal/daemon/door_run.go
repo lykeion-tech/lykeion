@@ -71,13 +71,65 @@ type runScriptIn struct {
 }
 
 func (d *Door) interpreter(lang string) (string, []string, error) {
+	var name string
+	var args []string
+	var err error
 	if d.interp != nil {
-		return d.interp(lang)
-	}
-	if d.Study == nil {
+		name, args, err = d.interp(lang)
+	} else if d.Study == nil {
 		return "", nil, errors.New("this run has no study environment")
+	} else {
+		name, args, err = d.Study.Interpreter(lang)
 	}
-	return d.Study.Interpreter(lang)
+	d.recordEnvironmentError(lang, err)
+	return name, args, err
+}
+
+func (d *Door) recordEnvironmentError(lang string, err error) {
+	if !errors.Is(err, envs.ErrNotReady) {
+		return
+	}
+	var named interface{ Language() string }
+	if errors.As(err, &named) {
+		lang = named.Language()
+	}
+	d.setEnvironmentFailure(lang, true)
+}
+
+func (d *Door) setEnvironmentFailure(lang string, failed bool) {
+	if lang != envs.Python && lang != envs.R && lang != envs.Julia {
+		return
+	}
+	d.environmentMu.Lock()
+	defer d.environmentMu.Unlock()
+	if failed {
+		if d.environmentFailures == nil {
+			d.environmentFailures = make(map[string]bool)
+		}
+		d.environmentFailures[lang] = true
+	} else {
+		delete(d.environmentFailures, lang)
+	}
+}
+
+func (d *Door) clearReadyEnvironment(lang string) {
+	d.setEnvironmentFailure(lang, false)
+	if lang != envs.Python && d.Study != nil && d.Study.Ready(envs.Python) == nil {
+		d.setEnvironmentFailure(envs.Python, false)
+	}
+}
+
+// EnvironmentFailures reports unresolved daemon-observed environment failures.
+func (d *Door) EnvironmentFailures() []string {
+	d.environmentMu.Lock()
+	defer d.environmentMu.Unlock()
+	var result []string
+	for _, lang := range []string{envs.Julia, envs.Python, envs.R} {
+		if d.environmentFailures[lang] {
+			result = append(result, lang)
+		}
+	}
+	return result
 }
 
 // sandboxReady builds the run's sandbox once, before its first code runs:
@@ -351,18 +403,21 @@ func (d *Door) runCode(ctx context.Context, _ *mcp.CallToolRequest, in runCodeIn
 		if err := s.Restart(ctx, in.Language); err != nil {
 			return nil, nil, err
 		}
+		d.clearReadyEnvironment(in.Language)
 		if in.Code == "" {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "the " + in.Language + " session restarted; its variables are gone"}}}, nil, nil
 		}
 	}
 	packages, err := d.Study.Packages(ctx, in.Language)
 	if err != nil {
+		d.recordEnvironmentError(in.Language, err)
 		return nil, nil, fmt.Errorf("reading the study's package list: %w", err)
 	}
 	res, err := s.Exec(ctx, in.Language, in.Code)
 	if err != nil {
 		return nil, nil, err
 	}
+	d.clearReadyEnvironment(in.Language)
 	if err := d.Study.CheckDefaultPython(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -454,12 +509,15 @@ func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScri
 	defer cancel()
 	packages, err := d.Study.Packages(ctx, lang)
 	if err != nil {
+		d.recordEnvironmentError(lang, err)
 		return nil, nil, fmt.Errorf("reading the study's package list: %w", err)
 	}
 	output, errText, status, err := d.execScript(ctx, d.Study, in.Path, lang, string(contents))
 	if err != nil {
+		d.recordEnvironmentError(lang, err)
 		return nil, nil, err
 	}
+	d.clearReadyEnvironment(lang)
 	if err := d.Study.CheckDefaultPython(ctx); err != nil {
 		return nil, nil, err
 	}

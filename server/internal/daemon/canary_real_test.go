@@ -99,7 +99,7 @@ func TestCanary(t *testing.T) {
 				t.Fatal("the daemon asked for the hand-in to be corrected")
 				return agent.Result{}
 			}
-			_, probs, err := d.handIn(ctx, c, res, noReask, func(agent.Message) error { return nil })
+			_, probs, err := d.handIn(ctx, c, res, noReask, func(agent.Message) error { return nil }, nil)
 			must(t, err)
 			if len(probs) > 0 {
 				t.Errorf("hand-in refused: %v", probs)

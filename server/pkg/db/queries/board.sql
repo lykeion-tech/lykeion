@@ -82,6 +82,10 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id AND board_column = @bo
 INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text)
 VALUES (@workspace_id, @card_id::uuid, @user_id, @kind, @text);
 
+-- name: InsertEnvironmentHold :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES (@workspace_id, @card_id::uuid, @user_id, 'waiting_for_machine', @text, 'environment_unavailable');
+
 -- A study's stop is a decision: one open item per study and cause (a needs_decision
 -- item), carrying its options, its default and the moment the default applies.
 -- name: UpsertStopDecision :exec
@@ -171,11 +175,11 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND resolved_at 
   AND (kind = 'blocked' OR kind = 'needs_decision' AND cause IN ('could_not_do', 'all_withdrawn', 'validation_invalid'))
 RETURNING id;
 
--- A redone column no longer waits on runs its machines kept failing: the
--- study's open item asking about them is dismissed.
+-- A redone column clears its machine-failure and environment holds.
 -- name: DismissMachineFailures :many
 UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
-WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'needs_decision' AND cause = 'machine_failures'
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND (kind = 'needs_decision' AND cause = 'machine_failures' OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable')
   AND resolved_at IS NULL
 RETURNING id;
 

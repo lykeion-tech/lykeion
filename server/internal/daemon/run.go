@@ -488,7 +488,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			}
 			return next
 		}
-		res, handInProblems, handInErr = d.handIn(runCtx, c, res, reask, sink)
+		res, handInProblems, handInErr = d.handIn(runCtx, c, res, reask, sink, door)
 	}
 	final = res
 	if final.Err == nil && streamErr != nil {
@@ -525,6 +525,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	case errors.As(handInErr, &unsent) && waitsForServer(unsent.err) && r.Kind == "complete" && breach == "" && (runCtx.Err() == nil || ctx.Err() != nil):
 		r.HandIn = handInJSON(res.Output)
 		r.HandInMessageSeq = res.OutputMessageSeq
+		r.EnvironmentFailures = unsent.environmentFailures
 		slog.Warn("hand-in kept until the server answers", "run", r.AgentRunID, "attempt", r.Attempt, "err", handInErr)
 	case errors.Is(handInErr, errLabContextChanged):
 		r.FailureReason = agent.ReasonLabContextChanged

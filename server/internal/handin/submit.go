@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -47,10 +48,12 @@ type AutoresearchOps interface {
 }
 
 type handInBody struct {
-	AgentRunID uuid.UUID       `json:"agent_run_id"`
-	Attempt    int32           `json:"attempt"`
-	HandIn     json.RawMessage `json:"hand_in"`
-	MessageSeq int32           `json:"message_seq,omitempty"`
+	AgentRunID               uuid.UUID       `json:"agent_run_id"`
+	Attempt                  int32           `json:"attempt"`
+	HandIn                   json.RawMessage `json:"hand_in"`
+	MessageSeq               int32           `json:"message_seq,omitempty"`
+	EnvironmentFailures      []string        `json:"environment_failures,omitempty"`
+	EnvironmentFailureMember *uuid.UUID      `json:"environment_failure_member,omitempty"`
 }
 
 // Submit checks the hand-in of run's attempt ref.Attempt and, when nothing is
@@ -64,6 +67,11 @@ func (s *HandIns) Submit(ctx context.Context, user uuid.UUID, ref service.Runtim
 }
 
 func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage, messageSeq int32) ([]string, error) {
+	return s.SubmitWithEnvironment(ctx, user, ref, run, raw, messageSeq, nil)
+}
+
+// SubmitWithEnvironment records daemon-attested environment failures with this attempt.
+func (s *HandIns) SubmitWithEnvironment(ctx context.Context, user uuid.UUID, ref service.RuntimeRef, run uuid.UUID, raw json.RawMessage, messageSeq int32, failures []string) ([]string, error) {
 	var probs []string
 	var unavailable bool
 	err := s.Runs.OnAttempt(ctx, user, ref, run, func(tx *store.Tx, t db.AgentRun) error {
@@ -71,6 +79,20 @@ func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref 
 		k, ok := KindFor(t.Kind, t.Role, t.BoardColumn)
 		if !ok {
 			return service.ErrConflict
+		}
+		if len(failures) > 3 {
+			probs = append(probs, "environment_failures: at most three languages")
+		}
+		seen := make(map[string]bool, len(failures))
+		for _, language := range failures {
+			if !slices.Contains([]string{"python", "r", "julia"}, language) || seen[language] {
+				probs = append(probs, "environment_failures: invalid or duplicate language")
+				break
+			}
+			seen[language] = true
+		}
+		if len(probs) > 0 {
+			return nil
 		}
 		if k == Aristotle {
 			var err error
@@ -134,6 +156,30 @@ func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref 
 		if probs = shape; len(probs) > 0 {
 			return nil
 		}
+		attested := slices.Clone(failures)
+		var failureMember *uuid.UUID
+		if h.BlockedByMemberRun != nil {
+			memberID, _ := uuid.Parse(*h.BlockedByMemberRun)
+			ok, err := delegatedEnvironmentFailure(ctx, tx, t, study, memberID, deref(h.BlockedByEnvironment))
+			if err != nil {
+				return err
+			}
+			if !ok {
+				probs = append(probs, "blocked_by_member_run: no matching attested failure for this delegated member")
+			} else {
+				failureMember = &memberID
+				if !seen[*h.BlockedByEnvironment] {
+					attested = append(attested, *h.BlockedByEnvironment)
+					seen[*h.BlockedByEnvironment] = true
+				}
+			}
+		}
+		if h.BlockedByEnvironment != nil && !seen[*h.BlockedByEnvironment] {
+			probs = append(probs, "blocked_by_environment: the daemon has not confirmed this environment failure")
+		}
+		if len(probs) > 0 {
+			return nil
+		}
 		lead := Leads(t.Role)
 		if lead {
 			_, err := tx.Q.InFlightMemberRun(ctx, db.InFlightMemberRunParams{WorkspaceID: tx.WS, CardID: w.Card, BoardColumn: w.Column, Round: w.Round})
@@ -170,7 +216,7 @@ func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref 
 		if probs = append(probs, more...); len(probs) > 0 {
 			return nil
 		}
-		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq}); err != nil {
+		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq, EnvironmentFailures: attested, EnvironmentFailureMember: failureMember}); err != nil {
 			return err
 		}
 		for _, r := range recs {
@@ -185,6 +231,46 @@ func (s *HandIns) SubmitWithMessageSeq(ctx context.Context, user uuid.UUID, ref 
 		return nil, service.ErrConflict
 	}
 	return probs, err
+}
+
+// delegatedEnvironmentFailure verifies the exact member ticket and its current attested hand-in.
+func delegatedEnvironmentFailure(ctx context.Context, tx *store.Tx, leader db.AgentRun, study []db.Record, memberID uuid.UUID, language string) (bool, error) {
+	if leader.Role != "leader" || leader.CardID == nil || memberID == uuid.Nil || language == "" {
+		return false, nil
+	}
+	member, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: memberID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if member.CardID == nil || *member.CardID != *leader.CardID || member.BoardColumn != leader.BoardColumn || member.Round != leader.Round || member.Status != "completed" || slices.Contains([]string{"", "leader", "agent", "auditor", "objector", "rerun"}, member.Role) {
+		return false, nil
+	}
+	delegated, attested := false, false
+	for _, record := range study {
+		if record.BoardColumn != leader.BoardColumn || record.Round != leader.Round || record.AgentRunID == nil {
+			continue
+		}
+		if record.Kind == "delegation" && *record.AgentRunID == leader.ID {
+			var body struct {
+				AgentRunID    uuid.UUID `json:"agent_run_id"`
+				LeaderAttempt int32     `json:"leader_attempt"`
+			}
+			if json.Unmarshal(record.Body, &body) == nil && body.AgentRunID == memberID && body.LeaderAttempt == leader.Attempt {
+				delegated = true
+			}
+		}
+		if record.Kind == "hand_in" && *record.AgentRunID == memberID {
+			body := records.Body[handInBody](record)
+			var hand HandIn
+			if body.Attempt == member.Attempt && json.Unmarshal(body.HandIn, &hand) == nil && hand.Status == "could_not_do" && deref(hand.BlockedByEnvironment) == language && slices.Contains(body.EnvironmentFailures, language) {
+				attested = true
+			}
+		}
+	}
+	return delegated && attested, nil
 }
 
 // teamMember is the problem with a decision raised for member: it must be

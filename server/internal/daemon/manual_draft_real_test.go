@@ -100,7 +100,7 @@ func TestManualDraftRealCLI(t *testing.T) {
 			claim.Token = "ltk_disposable"
 			claim.AgentRun.ID, claim.AgentRun.WorkspaceID, claim.AgentRun.Kind = uuid.New(), uuid.New(), "aristotle"
 			noReask := func(string, string) agent.Result { t.Fatal("valid draft required a correction"); return agent.Result{} }
-			_, problems, err = d.handIn(ctx, claim, result, noReask, func(agent.Message) error { return nil })
+			_, problems, err = d.handIn(ctx, claim, result, noReask, func(agent.Message) error { return nil }, nil)
 			must(t, err)
 			if len(problems) > 0 {
 				t.Fatal(problems)

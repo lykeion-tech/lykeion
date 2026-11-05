@@ -211,7 +211,8 @@ func (q *Queries) CountKindRecords(ctx context.Context, arg CountKindRecordsPara
 
 const dismissMachineFailures = `-- name: DismissMachineFailures :many
 UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
-WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'needs_decision' AND cause = 'machine_failures'
+WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND (kind = 'needs_decision' AND cause = 'machine_failures' OR kind = 'waiting_for_machine' AND cause = 'environment_unavailable')
   AND resolved_at IS NULL
 RETURNING id
 `
@@ -221,8 +222,7 @@ type DismissMachineFailuresParams struct {
 	CardID      uuid.UUID `json:"card_id"`
 }
 
-// A redone column no longer waits on runs its machines kept failing: the
-// study's open item asking about them is dismissed.
+// A redone column clears its machine-failure and environment holds.
 func (q *Queries) DismissMachineFailures(ctx context.Context, arg DismissMachineFailuresParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, dismissMachineFailures, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -325,6 +325,23 @@ func (q *Queries) InFlightMemberRun(ctx context.Context, arg InFlightMemberRunPa
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertEnvironmentHold = `-- name: InsertEnvironmentHold :exec
+INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text, cause)
+VALUES ($1, $2::uuid, $3, 'waiting_for_machine', $4, 'environment_unavailable')
+`
+
+type InsertEnvironmentHoldParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Text        string    `json:"text"`
+}
+
+func (q *Queries) InsertEnvironmentHold(ctx context.Context, arg InsertEnvironmentHoldParams) error {
+	_, err := q.db.Exec(ctx, insertEnvironmentHold, arg.WorkspaceID, arg.CardID, arg.UserID, arg.Text)
+	return err
 }
 
 const insertInboxItem = `-- name: InsertInboxItem :exec

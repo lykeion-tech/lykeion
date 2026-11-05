@@ -313,7 +313,7 @@ func TestHandInEdges(t *testing.T) {
 	res, probs, err := d.handIn(t.Context(), c, first, func(string, string) agent.Result {
 		execs++
 		return agent.Result{ResumeRefused: true, Err: errors.New("no such session"), Usage: []agent.Usage{{Model: "m", InputTokens: 1}}}
-	}, func(m agent.Message) error { said = append(said, m); return nil })
+	}, func(m agent.Message) error { said = append(said, m); return nil }, nil)
 	must(t, err)
 	if len(posted) != 1 || string(posted[0]) != `"I am done."` {
 		t.Fatalf("posted %q", posted)
@@ -351,14 +351,14 @@ func TestRefusedOutputIsAProblem(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(out, "x.csv"), []byte("1"), 0600))
 	_, probs, err := d.handIn(t.Context(), c, agent.Result{SessionID: "s1", Output: `{}`}, func(string, string) agent.Result {
 		return agent.Result{Err: errors.New("stop")}
-	}, func(agent.Message) error { return nil })
+	}, func(agent.Message) error { return nil }, nil)
 	must(t, err)
 	if handIns != 0 || probs != nil {
 		t.Fatalf("%d hand-ins, problems %q", handIns, probs)
 	}
 	_, probs, err = d.handIn(t.Context(), c, agent.Result{SessionID: "s1", Output: `{}`}, func(string, string) agent.Result {
 		return agent.Result{ResumeRefused: true}
-	}, func(agent.Message) error { return nil })
+	}, func(agent.Message) error { return nil }, nil)
 	must(t, err)
 	if !slices.Equal(probs, []string{"outputs/x.csv was not saved: A run can save at most 100 outputs"}) || handIns != 0 {
 		t.Fatalf("%d hand-ins, problems %q", handIns, probs)
@@ -460,7 +460,7 @@ func TestAutoresearchHandInSendsNoOutputs(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(out, "x.csv"), []byte("1"), 0600))
 	_, probs, err := d.handIn(t.Context(), c, agent.Result{SessionID: "s1", Output: `{}`}, func(string, string) agent.Result {
 		return agent.Result{Err: errors.New("no re-ask expected")}
-	}, func(agent.Message) error { return nil })
+	}, func(agent.Message) error { return nil }, nil)
 	if err != nil || probs != nil || handIns != 1 {
 		t.Fatalf("err %v, problems %q, %d hand-ins", err, probs, handIns)
 	}

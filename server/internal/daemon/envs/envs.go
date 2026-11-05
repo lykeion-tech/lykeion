@@ -38,7 +38,8 @@ type notReady string
 func (e notReady) Error() string {
 	return fmt.Sprintf("the %s environment isn't ready on this machine", displayNames[string(e)])
 }
-func (e notReady) Unwrap() error { return ErrNotReady }
+func (e notReady) Unwrap() error    { return ErrNotReady }
+func (e notReady) Language() string { return string(e) }
 
 type Bases struct {
 	Dir string

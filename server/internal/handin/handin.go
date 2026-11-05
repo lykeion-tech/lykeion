@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/statcheck"
@@ -237,27 +239,29 @@ type ManualDraft struct {
 }
 
 type HandIn struct {
-	Message      string         `json:"message"`
-	Draft        *ManualDraft   `json:"draft"`
-	Statements   []Statement    `json:"statements"`
-	Status       string         `json:"status"` // done | could_not_do | ask
-	Decision     *DecisionIn    `json:"decision"`
-	Answer       string         `json:"answer"`
-	Reason       *string        `json:"reason"`
-	Replies      []Reply        `json:"replies"`
-	Papers       []Paper        `json:"papers"`
-	Datasets     []Dataset      `json:"datasets"`
-	NoQualifying *NoQualifying  `json:"no_qualifying"`
-	Hypotheses   []Hypothesis   `json:"hypotheses"`
-	Outputs      []string       `json:"outputs"`
-	Values       []Value        `json:"values"`
-	Concerns     []Concern      `json:"concerns"`
-	Report       *string        `json:"report"`
-	NewStudies   []NewStudy     `json:"new_studies"`
-	Assessments  []Assessment   `json:"assessments"`
-	Verdicts     []Verdict      `json:"verdicts"`
-	FlaggedErrs  []FlaggedError `json:"flagged_errors"`
-	Objections   []ObjectionIn  `json:"objections"`
+	Message              string         `json:"message"`
+	Draft                *ManualDraft   `json:"draft"`
+	Statements           []Statement    `json:"statements"`
+	Status               string         `json:"status"` // done | could_not_do | ask
+	Decision             *DecisionIn    `json:"decision"`
+	Answer               string         `json:"answer"`
+	Reason               *string        `json:"reason"`
+	BlockedByEnvironment *string        `json:"blocked_by_environment"`
+	BlockedByMemberRun   *string        `json:"blocked_by_member_run"`
+	Replies              []Reply        `json:"replies"`
+	Papers               []Paper        `json:"papers"`
+	Datasets             []Dataset      `json:"datasets"`
+	NoQualifying         *NoQualifying  `json:"no_qualifying"`
+	Hypotheses           []Hypothesis   `json:"hypotheses"`
+	Outputs              []string       `json:"outputs"`
+	Values               []Value        `json:"values"`
+	Concerns             []Concern      `json:"concerns"`
+	Report               *string        `json:"report"`
+	NewStudies           []NewStudy     `json:"new_studies"`
+	Assessments          []Assessment   `json:"assessments"`
+	Verdicts             []Verdict      `json:"verdicts"`
+	FlaggedErrs          []FlaggedError `json:"flagged_errors"`
+	Objections           []ObjectionIn  `json:"objections"`
 }
 
 // Body is the review item this hypothesis becomes, citing cites.
@@ -333,6 +337,15 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	}
 	add(within(h.Answer, 8000), "answer: say what you did, 1 to 8000 characters")
 	add(h.Status != "could_not_do" || strings.TrimSpace(deref(h.Reason)) != "", "reason: say what blocked the work")
+	if h.BlockedByEnvironment != nil {
+		add(slices.Contains([]string{"python", "r", "julia"}, *h.BlockedByEnvironment), "blocked_by_environment: must be python, r, julia or null")
+		add(h.Status == "could_not_do", "blocked_by_environment: only a could_not_do hand-in can name an environment")
+	}
+	if h.BlockedByMemberRun != nil {
+		_, err := uuid.Parse(*h.BlockedByMemberRun)
+		add(err == nil, "blocked_by_member_run: must be a member ticket UUID or null")
+		add(h.BlockedByEnvironment != nil, "blocked_by_member_run: name the blocked environment")
+	}
 	add(h.Status != "ask" || h.Decision != nil, "decision: an ask needs a decision")
 	add(h.Status == "ask" || h.Decision == nil, "decision: only an ask carries a decision; leave it null")
 	if d := h.Decision; d != nil {
