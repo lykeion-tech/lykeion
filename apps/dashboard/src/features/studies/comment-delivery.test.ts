@@ -1,24 +1,45 @@
 import { expect, it } from 'vitest';
-import { deliveryLine } from './comment-delivery';
+import { deliveryLine, composerAvailability } from './comment-delivery';
 
-const working = { working: true };
-
-it('says where each comment went, by the agent the member is', () => {
-  expect(deliveryLine({ how: 'running_turn', role: 'leader' }, working)).toBe(
-    "Delivered to the leader's running turn",
+it('waits for acknowledged input rather than treating queued work as delivered', () => {
+  expect(deliveryLine(null, { working: true })).toBe('Waiting for an eligible agent run');
+  expect(deliveryLine(null, { working: true, unavailable: 'Agent runtime is offline' })).toBe(
+    'Pending · Agent runtime is offline',
   );
-  expect(deliveryLine({ how: 'member_result', role: 'leader' }, working)).toBe(
-    'Given to the leader while it waited on a member',
-  );
-  expect(
-    deliveryLine({ how: 'next_run', role: 'member-1' }, { working: false, who: 'Searcher' }),
-  ).toBe("Included in Searcher's next step");
-  expect(deliveryLine({ how: 'next_run', role: 'member-1' }, working)).toBe(
-    "Included in a Team member's next step",
+  expect(deliveryLine({ how: 'next_run', role: 'leader' }, { working: true, who: 'Codex' })).toBe(
+    'Delivered to Codex',
   );
 });
-
-it('queues an undelivered comment only while the study works', () => {
-  expect(deliveryLine(null, working)).toBe('Queued for the next step');
-  expect(deliveryLine(null, { working: false })).toBe('');
+it('makes closed, cancelled, and run-reply behavior explicit', () => {
+  expect(deliveryLine(null, { working: false })).toBe(
+    'Comment saved · this study cannot start agent work',
+  );
+  expect(deliveryLine(null, { working: true, cancelled: true })).toBe(
+    'Cancelled · will not be delivered',
+  );
+  expect(deliveryLine(null, { working: true, reply: true })).toBe(
+    'Comment saved · replies do not start agent work',
+  );
+  expect(deliveryLine({ how: 'running_turn', role: 'leader' }, { working: true })).toBe(
+    "Delivered to the leader's running turn",
+  );
+  expect(deliveryLine({ how: 'member_result', role: 'leader' }, { working: true })).toBe(
+    'Given to the leader while it waited on a member',
+  );
+});
+it('reports known queued-runtime and start failures without guessing availability', () => {
+  expect(
+    composerAvailability(
+      'working',
+      [{ status: 'queued', runtime_id: 'r' }],
+      [{ id: 'r', status: 'offline' }],
+    ),
+  ).toBe('Agent runtime is offline');
+  expect(composerAvailability('working', [{ status: 'failed', runtime_id: null }], [])).toBe(
+    'The last agent run failed; waiting for recovery',
+  );
+  expect(composerAvailability('blocked', [], [])).toBe(
+    'This study needs attention before agent work can continue',
+  );
+  expect(composerAvailability('working', [{ status: 'queued', runtime_id: null }], [])).toBe('');
 });

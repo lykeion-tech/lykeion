@@ -165,6 +165,7 @@ export interface Comment {
   created_at: string;
   reply_run_id?: string | null;
   steer_attempt?: number | null;
+  cancelled?: boolean;
   // Which run's work the comment reached and how; null while it waits.
   delivery: CommentDelivery | null;
 }

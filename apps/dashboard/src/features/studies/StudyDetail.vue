@@ -61,7 +61,7 @@ import { feedLine, reviewingLine } from '../../lib/review';
 import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
-import { deliveryLine } from './comment-delivery';
+import { composerAvailability, deliveryLine } from './comment-delivery';
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -288,6 +288,21 @@ const roleNames = computed(
     ),
 );
 const working = computed(() => !!c.value && !c.value.ending && c.value.state === 'working');
+const composerUnavailable = computed(() =>
+  composerAvailability(
+    c.value?.state ?? '',
+    agentRuns.value.filter(
+      (run) => run.board_column === c.value?.board_column && run.round === c.value?.round,
+    ),
+    runtimes.data.value ?? [],
+  ),
+);
+const composerHint = computed(() =>
+  c.value?.state === 'done' || !!c.value?.ending
+    ? 'Comments do not reopen this study.'
+    : composerUnavailable.value ||
+      'Messages reach the assigned agent or Team leader in an eligible run.',
+);
 const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(
@@ -552,6 +567,9 @@ function pin() {
                 v-if="
                   deliveryLine(entry.comment.delivery, {
                     working,
+                    unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
+                    cancelled: entry.comment.cancelled,
+                    reply: !!entry.comment.reply_run_id,
                     who: roleNames.get(entry.comment.delivery?.role ?? ''),
                   })
                 "
@@ -561,6 +579,9 @@ function pin() {
                 {{
                   deliveryLine(entry.comment.delivery, {
                     working,
+                    unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
+                    cancelled: entry.comment.cancelled,
+                    reply: !!entry.comment.reply_run_id,
                     who: roleNames.get(entry.comment.delivery?.role ?? ''),
                   })
                 }}
@@ -610,11 +631,13 @@ function pin() {
       </div>
       <div v-if="c && !c.ending" class="pinned-composer">
         <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
+        <p id="study-composer-hint" class="type-caption" role="status">{{ composerHint }}</p>
         <form class="study-comment" @submit.prevent="submitComposer">
           <textarea
             v-model="comment"
             placeholder="Leave a comment…"
             aria-label="Comment"
+            aria-describedby="study-composer-hint"
             @keydown.meta.enter.prevent="send"
             @keydown.ctrl.enter.prevent="send"
           />

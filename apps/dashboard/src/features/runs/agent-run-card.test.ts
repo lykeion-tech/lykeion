@@ -109,7 +109,7 @@ function setup(
       created_at: run.created_at,
     },
   ];
-  const fetch = vi.fn(async (_path: string) => Response.json(messages));
+  const fetch = vi.fn(async (_path: string, _init?: RequestInit) => Response.json(messages));
   vi.stubGlobal('fetch', fetch);
   const cancelled: string[] = [];
   const root = node('root');
@@ -225,7 +225,7 @@ it('omits the run environment while retaining machine notices', async () => {
   expect(textOf(root)).not.toContain('Runs on: Bench');
   expect(textOf(root)).toContain('The study machine needs attention.');
 });
-it('sends a reply from the card to that run', async () => {
+it('sends a reply as a comment without starting a follow-up run', async () => {
   const { root, fetch } = setup();
   const field = all(root).find(
     (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Reply to Ada',
@@ -244,6 +244,10 @@ it('sends a reply from the card to that run', async () => {
     body: 'Please check this.',
     target_run_id: 'run-1',
   });
+  expect(
+    fetch.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url),
+  ).toEqual(['/api/cards/c/comments']);
+  expect(textOf(root)).not.toContain('Waiting for an eligible agent run');
 });
 
 it('explains when a running Codex cannot receive live input', async () => {

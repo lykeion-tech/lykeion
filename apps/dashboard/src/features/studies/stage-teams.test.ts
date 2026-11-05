@@ -1647,3 +1647,83 @@ it('does not describe a stopped study as a Done Jev review', async () => {
     t.unmount();
   }
 });
+
+it('shows closed-study guidance and keeps the composer draft after a failed send', async () => {
+  const posted: string[] = [];
+  vi.stubGlobal('fetch', async (_path: string, init?: RequestInit) => {
+    if (init?.method === 'POST') posted.push(String(init.body));
+    return init?.method === 'POST'
+      ? Response.json({ error: 'Could not save comment' }, { status: 503 })
+      : Response.json([]);
+  });
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => seedStudy(client, { state: 'done' }),
+  );
+  try {
+    expect(t.text()).toContain('Comments do not reopen this study.');
+    await t.fill('Comment', 'Keep this exact draft');
+    const form = t.nodes().find((n) => n.tag === 'form' && n.props.class === 'study-comment')!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(posted).toEqual([
+      JSON.stringify({ body: 'Keep this exact draft' }),
+      JSON.stringify({ body: 'Keep this exact draft' }),
+    ]);
+    expect(t.text()).toContain('Could not save comment');
+  } finally {
+    t.unmount();
+  }
+});
+
+it('keeps queued composer input pending until an acknowledgement is read', async () => {
+  let client!: QueryClient;
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (c) => {
+      client = c;
+      seedStudy(c);
+      c.setQueryData(keys.comments('w', 'c'), [
+        {
+          id: 'message',
+          author_id: 'u',
+          body: 'Exact input',
+          created_at: '2026-11-05T10:00:00Z',
+          delivery: null,
+        },
+      ]);
+      c.setQueryData(keys.runs('w', 'c'), [
+        {
+          id: 'queued',
+          board_column: 'grounding',
+          round: 1,
+          role: 'leader',
+          status: 'queued',
+          runtime_id: null,
+          created_at: '2026-11-05T10:01:00Z',
+        },
+      ]);
+    },
+  );
+  try {
+    expect(t.text()).toContain('Waiting for an eligible agent run');
+    expect(t.text()).not.toContain('Delivered to');
+    client.setQueryData(keys.comments('w', 'c'), [
+      {
+        id: 'message',
+        author_id: 'u',
+        body: 'Exact input',
+        created_at: '2026-11-05T10:00:00Z',
+        delivery: { how: 'next_run', role: 'leader' },
+      },
+    ]);
+    await nextTick();
+    expect(t.text()).toContain('Delivered to the leader');
+  } finally {
+    t.unmount();
+  }
+});

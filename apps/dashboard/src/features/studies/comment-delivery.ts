@@ -1,13 +1,51 @@
 import type { CommentDelivery } from '../../api/types';
 
-// Where a comment went, as the study page says it under the comment. `who`
-// names the agent that took it; a study that is no longer working has no
-// step left to queue a comment for, so an undelivered comment says nothing.
+// Availability is advisory; only a persisted acknowledgement proves delivery.
+export function composerAvailability(
+  state: string,
+  runs: readonly { status: string; runtime_id: string | null; cancel_reason?: string | null }[],
+  runtimes: readonly { id: string; status: string }[],
+): string {
+  if (state !== 'working') return 'This study needs attention before agent work can continue';
+  const latest = runs.at(-1);
+  if (!latest) return '';
+  if (
+    latest.status === 'queued' &&
+    runtimes.some((r) => r.id === latest.runtime_id && r.status === 'offline')
+  )
+    return 'Agent runtime is offline';
+  if (latest.status === 'failed') return 'The last agent run failed; waiting for recovery';
+  if (latest.status === 'cancelled') return 'Agent work was interrupted; waiting for recovery';
+  return '';
+}
+
 export function deliveryLine(
   d: CommentDelivery | null | undefined,
-  { working, who }: { working: boolean; who?: string },
+  {
+    working,
+    who,
+    unavailable,
+    cancelled,
+    reply,
+  }: {
+    working: boolean;
+    who?: string;
+    unavailable?: string;
+    cancelled?: boolean;
+    reply?: boolean;
+  },
 ): string {
-  if (!d) return working ? 'Queued for the next step' : '';
+  if (cancelled)
+    return d
+      ? 'Cancelled · already delivered input cannot be recalled'
+      : 'Cancelled · will not be delivered';
+  if (!d) {
+    if (reply) return 'Comment saved · replies do not start agent work';
+    if (unavailable) return `Pending · ${unavailable}`;
+    return working
+      ? 'Waiting for an eligible agent run'
+      : 'Comment saved · this study cannot start agent work';
+  }
   const name = who || (d.role === 'leader' ? 'the leader' : 'a Team member');
   switch (d.how) {
     case 'running_turn':
@@ -15,6 +53,6 @@ export function deliveryLine(
     case 'member_result':
       return 'Given to the leader while it waited on a member';
     case 'next_run':
-      return `Included in ${name}'s next step`;
+      return `Delivered to ${name}`;
   }
 }
