@@ -105,8 +105,40 @@ async function mount(withFile = false) {
     app.unmount();
     client.clear();
   });
-  return { root, settle };
+  return { root, settle, client };
 }
+it('keeps the open file when the current conversation refreshes', async () => {
+  const { root, settle, client } = await mount(true);
+  for (const label of ['Open experiment surfaces', 'Files', 'notes.txt']) {
+    const button = all(root).find(
+      (n) => n.tag === 'button' && (n.props['aria-label'] === label || textOf(n).trim() === label),
+    );
+    expect(button).toBeTruthy();
+    (button!.props.onClick as () => void)();
+    await settle();
+  }
+  await vi.waitFor(() =>
+    expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true),
+  );
+  const edit = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Edit content')!;
+  (edit.props.onClick as () => void)();
+  await settle();
+  const input = all(root).find(
+    (n) => n.tag === 'textarea' && n.props['aria-label'] === 'File content',
+  )!;
+  (input.props['onUpdate:modelValue'] as (v: string) => void)('unsaved notes');
+  await settle();
+  client.setQueryData(conversationKey('lab', 'me'), (previous: any[]) =>
+    previous.map((item) => (item.id === 'experiment' ? { ...item, title: 'Updated' } : item)),
+  );
+  await settle();
+  expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
+  const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces')!;
+  (back.props.onClick as () => void)();
+  await settle();
+  expect(discardDialog.value).toBe(true);
+  resolveDiscard(false);
+});
 it('opens an Experiment inspector beside the conversation rail with Notebook Files Compute and no Runs', async () => {
   const { root, settle } = await mount();
   expect(all(root).some((n) => n.props['aria-label'] === 'Chat')).toBe(true);

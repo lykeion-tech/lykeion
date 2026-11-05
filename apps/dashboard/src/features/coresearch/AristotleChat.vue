@@ -167,7 +167,7 @@ const project = useCoresearchProject(() => inspectorProject.value),
   files = useCoresearchFiles(() => inspectorProject.value);
 const chat = computed(() => chats.data.value?.find((c) => c.id === conversation.value?.chat_id));
 watch(
-  () => [workspaceId.value, me.data.value?.id, conversation.value?.id],
+  [() => workspaceId.value, () => me.data.value?.id, () => conversation.value?.id],
   ([workspace, user, conversationId]) => {
     restoringPane = true;
     paneKey =
