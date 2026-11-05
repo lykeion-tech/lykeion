@@ -1620,7 +1620,7 @@ describe('study right-pane surfaces', () => {
     }
   });
 
-  it('reveals a cited source on the same study while its pane is maximized', async () => {
+  it('does not expose a raw cited source for a legacy citation URL', async () => {
     const citation = ref('');
     const t = await mount(
       StudyDetail,
@@ -1638,8 +1638,8 @@ describe('study right-pane surfaces', () => {
       citation.value = 'comment:source';
       await nextTick();
       await nextTick();
-      expect(main().props.hidden).toBe(false);
-      expect(t.nodes().some((n) => n.props['aria-label'] === 'Cited source')).toBe(true);
+      expect(main().props.hidden).toBe(true);
+      expect(t.nodes().some((n) => n.props['aria-label'] === 'Cited source')).toBe(false);
     } finally {
       t.unmount();
     }

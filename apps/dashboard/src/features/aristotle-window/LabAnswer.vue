@@ -14,9 +14,14 @@ const evidenceSources = computed(() => {
   const surfaces = new Map<string, LabRef>();
   for (const item of props.message.evidence) {
     const kind = item.ref.split(':')[0];
-    const surface = (kind === 'record' || kind === 'comment') && item.study_id
-      ? studies.get(item.study_id) ?? { ref: 'study:' + item.study_id, study_id: item.study_id, title: 'Study' }
-      : item;
+    const surface =
+      (kind === 'record' || kind === 'comment') && item.study_id
+        ? (studies.get(item.study_id) ?? {
+            ref: 'study:' + item.study_id,
+            study_id: item.study_id,
+            title: 'Study',
+          })
+        : item;
     if (!['workspace', 'decision', 'study'].includes(surface.ref.split(':')[0]!)) continue;
     const path = sourcePath(surface);
     if (path) surfaces.set(path, surface);
@@ -56,13 +61,14 @@ async function submit() {
 </script>
 <template>
   <article class="answer">
-    <div
-      v-for="(statement, i) in message.statements"
-      :key="i"
-      class="statement"
-    >
+    <div v-for="(statement, i) in message.statements" :key="i" class="statement">
       <span v-if="statement.kind === 'lesson'" class="tag lesson">Lesson</span>{{ statement.text }}
-      <template v-for="cite in statement.cites.filter((source) => !source.ref.startsWith('study:'))" :key="cite.ref">
+      <template
+        v-for="cite in statement.cites.filter(
+          (source) => !['study', 'record', 'comment'].includes(source.ref.split(':')[0]!),
+        )"
+        :key="cite.ref"
+      >
         <RouterLink v-if="sourcePath(cite)" class="cite" :to="sourcePath(cite)!">{{
           cite.title
         }}</RouterLink>
@@ -72,9 +78,12 @@ async function submit() {
             <div class="facts">
               <span>Backing facts</span>
               <template v-for="fact in cite.facts" :key="fact.ref"
-                ><RouterLink v-if="sourcePath(fact)" :to="sourcePath(fact)!">{{
-                  fact.title
-                }}</RouterLink
+                ><RouterLink
+                  v-if="
+                    !['record', 'comment'].includes(fact.ref.split(':')[0]!) && sourcePath(fact)
+                  "
+                  :to="sourcePath(fact)!"
+                  >{{ fact.title }}</RouterLink
                 ><span v-else>{{ fact.title }}</span></template
               >
             </div>

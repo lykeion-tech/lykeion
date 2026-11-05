@@ -188,6 +188,39 @@ it('shows navigable study evidence instead of internal tool calls', async () => 
   expect(links).toHaveLength(1);
 });
 
+it('omits internal record and comment citations while preserving study evidence', async () => {
+  const t = await mount(true, false, undefined, { answer: {
+    ...answer,
+    statements: [{ kind: 'fact', text: 'The run was blocked.', cites: [
+      { ref: 'record:r', title: 'hand_in', study_id: 's' },
+      { ref: 'comment:c', title: 'internal comment', study_id: 's' },
+    ] }],
+    evidence: [fact],
+  } });
+  expect(textOf(t.root)).toContain('The run was blocked.');
+  expect(textOf(t.root)).not.toContain('hand_in');
+  expect(textOf(t.root)).not.toContain('internal comment');
+  expect(all(t.root).some((n) => n.props.href === '/studies/s')).toBe(true);
+});
+
+it('keeps lesson backing facts without links to removed raw source panels', async () => {
+  const t = await mount(true, false, undefined, { answer: {
+    ...answer,
+    statements: [{ kind: 'lesson', text: 'Repeat.', cites: [{
+      ref: 'lesson:l', title: 'Replication', facts: [
+        { ref: 'record:r', title: 'Recorded fact', study_id: 's' },
+        { ref: 'comment:c', title: 'Comment fact', study_id: 's' },
+      ],
+    }] }],
+  } });
+  expect(textOf(t.root)).toContain('Recorded fact');
+  expect(textOf(t.root)).toContain('Comment fact');
+  expect(all(t.root).some((n) => String(n.props.href ?? '').includes('?cite='))).toBe(false);
+  await t.click('Flag lesson');
+  await t.click('Submit flag');
+  expect(t.calls.some((c) => c.path === '/api/lessons/l/flag')).toBe(true);
+});
+
 it('follows cursors for older chats and messages and replaces revoked answers on refresh', async () => {
   let revoked = false;
   const pages = (path: string) => {

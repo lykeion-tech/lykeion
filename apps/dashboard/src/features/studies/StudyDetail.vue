@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import LabSource from '../aristotle-window/LabSource.vue';
 import SelectPicker from '../../ui/SelectPicker.vue';
 import {
   computed,
@@ -313,15 +312,6 @@ const composerHint = computed(() =>
     : composerUnavailable.value,
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
-watch(
-  () => props.citation,
-  (citation) => {
-    if (!citation) return;
-    paneFocused.value = false;
-    if (window.innerWidth <= 980 || embeddedConstrained.value) showMeta.value = false;
-  },
-  { immediate: true },
-);
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
 function openNotebookAt(run: string) {
   notebookRun.value = run;
@@ -481,7 +471,6 @@ function pin() {
     aria-label="Study"
   >
     <div class="task-main" :hidden="showMeta && paneFocused">
-      <LabSource v-if="citation" :study="id" :citation="citation" />
       <header class="study-heading">
         <button
           v-if="!embedded"
