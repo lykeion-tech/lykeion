@@ -596,6 +596,9 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		if err != nil || c.ID == uuid.Nil {
 			return err
 		}
+		if c.Version != in.card.Version {
+			return nil
+		}
 		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
 		}

@@ -73,3 +73,10 @@ SELECT EXISTS (SELECT 1 FROM runtime r JOIN card c ON c.id = @card_id AND c.work
     AND ((c.machine IS NULL AND r.owner_id = c.owner_id)
       OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (r.os = 'linux' AND (r.visibility = 'workspace'
         OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id))))))) AS ok;
+
+-- A continuation keeps research evidence but requires fresh completion and audit.
+-- name: SupersedeColumnCompletion :exec
+UPDATE record SET superseded_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id
+  AND board_column = @board_column AND round = @round
+  AND kind IN ('summary', 'audit') AND superseded_at IS NULL;

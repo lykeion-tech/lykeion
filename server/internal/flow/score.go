@@ -175,6 +175,7 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if err != nil {
 		return false, err
 	}
+	runs = currentLeadRuns(runs)
 	if i := latestAuditor(runs); i >= 0 {
 		return !inFlight(runs[i].Status) && !accessInterrupted(runs[i]), nil
 	}
@@ -390,6 +391,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			if err != nil {
 				return err
 			}
+			runs = currentLeadRuns(runs)
 			i := latestAuditor(runs)
 			if i < 0 {
 				a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
@@ -655,6 +657,9 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if err != nil || c.ID == uuid.Nil {
 			return err
 		}
+		if c.Version != in.card.Version {
+			return nil
+		}
 		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
 		}
@@ -887,4 +892,14 @@ func latestAuditor(runs []db.AgentRun) int {
 		}
 	}
 	return -1
+}
+
+// Auditors from before the latest lead cannot audit its new hand-in.
+func currentLeadRuns(runs []db.AgentRun) []db.AgentRun {
+	for i := len(runs) - 1; i >= 0; i-- {
+		if leads(runs[i].Role) {
+			return runs[i:]
+		}
+	}
+	return runs
 }

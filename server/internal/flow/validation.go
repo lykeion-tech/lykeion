@@ -239,6 +239,9 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 		if err != nil || c.ID == uuid.Nil {
 			return err
 		}
+		if c.Version != in.card.Version {
+			return nil
+		}
 		if !current(c, in.card.BoardColumn, in.card.Round) {
 			return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS})
 		}
@@ -516,6 +519,9 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
 			return err
+		}
+		if c.Version != in.card.Version {
+			return nil
 		}
 		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 			return err

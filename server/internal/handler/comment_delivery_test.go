@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"io/fs"
 	"lykeion/server/migrations"
 	"net/url"
@@ -694,5 +695,86 @@ func TestAmbiguousMigratedCommentDoesNotBlockOtherStudies(t *testing.T) {
 
 	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, queued.Ticket); n != 0 {
 		t.Fatalf("fabricated receipts: %d", n)
+	}
+}
+
+func TestComposerFollowUpClaimsAndHandsIn(t *testing.T) {
+	for _, single := range []bool{false, true} {
+		t.Run(fmt.Sprint(single), func(t *testing.T) {
+			l, old := groundingLab(t)
+			role := "leader"
+			if single {
+				role = "agent"
+				if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE card SET assignee_type='agent',assignee_id=(SELECT agent_id FROM agent_run WHERE id=$2) WHERE id=$1`, l.card.ID, old.id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := l.s.Env.Owner.Exec(t.Context(), `DELETE FROM card_team WHERE card_id=$1`, l.card.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A durable settled column awaiting further input, with no active work.
+			if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='completed' WHERE id=$1`, old.id); err != nil {
+				t.Fatal(err)
+			}
+			reply := map[string]any{"body": "Run-card discussion only.", "target_run_id": old.id}
+			if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws, reply, nil); code != 201 {
+				t.Fatalf("reply %d", code)
+			}
+			if l.queued(t) != 0 {
+				t.Fatal("run reply woke study")
+			}
+			if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET status='offline' WHERE id=$1", l.rts); err != nil {
+				t.Fatal(err)
+			}
+			id := l.comment(t, "Check the independent control cohort exactly.")
+			if err := l.s.H.Engine.Advance(t.Context(), uuid.MustParse(l.ws), uuid.MustParse(l.card.ID)); err != nil {
+				t.Fatal(err)
+			}
+			if l.queued(t) != 1 || l.receipts(t, id) != 0 {
+				t.Fatal("offline message lost or falsely delivered")
+			}
+			if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET status='online' WHERE id=$1", l.rts); err != nil {
+				t.Fatal(err)
+			}
+			next := l.claim(t)
+			if next.role != role || !strings.Contains(next.prompt, "Check the independent control cohort exactly.") {
+				t.Fatalf("wrong claimed input: %+v", next)
+			}
+			if l.receipts(t, id) != 0 {
+				t.Fatal("premature delivered status")
+			}
+			var launch struct {
+				Prompt     string
+				CommentIDs []string `json:"comment_ids"`
+			}
+			if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+next.id+"/comments/launch", l.personal, "", next.ref, &launch); code != 200 || !strings.Contains(launch.Prompt, "Check the independent control cohort exactly.") {
+				t.Fatalf("launch: %d %+v", code, launch)
+			}
+			l.ackComments(t, next, launch.CommentIDs...)
+			hand := grounding()
+			hand["answer"] = "Checked the requested independent cohort."
+			hand["no_qualifying"] = map[string]any{"reason": "No independent cohort met the inclusion criteria."}
+			if out := l.handIn(t, next, hand); !out.Accepted {
+				t.Fatalf("hand-in rejected: %+v", out)
+			}
+			l.complete(t, next)
+			if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='summary' AND body->>'text'='Checked the requested independent cohort.'`, next.id); n != 1 {
+				t.Fatalf("missing new response: %d", n)
+			}
+			if l.receipts(t, id) != 1 {
+				t.Fatal("missing actual acknowledgement")
+			}
+			if !single {
+				var runtimes []struct{ ID string }
+				if code := l.s.call(t, "POST", "/api/daemon/register", l.personal, "", map[string]any{"workspace_id": l.ws, "daemon_id": "audit-daemon", "harnesses": []string{"codex"}}, &runtimes); code != 200 || len(runtimes) != 1 {
+					t.Fatalf("auditor runtime: %d %+v", code, runtimes)
+				}
+				l.rts = runtimes[0].ID
+				audit := l.claim(t)
+				if audit.role != "auditor" || !strings.Contains(audit.prompt, "Checked the requested independent cohort.") {
+					t.Fatalf("normal gate bypassed: %+v", audit)
+				}
+			}
+		})
 	}
 }

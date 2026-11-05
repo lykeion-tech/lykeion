@@ -407,3 +407,28 @@ func (q *Queries) SaveCardFlow(ctx context.Context, arg SaveCardFlowParams) erro
 	)
 	return err
 }
+
+const supersedeColumnCompletion = `-- name: SupersedeColumnCompletion :exec
+UPDATE record SET superseded_at = now()
+WHERE workspace_id = $1 AND card_id = $2
+  AND board_column = $3 AND round = $4
+  AND kind IN ('summary', 'audit') AND superseded_at IS NULL
+`
+
+type SupersedeColumnCompletionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	Round       int32     `json:"round"`
+}
+
+// A continuation keeps research evidence but requires fresh completion and audit.
+func (q *Queries) SupersedeColumnCompletion(ctx context.Context, arg SupersedeColumnCompletionParams) error {
+	_, err := q.db.Exec(ctx, supersedeColumnCompletion,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.Round,
+	)
+	return err
+}

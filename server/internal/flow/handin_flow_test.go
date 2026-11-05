@@ -2,8 +2,11 @@ package flow
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -218,5 +221,287 @@ func TestRunBookkeepingNeverReachesJev(t *testing.T) {
 				t.Fatalf("legacy %v: run bookkeeping reached Jev:\n%s", legacy, call.State)
 			}
 		}
+	}
+}
+
+func TestComposerFollowUpKeepsCurrentScope(t *testing.T) {
+	for _, teamed := range []bool{false, true} {
+		t.Run(fmt.Sprint(teamed), func(t *testing.T) {
+			l := newLab(t)
+			a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+			c := l.study(t, "hypotheses", teamed, &a)
+			role := "agent"
+			if teamed {
+				role = "leader"
+			}
+			l.e.Kick(l.ws, c.ID)
+			old := l.latestRun(t, c.ID, role)
+			if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+				t.Fatal(err)
+			}
+			l.in(t, func(tx *store.Tx) error {
+				_, err := tx.Q.CreateComment(t.Context(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: "Check the independent control cohort."})
+				return err
+			})
+			l.e.OnComment(l.ws, c.ID, l.owner, "Check the independent control cohort.")
+			q := l.runs(t, c.ID)
+			if len(q) != 1 || q[0].Role != role || !strings.Contains(q[0].Prompt, "Check the independent control cohort.") {
+				t.Fatalf("follow-up runs: %+v", q)
+			}
+			next := l.latestRun(t, c.ID, role)
+			if next.Round != old.Round || next.BoardColumn != old.BoardColumn || next.ContinuityScope != old.ContinuityScope {
+				t.Fatalf("changed scope: %+v", q[0])
+			}
+			for range 3 {
+				if err := l.e.Tick(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if q := l.runs(t, c.ID); len(q) != 1 {
+				t.Fatalf("duplicate follow-ups: %+v", q)
+			}
+		})
+	}
+}
+
+func (l *lab) composer(t *testing.T, c db.Card, body string, reply *uuid.UUID) db.Comment {
+	t.Helper()
+	var out db.Comment
+	l.in(t, func(tx *store.Tx) (err error) {
+		out, err = tx.Q.CreateComment(t.Context(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: body, ReplyRunID: reply})
+		return err
+	})
+	return out
+}
+
+func TestComposerFollowUpRecoveryAndFrozenInput(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	first := l.composer(t, c, "First frozen instruction.", nil)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "agent")
+	late := l.composer(t, c, "Later instruction stays pending.", nil)
+	l.e.OnComment(l.ws, c.ID, l.owner, late.Body)
+	if q := l.runs(t, c.ID); len(q) != 1 || strings.Contains(q[0].Prompt, late.Body) {
+		t.Fatalf("mutated frozen queue: %+v", q)
+	}
+	// A finished run with no launch acknowledgement leaves both messages pending.
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	next := l.latestRun(t, c.ID, "agent")
+	if next.ID == old.ID || !strings.Contains(next.Prompt, first.Body) || !strings.Contains(next.Prompt, late.Body) {
+		t.Fatalf("lost recovery input: %+v", next)
+	}
+	if q := l.runs(t, c.ID); len(q) != 1 {
+		t.Fatalf("parallel follow-ups: %+v", q)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id=$1 AND kind='comment_delivery'", c.ID); n != 0 {
+		t.Fatalf("false delivery receipts: %d", n)
+	}
+	// A delayed old failure settlement must not redo or block the new run.
+	l.settle(t, old, "completed", "", "")
+	if got := l.card(t, c.ID); got.Round != c.Round || got.State != "working" {
+		t.Fatalf("stale settlement: %+v", got)
+	}
+}
+
+func TestComposerFollowUpRespectsClosedAndCancelledWork(t *testing.T) {
+	for _, mode := range []string{"reply", "cancelled_comment", "done", "stopped", "blocked", "parked", "access_revoked"} {
+		t.Run(mode, func(t *testing.T) {
+			l := newLab(t)
+			a := l.agent(t, "Curie", "claude", "", "Curie")
+			c := l.study(t, "hypotheses", false, &a)
+			l.e.Kick(l.ws, c.ID)
+			old := l.latestRun(t, c.ID, "agent")
+			if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+				t.Fatal(err)
+			}
+			var reply *uuid.UUID
+			if mode == "reply" {
+				reply = &old.ID
+			}
+			msg := l.composer(t, c, "Do more work.", reply)
+			var setupErr error
+			switch mode {
+			case "done":
+				_, setupErr = l.env.Owner.Exec(t.Context(), "UPDATE card SET state='done' WHERE id=$1", c.ID)
+			case "stopped":
+				_, setupErr = l.env.Owner.Exec(t.Context(), "UPDATE card SET ending='stopped' WHERE id=$1", c.ID)
+			case "blocked":
+				_, setupErr = l.env.Owner.Exec(t.Context(), "UPDATE card SET state='blocked' WHERE id=$1", c.ID)
+			case "parked":
+				_, setupErr = l.env.Owner.Exec(t.Context(), "UPDATE card SET state='blocked', block_kind='parked' WHERE id=$1", c.ID)
+			case "cancelled_comment":
+				l.in(t, func(tx *store.Tx) error {
+					_, err := tx.CancelStudyComment(t.Context(), c.ID, msg.ID, l.owner)
+					return err
+				})
+			case "access_revoked":
+				_, setupErr = l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='cancelled',cancel_reason='runtime_access_revoked' WHERE id=$1", old.ID)
+			}
+			if setupErr != nil {
+				t.Fatal(setupErr)
+			}
+			if err := l.e.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if q := l.runs(t, c.ID); len(q) != 0 {
+				t.Fatalf("ineligible work restarted: %+v", q)
+			}
+		})
+	}
+}
+
+func TestComposerFollowUpRequiresFreshHandInAndAudit(t *testing.T) {
+	l := newLab(t)
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "leader")
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: old.ID, Column: c.BoardColumn, Role: "leader", Round: c.Round}, "summary", map[string]any{"text": "Old answer", "cites": []string{}})
+		return err
+	})
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.composer(t, c, "Recheck the conclusion.", nil)
+	l.e.OnComment(l.ws, c.ID, l.owner, "Recheck the conclusion.")
+	next := l.latestRun(t, c.ID, "leader")
+	if next.ID == old.ID {
+		t.Fatal("no continuation")
+	}
+	l.in(t, func(tx *store.Tx) error {
+		if _, ok, err := roundSummary(t.Context(), tx, c); err != nil {
+			return err
+		} else if ok {
+			t.Fatal("old summary used for new work")
+		}
+		_, err := openColumn(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: next.ID, Column: c.BoardColumn, Role: "leader", Round: c.Round})
+		return err
+	})
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND role='auditor'", c.ID); n != 0 {
+		t.Fatal("old answer started audit")
+	}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: next.ID, Column: c.BoardColumn, Role: "leader", Round: c.Round}, "summary", map[string]any{"text": "New answer", "cites": []string{}})
+		return err
+	})
+	// Model the successful launch acknowledgement; handler coverage uses the real API.
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE comment_reservation SET acknowledged_at=now() WHERE agent_run_id=$1", next.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.settle(t, next, "completed", "", "")
+	if q := l.runs(t, c.ID); len(q) != 1 || q[0].Role != "auditor" || !strings.Contains(q[0].Prompt, "New answer") {
+		t.Fatalf("normal fresh audit missing: %+v", q)
+	}
+}
+
+func TestComposerFollowUpSendRacesSettlement(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "agent")
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: old.ID, Column: c.BoardColumn, Role: "agent", Round: c.Round}, "summary", map[string]any{"text": "Earlier result", "cites": []string{}})
+		return err
+	})
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); l.settle(t, old, "completed", "", "") }()
+	for _, body := range []string{"Concurrent first instruction.", "Concurrent second instruction."} {
+		go func() { defer wg.Done(); l.composer(t, c, body, nil); l.e.OnComment(l.ws, c.ID, l.owner, body) }()
+	}
+	wg.Wait()
+	if err := l.e.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 1 {
+		t.Fatalf("parallel or lost follow-ups: %+v", q)
+	}
+	// A send after enqueue stays pending, whether or not it fit the first snapshot.
+	l.in(t, func(tx *store.Tx) error {
+		pending, err := tx.Q.UndeliveredComments(t.Context(), db.UndeliveredCommentsParams{WorkspaceID: l.ws, CardID: c.ID, Since: time.Time{}})
+		if err != nil {
+			return err
+		}
+		n := l.count(t, "SELECT count(*) FROM comment_reservation WHERE agent_run_id=$1", l.latestRun(t, c.ID, "agent").ID)
+		if n+len(pending) != 2 {
+			t.Fatalf("lost message: reserved %d pending %d", n, len(pending))
+		}
+		return nil
+	})
+}
+
+func TestComposerFollowUpFailedLaunchUsesNormalRetry(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	msg := l.composer(t, c, "Retry this instruction.", nil)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "agent")
+	l.settle(t, old, "failed", "agent_error", "could not launch")
+	next := l.latestRun(t, c.ID, "agent")
+	if next.ID == old.ID || next.Round != old.Round+1 || !strings.Contains(next.Prompt, msg.Body) {
+		t.Fatalf("normal retry lost input: %+v", next)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id=$1 AND kind='comment_delivery'", c.ID); n != 0 {
+		t.Fatalf("false delivery %d", n)
+	}
+}
+
+func TestComposerFollowUpFencesExpiredScoring(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "agent")
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: old.ID, Column: c.BoardColumn, Role: "agent", Round: c.Round}, "summary", map[string]any{"text": "Old result", "cites": []string{}})
+		return err
+	})
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID)
+	if err != nil || !ok {
+		t.Fatalf("scoring snapshot: %v %v", ok, err)
+	}
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE card SET gating_until=now()-interval '1 second' WHERE id=$1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.composer(t, c, "New input after scoring lease expired.", nil)
+	l.e.OnComment(l.ws, c.ID, l.owner, "New input after scoring lease expired.")
+	if q := l.runs(t, c.ID); len(q) != 1 {
+		t.Fatalf("no follow-up: %+v", q)
+	}
+	// A stale scoring callback cannot record an outcome or clear a new lease.
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE card SET gating_until=now()+interval '1 hour' WHERE id=$1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := l.e.applyScore(t.Context(), l.ws, in, nil, fmt.Errorf("old scoring error")); err != nil || moved {
+		t.Fatalf("stale scoring applied: %v %v", moved, err)
+	}
+	if got := l.card(t, c.ID); got.GatingUntil == nil || got.State != "working" {
+		t.Fatalf("stale scoring changed current work: %+v", got)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id=$1 AND kind='outcome'", c.ID); n != 0 {
+		t.Fatal("old outcome applied")
 	}
 }

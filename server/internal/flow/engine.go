@@ -127,6 +127,10 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 		if len(runs) == 0 {
 			return e.Start(ctx, tx, c)
 		}
+		pending, err := e.followUp(ctx, tx, c, runs)
+		if err != nil || pending {
+			return err
+		}
 		score, err = e.afterDone(ctx, tx, c, runs)
 		return err
 	})
@@ -305,4 +309,62 @@ func studyCLI(role, worker, auditor string, def pack.AgentDef) (string, string) 
 // its session within the attempt.
 func ContinuityScope(card uuid.UUID, role, column string, round int32) string {
 	return fmt.Sprintf("card:%s/column:%s/round:%d/role:%s", card, column, round, role)
+}
+
+// followUp consumes durable composer work only when the current study has no
+// active work. A true result also holds scoring while pending input waits for
+// active work to settle. The caller holds workspace execution and card locks.
+func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []db.AgentRun) (bool, error) {
+	if !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
+		return false, nil
+	}
+	// Failures and cancellations retain their normal settlement/retry or
+	// explicit machine recovery policy; a message cannot bypass those gates.
+	for i := len(runs) - 1; i >= 0; i-- {
+		if leads(runs[i].Role) {
+			if runs[i].Status == "failed" || runs[i].Status == "cancelled" {
+				return false, nil
+			}
+			break
+		}
+	}
+	pending, err := tx.Q.UndeliveredComments(ctx, db.UndeliveredCommentsParams{WorkspaceID: tx.WS, CardID: c.ID, Since: time.Time{}})
+	if err != nil {
+		return false, err
+	}
+	hasComposer := false
+	for _, c := range pending {
+		if c.ReplyRunID == nil {
+			hasComposer = true
+			break
+		}
+	}
+	if !hasComposer {
+		return false, nil
+	}
+	active, err := tx.Q.CardInflightAgentRuns(ctx, db.CardInflightAgentRunsParams{WorkspaceID: tx.WS, CardID: &c.ID})
+	if err != nil {
+		return false, err
+	}
+	// Pending composer work belongs to the lead's next input, not an auditor
+	// started from an earlier hand-in while that lead is still settling.
+	if len(active) > 0 {
+		return true, nil
+	}
+	role, m, a, err := e.worker(ctx, tx, c)
+	if errors.Is(err, errNoAgent) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote); err != nil {
+		return false, err
+	}
+	if err = tx.Q.SupersedeColumnCompletion(ctx, db.SupersedeColumnCompletionParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round}); err != nil {
+		return false, err
+	}
+	// Invalidate any expired scoring pass that was reading the old completion.
+	err = tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{WorkspaceID: tx.WS, ID: c.ID, BoardColumn: c.BoardColumn, State: c.State, BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote})
+	return err == nil, err
 }

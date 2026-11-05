@@ -76,9 +76,8 @@ func openColumn(ctx context.Context, tx *store.Tx, w service.Writer) (db.Card, e
 	if !current(c, w.Column, w.Round) {
 		return c, ErrMovedOn
 	}
-	done, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
-		BoardColumn: c.BoardColumn, Round: c.Round, Kind: "summary"})
-	if err == nil && done > 0 {
+	_, done, err := roundSummary(ctx, tx, c)
+	if err == nil && done {
 		err = ErrDeclaredDone
 	}
 	return c, err
@@ -184,6 +183,14 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		if err != nil || !current(c, t.BoardColumn, t.Round) {
 			return err
 		}
+		runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+		if err != nil {
+			return err
+		}
+		latest := currentLeadRuns(runs)
+		if len(latest) > 0 && leads(latest[0].Role) && latest[0].ID != t.ID {
+			return nil
+		}
 		h, summary, err := runHandIn(ctx, tx, t.ID)
 		if err != nil || summary {
 			return err
@@ -273,9 +280,8 @@ func (e *Engine) runFailed(ctx context.Context, tx *store.Tx, c db.Card, t db.Ag
 }
 
 // OnComment restarts the column of a study blocked or held for its owner when
-// the owner comments. A working study's runs get the comment through comment
-// delivery, so no run is woken. Like Kick it runs off the caller's request,
-// after the comment commits.
+// the owner comments. Working studies also check for pending composer work.
+// Like Kick it runs off the caller's request, after the comment commits.
 func (e *Engine) OnComment(ws, card, author uuid.UUID, body string) {
 	run := func() {
 		if err := e.wakeOnComment(context.Background(), ws, card, author, body); err != nil {
@@ -295,6 +301,10 @@ func (e *Engine) wakeOnComment(ctx context.Context, ws, card, author uuid.UUID, 
 		c, err := lockCard(ctx, tx, card)
 		if err != nil {
 			return err
+		}
+		if working(c) {
+			restart = true
+			return nil
 		}
 		restart, err = e.unblock(ctx, tx, c, author, body)
 		return err
