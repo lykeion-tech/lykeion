@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watchEffect } from 'vue';
+import { ArrowDown, ArrowUpRight } from '@lucide/vue';
 import { isOfficialMarketingHost, paths, useSession } from './bridge';
 import HeroTitle from './HeroTitle.vue';
 import ResearchSections from './ResearchSections.vue';
@@ -78,7 +79,7 @@ const nav = [
       <span>Lykeion</span>
     </a>
     <nav class="primary-nav" aria-label="Main navigation">
-      <button type="button" disabled>Use cases</button>
+      <button type="button" disabled>Vision</button>
       <button type="button" disabled>Docs</button>
       <button type="button" disabled>Changelog</button>
     </nav>
@@ -111,10 +112,10 @@ const nav = [
         Menu
       </button>
       <div v-if="menuOpen" id="site-menu" class="menu-links">
-        <button class="mobile-menu-item" type="button" disabled>Use cases</button>
+        <button class="mobile-menu-item" type="button" disabled>Vision</button>
         <button class="mobile-menu-item" type="button" disabled>Docs</button>
         <button class="mobile-menu-item" type="button" disabled>Changelog</button>
-        <a class="mobile-menu-github" href="https://github.com/lykeion-ia/lykeion">GitHub ↗</a>
+        <a class="mobile-menu-github" href="https://github.com/lykeion-ia/lykeion">GitHub <ArrowUpRight :size="20" aria-hidden="true" /></a>
         <a v-for="item in nav" :key="item.href" :href="item.href" @click="menuOpen = false">{{
           item.label
         }}</a>
@@ -168,7 +169,7 @@ const nav = [
         </div>
       </div>
       <div class="hero-caption" aria-hidden="true">
-        <span>© 2026 Lykeion</span><span>SCROLL TO EXPLORE ↓</span>
+        <span>© 2026 Lykeion</span><span>SCROLL TO EXPLORE <ArrowDown :size="14" aria-hidden="true" /></span>
       </div>
     </section>
 

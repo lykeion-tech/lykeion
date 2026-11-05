@@ -495,7 +495,7 @@ describe('AssignPicker', () => {
       await p.click(/^SSolo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
       expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
-      expect(p.button(/Stages/)?.props.disabled).toBe(false);
+      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
     } finally {
       p.unmount();
     }
@@ -504,7 +504,23 @@ describe('AssignPicker', () => {
   it('shows the Stages pill when nothing is picked', async () => {
     const p = await mountPicker();
     try {
-      expect(p.button(/Stages/)).toBeTruthy();
+      expect(p.button(/Grounding → Validation/)).toBeTruthy();
+    } finally {
+      p.unmount();
+    }
+  });
+
+  it('selects a continuous range of stages from the stage menu', async () => {
+    const p = await mountPicker();
+    try {
+      await p.click(/Grounding → Validation/);
+      expect(p.nodes().filter((n) => n.props.role === 'menuitemcheckbox' && n.props['aria-checked'] === true)).toHaveLength(4);
+      await p.click(/^Validation$/);
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'experimentation' });
+      await p.click(/^Grounding$/);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'experimentation' });
+      await p.click(/^Validation$/);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'validation' });
     } finally {
       p.unmount();
     }
@@ -1310,7 +1326,7 @@ describe('the one-row New study window', () => {
       const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
       expect(row).toBeTruthy();
       const text = textOf(row!);
-      const order = ['Assignees', 'Stages', 'Start date', 'Due date', 'No project'];
+      const order = ['Assignees', 'Grounding → Validation', 'Start date', 'Due date', 'No project'];
       const at = order.map((label) => text.indexOf(label));
       expect(
         at.every((i) => i >= 0),

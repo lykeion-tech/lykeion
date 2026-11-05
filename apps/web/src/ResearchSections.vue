@@ -1,9 +1,63 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { ArrowUpRight } from '@lucide/vue';
 
 defineProps<{ ctaHref: string }>();
 
 const activeCase = ref(0);
+const autoplayPaused = ref(false);
+const playbackPaused = ref(false);
+const reducedMotion = ref(false);
+const progressKey = ref(0);
+let caseTimer: ReturnType<typeof setInterval> | undefined;
+let motionQuery: MediaQueryList | undefined;
+function selectCase(index: number) {
+  activeCase.value = index;
+  activeCapture.value = 0;
+  progressKey.value++;
+  startCaseTimer();
+}
+function startCaseTimer() {
+  clearInterval(caseTimer);
+  if (autoplayPaused.value || playbackPaused.value || reducedMotion.value || document.hidden) return;
+  caseTimer = setInterval(() => selectCase((activeCase.value + 1) % cases.length), 8000);
+}
+function setCasePaused(paused: boolean) {
+  autoplayPaused.value = paused;
+  progressKey.value++;
+  startCaseTimer();
+}
+function leaveCase(event: FocusEvent | MouseEvent) {
+  const section = event.currentTarget as HTMLElement;
+  if (event instanceof FocusEvent && section.contains(event.relatedTarget as Node | null)) return;
+  if (event instanceof MouseEvent && section.contains(document.activeElement)) return;
+  setCasePaused(false);
+}
+function syncMotion() {
+  reducedMotion.value = motionQuery?.matches ?? false;
+  progressKey.value++;
+  startCaseTimer();
+}
+function togglePlayback() {
+  playbackPaused.value = !playbackPaused.value;
+  progressKey.value++;
+  startCaseTimer();
+}
+function syncVisibility() {
+  progressKey.value++;
+  startCaseTimer();
+}
+onMounted(() => {
+  motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  motionQuery.addEventListener('change', syncMotion);
+  document.addEventListener('visibilitychange', syncVisibility);
+  syncMotion();
+});
+onUnmounted(() => {
+  clearInterval(caseTimer);
+  motionQuery?.removeEventListener('change', syncMotion);
+  document.removeEventListener('visibilitychange', syncVisibility);
+});
 const captures = {
   board: {
     src: '/demo/board.webp',
@@ -217,15 +271,12 @@ const principles = [
       <p>Turn a research question into a study that agents can work and people can steer.</p>
     </section>
 
-    <section class="research-wrap use-cases" aria-label="Ways to use Lykeion">
+    <section class="research-wrap use-cases" aria-label="Ways to use Lykeion" @mouseenter="setCasePaused(true)" @mouseleave="leaveCase" @focusin="setCasePaused(true)" @focusout="leaveCase">
       <div class="case-top">
-        <span>USE CASES</span><span>{{ activeCase + 1 }} / {{ cases.length }}</span>
+        <span>USE CASES</span><span>{{ activeCase + 1 }} / {{ cases.length }} <button v-if="!reducedMotion" class="playback-toggle" type="button" @click="togglePlayback">{{ playbackPaused ? 'Play' : 'Pause' }}</button></span>
       </div>
       <div class="case-layout">
-        <div class="case-visual" aria-live="polite">
-          <div class="capture-caption">
-            Lykeion Demo <span>Real workspace · select a view</span>
-          </div>
+        <div class="case-visual">
           <Transition name="capture" mode="out-in">
             <button
               :key="currentCapture.src"
@@ -235,10 +286,8 @@ const principles = [
               @click="enlarge(currentCapture)"
             >
               <img :src="currentCapture.src" :alt="currentCapture.alt" width="1907" height="870" />
-              <span class="enlarge-label">Enlarge screenshot ↗</span>
             </button>
           </Transition>
-          <p class="capture-description">{{ currentCapture.alt }}</p>
           <div class="capture-controls" aria-label="Screenshot views">
             <button
               v-for="(capture, index) in cases[activeCase].captures"
@@ -253,13 +302,11 @@ const principles = [
         </div>
         <div class="case-list">
           <article v-for="(item, index) in cases" :key="item.title" class="case-item">
+            <div class="case-progress" aria-hidden="true"><span v-if="activeCase === index && !reducedMotion" :key="progressKey" :class="{ paused: autoplayPaused || playbackPaused }" /></div>
             <button
               type="button"
               :aria-expanded="activeCase === index"
-              @click="
-                activeCase = index;
-                activeCapture = 0;
-              "
+              @click="selectCase(index)"
             >
               <span>{{ item.title }}</span
               ><span aria-hidden="true">{{ activeCase === index ? '−' : '+' }}</span>
@@ -267,7 +314,7 @@ const principles = [
             <div v-if="activeCase === index" class="case-detail">
               <p>{{ item.description }}</p>
               <a :href="ctaHref" class="light-button"
-                >Start a study <span aria-hidden="true">↗</span></a
+                >Start a study <ArrowUpRight :size="20" aria-hidden="true" /></a
               >
             </div>
           </article>
@@ -299,7 +346,6 @@ const principles = [
               height="870"
               loading="lazy"
             />
-            <span class="enlarge-label">Lykeion Demo · Enlarge ↗</span>
           </button>
           <h3>{{ item.title }}</h3>
           <p>{{ item.text }}</p>
@@ -314,7 +360,7 @@ const principles = [
           Your machine runs the agent CLIs you already use. Lykeion keeps their work connected to
           the study.
         </p>
-        <a :href="ctaHref" class="light-button">Open your lab <span aria-hidden="true">↗</span></a>
+        <a :href="ctaHref" class="light-button">Open your lab <ArrowUpRight :size="20" aria-hidden="true" /></a>
         <div class="pillar-list">
           <div v-for="item in pillars" :key="item.title" class="pillar">
             <span class="icon-tile">{{ item.icon }}</span>
@@ -337,9 +383,7 @@ const principles = [
           width="1907"
           height="870"
           loading="lazy"
-        /><span class="enlarge-label"
-          >Lykeion Demo · Machines online, runtimes idle · Enlarge ↗</span
-        >
+        />
       </button>
     </section>
 
@@ -370,7 +414,6 @@ const principles = [
                 height="870"
                 loading="lazy"
               />
-              <span class="enlarge-label">Lykeion Demo · Enlarge ↗</span>
             </button>
           </Transition>
           <div class="capture-controls" :aria-label="`${item.title} views`">
@@ -437,7 +480,7 @@ const principles = [
             <h2>Give your next question<br />to the lab.</h2>
             <p>Open a workspace, connect a machine, and start a study.</p>
           </div>
-          <a :href="ctaHref" class="dark-button">Open your lab <span aria-hidden="true">↗</span></a>
+          <a :href="ctaHref" class="dark-button">Open your lab <ArrowUpRight :size="20" aria-hidden="true" /></a>
         </div>
         <div class="closing-art" role="img" aria-label="An illustrated ancient Greek forum" />
       </div>
@@ -449,20 +492,20 @@ const principles = [
         <div class="resource-art">Research, in motion.</div>
         <h3>From a question to a study</h3>
         <p>Follow the work across the board, with its evidence and outputs close at hand.</p>
-        <a href="#board">Explore the board ↗</a>
+        <a href="#board">Explore the board <ArrowUpRight :size="20" aria-hidden="true" /></a>
       </div>
       <div class="resource-small">
         <article>
           <span class="section-label">WORKSPACE</span>
           <h3>Around the board</h3>
           <p>Meet the agents, Teams and tools that make up a Lykeion lab.</p>
-          <a href="#platform">Explore the platform ↗</a>
+          <a href="#platform">Explore the platform <ArrowUpRight :size="20" aria-hidden="true" /></a>
         </article>
         <article>
           <span class="section-label">CORESEARCH</span>
           <h3>Work alongside your agents</h3>
           <p>Experiment with files and runs, or write together in Cowrite.</p>
-          <a href="#closer-look">Take a closer look ↗</a>
+          <a href="#closer-look">Take a closer look <ArrowUpRight :size="20" aria-hidden="true" /></a>
         </article>
       </div>
     </section>
@@ -479,7 +522,7 @@ const principles = [
         </div>
         <div>
           <span>WORKSPACE</span><a :href="ctaHref">Open your lab</a
-          ><a href="https://github.com/lykeion-ia/lykeion">GitHub ↗</a>
+          ><a href="https://github.com/lykeion-ia/lykeion">GitHub</a>
         </div>
       </div>
     </footer>
@@ -487,6 +530,12 @@ const principles = [
 </template>
 
 <style scoped>
+.research-page a svg {
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.research-page a.light-button svg,
+.research-page a.dark-button svg { margin-left: 0; }
 .research-page {
   background: #090909;
   color: #f2f0eb;
@@ -607,7 +656,7 @@ const principles = [
 .dark-button {
   display: inline-flex;
   align-items: center;
-  gap: 22px;
+  gap: 6px;
   margin-top: 24px;
   padding: 11px 17px;
   border-radius: 30px;
@@ -1067,29 +1116,20 @@ const principles = [
 }
 
 /* Real captures retain the full dashboard; enlargement preserves readable native pixels. */
-.case-layout {
-  grid-template-columns: 1fr;
-}
 .case-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 28px;
+  display: block;
 }
 .case-visual {
   min-height: 0;
   padding: 18px;
   display: block;
 }
-.capture-caption {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  margin-bottom: 14px;
-}
-.capture-caption span {
-  color: #626773;
-}
+.case-progress { height: 1px; background: #dedfe4; overflow: hidden; }
+.case-progress span { display: block; height: 100%; width: 100%; background: #29212f; transform-origin: left; animation: case-progress 8s linear both; }
+.case-progress span.paused { animation-play-state: paused; }
+.playback-toggle { float: right; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.playback-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+@keyframes case-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .capture-button {
   display: block;
   width: 100%;
@@ -1108,16 +1148,6 @@ const principles = [
   width: 100%;
   height: auto;
   aspect-ratio: 1907 / 870;
-}
-.enlarge-label {
-  display: block;
-  padding: 10px 14px;
-  font-size: 12px;
-  background: #f4f3f7;
-}
-.capture-description {
-  margin-top: 12px !important;
-  font-size: 14px !important;
 }
 .capture-controls {
   display: flex;
@@ -1231,8 +1261,8 @@ const principles = [
   height: 870px;
 }
 @media (max-width: 900px) {
-  .case-list {
-    grid-template-columns: 1fr 1fr;
+  .case-layout {
+    grid-template-columns: 1fr;
   }
   .pillar-list {
     grid-template-columns: 1fr;
@@ -1245,11 +1275,9 @@ const principles = [
   .case-visual {
     padding: 8px;
   }
-  .capture-caption {
-    flex-direction: column;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
+  .case-progress span { animation: none; }
   .capture-enter-active,
   .capture-leave-active {
     transition: none;

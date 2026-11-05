@@ -475,6 +475,7 @@ it('opens the Experiment project chooser and selects Compute', async () => {
   expect(toggle).toBeTruthy();
   (toggle!.props.onClick as () => void)();
   await settle();
+  expect(button(root, 'Open experiment surfaces')).toBeUndefined();
   expect(textOf(root)).toContain('Open a surface');
   const compute = button(root, 'Compute');
   expect(compute).toBeTruthy();

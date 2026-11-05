@@ -9,6 +9,7 @@ const props = withDefaults(
     activeChatId?: string;
     tab?: 'files' | 'chats';
     owner?: boolean;
+    members?: { id: string; name: string }[];
     chatTitles?: Record<string, string>;
     // When each chat last moved, as an ISO time.
     chatTimes?: Record<string, string>;
@@ -40,17 +41,17 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
         ><span class="tsb-project-name" :title="name">{{ name }}</span></span
       >
     </div>
-    <div class="tsb-menu">
-      <button
-        v-if="owner"
-        type="button"
-        :class="row"
-        class="text-fg-subtle hover:bg-surface hover:text-fg"
-        @click="emit('members')"
-      >
-        Members
-      </button>
-    </div>
+    <section class="tsb-members" aria-label="Members">
+      <div class="tsb-members-header">
+        <span class="type-label tsb-members-title">Members</span>
+        <button v-if="owner" type="button" aria-label="Manage members" @click="emit('members')">
+          Manage
+        </button>
+      </div>
+      <ul class="tsb-member-list">
+        <li v-for="member in members" :key="member.id" :title="member.name">{{ member.name }}</li>
+      </ul>
+    </section>
     <div class="tsb-switch mt-2 px-2.5 pb-[3px] pt-1.5">
       <div class="tsb-switch-tabs" role="tablist" aria-label="Sidebar" @keydown="switchTab">
         <button

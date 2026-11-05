@@ -7,13 +7,21 @@ import { workspaceId } from '../../api/session';
 import { labKey, sourcePath, type LabMessage, type LabRef } from './api';
 const props = defineProps<{ message: LabMessage; evidence: boolean }>();
 const evidenceSources = computed(() => {
-  const seen = new Set<string>();
-  return props.message.evidence.filter((item) => {
-    const key = sourcePath(item) ?? item.ref;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const studies = new Map<string, LabRef>();
+  for (const item of props.message.evidence) {
+    if (item.ref.startsWith('study:') && item.study_id) studies.set(item.study_id, item);
+  }
+  const surfaces = new Map<string, LabRef>();
+  for (const item of props.message.evidence) {
+    const kind = item.ref.split(':')[0];
+    const surface = (kind === 'record' || kind === 'comment') && item.study_id
+      ? studies.get(item.study_id) ?? { ref: 'study:' + item.study_id, study_id: item.study_id, title: 'Study' }
+      : item;
+    if (!['workspace', 'decision', 'study'].includes(surface.ref.split(':')[0]!)) continue;
+    const path = sourcePath(surface);
+    if (path) surfaces.set(path, surface);
+  }
+  return [...surfaces.values()];
 });
 const flagging = ref(''),
   reason = ref(''),
@@ -97,10 +105,9 @@ async function submit() {
     </div>
     <section v-if="evidence" class="evidence">
       <strong>Evidence</strong>
-      <p v-if="!message.evidence.length">No records were read for this answer.</p>
-      <div v-for="item in evidenceSources" :key="sourcePath(item) ?? item.ref" class="source">
-        <RouterLink v-if="sourcePath(item)" :to="sourcePath(item)!">{{ item.title }}</RouterLink
-        ><span v-else>{{ item.title }}</span>
+      <p v-if="!evidenceSources.length">No linked surfaces are available for this answer.</p>
+      <div v-for="item in evidenceSources" :key="sourcePath(item)" class="source">
+        <RouterLink :to="sourcePath(item)!">{{ item.title }}</RouterLink>
       </div>
     </section>
   </article>

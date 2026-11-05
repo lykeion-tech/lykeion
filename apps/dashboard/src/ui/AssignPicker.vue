@@ -9,9 +9,9 @@ import Aristotle from '../features/coresearch/Aristotle.vue';
 import CliIcon from '../features/coresearch/CliIcon.vue';
 import { backendLabel } from '../lib/backends';
 import { useAgents, useMe, useRuntimes, useTeams } from '../api/queries';
-import type { StoreTeam } from '../api/types';
+import type { Column, StoreTeam } from '../api/types';
 import { matchesQuery } from '../lib/search';
-import { stages, type Picked, type Range } from '../lib/studies';
+import { stages, coversStage, type Picked, type Range } from '../lib/studies';
 
 // The Assign and Stages pills of a study or an Autoresearch. A study is worked
 // by a Team or a Team set, and the built-in Teams work every stage nobody
@@ -175,14 +175,18 @@ function assign(value: Picked | null, last = false, isSet = false) {
   emit('picked', last);
   closeMenu();
 }
-function pickStage(side: 'from' | 'to', value: string) {
-  const next = { ...range.value, [side]: value };
-  if (stages.indexOf(next.from as never) > stages.indexOf(next.to as never))
-    range.value =
-      side === 'from' ? { from: next.from, to: next.from } : { from: next.to, to: next.to };
-  else range.value = next;
-  if (side === 'to') closeMenu();
+function toggleStage(stage: Column) {
+  const i = stages.indexOf(stage);
+  const from = stages.indexOf(range.value.from as Column);
+  const to = stages.indexOf(range.value.to as Column);
+  if (i < from) range.value = { ...range.value, from: stage };
+  else if (i > to) range.value = { ...range.value, to: stage };
+  else if (from === to) return;
+  else if (i === from) range.value = { ...range.value, from: stages[from + 1]! };
+  else if (i === to) range.value = { ...range.value, to: stages[to - 1]! };
+  else range.value = { from: stage, to: stage };
 }
+const matchingStages = computed(() => stages.filter((stage) => matchesQuery(stageName(stage), query.value)));
 function useSet() {
   const teams = Object.fromEntries(
     stages.flatMap((s) => (setSlots.value[s] ? [[s, setSlots.value[s]]] : [])),
@@ -433,8 +437,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       >
         <Icon name="circle" :size="14" />
         <span
-          >Stages:
-          {{
+          >{{
             unstaged
               ? 'Choose a stage'
               : stageName(range.from) + (range.from === range.to ? '' : ' → ' + stageName(range.to))
@@ -462,29 +465,18 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       </div>
       <div
         v-else-if="menu === 'stages'"
-        :class="['composer-menu', 'stage-menu', 'set-menu', { below: menuBelow }]"
+        :class="['composer-menu', 'stage-menu', 'stages-menu', { below: menuBelow }]"
         role="menu"
+        aria-label="Study stages"
       >
-        <label
-          >From
-          <CompactSelect
-            :model-value="range.from"
-            label="From stage"
-            :width="200"
-            :options="stages.map((stage) => ({ value: stage, label: stageName(stage) }))"
-            @update:model-value="pickStage('from', $event)"
-          />
-        </label>
-        <label
-          >To
-          <CompactSelect
-            :model-value="range.to"
-            label="To stage"
-            :width="200"
-            :options="stages.map((stage) => ({ value: stage, label: stageName(stage) }))"
-            @update:model-value="pickStage('to', $event)"
-          />
-        </label>
+        <input v-model="query" placeholder="Search stages…" aria-label="Search stages" />
+        <button v-for="stage in matchingStages" :key="stage" type="button" role="menuitemcheckbox"
+          :aria-checked="coversStage(stage, range, [])" @click="toggleStage(stage)">
+          <span class="stage-picker-icon" :class="`stage-picker-icon--${stage}`" aria-hidden="true"></span>
+          <span>{{ stageName(stage) }}</span>
+          <Icon v-if="coversStage(stage, range, [])" name="check" :size="14" class="stage-picker-check" />
+        </button>
+        <p v-if="!matchingStages.length">No matching stages</p>
       </div>
     </div>
   </div>
@@ -501,6 +493,18 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .stages-pill > .icon {
   flex: none;
 }
+.stage-picker-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  color: var(--stage-dot);
+}
+.stage-picker-icon--hypotheses { color: var(--stage-hypotheses-dot); background: conic-gradient(currentColor 25%, transparent 0); }
+.stage-picker-icon--experimentation { color: var(--stage-experimentation-dot); background: conic-gradient(currentColor 50%, transparent 0); }
+.stage-picker-icon--validation { color: var(--stage-validation-dot); background: conic-gradient(currentColor 75%, transparent 0); }
+.stage-picker-check { margin-left: auto; color: var(--muted); }
 .stages-pill > span {
   min-width: 0;
   overflow: hidden;

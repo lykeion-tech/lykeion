@@ -232,6 +232,29 @@ func TestReplyToRunningCodexIsStudyComment(t *testing.T) {
 	}
 }
 
+func TestCodexReplyIsIncludedAndReceiptedInNextAgentRun(t *testing.T) {
+	l, leader := groundingLab(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness = 'codex' WHERE id = $1", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "Check adult sleep quality.", "target_run_id": leader.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	member := l.claim(t)
+	if member.id != ask.Ticket || !strings.Contains(member.prompt, "Check adult sleep quality.") {
+		t.Fatalf("next run did not receive comment: %s", member.prompt)
+	}
+	if d := l.listComments(t)[comment.ID].Delivery; d == nil || d.How != "next_run" || d.Role != "member-1" {
+		t.Fatalf("delivery %+v", d)
+	}
+	if n := l.receipts(t, comment.ID); n != 1 {
+		t.Fatalf("%d receipts", n)
+	}
+}
+
 // A Codex member can't take a comment mid-turn and its daemon never asks for
 // one: the leader waiting on it gets the comment in its next member_result,
 // once, and the study page says so.

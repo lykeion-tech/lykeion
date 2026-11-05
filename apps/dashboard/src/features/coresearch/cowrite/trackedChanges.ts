@@ -164,7 +164,7 @@ export function trackedChanges(opts: {
         .field(changeRows)
         .find((r) => r.from_pos <= line.from && r.to_pos > line.from);
       return row
-        ? new LineNo(`${view.state.doc.lineAt(line.from).number} +`, 'cm-gutter-new')
+        ? new LineNo('+', 'cm-gutter-new')
         : null;
     },
     lineMarkerChange: (u) => u.startState.field(changeRows) !== u.state.field(changeRows),

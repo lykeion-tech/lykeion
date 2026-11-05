@@ -147,6 +147,27 @@ async function openMenu(name: string) {
 function closeMenu() {
   menu.value = '';
 }
+function fitPopup(anchor: HTMLElement) {
+  const popup = anchor.querySelector<HTMLElement>('.composer-menu, .composer-calendar');
+  if (!popup) return;
+  const bounds = anchor.getBoundingClientRect();
+  popup.style.boxSizing = 'border-box';
+  popup.style.maxHeight = `${Math.max(0, window.innerHeight - bounds.bottom - 14)}px`;
+  popup.style.maxWidth = `${Math.max(0, window.innerWidth - 16)}px`;
+  popup.style.overflowY = 'auto';
+  popup.style.left = '0px';
+  const right = popup.getBoundingClientRect().right;
+  if (right > window.innerWidth - 8) popup.style.left = `${window.innerWidth - 8 - right}px`;
+}
+async function fitPropertyMenu(event: MouseEvent) {
+  const anchor = (event.target as HTMLElement).closest<HTMLElement>('.property-anchor');
+  if (!anchor) return;
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  fitPopup(anchor);
+}
+function fitOpenPropertyMenus() {
+  form.value?.querySelectorAll<HTMLElement>('.property-anchor').forEach(fitPopup);
+}
 function switchMode() {
   if (mode.value === 'manual') {
     if (assignee.value?.type !== 'agent') return;
@@ -258,8 +279,14 @@ async function submit() {
     if (current()) busy.value = false;
   }
 }
-onMounted(() => document.addEventListener('pointerdown', outside));
-onUnmounted(() => document.removeEventListener('pointerdown', outside));
+onMounted(() => {
+  document.addEventListener('pointerdown', outside);
+  window.addEventListener('resize', fitOpenPropertyMenus);
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outside);
+  window.removeEventListener('resize', fitOpenPropertyMenus);
+});
 </script>
 <template>
   <Modal title="New study" :class="['study-composer', mode, { expanded }]" @close="emit('close')">
@@ -352,7 +379,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>.
       </p>
       <div class="composer-properties">
-        <div class="property-line" role="group" aria-label="Study properties">
+        <div class="property-line" role="group" aria-label="Study properties" @click.capture="fitPropertyMenu">
           <AssignPicker
             v-if="mode === 'manual'"
             ref="picker"
@@ -362,6 +389,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             default-label="Assignees"
             :agent-only="!!workflowSlug"
             :last-set="lastSet"
+            menu-below
             @open="closeMenu"
             @picked="(last) => (usedLastSet = last)"
           >
@@ -783,16 +811,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   text-overflow: ellipsis;
 }
 .project-menu {
-  top: auto;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
   min-width: 180px;
   max-height: 240px;
   overflow-y: auto;
   padding: 6px;
 }
 .property-line :deep(.composer-calendar) {
-  top: auto;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
+  bottom: auto;
 }
 .project-menu button {
   display: block;

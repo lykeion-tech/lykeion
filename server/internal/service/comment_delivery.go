@@ -99,7 +99,9 @@ func DeliverComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how str
 		included[c.ID] = true
 	}
 	open = slices.DeleteFunc(open, func(c db.Comment) bool { return !included[c.ID] })
-	open, err = CommentsForRun(ctx, tx, open, &run)
+	// The prompt was built with ordinary study context, not live-turn
+	// steering. Apply the same eligibility rule before issuing receipts.
+	open, err = CommentsForRun(ctx, tx, open, nil)
 	if err != nil {
 		return nil, err
 	}

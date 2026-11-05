@@ -822,3 +822,10 @@ blockquote {
 #machine {
   scroll-margin-top: 90px;
 }
+.mobile-menu-github svg,
+.hero-caption svg {
+  vertical-align: middle;
+}
+.mobile-menu-github svg {
+  margin-left: 6px;
+}
