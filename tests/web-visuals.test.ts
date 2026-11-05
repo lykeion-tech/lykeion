@@ -60,6 +60,19 @@ describe('real website dashboard visuals', () => {
     expect(source).toContain('<Transition');
     expect(source).toContain('Lykeion Demo');
   });
+  it('keeps Machines pillars spaced as a responsive grid with aligned icons', () => {
+    expect(source).toMatch(
+      /\.pillar-list\s*\{[^}]*display: grid;[^}]*margin-top: 60px;[^}]*grid-template-columns: repeat\(3, 1fr\)/,
+    );
+    expect(source).toMatch(
+      /\.pillar\s*\{[^}]*display: flex;[^}]*align-items: start;[^}]*gap: 14px;/,
+    );
+    expect(source).toMatch(/\.pillar h3\s*\{[^}]*margin-bottom: 7px;/);
+    expect(source).toMatch(/\.pillar p\s*\{[^}]*max-width: 400px;[^}]*font-size: 15px;/);
+    expect(source).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.pillar-list\s*\{[^}]*grid-template-columns: 1fr;/,
+    );
+  });
   it('removes invented dashboard markup and compiles', () => {
     for (const name of ['mini-terminal', 'mini-evidence', 'board-columns', 'case-ui-body'])
       expect(source).not.toContain(name);

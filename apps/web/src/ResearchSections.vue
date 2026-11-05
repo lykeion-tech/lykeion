@@ -1165,8 +1165,22 @@ const principles = [
   max-width: 800px;
 }
 .pillar-list {
+  display: grid;
+  margin-top: 60px;
   grid-template-columns: repeat(3, 1fr);
   gap: 24px;
+}
+.pillar {
+  display: flex;
+  align-items: start;
+  gap: 14px;
+}
+.pillar h3 {
+  margin-bottom: 7px;
+}
+.pillar p {
+  max-width: 400px;
+  font-size: 15px;
 }
 .feature-card {
   min-height: 0;
