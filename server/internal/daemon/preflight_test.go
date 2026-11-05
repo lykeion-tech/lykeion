@@ -68,6 +68,7 @@ func TestPreflightOrder(t *testing.T) {
 		{"sandbox", "claude", claudeProbes, true, true, agent.ReasonSandbox},
 		{"door", "claude", claudeProbes, false, true, agent.ReasonDoor},
 		{"signed out", "claude", claudeProbes + "IFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
+		{"oauth session expired", "claude", claudeProbes + "IFS= read -r first\necho 'Failed to authenticate: OAuth session expired and could not be refreshed' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
 		{"says no", "claude", claudeProbes + isolatedHello + fmtAnswer(`{"ok":false}`), false, false, agent.ReasonCLIBroken},
 		{"provider unreachable", "claude", claudeProbes + "IFS= read -r first\necho 'API Error: Connection error (ECONNRESET)' >&2\nexit 1\n", false, false, agent.ReasonProviderNetwork},
 		{"no answer", "claude", claudeProbes + "IFS= read -r first\nexit 0\n", false, false, agent.ReasonCLIBroken},
