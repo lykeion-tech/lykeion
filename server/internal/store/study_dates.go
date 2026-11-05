@@ -19,6 +19,11 @@ func (t *Tx) SetStudyStartDate(ctx context.Context, id uuid.UUID, date *time.Tim
 	return err
 }
 
+func (t *Tx) SetStudyPriority(ctx context.Context, id uuid.UUID, priority string) error {
+	_, err := t.raw.Exec(ctx, `UPDATE card SET priority=$3 WHERE workspace_id=$1 AND id=$2`, t.WS, id, priority)
+	return err
+}
+
 func (t *Tx) StudyStartDates(ctx context.Context) (map[uuid.UUID]time.Time, error) {
 	rows, err := t.raw.Query(ctx, `SELECT id, start_date FROM card WHERE workspace_id=$1 AND start_date IS NOT NULL`, t.WS)
 	if err != nil {

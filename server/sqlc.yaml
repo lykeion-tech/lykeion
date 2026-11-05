@@ -49,3 +49,11 @@ sql:
             go_type:
               type: time.Time
               pointer: true
+          - column: research.start_date
+            go_type:
+              type: time.Time
+              pointer: true
+          - column: research.due_date
+            go_type:
+              type: time.Time
+              pointer: true

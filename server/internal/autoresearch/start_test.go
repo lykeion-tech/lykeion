@@ -199,7 +199,7 @@ func TestStudyDraftCreatesOnlyOneStudyWithProperties(t *testing.T) {
 	project := uuid.New()
 	f.exec(t, `INSERT INTO research (id,workspace_id,name,created_by) VALUES ($1,$2,'Project',$3)`, project, f.ws, f.owner)
 	f.exec(t, `UPDATE autoresearch SET assignee_type='agent', assignee_id=$1 WHERE id=$2`, agent, ap)
-	f.exec(t, `INSERT INTO study_draft_request (workspace_id,autoresearch_id,research_id,start_date,deadline) VALUES ($1,$2,$3,'2026-11-03','2026-11-05T23:59:59Z')`, f.ws, ap, project)
+	f.exec(t, `INSERT INTO study_draft_request (workspace_id,autoresearch_id,research_id,start_date,deadline,priority) VALUES ($1,$2,$3,'2026-11-03','2026-11-05T23:59:59Z','high')`, f.ws, ap, project)
 	r := f.fire(t, ap, Admission{})
 	if r.AgentRunID == nil {
 		t.Fatalf("not queued: %s", reason(r))
@@ -213,10 +213,10 @@ func TestStudyDraftCreatesOnlyOneStudyWithProperties(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c.ResearchID == nil || *c.ResearchID != project || c.Deadline == nil {
+	if c.ResearchID == nil || *c.ResearchID != project || c.Deadline == nil || c.Priority != "high" {
 		t.Fatalf("properties: %+v", c)
 	}
-	if n := f.count(t, `SELECT count(*) FROM card WHERE id=$1 AND start_date='2026-11-03'`, c.ID); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM card WHERE id=$1 AND start_date='2026-11-03' AND priority='high'`, c.ID); n != 1 {
 		t.Fatalf("missing start date: %d", n)
 	}
 	err := f.s.Store.InWorkspace(ctx, f.ws, uuid.Nil, func(tx *store.Tx) error {

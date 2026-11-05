@@ -22,6 +22,7 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 		ResearchID *uuid.UUID `json:"research_id"`
 		StartDate  *time.Time `json:"start_date"`
 		Deadline   *time.Time `json:"deadline"`
+		Priority   string     `json:"priority"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid request")
@@ -31,6 +32,13 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 	if in.AgentID == uuid.Nil || in.Prompt == "" || len(in.Prompt) > 12000 {
 		writeErr(w, 400, "choose an agent and enter a request of at most 12000 bytes")
 		return
+	}
+	if !validPlanningPriority(in.Priority) {
+		writeErr(w, 400, "invalid priority")
+		return
+	}
+	if in.Priority == "" {
+		in.Priority = "none"
 	}
 	if in.StartDate != nil && in.Deadline != nil && in.StartDate.After(*in.Deadline) {
 		writeErr(w, 400, "start date must be on or before the due date")
@@ -75,7 +83,7 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if err := tx.CreateStudyDraft(r.Context(), ap.ID, store.StudyDraft{ResearchID: in.ResearchID, StartDate: in.StartDate, Deadline: in.Deadline}); err != nil {
+		if err := tx.CreateStudyDraft(r.Context(), ap.ID, store.StudyDraft{ResearchID: in.ResearchID, StartDate: in.StartDate, Deadline: in.Deadline, Priority: in.Priority}); err != nil {
 			return err
 		}
 		run, _, err = h.Autoresearch.Admit(r.Context(), tx, autoresearch.Admission{Autoresearch: ap.ID, Source: "manual", Actor: user, PlannedAt: time.Now(), Key: "study-draft:" + uuid.NewString()})

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ChatRow } from '../types';
 import FileMenu from './FileMenu.vue';
+import Icon from '../../../ui/Icon.vue';
 import { formatAgo } from './lib/pane-time';
 const props = withDefaults(
   defineProps<{
@@ -44,8 +45,8 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
     <section class="tsb-members" aria-label="Members">
       <div class="tsb-members-header">
         <span class="type-label tsb-members-title">Members</span>
-        <button v-if="owner" type="button" aria-label="Manage members" @click="emit('members')">
-          Manage
+        <button v-if="owner" type="button" aria-label="Manage members" title="Manage members" @click="emit('members')">
+          <Icon name="edit" :size="14" />
         </button>
       </div>
       <ul class="tsb-member-list">

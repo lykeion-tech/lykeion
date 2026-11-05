@@ -57,6 +57,14 @@ onUnmounted(() => generation++);
 const title = ref('');
 const question = ref('');
 const deadline = ref('');
+const priority = ref<'none' | 'urgent' | 'high' | 'medium' | 'low'>('none');
+const priorities = [
+  { value: 'urgent', label: 'Urgent', bars: 4 },
+  { value: 'high', label: 'High', bars: 3 },
+  { value: 'medium', label: 'Medium', bars: 2 },
+  { value: 'low', label: 'Low', bars: 1 },
+  { value: 'none', label: 'No priority', bars: 0 },
+] as const;
 const startDate = ref('');
 const projectId = ref(props.projectId ?? '');
 const selectedProject = computed(() =>
@@ -228,6 +236,7 @@ async function submit() {
           ...(projectId.value ? { research_id: projectId.value } : {}),
           start_date: startDate.value ? `${startDate.value}T00:00:00Z` : null,
           deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
+          priority: priority.value,
         },
         undefined,
         { workspace },
@@ -251,6 +260,7 @@ async function submit() {
     question: question.value.trim(),
     deadline: deadline.value ? new Date(`${deadline.value}T23:59:59`).toISOString() : null,
     start_date: startDate.value ? `${startDate.value}T00:00:00Z` : null,
+    priority: priority.value,
     ...(files.ids.value.length ? { attachment_ids: files.ids.value } : {}),
     ...(assignee.value ? { assignee: assignee.value } : {}),
     ...(workflowSlug.value ? { workflow: workflowSlug.value } : {}),
@@ -379,7 +389,62 @@ onUnmounted(() => {
         <template v-if="byId(duplicate.id)">“{{ byId(duplicate.id)!.title }}”</template>.
       </p>
       <div class="composer-properties">
-        <div class="property-line" role="group" aria-label="Study properties" @click.capture="fitPropertyMenu">
+        <div
+          class="property-line"
+          role="group"
+          aria-label="Study properties"
+          @click.capture="fitPropertyMenu"
+        >
+          <div class="property-anchor">
+            <button
+              type="button"
+              class="property-pill"
+              aria-label="Study priority"
+              :aria-expanded="menu === 'priority'"
+              @click="openMenu('priority')"
+            >
+              <span class="priority-mark" :class="priority" aria-hidden="true"
+                ><template v-if="priority !== 'none'"
+                  ><i
+                    v-for="n in 4"
+                    :key="n"
+                    :class="{
+                      filled: n <= (priorities.find((p) => p.value === priority)?.bars ?? 0),
+                    }"
+                    :style="{ height: `${3 + n * 2}px` }" /></template
+                ><template v-else>—</template></span
+              >
+              {{ priorities.find((p) => p.value === priority)?.label }}
+            </button>
+            <div
+              v-if="menu === 'priority'"
+              class="composer-menu"
+              role="menu"
+              aria-label="Study priority"
+            >
+              <button
+                v-for="option in priorities"
+                :key="option.value"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="priority === option.value"
+                @click="
+                  priority = option.value;
+                  closeMenu();
+                "
+              >
+                <span class="priority-mark" :class="option.value" aria-hidden="true"
+                  ><template v-if="option.bars"
+                    ><i
+                      v-for="n in 4"
+                      :key="n"
+                      :class="{ filled: n <= option.bars }"
+                      :style="{ height: `${3 + n * 2}px` }" /></template
+                  ><template v-else>—</template></span
+                >{{ option.label }}
+              </button>
+            </div>
+          </div>
           <AssignPicker
             v-if="mode === 'manual'"
             ref="picker"
@@ -406,39 +471,6 @@ onUnmounted(() => {
               <Icon name="close" :size="12" />
             </button>
           </span>
-          <div class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              title="Planning date; the study starts when created"
-              :aria-expanded="menu === 'start'"
-              @click="openMenu('start')"
-            >
-              <Icon name="calendar" :size="14" />{{ startDate || 'Start date' }}
-            </button>
-            <ComposerCalendar
-              v-if="menu === 'start'"
-              v-model="startDate"
-              kind="start"
-              @close="closeMenu"
-            />
-          </div>
-          <div class="property-anchor">
-            <button
-              type="button"
-              class="property-pill"
-              :aria-expanded="menu === 'deadline'"
-              @click="openMenu('deadline')"
-            >
-              <Icon name="calendar" :size="14" />{{ deadline || 'Due date' }}
-            </button>
-            <ComposerCalendar
-              v-if="menu === 'deadline'"
-              v-model="deadline"
-              kind="due"
-              @close="closeMenu"
-            />
-          </div>
           <div class="property-anchor">
             <button
               type="button"
@@ -482,6 +514,22 @@ onUnmounted(() => {
               </button>
               <p v-if="projects.isError.value" role="alert">Could not load projects.</p>
             </div>
+          </div>
+          <div class="property-anchor">
+            <button type="button" class="property-pill" aria-label="More study properties"
+              :aria-expanded="['dates', 'start', 'deadline'].includes(menu)" @click="openMenu('dates')">
+              <Icon name="more" :size="16" />
+            </button>
+            <div v-if="menu === 'dates'" class="composer-menu" role="menu" aria-label="Study dates">
+              <button type="button" role="menuitem" @click="openMenu('start')">
+                <Icon name="calendar" :size="14" />{{ startDate ? `Start date: ${startDate}` : 'Set start date…' }}
+              </button>
+              <button type="button" role="menuitem" @click="openMenu('deadline')">
+                <Icon name="calendar" :size="14" />{{ deadline ? `Due date: ${deadline}` : 'Set due date…' }}
+              </button>
+            </div>
+            <ComposerCalendar v-if="menu === 'start'" v-model="startDate" kind="start" @close="closeMenu" />
+            <ComposerCalendar v-if="menu === 'deadline'" v-model="deadline" kind="due" @close="closeMenu" />
           </div>
         </div>
       </div>
@@ -565,6 +613,32 @@ onUnmounted(() => {
 </template>
 <style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>
+.priority-mark {
+  display: inline-flex;
+  width: 16px;
+  height: 14px;
+  align-items: flex-end;
+  gap: 1px;
+  color: var(--muted);
+}
+.priority-mark i {
+  width: 2px;
+  background: currentColor;
+  opacity: 0.25;
+}
+.priority-mark i.filled {
+  opacity: 1;
+}
+.priority-mark.urgent {
+  color: #e5705b;
+}
+.priority-mark.high,
+.priority-mark.medium {
+  color: #d9a441;
+}
+.priority-mark.low {
+  color: var(--muted);
+}
 .study-composer {
   width: 578px;
   max-width: calc(100vw - 48px);

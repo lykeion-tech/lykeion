@@ -93,6 +93,7 @@ func (s *Service) OpenCardForAgentRun(ctx context.Context, tx *store.Tx, ar uuid
 		}
 		card.ResearchID = draft.ResearchID
 		card.Deadline = draft.Deadline
+		card.Priority = draft.Priority
 		if draft.ResearchID != nil {
 			if err := tx.Emit(ctx, "card.properties_updated", &card.ID, store.System, map[string]any{"research_id": *draft.ResearchID}); err != nil {
 				return db.Card{}, err

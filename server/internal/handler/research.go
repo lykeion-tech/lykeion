@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -37,13 +38,22 @@ type researchInput struct {
 	Priority    nullableString `json:"priority"`
 	LeadType    nullableString `json:"lead_type"`
 	LeadID      nullableUUID   `json:"lead_id"`
+	StartDate   nullableTime   `json:"start_date"`
+	DueDate     nullableTime   `json:"due_date"`
 }
+
+type nullableTime struct {
+	Set bool
+	V   *time.Time
+}
+
+func (v *nullableTime) UnmarshalJSON(b []byte) error { v.Set = true; return json.Unmarshal(b, &v.V) }
 
 func (in researchInput) valid(create bool) bool {
 	if create && in.Name == nil || in.Name != nil && strings.TrimSpace(*in.Name) == "" {
 		return false
 	}
-	if !create && in.Name == nil && in.Description == nil && !in.Status.Set && !in.Priority.Set && !in.LeadType.Set && !in.LeadID.Set {
+	if !create && in.Name == nil && in.Description == nil && !in.Status.Set && !in.Priority.Set && !in.LeadType.Set && !in.LeadID.Set && !in.StartDate.Set && !in.DueDate.Set {
 		return false
 	}
 	if in.Status.Set {
@@ -96,6 +106,15 @@ func (in researchInput) apply(r *db.Research) {
 	if in.LeadType.Set {
 		r.LeadType, r.LeadID = in.LeadType.V, in.LeadID.V
 	}
+	if in.StartDate.Set {
+		r.StartDate = in.StartDate.V
+	}
+	if in.DueDate.Set {
+		r.DueDate = in.DueDate.V
+	}
+}
+func validResearchDates(r db.Research) bool {
+	return r.StartDate == nil || r.DueDate == nil || !r.StartDate.After(*r.DueDate)
 }
 
 func sameResearchLead(a, b db.Research) bool {
@@ -115,13 +134,16 @@ func (h *H) createResearch(w http.ResponseWriter, r *http.Request) {
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		fields := db.Research{Status: "planned", Priority: "none"}
 		in.apply(&fields)
+		if !validResearchDates(fields) {
+			return cardInputError("start date must be on or before the due date")
+		}
 		if fields.LeadType != nil {
 			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
 				return err
 			}
 		}
 		var err error
-		out, err = tx.Q.CreateResearch(r.Context(), db.CreateResearchParams{WorkspaceID: ws, Name: fields.Name, Description: fields.Description, CreatedBy: user, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID})
+		out, err = tx.Q.CreateResearch(r.Context(), db.CreateResearchParams{WorkspaceID: ws, Name: fields.Name, Description: fields.Description, CreatedBy: user, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID, StartDate: fields.StartDate, DueDate: fields.DueDate})
 		if err != nil {
 			return err
 		}
@@ -180,12 +202,15 @@ func (h *H) updateResearch(w http.ResponseWriter, r *http.Request) {
 		}
 		fields := prev
 		in.apply(&fields)
+		if !validResearchDates(fields) {
+			return cardInputError("start date must be on or before the due date")
+		}
 		if !sameResearchLead(prev, fields) && fields.LeadType != nil {
 			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
 				return err
 			}
 		}
-		out, err = tx.Q.UpdateResearch(r.Context(), db.UpdateResearchParams{WorkspaceID: ws, ID: id, Name: fields.Name, Description: fields.Description, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID})
+		out, err = tx.Q.UpdateResearch(r.Context(), db.UpdateResearchParams{WorkspaceID: ws, ID: id, Name: fields.Name, Description: fields.Description, Status: fields.Status, Priority: fields.Priority, LeadType: fields.LeadType, LeadID: fields.LeadID, StartDate: fields.StartDate, DueDate: fields.DueDate})
 		if err != nil {
 			return err
 		}
