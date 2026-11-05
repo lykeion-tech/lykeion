@@ -153,3 +153,21 @@ ORDER BY c.created_at, c.id;
 -- name: AcknowledgeCommentReservation :exec
 UPDATE comment_reservation SET acknowledged_at = now()
 WHERE workspace_id= @workspace_id AND agent_run_id= @agent_run_id AND attempt= @attempt AND comment_id= @comment_id AND acknowledged_at IS NULL;
+
+-- name: InsertRunCommentSnapshot :exec
+INSERT INTO run_comment_snapshot(workspace_id,agent_run_id,comment_id,ordinal,section_start,section_end)
+VALUES (@workspace_id,@agent_run_id,@comment_id,@ordinal,@section_start,@section_end);
+
+-- name: RunCommentSnapshot :many
+SELECT c.*, s.section_start, s.section_end, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
+FROM run_comment_snapshot s JOIN comment c ON c.workspace_id=s.workspace_id AND c.id=s.comment_id
+WHERE s.workspace_id = @workspace_id AND s.agent_run_id = @agent_run_id ORDER BY s.ordinal;
+
+-- name: CopyRunCommentSnapshot :exec
+INSERT INTO run_comment_snapshot(workspace_id,agent_run_id,comment_id,ordinal,section_start,section_end)
+SELECT s.workspace_id,@replacement_run,s.comment_id,s.ordinal,s.section_start,s.section_end FROM run_comment_snapshot s
+WHERE s.workspace_id = @workspace_id AND s.agent_run_id = @original_run;
+
+-- name: TransferCommentReservations :exec
+UPDATE comment_reservation SET agent_run_id = @replacement_run, attempt = @attempt
+WHERE workspace_id = @workspace_id AND agent_run_id = @original_run AND acknowledged_at IS NULL;

@@ -341,6 +341,23 @@ func (q *Queries) CommentDeliveries(ctx context.Context, arg CommentDeliveriesPa
 	return items, nil
 }
 
+const copyRunCommentSnapshot = `-- name: CopyRunCommentSnapshot :exec
+INSERT INTO run_comment_snapshot(workspace_id,agent_run_id,comment_id,ordinal,section_start,section_end)
+SELECT s.workspace_id,$1,s.comment_id,s.ordinal,s.section_start,s.section_end FROM run_comment_snapshot s
+WHERE s.workspace_id = $2 AND s.agent_run_id = $3
+`
+
+type CopyRunCommentSnapshotParams struct {
+	ReplacementRun uuid.UUID `json:"replacement_run"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	OriginalRun    uuid.UUID `json:"original_run"`
+}
+
+func (q *Queries) CopyRunCommentSnapshot(ctx context.Context, arg CopyRunCommentSnapshotParams) error {
+	_, err := q.db.Exec(ctx, copyRunCommentSnapshot, arg.ReplacementRun, arg.WorkspaceID, arg.OriginalRun)
+	return err
+}
+
 const createCard = `-- name: CreateCard :one
 INSERT INTO card (workspace_id, number, title, question, owner_id, deadline, position,
   scope_from, scope_to, assignee_type, assignee_id, board_column, round, research_id, machine, study_cli, auditor_cli, workflow, workflow_release)
@@ -562,6 +579,32 @@ func (q *Queries) InsertCardTeam(ctx context.Context, arg InsertCardTeamParams) 
 		arg.CardID,
 		arg.BoardColumn,
 		arg.PackID,
+	)
+	return err
+}
+
+const insertRunCommentSnapshot = `-- name: InsertRunCommentSnapshot :exec
+INSERT INTO run_comment_snapshot(workspace_id,agent_run_id,comment_id,ordinal,section_start,section_end)
+VALUES ($1,$2,$3,$4,$5,$6)
+`
+
+type InsertRunCommentSnapshotParams struct {
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+	AgentRunID   uuid.UUID `json:"agent_run_id"`
+	CommentID    uuid.UUID `json:"comment_id"`
+	Ordinal      int32     `json:"ordinal"`
+	SectionStart int32     `json:"section_start"`
+	SectionEnd   int32     `json:"section_end"`
+}
+
+func (q *Queries) InsertRunCommentSnapshot(ctx context.Context, arg InsertRunCommentSnapshotParams) error {
+	_, err := q.db.Exec(ctx, insertRunCommentSnapshot,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.CommentID,
+		arg.Ordinal,
+		arg.SectionStart,
+		arg.SectionEnd,
 	)
 	return err
 }
@@ -858,6 +901,63 @@ func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxPara
 	return items, nil
 }
 
+const runCommentSnapshot = `-- name: RunCommentSnapshot :many
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt, s.section_start, s.section_end, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
+FROM run_comment_snapshot s JOIN comment c ON c.workspace_id=s.workspace_id AND c.id=s.comment_id
+WHERE s.workspace_id = $1 AND s.agent_run_id = $2 ORDER BY s.ordinal
+`
+
+type RunCommentSnapshotParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+}
+
+type RunCommentSnapshotRow struct {
+	ID           uuid.UUID  `json:"id"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	CardID       uuid.UUID  `json:"card_id"`
+	AuthorID     uuid.UUID  `json:"author_id"`
+	Body         string     `json:"body"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ReplyRunID   *uuid.UUID `json:"reply_run_id"`
+	SteerAttempt *int32     `json:"steer_attempt"`
+	SectionStart int32      `json:"section_start"`
+	SectionEnd   int32      `json:"section_end"`
+	Cancelled    bool       `json:"cancelled"`
+}
+
+func (q *Queries) RunCommentSnapshot(ctx context.Context, arg RunCommentSnapshotParams) ([]RunCommentSnapshotRow, error) {
+	rows, err := q.db.Query(ctx, runCommentSnapshot, arg.WorkspaceID, arg.AgentRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RunCommentSnapshotRow
+	for rows.Next() {
+		var i RunCommentSnapshotRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.AuthorID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.ReplyRunID,
+			&i.SteerAttempt,
+			&i.SectionStart,
+			&i.SectionEnd,
+			&i.Cancelled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const runReservedComments = `-- name: RunReservedComments :many
 SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt, cr.acknowledged_at, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
 FROM comment_reservation cr JOIN comment c ON c.workspace_id=cr.workspace_id AND c.id=cr.comment_id
@@ -953,6 +1053,28 @@ func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error 
 		arg.CardID,
 		arg.BoardColumn,
 		arg.PackID,
+	)
+	return err
+}
+
+const transferCommentReservations = `-- name: TransferCommentReservations :exec
+UPDATE comment_reservation SET agent_run_id = $1, attempt = $2
+WHERE workspace_id = $3 AND agent_run_id = $4 AND acknowledged_at IS NULL
+`
+
+type TransferCommentReservationsParams struct {
+	ReplacementRun uuid.UUID `json:"replacement_run"`
+	Attempt        int32     `json:"attempt"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	OriginalRun    uuid.UUID `json:"original_run"`
+}
+
+func (q *Queries) TransferCommentReservations(ctx context.Context, arg TransferCommentReservationsParams) error {
+	_, err := q.db.Exec(ctx, transferCommentReservations,
+		arg.ReplacementRun,
+		arg.Attempt,
+		arg.WorkspaceID,
+		arg.OriginalRun,
 	)
 	return err
 }

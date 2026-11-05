@@ -389,7 +389,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// Recheck cancellations immediately before launch, after setup. The frozen
 	// prompt does not absorb comments posted after enqueue.
 	var launchComments service.CommentLaunch
-	if len(c.ReservedCommentIDs) > 0 {
+	if c.HasCommentSnapshot || len(c.ReservedCommentIDs) > 0 {
 		if err := d.api.Do(runCtx, "POST", base+"/comments/launch", ref, &launchComments); err != nil {
 			fail(err)
 			return err

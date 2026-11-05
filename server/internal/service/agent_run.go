@@ -219,6 +219,7 @@ type ClaimedRerun struct {
 }
 
 type Claimed struct {
+	HasCommentSnapshot bool               `json:"has_comment_snapshot,omitempty"`
 	ReservedCommentIDs []uuid.UUID        `json:"reserved_comment_ids,omitempty"`
 	Coresearch         *ClaimedCoresearch `json:"coresearch,omitempty"`
 	Rerun              *ClaimedRerun      `json:"rerun,omitempty"`
@@ -1056,7 +1057,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 						return err
 					}
 					t.Prompt = launch.Prompt
-					c = &Claimed{ReservedCommentIDs: launch.CommentIDs, Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					c = &Claimed{HasCommentSnapshot: launch.HasSnapshot, ReservedCommentIDs: launch.CommentIDs, Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return emitAgentRunEvent(ctx, tx, t, "agent_run.dispatched", store.System, agentRunEvent(t))
 				}()
 				if err != nil {

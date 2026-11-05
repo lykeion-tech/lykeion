@@ -30,3 +30,20 @@ UPDATE record r SET body=r.body || '{"historical_unconfirmed":true}'::jsonb
 FROM agent_run ar
 WHERE r.kind='comment_delivery' AND r.body->>'how'='next_run' AND ar.id=r.agent_run_id
  AND ar.workspace_id=r.workspace_id AND ar.status IN ('queued','dispatched');
+
+-- Every comment in a prompt, independent of exclusive pending delivery ownership.
+CREATE TABLE run_comment_snapshot (
+ workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+ agent_run_id uuid NOT NULL,
+ comment_id uuid NOT NULL,
+ ordinal integer NOT NULL,
+ section_start integer NOT NULL CHECK (section_start >= 0),
+ section_end integer NOT NULL CHECK (section_end >= section_start),
+ PRIMARY KEY (workspace_id, agent_run_id, comment_id),
+ UNIQUE (workspace_id, agent_run_id, ordinal),
+ FOREIGN KEY (agent_run_id, workspace_id) REFERENCES agent_run (id, workspace_id) ON DELETE CASCADE,
+ FOREIGN KEY (workspace_id, comment_id) REFERENCES comment (workspace_id, id) ON DELETE CASCADE
+);
+ALTER TABLE run_comment_snapshot ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant ON run_comment_snapshot USING (workspace_id = app_workspace()) WITH CHECK (workspace_id = app_workspace());
+GRANT SELECT, INSERT ON run_comment_snapshot TO lykeion_app;

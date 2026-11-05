@@ -484,3 +484,92 @@ func TestReservedCommentRecoveredAfterTerminalRun(t *testing.T) {
 		t.Fatalf("settled ack: %d", code)
 	}
 }
+
+func TestLaunchFiltersAllSnapshotCommentsByIdentity(t *testing.T) {
+	for _, delivered := range []bool{false, true} {
+		t.Run(fmt.Sprint("delivered=", delivered), func(t *testing.T) {
+			l, leader := groundingLab(t)
+			keep := l.comment(t, "Please - use controls")
+			cancelled := l.comment(t, "use controls")
+			if delivered {
+				if code, cs := l.runComments(t, leader); code != 200 || len(cs) != 2 {
+					t.Fatalf("deliver %d %+v", code, cs)
+				}
+			}
+			_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
+			run := l.claim(t)
+			if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
+				t.Fatalf("cancel %d", code)
+			}
+			var launch struct {
+				Prompt     string
+				CommentIDs []string `json:"comment_ids"`
+			}
+			if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/launch", l.personal, "", run.ref, &launch); code != 200 {
+				t.Fatalf("preflight %d", code)
+			}
+			if !strings.Contains(launch.Prompt, "- Please - use controls\n") || strings.Contains(launch.Prompt, "\n- use controls\n") {
+				t.Fatalf("bad filtered prompt: %s", launch.Prompt)
+			}
+			if !delivered && (len(launch.CommentIDs) != 1 || launch.CommentIDs[0] != keep) {
+				t.Fatalf("ids %+v", launch.CommentIDs)
+			}
+		})
+	}
+}
+
+func TestMachineRecoveryCopiesCommentSnapshotAndReservations(t *testing.T) {
+	l, leader := groundingLab(t)
+	keep := l.comment(t, "Pending before machine switch.")
+	cancelled := l.comment(t, "Cancel before machine switch.")
+	_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
+	original := l.claim(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled',cancel_reason='runtime_access_revoked' WHERE id=$1`, original.id); err != nil {
+		t.Fatal(err)
+	}
+	l.comment(t, "Posted after original frozen prompt.")
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel: %d", code)
+	}
+	if code := l.s.call(t, "PATCH", "/api/cards/"+l.card.ID+"/machine", l.jwt, l.ws, map[string]any{"machine": "mine"}, nil); code != 200 {
+		t.Fatalf("machine switch: %d", code)
+	}
+	replacement := l.claim(t)
+	if replacement.id == original.id || !strings.Contains(replacement.prompt, "Pending before machine switch.") || strings.Contains(replacement.prompt, "Cancel before machine switch.") || strings.Contains(replacement.prompt, "Posted after original frozen prompt.") {
+		t.Fatalf("recovery snapshot: %s", replacement.prompt)
+	}
+	l.ackComments(t, replacement, keep)
+	if l.receipts(t, keep) != 1 || l.receipts(t, cancelled) != 0 {
+		t.Fatal("incorrect recovery receipts")
+	}
+}
+
+func TestLaunchFiltersCommentReservedByAnotherRun(t *testing.T) {
+	l, leader := groundingLab(t)
+	id := l.comment(t, "Shared frozen context.")
+	// Model a pending input owned by the active leader's frozen prompt. Only
+	// one member may work per column; no second member is needed for this case.
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `INSERT INTO comment_reservation(workspace_id,comment_id,agent_run_id,attempt) VALUES($1,$2,$3,$4)`, l.ws, id, leader.id, leader.ref["attempt"]); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := l.ask(t, leader.token, "member-1", "Find papers."); code != 201 {
+		t.Fatalf("ask: %d %+v", code, out)
+	}
+	member := l.claim(t)
+	if !strings.Contains(member.prompt, "Shared frozen context.") {
+		t.Fatal("missing shared context")
+	}
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+id, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel: %d", code)
+	}
+	var launch struct {
+		Prompt     string
+		CommentIDs []string `json:"comment_ids"`
+	}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+member.id+"/comments/launch", l.personal, "", member.ref, &launch); code != 200 {
+		t.Fatalf("preflight: %d", code)
+	}
+	if strings.Contains(launch.Prompt, "Shared frozen context.") || len(launch.CommentIDs) != 0 {
+		t.Fatalf("cancelled context or foreign ownership survived: %+v", launch)
+	}
+}

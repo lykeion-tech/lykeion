@@ -883,6 +883,15 @@ type Research struct {
 	LeadID      *uuid.UUID `json:"lead_id"`
 }
 
+type RunCommentSnapshot struct {
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+	AgentRunID   uuid.UUID `json:"agent_run_id"`
+	CommentID    uuid.UUID `json:"comment_id"`
+	Ordinal      int32     `json:"ordinal"`
+	SectionStart int32     `json:"section_start"`
+	SectionEnd   int32     `json:"section_end"`
+}
+
 type RunReaction struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	RunID       uuid.UUID `json:"run_id"`
