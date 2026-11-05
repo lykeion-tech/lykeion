@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
@@ -503,5 +504,135 @@ func TestComposerFollowUpFencesExpiredScoring(t *testing.T) {
 	}
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id=$1 AND kind='outcome'", c.ID); n != 0 {
 		t.Fatal("old outcome applied")
+	}
+}
+
+func TestComposerDuringActiveScoringStaysInCurrentColumn(t *testing.T) {
+	for _, gate := range []string{"score", "review", "validation"} {
+		for _, last := range []bool{true, false} {
+			if gate == "validation" && !last {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/last=%v", gate, last), func(t *testing.T) {
+				l := newLab(t)
+				a := l.agent(t, "Curie", "codex", "", "Curie")
+				column := "hypotheses"
+				if gate == "validation" {
+					column = "validation"
+				}
+				c := l.study(t, column, false, &a)
+				if !last {
+					if _, err := l.env.Owner.Exec(t.Context(), "UPDATE card SET scope_to='validation' WHERE id=$1", c.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
+				l.e.Kick(l.ws, c.ID)
+				old := l.latestRun(t, c.ID, "agent")
+				l.in(t, func(tx *store.Tx) error {
+					_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: old.ID, Column: c.BoardColumn, Role: "agent", Round: c.Round}, "summary", map[string]any{"text": "Old completed answer", "cites": []string{}})
+					return err
+				})
+				if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
+					t.Fatal(err)
+				}
+				// Pause at the real asynchronous scoring boundary, with its lease still live.
+				in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID)
+				if err != nil || !ok {
+					t.Fatalf("snapshot: %v %v", ok, err)
+				}
+				msg := l.composer(t, c, "Recheck before leaving this column.", nil)
+				l.e.OnComment(l.ws, c.ID, l.owner, msg.Body)
+				answers := map[string]jev.ScoreAnswer{}
+				for _, cr := range in.criteria {
+					answers[cr.ID] = jev.ScoreAnswer{Score: 4}
+				}
+				switch gate {
+				case "score":
+					_, err = l.e.applyScore(t.Context(), l.ws, in, answers, nil)
+				case "review":
+					_, err = l.e.applyReview(t.Context(), l.ws, in, review.Result{}, nil)
+				case "validation":
+					_, err = l.e.applyValidation(t.Context(), l.ws, in, validating{}, nil, nil)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := l.card(t, c.ID)
+				if got.State != "working" || got.BoardColumn != c.BoardColumn || got.Round != c.Round {
+					t.Fatalf("pending comment crossed gate: state=%s column=%s round=%d", got.State, got.BoardColumn, got.Round)
+				}
+				next := l.latestRun(t, c.ID, "agent")
+				if next.ID == old.ID || !strings.Contains(next.Prompt, msg.Body) {
+					t.Fatalf("message stranded: %+v", next)
+				}
+				if n := l.count(t, "SELECT count(*) FROM record WHERE card_id=$1 AND kind='outcome'", c.ID); n != 0 {
+					t.Fatal("old scoring outcome applied")
+				}
+			})
+		}
+	}
+}
+
+func TestComposerPreservesEveryRoleAccessHold(t *testing.T) {
+	for _, role := range []string{"auditor", "member-1"} {
+		for _, reason := range []string{"runtime_access_revoked", "runtime_access_denied"} {
+			for _, recovered := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/recovered=%v", role, reason, recovered), func(t *testing.T) {
+					l := newLab(t)
+					c := l.study(t, "hypotheses", true, nil)
+					l.e.Kick(l.ws, c.ID)
+					lead := l.latestRun(t, c.ID, "leader")
+					if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", lead.ID); err != nil {
+						t.Fatal(err)
+					}
+					enqueue := func() db.AgentRun {
+						var r db.AgentRun
+						l.in(t, func(tx *store.Tx) error {
+							_, m, a, err := l.e.worker(t.Context(), tx, c)
+							if err != nil {
+								return err
+							}
+							r, err = l.e.enqueue(t.Context(), tx, c, role, m, a, "")
+							return err
+						})
+						return r
+					}
+					l.in(t, func(tx *store.Tx) error {
+						_, err := records.WriteAs(t.Context(), tx, service.Writer{Card: c.ID, AgentRun: lead.ID, Column: c.BoardColumn, Role: "leader", Round: c.Round}, "summary", map[string]any{"text": "Previous completed answer", "cites": []string{}})
+						return err
+					})
+					held := enqueue()
+					if reason == "runtime_access_revoked" {
+						_, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='cancelled',cancel_reason=$2 WHERE id=$1", held.ID, reason)
+						if err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						_, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='failed',failure_reason=$2 WHERE id=$1", held.ID, reason)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					if recovered {
+						replacement := enqueue()
+						if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", replacement.ID); err != nil {
+							t.Fatal(err)
+						}
+					}
+					msg := l.composer(t, c, "Continue only after machine recovery.", nil)
+					l.e.OnComment(l.ws, c.ID, l.owner, msg.Body)
+					if err := l.e.Tick(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+					want := 0
+					if recovered {
+						want = 1
+					}
+					if q := l.runs(t, c.ID); len(q) != want {
+						t.Fatalf("access hold bypassed or superseded hold retained: runs=%+v", q)
+					}
+				})
+			}
+		}
 	}
 }

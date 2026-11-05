@@ -245,6 +245,9 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 		if !current(c, in.card.BoardColumn, in.card.Round) {
 			return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS})
 		}
+		if pending, err := e.deferScoringForComments(ctx, tx, c); err != nil || pending {
+			return err
+		}
 		study, err := studyRecords(ctx, tx, c.ID)
 		if err != nil {
 			return err
@@ -528,6 +531,9 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 		}
 		if !current(c, in.card.BoardColumn, in.card.Round) {
 			return nil
+		}
+		if pending, err := e.deferScoringForComments(ctx, tx, c); err != nil || pending {
+			return err
 		}
 		if n, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
 			BoardColumn: c.BoardColumn, Round: c.Round, Kind: "outcome"}); err != nil || n > 0 {

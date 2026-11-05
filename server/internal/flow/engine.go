@@ -318,29 +318,23 @@ func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []d
 	if !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
 		return false, nil
 	}
-	// Failures and cancellations retain their normal settlement/retry or
-	// explicit machine recovery policy; a message cannot bypass those gates.
-	for i := len(runs) - 1; i >= 0; i-- {
-		if leads(runs[i].Role) {
-			if runs[i].Status == "failed" || runs[i].Status == "cancelled" {
-				return false, nil
-			}
-			break
-		}
-	}
-	pending, err := tx.Q.UndeliveredComments(ctx, db.UndeliveredCommentsParams{WorkspaceID: tx.WS, CardID: c.ID, Since: time.Time{}})
-	if err != nil {
+	pending, err := hasPendingComposer(ctx, tx, c)
+	if err != nil || !pending {
 		return false, err
 	}
-	hasComposer := false
-	for _, c := range pending {
-		if c.ReplyRunID == nil {
-			hasComposer = true
-			break
+	// Failures and cancellations retain their normal settlement/retry or
+	// explicit machine recovery policy; a message cannot bypass those gates.
+	seen := map[string]bool{}
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if seen[r.Role] {
+			continue
 		}
-	}
-	if !hasComposer {
-		return false, nil
+		seen[r.Role] = true
+		if accessInterrupted(r) || leads(r.Role) && (r.Status == "failed" || r.Status == "cancelled") {
+			// Keep pending input from flowing into an audit of older work too.
+			return true, nil
+		}
 	}
 	active, err := tx.Q.CardInflightAgentRuns(ctx, db.CardInflightAgentRunsParams{WorkspaceID: tx.WS, CardID: &c.ID})
 	if err != nil {
@@ -367,4 +361,38 @@ func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []d
 	// Invalidate any expired scoring pass that was reading the old completion.
 	err = tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{WorkspaceID: tx.WS, ID: c.ID, BoardColumn: c.BoardColumn, State: c.State, BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote})
 	return err == nil, err
+}
+
+// hasPendingComposer excludes cancelled, delivered and actively reserved inputs.
+func hasPendingComposer(ctx context.Context, tx *store.Tx, c db.Card) (bool, error) {
+	pending, err := tx.Q.UndeliveredComments(ctx, db.UndeliveredCommentsParams{WorkspaceID: tx.WS, CardID: c.ID, Since: time.Time{}})
+	if err != nil {
+		return false, err
+	}
+	for _, comment := range pending {
+		if comment.ReplyRunID == nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// deferScoringForComments runs under the scoring callback's card lock. Input
+// accepted while scoring was outside the transaction must reach current-column
+// work before that stale result can advance or finish the study.
+func (e *Engine) deferScoringForComments(ctx context.Context, tx *store.Tx, c db.Card) (bool, error) {
+	pending, err := hasPendingComposer(ctx, tx, c)
+	if err != nil || !pending {
+		return false, err
+	}
+	if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{WorkspaceID: tx.WS, ID: c.ID}); err != nil {
+		return false, err
+	}
+	c.GatingUntil = nil
+	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
+	if err != nil {
+		return false, err
+	}
+	_, err = e.followUp(ctx, tx, c, runs)
+	return true, err
 }

@@ -666,6 +666,9 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if !current(c, in.card.BoardColumn, in.card.Round) {
 			return nil
 		}
+		if pending, err := e.deferScoringForComments(ctx, tx, c); err != nil || pending {
+			return err
+		}
 		if n, err := tx.Q.CountRoundKindRecords(ctx, db.CountRoundKindRecordsParams{WorkspaceID: tx.WS, CardID: c.ID,
 			BoardColumn: c.BoardColumn, Round: c.Round, Kind: "outcome"}); err != nil || n > 0 {
 			return err
