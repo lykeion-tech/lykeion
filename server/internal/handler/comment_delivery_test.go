@@ -643,7 +643,7 @@ func TestMigratedCommentPromptFiltersCancellationBeforeLaunch(t *testing.T) {
 	}
 }
 
-func TestAmbiguousMigratedCommentIdentityCannotLaunch(t *testing.T) {
+func TestAmbiguousMigratedCommentDoesNotBlockOtherStudies(t *testing.T) {
 	l, leader := groundingLab(t)
 	first := l.comment(t, "Identical text")
 	second := l.comment(t, "Identical text")
@@ -655,10 +655,43 @@ func TestAmbiguousMigratedCommentIdentityCannotLaunch(t *testing.T) {
 	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+second, l.jwt, l.ws, nil, nil); code != 204 {
 		t.Fatal(code)
 	}
-	ref := map[string]any{"workspace_id": l.ws, "runtime_id": l.rts}
-	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, nil); code != 409 {
-		t.Fatalf("ambiguous legacy input allowed: %d", code)
+
+	// Put valid work on either side of the poisoned queue entry. Both must
+	// survive the same claim transaction, including the earlier claim.
+	var valid []string
+	for i, offset := range []string{"-1 second", "1 second"} {
+		var cardID, runID string
+		if err := l.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO card(workspace_id,number,title,question,owner_id,board_column) SELECT workspace_id,$2,'Other study','Valid work',owner_id,board_column FROM card WHERE id=$1 RETURNING id`, l.card.ID, 900+i).Scan(&cardID); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run(workspace_id,card_id,responsible_user_id,board_column,round,role,harness,prompt,created_at) SELECT workspace_id,$2,responsible_user_id,board_column,round,'leader',harness,'Unrelated valid work.',created_at+$3::interval FROM agent_run WHERE id=$1 RETURNING id`, queued.Ticket, cardID, offset).Scan(&runID); err != nil {
+			t.Fatal(err)
+		}
+		valid = append(valid, runID)
 	}
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE runtime SET max_concurrent=4 WHERE id=$1", l.rts); err != nil {
+		t.Fatal(err)
+	}
+	ref := map[string]any{"workspace_id": l.ws, "runtime_id": l.rts}
+	var claims []struct {
+		AgentRun struct{ ID string } `json:"agent_run"`
+	}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 2}, &claims); code != 200 {
+		t.Fatalf("one malformed run blocked batch: %d", code)
+	}
+	if len(claims) != 2 || claims[0].AgentRun.ID != valid[0] || claims[1].AgentRun.ID != valid[1] {
+		t.Fatalf("valid claims lost: %+v", claims)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM agent_run WHERE id=$1 AND status='failed' AND error LIKE '%legacy comment identity%'`, queued.Ticket); n != 1 {
+		t.Fatal("invalid legacy run not visibly failed")
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM comment_reservation WHERE agent_run_id=$1 AND acknowledged_at IS NULL`, queued.Ticket); n != 2 {
+		t.Fatalf("pending messages lost: %d", n)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM agent_run_token WHERE agent_run_id=$1`, queued.Ticket); n != 0 {
+		t.Fatalf("tokens issued for refused run: %d", n)
+	}
+
 	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, queued.Ticket); n != 0 {
 		t.Fatalf("fabricated receipts: %d", n)
 	}

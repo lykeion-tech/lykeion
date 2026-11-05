@@ -894,6 +894,24 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					} else if err == nil && t.Kind == "coresearch" {
 						workspace, err = s.workspaceConnectorClaims(ctx, tx, t)
 					}
+					// Reject unsafe legacy inputs before issuing tokens or accepting
+					// a machine attempt. A refusal belongs to this run, not the
+					// whole claim batch: the existing refusal path persists its
+					// visible failure and continues looking for other work.
+					if err == nil && t.CardID != nil {
+						if _, e := tx.Q.LockCard(ctx, db.LockCardParams{WorkspaceID: tx.WS, ID: *t.CardID}); e != nil {
+							return e
+						}
+						if e := tx.Q.BindCommentReservations(ctx, db.BindCommentReservationsParams{WorkspaceID: tx.WS, AgentRunID: t.ID, Attempt: t.Attempt}); e != nil {
+							return e
+						}
+						if _, e := reservedLaunch(ctx, tx, t); e != nil {
+							if !errors.Is(e, ErrConflict) {
+								return e
+							}
+							err = e
+						}
+					}
 					if err != nil {
 						// No token is issued. Access refusals settle without an execution
 						// receipt because the CLI never launched.
@@ -1043,14 +1061,6 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					mcpURL := s.MCPURL
 					if t.Kind == "aristotle" {
 						mcpURL = s.LabMCPURL
-					}
-					if t.CardID != nil {
-						if _, err := tx.Q.LockCard(ctx, db.LockCardParams{WorkspaceID: tx.WS, ID: *t.CardID}); err != nil {
-							return err
-						}
-					}
-					if err := tx.Q.BindCommentReservations(ctx, db.BindCommentReservationsParams{WorkspaceID: tx.WS, AgentRunID: t.ID, Attempt: t.Attempt}); err != nil {
-						return err
 					}
 					launch, err := reservedLaunch(ctx, tx, t)
 					if err != nil {
