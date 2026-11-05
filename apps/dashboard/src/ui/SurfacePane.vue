@@ -363,7 +363,7 @@ function cancelSlide(element: Element) {
   margin: 0 auto auto;
   position: relative;
   top: calc(35% - 28px);
-  width: max-content;
+  width: calc(100% - 40px);
   max-width: 90%;
   padding: 18px 0;
 }
@@ -376,7 +376,8 @@ function cancelSlide(element: Element) {
 .surface-pane .surface-choice {
   width: 100%;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, max-content);
+  justify-content: center;
   align-items: center;
   gap: 8px;
   border: 0;
