@@ -289,25 +289,39 @@ func TestCodexMemberCommentGoesToLeader(t *testing.T) {
 	}
 }
 
-// A comment no turn took yet goes into the next run's prompt, which keeps
-// its receipt.
-func TestCommentInNextPrompt(t *testing.T) {
+// A member sees shared context but cannot consume input intended for the leader.
+func TestCommentBeforeDelegationStillReachesLeader(t *testing.T) {
 	l, leader := groundingLab(t)
 	id := l.comment(t, "Look at yeast too.")
 	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
 	m := l.claim(t)
 	if m.id != ask.Ticket || !strings.Contains(m.prompt, "Look at yeast too.") {
-		t.Fatalf("claimed %s:\n%s", m.id, m.prompt)
+		t.Fatalf("member snapshot: %+v", m)
 	}
-	if n := l.receipts(t, id); n != 0 {
-		t.Fatalf("claim wrote %d premature receipts", n)
+	var launch struct {
+		Prompt     string
+		CommentIDs []string `json:"comment_ids"`
 	}
-	l.ackComments(t, m, id)
-	if d := l.listComments(t)[id].Delivery; d == nil || d.How != "next_run" || d.Role != "member-1" {
-		t.Fatalf("delivery %+v", d)
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+m.id+"/comments/launch", l.personal, "", m.ref, &launch); code != 200 || len(launch.CommentIDs) != 0 {
+		t.Fatalf("member owns composer delivery: %d %+v", code, launch)
 	}
-	if code, got := l.runComments(t, leader); code != 200 || len(got) != 0 {
-		t.Fatalf("delivered again %d %+v", code, got)
+	body := map[string]any{}
+	for k, v := range m.ref {
+		body[k] = v
+	}
+	body["comment_ids"] = []string{id}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+m.id+"/comments/ack", l.personal, "", body, nil); code != 409 {
+		t.Fatalf("member ack: %d", code)
+	}
+	code, out := l.result(t, leader.token, ask.Ticket)
+	if code != 200 || len(out.Comments) != 1 {
+		t.Fatalf("leader missed input: %d %+v", code, out)
+	}
+	if d := l.listComments(t)[id].Delivery; d == nil || d.Role != "leader" || d.How != "member_result" {
+		t.Fatalf("delivery: %+v", d)
+	}
+	if l.receipts(t, id) != 1 {
+		t.Fatal("incorrect receipt count")
 	}
 }
 
@@ -360,12 +374,12 @@ func (l *teamLab) ackComments(t *testing.T, run teamRun, ids ...string) {
 
 func TestFrozenCommentReservationAcknowledgement(t *testing.T) {
 	l, leader := groundingLab(t)
-	before := l.comment(t, "Before frozen prompt.")
+	before := l.reservationContext(t, "Before frozen prompt.")
 	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
 	if n := l.receipts(t, before); n != 0 {
 		t.Fatalf("enqueue wrote %d receipts", n)
 	}
-	after := l.comment(t, "After frozen prompt.")
+	after := l.reservationContext(t, "After frozen prompt.")
 	run := l.claim(t)
 	if run.id != ask.Ticket || !strings.Contains(run.prompt, "Before frozen prompt.") || strings.Contains(run.prompt, "After frozen prompt.") {
 		t.Fatalf("incorrect snapshot: %s", run.prompt)
@@ -410,8 +424,8 @@ func TestFrozenCommentReservationAcknowledgement(t *testing.T) {
 
 func TestReservedCommentCancellationAndRetry(t *testing.T) {
 	l, leader := groundingLab(t)
-	keep := l.comment(t, "Keep for retry.")
-	cancelled := l.comment(t, "Remove before launch.")
+	keep := l.reservationContext(t, "Keep for retry.")
+	cancelled := l.reservationContext(t, "Remove before launch.")
 	_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
 	run := l.claim(t)
 	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
@@ -458,7 +472,7 @@ func TestReservedCommentCancellationAndRetry(t *testing.T) {
 
 func TestReservedCommentRecoveredAfterTerminalRun(t *testing.T) {
 	l, leader := groundingLab(t)
-	id := l.comment(t, "Pending across failed work.")
+	id := l.reservationContext(t, "Pending across failed work.")
 	_, _ = l.ask(t, leader.token, "member-1", "First try.")
 	run := l.claim(t)
 	l.fail(t, run, "agent_error")
@@ -492,11 +506,13 @@ func TestLaunchFiltersAllSnapshotCommentsByIdentity(t *testing.T) {
 	for _, delivered := range []bool{false, true} {
 		t.Run(fmt.Sprint("delivered=", delivered), func(t *testing.T) {
 			l, leader := groundingLab(t)
-			keep := l.comment(t, "Please - use controls")
-			cancelled := l.comment(t, "use controls")
+			keep := l.reservationContext(t, "Please - use controls")
+			cancelled := l.reservationContext(t, "use controls")
 			if delivered {
-				if code, cs := l.runComments(t, leader); code != 200 || len(cs) != 2 {
-					t.Fatalf("deliver %d %+v", code, cs)
+				for _, id := range []string{keep, cancelled} {
+					if _, err := l.s.Env.Owner.Exec(t.Context(), `INSERT INTO record(workspace_id,card_id,board_column,round,kind,role,body,agent_run_id) SELECT workspace_id,card_id,board_column,round,'comment_delivery',role,jsonb_build_object('comment_id',$2::text,'how','next_run'),id FROM agent_run WHERE id=$1`, leader.id, id); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
@@ -523,14 +539,14 @@ func TestLaunchFiltersAllSnapshotCommentsByIdentity(t *testing.T) {
 
 func TestMachineRecoveryCopiesCommentSnapshotAndReservations(t *testing.T) {
 	l, leader := groundingLab(t)
-	keep := l.comment(t, "Pending before machine switch.")
-	cancelled := l.comment(t, "Cancel before machine switch.")
+	keep := l.reservationContext(t, "Pending before machine switch.")
+	cancelled := l.reservationContext(t, "Cancel before machine switch.")
 	_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
 	original := l.claim(t)
 	if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='cancelled',cancel_reason='runtime_access_revoked' WHERE id=$1`, original.id); err != nil {
 		t.Fatal(err)
 	}
-	l.comment(t, "Posted after original frozen prompt.")
+	l.reservationContext(t, "Posted after original frozen prompt.")
 	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
 		t.Fatalf("cancel: %d", code)
 	}
@@ -648,15 +664,21 @@ func TestMigratedCommentPromptFiltersCancellationBeforeLaunch(t *testing.T) {
 	if !strings.Contains(launch.Prompt, "\n- Please - use controls\n") || strings.Contains(launch.Prompt, "\n- use controls\n") {
 		t.Fatalf("migrated cancellation leaked: %s", launch.Prompt)
 	}
-	if len(launch.CommentIDs) != 1 || launch.CommentIDs[0] != keep {
+	if len(launch.CommentIDs) != 0 {
 		t.Fatalf("launch ids %v", launch.CommentIDs)
 	}
 	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, run.id); n != 0 {
 		t.Fatalf("fabricated receipts: %d", n)
 	}
-	l.ackComments(t, run, keep)
-	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, run.id); n != 1 {
-		t.Fatalf("ack receipts: %d", n)
+	if d := l.listComments(t)[keep].Delivery; d != nil {
+		t.Fatalf("unconfirmed legacy input appears delivered: %+v", d)
+	}
+	code, out := l.result(t, leader.token, queued.Ticket)
+	if code != 200 || len(out.Comments) != 1 {
+		t.Fatalf("leader missed migrated composer: %d %+v", code, out)
+	}
+	if d := l.listComments(t)[keep].Delivery; d == nil || d.Role != "leader" || d.How != "member_result" {
+		t.Fatalf("legacy delivery: %+v", d)
 	}
 }
 
@@ -702,8 +724,11 @@ func TestAmbiguousMigratedCommentDoesNotBlockOtherStudies(t *testing.T) {
 	if n := l.s.count(t, `SELECT count(*) FROM agent_run WHERE id=$1 AND status='failed' AND error LIKE '%legacy comment identity%'`, queued.Ticket); n != 1 {
 		t.Fatal("invalid legacy run not visibly failed")
 	}
-	if n := l.s.count(t, `SELECT count(*) FROM comment_reservation WHERE agent_run_id=$1 AND acknowledged_at IS NULL`, queued.Ticket); n != 2 {
-		t.Fatalf("pending messages lost: %d", n)
+	if n := l.s.count(t, `SELECT count(*) FROM comment_reservation WHERE agent_run_id=$1`, queued.Ticket); n != 0 {
+		t.Fatalf("member owns pending composer inputs: %d", n)
+	}
+	if d := l.listComments(t)[first].Delivery; d != nil {
+		t.Fatalf("pending message lost: %+v", d)
 	}
 	if n := l.s.count(t, `SELECT count(*) FROM agent_run_token WHERE agent_run_id=$1`, queued.Ticket); n != 0 {
 		t.Fatalf("tokens issued for refused run: %d", n)
@@ -793,4 +818,15 @@ func TestComposerFollowUpClaimsAndHandsIn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Reservation protocol fixtures use ordinary run replies, which members may
+// receive as context. Composer routing is tested separately through the leader.
+func (l *teamLab) reservationContext(t *testing.T, body string) string {
+	t.Helper()
+	id := l.comment(t, body)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), `UPDATE comment SET reply_run_id=(SELECT id FROM agent_run WHERE card_id=$2 AND role='leader' ORDER BY created_at LIMIT 1) WHERE id=$1`, id, l.card.ID); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

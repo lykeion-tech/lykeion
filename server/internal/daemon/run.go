@@ -423,9 +423,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if err != nil {
 			return res, sandboxNote(err), err
 		}
-		// A successful Execute means the backend accepted these exact inputs.
-		// Retry a failed acknowledgement after draining the running session.
-		ackErr := ackComments()
 		for message := range sess.Messages {
 			if err := sink(message); err != nil {
 				if !errors.Is(err, errFenceBreach) {
@@ -442,8 +439,14 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if c.AgentRun.Harness == "codex" && res.Output != "" {
 			res.OutputMessageSeq = lastTextSeq
 		}
-		if ackErr != nil {
-			streamErr = errors.Join(streamErr, ackComments())
+		// Execute only starts the process. Even text can be a user echo or
+		// rejection; a clean terminal result is our conservative acceptance
+		// signal. Keep uncertain failed sessions pending for recovery. Commit
+		// delivery before hand-in/settlement can schedule another continuation.
+		if res.Err == nil && !res.ResumeRefused {
+			if err := ackComments(); err != nil {
+				streamErr = errors.Join(streamErr, ackComments())
+			}
 		}
 		streamErr = errors.Join(streamErr, sandboxNote(res.Err))
 		return res, streamErr, nil

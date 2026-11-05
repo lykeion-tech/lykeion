@@ -121,7 +121,10 @@ func DeliverComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how str
 	for _, c := range cs {
 		included[c.ID] = true
 	}
-	open = slices.DeleteFunc(open, func(c db.Comment) bool { return !included[c.ID] })
+	open = slices.DeleteFunc(open, func(c db.Comment) bool {
+		// Shared member/auditor context must not consume the leader's input.
+		return !included[c.ID] || (c.ReplyRunID == nil && run.Role != "leader" && run.Role != "agent")
+	})
 	// The prompt was built with ordinary study context, not live-turn
 	// steering. Apply the same eligibility rule before reserving its inputs.
 	open, err = CommentsForRun(ctx, tx, open, nil)

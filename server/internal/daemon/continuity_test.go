@@ -445,3 +445,79 @@ func TestEveryRunResumesItsScope(t *testing.T) {
 		t.Fatalf("run folders left=%v", entries)
 	}
 }
+
+// A rejected resume and a new process both return Session before the CLI has
+// accepted work. Only the successful fresh attempt may acknowledge the input.
+func TestResumedCommentWaitsForBackendAcceptance(t *testing.T) {
+	for _, scenario := range []string{"fresh_launch_failure", "fresh_async_rejection", "fresh_success"} {
+		t.Run(scenario, func(t *testing.T) {
+			config := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", config)
+			must(t, os.MkdirAll(filepath.Join(config, "projects", "test"), 0700))
+			must(t, os.WriteFile(filepath.Join(config, "projects", "test", "s1.jsonl"), nil, 0600))
+			comment := uuid.New()
+			acks := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/comments/launch"):
+					json.NewEncoder(w).Encode(map[string]any{"prompt": "Reserved input.", "comment_ids": []uuid.UUID{comment}})
+				case strings.HasSuffix(r.URL.Path, "/comments/ack"):
+					acks++
+					w.WriteHeader(204)
+				default:
+					w.Write([]byte(`{"status":"running"}`))
+				}
+			}))
+			defer srv.Close()
+			d := registryDaemon(t)
+			d.cfg.Home, d.cfg.Server = t.TempDir(), srv.URL
+			d.api = &apiclient.Client{Server: srv.URL}
+			d.out = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "outbox")}
+			d.messages = &Outbox{Dir: filepath.Join(d.cfg.StateDir, "messages")}
+			c := claimFor(uuid.New(), uuid.New(), uuid.New(), "agent")
+			runtime := uuid.New()
+			c.AgentRun.RuntimeID = &runtime
+			c.HasCommentSnapshot = true
+			must(t, d.finishContinuity(begin(t, d, c), cleanClaude))
+			calls := 0
+			d.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+				return backendFunc(func(_ context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
+					calls++
+					if p != "Reserved input." || acks != 0 {
+						t.Errorf("before acceptance: prompt=%q acks=%d", p, acks)
+					}
+					if calls == 1 && o.Resume != "s1" || calls == 2 && o.Resume != "" {
+						t.Errorf("call=%d resume=%q", calls, o.Resume)
+					}
+					if calls == 2 && scenario == "fresh_launch_failure" {
+						return nil, errors.New("launch refused")
+					}
+					messages := make(chan agent.Message, 1)
+					// Session initialization is not evidence that the prompt was accepted.
+					messages <- agent.Message{Type: "status", Content: []byte(`{"type":"session.started"}`)}
+					close(messages)
+					done := make(chan agent.Result, 1)
+					result := agent.Result{Err: errors.New("authentication rejected")}
+					if calls == 1 {
+						result.ResumeRefused = true
+					} else if scenario == "fresh_success" {
+						result = cleanClaude
+					}
+					done <- result
+					close(done)
+					return &agent.Session{Messages: messages, Done: done}, nil
+				}), nil
+			}
+			d.ownerOf = map[uuid.UUID]uuid.UUID{runtime: c.AgentRun.ResponsibleUserID}
+			must(t, d.runAgentRun(t.Context(), c))
+			want := 0
+			if scenario == "fresh_success" {
+				want = 1
+			}
+			if calls != 2 || acks != want {
+				t.Fatalf("calls=%d acks=%d want=%d", calls, acks, want)
+			}
+		})
+	}
+}

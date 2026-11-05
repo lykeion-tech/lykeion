@@ -91,7 +91,7 @@ func TestClaudeRunTakesAComment(t *testing.T) {
 }
 
 func TestPromptCommentsAcknowledgedOnlyAfterSuccessfulLaunch(t *testing.T) {
-	for _, scenario := range []string{"success", "launch_failure", "ack_retry"} {
+	for _, scenario := range []string{"success", "launch_failure", "async_rejection", "delayed_success", "ack_retry", "ack_failure", "model_activity_then_failure", "callback_activity_then_failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			failLaunch := scenario == "launch_failure"
 			f := fixture(t)
@@ -127,32 +127,68 @@ func TestPromptCommentsAcknowledgedOnlyAfterSuccessfulLaunch(t *testing.T) {
 					msgs := make(chan agent.Message)
 					close(msgs)
 					done := make(chan agent.Result, 1)
-					done <- agent.Result{Output: `{"done":true}`, SessionID: "s1"}
-					close(done)
+					result := agent.Result{Output: `{"done":true}`, SessionID: "s1"}
+					if scenario == "async_rejection" || strings.HasSuffix(scenario, "then_failure") {
+						result.Err = errors.New("authentication rejected")
+						result.Output = ""
+					}
+					if scenario == "model_activity_then_failure" {
+						msgs = make(chan agent.Message, 1)
+						msgs <- agent.Message{Type: "text", Content: []byte(`"Working on the request"`)}
+						close(msgs)
+					}
+					if scenario == "callback_activity_then_failure" {
+						must(t, o.OnMessage(agent.Message{Type: "thinking", Content: []byte(`"Considering input"`)}))
+					}
+					if scenario == "delayed_success" {
+						go func() {
+							time.Sleep(50 * time.Millisecond)
+							if n := receipts(); n != 0 {
+								t.Errorf("receipt before terminal acceptance: %d", n)
+							}
+							done <- result
+							close(done)
+						}()
+					} else {
+						done <- result
+						close(done)
+					}
 					return &agent.Session{Messages: msgs, Done: done}, nil
 				}), nil
 			}
 			var ackCalls atomic.Int32
-			if scenario == "ack_retry" {
-				previous := f.intercept.Load()
-				hook := func(w http.ResponseWriter, r *http.Request) bool {
-					if strings.HasSuffix(r.URL.Path, "/comments/ack") && ackCalls.Add(1) == 1 {
+			previous := f.intercept.Load()
+			hook := func(w http.ResponseWriter, r *http.Request) bool {
+				if strings.HasSuffix(r.URL.Path, "/comments/ack") {
+					call := ackCalls.Add(1)
+					if scenario == "ack_failure" || scenario == "ack_retry" && call == 1 {
 						w.WriteHeader(503)
 						return true
 					}
-					return previous != nil && (*previous)(w, r)
 				}
-				f.intercept.Store(&hook)
+				if strings.HasSuffix(r.URL.Path, "/complete") || strings.HasSuffix(r.URL.Path, "/hand-in") {
+					if n := receipts(); n != 1 {
+						t.Errorf("settlement raced delivery: %d receipts", n)
+					}
+				}
+				return previous != nil && (*previous)(w, r)
 			}
+			f.intercept.Store(&hook)
 			cancel, done := startDaemon(t, f.cfg)
-			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+			waitFor(t, func() bool {
+				s := f.status(t)
+				if scenario == "ack_failure" {
+					return ackCalls.Load() == 2
+				}
+				return s == "completed" || s == "failed"
+			})
 			cancel()
 			<-done
-			if scenario == "ack_retry" && ackCalls.Load() != 2 {
+			if (scenario == "ack_retry" || scenario == "ack_failure") && ackCalls.Load() != 2 {
 				t.Fatalf("ack calls: %d", ackCalls.Load())
 			}
 			want := 1
-			if failLaunch {
+			if failLaunch || scenario == "async_rejection" || scenario == "ack_failure" || strings.HasSuffix(scenario, "then_failure") {
 				want = 0
 			}
 			if launches.Load() != 1 || receipts() != want {

@@ -24,6 +24,7 @@ SELECT DISTINCT ON (r.workspace_id, c.id) r.workspace_id, c.id, ar.id,
 FROM record r JOIN agent_run ar ON ar.id=r.agent_run_id AND ar.workspace_id=r.workspace_id
 JOIN comment c ON c.workspace_id=r.workspace_id AND c.id::text=r.body->>'comment_id'
 WHERE r.kind='comment_delivery' AND r.body->>'how'='next_run' AND ar.status IN ('queued','dispatched')
+ AND (c.reply_run_id IS NOT NULL OR ar.role IN ('leader','agent'))
 ORDER BY r.workspace_id,c.id,r.created_at,r.id
 ON CONFLICT DO NOTHING;
 UPDATE record r SET body=r.body || '{"historical_unconfirmed":true}'::jsonb
