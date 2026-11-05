@@ -1,62 +1,110 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 defineProps<{ ctaHref: string }>();
 
 const activeCase = ref(0);
+const captures = {
+  board: {
+    src: '/demo/board.webp',
+    alt: 'Lykeion Demo study board with the physical activity and sleep assessment in Grounding and empty later stages.',
+  },
+  study: {
+    src: '/demo/study.webp',
+    alt: 'Physical activity and sleep study in Lykeion Demo, with its research question, completed researcher reply and saved evidence summary in Files.',
+  },
+  run: {
+    src: '/demo/run.webp',
+    alt: 'Expanded Codex researcher run in Lykeion Demo, showing its evidence-assessment transcript, recorded tool-error counts and saved output.',
+  },
+  evidence: {
+    src: '/demo/evidence.webp',
+    alt: 'Lykeion Demo grounding report with one validated observational sleep source, source-service limitations and the saved evidence summary.',
+  },
+  team: {
+    src: '/demo/team.webp',
+    alt: 'Configured Grounding Team in Lykeion Demo with leader, auditor, searcher and verifier roles; the selected leader uses Codex.',
+  },
+  experiment: {
+    src: '/demo/experiment.webp',
+    alt: 'Lykeion Demo Coresearch Experiment with versioned screening-template files and a recorded successful schema check of 30 columns and zero study rows.',
+  },
+  cowrite: {
+    src: '/demo/cowrite.webp',
+    alt: 'Lykeion Demo Cowrite showing pending LaTeX edits and the compiled physical activity and sleep review outline with a demonstration disclaimer.',
+  },
+  autoresearch: {
+    src: '/demo/autoresearch.webp',
+    alt: 'Paused Sleep evidence watch in Lykeion Demo with its saved runbook, no triggers and no runs.',
+  },
+  'autoresearch-list': {
+    src: '/demo/autoresearch-list.webp',
+    alt: 'Lykeion Demo Autoresearch list containing the paused Sleep evidence watch configuration.',
+  },
+  machines: {
+    src: '/demo/machines.webp',
+    alt: 'Lykeion Demo Machines settings showing the demo-owned Mac online with two detected runtimes and all idle.',
+  },
+  aristotle: {
+    src: '/demo/aristotle.webp',
+    alt: 'Aristotle in Lykeion Demo summarizes the sleep assessment with recorded citations, distinguishes its one validated observational source, and explains the source-service failures and saved output.',
+  },
+  'aristotle-evidence': {
+    src: '/demo/aristotle-evidence.webp',
+    alt: 'Aristotle evidence links in Lykeion Demo point to the recorded study, source calls, paper, hand-in and saved assessment output.',
+  },
+};
+type Capture = { src: string; alt: string };
+const activeCapture = ref(0);
+const enlarged = ref<Capture>(captures.board);
+const viewer = ref<HTMLDialogElement>();
+const currentCapture = computed(() => cases[activeCase.value].captures[activeCapture.value]);
+function enlarge(capture: Capture) {
+  enlarged.value = capture;
+  viewer.value?.showModal();
+}
+
 const cases = [
   {
     title: 'Move a question through the board',
     label: 'STUDY BOARD',
+    captures: [captures['board'], captures['study']],
     description:
       'Give a study a question and a Team. Agents work each stage, and the study advances when its checks pass.',
-    detail: 'Four stages. One shared view.',
-    status: 'Experimentation',
-    meta: 'Agents working · evidence recorded',
   },
   {
     title: 'Ground every claim in evidence',
     label: 'GROUNDING',
+    captures: [captures['evidence']],
     description:
       'Agents survey the literature through Lykeion’s sources server and keep claims connected to recorded sources.',
-    detail: 'A traceable foundation for the next step.',
-    status: 'Grounding',
-    meta: 'Sources · claims · provenance',
   },
   {
     title: 'Run the work on your machine',
     label: 'EXPERIMENTATION',
+    captures: [captures['run']],
     description:
       'Agent CLIs run inside the operating system’s sandbox, with recorded runs and outputs available to the study.',
-    detail: 'A real environment for real work.',
-    status: 'Running',
-    meta: 'Sandboxed · outputs recorded',
   },
   {
     title: 'Put a Team on the problem',
     label: 'TEAMS',
+    captures: [captures['team']],
     description: 'Choose the agents that work each column, together with their skills and checks.',
-    detail: 'The right roles, working together.',
-    status: 'Team assigned',
-    meta: 'Grounding · Hypotheses · Validation',
   },
   {
     title: 'Keep the lab’s knowledge close',
     label: 'ARISTOTLE',
+    captures: [captures['aristotle'], captures['aristotle-evidence']],
     description:
       'Ask the workspace’s persistent memory about its decisions and knowledge as your research develops.',
-    detail: 'A memory that stays with the lab.',
-    status: 'Workspace memory',
-    meta: 'Decisions · knowledge · context',
   },
   {
     title: 'Work side by side with agents',
     label: 'CORESEARCH',
+    captures: [captures['experiment'], captures['cowrite']],
     description:
       'Use shared projects for files, kernels and recorded runs, or write a LaTeX paper together with agents.',
-    detail: 'From experiment to paper.',
-    status: 'Coresearch',
-    meta: 'Experiment · Cowrite',
   },
 ];
 const scenarios = [
@@ -65,21 +113,21 @@ const scenarios = [
     icon: '✳',
     title: 'Start with a question.',
     text: 'Create a study, choose an agent or Team, and follow the work as it moves through the board.',
-    visual: 'study',
+    capture: captures.study,
   },
   {
     tag: 'AGENT',
     icon: '⌘',
     title: 'Work in a real environment.',
     text: 'Agents run the tools they need on a connected machine, with their work and outputs recorded.',
-    visual: 'run',
+    capture: captures.run,
   },
   {
     tag: 'LAB',
     icon: '◇',
     title: 'Keep evidence in reach.',
     text: 'Sources, runs and decisions stay connected to the study, so the team can return to the work.',
-    visual: 'evidence',
+    capture: captures.evidence,
   },
 ];
 const pillars = [
@@ -99,32 +147,36 @@ const pillars = [
     text: 'Recorded sources and outputs connect the work to the evidence behind it.',
   },
 ];
-const cards = [
+const cards = ref([
   {
     icon: '▧',
     title: 'A board for every study',
     text: 'See questions move through Grounding, Hypotheses, Experimentation and Validation.',
-    visual: 'board',
+    captures: [captures['board'], captures['study']],
+    selected: 0,
   },
   {
     icon: '✎',
     title: 'Experiment and write together',
     text: 'Share files, kernels and runs, then work on a LaTeX paper with agents.',
-    visual: 'write',
+    captures: [captures['experiment'], captures['cowrite']],
+    selected: 0,
   },
   {
     icon: '◷',
     title: 'Autoresearch',
-    text: 'Schedule agent work or trigger it from events, so studies can move while you are away.',
-    visual: 'schedule',
+    text: 'Configure scheduled or event-triggered work. This demo shows a paused watch with no runs.',
+    captures: [captures['autoresearch'], captures['autoresearch-list']],
+    selected: 0,
   },
   {
     icon: '⌁',
     title: 'A memory for your lab',
     text: 'Aristotle keeps the workspace’s decisions and knowledge close at hand.',
-    visual: 'memory',
+    captures: [captures['aristotle'], captures['aristotle-evidence']],
+    selected: 0,
   },
-];
+]);
 const principles = [
   {
     number: '01',
@@ -146,6 +198,20 @@ const principles = [
 
 <template>
   <div class="research-page">
+    <dialog ref="viewer" class="capture-dialog" aria-label="Enlarged Lykeion Demo screenshot">
+      <div class="dialog-toolbar">
+        <strong>Lykeion Demo</strong><button type="button" @click="viewer?.close()">Close ×</button>
+      </div>
+      <p>{{ enlarged.alt }}</p>
+      <div
+        class="dialog-image"
+        tabindex="0"
+        aria-label="Full resolution screenshot; scroll to inspect"
+      >
+        <img :src="enlarged.src" :alt="enlarged.alt" width="1907" height="870" />
+      </div>
+      <p>Full resolution capture. Scroll horizontally on smaller screens to read the dashboard.</p>
+    </dialog>
     <section id="board" class="research-wrap intro-section">
       <h2>Your question. Your evidence.<br />Your whole lab, working together.</h2>
       <p>Turn a research question into a study that agents can work and people can steer.</p>
@@ -157,23 +223,44 @@ const principles = [
       </div>
       <div class="case-layout">
         <div class="case-visual" aria-live="polite">
-          <div class="case-ui">
-            <div class="case-ui-head">
-              <span class="tiny-mark">✳</span><span>{{ cases[activeCase].label }}</span
-              ><span class="case-dots">•••</span>
-            </div>
-            <div class="case-ui-body">
-              <span class="pill">{{ cases[activeCase].status }}</span>
-              <h3>{{ cases[activeCase].detail }}</h3>
-              <p>{{ cases[activeCase].meta }}</p>
-              <div class="case-lines"><i /><i /><i /></div>
-              <div class="case-proof"><span>◉</span> Recorded in your workspace</div>
-            </div>
+          <div class="capture-caption">
+            Lykeion Demo <span>Real workspace · select a view</span>
+          </div>
+          <Transition name="capture" mode="out-in">
+            <button
+              :key="currentCapture.src"
+              class="capture-button"
+              type="button"
+              aria-label="Enlarge selected dashboard screenshot"
+              @click="enlarge(currentCapture)"
+            >
+              <img :src="currentCapture.src" :alt="currentCapture.alt" width="1907" height="870" />
+              <span class="enlarge-label">Enlarge screenshot ↗</span>
+            </button>
+          </Transition>
+          <p class="capture-description">{{ currentCapture.alt }}</p>
+          <div class="capture-controls" aria-label="Screenshot views">
+            <button
+              v-for="(capture, index) in cases[activeCase].captures"
+              :key="capture.src"
+              type="button"
+              :aria-pressed="activeCapture === index"
+              @click="activeCapture = index"
+            >
+              {{ capture.src.split('/').pop()?.replace('.webp', '').replaceAll('-', ' ') }}
+            </button>
           </div>
         </div>
         <div class="case-list">
           <article v-for="(item, index) in cases" :key="item.title" class="case-item">
-            <button type="button" :aria-expanded="activeCase === index" @click="activeCase = index">
+            <button
+              type="button"
+              :aria-expanded="activeCase === index"
+              @click="
+                activeCase = index;
+                activeCapture = 0;
+              "
+            >
               <span>{{ item.title }}</span
               ><span aria-hidden="true">{{ activeCase === index ? '−' : '+' }}</span>
             </button>
@@ -199,27 +286,21 @@ const principles = [
             <span class="icon-tile">{{ item.icon }}</span
             >{{ item.tag }}
           </div>
-          <div class="scenario-visual" :class="`visual-${item.visual}`" aria-hidden="true">
-            <div v-if="item.visual === 'study'" class="mini-study">
-              <span class="mini-bar">STUDY &nbsp; · &nbsp; EXPERIMENTATION</span
-              ><strong>Does the evidence support the hypothesis?</strong>
-              <div class="mini-stage"><i /> Grounding <b>Complete</b></div>
-              <div class="mini-stage"><i /> Hypotheses <b>Complete</b></div>
-              <div class="mini-stage"><i /> Experimentation <b>Working</b></div>
-            </div>
-            <div v-else-if="item.visual === 'run'" class="mini-terminal">
-              <span>RUN &nbsp; · &nbsp; SANDBOXED</span>
-              <p>$ lyk daemon run</p>
-              <p class="muted">sandbox ready<br />waiting for studies</p>
-              <p class="mint">● Agent working</p>
-            </div>
-            <div v-else class="mini-evidence">
-              <span>RECORDED SOURCES</span>
-              <div>01 &nbsp; Journal article <b>↗</b></div>
-              <div>02 &nbsp; Dataset <b>↗</b></div>
-              <div>03 &nbsp; Run output <b>↗</b></div>
-            </div>
-          </div>
+          <button
+            class="scenario-visual capture-button"
+            type="button"
+            :aria-label="`Enlarge ${item.tag.toLowerCase()} screenshot`"
+            @click="enlarge(item.capture)"
+          >
+            <img
+              :src="item.capture.src"
+              :alt="item.capture.alt"
+              width="1907"
+              height="870"
+              loading="lazy"
+            />
+            <span class="enlarge-label">Lykeion Demo · Enlarge ↗</span>
+          </button>
           <h3>{{ item.title }}</h3>
           <p>{{ item.text }}</p>
         </article>
@@ -244,7 +325,22 @@ const principles = [
           </div>
         </div>
       </div>
-      <div class="board-frame"><img src="/lab-board.png" alt="A Lykeion study board" /></div>
+      <button
+        class="board-frame capture-button"
+        type="button"
+        aria-label="Enlarge Machines screenshot"
+        @click="enlarge(captures.machines)"
+      >
+        <img
+          :src="captures.machines.src"
+          :alt="captures.machines.alt"
+          width="1907"
+          height="870"
+          loading="lazy"
+        /><span class="enlarge-label"
+          >Lykeion Demo · Machines online, runtimes idle · Enlarge ↗</span
+        >
+      </button>
     </section>
 
     <section id="closer-look" class="research-wrap research-section">
@@ -259,31 +355,34 @@ const principles = [
             <h3>{{ item.title }}</h3>
           </div>
           <p>{{ item.text }}</p>
-          <div class="feature-art" :class="`art-${item.visual}`" aria-hidden="true">
-            <template v-if="item.visual === 'board'"
-              ><div class="board-columns">
-                <span>Grounding<i /></span><span>Hypotheses<i /></span><span>Experiment<i /></span
-                ><span>Validation<i /></span></div
-            ></template>
-            <template v-else-if="item.visual === 'write'"
-              ><div class="paper">
-                <small>CORESEARCH / COWRITE</small><strong>Research, written together.</strong
-                ><i /><i /><i />
-              </div>
-              <span class="paper-mark">Aa</span></template
+          <Transition name="capture" mode="out-in">
+            <button
+              :key="item.selected"
+              class="feature-art capture-button"
+              type="button"
+              :aria-label="`Enlarge ${item.title} screenshot`"
+              @click="enlarge(item.captures[item.selected])"
             >
-            <template v-else-if="item.visual === 'schedule'"
-              ><div class="calendar">
-                <span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span
-                ><i /><i /><i /><i /><i /></div
-            ></template>
-            <template v-else
-              ><div class="memory-card">
-                <span>✳ &nbsp; ARISTOTLE</span>
-                <p>What have we learned so far?</p>
-                <div>Knowledge and decisions,<br />ready when you need them.</div>
-              </div></template
+              <img
+                :src="item.captures[item.selected].src"
+                :alt="item.captures[item.selected].alt"
+                width="1907"
+                height="870"
+                loading="lazy"
+              />
+              <span class="enlarge-label">Lykeion Demo · Enlarge ↗</span>
+            </button>
+          </Transition>
+          <div class="capture-controls" :aria-label="`${item.title} views`">
+            <button
+              v-for="(capture, index) in item.captures"
+              :key="capture.src"
+              type="button"
+              :aria-pressed="item.selected === index"
+              @click="item.selected = index"
             >
+              {{ capture.src.split('/').pop()?.replace('.webp', '').replaceAll('-', ' ') }}
+            </button>
           </div>
         </article>
       </div>
@@ -458,24 +557,6 @@ const principles = [
   padding: 9%;
   overflow: hidden;
 }
-.case-ui {
-  width: 100%;
-  max-width: 500px;
-  border: 1px solid #333;
-  border-radius: 9px;
-  background: #0b0b0b;
-  box-shadow: 0 30px 70px #0008;
-}
-.case-ui-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px;
-  border-bottom: 1px solid #282828;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: #a8a8a8;
-}
 .tiny-mark,
 .icon-tile {
   display: inline-grid;
@@ -487,58 +568,6 @@ const principles = [
   width: 28px;
   height: 28px;
   font-size: 16px;
-}
-.case-dots {
-  margin-left: auto;
-}
-.case-ui-body {
-  min-height: 340px;
-  padding: 36px;
-}
-.pill {
-  display: inline-block;
-  padding: 5px 11px;
-  border-radius: 30px;
-  background: #d8cbff;
-  color: #40316e;
-  font-size: 12px;
-}
-.case-ui-body h3 {
-  margin-top: 26px;
-  font-size: 25px;
-  font-weight: 400;
-}
-.case-ui-body p {
-  margin-top: 12px;
-  font-size: 14px;
-}
-.case-lines {
-  margin-top: 38px;
-}
-.case-lines i,
-.paper i {
-  display: block;
-  height: 7px;
-  margin-top: 12px;
-  background: #292929;
-  border-radius: 3px;
-}
-.case-lines i:nth-child(2) {
-  width: 80%;
-}
-.case-lines i:nth-child(3) {
-  width: 55%;
-}
-.case-proof {
-  border-top: 1px solid #282828;
-  margin-top: 38px;
-  padding-top: 17px;
-  color: #929292;
-  font-size: 12px;
-}
-.case-proof span {
-  color: #b7a4f7;
-  margin-right: 7px;
 }
 .case-item {
   border-bottom: 1px solid #282828;
@@ -629,62 +658,6 @@ const principles = [
 .scenario p {
   font-size: 15px;
 }
-.mini-study,
-.mini-terminal,
-.mini-evidence {
-  width: 80%;
-  padding: 20px;
-  border: 1px solid #303030;
-  border-radius: 7px;
-  background: #0a0a0a;
-  box-shadow: 0 20px 45px #000a;
-  font-size: 12px;
-  color: #b7b1bd;
-}
-.mini-study strong {
-  display: block;
-  color: #eee;
-  font-size: 15px;
-  line-height: 1.3;
-  margin: 20px 0;
-}
-.mini-bar,
-.mini-terminal > span,
-.mini-evidence > span {
-  font-size: 10px;
-  color: #a998e1;
-  letter-spacing: 0.08em;
-}
-.mini-stage,
-.mini-evidence div {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  border-top: 1px solid #292929;
-  padding: 11px 0;
-}
-.mini-stage i {
-  width: 7px;
-  height: 7px;
-  background: #aa98e6;
-  border-radius: 50%;
-}
-.mini-stage b,
-.mini-evidence b {
-  margin-left: auto;
-  color: #8a8a8a;
-  font-weight: 400;
-}
-.mini-terminal p {
-  margin-top: 20px;
-  font-size: 12px;
-}
-.mini-terminal .mint {
-  color: #8bb99e;
-}
-.mini-evidence div:first-of-type {
-  margin-top: 20px;
-}
 .split-section {
   display: grid;
   grid-template-columns: 1fr 1.05fr;
@@ -695,23 +668,6 @@ const principles = [
   max-width: 490px;
   font-size: 20px;
   margin-top: 24px;
-}
-.pillar-list {
-  display: grid;
-  gap: 36px;
-  margin-top: 60px;
-}
-.pillar {
-  display: flex;
-  align-items: start;
-  gap: 14px;
-}
-.pillar h3 {
-  margin-bottom: 7px;
-}
-.pillar p {
-  max-width: 400px;
-  font-size: 15px;
 }
 .board-frame {
   min-height: 640px;
@@ -764,114 +720,6 @@ const principles = [
   height: 260px;
   margin-top: 22px;
   overflow: hidden;
-}
-.board-columns {
-  display: flex;
-  gap: 7px;
-  width: 95%;
-  height: 170px;
-  padding: 10px;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #0a0a0a;
-}
-.board-columns span {
-  flex: 1;
-  padding: 10px 6px;
-  border-radius: 5px;
-  background: #23222a;
-  color: #bcb6cc;
-  font-size: 10px;
-}
-.board-columns span:nth-child(2) {
-  background: #292331;
-}
-.board-columns span:nth-child(3) {
-  background: #2c2920;
-}
-.board-columns span:nth-child(4) {
-  background: #202b26;
-}
-.board-columns i {
-  display: block;
-  height: 50px;
-  margin-top: 12px;
-  border-radius: 4px;
-  background: #ffffff12;
-}
-.paper {
-  width: 55%;
-  min-height: 190px;
-  padding: 22px;
-  background: #e5dfd3;
-  color: #23252b;
-  transform: rotate(-5deg);
-  box-shadow: 0 20px 30px #0008;
-}
-.paper small {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-}
-.paper strong {
-  display: block;
-  margin-top: 15px;
-  font-size: 20px;
-  line-height: 1.1;
-  font-weight: 400;
-}
-.paper i {
-  background: #b8b2a9;
-  height: 3px;
-}
-.paper-mark {
-  font-size: 85px;
-  color: #c8b6fb;
-  margin-left: 24px;
-}
-.calendar {
-  width: 80%;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 20px;
-  background: #0b0b0b;
-  border: 1px solid #333;
-  border-radius: 9px;
-}
-.calendar span {
-  font-size: 10px;
-  color: #aaa;
-}
-.calendar i {
-  height: 65px;
-  background: #24232a;
-  border-radius: 4px;
-}
-.calendar i:nth-of-type(2),
-.calendar i:nth-of-type(4) {
-  background: #61557d;
-}
-.memory-card {
-  width: 75%;
-  padding: 25px;
-  border: 1px solid #343139;
-  border-radius: 10px;
-  background: #0b0b0b;
-}
-.memory-card span {
-  color: #b7a4f7;
-  font-size: 11px;
-}
-.memory-card p {
-  margin: 22px 0;
-  color: #eee;
-}
-.memory-card div {
-  border-radius: 6px;
-  padding: 15px;
-  background: #242029;
-  color: #b5aebd;
-  font-size: 14px;
 }
 .principle-grid {
   display: grid;
@@ -1104,13 +952,6 @@ const principles = [
     min-height: 360px;
     padding: 7%;
   }
-  .case-ui-body {
-    padding: 22px;
-    min-height: 260px;
-  }
-  .case-ui-body h3 {
-    font-size: 21px;
-  }
   .scenario-grid,
   .feature-grid,
   .principle-grid,
@@ -1177,34 +1018,6 @@ const principles = [
   background: #f7f7f8;
   border-color: #e2e4e8;
 }
-.case-ui,
-.mini-study,
-.mini-terminal,
-.mini-evidence,
-.board-columns,
-.calendar,
-.memory-card {
-  background: #fff;
-  border-color: #dedfe4;
-  color: #5b6070;
-  box-shadow: 0 18px 45px rgb(31 38 52 / 9%);
-}
-.case-ui-head,
-.case-proof,
-.mini-stage,
-.mini-evidence div {
-  border-color: #e8e9ed;
-  color: #777b86;
-}
-.case-ui-head,
-.mini-bar,
-.mini-terminal > span,
-.mini-evidence > span {
-  color: #75669c;
-}
-.case-lines i {
-  background: #e4e5ea;
-}
 .case-item button,
 .case-item button[aria-expanded='false'] {
   color: #363a43;
@@ -1221,50 +1034,6 @@ const principles = [
 }
 .section-label {
   color: #555a64;
-}
-.mini-study strong,
-.memory-card p {
-  color: #292c34;
-}
-.mini-stage b,
-.mini-evidence b {
-  color: #747986;
-}
-.mini-terminal .mint {
-  color: #357c57;
-}
-.board-columns span {
-  background: #edebf1;
-  color: #595365;
-}
-.board-columns span:nth-child(2) {
-  background: #eee9f4;
-}
-.board-columns span:nth-child(3) {
-  background: #f2efe5;
-}
-.board-columns span:nth-child(4) {
-  background: #e7f0eb;
-}
-.board-columns i {
-  background: rgb(255 255 255 / 75%);
-}
-.calendar span {
-  color: #666b75;
-}
-.calendar i {
-  background: #edeef1;
-}
-.calendar i:nth-of-type(2),
-.calendar i:nth-of-type(4) {
-  background: #cfc4e8;
-}
-.memory-card span {
-  color: #76629f;
-}
-.memory-card div {
-  background: #f0edf4;
-  color: #5e5966;
 }
 .principle-grid article > span {
   color: #76629f;
@@ -1295,5 +1064,185 @@ const principles = [
 }
 .resource-section a {
   color: #67518d;
+}
+
+/* Real captures retain the full dashboard; enlargement preserves readable native pixels. */
+.case-layout {
+  grid-template-columns: 1fr;
+}
+.case-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 28px;
+}
+.case-visual {
+  min-height: 0;
+  padding: 18px;
+  display: block;
+}
+.capture-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.capture-caption span {
+  color: #626773;
+}
+.capture-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  cursor: zoom-in;
+  border: 1px solid #dedfe4;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #fff;
+  text-align: left;
+  color: #363a43;
+  font: inherit;
+}
+.capture-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1907 / 870;
+}
+.enlarge-label {
+  display: block;
+  padding: 10px 14px;
+  font-size: 12px;
+  background: #f4f3f7;
+}
+.capture-description {
+  margin-top: 12px !important;
+  font-size: 14px !important;
+}
+.capture-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.capture-controls button,
+.dialog-toolbar button {
+  border: 1px solid #d7d4de;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: white;
+  color: #46414e;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.capture-controls button[aria-pressed='true'] {
+  background: #ede6fc;
+  border-color: #8a70b2;
+  color: #493669;
+}
+.capture-button:focus-visible,
+.capture-controls button:focus-visible,
+.dialog-toolbar button:focus-visible {
+  outline: 3px solid #8a70b2;
+  outline-offset: 3px;
+}
+.scenario-visual,
+.feature-art {
+  height: auto;
+}
+.board-frame {
+  min-height: 0;
+  padding: 0;
+  background: white;
+}
+.split-section {
+  grid-template-columns: 1fr;
+  gap: 36px;
+}
+.split-copy {
+  max-width: 800px;
+}
+.pillar-list {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.feature-card {
+  min-height: 0;
+}
+.capture-enter-active,
+.capture-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.capture-enter-from,
+.capture-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}
+.capture-dialog {
+  width: min(1960px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid #d7d4de;
+  border-radius: 12px;
+  color: #292c34;
+  background: white;
+}
+.capture-dialog::backdrop {
+  background: rgb(12 14 20 / 80%);
+}
+.dialog-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.capture-dialog p {
+  margin: 12px 0;
+  font-size: 14px;
+}
+.dialog-image {
+  overflow: auto;
+  max-height: 70dvh;
+  border: 1px solid #dedfe4;
+}
+.dialog-image img {
+  display: block;
+  width: 1907px;
+  max-width: none;
+  height: 870px;
+}
+@media (max-width: 900px) {
+  .case-list {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pillar-list {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .case-list {
+    grid-template-columns: 1fr;
+  }
+  .case-visual {
+    padding: 8px;
+  }
+  .capture-caption {
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-enter-active,
+  .capture-leave-active {
+    transition: none;
+  }
+  .capture-enter-from,
+  .capture-leave-to {
+    transform: none;
+  }
 }
 </style>
