@@ -54,8 +54,9 @@ var schemaFlags = map[string]struct {
 // checkSandbox and doorAnswers are the sandbox and door checks; tests
 // replace them to fail.
 var (
-	checkSandbox = sandbox.Check
-	doorAnswers  = func(ctx context.Context, door *Door) error {
+	removePreflightScratch = (*agent.ScratchReservation).Remove
+	checkSandbox           = sandbox.Check
+	doorAnswers            = func(ctx context.Context, door *Door) error {
 		client := mcp.NewClient(&mcp.Implementation{Name: "lyk-preflight", Version: "0.1.0"}, nil)
 		s, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: door.URL, HTTPClient: &http.Client{Transport: bearer(door.Token)}, DisableStandaloneSSE: true}, nil)
 		if err != nil {
@@ -100,7 +101,14 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 		os.RemoveAll(dir)
 		return agent.ReasonCLIBroken, err.Error()
 	}
-	defer func() { reservation.Remove(); reservation.Release() }()
+	defer func() {
+		err := removePreflightScratch(reservation)
+		reservation.Release()
+		if err != nil {
+			reason = agent.ReasonCLIBroken
+			detail = "preflight scratch cleanup failed"
+		}
+	}()
 	path, err := handInPath()
 	if err != nil {
 		return agent.ReasonCLIBroken, err.Error()
@@ -113,7 +121,7 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 	// PATH without lyk and the adapter's own flags; no study, no run token.
 	opts := agent.ExecOptions{ScratchReservation: reservation, Dir: dir, OutputSchema: preflightSchema, CacheDir: d.runCacheDir(""),
 		Env: []string{"PATH=" + path, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=2000"}}
-	opts.Sandbox = d.cliSandbox(dir, nil, false)
+	opts.Sandbox = d.preflightSandbox(dir, reservation)
 	// One turn is all the hello needs. Claude accepts --max-turns even where
 	// its help doesn't list it.
 	if harness == "claude" {

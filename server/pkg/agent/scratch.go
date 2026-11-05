@@ -118,6 +118,16 @@ func (r *ScratchReservation) validate(dir string) error {
 	return nil
 }
 
+// ValidateDirectory verifies that this reservation still pins dir and its lock.
+func (r *ScratchReservation) ValidateDirectory(dir string) error {
+	if r == nil {
+		return errors.New("scratch reservation is required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.validate(dir)
+}
+
 func (r *ScratchReservation) borrow(dir string) (func(), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

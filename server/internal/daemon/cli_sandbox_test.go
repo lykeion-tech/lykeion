@@ -811,3 +811,97 @@ func TestUnavailableCLISandboxIsASandboxFault(t *testing.T) {
 		t.Fatalf("err %v classified %q", err, classify("claude", err, "", nil))
 	}
 }
+
+func TestPreflightScratchGuardsSurviveDiscoveryCleanup(t *testing.T) {
+	sandboxAvailable := sandbox.Check(context.Background()) == nil
+	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	dir, err := os.MkdirTemp(home, "preflight-")
+	must(t, err)
+	reservation, err := agent.ReserveScratch(dir)
+	must(t, err)
+	defer reservation.Release()
+	d := &daemon{cfg: Config{Home: home, StateDir: t.TempDir()}}
+	wrap := d.preflightSandbox(dir, reservation)
+	first, cancel := context.WithCancel(context.Background())
+	cmd, err := wrap(first, agent.CLIPaths{}, "/bin/true")
+	must(t, err)
+	var tmp string
+	for _, a := range cmd.Args {
+		if strings.HasPrefix(a, "TMPDIR=") {
+			tmp = strings.TrimPrefix(a, "TMPDIR=")
+		}
+	}
+	if tmp == "" {
+		t.Fatal("missing invocation temp")
+	}
+	for _, name := range []string{".lyk-output-schema.json", ".lyk-mcp.json"} {
+		path := filepath.Join(dir, name)
+		must(t, os.Remove(path))
+		must(t, os.WriteFile(path, []byte(`{"actual":true}`), 0600))
+	}
+	second, stop := context.WithCancel(context.Background())
+	defer stop()
+	next, err := wrap(second, agent.CLIPaths{}, "/bin/sh", "-c", `if printf changed > .lyk-output-schema.json 2>/dev/null; then exit 1; fi; if printf changed > .lyk-mcp.json 2>/dev/null; then exit 1; fi; test -f .mcp.json`)
+	must(t, err)
+	next.Dir = dir
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, err := os.Stat(tmp)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("discovery cleanup did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".mcp.json")); err != nil {
+		t.Fatalf("discovery cleanup removed preflight guard: %v", err)
+	}
+	if sandboxAvailable {
+		if out, err := next.CombinedOutput(); err != nil {
+			t.Fatalf("preflight protections failed: %v: %s", err, out)
+		}
+	} else {
+		t.Log("sandbox execution unavailable in this environment")
+	}
+	stop()
+	must(t, reservation.Remove())
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scratch not retired: %v", err)
+	}
+}
+
+func TestPreflightSandboxRejectsUnsafeRetention(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	dir, err := os.MkdirTemp(home, "preflight-")
+	must(t, err)
+	r, err := agent.ReserveScratch(dir)
+	must(t, err)
+	d := &daemon{cfg: Config{Home: home, StateDir: t.TempDir()}}
+	for _, tc := range []struct {
+		name  string
+		wrap  agent.SandboxCommand
+		paths agent.CLIPaths
+	}{
+		{"missing reservation", d.preflightSandbox(dir, nil), agent.CLIPaths{}},
+		{"managed skills", d.preflightSandbox(dir, r), agent.CLIPaths{ManagedSkills: filepath.Join(dir, ".agents", "skills")}},
+		{"outside home", (&daemon{cfg: Config{Home: t.TempDir(), StateDir: t.TempDir()}}).preflightSandbox(dir, r), agent.CLIPaths{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.wrap(context.Background(), tc.paths, "/bin/true"); err == nil {
+				t.Fatal("unsafe preflight accepted")
+			}
+		})
+	}
+	r.Release()
+	if _, err := d.preflightSandbox(dir, r)(context.Background(), agent.CLIPaths{}, "/bin/true"); err == nil {
+		t.Fatal("released reservation accepted")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".mcp.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected preflight created guard: %v", err)
+	}
+}

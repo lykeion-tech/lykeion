@@ -161,12 +161,44 @@ func (d *daemon) runCacheDir(guest string) string {
 	return d.cacheDir()
 }
 
+func (d *daemon) preflightSandbox(runDir string, reservation *agent.ScratchReservation) agent.SandboxCommand {
+	if reservation == nil {
+		return func(context.Context, agent.CLIPaths, string, ...string) (*exec.Cmd, error) {
+			return nil, errors.New("preflight scratch reservation is required")
+		}
+	}
+	return d.cliSandboxWithRetention(runDir, nil, false, "", reservation)
+}
+
 func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, guests ...string) agent.SandboxCommand {
 	guest := ""
 	if len(guests) > 0 {
 		guest = guests[0]
 	}
+	return d.cliSandboxWithRetention(runDir, study, readOnly, guest, nil)
+}
+
+func (d *daemon) cliSandboxWithRetention(runDir string, study *envs.Study, readOnly bool, guest string, reservation *agent.ScratchReservation) agent.SandboxCommand {
 	return func(ctx context.Context, cli agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
+		if reservation != nil {
+			if cli.ManagedSkills != "" || guest != "" || readOnly || study != nil {
+				return nil, errors.New("invalid preflight sandbox options")
+			}
+			parent, err := filepath.EvalSymlinks(d.cfg.Home)
+			if err != nil {
+				return nil, err
+			}
+			actual, err := filepath.EvalSymlinks(runDir)
+			if err != nil {
+				return nil, err
+			}
+			if err := reservation.ValidateDirectory(actual); err != nil {
+				return nil, err
+			}
+			if filepath.Dir(actual) != parent || !strings.HasPrefix(filepath.Base(actual), "preflight-") {
+				return nil, errors.New("preflight scratch is outside the reserved home")
+			}
+		}
 		chat := d.hostForFolder(runDir)
 		if chat != nil {
 			if err := d.checkChat(ctx, chat.work); err != nil {
@@ -213,10 +245,10 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 		}
 		var placeholders []placeholder
 		cleanup := func() {
-			// Guest helpers share the run's immutable configuration guards.
+			// Guest helpers and reserved preflights share immutable configuration guards.
 			// Retain them until scratch retirement so an earlier helper's
 			// canceled context cannot remove a later launch's bind targets.
-			if guest == "" {
+			if guest == "" && reservation == nil {
 				for _, ph := range placeholders {
 					ph.remove()
 				}

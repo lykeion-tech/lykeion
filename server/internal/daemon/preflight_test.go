@@ -78,6 +78,7 @@ func TestPreflightOrder(t *testing.T) {
 		{"codex too old", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.1; exit 0;; "exec --help") echo "  --json"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
 		{"codex healthy", "codex", `case "$1 $2" in "--version ") echo codex-cli 0.160.0; exit 0;; "exec --help") echo "  --output-schema <FILE>"; exit 0;; "debug models") echo '{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}'; exit 0;; esac
 case "$*" in *"--output-schema "*.lyk-output-schema.json*) ;; *) exit 5;; esac
+[ "$(cat .lyk-output-schema.json)" = '` + preflightSchema + `' ] || exit 10
 case "$LYK_TOKEN" in lyk_*) exit 8;; esac
 [ -n "$LYK_DOOR_TOKEN" ] || exit 7
 touch "$HOME/escaped" 2>/dev/null && exit 9
@@ -113,6 +114,36 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
 			}
 		})
 	}
+}
+
+func TestPreflightReportsScratchRetirementFailure(t *testing.T) {
+	if err := sandbox.Check(t.Context()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	preflightHome(t)
+	bin := fakeCLI(t, "claude", claudeProbes+isolatedHello+fmtAnswer(`{"ok":true}`))
+	remove := removePreflightScratch
+	t.Cleanup(func() { removePreflightScratch = remove })
+	removePreflightScratch = func(_ *agent.ScratchReservation) error {
+		return errors.New("sensitive simulated cleanup detail")
+	}
+	d := &daemon{cfg: Config{Home: t.TempDir(), StateDir: t.TempDir(), Harnesses: map[string]string{"claude": bin}, NewBackend: agent.New}}
+	reason, detail := d.preflight(t.Context(), "claude")
+	if reason != agent.ReasonCLIBroken || detail != "preflight scratch cleanup failed" {
+		t.Fatalf("reason %q detail %q; cleanup failure must be reported safely", reason, detail)
+	}
+	left, err := filepath.Glob(filepath.Join(d.cfg.Home, "preflight-*"))
+	must(t, err)
+	if len(left) != 1 {
+		t.Fatalf("expected preserved scratch, got %v", left)
+	}
+	if _, err := os.Lstat(filepath.Join(left[0], ".mcp.json")); err != nil {
+		t.Fatalf("guard not preserved: %v", err)
+	}
+	again, err := agent.ReserveScratch(left[0])
+	must(t, err)
+	defer again.Release()
+	must(t, again.Remove())
 }
 
 func fmtAnswer(output string) string {
