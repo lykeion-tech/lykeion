@@ -11,7 +11,7 @@ export function composerAvailability(
   }[],
   runtimes: readonly { id: string; status: string }[],
 ): string {
-  if (state !== 'working') return 'This study needs attention before agent work can continue';
+  if (state !== 'working') return '';
   // A newer member failure does not mean the still-active lead needs recovery.
   if (runs.some((run) => run.status === 'running' || run.status === 'dispatched')) return '';
   const latest = [...runs].reverse().find((run) => run.status === 'queued') ?? runs.at(-1);

@@ -1797,11 +1797,11 @@ it('omits routine composer guidance while retaining actionable unavailable statu
     (client) => seedStudy(client, { state: 'blocked' }),
   );
   try {
-    expect(unavailable.text()).toContain(
+    expect(unavailable.text()).not.toContain(
       'This study needs attention before agent work can continue',
     );
     const comment = unavailable.nodes().find((n) => n.props['aria-label'] === 'Comment')!;
-    expect(comment.props['aria-describedby']).toBe('study-composer-hint');
+    expect(comment.props['aria-describedby']).toBeFalsy();
   } finally {
     unavailable.unmount();
   }

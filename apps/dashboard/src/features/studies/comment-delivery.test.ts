@@ -38,9 +38,7 @@ it('reports known queued-runtime and start failures without guessing availabilit
   expect(composerAvailability('working', [{ status: 'failed', runtime_id: null }], [])).toBe(
     'The last agent run failed; waiting for recovery',
   );
-  expect(composerAvailability('blocked', [], [])).toBe(
-    'This study needs attention before agent work can continue',
-  );
+  expect(composerAvailability('blocked', [], [])).toBe('');
   expect(composerAvailability('working', [{ status: 'queued', runtime_id: null }], [])).toBe('');
 });
 
