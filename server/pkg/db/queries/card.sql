@@ -64,12 +64,13 @@ SELECT c.* FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @
 -- A study's comments posted after since that no run has been given yet.
 -- name: UndeliveredComments :many
 SELECT c.* FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at > @since AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
+  AND NOT EXISTS (SELECT 1 FROM comment_reservation cr JOIN agent_run ar ON ar.id=cr.agent_run_id AND ar.workspace_id=cr.workspace_id WHERE cr.workspace_id=c.workspace_id AND cr.comment_id=c.id AND (cr.acknowledged_at IS NOT NULL OR ar.status IN ('queued','dispatched','running')))
   AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
-    AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
+    AND r.kind = 'comment_delivery' AND COALESCE(r.body->>'historical_unconfirmed','false') <> 'true' AND r.body->>'comment_id' = c.id::text)
 ORDER BY c.created_at, c.id;
 
 -- name: CommentDeliveries :many
-SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'comment_delivery'
+SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id AND kind = 'comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false') <> 'true'
 ORDER BY created_at, id;
 
 -- A stopped study needs nothing more from anyone: its open items asking for
@@ -128,3 +129,27 @@ ORDER BY created_at, length(key), key;
 -- name: SetCardMachine :execrows
 UPDATE card SET machine = sqlc.narg(machine), version = version + 1
 WHERE id = @id AND workspace_id = @workspace_id;
+
+-- name: ReleaseStaleCommentReservations :exec
+DELETE FROM comment_reservation cr USING agent_run r
+WHERE cr.workspace_id = @workspace_id AND r.workspace_id = cr.workspace_id AND r.id = cr.agent_run_id
+ AND cr.acknowledged_at IS NULL AND r.status IN ('completed', 'failed', 'cancelled');
+
+-- name: ReserveComment :exec
+INSERT INTO comment_reservation (workspace_id, comment_id, agent_run_id, attempt)
+VALUES (@workspace_id, @comment_id, @agent_run_id, @attempt)
+ON CONFLICT (workspace_id, comment_id) DO NOTHING;
+
+-- name: BindCommentReservations :exec
+UPDATE comment_reservation SET attempt = @attempt
+WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND acknowledged_at IS NULL;
+
+-- name: RunReservedComments :many
+SELECT c.*, cr.acknowledged_at, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
+FROM comment_reservation cr JOIN comment c ON c.workspace_id=cr.workspace_id AND c.id=cr.comment_id
+WHERE cr.workspace_id= @workspace_id AND cr.agent_run_id= @agent_run_id AND cr.attempt= @attempt
+ORDER BY c.created_at, c.id;
+
+-- name: AcknowledgeCommentReservation :exec
+UPDATE comment_reservation SET acknowledged_at = now()
+WHERE workspace_id= @workspace_id AND agent_run_id= @agent_run_id AND attempt= @attempt AND comment_id= @comment_id AND acknowledged_at IS NULL;

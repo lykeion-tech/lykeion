@@ -321,6 +321,15 @@ type CommentCancellation struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type CommentReservation struct {
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	CommentID      uuid.UUID  `json:"comment_id"`
+	AgentRunID     uuid.UUID  `json:"agent_run_id"`
+	Attempt        int32      `json:"attempt"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
 type ConnectorFetch struct {
 	WorkspaceID   uuid.UUID `json:"workspace_id"`
 	RequestSha256 string    `json:"request_sha256"`

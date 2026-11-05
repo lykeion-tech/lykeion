@@ -219,11 +219,12 @@ type ClaimedRerun struct {
 }
 
 type Claimed struct {
-	Coresearch    *ClaimedCoresearch `json:"coresearch,omitempty"`
-	Rerun         *ClaimedRerun      `json:"rerun,omitempty"`
-	PythonVersion string             `json:"python_version,omitempty"`
-	AgentRun      db.AgentRun        `json:"agent_run"`
-	Token         string             `json:"token"`
+	ReservedCommentIDs []uuid.UUID        `json:"reserved_comment_ids,omitempty"`
+	Coresearch         *ClaimedCoresearch `json:"coresearch,omitempty"`
+	Rerun              *ClaimedRerun      `json:"rerun,omitempty"`
+	PythonVersion      string             `json:"python_version,omitempty"`
+	AgentRun           db.AgentRun        `json:"agent_run"`
+	Token              string             `json:"token"`
 	// CallToken records the run's connector calls. The daemon keeps it from
 	// the agent, so only the door can write a call record.
 	CallToken string            `json:"call_token"`
@@ -1042,7 +1043,20 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if t.Kind == "aristotle" {
 						mcpURL = s.LabMCPURL
 					}
-					c = &Claimed{Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
+					if t.CardID != nil {
+						if _, err := tx.Q.LockCard(ctx, db.LockCardParams{WorkspaceID: tx.WS, ID: *t.CardID}); err != nil {
+							return err
+						}
+					}
+					if err := tx.Q.BindCommentReservations(ctx, db.BindCommentReservationsParams{WorkspaceID: tx.WS, AgentRunID: t.ID, Attempt: t.Attempt}); err != nil {
+						return err
+					}
+					launch, err := reservedLaunch(ctx, tx, t)
+					if err != nil {
+						return err
+					}
+					t.Prompt = launch.Prompt
+					c = &Claimed{ReservedCommentIDs: launch.CommentIDs, Coresearch: core, Rerun: rerun, PythonVersion: python, AgentRun: t, Token: plain, CallToken: callPlain, MCPURL: mcpURL, MCP: mcp, Connectors: conns, WorkspaceConnectors: workspace, Attachments: files, Services: services}
 					return emitAgentRunEvent(ctx, tx, t, "agent_run.dispatched", store.System, agentRunEvent(t))
 				}()
 				if err != nil {

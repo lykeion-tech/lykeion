@@ -83,7 +83,8 @@ type runtimeRef struct {
 	RuntimeID   uuid.UUID `json:"runtime_id"`
 }
 type claimed struct {
-	Coresearch *service.ClaimedCoresearch `json:"coresearch,omitempty"`
+	ReservedCommentIDs []uuid.UUID                `json:"reserved_comment_ids,omitempty"`
+	Coresearch         *service.ClaimedCoresearch `json:"coresearch,omitempty"`
 	// Rerun is what a rerun replays; set on a run of kind "rerun" only.
 	Rerun         *service.ClaimedRerun `json:"rerun,omitempty"`
 	PythonVersion string                `json:"python_version"`

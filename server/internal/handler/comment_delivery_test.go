@@ -232,6 +232,33 @@ func TestReplyToRunningCodexIsStudyComment(t *testing.T) {
 	}
 }
 
+func TestCodexReplyIsIncludedAndAcknowledgedInNextAgentRun(t *testing.T) {
+	l, leader := groundingLab(t)
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET harness = 'codex' WHERE id = $1", leader.id); err != nil {
+		t.Fatal(err)
+	}
+	var comment struct{ ID string }
+	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/comments", l.jwt, l.ws,
+		map[string]any{"body": "Check adult sleep quality.", "target_run_id": leader.id}, &comment); code != 201 {
+		t.Fatalf("comment: %d", code)
+	}
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	member := l.claim(t)
+	if member.id != ask.Ticket || !strings.Contains(member.prompt, "Check adult sleep quality.") {
+		t.Fatalf("next run did not receive comment: %s", member.prompt)
+	}
+	if n := l.receipts(t, comment.ID); n != 0 {
+		t.Fatalf("claim wrote %d premature receipts", n)
+	}
+	l.ackComments(t, member, comment.ID)
+	if d := l.listComments(t)[comment.ID].Delivery; d == nil || d.How != "next_run" || d.Role != "member-1" {
+		t.Fatalf("delivery %+v", d)
+	}
+	if n := l.receipts(t, comment.ID); n != 1 {
+		t.Fatalf("%d receipts", n)
+	}
+}
+
 // A Codex member can't take a comment mid-turn and its daemon never asks for
 // one: the leader waiting on it gets the comment in its next member_result,
 // once, and the study page says so.
@@ -269,6 +296,10 @@ func TestCommentInNextPrompt(t *testing.T) {
 	if m.id != ask.Ticket || !strings.Contains(m.prompt, "Look at yeast too.") {
 		t.Fatalf("claimed %s:\n%s", m.id, m.prompt)
 	}
+	if n := l.receipts(t, id); n != 0 {
+		t.Fatalf("claim wrote %d premature receipts", n)
+	}
+	l.ackComments(t, m, id)
 	if d := l.listComments(t)[id].Delivery; d == nil || d.How != "next_run" || d.Role != "member-1" {
 		t.Fatalf("delivery %+v", d)
 	}
@@ -309,5 +340,147 @@ func TestCommentsOfOtherStudiesAndEarlierAreNeverClaimed(t *testing.T) {
 	}
 	if n := l.s.count(t, "SELECT count(*) FROM record WHERE kind = 'comment_delivery'"); n != 0 {
 		t.Fatalf("%d receipts written", n)
+	}
+}
+
+func (l *teamLab) ackComments(t *testing.T, run teamRun, ids ...string) {
+	t.Helper()
+	body := map[string]any{}
+	for k, v := range run.ref {
+		body[k] = v
+	}
+	body["comment_ids"] = ids
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/ack", l.personal, "", body, nil); code != 204 {
+		t.Fatalf("ack: %d", code)
+	}
+}
+
+func TestFrozenCommentReservationAcknowledgement(t *testing.T) {
+	l, leader := groundingLab(t)
+	before := l.comment(t, "Before frozen prompt.")
+	_, ask := l.ask(t, leader.token, "member-1", "Find papers.")
+	if n := l.receipts(t, before); n != 0 {
+		t.Fatalf("enqueue wrote %d receipts", n)
+	}
+	after := l.comment(t, "After frozen prompt.")
+	run := l.claim(t)
+	if run.id != ask.Ticket || !strings.Contains(run.prompt, "Before frozen prompt.") || strings.Contains(run.prompt, "After frozen prompt.") {
+		t.Fatalf("incorrect snapshot: %s", run.prompt)
+	}
+	post := func(ref map[string]any, ids []string) int {
+		body := map[string]any{}
+		for k, v := range ref {
+			body[k] = v
+		}
+		body["comment_ids"] = ids
+		return l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/ack", l.personal, "", body, nil)
+	}
+	for _, field := range []string{"workspace_id", "runtime_id", "attempt"} {
+		bad := map[string]any{}
+		for k, v := range run.ref {
+			bad[k] = v
+		}
+		if field == "attempt" {
+			bad[field] = 99
+		} else {
+			bad[field] = "00000000-0000-4000-8000-000000000001"
+		}
+		if code := post(bad, []string{before}); code < 400 {
+			t.Fatalf("accepted wrong %s: %d", field, code)
+		}
+	}
+	if code := post(run.ref, []string{after}); code != 409 {
+		t.Fatalf("ack of unreserved message: %d", code)
+	}
+	if n := l.receipts(t, before); n != 0 {
+		t.Fatalf("claim wrote %d receipts", n)
+	}
+	l.ackComments(t, run, before, before)
+	l.ackComments(t, run, before)
+	if n := l.receipts(t, before); n != 1 {
+		t.Fatalf("duplicate receipts: %d", n)
+	}
+	if n := l.receipts(t, after); n != 0 {
+		t.Fatalf("late message receipted: %d", n)
+	}
+}
+
+func TestReservedCommentCancellationAndRetry(t *testing.T) {
+	l, leader := groundingLab(t)
+	keep := l.comment(t, "Keep for retry.")
+	cancelled := l.comment(t, "Remove before launch.")
+	_, _ = l.ask(t, leader.token, "member-1", "Find papers.")
+	run := l.claim(t)
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel: %d", code)
+	}
+	var launch struct {
+		Prompt     string
+		CommentIDs []string `json:"comment_ids"`
+	}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/launch", l.personal, "", run.ref, &launch); code != 200 {
+		t.Fatalf("launch check: %d", code)
+	}
+	if strings.Contains(launch.Prompt, "Remove before launch.") || !strings.Contains(launch.Prompt, "Keep for retry.") || len(launch.CommentIDs) != 1 || launch.CommentIDs[0] != keep {
+		t.Fatalf("launch: %+v", launch)
+	}
+	l.fail(t, run, "provider_network")
+	if n := l.receipts(t, keep); n != 0 {
+		t.Fatalf("failed launch receipt: %d", n)
+	}
+	// Advance the existing infra retry backoff without changing recovery policy.
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET retry_after = NULL WHERE id = $1", run.id); err != nil {
+		t.Fatal(err)
+	}
+	retry := l.claim(t)
+	if retry.id != run.id || retry.ref["attempt"] == run.ref["attempt"] {
+		t.Fatalf("not retried: %+v", retry)
+	}
+	old := map[string]any{}
+	for k, v := range run.ref {
+		old[k] = v
+	}
+	old["comment_ids"] = []string{keep}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/ack", l.personal, "", old, nil); code != 409 {
+		t.Fatalf("stale ack: %d", code)
+	}
+	l.ackComments(t, retry, keep, cancelled)
+	if n := l.receipts(t, keep); n != 1 {
+		t.Fatalf("retry receipts: %d", n)
+	}
+	if n := l.receipts(t, cancelled); n != 0 {
+		t.Fatalf("cancelled receipt: %d", n)
+	}
+}
+
+func TestReservedCommentRecoveredAfterTerminalRun(t *testing.T) {
+	l, leader := groundingLab(t)
+	id := l.comment(t, "Pending across failed work.")
+	_, _ = l.ask(t, leader.token, "member-1", "First try.")
+	run := l.claim(t)
+	l.fail(t, run, "agent_error")
+	if n := l.receipts(t, id); n != 0 {
+		t.Fatalf("failed run receipt: %d", n)
+	}
+	_, ask := l.ask(t, leader.token, "member-1", "Try a different approach.")
+	next := l.claim(t)
+	if next.id != ask.Ticket || next.id == run.id || !strings.Contains(next.prompt, "Pending across failed work.") {
+		t.Fatalf("wrong recovery run: %+v", next)
+	}
+	l.ackComments(t, next, id)
+	if n := l.receipts(t, id); n != 1 {
+		t.Fatalf("recovered receipt count: %d", n)
+	}
+	// Settlement is a fence even for a duplicate acknowledgement.
+	if _, err := l.s.Env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", next.id); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{}
+	for k, v := range next.ref {
+		body[k] = v
+	}
+	body["comment_ids"] = []string{id}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+next.id+"/comments/ack", l.personal, "", body, nil); code != 409 {
+		t.Fatalf("settled ack: %d", code)
 	}
 }

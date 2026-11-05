@@ -149,6 +149,8 @@ func NewRouter(h *H) http.Handler {
 			r.Post("/agent-runs/{id}/fail", h.daemonSettle(false))
 			r.Get("/agent-runs/{id}/status", h.daemonStatus)
 			r.Get("/agent-runs/{id}/comments", h.daemonComments)
+			r.Post("/agent-runs/{id}/comments/launch", h.daemonCommentLaunch)
+			r.Post("/agent-runs/{id}/comments/ack", h.daemonCommentAck)
 			r.Post("/agent-runs/{id}/cancel-ack", h.daemonCancelAck())
 		})
 		// Cancel opens its own service transaction; keep it outside Scope's transaction.

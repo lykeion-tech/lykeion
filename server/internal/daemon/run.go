@@ -386,6 +386,28 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// A Claude turn that hands in takes comments while it runs. Codex can't
 	// take input mid-turn: its comments wait for the leader or the next run.
 	takesComments := c.AgentRun.Harness == "claude" && c.OutputSchema != "" && c.AgentRun.CardID != nil
+	// Recheck cancellations immediately before launch, after setup. The frozen
+	// prompt does not absorb comments posted after enqueue.
+	var launchComments service.CommentLaunch
+	if len(c.ReservedCommentIDs) > 0 {
+		if err := d.api.Do(runCtx, "POST", base+"/comments/launch", ref, &launchComments); err != nil {
+			fail(err)
+			return err
+		}
+		prompt = launchComments.Prompt + skillsNote(c.Skills)
+	}
+	ackComments := func() error {
+		if len(launchComments.CommentIDs) == 0 {
+			return nil
+		}
+		body := reportBody(r)
+		body["comment_ids"] = launchComments.CommentIDs
+		err := d.api.Do(runCtx, "POST", base+"/comments/ack", body, nil)
+		if err == nil {
+			launchComments.CommentIDs = nil
+		}
+		return err
+	}
 	// execute returns the launch error, or the result and the stream error.
 	execute := func() (res agent.Result, streamErr, launchErr error) {
 		lastTextSeq = 0
@@ -401,6 +423,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		if err != nil {
 			return res, sandboxNote(err), err
 		}
+		// A successful Execute means the backend accepted these exact inputs.
+		// Retry a failed acknowledgement after draining the running session.
+		ackErr := ackComments()
 		for message := range sess.Messages {
 			if err := sink(message); err != nil {
 				if !errors.Is(err, errFenceBreach) {
@@ -416,6 +441,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		// Codex's adapter defines Output as the last emitted agent_message.
 		if c.AgentRun.Harness == "codex" && res.Output != "" {
 			res.OutputMessageSeq = lastTextSeq
+		}
+		if ackErr != nil {
+			streamErr = errors.Join(streamErr, ackComments())
 		}
 		streamErr = errors.Join(streamErr, sandboxNote(res.Err))
 		return res, streamErr, nil

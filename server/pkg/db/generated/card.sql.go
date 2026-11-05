@@ -13,6 +13,44 @@ import (
 	"github.com/google/uuid"
 )
 
+const acknowledgeCommentReservation = `-- name: AcknowledgeCommentReservation :exec
+UPDATE comment_reservation SET acknowledged_at = now()
+WHERE workspace_id= $1 AND agent_run_id= $2 AND attempt= $3 AND comment_id= $4 AND acknowledged_at IS NULL
+`
+
+type AcknowledgeCommentReservationParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
+	CommentID   uuid.UUID `json:"comment_id"`
+}
+
+func (q *Queries) AcknowledgeCommentReservation(ctx context.Context, arg AcknowledgeCommentReservationParams) error {
+	_, err := q.db.Exec(ctx, acknowledgeCommentReservation,
+		arg.WorkspaceID,
+		arg.AgentRunID,
+		arg.Attempt,
+		arg.CommentID,
+	)
+	return err
+}
+
+const bindCommentReservations = `-- name: BindCommentReservations :exec
+UPDATE comment_reservation SET attempt = $1
+WHERE workspace_id = $2 AND agent_run_id = $3 AND acknowledged_at IS NULL
+`
+
+type BindCommentReservationsParams struct {
+	Attempt     int32     `json:"attempt"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+}
+
+func (q *Queries) BindCommentReservations(ctx context.Context, arg BindCommentReservationsParams) error {
+	_, err := q.db.Exec(ctx, bindCommentReservations, arg.Attempt, arg.WorkspaceID, arg.AgentRunID)
+	return err
+}
+
 const cardAgentRuns = `-- name: CardAgentRuns :many
 SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
@@ -274,7 +312,7 @@ func (q *Queries) CardWorkflow(ctx context.Context, arg CardWorkflowParams) (*st
 }
 
 const commentDeliveries = `-- name: CommentDeliveries :many
-SELECT body FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = 'comment_delivery'
+SELECT body FROM record WHERE workspace_id = $1 AND card_id = $2 AND kind = 'comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false') <> 'true'
 ORDER BY created_at, id
 `
 
@@ -753,6 +791,40 @@ func (q *Queries) NextCardNumber(ctx context.Context, id uuid.UUID) (int32, erro
 	return card_counter, err
 }
 
+const releaseStaleCommentReservations = `-- name: ReleaseStaleCommentReservations :exec
+DELETE FROM comment_reservation cr USING agent_run r
+WHERE cr.workspace_id = $1 AND r.workspace_id = cr.workspace_id AND r.id = cr.agent_run_id
+ AND cr.acknowledged_at IS NULL AND r.status IN ('completed', 'failed', 'cancelled')
+`
+
+func (q *Queries) ReleaseStaleCommentReservations(ctx context.Context, workspaceID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, releaseStaleCommentReservations, workspaceID)
+	return err
+}
+
+const reserveComment = `-- name: ReserveComment :exec
+INSERT INTO comment_reservation (workspace_id, comment_id, agent_run_id, attempt)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (workspace_id, comment_id) DO NOTHING
+`
+
+type ReserveCommentParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CommentID   uuid.UUID `json:"comment_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
+}
+
+func (q *Queries) ReserveComment(ctx context.Context, arg ReserveCommentParams) error {
+	_, err := q.db.Exec(ctx, reserveComment,
+		arg.WorkspaceID,
+		arg.CommentID,
+		arg.AgentRunID,
+		arg.Attempt,
+	)
+	return err
+}
+
 const resolveCardInbox = `-- name: ResolveCardInbox :many
 UPDATE inbox_item SET resolved_at = now(), status = 'cancelled', touched_at = now()
 WHERE workspace_id = $1 AND card_id = $2 AND kind <> 'manual_decision' AND kind IN ('escalated', 'blocked', 'scoring_unavailable') AND resolved_at IS NULL
@@ -779,6 +851,63 @@ func (q *Queries) ResolveCardInbox(ctx context.Context, arg ResolveCardInboxPara
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const runReservedComments = `-- name: RunReservedComments :many
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt, cr.acknowledged_at, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
+FROM comment_reservation cr JOIN comment c ON c.workspace_id=cr.workspace_id AND c.id=cr.comment_id
+WHERE cr.workspace_id= $1 AND cr.agent_run_id= $2 AND cr.attempt= $3
+ORDER BY c.created_at, c.id
+`
+
+type RunReservedCommentsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentRunID  uuid.UUID `json:"agent_run_id"`
+	Attempt     int32     `json:"attempt"`
+}
+
+type RunReservedCommentsRow struct {
+	ID             uuid.UUID  `json:"id"`
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	CardID         uuid.UUID  `json:"card_id"`
+	AuthorID       uuid.UUID  `json:"author_id"`
+	Body           string     `json:"body"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ReplyRunID     *uuid.UUID `json:"reply_run_id"`
+	SteerAttempt   *int32     `json:"steer_attempt"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at"`
+	Cancelled      bool       `json:"cancelled"`
+}
+
+func (q *Queries) RunReservedComments(ctx context.Context, arg RunReservedCommentsParams) ([]RunReservedCommentsRow, error) {
+	rows, err := q.db.Query(ctx, runReservedComments, arg.WorkspaceID, arg.AgentRunID, arg.Attempt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RunReservedCommentsRow
+	for rows.Next() {
+		var i RunReservedCommentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.AuthorID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.ReplyRunID,
+			&i.SteerAttempt,
+			&i.AcknowledgedAt,
+			&i.Cancelled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -830,8 +959,9 @@ func (q *Queries) SetCardTeam(ctx context.Context, arg SetCardTeamParams) error 
 
 const undeliveredComments = `-- name: UndeliveredComments :many
 SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at > $3 AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
+  AND NOT EXISTS (SELECT 1 FROM comment_reservation cr JOIN agent_run ar ON ar.id=cr.agent_run_id AND ar.workspace_id=cr.workspace_id WHERE cr.workspace_id=c.workspace_id AND cr.comment_id=c.id AND (cr.acknowledged_at IS NOT NULL OR ar.status IN ('queued','dispatched','running')))
   AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id = c.workspace_id AND r.card_id = c.card_id
-    AND r.kind = 'comment_delivery' AND r.body->>'comment_id' = c.id::text)
+    AND r.kind = 'comment_delivery' AND COALESCE(r.body->>'historical_unconfirmed','false') <> 'true' AND r.body->>'comment_id' = c.id::text)
 ORDER BY c.created_at, c.id
 `
 

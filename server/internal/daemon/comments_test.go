@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -86,5 +87,73 @@ func TestClaudeRunTakesAComment(t *testing.T) {
 	must(t, f.env.Owner.QueryRow(context.Background(), "SELECT body->>'how' FROM record WHERE card_id = $1 AND kind = 'comment_delivery'", f.card).Scan(&how))
 	if how != "running_turn" {
 		t.Fatalf("receipt says %q", how)
+	}
+}
+
+func TestPromptCommentsAcknowledgedOnlyAfterSuccessfulLaunch(t *testing.T) {
+	for _, scenario := range []string{"success", "launch_failure", "ack_retry"} {
+		t.Run(scenario, func(t *testing.T) {
+			failLaunch := scenario == "launch_failure"
+			f := fixture(t)
+			id := uuid.New()
+			_, err := f.env.Owner.Exec(t.Context(), `INSERT INTO comment(id,workspace_id,card_id,author_id,body) VALUES($1,$2,$3,$4,'Reserved input.')`, id, f.ws, f.card, f.user)
+			must(t, err)
+			_, err = f.env.Owner.Exec(t.Context(), `INSERT INTO comment_reservation(workspace_id,comment_id,agent_run_id,attempt) VALUES($1,$2,$3,1)`, f.ws, id, f.id)
+			must(t, err)
+			_, err = f.env.Owner.Exec(t.Context(), `UPDATE agent_run SET prompt='People: Reserved input.' WHERE id=$1`, f.id)
+			must(t, err)
+			receipts := func() int {
+				var n int
+				must(t, f.env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM record WHERE kind='comment_delivery' AND body->>'comment_id'=$1`, id.String()).Scan(&n))
+				return n
+			}
+			var launches atomic.Int32
+			f.cfg.NewBackend = func(string, string) (agent.Backend, error) {
+				return backendFunc(func(_ context.Context, p string, o agent.ExecOptions) (*agent.Session, error) {
+					launches.Add(1)
+					if !strings.Contains(p, "Reserved input.") {
+						t.Errorf("missing reserved prompt: %s", p)
+					}
+					if n := receipts(); n != 0 {
+						t.Errorf("receipt before Execute returned: %d", n)
+					}
+					if failLaunch {
+						return nil, errors.New("launch refused")
+					}
+					msgs := make(chan agent.Message)
+					close(msgs)
+					done := make(chan agent.Result, 1)
+					done <- agent.Result{Output: `{"done":true}`, SessionID: "s1"}
+					close(done)
+					return &agent.Session{Messages: msgs, Done: done}, nil
+				}), nil
+			}
+			var ackCalls atomic.Int32
+			if scenario == "ack_retry" {
+				previous := f.intercept.Load()
+				hook := func(w http.ResponseWriter, r *http.Request) bool {
+					if strings.HasSuffix(r.URL.Path, "/comments/ack") && ackCalls.Add(1) == 1 {
+						w.WriteHeader(503)
+						return true
+					}
+					return previous != nil && (*previous)(w, r)
+				}
+				f.intercept.Store(&hook)
+			}
+			cancel, done := startDaemon(t, f.cfg)
+			waitFor(t, func() bool { s := f.status(t); return s == "completed" || s == "failed" })
+			cancel()
+			<-done
+			if scenario == "ack_retry" && ackCalls.Load() != 2 {
+				t.Fatalf("ack calls: %d", ackCalls.Load())
+			}
+			want := 1
+			if failLaunch {
+				want = 0
+			}
+			if launches.Load() != 1 || receipts() != want {
+				t.Fatalf("launches=%d receipts=%d want=%d", launches.Load(), receipts(), want)
+			}
+		})
 	}
 }

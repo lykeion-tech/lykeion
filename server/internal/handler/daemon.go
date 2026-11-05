@@ -201,7 +201,8 @@ func (h *H) daemonClaim(w http.ResponseWriter, r *http.Request) {
 type agentRunCall struct {
 	service.RuntimeRef
 	service.Report
-	Messages []service.Message `json:"messages"`
+	Messages   []service.Message `json:"messages"`
+	CommentIDs []uuid.UUID       `json:"comment_ids"`
 }
 
 func (h *H) agentRunCall(w http.ResponseWriter, r *http.Request) (uuid.UUID, agentRunCall, bool) {
@@ -419,4 +420,28 @@ func hiddenServiceCredential(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(hiddenServiceResponse{w}, r)
 	})
+}
+
+func (h *H) daemonCommentLaunch(w http.ResponseWriter, r *http.Request) {
+	id, in, ok := h.agentRunCall(w, r)
+	if !ok {
+		return
+	}
+	out, err := h.AgentRuns.PrepareComments(r.Context(), user(r), in.RuntimeRef, id)
+	if err != nil {
+		agentRunFail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+func (h *H) daemonCommentAck(w http.ResponseWriter, r *http.Request) {
+	id, in, ok := h.agentRunCall(w, r)
+	if !ok {
+		return
+	}
+	if err := h.AgentRuns.AcknowledgeComments(r.Context(), user(r), in.RuntimeRef, id, in.CommentIDs); err != nil {
+		agentRunFail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
