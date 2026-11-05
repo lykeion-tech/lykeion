@@ -294,6 +294,7 @@ type Card struct {
 	StudyCli          *string         `json:"study_cli"`
 	AuditorCli        *string         `json:"auditor_cli"`
 	StartDate         *time.Time      `json:"start_date"`
+	Priority          string          `json:"priority"`
 }
 
 type CardTeam struct {
@@ -881,6 +882,8 @@ type Research struct {
 	Priority    string     `json:"priority"`
 	LeadType    *string    `json:"lead_type"`
 	LeadID      *uuid.UUID `json:"lead_id"`
+	StartDate   *time.Time `json:"start_date"`
+	DueDate     *time.Time `json:"due_date"`
 }
 
 type RunCommentSnapshot struct {
@@ -967,6 +970,7 @@ type StudyDraftRequest struct {
 	Deadline       *time.Time  `json:"deadline"`
 	CardID         *uuid.UUID  `json:"card_id"`
 	Completed      bool        `json:"completed"`
+	Priority       string      `json:"priority"`
 }
 
 type StudyReaction struct {

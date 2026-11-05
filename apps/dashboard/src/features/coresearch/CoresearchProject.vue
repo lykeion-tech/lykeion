@@ -133,6 +133,7 @@ async function openFile(file: FileRow) {
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
             <div class="task-stage-row">
               <button
+                v-if="paneMode === 'closed'"
                 type="button"
                 class="experiment-toggle"
                 aria-label="Open experiment surfaces"
@@ -312,6 +313,10 @@ async function openFile(file: FileRow) {
 .experiment-surface-layout :deep(.compute-panel),
 .experiment-surface-layout :deep(.artifact-pane) {
   background: var(--surface);
+}
+.coresearch .task-main[data-column='conversation'] .task-stage-row {
+  max-width: none;
+  padding-inline: 12px;
 }
 .experiment-toggle {
   margin-left: auto;

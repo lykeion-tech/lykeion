@@ -23,7 +23,7 @@ func TestCreateStudyDraftQueuesOneShotAgent(t *testing.T) {
 	var result struct {
 		RunID string `json:"run_id"`
 	}
-	input := map[string]any{"agent_id": agent, "prompt": "Study the evidence for sleep and memory", "research_id": project.ID, "start_date": "2026-11-03T00:00:00Z", "deadline": "2026-11-05T23:59:59Z"}
+	input := map[string]any{"agent_id": agent, "prompt": "Study the evidence for sleep and memory", "research_id": project.ID, "start_date": "2026-11-03T00:00:00Z", "deadline": "2026-11-05T23:59:59Z", "priority": "high"}
 	if code := s.call(t, "POST", "/api/study-drafts", token, ws.ID, input, &result); code != 202 || result.RunID == "" {
 		t.Fatalf("draft: %d %+v", code, result)
 	}
@@ -33,6 +33,9 @@ func TestCreateStudyDraftQueuesOneShotAgent(t *testing.T) {
 	}
 	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE workspace_id=$1 AND research_id=$2`, ws.ID, project.ID); n != 1 {
 		t.Fatalf("draft request count: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE workspace_id=$1 AND research_id=$2 AND priority='high'`, ws.ID, project.ID); n != 1 {
+		t.Fatalf("priority not saved: %d", n)
 	}
 	if n := s.count(t, `SELECT count(*) FROM agent_run WHERE workspace_id=$1 AND kind='autoresearch' AND status='queued'`, ws.ID); n != 1 {
 		t.Fatalf("queued agent runs: %d", n)

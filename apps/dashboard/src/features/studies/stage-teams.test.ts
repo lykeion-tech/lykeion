@@ -495,7 +495,7 @@ describe('AssignPicker', () => {
       await p.click(/^SSolo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
       expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
-      expect(p.button(/Stages/)?.props.disabled).toBe(false);
+      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
     } finally {
       p.unmount();
     }
@@ -504,7 +504,27 @@ describe('AssignPicker', () => {
   it('shows the Stages pill when nothing is picked', async () => {
     const p = await mountPicker();
     try {
-      expect(p.button(/Stages/)).toBeTruthy();
+      expect(p.button(/Grounding → Validation/)).toBeTruthy();
+    } finally {
+      p.unmount();
+    }
+  });
+
+  it('selects a continuous range of stages from the stage menu', async () => {
+    const p = await mountPicker();
+    try {
+      await p.click(/Grounding → Validation/);
+      expect(
+        p
+          .nodes()
+          .filter((n) => n.props.role === 'menuitemcheckbox' && n.props['aria-checked'] === true),
+      ).toHaveLength(4);
+      await p.click(/^Validation$/);
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'experimentation' });
+      await p.click(/^Grounding$/);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'experimentation' });
+      await p.click(/^Validation$/);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'validation' });
     } finally {
       p.unmount();
     }
@@ -1310,13 +1330,15 @@ describe('the one-row New study window', () => {
       const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
       expect(row).toBeTruthy();
       const text = textOf(row!);
-      const order = ['Assignees', 'Stages', 'Start date', 'Due date', 'No project'];
+      const order = ['No priority', 'Assignees', 'Grounding → Validation', 'No project'];
       const at = order.map((label) => text.indexOf(label));
       expect(
         at.every((i) => i >= 0),
         text,
       ).toBe(true);
       expect([...at].sort((a, b) => a - b)).toEqual(at);
+      const controls = all(row!).filter((n) => n.tag === 'button');
+      expect(controls.at(-1)?.props['aria-label']).toBe('More study properties');
       for (const gone of ['Study variables', 'Follows from', 'Reporting', 'Pre-registered'])
         expect(t.text()).not.toContain(gone);
     } finally {
@@ -1363,6 +1385,22 @@ describe('the one-row New study window', () => {
       expect(body.study_cli).toBeUndefined();
       expect(body.auditor_cli).toBeUndefined();
       expect(body.machine).toBeUndefined();
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('sends the chosen planning priority when creating a study', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
+    try {
+      await t.click(/No priority/);
+      await t.click(/^High$/);
+      await t.fill('Describe your study', 'Priority study');
+      await t.submit();
+      const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
+      expect(JSON.parse(String(posted![1]?.body)).priority).toBe('high');
     } finally {
       t.unmount();
     }

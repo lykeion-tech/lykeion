@@ -112,6 +112,7 @@ export interface Card {
   owner_id: string;
   deadline: string | null;
   start_date?: string | null;
+  priority?: 'none' | 'urgent' | 'high' | 'medium' | 'low';
   spent_usd: number;
   board_column: Column;
   legacy_column?: Column | '';
@@ -418,6 +419,8 @@ export interface Research {
   description: string;
   status: 'planned' | 'in_progress' | 'paused' | 'completed' | 'cancelled';
   priority: 'none' | 'urgent' | 'high' | 'medium' | 'low';
+  start_date?: string | null;
+  due_date?: string | null;
   lead_type: 'member' | 'agent' | null;
   lead_id: string | null;
   created_by: string;

@@ -34,12 +34,21 @@ type newCard struct {
 	Question   string      `json:"question"`
 	Deadline   *time.Time  `json:"deadline"`
 	StartDate  *time.Time  `json:"start_date"`
+	Priority   string      `json:"priority"`
 	Assignee   *assigneeIn `json:"assignee"`
 	Scope      *scopeIn    `json:"scope"`
 	// AttachmentIDs are the caller's pending uploads the study takes as its files.
 	AttachmentIDs []uuid.UUID  `json:"attachment_ids"`
 	Services      []newService `json:"services"`
 	Workflow      *string      `json:"workflow"`
+}
+
+func validPlanningPriority(priority string) bool {
+	switch priority {
+	case "", "none", "urgent", "high", "medium", "low":
+		return true
+	}
+	return false
 }
 
 func checkWorkflow(in newCard, from, to string, agent *uuid.UUID) error {
@@ -374,6 +383,10 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "question required")
 		return
 	}
+	if !validPlanningPriority(in.Priority) {
+		writeErr(w, 400, "invalid priority")
+		return
+	}
 	if in.StartDate != nil && in.Deadline != nil && in.StartDate.After(*in.Deadline) {
 		writeErr(w, 400, "start date must be on or before the due date")
 		return
@@ -484,6 +497,12 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		card, err := tx.Q.CreateCard(r.Context(), params)
 		if err != nil {
 			return err
+		}
+		if in.Priority != "" && in.Priority != "none" {
+			if err := tx.SetStudyPriority(r.Context(), card.ID, in.Priority); err != nil {
+				return err
+			}
+			card.Priority = in.Priority
 		}
 		if in.StartDate != nil {
 			if err := tx.SetStudyStartDate(r.Context(), card.ID, in.StartDate); err != nil {

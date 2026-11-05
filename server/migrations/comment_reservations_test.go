@@ -61,11 +61,11 @@ func TestQueuedLegacyCommentReceiptBecomesReservation(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			env := testutil.Setup(t)
 			ctx := t.Context()
-			down, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.down.sql")
+			down, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.down.sql")
 			if err != nil {
 				t.Fatal(err)
 			}
-			up, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.up.sql")
+			up, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.up.sql")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -7,13 +7,14 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const clearDepartedMemberAssignees = `-- name: ClearDepartedMemberAssignees :many
 UPDATE card SET assignee_type = NULL, assignee_id = NULL, version = version + 1
-WHERE workspace_id = $1 AND assignee_type = 'member' AND assignee_id = $2 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date
+WHERE workspace_id = $1 AND assignee_type = 'member' AND assignee_id = $2 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date, priority
 `
 
 type ClearDepartedMemberAssigneesParams struct {
@@ -68,6 +69,7 @@ func (q *Queries) ClearDepartedMemberAssignees(ctx context.Context, arg ClearDep
 			&i.StudyCli,
 			&i.AuditorCli,
 			&i.StartDate,
+			&i.Priority,
 		); err != nil {
 			return nil, err
 		}
@@ -81,7 +83,7 @@ func (q *Queries) ClearDepartedMemberAssignees(ctx context.Context, arg ClearDep
 
 const clearDepartedMemberProjectLeads = `-- name: ClearDepartedMemberProjectLeads :many
 UPDATE research SET lead_type = NULL, lead_id = NULL, updated_at = now()
-WHERE workspace_id = $1 AND lead_type = 'member' AND lead_id = $2 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
+WHERE workspace_id = $1 AND lead_type = 'member' AND lead_id = $2 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date
 `
 
 type ClearDepartedMemberProjectLeadsParams struct {
@@ -110,6 +112,8 @@ func (q *Queries) ClearDepartedMemberProjectLeads(ctx context.Context, arg Clear
 			&i.Priority,
 			&i.LeadType,
 			&i.LeadID,
+			&i.StartDate,
+			&i.DueDate,
 		); err != nil {
 			return nil, err
 		}
@@ -122,7 +126,7 @@ func (q *Queries) ClearDepartedMemberProjectLeads(ctx context.Context, arg Clear
 }
 
 const createResearch = `-- name: CreateResearch :one
-INSERT INTO research (workspace_id, name, description, created_by, status, priority, lead_type, lead_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
+INSERT INTO research (workspace_id, name, description, created_by, status, priority, lead_type, lead_id, start_date, due_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date
 `
 
 type CreateResearchParams struct {
@@ -134,6 +138,8 @@ type CreateResearchParams struct {
 	Priority    string     `json:"priority"`
 	LeadType    *string    `json:"lead_type"`
 	LeadID      *uuid.UUID `json:"lead_id"`
+	StartDate   *time.Time `json:"start_date"`
+	DueDate     *time.Time `json:"due_date"`
 }
 
 func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) (Research, error) {
@@ -146,6 +152,8 @@ func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) 
 		arg.Priority,
 		arg.LeadType,
 		arg.LeadID,
+		arg.StartDate,
+		arg.DueDate,
 	)
 	var i Research
 	err := row.Scan(
@@ -160,6 +168,8 @@ func (q *Queries) CreateResearch(ctx context.Context, arg CreateResearchParams) 
 		&i.Priority,
 		&i.LeadType,
 		&i.LeadID,
+		&i.StartDate,
+		&i.DueDate,
 	)
 	return i, err
 }
@@ -184,7 +194,7 @@ func (q *Queries) DeleteResearch(ctx context.Context, arg DeleteResearchParams) 
 const detachResearchStudies = `-- name: DetachResearchStudies :many
 UPDATE card SET research_id = NULL, version = version + 1
 WHERE workspace_id = $1 AND research_id = $2
-RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date
+RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date, priority
 `
 
 type DetachResearchStudiesParams struct {
@@ -239,6 +249,7 @@ func (q *Queries) DetachResearchStudies(ctx context.Context, arg DetachResearchS
 			&i.StudyCli,
 			&i.AuditorCli,
 			&i.StartDate,
+			&i.Priority,
 		); err != nil {
 			return nil, err
 		}
@@ -251,7 +262,7 @@ func (q *Queries) DetachResearchStudies(ctx context.Context, arg DetachResearchS
 }
 
 const getResearch = `-- name: GetResearch :one
-SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 AND id = $2
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date FROM research WHERE workspace_id = $1 AND id = $2
 `
 
 type GetResearchParams struct {
@@ -274,12 +285,14 @@ func (q *Queries) GetResearch(ctx context.Context, arg GetResearchParams) (Resea
 		&i.Priority,
 		&i.LeadType,
 		&i.LeadID,
+		&i.StartDate,
+		&i.DueDate,
 	)
 	return i, err
 }
 
 const listResearches = `-- name: ListResearches :many
-SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 ORDER BY created_at, id
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date FROM research WHERE workspace_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]Research, error) {
@@ -303,6 +316,8 @@ func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]
 			&i.Priority,
 			&i.LeadType,
 			&i.LeadID,
+			&i.StartDate,
+			&i.DueDate,
 		); err != nil {
 			return nil, err
 		}
@@ -315,7 +330,7 @@ func (q *Queries) ListResearches(ctx context.Context, workspaceID uuid.UUID) ([]
 }
 
 const lockResearchForDelete = `-- name: LockResearchForDelete :one
-SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id FROM research WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+SELECT id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date FROM research WHERE workspace_id = $1 AND id = $2 FOR UPDATE
 `
 
 type LockResearchForDeleteParams struct {
@@ -338,12 +353,14 @@ func (q *Queries) LockResearchForDelete(ctx context.Context, arg LockResearchFor
 		&i.Priority,
 		&i.LeadType,
 		&i.LeadID,
+		&i.StartDate,
+		&i.DueDate,
 	)
 	return i, err
 }
 
 const researchStudies = `-- name: ResearchStudies :many
-SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date FROM card WHERE workspace_id = $1 AND research_id = $2 ORDER BY number
+SELECT id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date, priority FROM card WHERE workspace_id = $1 AND research_id = $2 ORDER BY number
 `
 
 type ResearchStudiesParams struct {
@@ -398,6 +415,7 @@ func (q *Queries) ResearchStudies(ctx context.Context, arg ResearchStudiesParams
 			&i.StudyCli,
 			&i.AuditorCli,
 			&i.StartDate,
+			&i.Priority,
 		); err != nil {
 			return nil, err
 		}
@@ -411,7 +429,7 @@ func (q *Queries) ResearchStudies(ctx context.Context, arg ResearchStudiesParams
 
 const updateCardProperties = `-- name: UpdateCardProperties :one
 UPDATE card SET research_id = $1, version = version + 1
-WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date
+WHERE workspace_id = $2 AND id = $3 RETURNING id, workspace_id, number, title, question, owner_id, deadline, spent_usd, board_column, state, flag, ending, end_reason, rounds, version, created_at, round, handoff_note, gating_until, position, research_id, assignee_type, assignee_id, origin, pack_id, block_kind, scope_from, scope_to, redos, machine, workflow, workflow_release, grounding_criteria, legacy_column, study_cli, auditor_cli, start_date, priority
 `
 
 type UpdateCardPropertiesParams struct {
@@ -461,12 +479,13 @@ func (q *Queries) UpdateCardProperties(ctx context.Context, arg UpdateCardProper
 		&i.StudyCli,
 		&i.AuditorCli,
 		&i.StartDate,
+		&i.Priority,
 	)
 	return i, err
 }
 
 const updateResearch = `-- name: UpdateResearch :one
-UPDATE research SET name = $1, description = $2, status = $3, priority = $4, lead_type = $5, lead_id = $6, updated_at = now() WHERE workspace_id = $7 AND id = $8 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id
+UPDATE research SET name = $1, description = $2, status = $3, priority = $4, lead_type = $5, lead_id = $6, start_date = $7, due_date = $8, updated_at = now() WHERE workspace_id = $9 AND id = $10 RETURNING id, workspace_id, name, description, created_by, created_at, updated_at, status, priority, lead_type, lead_id, start_date, due_date
 `
 
 type UpdateResearchParams struct {
@@ -476,6 +495,8 @@ type UpdateResearchParams struct {
 	Priority    string     `json:"priority"`
 	LeadType    *string    `json:"lead_type"`
 	LeadID      *uuid.UUID `json:"lead_id"`
+	StartDate   *time.Time `json:"start_date"`
+	DueDate     *time.Time `json:"due_date"`
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
 	ID          uuid.UUID  `json:"id"`
 }
@@ -488,6 +509,8 @@ func (q *Queries) UpdateResearch(ctx context.Context, arg UpdateResearchParams) 
 		arg.Priority,
 		arg.LeadType,
 		arg.LeadID,
+		arg.StartDate,
+		arg.DueDate,
 		arg.WorkspaceID,
 		arg.ID,
 	)
@@ -504,6 +527,8 @@ func (q *Queries) UpdateResearch(ctx context.Context, arg UpdateResearchParams) 
 		&i.Priority,
 		&i.LeadType,
 		&i.LeadID,
+		&i.StartDate,
+		&i.DueDate,
 	)
 	return i, err
 }

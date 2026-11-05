@@ -604,16 +604,16 @@ func (l *teamLab) legacyPromptComment(t *testing.T, body string) string {
 	return id
 }
 
-// Recreate the pre-0062 enqueue receipt state, then apply the actual migration.
+// Recreate the pre-0063 enqueue receipt state, then apply the actual migration.
 // Historical inputs are seeded without asynchronous scheduling above; bound
 // DDL lock waits as a guard against accidentally introducing concurrent work.
 func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...string) {
 	t.Helper()
-	down, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.down.sql")
+	down, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.down.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	up, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.up.sql")
+	up, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -90,7 +90,7 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
   const app = createTreeApp({
     render: () =>
       onlyAnswer
-        ? h(LabAnswer, { message: answer, evidence: true })
+        ? h(LabAnswer, { message: (extra.answer as typeof answer | undefined) ?? answer, evidence: true })
         : h(AristotleWindow, { userId: 'me', studyId: 's', studyTitle: 'Lab study', submitManualQuestion, ...extra }),
   });
   app.use(VueQueryPlugin, { queryClient: client });
@@ -169,6 +169,23 @@ it('renders marked statements, links, evidence paths and flags a lesson', async 
   await t.click('Flag lesson');
   await t.click('Submit flag');
   expect(t.calls.find((c) => c.path === '/api/lessons/l/flag')?.body).toEqual({ reason: '' });
+});
+
+it('shows navigable study evidence instead of internal tool calls', async () => {
+  const t = await mount(true, false, undefined, { answer: {
+    ...answer,
+    evidence: [
+      { ref: 'record:r', title: 'fetch', study_id: 's' },
+      { ref: 'study:s', title: 'Lab study', study_id: 's' },
+      { ref: 'record:r2', title: 'search', study_id: 's' },
+      { ref: 'unknown:x', title: 'call' },
+    ],
+  } });
+  const evidence = all(t.root).find((n) => n.tag === 'section' && n.props.class === 'evidence')!;
+  expect(textOf(evidence)).toContain('Lab study');
+  expect(textOf(evidence)).not.toMatch(/fetch|search|call/);
+  const links = all(evidence).filter((n) => n.props.href === '/studies/s');
+  expect(links).toHaveLength(1);
 });
 
 it('follows cursors for older chats and messages and replaces revoked answers on refresh', async () => {

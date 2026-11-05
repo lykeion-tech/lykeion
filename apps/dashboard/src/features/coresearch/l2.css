@@ -6522,7 +6522,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 0;
   height: 32px;
   padding: 0 10px;
   flex-shrink: 0;
@@ -6566,6 +6566,44 @@
   gap: 0;
   padding: 0;
   flex-shrink: 0;
+}
+.coresearch .tsb-members {
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+.coresearch .tsb-members-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink-muted);
+  font-size: var(--type-meta);
+}
+.coresearch .tsb-members-title {
+  color: var(--ink);
+}
+.coresearch .tsb-members-header button {
+  border: 0;
+  padding: 2px 0 2px 8px;
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.coresearch .tsb-members-header button:hover {
+  color: var(--ink);
+}
+.coresearch .tsb-member-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--ink);
+  font-size: var(--type-body);
+}
+.coresearch .tsb-member-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.6;
 }
 .coresearch.tsb-switch,
 .coresearch .tsb-switch {
@@ -9201,12 +9239,25 @@
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
+.coresearch.cm-settle-undo,
+.coresearch .cm-settle-undo {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.coresearch.cm-settle-keep,
+.coresearch .cm-settle-keep {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, var(--surface-1));
+  color: color-mix(in srgb, var(--success) 65%, var(--ink));
+}
 .coresearch.cm-settle-undo:hover,
-.coresearch .cm-settle-undo:hover,
+.coresearch .cm-settle-undo:hover {
+  background: color-mix(in srgb, var(--danger) 25%, var(--surface-1));
+}
 .coresearch.cm-settle-keep:hover,
 .coresearch .cm-settle-keep:hover {
-  background: var(--surface-2);
-  color: var(--ink);
+  background: color-mix(in srgb, var(--success) 25%, var(--surface-1));
 }
 .coresearch.cm-oldnew-gutter,
 .coresearch .cm-oldnew-gutter {

@@ -77,6 +77,16 @@ it('renders only Compute before Files and Chats, and the Add a file menu', async
   expect(textOf(root)).toContain('Upload');
   expect(textOf(root)).not.toContain("Research's Files");
 });
+it('shows project members without making the heading a button', () => {
+  const root = mount(CowriteSidebar, {
+    name: 'Paper', chats: [], owner: true,
+    members: [{ id: '1', name: 'Ada Lovelace' }, { id: '2', name: 'Grace Hopper' }],
+  });
+  expect(textOf(root)).toContain('Ada Lovelace');
+  expect(textOf(root)).toContain('Grace Hopper');
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Members')).toBe(false);
+  expect(all(root).some((n) => n.tag === 'button' && n.props['aria-label'] === 'Manage members')).toBe(true);
+});
 it('offers Comment but no AI action to a member who does not own this chat', () => {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   const root = mount(SelectionToolbar, {

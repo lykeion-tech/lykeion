@@ -704,6 +704,7 @@ async function build() {
         :chat-titles="chatTitles"
         :chat-times="chatTimes"
         :owner="project.role === 'owner'"
+        :members="people"
         @search="editor?.search()"
         @new-chat="newChat"
         @new-file="namingNew = true"

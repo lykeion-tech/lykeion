@@ -5,6 +5,7 @@ import DecisionBadge from './DecisionBadge.vue';
 import DecisionRail from './DecisionRail.vue';
 import { decisionFilters } from './decisionFilters';
 import DecisionOptions from './DecisionOptions.vue';
+import DecisionMeta from './DecisionMeta.vue';
 import DecisionsView from './DecisionsView.vue';
 import { invalidationsFor } from '../../api/realtime';
 import { keys } from '../../api/keys';
@@ -97,15 +98,17 @@ const buttonFor = (root: ReturnType<typeof node>, label: string) =>
 const click = async (n: ReturnType<typeof node> | undefined) =>
   await (n!.props.onClick as () => Promise<void>)();
 
-it('shows each option with its consequence, the raiser and the expiry', () => {
+it('shows each option with its consequence and combines decision metadata', () => {
   const text = textOf(mount(DecisionOptions, { item: item() }));
   expect(text).toContain('Redo with guidance');
   expect(text).toContain('The column runs again.');
   expect(text).toContain('Park');
-  expect(text).toContain('Agent (Lead)');
-  expect(text).toContain('Scope');
-  expect(text).not.toContain('scope');
-  expect(text).toContain('Expires in 3d');
+  const meta = textOf(mount(DecisionMeta, { item: item() }));
+  expect(meta).toContain('Agent (Lead)');
+  expect(meta).toContain('Scope');
+  expect(meta).not.toContain('scope');
+  expect(meta).toContain('Expires in 3d');
+  expect(meta).toContain('If no one answers, the default is Park.');
 });
 
 it('stages a choice and submits it only after explicit confirmation', async () => {
@@ -207,10 +210,10 @@ it('renders the rail for machine_offline and for a kind it does not know', () =>
 
 it('names the item kind on a decision instead of showing its id', () => {
   const text = (over: Partial<DecisionItem>) =>
-    textOf(mount(DecisionOptions, { item: item({ decision_kind: '', ...over }) }));
+    textOf(mount(DecisionMeta, { item: item({ decision_kind: '', ...over }) }));
   expect(text({ kind: 'waiting_for_machine' })).toContain('Waiting for machine');
   expect(text({ kind: 'waiting_for_machine' })).not.toContain('waiting_for_machine');
-  expect(text({ kind: 'needs_decision' })).toContain('Needs a decision');
+  expect(text({ kind: 'needs_decision' })).not.toContain('Needs a decision');
   expect(text({ kind: 'needs_decision' })).not.toContain('needs_decision');
   expect(text({ kind: 'brand_new' as DecisionItem['kind'] })).not.toContain('brand_new');
 });

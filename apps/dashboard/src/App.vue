@@ -1044,7 +1044,7 @@ onUnmounted(() => {
   background: var(--sidebar);
 }
 .application .cowrite-context-rail .task-sidebar {
-  padding-top: 2px;
+  padding-top: 0;
 }
 .application .sidebar.cowrite-context-rail .task-sidebar :is(div, button, span, p, strong, small) {
   color: #666a6d;

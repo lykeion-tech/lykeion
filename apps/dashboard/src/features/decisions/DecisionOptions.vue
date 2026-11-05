@@ -6,7 +6,7 @@ import QuestionSetOptions from './QuestionSetOptions.vue';
 import { keys } from '../../api/keys';
 import { useMembers } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
-import { decisionKindLabel, decisionKindOf, decisionOutcome, decisionRaiser, timeAgo } from '../../lib/studies';
+import { decisionOutcome, timeAgo } from '../../lib/studies';
 
 const props = defineProps<{ item: DecisionItem }>();
 const client = useQueryClient();
@@ -25,14 +25,6 @@ const decider = computed(() => {
 const answerable = computed(() => props.item.can_answer && props.item.status === 'open' && options.value.length > 0);
 const systemRedo = computed(() => props.item.kind !== 'agent_decision' && selected.value === 'redo');
 const canSubmit = computed(() => answerable.value && !!selected.value && !busy.value && (!systemRedo.value || !!guidance.value.trim()));
-const expires = computed(() => {
-  const at = props.item.expires_at;
-  if (!at) return '';
-  const ms = Date.parse(at) - Date.now();
-  if (ms <= 0) return 'Expires now';
-  const hours = Math.ceil(ms / 3_600_000);
-  return `Expires in ${hours < 48 ? `${hours}h` : `${Math.ceil(hours / 24)}d`}`;
-});
 function choose(option: string) {
   if (!answerable.value || busy.value) return;
   selected.value = option;
@@ -60,10 +52,6 @@ async function submit() {
 </script>
 <template>
   <div class="decision-options type-body">
-    <p class="decision-meta type-caption">
-      {{ decisionRaiser(item) }} · {{ decisionKindLabel[item.decision_kind] ?? decisionKindOf(item.kind).label }}
-      <template v-if="expires && item.status === 'open'"> · {{ expires }}</template>
-    </p>
     <template v-if="item.question_set?.questions?.length">
       <QuestionSetOptions :item="item" />
       <p v-if="item.status !== 'open'" class="decision-outcome">
@@ -72,7 +60,6 @@ async function submit() {
     </template>
     <template v-else-if="item.status === 'open'">
       <p v-if="!item.can_answer" class="permission-note">Only the study owner or a workspace owner or admin can answer this decision.</p>
-      <p v-if="item.default_option && expires" class="default-note">If no one answers, the default is {{ options.find((o) => o.id === item.default_option)?.label ?? item.default_option }}.</p>
       <div class="decision-buttons" role="group" aria-label="Decision options">
         <button v-for="option in options" :key="option.id" type="button" class="choice"
           :class="{ selected: selected === option.id }" :disabled="!answerable || busy"
@@ -93,8 +80,7 @@ async function submit() {
 </template>
 <style scoped>
 .decision-options { display:flex; flex-direction:column; gap:12px; }
-.decision-meta, .permission-note, .default-note { color:var(--muted); }
-.permission-note, .default-note { font-size:12px; line-height:1.5; }
+.permission-note { color:var(--muted); font-size:12px; line-height:1.5; }
 .decision-buttons { display:flex; flex-direction:column; gap:8px; }
 .choice { display:flex; flex-direction:column; align-items:flex-start; gap:5px; width:100%; padding:13px 16px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); text-align:left; cursor:pointer; }
 .choice small { color:var(--muted); font-size:12px; line-height:1.5; font-weight:400; }

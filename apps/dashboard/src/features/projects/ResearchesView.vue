@@ -21,6 +21,7 @@ import Modal from '../../ui/Modal.vue';
 import ProjectDetail from './ProjectDetail.vue';
 import { timeAgo } from '../../lib/studies';
 import Icon from '../../ui/Icon.vue';
+import ComposerCalendar from '../studies/ComposerCalendar.vue';
 const props = defineProps<{ id?: string }>();
 const list = useResearches(),
   detail = useResearch(() => props.id ?? '');
@@ -63,8 +64,10 @@ const status = ref<Research['status']>('planned'),
   priority = ref<Research['priority']>('none'),
   leadType = ref<Research['lead_type']>(null),
   leadId = ref<string | null>(null),
-  picker = ref<'status' | 'priority' | 'lead' | null>(null),
+  picker = ref<'status' | 'priority' | 'lead' | 'dates' | 'start' | 'due' | null>(null),
   leadFilter = ref('');
+const startDate = ref(''),
+  dueDate = ref('');
 const statusLabel = computed(() => statuses.find((s) => s.value === status.value)!.label);
 const priorityOption = computed(() => priorities.find((p) => p.value === priority.value)!);
 const leadLabel = computed(() =>
@@ -88,6 +91,13 @@ const filteredAgents = computed(() =>
   ),
 );
 let pickerTrigger: HTMLButtonElement | null = null;
+let switchingCalendar = false;
+async function openCalendar(kind: 'start' | 'due') {
+  switchingCalendar = true;
+  picker.value = kind;
+  await nextTick();
+  switchingCalendar = false;
+}
 async function togglePicker(value: NonNullable<typeof picker.value>, event: MouseEvent) {
   if (picker.value === value) return closePicker();
   pickerTrigger = event.currentTarget as HTMLButtonElement;
@@ -133,6 +143,7 @@ function pickerKey(event: KeyboardEvent) {
   }
 }
 function leavePicker(event: FocusEvent) {
+  if (switchingCalendar) return;
   if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null))
     picker.value = null;
 }
@@ -140,8 +151,36 @@ function outsidePicker(event: PointerEvent) {
   if (picker.value && !(event.target as HTMLElement).closest('.project-picker'))
     picker.value = null;
 }
-onMounted(() => document.addEventListener('pointerdown', outsidePicker));
-onUnmounted(() => document.removeEventListener('pointerdown', outsidePicker));
+function fitProjectPopup(anchor: HTMLElement) {
+  const popup = anchor.querySelector<HTMLElement>('.project-picker-menu, .composer-calendar');
+  if (!popup) return;
+  const bounds = anchor.getBoundingClientRect();
+  popup.style.boxSizing = 'border-box';
+  popup.style.maxHeight = `${Math.max(0, window.innerHeight - bounds.bottom - 16)}px`;
+  popup.style.maxWidth = `${Math.max(0, window.innerWidth - 16)}px`;
+  popup.style.overflowY = 'auto';
+  popup.style.left = '0px';
+  popup.style.right = 'auto';
+  const right = popup.getBoundingClientRect().right;
+  if (right > window.innerWidth - 8) popup.style.left = `${window.innerWidth - 8 - right}px`;
+}
+async function fitProjectMenu(event: MouseEvent) {
+  const anchor = (event.target as HTMLElement).closest<HTMLElement>('.project-picker');
+  if (!anchor) return;
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  fitProjectPopup(anchor);
+}
+function fitOpenProjectMenus() {
+  document.querySelectorAll<HTMLElement>('.project-properties .project-picker').forEach(fitProjectPopup);
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', outsidePicker);
+  if (typeof window !== 'undefined') window.addEventListener('resize', fitOpenProjectMenus);
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsidePicker);
+  if (typeof window !== 'undefined') window.removeEventListener('resize', fitOpenProjectMenus);
+});
 const expanded = ref(false);
 const deleting = ref<Research | null>(null);
 const deleteBusy = ref(false);
@@ -178,6 +217,8 @@ function edit() {
   priority.value = detail.data.value?.priority ?? 'none';
   leadType.value = detail.data.value?.lead_type ?? null;
   leadId.value = detail.data.value?.lead_id ?? null;
+  startDate.value = detail.data.value?.start_date?.slice(0, 10) ?? '';
+  dueDate.value = detail.data.value?.due_date?.slice(0, 10) ?? '';
   picker.value = null;
   error.value = '';
   expanded.value = false;
@@ -211,6 +252,10 @@ async function deleteProject() {
   }
 }
 async function save() {
+  if (startDate.value && dueDate.value && startDate.value > dueDate.value) {
+    error.value = 'Start date must be on or before the due date.';
+    return;
+  }
   const ws = workspaceId.value,
     id = props.id,
     v = visit;
@@ -227,6 +272,8 @@ async function save() {
         priority: priority.value,
         lead_type: leadType.value,
         lead_id: leadId.value,
+        start_date: startDate.value ? `${startDate.value}T00:00:00Z` : null,
+        due_date: dueDate.value ? `${dueDate.value}T00:00:00Z` : null,
       },
     );
     if (v !== visit || ws !== workspaceId.value) return;
@@ -413,171 +460,211 @@ async function save() {
           />
         </div>
         <p v-if="error" class="inline-error project-error" role="alert">{{ error }}</p>
-        <footer class="project-create-footer">
-          <div class="project-properties" aria-label="Project properties">
-            <div class="project-picker" @focusout="leavePicker">
+        <div class="project-properties" aria-label="Project properties" @click.capture="fitProjectMenu">
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'status'"
+              @click="togglePicker('status', $event)"
+            >
+              <span class="project-status-dot" :class="status" aria-hidden="true" />{{
+                statusLabel
+              }}
+            </button>
+            <div
+              v-if="picker === 'status'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project status"
+            >
               <button
+                v-for="option in statuses"
+                :key="option.value"
                 type="button"
-                class="project-property"
-                aria-haspopup="menu"
-                :aria-expanded="picker === 'status'"
-                @click="togglePicker('status', $event)"
+                role="menuitemradio"
+                :aria-checked="status === option.value"
+                @click="
+                  status = option.value;
+                  closePicker();
+                "
               >
-                <span class="project-status-dot" :class="status" aria-hidden="true" />{{
-                  statusLabel
+                <span class="project-status-dot" :class="option.value" aria-hidden="true" />{{
+                  option.label
                 }}
               </button>
-              <div
-                v-if="picker === 'status'"
-                class="project-picker-menu"
-                role="menu"
-                aria-label="Project status"
-              >
-                <button
-                  v-for="option in statuses"
-                  :key="option.value"
-                  type="button"
-                  role="menuitemradio"
-                  :aria-checked="status === option.value"
-                  @click="
-                    status = option.value;
-                    closePicker();
-                  "
-                >
-                  <span class="project-status-dot" :class="option.value" aria-hidden="true" />{{
-                    option.label
-                  }}
-                </button>
-              </div>
             </div>
-            <div class="project-picker" @focusout="leavePicker">
+          </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'priority'"
+              @click="togglePicker('priority', $event)"
+            >
+              <span class="project-priority-mark" :class="priority" aria-hidden="true"
+                ><template v-if="priorityOption.bars"
+                  ><i
+                    v-for="n in 4"
+                    :key="n"
+                    :class="{ filled: n <= priorityOption.bars }"
+                    :style="{ height: `${3 + n * 2}px` }" /></template
+                ><template v-else>—</template></span
+              >{{ priorityOption.label }}
+            </button>
+            <div
+              v-if="picker === 'priority'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project priority"
+            >
               <button
+                v-for="option in priorities"
+                :key="option.value"
                 type="button"
-                class="project-property"
-                aria-haspopup="menu"
-                :aria-expanded="picker === 'priority'"
-                @click="togglePicker('priority', $event)"
+                role="menuitemradio"
+                :aria-checked="priority === option.value"
+                @click="
+                  priority = option.value;
+                  closePicker();
+                "
               >
-                <span class="project-priority-mark" :class="priority" aria-hidden="true"
-                  ><template v-if="priorityOption.bars"
+                <span class="project-priority-mark" :class="option.value" aria-hidden="true"
+                  ><template v-if="option.bars"
                     ><i
                       v-for="n in 4"
                       :key="n"
-                      :class="{ filled: n <= priorityOption.bars }"
+                      :class="{ filled: n <= option.bars }"
                       :style="{ height: `${3 + n * 2}px` }" /></template
                   ><template v-else>—</template></span
-                >{{ priorityOption.label }}
+                >{{ option.label }}
               </button>
-              <div
-                v-if="picker === 'priority'"
-                class="project-picker-menu"
-                role="menu"
-                aria-label="Project priority"
-              >
+            </div>
+          </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property project-lead"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'lead'"
+              @click="togglePicker('lead', $event)"
+            >
+              <span>{{ leadLabel }}</span>
+            </button>
+            <div v-if="picker === 'lead'" class="project-picker-menu project-lead-menu">
+              <input
+                v-model="leadFilter"
+                aria-label="Search project leads"
+                placeholder="Search members and agents…"
+                @keydown.enter.prevent
+              />
+              <div role="menu" aria-label="Project lead" class="project-lead-options">
                 <button
-                  v-for="option in priorities"
-                  :key="option.value"
                   type="button"
                   role="menuitemradio"
-                  :aria-checked="priority === option.value"
-                  @click="
-                    priority = option.value;
-                    closePicker();
-                  "
+                  :aria-checked="!leadType"
+                  @click="selectLead(null, null)"
                 >
-                  <span class="project-priority-mark" :class="option.value" aria-hidden="true"
-                    ><template v-if="option.bars"
-                      ><i
-                        v-for="n in 4"
-                        :key="n"
-                        :class="{ filled: n <= option.bars }"
-                        :style="{ height: `${3 + n * 2}px` }" /></template
-                    ><template v-else>—</template></span
-                  >{{ option.label }}
+                  No lead
                 </button>
-              </div>
-            </div>
-            <div class="project-picker" @focusout="leavePicker">
-              <button
-                type="button"
-                class="project-property project-lead"
-                aria-haspopup="menu"
-                :aria-expanded="picker === 'lead'"
-                @click="togglePicker('lead', $event)"
-              >
-                <span>{{ leadLabel }}</span>
-              </button>
-              <div v-if="picker === 'lead'" class="project-picker-menu project-lead-menu">
-                <input
-                  v-model="leadFilter"
-                  aria-label="Search project leads"
-                  placeholder="Search members and agents…"
-                  @keydown.enter.prevent
-                />
-                <div role="menu" aria-label="Project lead" class="project-lead-options">
+                <p v-if="filteredMembers.length" class="project-picker-label">Members</p>
+                <button
+                  v-for="member in filteredMembers"
+                  :key="member.user_id"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="leadType === 'member' && leadId === member.user_id"
+                  @click="selectLead('member', member.user_id)"
+                >
+                  {{ member.name }}
+                </button>
+                <p v-if="filteredAgents.length" class="project-picker-label">Agents</p>
+                <button
+                  v-for="agent in filteredAgents"
+                  :key="agent.id"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="leadType === 'agent' && leadId === agent.id"
+                  @click="selectLead('agent', agent.id)"
+                >
+                  {{ agentDisplayName(agent.name) }}
+                </button>
+                <p
+                  v-if="members.isPending.value || agents.isPending.value"
+                  role="status"
+                  class="project-picker-label"
+                >
+                  Loading leads…
+                </p>
+                <p
+                  v-if="members.error.value || agents.error.value"
+                  role="alert"
+                  class="project-picker-label"
+                >
+                  Could not load all leads.
                   <button
                     type="button"
-                    role="menuitemradio"
-                    :aria-checked="!leadType"
-                    @click="selectLead(null, null)"
+                    @click="
+                      members.refetch();
+                      agents.refetch();
+                    "
                   >
-                    No lead
+                    Retry
                   </button>
-                  <p v-if="filteredMembers.length" class="project-picker-label">Members</p>
-                  <button
-                    v-for="member in filteredMembers"
-                    :key="member.user_id"
-                    type="button"
-                    role="menuitemradio"
-                    :aria-checked="leadType === 'member' && leadId === member.user_id"
-                    @click="selectLead('member', member.user_id)"
-                  >
-                    {{ member.name }}
-                  </button>
-                  <p v-if="filteredAgents.length" class="project-picker-label">Agents</p>
-                  <button
-                    v-for="agent in filteredAgents"
-                    :key="agent.id"
-                    type="button"
-                    role="menuitemradio"
-                    :aria-checked="leadType === 'agent' && leadId === agent.id"
-                    @click="selectLead('agent', agent.id)"
-                  >
-                    {{ agentDisplayName(agent.name) }}
-                  </button>
-                  <p
-                    v-if="members.isPending.value || agents.isPending.value"
-                    role="status"
-                    class="project-picker-label"
-                  >
-                    Loading leads…
-                  </p>
-                  <p
-                    v-if="members.error.value || agents.error.value"
-                    role="alert"
-                    class="project-picker-label"
-                  >
-                    Could not load all leads.
-                    <button
-                      type="button"
-                      @click="
-                        members.refetch();
-                        agents.refetch();
-                      "
-                    >
-                      Retry
-                    </button>
-                  </p>
-                  <p
-                    v-if="leadFilter && !filteredMembers.length && !filteredAgents.length"
-                    class="project-picker-label"
-                  >
-                    No results
-                  </p>
-                </div>
+                </p>
+                <p
+                  v-if="leadFilter && !filteredMembers.length && !filteredAgents.length"
+                  class="project-picker-label"
+                >
+                  No results
+                </p>
               </div>
             </div>
           </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-label="More project properties"
+              :aria-expanded="['dates', 'start', 'due'].includes(picker ?? '')"
+              @click="togglePicker('dates', $event)"
+            >
+              <Icon name="more" :size="16" />
+            </button>
+            <div
+              v-if="picker === 'dates'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project dates"
+            >
+              <button type="button" role="menuitem" @click="openCalendar('start')">
+                <Icon name="calendar" :size="14" />{{
+                  startDate ? `Start date: ${startDate}` : 'Set start date…'
+                }}
+              </button>
+              <button type="button" role="menuitem" @click="openCalendar('due')">
+                <Icon name="calendar" :size="14" />{{
+                  dueDate ? `Due date: ${dueDate}` : 'Set due date…'
+                }}
+              </button>
+            </div>
+            <ComposerCalendar
+              v-if="picker === 'start'"
+              v-model="startDate"
+              kind="start"
+              @close="closePicker"
+            />
+            <ComposerCalendar
+              v-if="picker === 'due'"
+              v-model="dueDate"
+              kind="due"
+              @close="closePicker"
+            />
+          </div>
+        </div>
+        <footer class="project-create-footer">
           <button class="button primary compact" :disabled="busy || !name.trim()">
             {{ busy ? 'Saving…' : id ? 'Save Project' : 'Create Project' }}
           </button>
@@ -594,6 +681,13 @@ async function save() {
   width: 800px;
   max-width: calc(100vw - 48px);
   background: var(--modal);
+  overflow: visible;
+}
+.project-picker :deep(.composer-calendar) {
+  top: calc(100% + 8px);
+  bottom: auto;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
 }
 .project-create {
   display: flex;
@@ -687,6 +781,7 @@ async function save() {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  padding: 0 16px 10px;
 }
 .project-property {
   display: inline-flex;
@@ -740,7 +835,8 @@ async function save() {
 .project-picker-menu {
   position: absolute;
   left: 0;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
+  bottom: auto;
   z-index: 2;
   width: 176px;
   max-width: calc(100vw - 80px);

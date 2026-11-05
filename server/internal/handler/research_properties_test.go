@@ -3,15 +3,60 @@ package handler
 import (
 	"github.com/google/uuid"
 	"testing"
+	"time"
 )
 
 type projectProperties struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Status   string  `json:"status"`
-	Priority string  `json:"priority"`
-	LeadType *string `json:"lead_type"`
-	LeadID   *string `json:"lead_id"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Status    string     `json:"status"`
+	Priority  string     `json:"priority"`
+	LeadType  *string    `json:"lead_type"`
+	LeadID    *string    `json:"lead_id"`
+	StartDate *time.Time `json:"start_date"`
+	DueDate   *time.Time `json:"due_date"`
+}
+
+func TestProjectPlanningDatesPersistAndClear(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "dates@lab.org")
+	w := s.workspace(t, a, "dates")
+	var p projectProperties
+	fields := map[string]any{"name": "Dates", "start_date": "2026-11-05T00:00:00Z", "due_date": "2026-11-07T00:00:00Z"}
+	if code := s.call(t, "POST", "/api/researches", a, w.ID, fields, &p); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if p.StartDate == nil || p.DueDate == nil {
+		t.Fatalf("dates missing: %+v", p)
+	}
+	if code := s.call(t, "PATCH", "/api/researches/"+p.ID, a, w.ID, map[string]any{"start_date": "2026-11-08T00:00:00Z"}, nil); code != 400 {
+		t.Fatalf("invalid dates: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/researches/"+p.ID, a, w.ID, map[string]any{"start_date": nil}, &p); code != 200 || p.StartDate != nil || p.DueDate == nil {
+		t.Fatalf("clear: %d %+v", code, p)
+	}
+}
+
+func TestStudyPriorityPersists(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "priority@lab.org")
+	w := s.workspace(t, a, "priority")
+	var c struct {
+		ID       string `json:"id"`
+		Priority string `json:"priority"`
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Priority test", "priority": "high"}, &c); code != 201 || c.Priority != "high" {
+		t.Fatalf("create: %d %+v", code, c)
+	}
+	c.Priority = ""
+	if code := s.call(t, "GET", "/api/cards/"+c.ID, a, w.ID, nil, &c); code != 200 || c.Priority != "high" {
+		t.Fatalf("read: %d %+v", code, c)
+	}
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Invalid priority", "priority": "wrong"}, nil); code != 400 {
+		t.Fatalf("invalid: %d", code)
+	}
 }
 
 func TestProjectPropertiesPersistAndClear(t *testing.T) {
