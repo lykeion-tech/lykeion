@@ -609,6 +609,49 @@ func (q *Queries) InsertRunCommentSnapshot(ctx context.Context, arg InsertRunCom
 	return err
 }
 
+const legacyPromptCommentCandidates = `-- name: LegacyPromptCommentCandidates :many
+SELECT c.id, c.workspace_id, c.card_id, c.author_id, c.body, c.created_at, c.reply_run_id, c.steer_attempt FROM comment c
+WHERE c.workspace_id = $1 AND c.card_id = $2 AND c.created_at <= $3
+ORDER BY c.created_at,c.id
+`
+
+type LegacyPromptCommentCandidatesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	FrozenAt    time.Time `json:"frozen_at"`
+}
+
+// Include cancelled identities when recovering an old frozen prompt. Newer
+// comments cannot have been in its enqueue-time input.
+func (q *Queries) LegacyPromptCommentCandidates(ctx context.Context, arg LegacyPromptCommentCandidatesParams) ([]Comment, error) {
+	rows, err := q.db.Query(ctx, legacyPromptCommentCandidates, arg.WorkspaceID, arg.CardID, arg.FrozenAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Comment
+	for rows.Next() {
+		var i Comment
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.AuthorID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.ReplyRunID,
+			&i.SteerAttempt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllRecords = `-- name: ListAllRecords :many
 SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
 ORDER BY created_at, length(key), key

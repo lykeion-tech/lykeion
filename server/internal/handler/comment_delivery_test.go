@@ -2,6 +2,8 @@ package handler
 
 import (
 	"fmt"
+	"io/fs"
+	"lykeion/server/migrations"
 	"net/url"
 	"strings"
 	"sync"
@@ -571,5 +573,93 @@ func TestLaunchFiltersCommentReservedByAnotherRun(t *testing.T) {
 	}
 	if strings.Contains(launch.Prompt, "Shared frozen context.") || len(launch.CommentIDs) != 0 {
 		t.Fatalf("cancelled context or foreign ownership survived: %+v", launch)
+	}
+}
+
+// Recreate the pre-0062 enqueue receipt state, then apply the actual migration.
+func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...string) {
+	t.Helper()
+	down, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := l.s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err = tx.Exec(t.Context(), string(down)); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if _, err = tx.Exec(t.Context(), `INSERT INTO record(workspace_id,card_id,board_column,round,kind,role,body,agent_run_id) SELECT workspace_id,card_id,board_column,round,'comment_delivery',role,jsonb_build_object('comment_id',$2::text,'how','next_run'),id FROM agent_run WHERE id=$1`, run, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = tx.Exec(t.Context(), string(up)); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigratedCommentPromptFiltersCancellationBeforeLaunch(t *testing.T) {
+	l, leader := groundingLab(t)
+	keep := l.comment(t, "Please - use controls")
+	cancelled := l.comment(t, "use controls")
+	code, queued := l.ask(t, leader.token, "member-1", "Find papers.")
+	if code != 201 {
+		t.Fatalf("ask %d", code)
+	}
+	l.migrateLegacyCommentPrompt(t, queued.Ticket, keep, cancelled)
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+cancelled, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatalf("cancel %d", code)
+	}
+	run := l.claim(t)
+	var launch struct {
+		Prompt     string
+		CommentIDs []string `json:"comment_ids"`
+	}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/"+run.id+"/comments/launch", l.personal, "", run.ref, &launch); code != 200 {
+		t.Fatalf("launch %d", code)
+	}
+	if !strings.Contains(launch.Prompt, "\n- Please - use controls\n") || strings.Contains(launch.Prompt, "\n- use controls\n") {
+		t.Fatalf("migrated cancellation leaked: %s", launch.Prompt)
+	}
+	if len(launch.CommentIDs) != 1 || launch.CommentIDs[0] != keep {
+		t.Fatalf("launch ids %v", launch.CommentIDs)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, run.id); n != 0 {
+		t.Fatalf("fabricated receipts: %d", n)
+	}
+	l.ackComments(t, run, keep)
+	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, run.id); n != 1 {
+		t.Fatalf("ack receipts: %d", n)
+	}
+}
+
+func TestAmbiguousMigratedCommentIdentityCannotLaunch(t *testing.T) {
+	l, leader := groundingLab(t)
+	first := l.comment(t, "Identical text")
+	second := l.comment(t, "Identical text")
+	code, queued := l.ask(t, leader.token, "member-1", "Find papers.")
+	if code != 201 {
+		t.Fatal(code)
+	}
+	l.migrateLegacyCommentPrompt(t, queued.Ticket, first, second)
+	if code := l.s.call(t, "DELETE", "/api/cards/"+l.card.ID+"/comments/"+second, l.jwt, l.ws, nil, nil); code != 204 {
+		t.Fatal(code)
+	}
+	ref := map[string]any{"workspace_id": l.ws, "runtime_id": l.rts}
+	if code := l.s.call(t, "POST", "/api/daemon/agent-runs/claim", l.personal, "", map[string]any{"runtimes": []any{ref}, "slots": 1}, nil); code != 409 {
+		t.Fatalf("ambiguous legacy input allowed: %d", code)
+	}
+	if n := l.s.count(t, `SELECT count(*) FROM record WHERE agent_run_id=$1 AND kind='comment_delivery' AND COALESCE(body->>'historical_unconfirmed','false')<>'true'`, queued.Ticket); n != 0 {
+		t.Fatalf("fabricated receipts: %d", n)
 	}
 }

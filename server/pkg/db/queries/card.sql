@@ -171,3 +171,10 @@ WHERE s.workspace_id = @workspace_id AND s.agent_run_id = @original_run;
 -- name: TransferCommentReservations :exec
 UPDATE comment_reservation SET agent_run_id = @replacement_run, attempt = @attempt
 WHERE workspace_id = @workspace_id AND agent_run_id = @original_run AND acknowledged_at IS NULL;
+
+-- Include cancelled identities when recovering an old frozen prompt. Newer
+-- comments cannot have been in its enqueue-time input.
+-- name: LegacyPromptCommentCandidates :many
+SELECT c.* FROM comment c
+WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at <= @frozen_at
+ORDER BY c.created_at,c.id;
