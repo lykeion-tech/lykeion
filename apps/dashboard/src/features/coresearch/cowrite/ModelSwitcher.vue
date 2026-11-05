@@ -12,6 +12,7 @@ const props = defineProps<{
   openUp?: boolean;
   cliOnly?: boolean;
   modelOnly?: boolean;
+  showModel?: boolean;
   emptyLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
@@ -81,7 +82,7 @@ onUnmounted(() => {
       @click="toggle"
     >
       <CliIcon v-if="cli === 'claude' || cli === 'codex'" :cli="cli" />
-      <span class="cli-pill-name">{{ cli ? cliLabel(cli) : label }}</span>
+      <span class="cli-pill-name">{{ cli ? (showModel ? `${cliLabel(cli)} · ${label}` : cliLabel(cli)) : label }}</span>
       <svg
         class="cli-chevron"
         :data-open="open"

@@ -62,7 +62,7 @@ export function ownOnlineClis(runtimes: Runtime[], user: string | undefined): Cl
   return [
     ...new Set(
       runtimes
-        .filter((r) => r.owner_id === user && r.status === 'online')
+        .filter((r) => r.owner_id === user && r.status === 'online' && !r.unhealthy_reason)
         .map((r) => r.harness)
         .filter((cli): cli is Cli => cli === 'claude' || cli === 'codex'),
     ),

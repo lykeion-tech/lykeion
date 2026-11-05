@@ -49,9 +49,12 @@ const railView = ref<'nav' | 'context'>('context');
 watch(
   railStorageKey,
   (key) => {
-    railView.value = inboxShell.value || aristotleShell.value
-      ? 'context'
-      : readText(key) === 'nav' ? 'nav' : 'context';
+    railView.value =
+      inboxShell.value || aristotleShell.value
+        ? 'context'
+        : readText(key) === 'nav'
+          ? 'nav'
+          : 'context';
   },
   { immediate: true },
 );
@@ -441,6 +444,7 @@ onUnmounted(() => {
     class="application"
     :class="{
       'sidebar-hidden': collapsed,
+      'sidebar-resizing': rail.dragging.value,
       'aristotle-shell': aristotleShell || inboxShell,
       desktop,
       'study-detail-open': Boolean(cardId),
@@ -459,6 +463,8 @@ onUnmounted(() => {
       v-if="cowriteShell"
       v-show="railView === 'context'"
       class="sidebar coresearch cowrite-context-rail"
+      :inert="collapsed || undefined"
+      :aria-hidden="collapsed || undefined"
     >
       <div id="cowrite-context-rail" class="cowrite-context-slot" />
       <SidebarFooter
@@ -536,6 +542,8 @@ onUnmounted(() => {
     <aside
       v-if="(!aristotleShell && !cowriteShell && !inboxShell) || railView === 'nav'"
       class="sidebar"
+      :inert="collapsed || undefined"
+      :aria-hidden="collapsed || undefined"
       aria-label="Workspace navigation"
     >
       <button
@@ -602,7 +610,11 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ selected: current === item.id }"
               :aria-current="current === item.id ? 'page' : undefined"
-              @click="item.id === current && ['coresearch', 'decisions'].includes(item.id) && changeRail('context')"
+              @click="
+                item.id === current &&
+                ['coresearch', 'decisions'].includes(item.id) &&
+                changeRail('context')
+              "
               ><Icon :name="item.icon" />{{ item.name
               }}<DecisionBadge v-if="item.id === 'decisions'"
             /></RouterLink></section
@@ -637,7 +649,9 @@ onUnmounted(() => {
       >
         <div v-if="current === 'workflows'" class="workflow-heading">
           <h1>{{ heading }}</h1>
-          <span class="workflow-attribution">Workflows are ported from Terminal-Bench-Science.</span>
+          <span class="workflow-attribution"
+            >Workflows are ported from Terminal-Bench-Science.</span
+          >
         </div>
         <h1 v-else>{{ heading }}</h1>
         <span id="page-header-count" class="page-header-count" />
@@ -671,9 +685,14 @@ onUnmounted(() => {
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
     </main>
-    <AristotleWindow v-if="workspaceId && me.data.value?.id && !unauthorized && route.path !== '/decisions/new'" ref="labWindow"
-      :key="workspaceId + ':' + me.data.value.id" :user-id="me.data.value.id"
-      :study-id="cardId" :study-title="shownCard ? studyDisplayTitle(shownCard.title) : undefined" />
+    <AristotleWindow
+      v-if="workspaceId && me.data.value?.id && !unauthorized && route.path !== '/decisions/new'"
+      ref="labWindow"
+      :key="workspaceId + ':' + me.data.value.id"
+      :user-id="me.data.value.id"
+      :study-id="cardId"
+      :study-title="shownCard ? studyDisplayTitle(shownCard.title) : undefined"
+    />
     <CreateStudy
       v-if="composer.open"
       :assignee="composer.assignee"
@@ -951,6 +970,25 @@ onUnmounted(() => {
 .application .sidebar {
   flex-basis: var(--rail-width);
   width: var(--rail-width);
+  overflow: hidden;
+  transition:
+    flex-basis 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.application.sidebar-hidden .sidebar {
+  display: flex;
+  flex-basis: 0;
+  width: 0;
+  padding-inline: 0;
+}
+.application.sidebar-resizing .sidebar {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .application .sidebar {
+    transition: none;
+  }
 }
 .application .sidebar-handle {
   left: calc(var(--rail-width) - 5px);

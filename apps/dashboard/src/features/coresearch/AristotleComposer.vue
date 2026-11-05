@@ -23,6 +23,7 @@ const props = withDefaults(
     template?: string;
     models?: RuntimeModel[];
     selectedModel?: string;
+    modelChosen?: boolean;
     cli?: string;
     clis?: string[];
     attachments?: ComposerAttachment[];
@@ -388,7 +389,18 @@ const inline = (text?: string) =>
           />
         </div>
         <div class="composer-tools">
-          <ModelSwitcher open-up model-only :models="models" :cli="cli" :model-value="selectedModel" :disabled="!draft || busy" @update:model-value="emit('update:selectedModel', $event)" />
+          <ModelSwitcher
+            open-up
+            :models="models"
+            :cli="clis?.length ? cli : undefined"
+            :clis="clis"
+            empty-label="No CLI available"
+            :model-value="selectedModel"
+            :show-model="modelChosen"
+            :disabled="!draft || busy"
+            @update:model-value="emit('update:selectedModel', $event)"
+            @update:cli="emit('update:cli', $event)"
+          />
           <button
             v-if="activeRun"
             type="button"

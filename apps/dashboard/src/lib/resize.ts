@@ -34,6 +34,7 @@ export function usePaneResize(
     return Math.min(max, available());
   });
   let cleanup: (() => void) | undefined;
+  const dragging = ref(false);
   function save(value: number) {
     preferred.value = clampPane(value, min, max, available());
     writeText(key, String(preferred.value));
@@ -78,8 +79,10 @@ export function usePaneResize(
       writeText(key, String(previous));
     };
     const old = document.body.style.userSelect;
+    dragging.value = true;
     document.body.style.userSelect = 'none';
     cleanup = () => {
+      dragging.value = false;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
@@ -103,5 +106,5 @@ export function usePaneResize(
   function reset() {
     preferred.value = initial;
   }
-  return { width, minimum, maximum, keydown, pointerdown, reset };
+  return { width, minimum, maximum, keydown, pointerdown, reset, dragging };
 }

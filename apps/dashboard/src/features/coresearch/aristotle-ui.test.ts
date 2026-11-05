@@ -374,16 +374,27 @@ describe('Aristotle UI', () => {
     await settle();
     expect(deleteButton()).toBeTruthy();
   });
-  it('keeps the configured CLI when its runtime is offline', async () => {
+  it('offers only available CLIs when the agent preference is offline', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
     const { root, client, settle } = await mount();
     client.setQueryData(keys.runtimes('lab'), [
+      { id: 'c', owner_id: 'me', status: 'online', harness: 'claude', unhealthy_reason: 'sign_in', models: [] },
       { id: 'x', owner_id: 'me', status: 'online', harness: 'codex', models: [] },
     ]);
     await settle();
-    expect(byLabel(root, 'CLI and model: Claude Code · Default')).toBeTruthy();
-    expect(byLabel(root, 'Send').props.disabled).toBe(true);
+    const picker = byLabel(root, 'CLI and model: Codex · Default');
+    expect(picker).toBeTruthy();
+    await (picker.props.onClick as () => Promise<void>)();
+    await settle();
+    expect(byLabel(root, 'Codex')).toBeTruthy();
+    expect(byLabel(root, 'Claude Code')).toBeUndefined();
+    edit(root, 'A question');
+    await settle();
+    await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
+    expect(JSON.parse(fetch.mock.calls[0]![1].body).harness).toBe('codex');
   });
-  it('allows model selection without offering a CLI switch', async () => {
+  it('allows model selection for the available CLI', async () => {
     const { root, client, settle } = await mount();
     client.setQueryData(keys.agent('lab', 'aristotle'), { ...agent, model: 'sonnet' });
     client.setQueryData(keys.runtimes('lab'), [
@@ -391,7 +402,10 @@ describe('Aristotle UI', () => {
         owner_id: 'me',
         status: 'online',
         harness: 'claude',
-        models: [{ value: 'sonnet', label: 'Sonnet' }, { value: 'opus', label: 'Opus' }],
+        models: [
+          { value: 'sonnet', label: 'Sonnet' },
+          { value: 'opus', label: 'Opus' },
+        ],
       },
     ]);
     await settle();
@@ -399,10 +413,10 @@ describe('Aristotle UI', () => {
     expect(indicator).toBeTruthy();
     await (indicator.props.onClick as () => Promise<void>)();
     await settle();
-    expect(byLabel(root, 'CLI')).toBeUndefined();
+    expect(byLabel(root, 'CLI')).toBeTruthy();
     (byLabel(root, 'Opus').props.onClick as () => void)();
     await settle();
-    expect(byLabel(root, 'CLI and model: Claude Code · Opus')).toBeTruthy();
+    expect(textOf(byLabel(root, 'CLI and model: Claude Code · Opus'))).toContain('Opus');
   });
   it('shows uncached welcome history errors and restores history on explicit retry', async () => {
     let resolveHistory!: (value: Response) => void;
@@ -571,7 +585,7 @@ describe('Aristotle UI', () => {
     await settle();
     expect(byLabel(root, 'Send').props.disabled).toBe(true);
     expect(textOf(root)).not.toContain('No available own machine');
-    expect(textOf(root)).toContain('Claude Code');
+    expect(textOf(root)).toContain('No CLI available');
   });
   it('restores last valid conversation and falls back from a stale ID', async () => {
     storage.set('lykeion.aristotle.last:me:lab', 'deleted');
@@ -812,10 +826,15 @@ describe('Aristotle UI', () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);
     const { root, settle } = await mount('/coresearch/conversations/welcome');
-    const card = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Write a research paper'))!;
+    const card = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Write a research paper'),
+    )!;
     (card.props.onClick as () => void)();
     await settle();
-    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ mode: 'cowrite', body: expect.stringContaining('write a research paper') });
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({
+      mode: 'cowrite',
+      body: expect.stringContaining('write a research paper'),
+    });
   });
   it('provides mutually exclusive rail controls with accessible labels', () => {
     const change = vi.fn();

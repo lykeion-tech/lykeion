@@ -129,6 +129,37 @@ function showChooser() {
   emit('update:focused', false);
   emit('update:active', null);
 }
+const animations = new WeakMap<Element, Animation>();
+function slide(element: Element, done: () => void, opening: boolean) {
+  const el = element as HTMLElement;
+  if (
+    typeof el.animate !== 'function' ||
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  ) {
+    done();
+    return;
+  }
+  const width = `${el.getBoundingClientRect().width}px`;
+  const frames = narrow.value
+    ? [{ transform: 'translateX(100%)' }, { transform: 'translateX(0)' }]
+    : [
+        { flexGrow: '0', flexShrink: '0', flexBasis: '0px', width: '0px', overflow: 'hidden' },
+        { flexGrow: '0', flexShrink: '0', flexBasis: width, width, overflow: 'hidden' },
+      ];
+  const animation = el.animate(opening ? frames : frames.reverse(), {
+    duration: 220,
+    easing: 'cubic-bezier(.22, 1, .36, 1)',
+  });
+  animations.set(el, animation);
+  animation.onfinish = () => {
+    animations.delete(el);
+    done();
+  };
+}
+function cancelSlide(element: Element) {
+  animations.get(element)?.cancel();
+  animations.delete(element);
+}
 </script>
 <template>
   <button
@@ -138,64 +169,81 @@ function showChooser() {
     aria-label="Close pane overlay"
     @click="close"
   />
-  <aside
-    v-if="open"
-    ref="pane"
-    class="surface-pane"
-    :role="narrow ? 'dialog' : undefined"
-    :aria-modal="narrow ? true : undefined"
-    @keydown="keyboard"
-    :class="{ 'surface-focused': focused, 'surface-overlay': narrow }"
-    :style="{ '--surface-width': resize.width.value + 'px' }"
-    aria-label="Right pane"
+  <Transition
+    :css="false"
+    @enter="(el, done) => slide(el, done, true)"
+    @leave="(el, done) => slide(el, done, false)"
+    @enter-cancelled="cancelSlide"
+    @leave-cancelled="cancelSlide"
   >
-    <div
-      v-if="active && !focused"
-      class="surface-separator"
-      role="separator"
-      tabindex="0"
-      aria-label="Resize right pane"
-      aria-orientation="vertical"
-      :aria-valuenow="resize.width.value"
-      :aria-valuemin="resize.minimum.value"
-      :aria-valuemax="resize.maximum.value"
-      @pointerdown="resize.pointerdown($event)"
-      @keydown="resize.keydown"
-    />
-    <header class="surface-header">
-      <button v-if="active" class="surface-icon" aria-label="Back to surfaces" @click="showChooser">
-        <Icon name="back" />
-      </button>
-      <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
-      <span class="surface-spacer" />
-      <button
-        v-if="active"
-        class="surface-icon"
-        :aria-label="focused ? 'Restore pane size' : 'Maximize pane'"
-        :aria-pressed="focused"
-        @click="emit('update:focused', !focused)"
-      >
-        <Icon name="expand" />
-      </button>
-      <button class="surface-icon" aria-label="Close pane" @click="close">
-        <Icon name="panel" />
-      </button>
-    </header>
-    <div class="surface-body">
-      <div v-if="!active" class="surface-chooser">
-        <h2>Open a surface</h2>
+    <aside
+      v-if="open"
+      ref="pane"
+      class="surface-pane"
+      :role="narrow ? 'dialog' : undefined"
+      :aria-modal="narrow ? true : undefined"
+      @keydown="keyboard"
+      :class="{
+        'surface-focused': focused,
+        'surface-overlay': narrow,
+        'surface-resizing': resize.dragging.value,
+      }"
+      :style="{ '--surface-width': resize.width.value + 'px' }"
+      aria-label="Right pane"
+    >
+      <div
+        v-if="active && !focused"
+        class="surface-separator"
+        role="separator"
+        tabindex="0"
+        aria-label="Resize right pane"
+        aria-orientation="vertical"
+        :aria-valuenow="resize.width.value"
+        :aria-valuemin="resize.minimum.value"
+        :aria-valuemax="resize.maximum.value"
+        @pointerdown="resize.pointerdown($event)"
+        @keydown="resize.keydown"
+      />
+      <header class="surface-header">
         <button
-          v-for="item in surfaces"
-          :key="item.id"
-          class="surface-choice"
-          @click="emit('update:active', item.id)"
+          v-if="active"
+          class="surface-icon"
+          aria-label="Back to surfaces"
+          @click="showChooser"
         >
-          <Icon :name="item.icon" /><span>{{ item.label }}</span>
+          <Icon name="back" />
         </button>
+        <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
+        <span class="surface-spacer" />
+        <button
+          v-if="active"
+          class="surface-icon"
+          :aria-label="focused ? 'Restore pane size' : 'Maximize pane'"
+          :aria-pressed="focused"
+          @click="emit('update:focused', !focused)"
+        >
+          <Icon name="expand" />
+        </button>
+        <button class="surface-icon" aria-label="Close pane" @click="close">
+          <Icon name="panel" />
+        </button>
+      </header>
+      <div class="surface-body">
+        <div v-if="!active" class="surface-chooser">
+          <h2>Open a surface</h2>
+          <button
+            v-for="item in surfaces"
+            :key="item.id"
+            class="surface-choice"
+            @click="emit('update:active', item.id)"
+          >
+            <Icon :name="item.icon" /><span>{{ item.label }}</span>
+          </button>
+        </div>
+        <slot v-else :active="active" />
       </div>
-      <slot v-else :active="active" />
-    </div>
-  </aside>
+    </aside>
+  </Transition>
 </template>
 <style scoped>
 .surface-backdrop {
