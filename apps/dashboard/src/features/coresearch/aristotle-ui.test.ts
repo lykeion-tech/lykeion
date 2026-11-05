@@ -139,7 +139,9 @@ describe('Aristotle UI', () => {
     const { root, client, settle } = await mount('/agents/aristotle', true, true);
     const status = () => all(root).find((n) => String(n.props.class).includes('agent-status'))!;
     expect(textOf(status())).toBe('Active');
-    client.setQueryData(keys.runtimes('lab'), [{ owner_id: 'me', status: 'online', harness: 'claude', unhealthy_reason: 'sign_in' }]);
+    client.setQueryData(keys.runtimes('lab'), [
+      { owner_id: 'me', status: 'online', harness: 'claude', unhealthy_reason: 'sign_in' },
+    ]);
     await settle();
     expect(textOf(status())).toBe('Inactive');
     expect(String(status().props.class)).toContain('unavailable');
@@ -172,37 +174,64 @@ describe('Aristotle UI', () => {
     expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/agents');
     expect(textOf(inspector)).toContain('Aristotle');
     expect(textOf(inspector)).toContain('Harness default');
-    expect(textOf(root)).toContain("Built-in Agents can't be changed. Duplicate this Agent to make one of your own.");
+    expect(textOf(root)).toContain(
+      "Built-in Agents can't be changed. Duplicate this Agent to make one of your own.",
+    );
     const work = all(root).find((n) => n.props.role === 'tab' && textOf(n).trim() === 'Work')!;
     (work.props.onClick as () => void)();
     await settle();
-    expect(textOf(all(root).find((n) => n.props.class === 'agent-inspector')!)).toContain('Aristotle');
+    expect(textOf(all(root).find((n) => n.props.class === 'agent-inspector')!)).toContain(
+      'Aristotle',
+    );
     expect(all(root).some((n) => n.props['aria-label'] === 'Search studies')).toBe(true);
   });
   it('duplicates the agent using the chosen name', async () => {
-    const fetch = vi.fn(async (url: string, init: { method: string }) => response(init.method === 'POST' || String(url).endsWith('/api/agents/copied') ? { ...agent, id: 'copied' } : [], 200));
+    const fetch = vi.fn(async (url: string, init: { method: string }) =>
+      response(
+        init.method === 'POST' || String(url).endsWith('/api/agents/copied')
+          ? { ...agent, id: 'copied' }
+          : [],
+        200,
+      ),
+    );
     vi.stubGlobal('fetch', fetch);
     const { root, router, settle } = await mount('/agents/aristotle', true, true);
-    const duplicate = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Duplicate')!;
+    const duplicate = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).trim() === 'Duplicate',
+    )!;
     (duplicate.props.onClick as () => void)();
     await settle();
-    (byLabel(root, 'Name of the duplicate').props['onUpdate:modelValue'] as (s: string) => void)('Research copy');
+    (byLabel(root, 'Name of the duplicate').props['onUpdate:modelValue'] as (s: string) => void)(
+      'Research copy',
+    );
     await settle();
     const form = all(root).find((n) => n.tag === 'form' && n.props.class === 'agent-copy')!;
-    await (form.props.onSubmit as (event: { preventDefault(): void }) => Promise<void>)({ preventDefault() {} });
+    await (form.props.onSubmit as (event: { preventDefault(): void }) => Promise<void>)({
+      preventDefault() {},
+    });
     await settle();
-    const sent = fetch.mock.calls.find((c) => String(c[0]).endsWith('/api/agents/aristotle/duplicate'))!;
-    expect(JSON.parse((sent[1] as unknown as { body: string }).body)).toEqual({ name: 'Research copy' });
+    const sent = fetch.mock.calls.find((c) =>
+      String(c[0]).endsWith('/api/agents/aristotle/duplicate'),
+    )!;
+    expect(JSON.parse((sent[1] as unknown as { body: string }).body)).toEqual({
+      name: 'Research copy',
+    });
     expect(router.currentRoute.value.path).toBe('/agents/copied');
   });
   it('places Capabilities second and offers Customize', async () => {
     const { root, settle } = await mount('/agents/aristotle', true, true);
-    const tabs = all(root).filter((n) => n.props.role === 'tab').map((n) => textOf(n).trim());
+    const tabs = all(root)
+      .filter((n) => n.props.role === 'tab')
+      .map((n) => textOf(n).trim());
     expect(tabs).toEqual(['Overview', 'Capabilities', 'Work', 'Settings']);
-    const capabilities = all(root).find((n) => n.props.role === 'tab' && textOf(n).trim() === 'Capabilities')!;
+    const capabilities = all(root).find(
+      (n) => n.props.role === 'tab' && textOf(n).trim() === 'Capabilities',
+    )!;
     (capabilities.props.onClick as () => void)();
     await settle();
-    expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Customize')).toBe(true);
+    expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Customize')).toBe(
+      true,
+    );
   });
   it('uses the conversation agent avatar in the rail', async () => {
     const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
@@ -266,36 +295,39 @@ describe('Aristotle UI', () => {
     });
     expect(JSON.parse(sent[1].body)).not.toHaveProperty('model');
   });
-  it.each(['custom', 'built_in'])('allows %s agents to edit and save conversation starters', async (source) => {
-    const fetch = vi.fn(async (_url: string, _init: { body: string }) => response(agent, 200));
-    vi.stubGlobal('fetch', fetch);
-    const { root, client, settle } = await mount('/agents/aristotle?tab=settings', true, true);
-    client.setQueryData(keys.agent('lab', 'aristotle'), {
-      ...agent,
-      built_in_key: '',
-      name: 'Agent',
-    });
-    client.setQueryData(keys.agents('lab'), [{ ...agent, source }]);
-    await settle();
-    expect(textOf(root)).toContain('Conversation starters');
-    const add = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Add starter')!;
-    (add.props.onClick as () => void)();
-    await settle();
-    (byLabel(root, 'Starter 1 label').props['onUpdate:modelValue'] as (s: string) => void)(
-      'Investigate',
-    );
-    (byLabel(root, 'Starter 1 prompt').props['onUpdate:modelValue'] as (s: string) => void)(
-      'Investigate this evidence',
-    );
-    await settle();
-    const form = all(root).find(
-      (n) => n.tag === 'form' && textOf(n).includes('Conversation starters'),
-    )!;
-    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
-    expect(JSON.parse(fetch.mock.calls[0]![1].body).conversation_starters).toEqual([
-      { label: 'Investigate', prompt: 'Investigate this evidence' },
-    ]);
-  });
+  it.each(['custom', 'built_in'])(
+    'allows %s agents to edit and save conversation starters',
+    async (source) => {
+      const fetch = vi.fn(async (_url: string, _init: { body: string }) => response(agent, 200));
+      vi.stubGlobal('fetch', fetch);
+      const { root, client, settle } = await mount('/agents/aristotle?tab=settings', true, true);
+      client.setQueryData(keys.agent('lab', 'aristotle'), {
+        ...agent,
+        built_in_key: '',
+        name: 'Agent',
+      });
+      client.setQueryData(keys.agents('lab'), [{ ...agent, source }]);
+      await settle();
+      expect(textOf(root)).toContain('Conversation starters');
+      const add = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Add starter')!;
+      (add.props.onClick as () => void)();
+      await settle();
+      (byLabel(root, 'Starter 1 label').props['onUpdate:modelValue'] as (s: string) => void)(
+        'Investigate',
+      );
+      (byLabel(root, 'Starter 1 prompt').props['onUpdate:modelValue'] as (s: string) => void)(
+        'Investigate this evidence',
+      );
+      await settle();
+      const form = all(root).find(
+        (n) => n.tag === 'form' && textOf(n).includes('Conversation starters'),
+      )!;
+      await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+      expect(JSON.parse(fetch.mock.calls[0]![1].body).conversation_starters).toEqual([
+        { label: 'Investigate', prompt: 'Investigate this evidence' },
+      ]);
+    },
+  );
   it('shows the runtime-reported model name and falls back when it is unknown', async () => {
     const { root, client, settle } = await mount('/agents/aristotle', true, true);
     client.setQueryData(keys.agent('lab', 'aristotle'), { ...agent, model: 'sonnet' });
@@ -342,58 +374,35 @@ describe('Aristotle UI', () => {
     await settle();
     expect(deleteButton()).toBeTruthy();
   });
-  it('defaults to the available CLI when the agent preference is offline', async () => {
-    const { root, client, settle } = await mount();
-    client.setQueryData(keys.runtimes('lab'), [{ id: 'x', owner_id: 'me', status: 'online', harness: 'codex', models: [] }]);
-    await settle();
-    expect(byLabel(root, 'CLI and model: Codex · Default')).toBeTruthy();
-    expect(textOf(root)).not.toContain('No available own machine');
-  });
-  it('chooses an online CLI and its model for a new conversation', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(response({ conversation: { ...welcome, id: 'new' }, run: { id: 'run' } }));
-    vi.stubGlobal('fetch', fetch);
+  it('keeps the configured CLI when its runtime is offline', async () => {
     const { root, client, settle } = await mount();
     client.setQueryData(keys.runtimes('lab'), [
+      { id: 'x', owner_id: 'me', status: 'online', harness: 'codex', models: [] },
+    ]);
+    await settle();
+    expect(byLabel(root, 'CLI and model: Claude Code · Default')).toBeTruthy();
+    expect(byLabel(root, 'Send').props.disabled).toBe(true);
+  });
+  it('allows model selection without offering a CLI switch', async () => {
+    const { root, client, settle } = await mount();
+    client.setQueryData(keys.agent('lab', 'aristotle'), { ...agent, model: 'sonnet' });
+    client.setQueryData(keys.runtimes('lab'), [
       {
-        id: 'c',
         owner_id: 'me',
         status: 'online',
         harness: 'claude',
-        models: [
-          { value: '', label: 'Default' },
-          { value: 'opus', label: 'Opus' },
-        ],
-      },
-      {
-        id: 'x',
-        owner_id: 'me',
-        status: 'online',
-        harness: 'codex',
-        models: [
-          { value: '', label: 'Default' },
-          { value: 'codex-model', label: 'Codex model' },
-        ],
+        models: [{ value: 'sonnet', label: 'Sonnet' }, { value: 'opus', label: 'Opus' }],
       },
     ]);
     await settle();
-    await (
-      byLabel(root, 'CLI and model: Claude Code · Default').props.onClick as () => Promise<void>
-    )();
+    const indicator = byLabel(root, 'CLI and model: Claude Code · Sonnet');
+    expect(indicator).toBeTruthy();
+    await (indicator.props.onClick as () => Promise<void>)();
     await settle();
-    (byLabel(root, 'Codex').props.onClick as () => void)();
+    expect(byLabel(root, 'CLI')).toBeUndefined();
+    (byLabel(root, 'Opus').props.onClick as () => void)();
     await settle();
-    expect(textOf(root)).toContain('Codex model');
-    (byLabel(root, 'Codex model').props.onClick as () => void)();
-    await settle();
-    edit(root, 'A question');
-    await settle();
-    await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
-    const request = fetch.mock.calls.find((call) =>
-      String(call[0]).endsWith('/api/coresearch/conversations'),
-    );
-    expect(JSON.parse(request![1].body)).toMatchObject({ harness: 'codex', model: 'codex-model' });
+    expect(byLabel(root, 'CLI and model: Claude Code · Opus')).toBeTruthy();
   });
   it('shows uncached welcome history errors and restores history on explicit retry', async () => {
     let resolveHistory!: (value: Response) => void;
@@ -562,7 +571,7 @@ describe('Aristotle UI', () => {
     await settle();
     expect(byLabel(root, 'Send').props.disabled).toBe(true);
     expect(textOf(root)).not.toContain('No available own machine');
-    expect(textOf(root)).toContain('No CLI available');
+    expect(textOf(root)).toContain('Claude Code');
   });
   it('restores last valid conversation and falls back from a stale ID', async () => {
     storage.set('lykeion.aristotle.last:me:lab', 'deleted');
@@ -763,7 +772,7 @@ describe('Aristotle UI', () => {
     expect(save().props.disabled).toBe(false);
     expect(byLabel(root, 'Agent name').value).toBe('Aristotle');
   });
-  it('keeps three fixed welcome cards while using saved starters only in a new draft', async () => {
+  it('shows research and writing welcome cards while using saved starters only in a new draft', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);
     const { root, client, router, settle } = await mount('/coresearch/conversations/welcome');
@@ -781,7 +790,8 @@ describe('Aristotle UI', () => {
             String(child.props.class).includes('research-motif'),
         ),
     );
-    expect(welcomeCards).toHaveLength(3);
+    expect(welcomeCards).toHaveLength(4);
+    expect(textOf(root)).toContain('Write a research paper');
     expect(textOf(root)).toContain('Ground a research question');
     expect(textOf(root)).toContain('Design a reproducible experiment');
     expect(textOf(root)).toContain('Review evidence and findings');
@@ -797,6 +807,15 @@ describe('Aristotle UI', () => {
     expect(textOf(root)).not.toContain('Ground a research question');
     const starterStack = all(root).find((n) => n.props.class === 'starter-stack')!;
     expect(starterStack.children.filter((n) => n.tag === 'button')).toHaveLength(1);
+  });
+  it('starts the writing starter in Cowrite mode', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    const { root, settle } = await mount('/coresearch/conversations/welcome');
+    const card = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Write a research paper'))!;
+    (card.props.onClick as () => void)();
+    await settle();
+    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ mode: 'cowrite', body: expect.stringContaining('write a research paper') });
   });
   it('provides mutually exclusive rail controls with accessible labels', () => {
     const change = vi.fn();
@@ -814,7 +833,11 @@ describe('Aristotle UI', () => {
     const root = node('root');
     app.mount(root);
     const button = byLabel(root, 'Show session details');
-    expect(all(button).some((n) => n.tag === 'svg' && String(n.props.class).includes('lucide-message-square'))).toBe(true);
+    expect(
+      all(button).some(
+        (n) => n.tag === 'svg' && String(n.props.class).includes('lucide-message-square'),
+      ),
+    ).toBe(true);
     app.unmount();
   });
 });

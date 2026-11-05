@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import Icon from '../../ui/Icon.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
 import Modal from '../../ui/Modal.vue';
 import MachineSharing from './MachineSharing.vue';
 import DaemonSettings from './DaemonSettings.vue';
@@ -165,7 +166,6 @@ const message = (e: unknown, action: string) =>
   e instanceof ApiError && e.status === 404
     ? `Only the machine’s owner can ${action} it.`
     : (e as Error).message;
-const cli = (h: string) => ({ claude: '✳', codex: '◎' })[h] ?? h[0];
 const cliName = backendLabel;
 const owner = (id: string) => {
   const m = members.data.value?.find((x) => x.user_id === id);
@@ -356,9 +356,11 @@ async function remove(d: Daemon) {
                 <tr v-for="r in machine.runtimes" :key="r.id">
                   <td>
                     <span class="runtime-name"
-                      ><i class="harness-icon" :class="r.harness" aria-hidden="true">{{
-                        cli(r.harness)
-                      }}</i
+                      ><i class="harness-icon" :class="r.harness" aria-hidden="true"
+                        ><CliIcon
+                          v-if="r.harness === 'claude' || r.harness === 'codex'"
+                          :cli="r.harness"
+                        /><template v-else>{{ r.harness[0] }}</template></i
                       >{{ cliName(r.harness) }}</span
                     >
                   </td>
@@ -458,7 +460,10 @@ async function remove(d: Daemon) {
                 :key="r.id"
                 :class="r.harness"
                 :title="cliName(r.harness) + (r.cli_version ? ' ' + r.cli_version : '')"
-                >{{ cli(r.harness) }}</i
+                ><CliIcon
+                  v-if="r.harness === 'claude' || r.harness === 'codex'"
+                  :cli="r.harness"
+                /><template v-else>{{ r.harness[0] }}</template></i
               ></span
             >
             <small class="runs">{{

@@ -232,7 +232,11 @@ const inline = (text?: string) =>
       :class="draft ? 'composer-card--hero' : 'composer-card--docked'"
       :style="room === undefined ? undefined : { '--mention-ceiling': `${room}px` }"
     >
-      <div v-if="blocker && !blocker.startsWith('No available own machine with ')" class="composer-blocker" role="status">
+      <div
+        v-if="blocker && !blocker.startsWith('No available own machine with ')"
+        class="composer-blocker"
+        role="status"
+      >
         {{ blocker }} <RouterLink to="/settings?tab=machines">Settings</RouterLink>
       </div>
       <div v-if="attachments.length" class="composer-attachments">
@@ -384,17 +388,7 @@ const inline = (text?: string) =>
           />
         </div>
         <div class="composer-tools">
-          <ModelSwitcher
-            open-up
-            :models="models"
-            :cli="clis?.length ? cli : undefined"
-            :clis="clis"
-            empty-label="No CLI available"
-            :model-value="selectedModel"
-            :disabled="!draft || busy"
-            @update:model-value="emit('update:selectedModel', $event)"
-            @update:cli="emit('update:cli', $event)"
-          />
+          <ModelSwitcher open-up model-only :models="models" :cli="cli" :model-value="selectedModel" :disabled="!draft || busy" @update:model-value="emit('update:selectedModel', $event)" />
           <button
             v-if="activeRun"
             type="button"
@@ -438,5 +432,4 @@ const inline = (text?: string) =>
   margin: 12px auto;
   flex: none;
 }
-
 </style>

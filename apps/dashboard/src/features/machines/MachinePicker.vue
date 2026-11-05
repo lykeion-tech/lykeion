@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useMe, useMembers, useRuntimes } from '../../api/queries';
 import { studyMachines } from './machines';
 import Icon from '../../ui/Icon.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
 
 const value = defineModel<string>({ default: '' });
@@ -112,13 +113,12 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           </span>
           <span class="machine-runtimes">
             <span v-for="runtime in machine.runtimes" :key="runtime.id" class="machine-runtime">
-              <i :class="runtime.harness" aria-hidden="true">{{
-                runtime.harness === 'claude'
-                  ? '✳'
-                  : runtime.harness === 'codex'
-                    ? '◎'
-                    : runtime.harness[0]
-              }}</i>
+              <i :class="runtime.harness" aria-hidden="true"
+                ><CliIcon
+                  v-if="runtime.harness === 'claude' || runtime.harness === 'codex'"
+                  :cli="runtime.harness"
+                /><template v-else>{{ runtime.harness[0] }}</template></i
+              >
               {{ backendLabel(runtime.harness) }}
             </span>
           </span>

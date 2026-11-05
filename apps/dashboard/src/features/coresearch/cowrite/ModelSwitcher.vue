@@ -11,6 +11,7 @@ const props = defineProps<{
   label?: string;
   openUp?: boolean;
   cliOnly?: boolean;
+  modelOnly?: boolean;
   emptyLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
@@ -29,7 +30,9 @@ async function toggle() {
   up.value = !!props.openUp;
   const anchor = root.value?.getBoundingClientRect?.();
   const scrollFrame = root.value?.closest?.('.aristotle-scroll')?.getBoundingClientRect();
-  upHeight.value = anchor ? Math.max(0, Math.min(320, anchor.top - Math.max(0, scrollFrame?.top ?? 0) - 8)) : undefined;
+  upHeight.value = anchor
+    ? Math.max(0, Math.min(320, anchor.top - Math.max(0, scrollFrame?.top ?? 0) - 8))
+    : undefined;
   open.value = !open.value;
   await nextTick();
   const menu = menuEl.value?.getBoundingClientRect?.();
@@ -123,7 +126,7 @@ onUnmounted(() => {
           : undefined
       "
     >
-      <template v-if="cli">
+      <template v-if="cli && !modelOnly">
         <div class="cli-menu-head"><span class="cli-menu-eyebrow">CLI</span></div>
         <div class="cli-options" role="group" aria-label="CLI">
           <button
@@ -136,7 +139,7 @@ onUnmounted(() => {
             :aria-pressed="item === cli"
             @click="emit('update:cli', item)"
           >
-            <span aria-hidden="true">{{ item === 'claude' ? '✳' : '◎' }}</span>
+            <CliIcon v-if="item === 'claude' || item === 'codex'" :cli="item" />
             {{ cliLabel(item) }}
           </button>
         </div>

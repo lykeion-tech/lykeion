@@ -10,7 +10,13 @@ const paths = {
 };
 </script>
 <template>
-  <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    width="1em"
+    height="1em"
+    :fill="cli === 'claude' ? '#D97757' : 'currentColor'"
+    aria-hidden="true"
+  >
     <path :d="paths[cli]" />
   </svg>
 </template>

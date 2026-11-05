@@ -219,22 +219,10 @@ const activeRun = computed(
     messages.data.value?.find((m) => m.kind === 'turn' && isActiveTurn(m.status))?.agent_run_id ??
     undefined,
 );
-const selectedCli = ref<string>();
 const availableClis = computed(() => ownOnlineClis(runtimes.data.value ?? [], me.data.value?.id));
 const harness = computed(
-  () =>
-    conversation.value?.snapshot_harness ?? selectedCli.value ??
-    (agent.value?.harness && availableClis.value.includes(agent.value.harness)
-      ? agent.value.harness
-      : availableClis.value[0] ?? agent.value?.harness ?? 'claude'),
+  () => conversation.value?.snapshot_harness ?? agent.value?.harness ?? 'claude',
 );
-function chooseCli(value: string) {
-  if (value === harness.value) return;
-  selectedCli.value = value;
-  selectedRuntime.value = undefined;
-  selectedModel.value = null;
-  pending = null;
-}
 const selectedRuntime = ref<string>();
 const runtime = computed(() => {
   const own =
@@ -250,10 +238,7 @@ const mode = ref<SessionMode>('experiment'),
   selectedModel = ref<string | null>(null);
 const effectiveModel = computed(() =>
   startsSession.value
-    ? (models.value.find((m) => m.value === selectedModel.value)?.value ??
-      (selectedAgentId.value && harness.value === agent.value?.harness
-        ? agent.value?.model
-        : undefined) ??
+    ? (selectedModel.value ?? (harness.value === agent.value?.harness ? agent.value?.model : undefined) ??
       models.value.find((m) => m.value === agent.value?.model)?.value ??
       models.value[0]?.value ??
       '')
@@ -295,7 +280,6 @@ watch(
     mode.value = 'experiment';
     template.value = 'blank';
     selectedModel.value = null;
-    selectedCli.value = undefined;
     selectedRuntime.value = undefined;
     selectedAgentId.value = '';
     agentPickerOpen.value = false;
@@ -308,7 +292,6 @@ watch(
         draft.value = held.body;
         mode.value = held.mode;
         template.value = held.template;
-        if (held.harness === 'claude' || held.harness === 'codex') selectedCli.value = held.harness;
         if (held.harness === harness.value) {
           selectedRuntime.value = held.runtime;
           selectedModel.value = held.model;
@@ -622,7 +605,6 @@ async function stop() {
                       :aria-checked="item.id === agent.id"
                       @click="
                         selectedAgentId = item.id;
-                        selectedCli = undefined;
                         selectedRuntime = undefined;
                         selectedModel = null;
                         pending = null;
@@ -656,7 +638,7 @@ async function stop() {
               <p>Welcome to Coresearch. I'm {{ agent.name }}, your research companion.</p>
               <p>
                 Together, we can turn questions into clear hypotheses, design careful experiments,
-                and make sense of the evidence.
+                make sense of the evidence, and write your research together in Cowrite.
               </p>
               <p>Start with an idea, a dataset, or a finding you want to explore.</p>
               <p>You stay in control of what happens next.</p>
@@ -681,6 +663,17 @@ async function stop() {
                     ][index]
                   }}</small
                   ><span class="start-link">Start <Icon name="right" :size="12" /></span>
+                </button>
+                <button
+                  :disabled="busy"
+                  @click="mode = 'cowrite'; send('Help me write a research paper. Ask about my topic, intended audience, and any evidence or drafts I have first.')"
+                >
+                  <div class="research-motif motif-3">
+                    <span /><span /><span /><Icon name="edit" :size="22" />
+                  </div>
+                  <b>Write a research{{ ' ' }}<br />paper</b>
+                  <small>Develop and refine your manuscript together.</small>
+                  <span class="start-link">Start <Icon name="right" :size="12" /></span>
                 </button>
               </div>
             </div>
@@ -710,7 +703,6 @@ async function stop() {
               @capabilities="composerCapabilities = $event"
               @send="send(undefined, $event)"
               @stop="stop"
-              @update:cli="chooseCli"
               @update:selected-model="selectedModel = $event"
               @files="uploadFiles"
               @manage="manageComposer"
@@ -736,7 +728,6 @@ async function stop() {
             @capabilities="composerCapabilities = $event"
             @send="send(undefined, $event)"
             @stop="stop"
-            @update:cli="chooseCli"
             @update:selected-model="selectedModel = $event"
             @files="uploadFiles"
             @manage="manageComposer"

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Aristotle from '../coresearch/Aristotle.vue';
 import Icon from '../../ui/Icon.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
 import CapabilityList from './settings/library/CapabilityList.vue';
 import { useSkillLibrary, useConnectorLibrary, useWorkspaceMCPServers } from '../../api/library';
 import { backendLabel } from '../../lib/backends';
@@ -290,7 +291,12 @@ async function logOut() {
             </button>
           </div>
           <div v-for="r in runtimes.data.value ?? []" :key="r.id" class="runtime-row">
-            <span>{{ r.harness === 'claude' ? '✳' : '◎' }}</span>
+            <span
+              ><CliIcon
+                v-if="r.harness === 'claude' || r.harness === 'codex'"
+                :cli="r.harness"
+              /><template v-else>{{ r.harness[0] }}</template></span
+            >
             <div>
               {{ backendLabel(r.harness)
               }}<small

@@ -81,12 +81,16 @@ async function sendReply() {
   }
 }
 const name = computed(() => agentDisplayName(props.run.agent_name || roleLabel(props.run.role)));
+function replyAuthor(item: Comment) {
+  const member = members.data.value?.find((m) => m.user_id === item.author_id);
+  return member?.name || member?.email || 'Unknown colleague';
+}
 function replyStatus(item: Comment) {
   if (item.delivery) return deliveryLine(item.delivery, { working: active.value, who: name.value });
   if (!item.steer_attempt || !active.value || item.steer_attempt !== props.run.attempt)
-    return 'Saved as a study comment';
+    return '';
   return props.run.harness === 'codex'
-    ? 'Saved as a study comment; live steering is unavailable for Codex'
+    ? 'Live steering is unavailable for Codex'
     : `Waiting to reach ${name.value}`;
 }
 const state = computed(
@@ -165,6 +169,32 @@ const lastActive = computed(
           {{ studyCard.data.value.machine_notice }}
         </p>
       </div>
+      <div v-if="replies?.length" class="run-replies">
+        <div v-for="item in replies" :key="item.id" class="run-reply">
+          <span class="avatar reply-avatar">{{ replyAuthor(item)[0] }}</span>
+          <div class="reply-content">
+            <div class="reply-heading">
+              <b>{{ replyAuthor(item) }}</b>
+              <time :datetime="item.created_at" :title="new Date(item.created_at).toLocaleString()">{{
+                timeAgo(item.created_at)
+              }}</time>
+            </div>
+            <p>{{ item.body }}</p>
+            <small v-if="replyStatus(item)">{{ replyStatus(item) }}</small>
+          </div>
+          <button
+            v-if="item.author_id === authorId"
+            type="button"
+            class="reply-remove"
+            aria-label="Remove comment"
+            :title="item.delivery ? 'Remove comment (already delivered)' : 'Remove comment'"
+            :disabled="!!cancellingComment"
+            @click="emit('cancelComment', item.id)"
+          >
+            <Icon name="trash" :size="15" />
+          </button>
+        </div>
+      </div>
       <form class="reply-composer" :aria-label="`Reply to ${name}`" @submit.prevent="sendReply">
         <span class="avatar reply-avatar" aria-hidden="true">{{ authorInitial || '?' }}</span>
         <textarea
@@ -193,30 +223,7 @@ const lastActive = computed(
         This reply will be saved as a study comment.
       </p>
     </article>
-    <div v-if="replies?.length" class="run-replies">
-      <div v-for="item in replies" :key="item.id" class="run-reply">
-        <span class="avatar reply-avatar">{{
-          (members.data.value?.find((m) => m.user_id === item.author_id)?.name ||
-            members.data.value?.find((m) => m.user_id === item.author_id)?.email ||
-            '?')[0]
-        }}</span>
-        <div>
-          <p>{{ item.body }}</p>
-          <small>{{ replyStatus(item) }}</small>
-        </div>
-        <button
-          v-if="item.author_id === authorId"
-          type="button"
-          class="reply-remove"
-          aria-label="Remove comment"
-          :title="item.delivery ? 'Remove comment (already delivered)' : 'Remove comment'"
-          :disabled="!!cancellingComment"
-          @click="emit('cancelComment', item.id)"
-        >
-          <Icon name="trash" :size="15" />
-        </button>
-      </div>
-    </div>
+
   </section>
 </template>
 <style scoped>
@@ -319,19 +326,31 @@ const lastActive = computed(
   font-size: 12px;
 }
 .run-replies {
-  display: grid;
-  gap: 12px;
-  margin-top: 12px;
+  margin: 14px -16px 0;
 }
 .run-reply {
   display: flex;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  box-shadow: 0 1px 2px #00000014;
-  background: #ffffff16;
+  border-top: 1px solid var(--border);
   overflow-wrap: anywhere;
+}
+.run-replies + .reply-composer {
+  margin-top: 0;
+}
+.reply-content {
+  min-width: 0;
+}
+.reply-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+.reply-heading time {
+  color: var(--muted);
 }
 .run-reply p {
   margin: 0;

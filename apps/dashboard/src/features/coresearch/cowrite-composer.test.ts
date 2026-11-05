@@ -266,8 +266,6 @@ describe('Cowrite composer', () => {
     await m.click('Add');
     await m.click('Template');
     await m.click('NeurIPS');
-    await m.click('CLI and model: Claude Code · Default (recommended)');
-    await m.click('Large — More capacity');
     await m.edit('A new paper');
     await m.click('Start paper');
     const sent = fetch.mock.calls.find((c) => c[1].method === 'POST')!;
@@ -276,7 +274,6 @@ describe('Cowrite composer', () => {
       body: 'A new paper',
       mode: 'cowrite',
       template: 'neurips',
-      model: 'cli-large',
     });
     expect(m.router.currentRoute.value.path).toBe('/coresearch/paper/paper-chat');
   });
@@ -464,7 +461,7 @@ describe('Cowrite composer', () => {
     await m.click('Manage connectors');
     expect(m.router.currentRoute.value.fullPath).toBe('/settings?tab=connectors');
   });
-  it('uses a fresh request id after a model change and retains the exact id for an unchanged retry', async () => {
+  it('retains the exact request id for unchanged retries', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);
     const m = await mount();
@@ -473,11 +470,8 @@ describe('Cowrite composer', () => {
     await m.click('Send');
     const body = (index: number) => JSON.parse(fetch.mock.calls[index]![1].body);
     expect(body(0).request_id).toBe(body(1).request_id);
-    await m.click('CLI and model: Claude Code · Default (recommended)');
-    await m.click('Large — More capacity');
     await m.click('Send');
-    expect(body(2).request_id).not.toBe(body(1).request_id);
-    expect(body(2).model).toBe('cli-large');
+    expect(body(2).request_id).toBe(body(1).request_id);
   });
   it('keeps a failed acceptance request id through the Manage Settings roundtrip', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
