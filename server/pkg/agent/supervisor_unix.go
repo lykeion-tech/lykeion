@@ -34,13 +34,14 @@ type processOwner struct {
 // written through what stands there; mv replaces a link at the marker itself.
 const supervisorScript = `nonce=$1
 marker=$2
-shift 2
-if ! IFS= read -r permit <&3; then exit 125; fi
-exec 3<&-
-exec 4<&0
-"$@" <&4 4<&- &
+gate=$3
+shift 3
+if ! IFS= read -r permit <&"$gate"; then exit 125; fi
+eval "exec ${gate}<&-"
+eval "exec ${gate}<&0"
+eval '"$@" <&'"$gate"' '"$gate"'<&- &'
 child=$!
-exec 4<&-
+eval "exec ${gate}<&-"
 wait "$child"
 result=$?
 (umask 077; /bin/rm -f -- "$marker.tmp" && set -C && printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
@@ -50,6 +51,10 @@ kill -STOP $$
 func supervised(ctx context.Context, original *exec.Cmd) (*exec.Cmd, *os.File, *os.File, string, error) {
 	if original.Err != nil {
 		return nil, nil, nil, "", original.Err
+	}
+	// Portable /bin/sh implementations only support single-digit descriptors.
+	if len(original.ExtraFiles) > 6 {
+		return nil, nil, nil, "", errors.New("too many inherited descriptors for agent supervisor")
 	}
 	candidate := original.Path
 	if !filepath.IsAbs(candidate) && strings.ContainsRune(candidate, os.PathSeparator) {
@@ -76,11 +81,11 @@ func supervised(ctx context.Context, original *exec.Cmd) (*exec.Cmd, *os.File, *
 	if err != nil {
 		return nil, nil, nil, "", err
 	}
-	args := []string{"-c", supervisorScript, "lykeion-agent", nonce, marker, original.Path}
+	args := []string{"-c", supervisorScript, "lykeion-agent", nonce, marker, strconv.Itoa(3 + len(original.ExtraFiles)), original.Path}
 	args = append(args, original.Args[1:]...)
 	cmd := exec.CommandContext(ctx, "/bin/sh", args...)
 	cmd.Dir, cmd.Env, cmd.Stdin = original.Dir, original.Env, original.Stdin
-	cmd.ExtraFiles = []*os.File{reader}
+	cmd.ExtraFiles = append(append([]*os.File(nil), original.ExtraFiles...), reader)
 	return cmd, reader, writer, nonce, nil
 }
 func recordProcess(cmd *exec.Cmd, nonce string) error {

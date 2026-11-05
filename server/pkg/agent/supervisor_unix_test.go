@@ -10,12 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/processidentity"
 )
 
@@ -36,6 +38,7 @@ echo '{"type":"result","is_error":false}'`)
 		t.Fatal("descendant survived completed CLI")
 	}
 }
+
 func TestSupervisorStatusCannotOverrideProtocolOrExitFailure(t *testing.T) {
 	for _, body := range []string{`echo '{"type":"result","is_error":false}';exit 7`, `exit 0`, `echo '{"type":"result","is_error":true,"result":"provider refused"}'`} {
 		sess, err := (Claude{Bin: script(t, body)}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
@@ -84,6 +87,7 @@ func TestRecoveryRefusesReusedProcessIdentity(t *testing.T) {
 		t.Fatalf("unrelated reused PID signalled: %v", err)
 	}
 }
+
 func TestLaunchGatePreventsUnjournaledCLI(t *testing.T) {
 	dir := t.TempDir()
 	launched := filepath.Join(dir, "launched")
@@ -108,6 +112,136 @@ func TestLaunchGatePreventsUnjournaledCLI(t *testing.T) {
 	}
 	if _, err := os.Stat(launched); !os.IsNotExist(err) {
 		t.Fatal("CLI ran before ownership gate")
+	}
+}
+
+func TestSupervisorPreservesCallerDescriptors(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.CreateTemp(dir, "caller-fd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("synthetic config"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.CreateTemp(dir, "caller-second-fd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if _, err := second.WriteString("second descriptor"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	result := filepath.Join(dir, "received")
+	original := exec.Command("/bin/sh", "-c", "cat <&3 > \"$1\"; cat <&4 >> \"$1\"; cat >> \"$1\"", "fixture", result)
+	original.Dir = dir
+	original.ExtraFiles = []*os.File{f, second}
+	original.Stdin = strings.NewReader("stdin intact")
+	cmd, gateRead, gateWrite, nonce, err := supervised(t.Context(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateRead.Close()
+	defer gateWrite.Close()
+	if err := configureProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordProcess(cmd, nonce); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if _, err := gateWrite.WriteString("go\n"); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	waitErr := waitSupervised(cmd, nonce)
+	if err := supervisorExit(cmd, nonce, waitErr); err != nil {
+		t.Fatalf("supervisor failed: %v", err)
+	}
+	got, err := os.ReadFile(result)
+	if err != nil || string(got) != "synthetic configsecond descriptorstdin intact" {
+		t.Fatalf("caller descriptor lost: %q, %v", got, err)
+	}
+}
+
+func TestSupervisorRejectsTooManyDescriptorsWithoutClosingCallerFiles(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	original := exec.Command("/bin/true")
+	original.ExtraFiles = []*os.File{f, f, f, f, f, f, f}
+	_, _, _, _, err = supervised(t.Context(), original)
+	if err == nil {
+		t.Fatal("too many descriptors accepted")
+	}
+	if _, err := f.Stat(); err != nil {
+		t.Fatalf("caller descriptor closed: %v", err)
+	}
+}
+
+func TestSupervisorPreservesLinuxSeccompDescriptor(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux Bubblewrap only")
+	}
+	if err := sandbox.Check(t.Context()); err != nil {
+		t.Skipf("sandbox unavailable: %v", err)
+	}
+	home := t.TempDir()
+	run := filepath.Join(home, "run")
+	if err := os.Mkdir(run, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := sandbox.Policy{Home: home, Write: []string{run}, NoNetwork: true}
+	original, err := p.Command(t.Context(), "/bin/sh", "-c", "echo ok > result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sandbox.CloseCommand(original)
+	original.Dir = run
+	if len(original.ExtraFiles) != 1 {
+		t.Fatalf("expected seccomp fd, got %d", len(original.ExtraFiles))
+	}
+	cmd, r, w, nonce, err := supervised(t.Context(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if err := configureProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordProcess(cmd, nonce); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString("go\n"); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if err := supervisorExit(cmd, nonce, waitSupervised(cmd, nonce)); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(run, "result")); err != nil || string(data) != "ok\n" {
+		t.Fatalf("sandbox command failed: %q, %v", data, err)
 	}
 }
 func TestRetentionLimitPreservesCurrentRecord(t *testing.T) {

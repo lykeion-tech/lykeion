@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,8 @@ func collect(t *testing.T, s *Session) ([]Message, Result) {
 
 func TestClaudeStreamJSON(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
-	bin := script(t, `printf '%s\n' "$@" > `+args+`
+	mcp := filepath.Join(t.TempDir(), "mcp")
+	bin := script(t, `printf '%s\n' "$@" > `+args+`; while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(mcp)+`; break; fi; shift; done
 cat <<'EOF'
 {"type":"system","subtype":"init","session_id":"s1"}
 {"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Searching."},{"type":"tool_use","id":"toolu_1","name":"mcp__lyk_sources__search_literature","input":{"q":"x"}}]}}
@@ -101,7 +103,7 @@ EOF`)
 			t.Errorf("claude args missing %q", want)
 		}
 	}
-	cfg, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
+	cfg, _ := os.ReadFile(mcp)
 	if !strings.Contains(string(cfg), "Bearer door-abc") || strings.Contains(string(cfg), "ltk_abc") || !strings.Contains(string(cfg), `"type":"http"`) {
 		t.Fatalf("mcp config: %s", cfg)
 	}
@@ -1208,13 +1210,14 @@ func TestClaudeReadsOnlyItsFolders(t *testing.T) {
 func TestClaudeWaitsForTheDoorsScriptLimit(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		dir := t.TempDir()
-		s, err := Claude{Bin: script(t, "exit 0")}.Execute(context.Background(), "p",
+		mcp := filepath.Join(t.TempDir(), "mcp")
+		s, err := Claude{Bin: script(t, `while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(mcp)+`; break; fi; shift; done`)}.Execute(context.Background(), "p",
 			ExecOptions{Sandbox: testSandbox, Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		collect(t, s)
-		raw, _ := os.ReadFile(filepath.Join(dir, ".lyk-mcp.json"))
+		raw, _ := os.ReadFile(mcp)
 		var cfg struct {
 			MCPServers map[string]struct {
 				Timeout int64 `json:"timeout"`
@@ -1334,7 +1337,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0}}'`)}
 func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	args := filepath.Join(t.TempDir(), "args")
 	mcp := filepath.Join(t.TempDir(), "mcp")
-	s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args+`; cat .lyk-mcp.json > `+mcp)}.Execute(context.Background(), "p",
+	s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args+`; while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(mcp)+`; break; fi; shift; done`)}.Execute(context.Background(), "p",
 		ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "d"})
 	if err != nil {
 		t.Fatal(err)
@@ -1373,5 +1376,59 @@ func TestClaudeStudyRunIsIsolated(t *testing.T) {
 	b, _ := os.ReadFile(mcp)
 	if json.Unmarshal(b, &cfg) != nil || len(cfg.MCPServers) != 1 || cfg.MCPServers["lyk_door"] == nil {
 		t.Fatalf("MCP config: %s", b)
+	}
+}
+
+func TestClaudeMCPConfigDoesNotPublishInRunFolder(t *testing.T) {
+	dir := t.TempDir()
+	captured := filepath.Join(t.TempDir(), "config")
+	bin := script(t, `while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(captured)+`; break; fi; shift; done
+ echo '{"type":"result","is_error":false}'`)
+	s, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: dir, DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "synthetic-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, result := collect(t, s)
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	data, err := os.ReadFile(captured)
+	if err != nil || !strings.Contains(string(data), "synthetic-secret") {
+		t.Fatalf("config unavailable: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".lyk-mcp.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("MCP config published in run directory: %v", err)
+	}
+}
+
+func TestClaudeMCPDescriptorIsImmutable(t *testing.T) {
+	bin := script(t, `while [ "$#" -gt 0 ]; do
+ if [ "$1" = --mcp-config ]; then shift; if (printf bad > "$1") 2>/dev/null; then exit 21; fi; break; fi
+ shift
+done
+echo '{"type":"result","is_error":false}'`)
+	s, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "synthetic-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, result := collect(t, s)
+	if result.Err != nil {
+		t.Fatalf("MCP descriptor not immutable: %v", result.Err)
+	}
+}
+
+func TestClaudeMCPConfigCanBeReadTwice(t *testing.T) {
+	bin := script(t, `while [ "$#" -gt 0 ]; do
+ if [ "$1" = --mcp-config ]; then shift; grep -q synthetic-secret "$1" || exit 21; grep -q synthetic-secret "$1" || exit 22; break; fi
+ shift
+done
+echo '{"type":"result","is_error":false}'`)
+	s, err := (Claude{Bin: bin}).Execute(t.Context(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), DoorURL: "http://127.0.0.1:1/mcp", DoorToken: "synthetic-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, result := collect(t, s)
+	if result.Err != nil {
+		t.Fatalf("repeated MCP reads failed: %v", result.Err)
 	}
 }

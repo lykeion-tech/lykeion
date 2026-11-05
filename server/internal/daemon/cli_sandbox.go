@@ -65,6 +65,18 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 		}
 		p = sandbox.Policy{StrictRead: true, Home: home, Write: []string{cache, cli.ConfigHome}, Blocked: cli.Blocked}
 	}
+	if cli.MCPConfig != "" {
+		dir := filepath.Dir(cli.MCPConfig)
+		if runtime.GOOS != "darwin" || filepath.Dir(dir) != "/private/tmp" || !strings.HasPrefix(filepath.Base(dir), "lyk-mcp-") || filepath.Base(cli.MCPConfig) != "config.json" {
+			return p, errors.New("invalid private MCP configuration path")
+		}
+		di, de := os.Lstat(dir)
+		fi, fe := os.Lstat(cli.MCPConfig)
+		if de != nil || fe != nil || !di.IsDir() || di.Mode().Perm() != 0700 || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0400 {
+			return p, errors.New("invalid private MCP configuration")
+		}
+		p.Read = append(p.Read, cli.MCPConfig)
+	}
 	if err = os.MkdirAll(cache, 0700); err != nil {
 		return p, err
 	}

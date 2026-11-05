@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,8 @@ func TestCoresearchUsesProviderDefaultAndSourcesOnly(t *testing.T) {
 			t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 			t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 			args := filepath.Join(t.TempDir(), "args")
-			bin := script(t, `printf '%s\n' "$@" > `+args+`
+			mcp := filepath.Join(t.TempDir(), "mcp")
+			bin := script(t, `printf '%s\n' "$@" > `+args+`; while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(mcp)+`; break; fi; shift; done
 read -r line || true
 `)
 			o := ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox, Coresearch: true, SourcesURL: "http://localhost/mcp/sources", MCPToken: "ltk_secret", Model: "must-not-use"}
@@ -47,7 +49,7 @@ read -r line || true
 				t.Fatalf("Codex config isolation missing: %s", text)
 			}
 			if h == "claude" {
-				raw, e = os.ReadFile(filepath.Join(o.Dir, ".lyk-mcp.json"))
+				raw, e = os.ReadFile(mcp)
 				if e != nil {
 					t.Fatal(e)
 				}
@@ -66,7 +68,8 @@ func TestCoresearchSelectedConnectorDoorIsConfigured(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), ".codex"))
 			args := filepath.Join(t.TempDir(), "args")
-			bin := script(t, `printf '%s\n' "$@" > `+args+`
+			mcp := filepath.Join(t.TempDir(), "mcp")
+			bin := script(t, `printf '%s\n' "$@" > `+args+`; while [ "$#" -gt 0 ]; do if [ "$1" = --mcp-config ]; then shift; cat "$1" > `+strconv.Quote(mcp)+`; break; fi; shift; done
 read -r line || true
 `)
 			o := ExecOptions{Dir: t.TempDir(), Sandbox: testSandbox, Coresearch: true, SourcesURL: "http://localhost/sources", DoorURL: "http://localhost/door", DoorToken: "door-secret"}
@@ -83,7 +86,7 @@ read -r line || true
 			<-session.Done
 			path := args
 			if harness == "claude" {
-				path = filepath.Join(o.Dir, ".lyk-mcp.json")
+				path = mcp
 			}
 			raw, err := os.ReadFile(path)
 			if err != nil {

@@ -35,7 +35,11 @@ const (
 	// sandbox, with the door as its MCP server and no person's token.
 	isolatedHello = `case "$LYK_TOKEN" in lyk_*) exit 8;; esac
 [ -z "$LYK_DOOR_TOKEN" ] || exit 7
-grep -q lyk_door .lyk-mcp.json || exit 6
+for arg do
+  if [ "$prev" = --mcp-config ]; then grep -q lyk_door "$arg" || exit 6; found=1; break; fi
+  prev="$arg"
+done
+[ "$found" = 1 ] || exit 6
 touch "$HOME/escaped" 2>/dev/null && exit 9
 IFS= read -r first
 `

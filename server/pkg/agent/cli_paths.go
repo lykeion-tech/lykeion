@@ -18,8 +18,10 @@ type CLIPaths struct {
 	Scratch string
 	// ConfigHome identifies the account store behind these state grants.
 	ConfigHome string
-	Write      []string
-	WriteData  []string
+	// MCPConfig is the private, read-only Claude configuration file.
+	MCPConfig string
+	Write     []string
+	WriteData []string
 	// WriteFiles permits creation and replacement of these exact filenames.
 	WriteFiles []string
 	// LockDirs are exact lock folders the CLI creates and removes.

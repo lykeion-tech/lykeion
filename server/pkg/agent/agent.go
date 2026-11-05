@@ -302,9 +302,15 @@ func run(ctx context.Context, cmd *exec.Cmd, cleanup scratchCleanup, parse parse
 			emitErr = errors.Join(emitErr, err)
 		}
 		if emitErr != nil {
-			res.Err, res.Reason = emitErr, ReasonAgentError
+			if !errors.Is(res.Err, emitErr) {
+				res.Err = errors.Join(res.Err, emitErr)
+			}
+			res.Reason = ReasonAgentError
 		} else if ctx.Err() != nil {
-			res.Err, res.Reason = ctx.Err(), ReasonRuntimeOffline
+			if !errors.Is(res.Err, ctx.Err()) {
+				res.Err = errors.Join(res.Err, ctx.Err())
+			}
+			res.Reason = ReasonRuntimeOffline
 		}
 		cleanup(true)
 		if res.Err != nil {

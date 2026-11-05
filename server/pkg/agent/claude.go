@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -82,7 +84,7 @@ func (c Claude) Execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	return c.execute(ctx, prompt, o)
 }
 
-func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
+func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (session *Session, resultErr error) {
 	if o.Coresearch && !o.Aristotle {
 		o.Model = ""
 	}
@@ -105,22 +107,56 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		cleanup(true)
 		return nil, err
 	}
-	cfg := filepath.Join(o.Dir, ".lyk-mcp.json")
-	// Replace only the adapter's prior file; never follow a planted link.
-	exists, err := regularFileExists(cfg)
+	cfg, err := mcpDescriptor(claudeMCP(o))
 	if err != nil {
 		cleanup(true)
 		return nil, err
 	}
-	if exists {
-		if err = os.Remove(cfg); err != nil {
+	defer cfg.Close()
+	const cfgArg = "LYKEION_MCP_FD_PATH"
+	retireConfig := func() error { return nil }
+	if runtime.GOOS == "darwin" {
+		o.CLIPaths.MCPConfig = cfg.Name()
+		fileInfo, statErr := cfg.Stat()
+		dir := filepath.Dir(cfg.Name())
+		dirInfo, dirErr := os.Lstat(dir)
+		if statErr != nil || dirErr != nil {
 			cleanup(true)
-			return nil, err
+			return nil, errors.Join(statErr, dirErr, errors.New("private MCP configuration retained because identity could not be verified"))
 		}
-	}
-	if err = privateFile(cfg, claudeMCP(o)); err != nil {
-		cleanup(true)
-		return nil, err
+		var once sync.Once
+		var retireErr error
+		retireConfig = func() error {
+			once.Do(func() {
+				currentDir, err := os.Lstat(dir)
+				if err != nil || !os.SameFile(currentDir, dirInfo) {
+					retireErr = errors.Join(errors.New("private MCP directory changed or unavailable"), err)
+					return
+				}
+				current, err := os.Lstat(cfg.Name())
+				if err != nil || !os.SameFile(current, fileInfo) {
+					retireErr = errors.Join(errors.New("private MCP configuration changed or unavailable"), err)
+					return
+				}
+				if err = os.Remove(cfg.Name()); err == nil {
+					err = os.Remove(dir)
+				}
+				retireErr = err
+			})
+			return retireErr
+		}
+		defer func() {
+			if session == nil {
+				resultErr = errors.Join(resultErr, retireConfig())
+			}
+		}()
+		previous := cleanup
+		cleanup = func(release bool) {
+			if release {
+				_ = retireConfig()
+			}
+			previous(release)
+		}
 	}
 	mode := "dontAsk"
 	if !o.ReadOnly {
@@ -190,7 +226,7 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 	if o.Coresearch {
 		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
 	}
-	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfg, "--strict-mcp-config", "--settings", settings})
+	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfgArg, "--strict-mcp-config", "--settings", settings})
 	if o.Lab {
 		// Retain the CLI restrictions, while recognizing that managed settings
 		// may override configuration and hooks outside these command-line controls.
@@ -236,6 +272,24 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 		cleanup(true)
 		return nil, err
 	}
+	fdPath := "/dev/fd/" + strconv.Itoa(3+len(cmd.ExtraFiles))
+	if runtime.GOOS == "darwin" {
+		fdPath = cfg.Name()
+	}
+	found := false
+	for i, arg := range cmd.Args {
+		if arg == cfgArg {
+			cmd.Args[i] = fdPath
+			found = true
+		}
+	}
+	if !found {
+		cleanup(true)
+		return nil, errors.New("sandbox did not preserve MCP configuration argument")
+	}
+	if runtime.GOOS != "darwin" {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, cfg)
+	}
 	stdin, w, err := os.Pipe()
 	if err != nil {
 		cleanup(true)
@@ -272,7 +326,13 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (*Ses
 			}
 		}()
 	}
-	finish := func(res *Result, _ emitMessage) { in.close(); accounting.finish(res) }
+	finish := func(res *Result, _ emitMessage) {
+		in.close()
+		accounting.finish(res)
+		if err := retireConfig(); err != nil {
+			res.Err = errors.Join(res.Err, fmt.Errorf("retire private MCP configuration: %w", err))
+		}
+	}
 	sess, err := run(ctx, cmd, cleanup, parseClaude(o.Model, o.Resume, accounting, in), finish, o.OnMessage)
 	// The child holds its own copy of the read end once started.
 	stdin.Close()
