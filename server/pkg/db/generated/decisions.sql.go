@@ -692,6 +692,7 @@ SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $3
+  AND (i.kind <> 'waiting_for_machine' OR jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
   AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
     OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT $4::bool)
