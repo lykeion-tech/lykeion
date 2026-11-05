@@ -5,6 +5,7 @@ import Icon from '../../ui/Icon.vue';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import ManualDecisionControls from './ManualDecisionControls.vue';
 import DecisionOptions from './DecisionOptions.vue';
+import DecisionMeta from './DecisionMeta.vue';
 import DecisionFilters from './DecisionFilters.vue';
 import { matchesDecisionFilters } from './decisionFilters';
 import MachineWait from './MachineWait.vue';
@@ -126,6 +127,7 @@ watch(
             <DecisionOptions v-else-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
+          <DecisionMeta v-if="display.kind !== 'manual_decision' && (display.options?.length || display.question_set?.questions?.length)" :item="display" />
           <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>
         </div>
       </article>
