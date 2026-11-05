@@ -167,6 +167,18 @@ const message = (e: unknown, action: string) =>
     ? `Only the machine’s owner can ${action} it.`
     : (e as Error).message;
 const cliName = backendLabel;
+const runtimeProblem = (reason: string) => {
+  const messages: Record<string, string> = {
+    cli_missing: 'Agent CLI is missing',
+    cli_too_old: 'Agent CLI is too old',
+    cli_broken: 'Agent CLI stopped working',
+    sign_in: 'Agent CLI needs sign-in',
+    sandbox: 'Sandbox could not start',
+    door: 'Connection to Lykeion failed',
+    fence_breach: 'Evidence isolation failed',
+  };
+  return messages[reason] ?? 'Runtime check failed';
+};
 const owner = (id: string) => {
   const m = members.data.value?.find((x) => x.user_id === id);
   return m ? m.name || m.email : '';
@@ -365,13 +377,17 @@ async function remove(d: Daemon) {
                     >
                   </td>
                   <td>
-                    <span class="machine-health" :class="{ online: r.status === 'online' }"
+                    <span
+                      class="machine-health"
+                      :class="{ online: r.status === 'online' && !r.unhealthy_reason }"
                       ><Icon name="network" :size="12" />{{
-                        r.status === 'online'
-                          ? 'Online'
-                          : r.status === 'offline'
-                            ? 'Offline'
-                            : 'Not reported'
+                        r.unhealthy_reason
+                          ? `${r.status === 'offline' ? 'Offline · ' : ''}Needs attention: ${runtimeProblem(r.unhealthy_reason)}`
+                          : r.status === 'online'
+                            ? 'Online'
+                            : r.status === 'offline'
+                              ? 'Offline'
+                              : 'Not reported'
                       }}</span
                     >
                   </td>

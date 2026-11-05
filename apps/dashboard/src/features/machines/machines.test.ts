@@ -10,6 +10,8 @@ import { keys } from '../../api/keys';
 async function renderMachine(
   sandbox?: string,
   previous?: { sandbox: string; status: 'online' | 'offline' },
+  unhealthyReason?: string,
+  runtimeStatus: 'online' | 'offline' = 'online',
 ) {
   workspaceId.value = 'w';
   const client = new QueryClient({
@@ -22,7 +24,8 @@ async function renderMachine(
       device_name: 'Bench computer',
       custom_name: null,
       owner_id: 'owner',
-      status: 'online',
+      status: runtimeStatus,
+      unhealthy_reason: unhealthyReason,
       harness: 'claude',
       cli_version: '1.0',
       active_runs: 0,
@@ -98,5 +101,17 @@ describe('machine sandbox readiness', () => {
   });
   it.each(['ready', undefined])('shows no failure when sandbox status is %s', async (sandbox) => {
     expect(await renderMachine(sandbox)).not.toContain('run agents:');
+  });
+});
+
+describe('runtime readiness', () => {
+  it('retains offline status when a runtime also has a preflight failure', async () => {
+    const html = await renderMachine(undefined, undefined, 'cli_missing', 'offline');
+    expect(html).toContain('Offline · Needs attention');
+  });
+  it('shows a failed CLI preflight instead of presenting an online runtime as healthy', async () => {
+    const html = await renderMachine(undefined, undefined, 'cli_missing');
+    expect(html).toContain('Needs attention');
+    expect(html).toContain('Agent CLI is missing');
   });
 });
