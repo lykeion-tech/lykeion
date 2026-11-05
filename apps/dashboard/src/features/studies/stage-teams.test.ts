@@ -295,6 +295,7 @@ async function mount(
     await nextTick();
   };
   return {
+    queryClient,
     text: () => textOf(root),
     nodes: () => all(root),
     button,
@@ -1408,7 +1409,7 @@ describe('the one-row New study window', () => {
 });
 
 describe('a study worked by one agent', () => {
-  it('names the agent with No auditor beside it', async () => {
+  it('names the agent without an auditor chip', async () => {
     const t = await mount(
       StudyDetail,
       () => ({ id: 'c' }),
@@ -1418,7 +1419,7 @@ describe('a study worked by one agent', () => {
     try {
       await t.click(/^Properties$/);
       expect(t.text()).toContain('Solo agent');
-      expect(t.text()).toContain('No auditor');
+      expect(t.text()).not.toContain('No auditor');
     } finally {
       t.unmount();
     }
@@ -1444,6 +1445,97 @@ describe('a study worked by one agent', () => {
       t.unmount();
     }
   });
+});
+
+describe('study Properties status', () => {
+  for (const [name, running, state, ending, expected] of [
+    ['idle working study', false, 'working', '', ''],
+    ['active working study', true, 'working', '', 'Working'],
+    ['loading board information', undefined, 'working', '', ''],
+    ['blocked study', false, 'blocked', '', 'Blocked'],
+    ['ending study', true, 'working', 'stopped', 'Stopped'],
+  ] as const) {
+    it(`shows the truthful state for ${name}`, async () => {
+      const t = await mount(
+        StudyDetail,
+        () => ({ id: 'c' }),
+        '/',
+        (client) => {
+          seedStudy(client, { state, ending });
+          if (running !== undefined) {
+            client.setQueryData(keys.cards('w'), [{ id: 'c', agent_running: running }]);
+          }
+        },
+      );
+      try {
+        await t.click(/^Properties$/);
+        const stage = t
+          .nodes()
+          .find((n) => n.props.class === 'property-row' && textOf(n).includes('Stage'))!;
+        expect(stage).toBeTruthy();
+        expect(textOf(stage)).toBe(`StageGrounding${expected}`);
+      } finally {
+        t.unmount();
+      }
+    });
+  }
+
+  it('updates the label when this study starts or finishes, ignoring other studies', async () => {
+    const t = await mount(
+      StudyDetail,
+      () => ({ id: 'c' }),
+      '/',
+      (client) => {
+        seedStudy(client);
+        client.setQueryData(keys.cards('w'), [
+          { id: 'c', agent_running: false, queued: true },
+          { id: 'other', agent_running: true },
+        ]);
+      },
+    );
+    try {
+      await t.click(/^Properties$/);
+      const stage = () =>
+        t.nodes().find((n) => n.props.class === 'property-row' && textOf(n).includes('Stage'))!;
+      expect(textOf(stage())).toBe('StageGrounding');
+      t.queryClient.setQueryData(keys.cards('w'), [{ id: 'c', agent_running: true }]);
+      await nextTick();
+      expect(textOf(stage())).toBe('StageGroundingWorking');
+      t.queryClient.setQueryData(keys.cards('w'), [{ id: 'c', agent_running: false }]);
+      await nextTick();
+      expect(textOf(stage())).toBe('StageGrounding');
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
+it('does not display the machine waiting message under the study title', async () => {
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client);
+      client.setQueryData(keys.runs('w', 'c'), [
+        {
+          id: 'r',
+          card_id: 'c',
+          board_column: 'grounding',
+          round: 1,
+          role: 'leader',
+          status: 'queued',
+          waiting: 'Waiting for the machine to recover',
+          created_at: '2026-10-25T10:00:00Z',
+        },
+      ]);
+    },
+  );
+  try {
+    expect(t.text()).not.toContain('Waiting for the machine to recover');
+  } finally {
+    t.unmount();
+  }
 });
 
 describe('study right-pane surfaces', () => {

@@ -878,7 +878,7 @@ test('study content and composer share a wider measure and only the corner butto
   expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
 });
 
-test('a study one agent works names the agent with No auditor beside it', async ({ page }) => {
+test('a study one agent works names the agent without an auditor chip', async ({ page }) => {
   const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
   const name = `Lone agent ${Date.now()}`;
   const made = await page.request.post('/api/agents', {
@@ -895,7 +895,7 @@ test('a study one agent works names the agent with No auditor beside it', async 
   await openSurface(page, 'Properties');
   const assignee = page.locator('.property-row', { hasText: 'Assignee' });
   await expect(assignee).toContainText(name);
-  await expect(assignee.getByText('No auditor', { exact: true })).toBeVisible();
+  await expect(assignee.getByText('No auditor', { exact: true })).toHaveCount(0);
 
   const teamed = await newStudy(page.request, `Worked by a Team ${Date.now()}?`);
   await page.goto(`/#/studies/${teamed.id}`);

@@ -170,6 +170,16 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
+const propertyStateLabel = computed(() => {
+  const current = c.value;
+  if (!current) return '';
+  if (
+    current.state === 'working' &&
+    !cards.data.value?.find((item) => item.id === current.id)?.agent_running
+  )
+    return '';
+  return stateLabel(current);
+});
 const services = computed(() => c.value?.services ?? []);
 async function download(a: { id: string; name: string }) {
   try {
@@ -302,7 +312,6 @@ const composerHint = computed(() =>
     ? 'Comments do not reopen this study.'
     : composerUnavailable.value,
 );
-const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(
   () => props.citation,
@@ -347,10 +356,6 @@ const assigneeName = computed(() => {
     agents.data.value?.find((a) => a.id === x.assignee_id)?.name ?? 'Unavailable agent',
   );
 });
-// An agent working with no Team has nobody auditing it.
-const worksAlone = computed(
-  () => c.value?.assignee_type === 'agent' && !Object.keys(c.value.teams ?? {}).length,
-);
 let draftRevision = 0;
 watch(
   comment,
@@ -510,7 +515,6 @@ function pin() {
       <div v-if="c" class="transcript-scroll">
         <div class="transcript-content study-content">
           <h1 class="study-title">{{ studyDisplayTitle(c.title) }}</h1>
-          <p v-if="waiting" class="study-waiting" role="status">{{ waiting }}</p>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
             <StudyDescriptionControls
@@ -694,8 +698,8 @@ function pin() {
               <span class="property-icon"
                 ><span class="stage-dot" :class="'status-' + c.board_column" /></span
               >{{ columnName(c.board_column)
-              }}<span v-if="stateLabel(c)" class="chip" :class="'chip-' + c.state">{{
-                stateLabel(c)
+              }}<span v-if="propertyStateLabel" class="chip" :class="'chip-' + c.state">{{
+                propertyStateLabel
               }}</span
               ><span v-if="c.ending" class="chip ending-chip" :class="'chip-' + c.ending">{{
                 endLabel(c)
@@ -717,7 +721,7 @@ function pin() {
                 <template v-for="(team, i) in assignedTeams" :key="team"
                   ><span v-if="i">, </span><TeamName :name="team" /></template></template
               ><template v-else>{{ assigneeName }}</template></span
-            ><span v-if="worksAlone" class="chip">No auditor</span>
+            >
           </div>
           <div v-if="c.workflow" class="property-row">
             <small>Workflow</small>
@@ -1517,12 +1521,6 @@ function pin() {
   line-height: 32px;
   font-weight: 600;
   margin-bottom: 20px;
-  overflow-wrap: anywhere;
-}
-.study-waiting {
-  margin: -12px 0 20px;
-  font-size: 13px;
-  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .study-description {
