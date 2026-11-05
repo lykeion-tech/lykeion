@@ -3,15 +3,23 @@ import type { CommentDelivery } from '../../api/types';
 // Availability is advisory; only a persisted acknowledgement proves delivery.
 export function composerAvailability(
   state: string,
-  runs: readonly { status: string; runtime_id: string | null; cancel_reason?: string | null }[],
+  runs: readonly {
+    status: string;
+    runtime_id: string | null;
+    cancel_reason?: string | null;
+    queue_reason?: string | null;
+  }[],
   runtimes: readonly { id: string; status: string }[],
 ): string {
   if (state !== 'working') return 'This study needs attention before agent work can continue';
-  const latest = runs.at(-1);
+  // A newer member failure does not mean the still-active lead needs recovery.
+  if (runs.some((run) => run.status === 'running' || run.status === 'dispatched')) return '';
+  const latest = [...runs].reverse().find((run) => run.status === 'queued') ?? runs.at(-1);
   if (!latest) return '';
   if (
     latest.status === 'queued' &&
-    runtimes.some((r) => r.id === latest.runtime_id && r.status === 'offline')
+    (latest.queue_reason === 'runtime_offline' ||
+      runtimes.some((r) => r.id === latest.runtime_id && r.status === 'offline'))
   )
     return 'Agent runtime is offline';
   if (latest.status === 'failed') return 'The last agent run failed; waiting for recovery';

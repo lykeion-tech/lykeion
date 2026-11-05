@@ -43,3 +43,28 @@ it('reports known queued-runtime and start failures without guessing availabilit
   );
   expect(composerAvailability('working', [{ status: 'queued', runtime_id: null }], [])).toBe('');
 });
+
+it('reports the server offline reason before a queued run is bound to a runtime', () => {
+  expect(
+    composerAvailability(
+      'working',
+      [{ status: 'queued', runtime_id: null, queue_reason: 'runtime_offline' }],
+      [],
+    ),
+  ).toBe('Agent runtime is offline');
+});
+
+it('prioritizes an active lead over a newer member failure without claiming delivery', () => {
+  const unavailable = composerAvailability(
+    'working',
+    [
+      { status: 'running', runtime_id: 'leader-runtime' },
+      { status: 'failed', runtime_id: 'member-runtime' },
+    ],
+    [],
+  );
+  expect(unavailable).toBe('');
+  expect(deliveryLine(null, { working: true, unavailable })).toBe(
+    'Waiting for an eligible agent run',
+  );
+});
