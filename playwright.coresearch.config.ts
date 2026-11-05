@@ -10,6 +10,7 @@ export default defineConfig({
     'coresearch-files.spec.ts',
     'coresearch-final.spec.ts',
     'aristotle.spec.ts',
+    'aristotle-bootstrap-banner.spec.ts',
   ],
   workers: 1,
   retries: 0,
@@ -17,6 +18,9 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     browserName: 'chromium',
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+      : undefined,
     permissions: ['clipboard-read', 'clipboard-write'],
   },
   webServer: {

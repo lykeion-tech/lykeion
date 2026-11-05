@@ -669,18 +669,6 @@ onUnmounted(() => {
         <Icon name="refresh" :size="28" /><span>Loading workspace…</span>
       </div>
       <template v-else>
-        <p
-          v-if="
-            aristotle.bootstrap.error.value &&
-            !aristotleShell &&
-            !['studies', 'my-studies'].includes(current ?? '')
-          "
-          class="bootstrap-error"
-          role="alert"
-        >
-          {{ aristotle.bootstrap.error.value.message }}
-          <button @click="aristotle.bootstrap.refetch()">Try again</button>
-        </p>
         <RouterView />
         <RouterView v-if="cardId" name="detail" @close="go(current ?? 'studies')" />
       </template>
@@ -1042,11 +1030,6 @@ onUnmounted(() => {
   .aristotle-shell .rail-fabs {
     left: 8px;
   }
-}
-.bootstrap-error {
-  padding: 10px 20px;
-  font-size: 13px;
-  color: var(--muted);
 }
 </style>
 
