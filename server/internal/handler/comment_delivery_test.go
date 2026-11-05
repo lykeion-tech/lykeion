@@ -577,7 +577,20 @@ func TestLaunchFiltersCommentReservedByAnotherRun(t *testing.T) {
 	}
 }
 
+// Seed historical inputs without firing OnComment: these tests rewind schema
+// state and must not launch asynchronous scheduling against that temporary DDL.
+func (l *teamLab) legacyPromptComment(t *testing.T, body string) string {
+	t.Helper()
+	var id string
+	if err := l.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO comment(workspace_id,card_id,author_id,body) SELECT workspace_id,id,owner_id,$2 FROM card WHERE id=$1 RETURNING id`, l.card.ID, body).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 // Recreate the pre-0062 enqueue receipt state, then apply the actual migration.
+// Historical inputs are seeded without asynchronous scheduling above; bound
+// DDL lock waits as a guard against accidentally introducing concurrent work.
 func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...string) {
 	t.Helper()
 	down, err := fs.ReadFile(migrations.FS, "0062_comment_reservations.down.sql")
@@ -593,6 +606,9 @@ func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...st
 		t.Fatal(err)
 	}
 	defer tx.Rollback(t.Context())
+	if _, err = tx.Exec(t.Context(), "SET LOCAL lock_timeout = '5s'"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = tx.Exec(t.Context(), string(down)); err != nil {
 		t.Fatal(err)
 	}
@@ -611,8 +627,8 @@ func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...st
 
 func TestMigratedCommentPromptFiltersCancellationBeforeLaunch(t *testing.T) {
 	l, leader := groundingLab(t)
-	keep := l.comment(t, "Please - use controls")
-	cancelled := l.comment(t, "use controls")
+	keep := l.legacyPromptComment(t, "Please - use controls")
+	cancelled := l.legacyPromptComment(t, "use controls")
 	code, queued := l.ask(t, leader.token, "member-1", "Find papers.")
 	if code != 201 {
 		t.Fatalf("ask %d", code)
@@ -646,8 +662,8 @@ func TestMigratedCommentPromptFiltersCancellationBeforeLaunch(t *testing.T) {
 
 func TestAmbiguousMigratedCommentDoesNotBlockOtherStudies(t *testing.T) {
 	l, leader := groundingLab(t)
-	first := l.comment(t, "Identical text")
-	second := l.comment(t, "Identical text")
+	first := l.legacyPromptComment(t, "Identical text")
+	second := l.legacyPromptComment(t, "Identical text")
 	code, queued := l.ask(t, leader.token, "member-1", "Find papers.")
 	if code != 201 {
 		t.Fatal(code)
