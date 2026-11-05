@@ -1686,6 +1686,35 @@ it('does not describe a stopped study as a Done Jev review', async () => {
   }
 });
 
+it('omits routine composer guidance while retaining actionable unavailable status', async () => {
+  const normal = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
+  try {
+    expect(normal.text()).not.toContain(
+      'Messages reach the assigned agent or Team leader in an eligible run.',
+    );
+    const comment = normal.nodes().find((n) => n.props['aria-label'] === 'Comment')!;
+    expect(comment.props['aria-describedby']).toBeFalsy();
+  } finally {
+    normal.unmount();
+  }
+
+  const unavailable = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => seedStudy(client, { state: 'blocked' }),
+  );
+  try {
+    expect(unavailable.text()).toContain(
+      'This study needs attention before agent work can continue',
+    );
+    const comment = unavailable.nodes().find((n) => n.props['aria-label'] === 'Comment')!;
+    expect(comment.props['aria-describedby']).toBe('study-composer-hint');
+  } finally {
+    unavailable.unmount();
+  }
+});
+
 it('shows closed-study guidance and keeps the composer draft after a failed send', async () => {
   const posted: string[] = [];
   vi.stubGlobal('fetch', async (_path: string, init?: RequestInit) => {

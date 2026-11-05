@@ -300,8 +300,7 @@ const composerUnavailable = computed(() =>
 const composerHint = computed(() =>
   c.value?.state === 'done' || !!c.value?.ending
     ? 'Comments do not reopen this study.'
-    : composerUnavailable.value ||
-      'Messages reach the assigned agent or Team leader in an eligible run.',
+    : composerUnavailable.value,
 );
 const waiting = computed(() => agentRuns.value.find((r) => r.waiting)?.waiting ?? '');
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
@@ -631,13 +630,15 @@ function pin() {
       </div>
       <div v-if="c && !c.ending" class="pinned-composer">
         <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
-        <p id="study-composer-hint" class="type-caption" role="status">{{ composerHint }}</p>
+        <p v-if="composerHint" id="study-composer-hint" class="type-caption" role="status">
+          {{ composerHint }}
+        </p>
         <form class="study-comment" @submit.prevent="submitComposer">
           <textarea
             v-model="comment"
             placeholder="Leave a comment…"
             aria-label="Comment"
-            aria-describedby="study-composer-hint"
+            :aria-describedby="composerHint ? 'study-composer-hint' : undefined"
             @keydown.meta.enter.prevent="send"
             @keydown.ctrl.enter.prevent="send"
           />
