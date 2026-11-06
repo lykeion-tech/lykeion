@@ -217,8 +217,6 @@ watch(
   },
   { immediate: true },
 );
-// Render the same server evidence above the fingerprint in Experimentation
-// and below the evidence list in other stages.
 const ServerChecks = () =>
   h('section', { class: 'server-checks review-fold' }, [
     h(
@@ -337,7 +335,6 @@ const unlinkedObjections = computed(() =>
       </section>
     </section>
     <template v-else>
-      <ServerChecks v-if="attempt && shown === 'experimentation'" />
       <div class="fingerprint-panel">
         <p v-if="attempt && shown === 'experimentation'" class="warning-caption type-caption">
           Experimentation · warnings only
@@ -573,7 +570,7 @@ const unlinkedObjections = computed(() =>
             </section>
           </template>
         </section>
-        <ServerChecks v-if="attempt && shown !== 'experimentation'" />
+        <ServerChecks v-if="attempt" />
         <section v-if="shown === 'validation'" class="validation-details" aria-label="Validation">
           <h2>Validation</h2>
           <p v-if="objector?.ran === false">{{ objector.reason }}</p>

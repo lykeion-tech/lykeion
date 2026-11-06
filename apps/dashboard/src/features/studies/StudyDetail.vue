@@ -38,7 +38,6 @@ import {
   useCardReview,
   useCards,
   useComments,
-  useKindRecords,
   useMe,
   useMembers,
   useRuns,
@@ -53,7 +52,6 @@ import {
   endLabel,
   stateLabel,
   studyNumber,
-  validationLines,
   transcript,
 } from '../../lib/studies';
 import { feedLine, reviewingLine } from '../../lib/review';
@@ -82,8 +80,6 @@ const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
 const ratings = useCardRatings(() => props.id);
 const review = useCardReview(() => props.id);
-const useStatuses = useKindRecords(() => props.id, 'validation_status');
-const statusLines = computed(() => validationLines(useStatuses.data.value ?? []));
 const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.dismissed));
 const runs = useRuns(() => props.id);
 const members = useMembers();
@@ -514,13 +510,6 @@ function pin() {
             />
           </section>
           <h2 class="activity-heading">Activity</h2>
-          <ul
-            v-if="statusLines.length"
-            class="validation-statuses type-body"
-            aria-label="Validation"
-          >
-            <li v-for="(line, i) in statusLines" :key="i">{{ line }}</li>
-          </ul>
           <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
           <div
             v-for="read in readErrors"

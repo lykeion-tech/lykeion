@@ -1052,6 +1052,42 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   });
 }
 
+it('does not put validation status lines above study activity', async () => {
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client, { state: 'done', board_column: 'validation' });
+      client.setQueryData(
+        [...keys.recordsAll('w', 'c'), 'kind', 'validation_status'],
+        [
+          {
+            id: 'v1',
+            kind: 'validation_status',
+            round: 1,
+            superseded_at: null,
+            body: {
+              final: true,
+              hypothesis: 'A testable hypothesis',
+              status: 'inconclusive',
+              reasons: ['no test reported'],
+            },
+          },
+        ],
+      );
+    },
+  );
+  try {
+    expect(t.nodes().some((n) => n.tag === 'ul' && n.props['aria-label'] === 'Validation')).toBe(
+      false,
+    );
+    expect(t.button(/^Review$/)).toBeTruthy();
+  } finally {
+    t.unmount();
+  }
+});
+
 it('offers stop for an active run when empty and sends a typed comment', async () => {
   const fetch = vi.fn(
     async (path: RequestInfo | URL, init?: RequestInit) =>

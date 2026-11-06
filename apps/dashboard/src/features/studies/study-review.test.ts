@@ -376,7 +376,7 @@ it('opens the server checks when one failed', async () => {
   expect(textOf(root)).toContain('Searched “seedling growth” · 14 found · 6 screened by Jev');
 });
 
-it('puts Experimentation server checks open above the fingerprint and marks warning rows', async () => {
+it('puts the Experimentation fingerprint before open server checks and marks warning rows', async () => {
   const a = grounding();
   a.column = 'experimentation';
   a.items[0]!.checks = [
@@ -387,8 +387,8 @@ it('puts Experimentation server checks open above the fingerprint and marks warn
   await nextTick();
   const nodes = all(root);
   expect(labelled(root, 'Checked by the server').props['aria-expanded']).toBe(true);
-  expect(nodes.indexOf(labelled(root, 'Checked by the server'))).toBeLessThan(
-    nodes.indexOf(nodes.find((n) => n.props.class === 'fingerprint-panel')!),
+  expect(nodes.indexOf(nodes.find((n) => n.props.class === 'fingerprint-panel')!)).toBeLessThan(
+    nodes.indexOf(labelled(root, 'Checked by the server')),
   );
   expect(textOf(root)).toContain('Output was declared');
   await click(labelled(root, 'Checks · evidence'));
