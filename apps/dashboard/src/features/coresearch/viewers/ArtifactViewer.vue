@@ -14,6 +14,7 @@ import NpyViewer from './NpyViewer.vue';
 import SqliteSnapshotViewer from './SqliteSnapshotViewer.vue';
 import FitsViewer from './FitsViewer.vue';
 import CompressedFitsViewer from './CompressedFitsViewer.vue';
+import TiledFitsViewer from './TiledFitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
@@ -118,6 +119,7 @@ watch(
         tiff.value ||
         fits.value ||
         fitsGzip.value ||
+        ext.value === 'fz' ||
         sqlite.value ||
         npy.value ||
         npz.value ||
@@ -161,6 +163,7 @@ watch(
   <NiftiViewer v-else-if="nifti" :blob="blob" :compressed="niftiGzip" />
   <FitsViewer v-else-if="fits" :blob="blob" />
   <CompressedFitsViewer v-else-if="fitsGzip" :blob="blob" />
+  <TiledFitsViewer v-else-if="ext === 'fz'" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />
   <WorkbookViewer v-else-if="ext === 'xlsx'" :blob="blob" />
   <SqliteSnapshotViewer v-else-if="sqlite" :blob="blob" />
