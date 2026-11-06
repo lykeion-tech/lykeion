@@ -308,7 +308,7 @@ const composerUnavailable = computed(() =>
 );
 const composerHint = computed(() =>
   c.value?.state === 'done' || !!c.value?.ending
-    ? 'Comments do not reopen this study.'
+    ? undefined
     : composerUnavailable.value,
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');

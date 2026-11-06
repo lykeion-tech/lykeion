@@ -1807,7 +1807,7 @@ it('omits routine composer guidance while retaining actionable unavailable statu
   }
 });
 
-it('shows closed-study guidance and keeps the composer draft after a failed send', async () => {
+it('hides the closed-study hint and keeps the composer draft after a failed send', async () => {
   const posted: string[] = [];
   vi.stubGlobal('fetch', async (_path: string, init?: RequestInit) => {
     if (init?.method === 'POST') posted.push(String(init.body));
@@ -1822,7 +1822,7 @@ it('shows closed-study guidance and keeps the composer draft after a failed send
     (client) => seedStudy(client, { state: 'done' }),
   );
   try {
-    expect(t.text()).toContain('Comments do not reopen this study.');
+    expect(t.text()).not.toContain('Comments do not reopen this study.');
     await t.fill('Comment', 'Keep this exact draft');
     const form = t.nodes().find((n) => n.tag === 'form' && n.props.class === 'study-comment')!;
     await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
