@@ -5,6 +5,17 @@ self.onmessage = async (event: MessageEvent<string>) => {
   try {
     const input = inchiRecord(event.data);
     if (!input) return self.postMessage(null);
+    if (/\/b\d+-\d+[+-]$/.test(input)) {
+      const [{ geometricMolfileCandidates }, kit] = await Promise.all([
+        import('./inchi-stereo'),
+        loadCappedRdkit(),
+      ]);
+      const candidates = await geometricMolfileCandidates(input);
+      const matches = candidates
+        .map((molfile) => depictInchi(kit, molfile, input, true))
+        .filter((svg): svg is string => !!svg);
+      return self.postMessage(matches.length === 1 ? matches[0] : null);
+    }
     let molfile: string | undefined;
     if (/\/t[^/]+\/m[01]\/s1$/.test(input)) {
       const { tetrahedralMolfile } = await import('./inchi-stereo');

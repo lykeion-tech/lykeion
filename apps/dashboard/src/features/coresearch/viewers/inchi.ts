@@ -3,6 +3,7 @@ interface Molecule {
   is_valid(): boolean;
   get_num_atoms(): number;
   get_inchi(): string;
+  get_molblock?(): string;
   set_new_coords(): unknown;
   get_svg(): string;
   delete(): void;
@@ -12,8 +13,9 @@ export function inchiRecord(text: string): string | undefined {
   const value = text.trim();
   if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value)) return;
   if (!/\/[btms]/.test(value)) return value;
-  // Only absolute tetrahedral stereo is currently reconstructed. Geometric,
-  // isotopic and relative/racemic stereo remain unavailable.
+  // Permit one absolute geometric bond, or absolute tetrahedral stereo.
+  // Mixed, multiple-bond, isotopic and relative/racemic stereo remain unavailable.
+  if (!/\/[itms]/.test(value) && /\/b\d+-\d+[+-]$/.test(value)) return value;
   return !/\/[bi]/.test(value) && /\/t[^/]+\/m[01]\/s1$/.test(value) ? value : undefined;
 }
 // Accept only the bounded V2000 subset emitted by the bundled converter.
@@ -96,6 +98,7 @@ export function depictInchi(
   kit: { get_mol(input: string): Molecule | null },
   molfile: string,
   original: string,
+  verifyDrawing = false,
 ): string | undefined {
   if (!safeInchiMolfile(molfile)) return undefined;
   let mol: Molecule | null = null;
@@ -106,6 +109,18 @@ export function depictInchi(
     if (mol.get_inchi() !== original) return undefined;
     mol.set_new_coords();
     if (mol.get_inchi() !== original) return undefined;
+    if (verifyDrawing) {
+      const block = mol.get_molblock?.();
+      if (!block) return undefined;
+      const validated = `${block.trimEnd()}\n$$$$\n`;
+      if (!safeInchiMolfile(validated)) return undefined;
+      const drawing = kit.get_mol(validated);
+      try {
+        if (!drawing || !drawing.is_valid() || drawing.get_inchi() !== original) return undefined;
+      } finally {
+        drawing?.delete();
+      }
+    }
     const svg = mol.get_svg();
     return safeMoleculeSvg(svg) ? svg : undefined;
   } catch {

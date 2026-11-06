@@ -16,4 +16,11 @@ export function structureFromInchi(input: string): Promise<{
 export function oclMoleculeFromStructure(
   structure: Awaited<ReturnType<typeof structureFromInchi>>,
   ocl: typeof import('openchemlib'),
-): { toMolfile(): string };
+): {
+  toMolfile(): string;
+  getBond(a: number, b: number): number;
+  setBondParity(bond: number, parity: number, pseudo: boolean): void;
+  setParitiesValid(bits: number): void;
+  inventCoordinates(): void;
+  setStereoBondsFromParity(): void;
+};

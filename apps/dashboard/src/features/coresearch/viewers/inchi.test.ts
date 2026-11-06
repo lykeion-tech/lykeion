@@ -57,6 +57,28 @@ describe('InChI preview', () => {
     };
     expect(depictInchi({ get_mol: () => mol }, validMolfile, input)).toBeUndefined();
   });
+  it('rejects geometry that is lost when the final drawing is parsed again', () => {
+    const input = 'InChI=1S/CH4/h1H4';
+    let count = 0;
+    const mol = (inchi: string) => ({
+      is_valid: () => true,
+      get_num_atoms: () => 1,
+      get_inchi: () => inchi,
+      get_molblock: () => validMolfile.replace('$$$$', ''),
+      set_new_coords: () => {},
+      get_svg: () => '<svg></svg>',
+      delete: () => {},
+    });
+    expect(
+      depictInchi(
+        { get_mol: () => mol(++count === 1 ? input : 'different') },
+        validMolfile,
+        input,
+        true,
+      ),
+    ).toBeUndefined();
+    expect(count).toBe(2);
+  });
 });
 
 describe('bundled InChI converter', () => {
@@ -126,7 +148,6 @@ it('fails closed when the real converter loses stereochemistry', async () => {
   for (const input of identifiers) {
     const result = await molfileFromInchi(input);
     expect(result.returnCode).toBe(0);
-    if (input.includes('/b')) expect(inchiRecord(input)).toBeUndefined();
     expect(depictInchi(kit, result.molfile, input)).toBeUndefined();
   }
 });
