@@ -13,8 +13,8 @@ it('reconstructs independent Astropy GZIP_1 tiles including partial edge tiles',
     bitpix: 16,
   });
 });
-it('rejects unsupported GZIP_2 and truncated tiles', async () => {
-  expect(await inflateFitsTiles(fixture('fits-tiles-GZIP_2.fz'))).toBeUndefined();
+it('rejects unsupported HCOMPRESS_1 and truncated tiles', async () => {
+  expect(await inflateFitsTiles(fixture('fits-tiles-HCOMPRESS_1.fz'))).toBeUndefined();
   const f = fixture('fits-tiles-GZIP_1.fz');
   expect(await inflateFitsTiles(f.slice(0, -1))).toBeUndefined();
 });
@@ -86,4 +86,46 @@ it('rejects unsupported Rice parameter values without interpreting pixel data', 
   const changed = src.slice();
   changed.set(new TextEncoder().encode('ZVAL1   =                   16'.padEnd(80, ' ')), at);
   expect(await inflateFitsTiles(new Blob([changed]))).toBeUndefined();
+});
+
+it.each([
+  ['u8', ['0', '255', '1', '255', '0', '255']],
+  ['i16', ['-32768', '32767', '-1', '0', '32767', '-32768']],
+  ['i32', ['-2147483648', '2147483647', '-1', '0', '2147483647', '-2147483648']],
+])('reconstructs Astropy GZIP_2 %s shuffled tiles', async (kind, values) => {
+  const b = await inflateFitsTiles(fixture(`fits-gzip2-${kind}.fz`));
+  expect((await readFits(b!))?.values).toEqual(values);
+});
+it('preserves GZIP_2 scaling and BLANK pixels', async () => {
+  const b = await inflateFitsTiles(fixture('fits-gzip2-scaled.fz'));
+  expect((await readFits(b!))?.values).toEqual(['10', '12', 'blank']);
+});
+it('reconstructs 64-bit and many differently sized GZIP_2 tiles without losing order', async () => {
+  const i64 = await inflateFitsTiles(fixture('fits-gzip2-i64.fz'));
+  expect((await readFits(i64!))?.values).toEqual(['-9007199254740991', '9007199254740991']);
+  const expected = JSON.parse(
+    readFileSync(
+      'apps/dashboard/src/features/coresearch/viewers/fixtures/fits-gzip2-random.json',
+      'utf8',
+    ),
+  );
+  const random = await inflateFitsTiles(fixture('fits-gzip2-random.fz'));
+  expect((await readFits(random!))?.values).toEqual(expected);
+});
+it('rejects a damaged GZIP_2 tile before unshuffling', async () => {
+  const bytes = new Uint8Array(await fixture('fits-gzip2-i16.fz').arrayBuffer());
+  const { listFitsHdus } = await import('./fits-preview');
+  const h = (await listFitsHdus(new Blob([bytes])))![1]!;
+  const table = h.offset,
+    tableBytes = Number(h.fields.get('NAXIS1')) * Number(h.fields.get('NAXIS2')),
+    dv = new DataView(bytes.buffer),
+    len = dv.getInt32(table, false),
+    off = dv.getInt32(table + 4, false);
+  bytes[table + tableBytes + off + len - 1] ^= 1;
+  expect(await inflateFitsTiles(new Blob([bytes]))).toBeUndefined();
+});
+it('does not round unsafe 64-bit GZIP_2 image values', async () => {
+  const b = await inflateFitsTiles(fixture('fits-gzip2-i64-unsafe.fz'));
+  expect(b).toBeDefined();
+  expect(await readFits(b!)).toBeUndefined();
 });

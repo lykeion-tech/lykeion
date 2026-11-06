@@ -26,7 +26,7 @@ async function unpack(input: Blob, expected: number): Promise<Uint8Array | undef
     return;
   }
 }
-/** Narrow lossless GZIP_1/RICE_1 two-dimensional tiled image convention; no quantization. */
+/** Narrow lossless GZIP_1/GZIP_2/RICE_1 two-dimensional tiled image convention; no quantization. */
 export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
   try {
     if (blob.size > 32 * 1024 * 1024) return;
@@ -38,12 +38,13 @@ export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
       f = h.fields;
     if (
       str(f.get('XTENSION')) !== 'BINTABLE' ||
-      !['GZIP_1', 'RICE_1'].includes(str(f.get('ZCMPTYPE')) ?? '') ||
+      !['GZIP_1', 'GZIP_2', 'RICE_1'].includes(str(f.get('ZCMPTYPE')) ?? '') ||
       f.has('ZQUANTIZ') ||
       f.has('ZSCALE') ||
       f.has('ZZERO') ||
       f.has('ZMASKCMP') ||
-      (str(f.get('ZCMPTYPE')) === 'GZIP_1' && [...f.keys()].some((k) => /^Z(NAME|VAL)\d+$/.test(k)))
+      (['GZIP_1', 'GZIP_2'].includes(str(f.get('ZCMPTYPE')) ?? '') &&
+        [...f.keys()].some((k) => /^Z(NAME|VAL)\d+$/.test(k)))
     )
       return;
     const bitpix = integer(f.get('ZBITPIX')),
@@ -136,11 +137,18 @@ export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
           ? decodeFitsRice(new Uint8Array(await compressed.arrayBuffer()), w * ht, size, 32)
           : await unpack(compressed, expected);
       if (!tile) return;
-      for (let row = 0; row < ht; row++)
-        image.set(
-          tile.subarray(row * w * size, (row + 1) * w * size),
-          ((y + row) * width + x) * size,
-        );
+      for (let row = 0; row < ht; row++) {
+        if (codec === 'GZIP_2') {
+          for (let col = 0; col < w; col++)
+            for (let byte = 0; byte < size; byte++)
+              image[((y + row) * width + x + col) * size + byte] =
+                tile[byte * w * ht + row * w + col]!;
+        } else
+          image.set(
+            tile.subarray(row * w * size, (row + 1) * w * size),
+            ((y + row) * width + x) * size,
+          );
+      }
     }
     const cards: string[] = [
       'SIMPLE  =                    T',
