@@ -474,6 +474,10 @@ async function step(n: number | undefined) {
   margin-left: auto;
   color: var(--primary);
 }
+.artifact-pane .art-download {
+  font-size: 13px;
+  padding: 6px 4px;
+}
 .art-compare-list {
   position: absolute;
   top: 100%;

@@ -19,3 +19,11 @@ const raw = ref(false);
     />
   </div>
 </template>
+<style scoped>
+.viz-caption {
+  margin-bottom: 12px;
+}
+.viz-caption button {
+  padding: 6px 4px;
+}
+</style>
