@@ -142,16 +142,18 @@ const ending = computed(() => {
         <template v-else-if="structuredMessage(block.text)">
           <RecordedMarkdown
             class="lyk-reading"
+            local-files
             :content="String(structuredMessage(block.text)?.answer || '')"
           />
         </template>
         <RecordedMarkdown
           v-else-if="/^\s*\{\s*&quot;answer&quot;\s*:/.test(block.text)"
           class="lyk-reading"
+          local-files
           :content="messagePreview(block.text) || 'Report text unavailable.'"
         />
         <div v-else-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
-        <RecordedMarkdown v-else class="lyk-reading" :content="block.text" />
+        <RecordedMarkdown v-else class="lyk-reading" local-files :content="block.text" />
       </template>
     </RunTimeline>
     <StudyHandIn

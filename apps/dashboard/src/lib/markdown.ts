@@ -26,12 +26,49 @@ const code: NonNullable<typeof markdown.renderer.rules.fence> = (tokens, index, 
 markdown.renderer.rules.fence = code;
 markdown.renderer.rules.code_block = code;
 
-export function renderMarkdown(content: string, breaks = true) {
+// Transcript-only parsing recognizes local paths so they can be shown without a link.
+const transcriptMarkdown = new MarkdownIt({
+  html: false,
+  breaks: true,
+  linkify: true,
+  typographer: false,
+});
+transcriptMarkdown.renderer.rules = markdown.renderer.rules;
+const localPath = (url: string) =>
+  ['/private/tmp/', '/tmp/', '/private/var/folders/', '/var/folders/'].some((root) =>
+    url.startsWith(root),
+  );
+transcriptMarkdown.validateLink = (url) => markdown.validateLink(url) || localPath(url);
+
+export function renderMarkdown(content: string, breaks = true, localFiles = false) {
   const env = { codes: [] as string[] };
   // Raw HTML is disabled; all text, code and attributes are escaped by the parser.
-  const tokens = markdown.parse(content, env);
+  const parser = localFiles ? transcriptMarkdown : markdown;
+  const tokens = parser.parse(content, env);
+  if (localFiles) {
+    for (const token of tokens) {
+      const links: boolean[] = [];
+      for (const child of token.children ?? []) {
+        if (child.type === 'link_open') {
+          const local = localPath(String(child.attrGet('href') ?? ''));
+          links.push(local);
+          if (local) {
+            child.type = 'text';
+            child.tag = '';
+            child.nesting = 0;
+            child.content = '';
+          }
+        } else if (child.type === 'link_close' && links.pop()) {
+          child.type = 'text';
+          child.tag = '';
+          child.nesting = 0;
+          child.content = ' (local file not available in Lykeion)';
+        }
+      }
+    }
+  }
   return {
-    html: markdown.renderer.render(tokens, { ...markdown.options, breaks }, env),
+    html: parser.renderer.render(tokens, { ...parser.options, breaks }, env),
     codes: env.codes,
   };
 }

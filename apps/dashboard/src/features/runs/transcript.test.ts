@@ -386,6 +386,34 @@ describe('reading-first recorded run', () => {
     expect(html).toContain('remote');
     expect(html).toContain('graph TD; A--&gt;B');
   });
+  it('shows local file references as unavailable without exposing their paths or creating links', async () => {
+    const html = await render([
+      msg(
+        1,
+        'text',
+        'See [analysis script](/private/tmp/run/analysis.py), [results](/tmp/run/result.csv), and [safe](https://example.com).',
+      ),
+    ]);
+    expect(html).toContain('analysis script');
+    expect(html).toContain('not available in Lykeion');
+    expect(html).not.toContain('/private/tmp/run/analysis.py');
+    expect(html).not.toContain('/tmp/run/result.csv');
+    expect(html).toContain('results (local file not available in Lykeion)');
+    const mac = await render([
+      msg(1, 'text', '[script](/private/var/folders/abc/T/run/script.py) [result](/var/folders/abc/T/run/out.csv)'),
+    ]);
+    expect(mac).not.toContain('/var/folders/abc/T/');
+    expect(mac).toContain('script (local file not available in Lykeion)');
+    expect(mac).toContain('result (local file not available in Lykeion)');
+    expect(html).not.toContain('href="/private');
+    expect(html).toContain('href="https://example.com"');
+    const route = await render([msg(1, 'text', 'See [study](/app/#/studies/123).')]);
+    expect(route).toContain('[study](/app/#/studies/123)');
+    expect(route).not.toContain('not available in Lykeion');
+    const code = await render([msg(1, 'text', '```text\n[example](/tmp/code)\n```')]);
+    expect(code).toContain('[example](/tmp/code)');
+    expect(code).not.toContain('not available in Lykeion');
+  });
   it('keeps literal numeric citations and incomplete links honest through a later stream snapshot', async () => {
     const first = await render([msg(1, 'text', 'See [1] and [unfinished](https://exam')], {
       status: 'running',
