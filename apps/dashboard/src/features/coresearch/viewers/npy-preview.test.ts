@@ -24,6 +24,34 @@ describe('NumPy preview', () => {
       '4',
     ]);
   });
+  it('reads selected multidimensional slices in C and Fortran order', async () => {
+    expect((await readNpy(npy('|u1', '2, 2, 2', [0, 1, 2, 3, 4, 5, 6, 7]), [1]))?.values).toEqual([
+      '4',
+      '5',
+      '6',
+      '7',
+    ]);
+    expect(
+      (await readNpy(npy('|u1', '2, 2, 2', [0, 4, 2, 6, 1, 5, 3, 7], true), [1]))?.values,
+    ).toEqual(['4', '5', '6', '7']);
+    expect(await readNpy(npy('|u1', '2, 2, 2', [0, 1, 2, 3, 4, 5, 6, 7]), [2])).toBeUndefined();
+  });
+  it('bounds matrix samples and samples across both axes', async () => {
+    const preview = await readNpy(
+      npy(
+        '|u1',
+        '20, 20',
+        Array.from({ length: 400 }, (_, i) => i % 256),
+      ),
+    );
+    expect(preview?.values).toHaveLength(100);
+    expect(preview?.sampleShape).toEqual([10, 10]);
+    expect(preview?.sampleIndices).toEqual([
+      [0, 2, 4, 6, 8, 10, 12, 14, 16, 19],
+      [0, 2, 4, 6, 8, 10, 12, 14, 16, 19],
+    ]);
+    expect(preview?.values.at(-1)).toBe('143');
+  });
   it('preserves exact 64-bit integer values', async () => {
     expect((await readNpy(npy('<u8', '1,', [1, 0, 0, 0, 0, 0, 0, 128])))?.values).toEqual([
       '9223372036854775809',

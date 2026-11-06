@@ -7,6 +7,9 @@ export interface NpyPreview {
   order: 'C' | 'Fortran';
   values: string[];
   total: number;
+  sampleShape: number[];
+  sampled: boolean;
+  sampleIndices: number[][];
 }
 
 // Parse a small whitelist of the Python-literal header grammar, never execute it.
@@ -28,7 +31,7 @@ function headerFields(header: string) {
   return Object.keys(fields).length === 3 ? fields : undefined;
 }
 
-export async function readNpy(blob: Blob): Promise<NpyPreview | undefined> {
+export async function readNpy(blob: Blob, selected?: number[]): Promise<NpyPreview | undefined> {
   try {
     if (blob.size < 10) return undefined;
     const prefix = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
@@ -79,20 +82,59 @@ export async function readNpy(blob: Blob): Promise<NpyPreview | undefined> {
     const fortran = fields.fortran_order === 'True';
     const nativeLittle = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
     const little = order === '<' || order === '|' || (order === '=' && nativeLittle);
+    const leadingShape = shape.slice(0, Math.max(0, shape.length - 2));
+    const selection = selected ?? leadingShape.map(() => 0);
+    if (
+      selection.length !== leadingShape.length ||
+      selection.some(
+        (n, i) =>
+          !Number.isSafeInteger(n) ||
+          n < 0 ||
+          (leadingShape[i] === 0 ? n !== 0 : n >= leadingShape[i]!),
+      )
+    )
+      return undefined;
+    const displayShape = shape.slice(leadingShape.length);
+    const empty = total === 0;
+    const sampleShape = empty
+      ? displayShape.map(() => 0)
+      : displayShape.length === 2
+        ? [
+            Math.min(displayShape[0]!, 10),
+            Math.min(displayShape[1]!, Math.floor(MAX_VALUES / Math.min(displayShape[0]!, 10))),
+          ]
+        : displayShape.length === 1
+          ? [Math.min(displayShape[0]!, MAX_VALUES)]
+          : [];
+    const sampleCount = empty ? 0 : sampleShape.reduce((a, b) => a * b, 1);
+    const sampled = displayShape.some((n, i) => sampleShape[i]! < n);
+    const sampleAt = (idx: number, count: number, size: number) =>
+      count <= 1 ? 0 : Math.floor((idx * (size - 1)) / (count - 1));
+    const sampleIndices = displayShape.map((size, axis) =>
+      Array.from({ length: sampleShape[axis]! }, (_, index) =>
+        sampleAt(index, sampleShape[axis]!, size),
+      ),
+    );
     const values: string[] = [];
-    for (let index = 0; index < Math.min(total, MAX_VALUES); index++) {
-      let physical = index;
-      if (fortran && shape.length > 1) {
-        let remaining = index,
-          stride = 1;
-        physical = 0;
-        const indices = new Array<number>(shape.length);
-        for (let dim = shape.length - 1; dim >= 0; dim--) {
-          indices[dim] = remaining % shape[dim]!;
-          remaining = Math.floor(remaining / shape[dim]!);
-        }
+    for (let index = 0; index < sampleCount; index++) {
+      const coords = [...selection];
+      if (displayShape.length === 2) {
+        coords.push(
+          sampleAt(Math.floor(index / sampleShape[1]!), sampleShape[0]!, displayShape[0]!),
+        );
+        coords.push(sampleAt(index % sampleShape[1]!, sampleShape[1]!, displayShape[1]!));
+      } else if (displayShape.length === 1)
+        coords.push(sampleAt(index, sampleShape[0]!, displayShape[0]!));
+      let physical = 0,
+        stride = 1;
+      if (fortran) {
         for (let dim = 0; dim < shape.length; dim++) {
-          physical += indices[dim]! * stride;
+          physical += coords[dim]! * stride;
+          stride *= shape[dim]!;
+        }
+      } else {
+        for (let dim = shape.length - 1; dim >= 0; dim--) {
+          physical += coords[dim]! * stride;
           stride *= shape[dim]!;
         }
       }
@@ -111,7 +153,16 @@ export async function readNpy(blob: Blob): Promise<NpyPreview | undefined> {
       else value = kind === 'i' ? data.getInt8(0) : data.getUint8(0);
       values.push(String(value));
     }
-    return { shape, dtype: fields.descr!, order: fortran ? 'Fortran' : 'C', values, total };
+    return {
+      shape,
+      dtype: fields.descr!,
+      order: fortran ? 'Fortran' : 'C',
+      values,
+      total,
+      sampleShape,
+      sampled,
+      sampleIndices,
+    };
   } catch {
     return undefined;
   }

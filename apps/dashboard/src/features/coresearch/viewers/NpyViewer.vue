@@ -4,8 +4,11 @@ import { readNpy, type NpyPreview } from './npy-preview';
 const props = defineProps<{ blob: Blob }>();
 const preview = ref<NpyPreview>();
 const pending = ref(true);
+const selection = ref<number[]>([]);
+let request = 0;
 const numeric = computed(() => {
-  if (!preview.value || preview.value.shape.length < 1 || preview.value.shape.length > 2) return [];
+  if (!preview.value || preview.value.shape.length < 1 || preview.value.sampleShape.length > 2)
+    return [];
   const isInteger = /[iu]/.test(preview.value.dtype);
   const numbers = preview.value.values.map(Number);
   return numbers.every((n) => Number.isFinite(n) && (!isInteger || Number.isSafeInteger(n)))
@@ -24,7 +27,7 @@ const chart = computed(() => {
     points: nums
       .map(
         (n, i) =>
-          `${10 + (i * 280) / Math.max(1, nums.length - 1)},${90 - ((n / scale - low) * 80) / range}`,
+          `${10 + (preview.value!.sampleIndices[0]![i]! * 280) / Math.max(1, preview.value!.shape.at(-1)! - 1)},${90 - ((n / scale - low) * 80) / range}`,
       )
       .join(' '),
     min,
@@ -34,18 +37,40 @@ const chart = computed(() => {
     range,
   };
 });
+async function selectSlice(dim: number, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const dimension = preview.value?.shape[dim];
+  const value = Number(input.value);
+  if (!dimension || !Number.isSafeInteger(value) || value < 0 || value >= dimension) {
+    input.value = String(selection.value[dim]);
+    return;
+  }
+  const next = [...selection.value];
+  next[dim] = value;
+  selection.value = next;
+  const ticket = ++request;
+  pending.value = true;
+  const result = await readNpy(props.blob, next);
+  if (ticket === request) {
+    preview.value = result;
+    pending.value = false;
+  }
+}
 watch(
   () => props.blob,
   async (blob, _, onCleanup) => {
-    let live = true;
+    const ticket = ++request;
     onCleanup(() => {
-      live = false;
+      request++;
     });
     preview.value = undefined;
+    selection.value = [];
     pending.value = true;
     const result = await readNpy(blob);
-    if (live) {
+    if (ticket === request) {
       preview.value = result;
+      selection.value =
+        result?.shape.slice(0, Math.max(0, result.shape.length - 2)).map(() => 0) ?? [];
       pending.value = false;
     }
   },
@@ -63,31 +88,65 @@ watch(
       <dt>Storage order</dt>
       <dd>{{ preview.order }}</dd>
     </dl>
-    <p v-if="preview.total > preview.values.length">
-      First {{ preview.values.length }} of {{ preview.total }} values in row-major order
+    <div v-if="selection.length" class="slice-controls">
+      <label v-for="(value, dim) in selection" :key="dim"
+        >Axis {{ dim + 1 }} index
+        <input
+          type="number"
+          :value="value"
+          min="0"
+          :max="Math.max(0, preview.shape[dim]! - 1)"
+          :disabled="preview.shape[dim] === 0"
+          @change="selectSlice(dim, $event)"
+        />
+        <span>of {{ preview.shape[dim] }}</span>
+      </label>
+    </div>
+    <p v-if="!preview.total">Empty array</p>
+    <p v-else-if="preview.sampled">
+      Showing {{ preview.values.length }} sampled values from the selected slice.
     </p>
-    <p v-else-if="preview.total">Values in row-major order</p>
-    <p v-else>Empty array</p>
-    <figure v-if="chart && preview.shape.length === 1" aria-label="Sample values plot">
+    <p v-else>Values in row-major order</p>
+    <figure v-if="chart && preview.sampleShape.length === 1" aria-label="Sample values plot">
       <svg viewBox="0 0 300 100" role="img" aria-label="Line plot of displayed array values">
         <polyline :points="chart.points" fill="none" stroke="currentColor" />
       </svg>
-      <figcaption>Displayed values · min {{ chart.min }} · max {{ chart.max }}</figcaption>
+      <figcaption>
+        Array indices {{ preview.sampleIndices[0]?.join(', ') }} · min {{ chart.min }} · max
+        {{ chart.max }}
+      </figcaption>
     </figure>
-    <figure v-else-if="chart && preview.shape.length === 2" aria-label="Sample values heatmap">
-      <div
-        class="heatmap"
-        :style="{
-          gridTemplateColumns: `repeat(${Math.min(preview.shape[1]!, 100)}, minmax(5px, 14px))`,
-        }"
-      >
-        <span
-          v-for="(value, i) in numeric"
-          :key="i"
-          :title="preview.values[i]"
-          :style="{ opacity: 0.2 + (0.8 * (value / chart.scale - chart.low)) / chart.range }"
-        ></span>
-      </div>
+    <figure
+      v-else-if="chart && preview.sampleShape.length === 2"
+      aria-label="Sample values heatmap"
+    >
+      <table class="heatmap">
+        <thead>
+          <tr>
+            <th scope="col">Row / column</th>
+            <th v-for="col in preview.sampleIndices[1]" :key="col" scope="col">{{ col }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, r) in preview.sampleIndices[0]" :key="row">
+            <th scope="row">{{ row }}</th>
+            <td
+              v-for="(col, c) in preview.sampleIndices[1]"
+              :key="col"
+              :title="`Row ${row}, column ${col}: ${preview.values[r * preview.sampleShape[1]! + c]}`"
+            >
+              <span
+                :style="{
+                  opacity:
+                    0.2 +
+                    (0.8 * (numeric[r * preview.sampleShape[1]! + c]! / chart.scale - chart.low)) /
+                      chart.range,
+                }"
+              ></span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
       <figcaption>Displayed values · min {{ chart.min }} · max {{ chart.max }}</figcaption>
     </figure>
     <div class="values">
@@ -109,6 +168,15 @@ dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.slice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.slice-controls input {
+  width: 5em;
+  margin: 0 4px;
+}
 .values {
   display: flex;
   flex-wrap: wrap;
@@ -127,11 +195,17 @@ figcaption {
   font-size: 12px;
 }
 .heatmap {
-  display: grid;
-  gap: 2px;
-  overflow: auto;
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 10px;
+}
+.heatmap th {
+  font-weight: normal;
+  text-align: center;
 }
 .heatmap span {
+  display: block;
+  width: 14px;
   height: 14px;
   background: #286bb2;
 }
