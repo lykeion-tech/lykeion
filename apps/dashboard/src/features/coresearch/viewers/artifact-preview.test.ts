@@ -17,7 +17,7 @@ it('does not expose medical image metadata in a raw text fallback', async () => 
   app.mount(root);
   await new Promise((r) => setTimeout(r, 20));
   expect(textOf(root)).not.toContain('Private Person');
-  expect(textOf(root)).toContain('No preview');
+  expect(all(root).some((n) => n.props['aria-label'] === 'DICOM image preview')).toBe(true);
   app.unmount();
 });
 

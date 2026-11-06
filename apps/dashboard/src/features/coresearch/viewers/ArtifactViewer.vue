@@ -14,6 +14,7 @@ import NpyViewer from './NpyViewer.vue';
 import FitsViewer from './FitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
+import DicomViewer from './DicomViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import MassXmlViewer from './MassXmlViewer.vue';
 import NpzViewer from './NpzViewer.vue';
@@ -130,7 +131,7 @@ watch(
 </script>
 <template>
   <p v-if="pending" class="nbp-empty">Reading…</p>
-  <p v-else-if="medicalImage" class="prov-empty">No preview for this file.</p>
+  <DicomViewer v-else-if="medicalImage" :blob="blob" />
   <FitsViewer v-else-if="fits" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />
   <WorkbookViewer v-else-if="ext === 'xlsx'" :blob="blob" />
