@@ -1873,7 +1873,7 @@ it('hides the closed-study hint and keeps the composer draft after a failed send
   }
 });
 
-it('shows pending composer input but hides the delivered status after acknowledgement', async () => {
+it('hides the waiting and delivered captions while preserving composer input', async () => {
   let client!: QueryClient;
   const t = await mount(
     StudyDetail,
@@ -1905,7 +1905,7 @@ it('shows pending composer input but hides the delivered status after acknowledg
     },
   );
   try {
-    expect(t.text()).toContain('Waiting for an eligible agent run');
+    expect(t.text()).not.toContain('Waiting for an eligible agent run');
     expect(t.text()).not.toContain('Delivered to');
     client.setQueryData(keys.comments('w', 'c'), [
       {

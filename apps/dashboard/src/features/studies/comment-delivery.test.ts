@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { deliveryLine, composerAvailability } from './comment-delivery';
 
 it('waits for acknowledged input rather than treating queued work as delivered', () => {
-  expect(deliveryLine(null, { working: true })).toBe('Waiting for an eligible agent run');
+  expect(deliveryLine(null, { working: true })).toBe('');
   expect(deliveryLine(null, { working: true, unavailable: 'Agent runtime is offline' })).toBe(
     'Pending · Agent runtime is offline',
   );
@@ -63,6 +63,6 @@ it('prioritizes an active lead over a newer member failure without claiming deli
   );
   expect(unavailable).toBe('');
   expect(deliveryLine(null, { working: true, unavailable })).toBe(
-    'Waiting for an eligible agent run',
+    '',
   );
 });

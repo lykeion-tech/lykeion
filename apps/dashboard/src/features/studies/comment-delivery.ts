@@ -50,9 +50,7 @@ export function deliveryLine(
   if (!d) {
     if (reply) return 'Comment saved · replies do not start agent work';
     if (unavailable) return `Pending · ${unavailable}`;
-    return working
-      ? 'Waiting for an eligible agent run'
-      : 'Comment saved · this study cannot start agent work';
+    return working ? '' : 'Comment saved · this study cannot start agent work';
   }
   const name = who || (d.role === 'leader' ? 'the leader' : 'a Team member');
   switch (d.how) {
