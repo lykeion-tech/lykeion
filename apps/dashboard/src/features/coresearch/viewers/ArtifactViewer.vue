@@ -15,6 +15,7 @@ import FitsViewer from './FitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
+import TiffViewer from './TiffViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import ChemicalViewer from './ChemicalViewer.vue';
@@ -40,6 +41,7 @@ const npy = computed(() => ext.value === 'npy');
 const niftiGzip = computed(() => props.path.toLowerCase().endsWith('.nii.gz'));
 const nifti = computed(() => ext.value === 'nii' || niftiGzip.value);
 const fits = computed(() => ['fits', 'fit', 'fts'].includes(ext.value));
+const tiff = computed(() => ['tif', 'tiff'].includes(ext.value));
 const office = computed(() =>
   ext.value === 'docx' || ext.value === 'pptx' ? ext.value : undefined,
 );
@@ -103,6 +105,7 @@ watch(
         pdf.value ||
         medicalImage.value ||
         nifti.value ||
+        tiff.value ||
         fits.value ||
         npy.value ||
         npz.value ||
@@ -137,6 +140,7 @@ watch(
 <template>
   <p v-if="pending" class="nbp-empty">Reading…</p>
   <DicomViewer v-else-if="medicalImage" :blob="blob" />
+  <TiffViewer v-else-if="tiff" :blob="blob" />
   <NiftiViewer v-else-if="nifti" :blob="blob" :compressed="niftiGzip" />
   <FitsViewer v-else-if="fits" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />

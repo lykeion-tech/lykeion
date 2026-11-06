@@ -25,6 +25,16 @@ vi.mock('../cowrite/PdfViewer.vue', () => ({
   default: { props: ['src', 'path'], template: '<div>PDF preview</div>' },
 }));
 afterEach(() => vi.restoreAllMocks());
+it('routes TIFF images to the safe image viewer without raw metadata fallback', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:tiff');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const app = createTreeApp({ render: () => h(ArtifactViewer, { path: 'scan.ome.tiff', blob: new Blob(['PRIVATE PATIENT SENTINEL']) }) });
+  const root = node('root'); app.mount(root);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(all(root).some((n) => n.props['aria-label'] === 'TIFF image preview')).toBe(true);
+  expect(textOf(root)).not.toContain('PRIVATE PATIENT SENTINEL');
+  app.unmount();
+});
 it('does not show the file MIME type above text previews', async () => {
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:text');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
