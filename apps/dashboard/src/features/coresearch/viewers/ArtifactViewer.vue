@@ -34,6 +34,7 @@ import SpectrumViewer from './SpectrumViewer.vue';
 import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
 import JsonLinesViewer from './JsonLinesViewer.vue';
 import { scientificTable } from './scientific-text';
+import DelimitedTable from './DelimitedTable.vue';
 const props = defineProps<{ blob: Blob; path: string }>();
 const emit = defineEmits<{ text: [text: string | undefined, partial: boolean] }>();
 const text = ref<string>(),
@@ -230,28 +231,7 @@ watch(
       </table>
     </div>
   </figure>
-  <figure v-else-if="table" class="viz-figure artifact-table">
-    <div v-if="partial" class="viz-caption"><span class="viz-meta">First part only</span></div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th v-for="(cell, i) in table.header" :key="i">
-              <span v-if="table.types" class="col-type" aria-hidden="true">{{
-                table.types[i] === 'number' ? '123' : 'abc'
-              }}</span
-              ><span class="col-name">{{ cell }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, i) in table.rows" :key="i">
-            <td v-for="(_, j) in table.header" :key="j">{{ row[j] ?? '' }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </figure>
+  <DelimitedTable v-else-if="table" :table="table" />
   <JsonLinesViewer v-else-if="['jsonl', 'ndjson'].includes(ext)" :text="text" :partial="partial" />
   <NotebookViewer v-else-if="ext === 'ipynb'" :text="text" :partial="partial" />
   <MarkdownViewer v-else-if="['md', 'markdown'].includes(ext)" :text="text" />
