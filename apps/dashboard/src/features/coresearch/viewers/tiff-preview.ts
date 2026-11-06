@@ -1,3 +1,4 @@
+import { inflateTiffStrip } from './tiff-deflate';
 export interface TiffPreview {
   width: number;
   height: number;
@@ -22,7 +23,7 @@ const widths: Record<number, number> = {
   11: 4,
   12: 8,
 };
-export function parseTiff(bytes: Uint8Array, page: number): TiffPreview | undefined {
+export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPreview | undefined> {
   try {
     if (
       bytes.length < 8 ||
@@ -108,7 +109,7 @@ export function parseTiff(bytes: Uint8Array, page: number): TiffPreview | undefi
       !sampleFormat ||
       width * height > 2 * 1024 * 1024 ||
       !Number.isSafeInteger(width * height) ||
-      compression !== 1 ||
+      ![1, 8, 32946].includes(compression ?? 0) ||
       planar !== 1 ||
       orient !== 1 ||
       fill !== 1 ||
@@ -136,7 +137,8 @@ export function parseTiff(bytes: Uint8Array, page: number): TiffPreview | undefi
         expected = width * Math.min(rows, height - i * rows) * bytesPerPixel,
         end = start + length;
       if (
-        length !== expected ||
+        (compression === 1 && length !== expected) ||
+        (compression !== 1 && !length) ||
         end > bytes.length ||
         ranges.some(([a, b]) => start < b && end > a) ||
         strips.some(([a, b]) => start < b && end > a)
@@ -162,15 +164,23 @@ export function parseTiff(bytes: Uint8Array, page: number): TiffPreview | undefi
     if (!Number.isFinite(aspect) || aspect < 0.001 || aspect > 1000) return;
     const rgba = new Uint8ClampedArray(width * height * 4);
     let pixel = 0;
-    for (const [start, end] of strips)
-      for (let at = start; at < end; at += bytesPerPixel) {
+    for (let i = 0; i < strips.length; i++) {
+      const [start, end] = strips[i]!;
+      const expected = width * Math.min(rows, height - i * rows) * bytesPerPixel;
+      const data =
+        compression === 1
+          ? bytes.subarray(start, end)
+          : await inflateTiffStrip(bytes.subarray(start, end), expected);
+      if (!data || data.length !== expected) return;
+      const stripView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      for (let at = 0; at < data.length; at += bytesPerPixel) {
         let r: number, g: number, b: number;
         if (samples === 3) {
-          r = bytes[at]!;
-          g = bytes[at + 1]!;
-          b = bytes[at + 2]!;
+          r = data[at]!;
+          g = data[at + 1]!;
+          b = data[at + 2]!;
         } else {
-          r = bits[0] === 16 ? Math.round(view.getUint16(at, little) / 257) : bytes[at]!;
+          r = bits[0] === 16 ? Math.round(stripView.getUint16(at, little) / 257) : data[at]!;
           if (photo === 0) r = 255 - r;
           g = r;
           b = r;
@@ -181,6 +191,7 @@ export function parseTiff(bytes: Uint8Array, page: number): TiffPreview | undefi
         rgba[pixel * 4 + 3] = 255;
         pixel++;
       }
+    }
     return {
       width,
       height,

@@ -9,7 +9,7 @@ scope.onmessage = async ({ data }) => {
       scope.postMessage({});
       return;
     }
-    const result = parseTiff(new Uint8Array(await data.blob.arrayBuffer()), data.page);
+    const result = await parseTiff(new Uint8Array(await data.blob.arrayBuffer()), data.page);
     if (!result) {
       scope.postMessage({});
       return;

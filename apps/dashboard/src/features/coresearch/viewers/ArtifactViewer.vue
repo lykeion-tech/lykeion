@@ -20,6 +20,7 @@ import TiffViewer from './TiffViewer.vue';
 import ParquetViewer from './ParquetViewer.vue';
 import ScientificContainerViewer from './ScientificContainerViewer.vue';
 import BcfViewer from './BcfViewer.vue';
+import HeicViewer from './HeicViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import ChemicalViewer from './ChemicalViewer.vue';
@@ -121,6 +122,7 @@ watch(
         ['nc', 'nc4', 'cdf'].includes(ext.value) ||
         ext.value === 'mat' ||
         ext.value === 'bcf' ||
+        ['heic', 'heif'].includes(ext.value) ||
         office.value ||
         ext.value === 'xlsx'
       )
@@ -164,6 +166,7 @@ watch(
   <ScientificContainerViewer v-else-if="['nc', 'nc4', 'cdf'].includes(ext)" :blob="blob" format="netcdf" />
   <ScientificContainerViewer v-else-if="ext === 'mat'" :blob="blob" format="matlab" />
   <BcfViewer v-else-if="ext === 'bcf'" :blob="blob" />
+  <HeicViewer v-else-if="['heic', 'heif'].includes(ext)" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">
