@@ -77,8 +77,8 @@ watch(
     </div>
   </section>
   <p v-else>
-    Parquet preview unavailable. Only uncompressed or Snappy-compressed flat columns with plain or
-    dictionary encoding are supported.
+    Parquet preview unavailable. Only uncompressed, Snappy- or GZIP-compressed flat columns with
+    plain or dictionary encoding are supported.
   </p>
 </template>
 <style scoped>

@@ -1,3 +1,4 @@
+import { gunzipPage } from './parquet-gzip';
 import { decompressSnappyRaw } from './snappy-raw';
 import { dictionaryIndexes } from './parquet-dictionary';
 import { optionalLevels } from './parquet-levels';
@@ -46,7 +47,7 @@ const types: Record<number, string> = {
   5: 'DOUBLE',
   6: 'BYTE_ARRAY',
 };
-export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
+export async function parseParquet(bytes: Uint8Array): Promise<ParquetPreview | undefined> {
   try {
     if (bytes.length < 12 || bytes.length > 32 * 1024 * 1024) throw Error();
     const magic = (i: number) =>
@@ -109,7 +110,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           const m = map(chunk.get(3));
           if (
             num(m.get(1), 6) !== columns[i]!.type ||
-            ![0, 1].includes(num(m.get(4), 100)) ||
+            ![0, 1, 2].includes(num(m.get(4), 100)) ||
             num(m.get(5), 1000000000) !== rows
           )
             throw Error();
@@ -120,7 +121,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           const dataStart = num(m.get(9), footer),
             start = m.has(11) ? num(m.get(11), footer) : dataStart,
             size = num(m.get(7), footer);
-          const codec = num(m.get(4), 1),
+          const codec = num(m.get(4), 2),
             uncompressedSize = num(m.get(6), 1024 * 1024 * 1024);
           if (
             (codec === 0 && uncompressedSize !== size) ||
@@ -143,7 +144,8 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
     for (const group of chunks) {
       const need = Math.min(group.rows, 200 - output.length);
       if (need <= 0) continue;
-      const samples = group.columns.map((chunk, index) => {
+      const samples: (string | null)[][] = [];
+      for (const [index, chunk] of group.columns.entries()) {
         let p = chunk.start,
           seen = 0;
         const out: (string | null)[] = [];
@@ -163,12 +165,18 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           if (decompressedBytes > 32 * 1024 * 1024) throw Error();
           return { h, compressed, expanded };
         };
-        const expand = (input: Uint8Array, expected: number, compressed: boolean): Uint8Array => {
+        const expand = async (
+          input: Uint8Array,
+          expected: number,
+          compressed: boolean,
+        ): Promise<Uint8Array> => {
           if (expected < 0 || expected > 8 * 1024 * 1024) throw Error();
           const result =
-            compressed && chunk.codec === 1
-              ? decompressSnappyRaw(input, expected, 8 * 1024 * 1024)
-              : input;
+            !compressed || chunk.codec === 0
+              ? input
+              : chunk.codec === 1
+                ? decompressSnappyRaw(input, expected, 8 * 1024 * 1024)
+                : await gunzipPage(input, expected);
           if (!result || result.length !== expected) throw Error();
           return result;
         };
@@ -209,7 +217,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
         let dictionary: string[] | undefined;
         if (chunk.start !== chunk.dataStart) {
           const { h, compressed, expanded } = page();
-          const body = expand(compressed, expanded, true);
+          const body = await expand(compressed, expanded, true);
           if (num(h.get(1), 10) !== 2 || h.has(5) || h.has(6) || h.has(8)) throw Error();
           const dictHeader = map(h.get(7)),
             count = num(dictHeader.get(1), 10000),
@@ -226,7 +234,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           let n: number, encoding: number, levels: boolean[], valuesBody: Uint8Array;
           if (pageType === 0) {
             if (h.has(8)) throw Error();
-            const body = expand(compressed, expanded, true),
+            const body = await expand(compressed, expanded, true),
               ph = map(h.get(5));
             n = num(ph.get(1), 10000);
             encoding = num(ph.get(2), 10);
@@ -267,7 +275,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
             if (levels.reduce((sum, value) => sum + Number(!value), 0) !== nulls) throw Error();
             const compressedFlag = ph.get(7);
             if (compressedFlag !== undefined && typeof compressedFlag !== 'boolean') throw Error();
-            valuesBody = expand(
+            valuesBody = await expand(
               compressed.subarray(defLength),
               expanded - defLength,
               compressedFlag !== false,
@@ -310,8 +318,8 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           }
           seen += n;
         }
-        return out;
-      });
+        samples.push(out);
+      }
       for (let i = 0; i < need; i++) output.push(samples.map((s) => s[i] ?? null));
     }
     return {

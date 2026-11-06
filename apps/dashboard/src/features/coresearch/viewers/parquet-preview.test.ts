@@ -4,8 +4,8 @@ import { parseParquet } from './parquet-preview';
 import { readCompactStruct } from './compact-thrift';
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(`apps/dashboard/src/features/coresearch/viewers/fixtures/${name}`));
-it('samples real required, plain, uncompressed PyArrow pages across row groups', () => {
-  const result = parseParquet(fixture('plain-required.parquet'));
+it('samples real required, plain, uncompressed PyArrow pages across row groups', async () => {
+  const result = await parseParquet(fixture('plain-required.parquet'));
   expect(result?.columns.map((c) => c.name)).toEqual([
     'flag',
     'count',
@@ -21,36 +21,36 @@ it('samples real required, plain, uncompressed PyArrow pages across row groups',
   ]);
   expect(result?.totalRows).toBe('3');
 });
-it('fails closed for unsupported compression and malformed/truncated files', () => {
-  expect(parseParquet(fixture('unsupported-gzip.parquet'))).toBeUndefined();
+it('fails closed for unsupported compression and malformed/truncated files', async () => {
+  expect(await parseParquet(fixture('unsupported-zstd.parquet'))).toBeUndefined();
   const valid = fixture('plain-required.parquet');
-  expect(parseParquet(valid.slice(0, -1))).toBeUndefined();
-  expect(parseParquet(new Uint8Array([80, 65, 82, 49]))).toBeUndefined();
+  expect(await parseParquet(valid.slice(0, -1))).toBeUndefined();
+  expect(await parseParquet(new Uint8Array([80, 65, 82, 49]))).toBeUndefined();
 });
-it('rejects corrupt data and oversized input', () => {
+it('rejects corrupt data and oversized input', async () => {
   const corrupt = fixture('plain-required.parquet');
   corrupt[30] ^= 1;
-  expect(parseParquet(corrupt)).toBeUndefined();
-  expect(parseParquet(new Uint8Array(32 * 1024 * 1024 + 1))).toBeUndefined();
+  expect(await parseParquet(corrupt)).toBeUndefined();
+  expect(await parseParquet(new Uint8Array(32 * 1024 * 1024 + 1))).toBeUndefined();
 });
 
-it('samples independently generated nullable primitives across row groups', () => {
-  expect(parseParquet(fixture('optional-primitives.parquet'))?.rows).toEqual([
+it('samples independently generated nullable primitives across row groups', async () => {
+  expect((await parseParquet(fixture('optional-primitives.parquet')))?.rows).toEqual([
     ['1', null, 'null'],
     [null, 'true', null],
     ['9007199254740993', 'false', 'x'],
     [null, null, ''],
   ]);
 });
-it('preserves nullable values across pages and row groups when sampling', () => {
-  const p = parseParquet(fixture('optional-multipage.parquet'));
+it('preserves nullable values across pages and row groups when sampling', async () => {
+  const p = await parseParquet(fixture('optional-multipage.parquet'));
   expect(p?.totalRows).toBe('400');
   expect(p?.truncated).toBe(true);
   expect(p?.rows).toEqual(Array.from({ length: 200 }, (_, i) => [i % 3 === 0 ? null : String(i)]));
 });
 
-it('reads independently generated nullable dictionary columns across row groups', () => {
-  expect(parseParquet(fixture('dictionary-primitives.parquet'))?.rows).toEqual([
+it('reads independently generated nullable dictionary columns across row groups', async () => {
+  expect((await parseParquet(fixture('dictionary-primitives.parquet')))?.rows).toEqual([
     ['1', 'null', null],
     [null, null, '1.5'],
     ['9007199254740993', 'x', '-3'],
@@ -58,8 +58,8 @@ it('reads independently generated nullable dictionary columns across row groups'
     [null, 'x', null],
   ]);
 });
-it('handles dictionary pages across sampled pages and row groups including all-null columns', () => {
-  const p = parseParquet(fixture('dictionary-multipage.parquet'));
+it('handles dictionary pages across sampled pages and row groups including all-null columns', async () => {
+  const p = await parseParquet(fixture('dictionary-multipage.parquet'));
   expect(p?.totalRows).toBe('400');
   expect(p?.rows).toEqual(
     Array.from({ length: 200 }, (_, i) => [
@@ -68,35 +68,37 @@ it('handles dictionary pages across sampled pages and row groups including all-n
     ]),
   );
 });
-it('rejects corrupted dictionary pages before interpreting values', () => {
+it('rejects corrupted dictionary pages before interpreting values', async () => {
   const bytes = fixture('dictionary-primitives.parquet');
   bytes[30] ^= 1;
-  expect(parseParquet(bytes)).toBeUndefined();
+  expect(await parseParquet(bytes)).toBeUndefined();
 });
 
-it('samples Snappy compressed pages with plain and dictionary values, including nulls', () => {
+it('samples Snappy compressed pages with plain and dictionary values, including nulls', async () => {
   for (const [compressed, reference] of [
     ['unsupported-snappy.parquet', 'plain-required.parquet'],
     ['optional-primitives-snappy.parquet', 'optional-primitives.parquet'],
     ['dictionary-primitives-snappy.parquet', 'dictionary-primitives.parquet'],
     ['dictionary-multipage-snappy.parquet', 'dictionary-multipage.parquet'],
   ]) {
-    expect(parseParquet(fixture(compressed))?.rows).toEqual(parseParquet(fixture(reference))?.rows);
+    expect((await parseParquet(fixture(compressed)))?.rows).toEqual(
+      (await parseParquet(fixture(reference)))?.rows,
+    );
   }
 });
 
-it('rejects corrupted compressed data with CRC and invalid Snappy sizes without CRC', () => {
+it('rejects corrupted compressed data with CRC and invalid Snappy sizes without CRC', async () => {
   const crc = fixture('dictionary-primitives-snappy.parquet');
   const dict = readCompactStruct(crc, 4, crc.length)!;
   crc[dict.next] ^= 1;
-  expect(parseParquet(crc)).toBeUndefined();
+  expect(await parseParquet(crc)).toBeUndefined();
   const noCrc = fixture('snappy-no-crc.parquet');
-  expect(parseParquet(noCrc)?.rows).toHaveLength(100);
+  expect((await parseParquet(noCrc))?.rows).toHaveLength(100);
   const header = readCompactStruct(noCrc, 4, noCrc.length)!;
   noCrc[header.next] ^= 1;
-  expect(parseParquet(noCrc)).toBeUndefined();
+  expect(await parseParquet(noCrc)).toBeUndefined();
 });
-it('samples PyArrow Data Page V2 with plain and dictionary values and both codecs', () => {
+it('samples PyArrow Data Page V2 with plain and dictionary values and both codecs', async () => {
   for (const name of [
     'plain-required',
     'optional-primitives',
@@ -104,14 +106,14 @@ it('samples PyArrow Data Page V2 with plain and dictionary values and both codec
     'dictionary-multipage',
   ])
     for (const codec of ['none', 'snappy']) {
-      expect(parseParquet(fixture(`${name}-v2-${codec}.parquet`))?.rows).toEqual(
-        parseParquet(fixture(`${name}.parquet`))?.rows,
+      expect((await parseParquet(fixture(`${name}-v2-${codec}.parquet`)))?.rows).toEqual(
+        (await parseParquet(fixture(`${name}.parquet`)))?.rows,
       );
     }
 });
-it('rejects V2 inconsistent rows, null counts and level lengths without relying on CRC', () => {
+it('rejects V2 inconsistent rows, null counts and level lengths without relying on CRC', async () => {
   const f = fixture('optional-v2-no-crc.parquet');
-  expect(parseParquet(f)).toBeDefined();
+  expect(await parseParquet(f)).toBeDefined();
   const signature = [0x5c, 0x15, 8, 0x15, 4, 0x15, 8, 0x15, 0, 0x15, 4, 0x15, 0];
   const at = f.findIndex((_, i) => signature.every((b, j) => f[i + j] === b));
   expect(at).toBeGreaterThan(0);
@@ -122,6 +124,30 @@ it('rejects V2 inconsistent rows, null counts and level lengths without relying 
   ]) {
     const corrupt = f.slice();
     corrupt[at + offset] = value;
-    expect(parseParquet(corrupt)).toBeUndefined();
+    expect(await parseParquet(corrupt)).toBeUndefined();
   }
+});
+
+it('samples independently generated GZIP V1 and V2 pages', async () => {
+  for (const name of [
+    'plain-required',
+    'optional-primitives',
+    'dictionary-primitives',
+    'dictionary-multipage',
+  ])
+    for (const version of ['1', '2']) {
+      expect((await parseParquet(fixture(`${name}-v${version}-gzip.parquet`)))?.rows).toEqual(
+        (await parseParquet(fixture(`${name}.parquet`)))?.rows,
+      );
+    }
+});
+it('rejects corruption of gzip pages without a Parquet checksum', async () => {
+  const f = fixture('gzip-no-crc.parquet');
+  expect(await parseParquet(f)).toBeDefined();
+  const header = readCompactStruct(f, 4, f.length)!;
+  const v2 = header.fields.get(8) as Map<number, bigint>;
+  const definitionLength = Number(v2.get(5));
+  const corrupt = f.slice();
+  corrupt[header.next + definitionLength] ^= 1;
+  expect(await parseParquet(corrupt)).toBeUndefined();
 });
