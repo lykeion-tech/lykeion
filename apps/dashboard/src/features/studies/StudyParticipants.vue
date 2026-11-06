@@ -58,11 +58,13 @@ function runtime(run: AgentRun) {
 <template>
   <div v-if="participants.length || owner" class="participants" @keydown.esc="selected = null">
     <div class="participant-icons" aria-label="Study participants">
-      <RouterLink
+      <button
         v-if="owner"
-        :to="`/colleagues/${owner.user_id}`"
+        type="button"
         class="participant-icon avatar"
-        :aria-label="`Open ${owner.name || owner.email} details`"
+        :aria-label="`Show ${owner.name || owner.email} details`"
+        :aria-expanded="selected === 'owner'"
+        @click="selected = selected === 'owner' ? null : 'owner'"
       >
         <AvatarDisplay
           v-if="owner.avatar_url"
@@ -72,7 +74,7 @@ function runtime(run: AgentRun) {
           :size="18"
         />
         <template v-else>{{ (owner.name || owner.email)[0] }}</template>
-      </RouterLink>
+      </button>
       <button
         v-for="run in participants"
         :key="participantKey(run)"
@@ -90,7 +92,28 @@ function runtime(run: AgentRun) {
         <template v-else>{{ label(run)[0] }}</template>
       </button>
     </div>
-    <section v-if="active" class="participant-details" :aria-label="`${label(active)} details`">
+    <section
+      v-if="selected === 'owner' && owner"
+      class="participant-details"
+      :aria-label="`${owner.name || owner.email} details`"
+    >
+      <strong>{{ owner.name || owner.email }}</strong>
+      <dl>
+        <div>
+          <dt>Email</dt>
+          <dd>{{ owner.email }}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>{{ owner.role }}</dd>
+        </div>
+      </dl>
+    </section>
+    <section
+      v-else-if="active"
+      class="participant-details"
+      :aria-label="`${label(active)} details`"
+    >
       <RouterLink v-if="agent" :to="`/agents/${active.agent_id}`" class="participant-name">{{
         label(active)
       }}</RouterLink>

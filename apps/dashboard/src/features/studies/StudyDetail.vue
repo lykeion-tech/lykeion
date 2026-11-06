@@ -551,7 +551,7 @@ function pin() {
           <div class="activity-heading">
             <h2>Activity</h2>
             <StudyParticipants
-              :runs="agentRuns"
+              :runs="[]"
               :agents="agents.data.value ?? []"
               :runtimes="runtimes.data.value ?? []"
               :teams="c.teams ?? {}"
@@ -653,7 +653,16 @@ function pin() {
               "
               @cancel-comment="cancelComment"
               @open-output="previewOutput"
-            />
+            >
+              <template #participant>
+                <StudyParticipants
+                  :runs="[entry.run]"
+                  :agents="agents.data.value ?? []"
+                  :runtimes="runtimes.data.value ?? []"
+                  :teams="c.teams ?? {}"
+                />
+              </template>
+            </AgentRunCard>
             <div v-else-if="entry.kind === 'jev'" class="jev-card">
               <span class="avatar jev-avatar" aria-hidden="true">J</span>
               <span class="jev-text">

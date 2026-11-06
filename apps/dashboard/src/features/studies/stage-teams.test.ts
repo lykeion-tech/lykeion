@@ -2312,7 +2312,11 @@ it('shows each study agent once and opens its recorded runtime and current team 
   const avatars = t.nodes().filter((n) => n.props['aria-label'] === 'Show Solo agent details');
   expect(avatars).toHaveLength(1);
   expect(t.nodes().some((n) => n.props['aria-label'] === 'Show Former agent details')).toBe(true);
-  expect(t.nodes().some((n) => n.props['aria-label'] === 'Open Diego details')).toBe(true);
+  const owner = t.nodes().find((n) => n.props['aria-label'] === 'Show Diego details');
+  expect(owner?.tag).toBe('button');
+  (owner!.props.onClick as () => void)();
+  await nextTick();
+  expect(t.text()).toContain('test@example.com');
   (avatars[0]!.props.onClick as () => void)();
   await nextTick();
   expect(t.text()).toContain('codex · Lab Mac');

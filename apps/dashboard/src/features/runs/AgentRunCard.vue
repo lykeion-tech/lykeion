@@ -236,6 +236,7 @@ const lastActive = computed(
             >
           </span>
         </div>
+        <slot name="participant" />
         <button
           type="button"
           class="header-action full-log"
@@ -392,6 +393,7 @@ const lastActive = computed(
   margin-left: 0;
 }
 .agent-card {
+  margin: 0;
   min-width: 0;
   padding: 14px 16px;
   border: 1px solid var(--card-border);
