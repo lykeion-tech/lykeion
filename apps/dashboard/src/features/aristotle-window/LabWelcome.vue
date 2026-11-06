@@ -39,7 +39,7 @@ const starters = [
   height: 56px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--palette-accent);
   overflow: hidden;
 }
 .portrait .aristotle-art {

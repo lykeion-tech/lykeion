@@ -11,6 +11,7 @@ import PdfDocumentPreview from './PdfDocumentPreview.vue';
 import NotebookViewer from './NotebookViewer.vue';
 import SequenceViewer from './SequenceViewer.vue';
 import NpyViewer from './NpyViewer.vue';
+import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import NpzViewer from './NpzViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
 import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
@@ -128,6 +129,7 @@ watch(
     :extension="ext"
     :partial="partial"
   />
+  <MatrixMarketViewer v-else-if="ext === 'mtx'" :text="text" :partial="partial" />
   <SequenceViewer v-else-if="sequence" :text="text" :extension="ext" :partial="partial" />
   <figure
     v-else-if="bioTable"

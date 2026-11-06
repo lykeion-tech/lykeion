@@ -178,3 +178,14 @@ it('does not display an older NumPy file after switching files', async () => {
   expect(textOf(root)).not.toContain('17');
   app.unmount();
 });
+
+it('opens Matrix Market files in the shared matrix preview', async () => {
+  const blob = new Blob(['%%MatrixMarket matrix coordinate real general\n2 2 1\n1 2 3\n']);
+  const app = createTreeApp({ render: () => h(ArtifactViewer, { path: 'sample.mtx', blob }) });
+  const root = node('root');
+  app.mount(root);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(textOf(root)).toContain('2 rows × 2 columns');
+  expect(textOf(root)).toContain('3');
+  app.unmount();
+});
