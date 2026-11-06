@@ -136,9 +136,10 @@ func itemLines(items, recs, grounding []db.Record) []string {
 }
 
 type valueRecord struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	File  string `json:"file"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	File      string `json:"file"`
+	ScriptRun bool   `json:"script_run,omitempty"`
 	// Cites are the script runs of File, written run:KEY.
 	Cites []string `json:"cites"`
 }

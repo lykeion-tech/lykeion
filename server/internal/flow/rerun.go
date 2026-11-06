@@ -412,11 +412,11 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	// As in the Experimentation check, a value a replayed script made may
 	// be in any file the rerun saved; one no replayed script made only in
 	// the file it names.
-	if len(texts) > 0 {
+	if len(texts) > 0 && !v.ScriptRun {
 		for _, name := range slices.Sorted(maps.Keys(files)) {
 			texts = append(texts, files[name])
 		}
-	} else if text, ok := files[v.File]; ok {
+	} else if text, ok := files[v.File]; ok && !v.ScriptRun && len(texts) == 0 {
 		texts = append(texts, text)
 	}
 	n, isNumber := parseNumber(strings.TrimSpace(v.Value))

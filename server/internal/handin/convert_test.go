@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -188,6 +189,60 @@ func TestConvertExperimentation(t *testing.T) {
 	}
 	if v := body(t, recs[2]); v["file"] != "fit.py" || v["cites"].([]any)[0] != "run:x1" {
 		t.Errorf("value from a script %v", v)
+	}
+}
+
+func TestExperimentationValueMayReferenceAnExactRecordedScriptRun(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Experimentation, "run", "x1", map[string]any{"tool": "run_script", "path": "readiness.py", "exit_status": 0}),
+		rec(board.Experimentation, "run", "x2", map[string]any{"tool": "run_script", "path": "readiness.py", "exit_status": 0}),
+	})
+	h := parsed(t, Experimentation, `{"status":"done","answer":"4","reason":null,"replies":[],"outputs":[],"values":[{"name":"sum","value":"4","file":"run:x1"}]}`)
+	recs, probs := Convert(Experimentation, true, h, e, Review{})
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	if v := body(t, recs[0]); v["file"] != "readiness.py" || v["script_run"] != true || !slices.Equal(v["cites"].([]any), []any{"run:x1"}) {
+		t.Fatalf("value has wrong script provenance: %v", v)
+	}
+}
+
+func TestExperimentationRejectsUnusableScriptRunReferences(t *testing.T) {
+	gone := time.Now()
+	superseded := rec(board.Experimentation, "run", "old", map[string]any{"tool": "run_script", "path": "old.py"})
+	superseded.SupersededAt = &gone
+	malformed := rec(board.Experimentation, "run", "invalid", nil)
+	malformed.Body = []byte(`{"tool":`)
+	e := NewEvidence([]db.Record{
+		superseded,
+		rec(board.Grounding, "run", "othercolumn", map[string]any{"tool": "run_script", "path": "other.py"}),
+		rec(board.Experimentation, "run", "code", map[string]any{"tool": "run_code", "path": "explore.py"}),
+		rec(board.Experimentation, "run", "nopath", map[string]any{"tool": "run_script"}),
+		malformed,
+	})
+	for _, ref := range []string{"run:missing", "run:old", "run:othercolumn", "run:code", "run:nopath", "run:invalid"} {
+		t.Run(ref, func(t *testing.T) {
+			h := parsed(t, Experimentation, `{"status":"done","answer":"4","reason":null,"replies":[],"outputs":[],"values":[{"name":"sum","value":"4","file":"`+ref+`"}]}`)
+			recs, probs := Convert(Experimentation, true, h, e, Review{})
+			if recs != nil || len(probs) != 1 {
+				t.Fatalf("got records %v, problems %v", recs, probs)
+			}
+		})
+	}
+}
+
+func TestExperimentationPreservesSavedOutputNamedLikeRunReference(t *testing.T) {
+	e := NewEvidence([]db.Record{
+		rec(board.Experimentation, "output", "o1", map[string]any{"name": "run:x1"}),
+		rec(board.Experimentation, "run", "x1", map[string]any{"tool": "run_script", "path": "readiness.py"}),
+	})
+	h := parsed(t, Experimentation, `{"status":"done","answer":"4","reason":null,"replies":[],"outputs":[],"values":[{"name":"sum","value":"4","file":"run:x1"}]}`)
+	recs, probs := Convert(Experimentation, true, h, e, Review{})
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	if v := body(t, recs[0]); v["file"] != "run:x1" || len(v["cites"].([]any)) != 0 {
+		t.Fatalf("saved output was not preserved: %v", v)
 	}
 }
 

@@ -284,7 +284,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 		if d.Decode(&body) != nil {
 			continue
 		}
-		walkValues(body, nil, false, func(v string, cites []string, calls bool, file string) {
+		walkValues(body, nil, false, func(v string, cites []string, calls bool, file string, scriptRun bool) {
 			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0 && !calls, CallsOnly: len(cites) == 0 && calls}
 			n, ok := parseNumber(v)
 			// Only a script run that exited with status 0 counts; a timeout's
@@ -313,7 +313,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 			}
 		files:
 			for _, k := range cites {
-				if m.Matched || !ok {
+				if m.Matched || !ok || scriptRun {
 					break
 				}
 				r, cited := runs[k]
@@ -328,7 +328,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 				}
 			}
 			for _, f := range named[file] {
-				if m.Matched || !ok {
+				if m.Matched || !ok || scriptRun {
 					break
 				}
 				if in(true, f, n) {
@@ -359,7 +359,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 // walkValues finds each value as walkQuotes finds quotes, keeping only the
 // `run:` entries of a `cites` list; calls is set when that list also names a
 // `call:` entry. file is the `file` field of the object holding the value.
-func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool, file string)) {
+func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool, file string, scriptRun bool)) {
 	text := func(e any) (string, bool) {
 		switch e := e.(type) {
 		case json.Number:
@@ -388,18 +388,19 @@ func walkValues(v any, cites []string, calls bool, found func(value string, cite
 			}
 		}
 		file, _ := v["file"].(string)
+		scriptRun, _ := v["script_run"].(bool)
 		for name, e := range v {
 			switch name {
 			case "value":
 				if s, ok := text(e); ok {
-					found(s, cites, calls, file)
+					found(s, cites, calls, file, scriptRun)
 					continue
 				}
 			case "values":
 				if list, ok := e.([]any); ok {
 					for _, x := range list {
 						if s, ok := text(x); ok {
-							found(s, cites, calls, file)
+							found(s, cites, calls, file, scriptRun)
 						} else {
 							walkValues(x, cites, calls, found)
 						}

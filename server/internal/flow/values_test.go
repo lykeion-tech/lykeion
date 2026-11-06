@@ -360,3 +360,32 @@ func TestAValueNamingAFileMatchesThatOutputFromAnyRun(t *testing.T) {
 		t.Fatalf("value only in another file: %+v", got)
 	}
 }
+
+func TestExplicitScriptRunDoesNotMatchAnUnrelatedSameNamedOutput(t *testing.T) {
+	agent := uuid.New()
+	output := valueRec("o1", "output", map[string]any{"name": "readiness.py"})
+	output.AgentRunID = &agent
+	value := valueRec("r1", "value", map[string]any{
+		"name": "sum", "value": "4", "file": "readiness.py", "cites": []string{"run:x1"}, "script_run": true,
+	})
+	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: "5", AgentRunID: agent}}
+	got := MatchValuesIn([]db.Record{output, value}, runs, map[string]string{"o1": "4"})
+	if len(got) != 1 || got[0].Matched {
+		t.Fatalf("unrelated saved output matched explicit script value: %+v", got)
+	}
+}
+
+func TestExplicitScriptRunCannotBeReproducedByAnUnrelatedFile(t *testing.T) {
+	v := valueOf(valueRec("r1", "value", map[string]any{
+		"name": "sum", "value": "4", "file": "readiness.py", "cites": []string{"run:x1"}, "script_run": true,
+	}))
+	if ok, _ := reproduced(v, nil, map[string]string{"readiness.py": "4"}, 0); ok {
+		t.Fatal("unrelated file reproduced an explicit script value")
+	}
+	if ok, _ := reproduced(v, map[string]RerunStepResult{"x1": {Output: "5", ExitStatus: 0}}, map[string]string{"readiness.py": "4"}, 0); ok {
+		t.Fatal("unrelated file overrode the cited script's different result")
+	}
+	if ok, _ := reproduced(v, map[string]RerunStepResult{"x1": {Output: "4", ExitStatus: 0}}, nil, 0); !ok {
+		t.Fatal("matching cited script did not reproduce its result")
+	}
+}

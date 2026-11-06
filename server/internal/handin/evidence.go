@@ -287,3 +287,24 @@ func (e Evidence) Value(name string) bool { return e.values[name] }
 // Scripts are the script runs a value shown in file rests on, written run:KEY
 // as a value cites them (service.ScriptRuns); nil when none was recorded.
 func (e Evidence) Scripts(file string) []string { return service.ScriptRuns(e.exp, file) }
+
+// ScriptPath resolves a recorded script-run reference to its script path.
+func (e Evidence) ScriptPath(ref string) (string, bool) {
+	key, ok := strings.CutPrefix(ref, "run:")
+	if !ok || key == "" {
+		return "", false
+	}
+	for _, r := range e.exp {
+		if r.Kind != "run" || r.Key != key {
+			continue
+		}
+		var b struct {
+			Tool string `json:"tool"`
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(r.Body, &b) == nil && b.Tool == "run_script" && strings.TrimSpace(b.Path) != "" {
+			return b.Path, true
+		}
+	}
+	return "", false
+}

@@ -108,10 +108,11 @@ func NewStanding(study []db.Record) Standing {
 }
 
 type standingValue struct {
-	Name  string   `json:"name"`
-	Value string   `json:"value"`
-	File  string   `json:"file"`
-	Cites []string `json:"cites"`
+	Name      string   `json:"name"`
+	Value     string   `json:"value"`
+	File      string   `json:"file"`
+	Cites     []string `json:"cites"`
+	ScriptRun bool     `json:"script_run,omitempty"`
 }
 
 func valueOf(r db.Record) standingValue {

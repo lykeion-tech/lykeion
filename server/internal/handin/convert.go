@@ -28,10 +28,11 @@ type NewRecord struct {
 // valueBody is the record a reported value becomes: the file that shows it, and
 // the script runs of that file, if it is a script.
 type valueBody struct {
-	Name  string   `json:"name"`
-	Value string   `json:"value"`
-	File  string   `json:"file"`
-	Cites []string `json:"cites"`
+	Name      string   `json:"name"`
+	Value     string   `json:"value"`
+	File      string   `json:"file"`
+	Cites     []string `json:"cites"`
+	ScriptRun bool     `json:"script_run,omitempty"`
 }
 
 type declinedBody struct {
@@ -224,7 +225,14 @@ func (c *converter) experimentation(h HandIn) {
 		c.item("outputs", 1, review.KindOutputs, review.OutputsBody{Files: h.Outputs})
 	}
 	for i, v := range h.Values {
-		runs := c.ev.Scripts(v.File)
+		file := v.File
+		runs := c.ev.Scripts(file)
+		scriptRun := false
+		if path, ok := c.ev.ScriptPath(file); ok && !c.ev.Saved(file) && runs == nil {
+			runs = []string{file}
+			file = path
+			scriptRun = true
+		}
 		switch {
 		case v.File == "":
 			c.problem("value %d: name the saved output or script run that shows the value", i+1)
@@ -234,7 +242,7 @@ func (c *converter) experimentation(h HandIn) {
 			if runs == nil {
 				runs = []string{}
 			}
-			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: v.File, Cites: runs}})
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: file, Cites: runs, ScriptRun: scriptRun}})
 		}
 	}
 }
