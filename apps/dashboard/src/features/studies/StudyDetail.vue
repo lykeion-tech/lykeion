@@ -1595,7 +1595,7 @@ function pin() {
   padding-inline-start: 20px;
 }
 .activity-heading {
-  margin: 32px 0 16px;
+  margin: 32px 0 0;
   padding-top: 32px;
   border-top: 1px solid var(--border);
   font-size: 16px;
@@ -1770,7 +1770,15 @@ function pin() {
 .activity-group {
   color: var(--muted);
   font-size: 12.5px;
-  margin: 16px 0 12px;
+  margin: 0;
+}
+.activity-card:has(+ .activity-group),
+.jev-card:has(+ .activity-group) {
+  margin-bottom: 0;
+}
+.activity-group + .activity-card,
+.activity-group + .jev-card {
+  margin-top: 0;
 }
 .generated-files {
   margin-top: 24px;
@@ -1813,7 +1821,7 @@ function pin() {
   display: list-item;
   width: fit-content;
   cursor: pointer;
-  padding: 6px 0 6px 14px;
+  padding: 10px 0 10px 14px;
 }
 .event-line {
   display: flex;
