@@ -169,7 +169,7 @@ watch(
   />
   <SmilesViewer v-else-if="['smi', 'smiles'].includes(ext)" :text="text" :partial="partial" />
   <ChemicalViewer
-    v-else-if="['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif', 'xyz', 'gro'].includes(ext)"
+    v-else-if="['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif', 'xyz', 'gro', 'mol2'].includes(ext)"
     :text="text"
     :extension="ext"
     :partial="partial"
