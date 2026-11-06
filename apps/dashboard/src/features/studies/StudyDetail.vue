@@ -557,7 +557,7 @@ function pin() {
               </p>
               <p
                 v-if="
-                  deliveryLine(entry.comment.delivery, {
+                  (!entry.comment.delivery || entry.comment.cancelled) && deliveryLine(entry.comment.delivery, {
                     working,
                     unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
                     cancelled: entry.comment.cancelled,

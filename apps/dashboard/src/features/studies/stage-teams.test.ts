@@ -1837,7 +1837,7 @@ it('shows closed-study guidance and keeps the composer draft after a failed send
   }
 });
 
-it('keeps queued composer input pending until an acknowledgement is read', async () => {
+it('shows pending composer input but hides the delivered status after acknowledgement', async () => {
   let client!: QueryClient;
   const t = await mount(
     StudyDetail,
@@ -1881,7 +1881,9 @@ it('keeps queued composer input pending until an acknowledgement is read', async
       },
     ]);
     await nextTick();
-    expect(t.text()).toContain('Delivered to the leader');
+    expect(t.text()).toContain('Exact input');
+    expect(t.text()).not.toContain('Delivered to the leader');
+    expect(t.text()).not.toContain('Waiting for an eligible agent run');
   } finally {
     t.unmount();
   }
