@@ -236,7 +236,6 @@ const lastActive = computed(
             >
           </span>
         </div>
-        <slot name="participant" />
         <button
           type="button"
           class="header-action full-log"

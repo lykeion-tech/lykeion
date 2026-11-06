@@ -169,7 +169,7 @@ function runtime(run: AgentRun) {
   z-index: 10;
   right: 0;
   top: calc(100% + 6px);
-  width: 240px;
+  width: min(320px, calc(100vw - 32px));
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -186,7 +186,7 @@ dl {
 }
 dl div {
   display: grid;
-  grid-template-columns: 95px 1fr;
+  grid-template-columns: 80px minmax(0, 1fr);
   gap: 8px;
   margin-top: 8px;
 }
