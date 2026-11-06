@@ -64,13 +64,8 @@ const usable = computed(() =>
     (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
   ),
 );
+
 const agentById = (id: string) => usable.value.find((a) => a.id === id);
-const same = (a?: { harness: string; model: string }, b?: { harness: string; model: string }) =>
-  !!a && !!b && a.harness === b.harness && a.model === b.model;
-const auditorClash = computed(() => {
-  const a = agentById(auditor.value.agent);
-  return !!a && [leader.value, ...members.value].some((s) => same(a, agentById(s.agent)));
-});
 
 function connectorProblem(c: Conn): string {
   if (c.kind === 'workspace')
@@ -122,7 +117,7 @@ const problem = computed(() => {
   if (!(steps.value >= 1 && steps.value <= 50)) return 'Steps per column is 1 to 50.';
   return '';
 });
-const canCreate = computed(() => !problem.value && !auditorClash.value && !busy.value);
+const canCreate = computed(() => !problem.value && !busy.value);
 
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 const harnessName = backendLabel;
@@ -413,7 +408,7 @@ async function create() {
         </button>
 
         <h2>Independent Auditor</h2>
-        <p class="section-description">An independent model checks the work before scoring.</p>
+        <p class="section-description">The auditor checks the work before scoring.</p>
         <div class="slot">
           <SelectPicker
             ><select v-model="auditor.agent" aria-label="Auditor agent">
@@ -425,9 +420,6 @@ async function create() {
             >{{ harnessName(agentById(auditor.agent)!.harness) }} · runs once after the leader says
             done, before scoring</small
           >
-          <p v-if="auditorClash" class="inline-error" role="alert">
-            The auditor must run on a different model from the leader and every member
-          </p>
           <textarea
             v-model="auditor.role"
             aria-label="Auditor role"

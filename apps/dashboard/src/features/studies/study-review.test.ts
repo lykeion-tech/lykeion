@@ -224,6 +224,16 @@ it('preserves a selected historical stage when the card or review updates', asyn
   expect(groundingTile.props['aria-pressed']).toBe(true);
 });
 
+it('shows the fingerprint without percentage scale labels', async () => {
+  const { root } = setup(columns());
+  await nextTick();
+  const chart = all(root).find((n) => n.props['aria-label'] === 'Claim fingerprint')!;
+  for (const label of ['0%', '35%', '70%', '100%']) {
+    expect(textOf(chart)).not.toContain(label);
+  }
+  expect(textOf(chart)).toContain('Support index');
+});
+
 it('bounds long fingerprint labels and their weakest marker within the chart', async () => {
   const a = grounding();
   a.items.forEach((item) => {

@@ -650,7 +650,7 @@ func TestACallWhoseBlobIsGoneIsScoredAsUnreadable(t *testing.T) {
 	}
 }
 
-func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
+func TestAnAuditorCopyEditedToMatchAMemberStillRuns(t *testing.T) {
 	l := newLab(t)
 	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
@@ -660,15 +660,15 @@ func TestAnAuditorCopyEditedToMatchAMemberIsNotRun(t *testing.T) {
 	}
 	c := l.study(t, "hypotheses", true, nil)
 	l.done(t, c.ID)
-	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID); n != 0 {
-		t.Fatalf("an auditor sharing a member's harness and model ran: %d runs", n)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND role = 'auditor'", c.ID); n != 1 {
+		t.Fatalf("same-model auditor should run: %d runs", n)
 	}
-	calls := stub.calls()
-	if len(calls) != 1 || !strings.Contains(calls[0].State, "the researcher's copy of the auditor runs the same harness and model as ") {
-		t.Fatalf("Jev was not told why there is no audit: %d calls", len(calls))
+	if n := len(stub.calls()); n != 0 {
+		t.Fatalf("scored before the auditor settled: %d calls", n)
 	}
-	if got := l.card(t, c.ID); got.State != "done" {
-		t.Fatalf("the column was not scored: %s", got.State)
+	l.settleAuditor(t, c.ID)
+	if n := len(stub.calls()); n != 1 {
+		t.Fatalf("scoring did not follow the auditor: %d calls", n)
 	}
 }
 

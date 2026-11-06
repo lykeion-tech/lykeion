@@ -212,7 +212,7 @@ test('creating a Team from the template', async ({ page }) => {
   await expect(page.getByText('Every dataset named has its accession')).toBeVisible();
 });
 
-test('the auditor must use another model', async ({ page }) => {
+test('the auditor can use the same model', async ({ page }) => {
   const a = await formAgents(page);
   await page.goto('/#/teams/new');
   await page.getByLabel('Team name').fill('auditor-check');
@@ -226,11 +226,9 @@ test('the auditor must use another model', async ({ page }) => {
   await page.getByLabel('Auditor role').fill('Audits');
   await expect(page.getByRole('button', { name: 'Create Team' })).toBeEnabled();
   await selectPicker(page.getByLabel('Auditor agent'), { label: a.lead });
-  await expect(page.getByRole('alert')).toHaveText(
-    'The auditor must run on a different model from the leader and every member',
-  );
-  await expect(page.getByRole('button', { name: 'Create Team' })).toBeDisabled();
-  await page.screenshot({ path: `${shots}/team-form-auditor.png`, fullPage: true });
+  await expect(page.getByRole('button', { name: 'Create Team' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Create Team' }).click();
+  await expect(page.getByRole('heading', { name: 'auditor-check', level: 1 })).toBeVisible();
 });
 
 test('the core criteria cannot be removed', async ({ page }) => {

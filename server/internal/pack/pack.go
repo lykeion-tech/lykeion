@@ -60,14 +60,6 @@ type AgentDef struct {
 	Instructions string            `json:"instructions"`
 }
 
-// choices is the harness-to-model pairs the agent may run as.
-func (a AgentDef) choices() map[string]string {
-	if len(a.Models) > 0 {
-		return a.Models
-	}
-	return map[string]string{a.Harness: a.Model}
-}
-
 // Connector is exactly one of a catalogue name, an HTTPS MCP URL or a local
 // command.
 type Connector struct {
@@ -322,28 +314,9 @@ func (p *Pack) validate() error {
 			names[name] = true
 		}
 	}
-	if err := AuditorDiffers(*m); err != nil {
-		return err
-	}
 	for key := range p.Skills {
 		if !seen[strings.SplitN(key, "/", 2)[0]] {
 			return fmt.Errorf("pack: skills for unknown member in %q", key)
-		}
-	}
-	return nil
-}
-
-// AuditorDiffers refuses a Team whose auditor could run the same harness and
-// model as the leader or any member: for every harness both name, the models
-// must differ. An empty model is the harness default, so it
-// equals another empty model on the same harness.
-func AuditorDiffers(m Manifest) error {
-	a := m.Auditor.Agent
-	for _, mem := range slices.Concat([]Member{m.Leader}, m.Members) {
-		for h, model := range a.choices() {
-			if other, ok := mem.Agent.choices()[h]; ok && other == model {
-				return fmt.Errorf("pack: auditor shares harness and model with %q", mem.Name)
-			}
 		}
 	}
 	return nil

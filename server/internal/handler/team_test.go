@@ -282,14 +282,14 @@ func TestAnAgentICannotSeeCannotBeAMember(t *testing.T) {
 	}
 }
 
-func TestAFormTeamWithTheAuditorOnTheLeadersModelIsRefused(t *testing.T) {
+func TestAFormTeamWithTheAuditorOnTheLeadersModelIsAccepted(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	lead, mem := s.newAgent(t, a, w.ID, "lead", "claude"), s.newAgent(t, a, w.ID, "mem", "codex")
-	aud := s.newAgent(t, a, w.ID, "aud", "claude")
+	lead, mem := s.newAgent(t, a, w.ID, "lead", "codex"), s.newAgent(t, a, w.ID, "mem", "codex")
+	aud := s.newAgent(t, a, w.ID, "aud", "codex")
 	var e json.RawMessage
-	if c := s.call(t, "POST", "/api/teams", a, w.ID, formFor(lead, aud, mem), &e); c != 400 {
+	if c := s.call(t, "POST", "/api/teams", a, w.ID, formFor(lead, aud, mem), &e); c != 201 {
 		t.Fatalf("create: %d %s", c, e)
 	}
 }

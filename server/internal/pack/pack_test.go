@@ -191,7 +191,6 @@ func TestParseRefuses(t *testing.T) {
 		{"tolerance too wide", mut(func(m *Manifest) { m.Validation.Tolerance = 0.51 }), "tolerance"},
 		{"tolerance negative", mut(func(m *Manifest) { m.Validation.Tolerance = -0.01 }), "tolerance"},
 		{"unknown harness", mut(func(m *Manifest) { m.Members[0].Agent.Harness = "gpt" }), "harness"},
-		{"auditor shares harness and model", mut(func(m *Manifest) { m.Auditor.Agent = m.Members[1].Agent }), "auditor"},
 		{"unknown skill", mut(func(m *Manifest) { m.Members[0].Skills = []string{"ghost"} }), "skill"},
 		{"unknown catalogue", mut(func(m *Manifest) { m.Members[0].Connectors = []Connector{{Name: "x", Catalogue: "nope"}} }), "catalogue"},
 		{"connector named sources", mut(func(m *Manifest) { m.Members[0].Connectors[1].Name = "sources" }), "reserved"},
@@ -279,11 +278,13 @@ func TestTheDemoFixtureParses(t *testing.T) {
 	}
 }
 
-func TestAuditorDiffersIsExported(t *testing.T) {
-	m := goodManifest()
-	m.Auditor.Agent = m.Leader.Agent
-	if err := AuditorDiffers(m); err == nil {
-		t.Fatal("an auditor equal to the leader was accepted")
+func TestAuditorCanShareLeaderAndMemberModel(t *testing.T) {
+	_, err := Parse(goodZip(t, func(m *Manifest) {
+		m.Auditor.Agent = m.Leader.Agent
+		m.Members[0].Agent = m.Leader.Agent
+	}))
+	if err != nil {
+		t.Fatalf("same-model auditor should be accepted: %v", err)
 	}
 }
 
@@ -316,26 +317,6 @@ func TestModelsMapReplacesHarness(t *testing.T) {
 	} {
 		if _, err := Parse(goodZip(t, func(m *Manifest) { m.Members[0].Agent = def })); err == nil {
 			t.Errorf("%s: accepted", name)
-		}
-	}
-}
-
-func TestAuditorDiffersPerHarness(t *testing.T) {
-	both := func(c, x string) AgentDef { return AgentDef{Models: map[string]string{"claude": c, "codex": x}} }
-	for _, c := range []struct {
-		name            string
-		member, auditor AgentDef
-		refused         bool
-	}{
-		{"same model on one shared harness", both("a", "b"), both("a", "z"), true},
-		{"different on every shared harness", both("a", "b"), both("x", "z"), false},
-		{"map against a fixed harness", both("a", "b"), AgentDef{Harness: "claude", Model: "a"}, true},
-		{"fixed harness the map lacks", AgentDef{Models: map[string]string{"codex": "b"}}, AgentDef{Harness: "claude", Model: "b"}, false},
-	} {
-		m := goodManifest()
-		m.Leader.Agent, m.Auditor.Agent = c.member, c.auditor
-		if err := AuditorDiffers(m); (err != nil) != c.refused {
-			t.Errorf("%s: err = %v, refused should be %v", c.name, err, c.refused)
 		}
 	}
 }

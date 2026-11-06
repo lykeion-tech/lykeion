@@ -403,8 +403,8 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 	if err == nil && (!validCLI(in.StudyCLI) || !validCLI(in.AuditorCLI)) {
 		err = cardInputError("invalid CLI")
 	}
-	if err == nil && ((in.AuditorCLI == nil) != (in.StudyCLI == nil) || (in.AuditorCLI != nil && (agent != nil || *in.StudyCLI == *in.AuditorCLI))) {
-		err = cardInputError("auditor CLI requires a Team and a different study CLI")
+	if err == nil && ((in.AuditorCLI == nil) != (in.StudyCLI == nil) || (in.AuditorCLI != nil && agent != nil)) {
+		err = cardInputError("auditor CLI requires a Team and a study CLI")
 	}
 	if err == nil {
 		err = checkWorkflow(in, from, to, agent)

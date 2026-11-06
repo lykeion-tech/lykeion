@@ -14,28 +14,6 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-func m(name, harness, model string) pack.Member {
-	return pack.Member{Name: name, Agent: pack.AgentDef{Harness: harness, Model: model}}
-}
-
-func TestAuditorMustDifferFromEveryMember(t *testing.T) {
-	for _, c := range []struct {
-		name                    string
-		leader, auditor, member pack.Member
-		refused                 bool
-	}{
-		{"same harness, both default models", m("pi", "codex", ""), m("a", "claude", ""), m("x", "claude", ""), true},
-		{"same harness, different models", m("pi", "codex", ""), m("a", "claude", "opus"), m("x", "claude", "sonnet"), false},
-		{"different harness", m("pi", "claude", ""), m("a", "codex", ""), m("x", "claude", ""), false},
-		{"equal to the leader", m("pi", "claude", "opus"), m("a", "claude", "opus"), m("x", "codex", ""), true},
-	} {
-		err := AuditorDiffers(pack.Manifest{Leader: c.leader, Auditor: c.auditor, Members: []pack.Member{c.member}})
-		if (err != nil) != c.refused {
-			t.Errorf("%s: err = %v, refused should be %v", c.name, err, c.refused)
-		}
-	}
-}
-
 type lab struct {
 	store *store.Store
 	ws    uuid.UUID

@@ -183,11 +183,6 @@ func (e *Engine) afterDone(ctx context.Context, tx *store.Tx, c db.Card, runs []
 	if err != nil {
 		return false, err
 	}
-	if c.StudyCli == nil || c.AuditorCli == nil {
-		if clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a); err != nil || clash != "" {
-			return clash != "", err
-		}
-	}
 	note, err := auditNote(ctx, tx, c, summary)
 	if err != nil {
 		return false, err
@@ -217,23 +212,6 @@ func auditNote(ctx context.Context, tx *store.Tx, c db.Card, summary db.Record) 
 	}
 	return "The leader handed the column in. Audit its answer and the items it handed in:\n\n" +
 		fence.Untrusted("The leader's answer", text) + fence.Untrusted("The items it handed in", capped(items, maxEarlierWork)), nil
-}
-
-// auditorClash names the leader or member whose copy runs the same harness
-// and model as the owner's copy of the auditor, a, or is empty when the
-// auditor's copy differs from all of them. Copies are editable, so a Team
-// that was valid when added can come to break the auditor rule.
-func auditorClash(ctx context.Context, tx *store.Tx, packID, owner uuid.UUID, m *pack.Manifest, a db.Agent) (string, error) {
-	for _, mem := range slices.Concat([]pack.Member{m.Leader}, m.Members) {
-		x, err := teamAgent(ctx, tx, packID, owner, mem.Name)
-		if err != nil {
-			return "", err
-		}
-		if x.Harness == a.Harness && x.Model == a.Model {
-			return mem.Name, nil
-		}
-	}
-	return "", nil
 }
 
 // Audit hands a column declared done to its auditor, or, on a column no Team
@@ -380,7 +358,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if summary == nil {
 			return nil
 		}
-		packID, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
+		_, m, err := columnTeam(ctx, tx, c.ID, c.BoardColumn)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			in.auditNote = "No auditor checked this column: no Team works it."
@@ -393,17 +371,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			}
 			runs = currentLeadRuns(runs)
 			i := latestAuditor(runs)
-			if i < 0 {
-				a, err := teamAgent(ctx, tx, packID, c.OwnerID, m.Auditor.Name)
-				if err != nil {
-					return err
-				}
-				clash, err := auditorClash(ctx, tx, packID, c.OwnerID, m, a)
-				if err != nil || clash == "" {
-					return err
-				}
-				in.auditNote = fmt.Sprintf("No auditor checked this column: the researcher's copy of the auditor runs the same harness and model as %s's, so it would not be an independent check.", clash)
-			} else if inFlight(runs[i].Status) || accessInterrupted(runs[i]) {
+			if i < 0 || inFlight(runs[i].Status) || accessInterrupted(runs[i]) {
 				return nil
 			} else if in.audit == "" {
 				in.auditNote = fmt.Sprintf("The auditor's run ended %s without writing findings; this column is scored without an audit.", runs[i].Status)

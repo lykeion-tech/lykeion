@@ -116,10 +116,6 @@ func FromForm(ctx context.Context, tx *store.Tx, in Form) (pack.Manifest, error)
 	return m, nil
 }
 
-// AuditorDiffers is the pack package's rule, so a form and an archive meet the
-// same one.
-func AuditorDiffers(m pack.Manifest) error { return pack.AuditorDiffers(m) }
-
 // NoBuiltInError: a column needs its free stage Team and the workspace has none.
 type NoBuiltInError struct{ Stage string }
 

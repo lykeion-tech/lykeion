@@ -13,7 +13,7 @@ func TestCreateStudyCLIs(t *testing.T) {
 		want                      int
 	}{
 		{"valid", "claude", "codex", 201},
-		{"same", "claude", "claude", 400},
+		{"same", "codex", "codex", 201},
 		{"unknown", "claude", "other", 400},
 		{"missing", "claude", "", 400},
 	} {

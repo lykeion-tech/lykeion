@@ -375,13 +375,6 @@ const unlinkedObjections = computed(() =>
               stroke="var(--border)"
               :stroke-dasharray="ring ? '2 4' : undefined"
             />
-            <text
-              x="218"
-              :y="163 - chart.inner - ring * (chart.outer - chart.inner)"
-              class="ring-label"
-            >
-              {{ pct(ring) }}%
-            </text>
           </g>
           <g v-for="spoke in fingerprint" :key="spoke.id">
             <line
@@ -631,10 +624,6 @@ const unlinkedObjections = computed(() =>
   display: block;
   margin: 0 auto;
   max-width: 560px;
-}
-.ring-label {
-  font-size: 8px;
-  fill: var(--muted);
 }
 .item-label {
   font-size: 11.5px;
