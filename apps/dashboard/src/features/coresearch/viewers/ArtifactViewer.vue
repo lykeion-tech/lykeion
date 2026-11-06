@@ -17,6 +17,7 @@ import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
+import ChemicalViewer from './ChemicalViewer.vue';
 import MassXmlViewer from './MassXmlViewer.vue';
 import NpzViewer from './NpzViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
@@ -157,6 +158,12 @@ watch(
   />
   <MassXmlViewer
     v-else-if="['mzml', 'mzxml'].includes(ext)"
+    :text="text"
+    :extension="ext"
+    :partial="partial"
+  />
+  <ChemicalViewer
+    v-else-if="['pdb', 'ent', 'sdf', 'mol'].includes(ext)"
     :text="text"
     :extension="ext"
     :partial="partial"

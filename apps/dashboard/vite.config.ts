@@ -11,6 +11,7 @@ export default defineConfig({
   cacheDir: fileURLToPath(new URL('../../node_modules/.vite/lykeion-dashboard', import.meta.url)),
   base: './',
   plugins: [vue()],
+  optimizeDeps: { exclude: ['3dmol/build/3Dmol.es6-min.js?raw'] },
   resolve: {
     alias: {
       '@lykeion/api': fileURLToPath(
