@@ -55,7 +55,8 @@ watch(
   <p v-if="pending" role="status">Reading MATLAB file…</p>
   <section v-else-if="preview" aria-label="MATLAB preview">
     <p class="note">
-      Read-only numeric sample in MATLAB column-major order, up to 200 values per variable.
+      Read-only numeric sample in MATLAB column-major order, up to 200 values per variable. Complex
+      values are shown as (real, imaginary).
     </p>
     <label
       >Variable
@@ -79,7 +80,7 @@ watch(
     >
   </section>
   <p v-else>
-    MATLAB preview unavailable. Only supported real numeric arrays in MAT v4, v5, v6 and v7 can be
+    MATLAB preview unavailable. Only supported numeric arrays in MAT v4, v5, v6 and v7 can be
     previewed.
   </p>
 </template>

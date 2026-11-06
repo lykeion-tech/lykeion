@@ -16,8 +16,7 @@ it.each(['v5', 'v7'])('samples independently generated %s matrices with exact in
     values: ['9007199254740993', '-9007199254740993'],
   });
 });
-it('rejects complex matrices and truncated files', async () => {
-  expect(await parseMatlab(fixture('matrix-complex.mat'))).toBeUndefined();
+it('rejects truncated files', async () => {
   expect(await parseMatlab(fixture('matrix-v5.mat').slice(0, -1))).toBeUndefined();
 });
 it('rejects oversized lengths, corrupted compressed data, and unsupported logical arrays', async () => {
@@ -49,4 +48,29 @@ it('rejects zlib streams expanding past the bounded page budget', async () => {
   view.setUint32(132, z.length, true);
   f.set(z, 136);
   expect(await parseMatlab(f)).toBeUndefined();
+});
+
+it.each(['4', '5', '7', 'v4be'])(
+  'samples MATLAB complex numeric arrays correctly in %s files',
+  async (version) => {
+    const result = await parseMatlab(fixture(`mat-complex-${version}.mat`));
+    expect(result?.variables[0]).toMatchObject({
+      name: 'z',
+      shape: [2, 2],
+      type: expect.stringContaining('complex'),
+      values: ['(1, 2)', '(5, 6)', '(-3, -4)', '(7, -8)'],
+    });
+  },
+);
+it('preserves complex special values and rejects damaged or mismatched imaginary data', async () => {
+  const p = await parseMatlab(fixture('mat-complex-special.mat'));
+  expect(p?.variables[0]?.values).toEqual(['(NaN, -0)', '(Infinity, -Infinity)']);
+  const f = fixture('mat-complex-5.mat');
+  expect(await parseMatlab(f.slice(0, -1))).toBeUndefined();
+  const mismatch = f.slice();
+  new DataView(mismatch.buffer).setUint32(216, 7, true);
+  expect(await parseMatlab(mismatch)).toBeUndefined();
+  const invalidFlag = fixture('mat-complex-4.mat');
+  new DataView(invalidFlag.buffer).setInt32(12, 2, true);
+  expect(await parseMatlab(invalidFlag)).toBeUndefined();
 });

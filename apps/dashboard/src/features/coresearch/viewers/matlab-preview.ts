@@ -148,7 +148,8 @@ export async function parseMatlab(bytes: Uint8Array): Promise<MatlabPreview | un
           cols = head.getInt32(8, little),
           imag = head.getInt32(12, little),
           nl = head.getInt32(16, little);
-        if (rows < 0 || cols < 0 || imag !== 0 || nl < 2 || nl > 1025) throw Error();
+        if (rows < 0 || cols < 0 || (imag !== 0 && imag !== 1) || nl < 2 || nl > 1025)
+          throw Error();
         p += 20;
         if (nl > bytes.length - p || bytes[p + nl - 1] !== 0) throw Error();
         const name = new TextDecoder('utf-8', { fatal: true }).decode(
@@ -159,15 +160,23 @@ export async function parseMatlab(bytes: Uint8Array): Promise<MatlabPreview | un
         const type = [9, 7, 5, 3, 4, 2][numeric]!;
         const count = rows * cols,
           size = miSizes[type]!;
-        if (!Number.isSafeInteger(count) || count > Math.floor((bytes.length - p) / size))
+        if (
+          !Number.isSafeInteger(count) ||
+          count > Math.floor((bytes.length - p) / (size * (imag ? 2 : 1)))
+        )
           throw Error();
         const len = count * size,
           values = sample(bytes.subarray(p, p + len), type, little, count);
         p += len;
+        if (imag) {
+          const imaginary = sample(bytes.subarray(p, p + len), type, little, count);
+          p += len;
+          for (let i = 0; i < values.length; i++) values[i] = `(${values[i]}, ${imaginary[i]})`;
+        }
         vars.push({
           name,
           shape: [rows, cols],
-          type: miNames[type]!,
+          type: `${imag ? 'complex ' : ''}${miNames[type]!}`,
           values,
           truncated: count > 200,
         });
@@ -212,8 +221,8 @@ export async function parseMatlab(bytes: Uint8Array): Promise<MatlabPreview | un
           cls = word & 255;
         if (
           !classes[cls] ||
-          (word & ~0x4ff) !== 0 ||
-          (word & 0xa00) !== 0 ||
+          (word & ~0xcff) !== 0 ||
+          (word & 0x200) !== 0 ||
           f.getUint32(4, little) !== 0
         )
           throw Error();
@@ -244,13 +253,21 @@ export async function parseMatlab(bytes: Uint8Array): Promise<MatlabPreview | un
         const name = new TextDecoder('utf-8', { fatal: true }).decode(nt.data);
         if (/[\x00-\x1f]/.test(name)) throw Error();
         const data = next();
-        if (p !== payload.length || !miSizes[data.type] || classes[cls] !== miNames[data.type])
-          throw Error();
+        if (!miSizes[data.type] || classes[cls] !== miNames[data.type]) throw Error();
         const values = sample(data.data, data.type, little, count);
+        const complex = (word & 0x800) !== 0;
+        if (complex) {
+          const imaginary = next();
+          if (imaginary.type !== data.type) throw Error();
+          const imaginaryValues = sample(imaginary.data, imaginary.type, little, count);
+          for (let i = 0; i < values.length; i++)
+            values[i] = `(${values[i]}, ${imaginaryValues[i]})`;
+        }
+        if (p !== payload.length) throw Error();
         return {
           name,
           shape,
-          type: `${classes[cls]} (stored ${miNames[data.type]})`,
+          type: `${complex ? 'complex ' : ''}${classes[cls]} (stored ${miNames[data.type]})`,
           values,
           truncated: count > 200,
         };
