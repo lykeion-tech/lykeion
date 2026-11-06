@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import { cleanAssistantProse } from '../features/coresearch/assistant-paths';
 
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true, typographer: false });
 const escape = markdown.utils.escapeHtml;
@@ -75,8 +76,17 @@ export function renderMarkdown(content: string, breaks = true, localFiles = fals
 
 // Block structure for component renderers. Inline HTML uses exactly the same
 // escaping, URL validation, link and image rules as renderMarkdown above.
-export function parseMarkdownBlocks(content: string) {
-  return markdown.parse(content, {}).map((token) => ({
+export function parseMarkdownBlocks(content: string, redactLocalPaths = false) {
+  const blocks = markdown.parse(content, {});
+  if (redactLocalPaths) {
+    for (const token of blocks) {
+      for (const child of token.children ?? []) {
+        if (child.type === 'text') child.content = cleanAssistantProse(child.content);
+        else if (child.type === 'code_inline' && /^(?:file:\/\/)?\/(?:private|tmp|var|Users|home|workspace|mnt|opt|data|srv|Volumes)\/|^[A-Za-z]:\\/.test(child.content)) child.content = '[local file]';
+      }
+    }
+  }
+  return blocks.map((token) => ({
     type: token.type,
     tag: token.tag,
     nesting: token.nesting,

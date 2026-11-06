@@ -58,3 +58,12 @@ func TestPromptNamesSelectedCapabilitiesForCurrentTurn(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptRequestsHumanReadablePathsWithoutHidingFailures(t *testing.T) {
+	for _, mode := range []string{"experiment", "cowrite"} {
+		p := Prompt(PromptIn{Mode: mode})
+		if !strings.Contains(p, "Avoid local absolute machine paths") || !strings.Contains(p, "explain failures accurately") {
+			t.Fatalf("missing human-readable response guidance for %s", mode)
+		}
+	}
+}

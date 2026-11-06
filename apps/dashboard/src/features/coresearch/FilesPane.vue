@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError, downloadFile, PreviewTooLargeError } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import { guardResourceDrafts, registerDraftVisit } from '../../state/resource-draft';
-import { useWorkspaceTabs } from '../../state/workspace-tabs';
 import {
   keys,
   filePath,
@@ -26,7 +25,6 @@ const props = defineProps<{
   inWorkspaceTab?: boolean;
 }>();
 const emit = defineEmits<{ 'update:selectedN': [number | undefined] }>();
-const workspaceTabs = useWorkspaceTabs();
 const client = useQueryClient(),
   files = useCoresearchFiles(() => props.project.id);
 const versions = useCoresearchVersions(
@@ -153,12 +151,6 @@ const diff = computed(() => {
   const result = boundedUnifiedDiff(oldText.value, previewText.value);
   return result.kind === 'diff' ? { text: result.text } : { message: 'Too large to compare.' };
 });
-async function openInTab() {
-  if (!props.file || editing.value || !(await guardResourceDrafts())) return;
-  const path = `/coresearch/artifacts/${encodeURIComponent(props.project.id)}/${encodeURIComponent(props.file.id)}`;
-  const version = shownN.value < head.value ? `?version=${shownN.value}` : '';
-  workspaceTabs.openTab(path + version, props.file.path.split('/').at(-1) || 'File', 'file');
-}
 function startEdit() {
   if (scientificBinary.value) return;
   editBase.value = shownN.value;
@@ -269,15 +261,6 @@ async function step(n: number | undefined) {
     <template v-else
       ><header class="art-header">
         <span class="art-title" :title="file.path">{{ file.path.split('/').pop() }}</span
-        ><button
-          v-if="!inWorkspaceTab"
-          type="button"
-          class="art-icon-btn"
-          aria-label="Open file in tab"
-          :disabled="editing"
-          @click="openInTab"
-        >
-          Open in tab</button
         ><span v-if="chain.length > 1" class="art-stepper"
           ><button
             type="button"
@@ -349,7 +332,7 @@ async function step(n: number | undefined) {
             </button>
           </div></template
         >
-        <button type="button" class="quiet-action" @click="download">Download file</button>
+        <button type="button" class="quiet-action art-download" @click="download">Download</button>
       </header>
       <div class="artifact-pane-body">
         <p
@@ -385,6 +368,7 @@ async function step(n: number | undefined) {
             <div class="viz-actions">
               <button
                 v-if="
+                  inWorkspaceTab &&
                   tab === 'preview' &&
                   !editing &&
                   !diffing &&
@@ -484,6 +468,11 @@ async function step(n: number | undefined) {
 .art-header {
   position: relative;
   flex-wrap: wrap;
+}
+.artifact-pane .art-download,
+.artifact-pane .art-download:hover:not(:disabled) {
+  margin-left: auto;
+  color: var(--primary);
 }
 .art-compare-list {
   position: absolute;

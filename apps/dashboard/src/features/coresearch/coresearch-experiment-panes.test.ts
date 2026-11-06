@@ -7,8 +7,7 @@ import ConversationRail from './ConversationRail.vue';
 import { conversationKey } from './aristotle';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { discardDialog, resolveDiscard } from '../../state/resource-draft';
-import { useWorkspaceTabs } from '../../state/workspace-tabs';
+import { resolveDiscard } from '../../state/resource-draft';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 vi.mock('./Aristotle.vue', () => ({
   default: { render: () => null },
@@ -125,24 +124,12 @@ it('keeps the open file when the current conversation refreshes', async () => {
   await vi.waitFor(() =>
     expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true),
   );
-  const edit = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Edit content')!;
-  (edit.props.onClick as () => void)();
-  await settle();
-  const input = all(root).find(
-    (n) => n.tag === 'textarea' && n.props['aria-label'] === 'File content',
-  )!;
-  (input.props['onUpdate:modelValue'] as (v: string) => void)('unsaved notes');
-  await settle();
   client.setQueryData(conversationKey('lab', 'me'), (previous: any[]) =>
     previous.map((item) => (item.id === 'experiment' ? { ...item, title: 'Updated' } : item)),
   );
   await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
-  const back = all(root).find((n) => n.props['aria-label'] === 'Back to surfaces')!;
-  (back.props.onClick as () => void)();
-  await settle();
-  expect(discardDialog.value).toBe(true);
-  resolveDiscard(false);
+
 });
 it('opens an Experiment inspector beside the conversation rail with Notebook Files Compute and no Runs', async () => {
   const { root, settle } = await mount();
@@ -178,7 +165,7 @@ it('links shared Cowrite rows to their project chat and labels session modes', a
   expect(textOf(link!)).toContain('Shared');
 });
 
-it('returns Files to its existing list only after a dirty file draft is discarded', async () => {
+it('returns Files to its existing list from a preview', async () => {
   const { root, settle } = await mount(true);
   const click = async (label: string) => {
     const target = all(root).find(
@@ -198,21 +185,7 @@ it('returns Files to its existing list only after a dirty file draft is discarde
   await vi.waitFor(() =>
     expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true),
   );
-  await click('Edit content');
-  const input = all(root).find(
-    (n) => n.tag === 'textarea' && n.props['aria-label'] === 'File content',
-  )!;
-  (input.props['onUpdate:modelValue'] as (v: string) => void)('unsaved notes');
-  await settle();
   await click('Back to surfaces');
-  expect(discardDialog.value).toBe(true);
-  resolveDiscard(false);
-  await settle();
-  expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
-  await click('Back to surfaces');
-  expect(discardDialog.value).toBe(true);
-  resolveDiscard(true);
-  await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(false);
   await click('Files');
   expect(all(root).some((n) => n.props.title === 'notes.txt')).toBe(true);
@@ -305,7 +278,7 @@ it('offers a searchable Files gallery and opens the selected file', async () => 
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
 });
 
-it('opens a selected Experiment file in a workspace tab', async () => {
+it('keeps file preview actions in the pane', async () => {
   const { root, settle } = await mount(true);
   for (const label of ['Open experiment surfaces', 'Files', 'Open notes.txt']) {
     const target = all(root).find(
@@ -318,8 +291,6 @@ it('opens a selected Experiment file in a workspace tab', async () => {
   const open = all(root).find(
     (n) => n.tag === 'button' && n.props['aria-label'] === 'Open file in tab',
   );
-  expect(open).toBeTruthy();
-  (open!.props.onClick as () => void)();
-  await settle();
-  expect(useWorkspaceTabs().tabs.value.at(-1)?.path).toBe('/coresearch/artifacts/p/f');
+  expect(open).toBeUndefined();
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Edit content')).toBe(false);
 });

@@ -43,6 +43,7 @@ import {
 import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import Icon from '../../ui/Icon.vue';
 import ChatTranscript from './ChatTranscript.vue';
+import type { TranscriptFile } from './transcript-files';
 import AristotleComposer from './AristotleComposer.vue';
 import './l2.css';
 const route = useRoute(),
@@ -156,7 +157,8 @@ const experimentLayout = ref<HTMLElement>();
 const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
-  activeFile = ref<FileRow>();
+  activeFile = ref<FileRow>(),
+  activeFileVersion = ref<number>();
 let paneKey = '';
 let restoringPane = false;
 const inspectorProject = computed(() =>
@@ -209,7 +211,16 @@ async function closePane() {
 async function openFile(file: FileRow) {
   if (!(await guardResourceDrafts())) return;
   activeFile.value = file;
+  activeFileVersion.value = undefined;
 }
+async function openTranscriptFile(item: TranscriptFile) {
+  if (!(await guardResourceDrafts())) return;
+  activeFile.value = item.file;
+  activeFileVersion.value = item.version.n;
+  activePane.value = 'files';
+  if (paneMode.value === 'closed') paneMode.value = 'split';
+}
+
 const historyUnavailable = computed(
   () =>
     !isDraft.value && !!conversation.value && (messages.isPending.value || !!messages.error.value),
@@ -712,6 +723,7 @@ async function stop() {
                 :project-id="conversation.project_id"
                 :chat-id="conversation.chat_id"
                 :messages="messages.data.value ?? []"
+                @open-file="openTranscriptFile"
               />
             </div>
             <AristotleComposer
@@ -820,6 +832,7 @@ async function stop() {
               :key="`${workspaceId}:${project.data.value.id}:${activeFile.id}`"
               :project="project.data.value"
               :file="activeFile"
+              :selected-n="activeFileVersion"
             />
             <section v-else-if="activePane === 'files'" class="experiment-files" aria-label="Files">
               <header class="art-header experiment-files-header">

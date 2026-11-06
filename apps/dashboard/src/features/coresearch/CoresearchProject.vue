@@ -13,6 +13,7 @@ import {
 import type { FileRow } from './types';
 import ExperimentFilesGallery from './ExperimentFilesGallery.vue';
 import ChatTranscript from './ChatTranscript.vue';
+import type { TranscriptFile } from './transcript-files';
 import ChatComposer from './ChatComposer.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import Icon from '../../ui/Icon.vue';
@@ -46,7 +47,8 @@ const experimentLayout = ref<HTMLElement>();
 const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
-  activeFile = ref<FileRow>();
+  activeFile = ref<FileRow>(),
+  activeFileVersion = ref<number>();
 const stream = ref<HTMLElement>(),
   atBottom = ref(true);
 watch(
@@ -111,6 +113,14 @@ async function closePane() {
 async function openFile(file: FileRow) {
   if (!(await discardFile())) return;
   activeFile.value = file;
+  activeFileVersion.value = undefined;
+}
+async function openTranscriptFile(item: TranscriptFile) {
+  if (!(await discardFile())) return;
+  activeFile.value = item.file;
+  activeFileVersion.value = item.version.n;
+  activePane.value = 'files';
+  if (paneMode.value === 'closed') paneMode.value = 'split';
 }
 </script>
 <template>
@@ -171,6 +181,7 @@ async function openFile(file: FileRow) {
                         :project-id="projectId"
                         :chat-id="chat.id"
                         :messages="messages.data.value ?? []"
+                        @open-file="openTranscriptFile"
                     /></template>
                     <p
                       v-else-if="props.chatId && !chats.isPending.value"
@@ -247,8 +258,13 @@ async function openFile(file: FileRow) {
                   :key="`${workspaceId}:${projectId}:${activeFile?.id}`"
                   :project="project.data.value"
                   :file="activeFile"
+                  :selected-n="activeFileVersion"
                 />
-                <section v-else-if="activePane === 'files'" class="experiment-files" aria-label="Files">
+                <section
+                  v-else-if="activePane === 'files'"
+                  class="experiment-files"
+                  aria-label="Files"
+                >
                   <header class="art-header experiment-files-header">
                     <span class="art-title"
                       ><Icon name="file" :size="16" aria-hidden="true" />Files</span

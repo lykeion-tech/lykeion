@@ -7,13 +7,18 @@ import { isActiveTurn, useCoresearchSteps } from './api';
 import type { MessageRow } from './types';
 import AssistantMessage from './AssistantMessage.vue';
 import CopyButton from './CopyButton.vue';
+import { cleanAssistantText } from './assistant-paths';
+import ExperimentFileCard from './ExperimentFileCard.vue';
+import type { TranscriptFile } from './transcript-files';
 const props = defineProps<{
   projectId: string;
   chatId: string;
   turn: MessageRow;
   replies: MessageRow[];
   settledReplies?: string[];
+  files?: TranscriptFile[];
 }>();
+const emit = defineEmits<{ 'open-file': [TranscriptFile] }>();
 const active = computed(() => isActiveTurn(props.turn.status));
 const steps = useCoresearchSteps(
   () => props.projectId,
@@ -81,12 +86,31 @@ const copy = computed(() =>
               : 'turn-block turn-block--interim'
           "
         >
-          <AssistantMessage class="lyk-reading" :text="block.text" :live="active" />
+          <AssistantMessage
+            class="lyk-reading"
+            :text="block.text"
+            :live="active"
+            redact-local-paths
+          />
         </div>
       </template>
     </RunTimeline>
-    <div v-if="copy" class="msg-actions"><CopyButton :text="copy" /></div>
+    <div v-if="copy" class="msg-actions"><CopyButton :text="cleanAssistantText(copy)" /></div>
   </div>
+  <section v-if="files?.length" class="generated-files" aria-label="Generated files">
+    <hr class="generated-files-divider" />
+    <h3 class="generated-files-heading">FILES GENERATED</h3>
+    <div class="transcript-files">
+      <ExperimentFileCard
+        v-for="item in files"
+        :key="`${item.file.id}:${item.version.n}`"
+        :project-id="projectId"
+        :file="{ ...item.file, head: item.version }"
+        :list="false"
+        @open="emit('open-file', item)"
+      />
+    </div>
+  </section>
   <div v-if="active" class="run-line" role="status">
     <RunStatus
       :working="turn.status !== 'queued'"
@@ -105,12 +129,32 @@ const copy = computed(() =>
     class="run-line run-line--failed"
   >
     {{
-      `Run failed${failure.failure_reason || turn.failure_reason ? ` · ${failure.failure_reason || turn.failure_reason}` : ''}${failure.body ? ` — ${failure.body}` : ''}`
+      `Run failed${failure.failure_reason || turn.failure_reason ? ` · ${cleanAssistantText(failure.failure_reason || turn.failure_reason || '')}` : ''}${failure.body ? ` — ${cleanAssistantText(failure.body)}` : ''}`
     }}
   </div>
 </template>
 
 <style scoped>
+.generated-files {
+  margin: 16px 0;
+}
+.generated-files-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0 0 12px;
+}
+.generated-files-heading {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 60%, var(--surface));
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+}
+.transcript-files {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
 .coresearch-run-timeline {
   --step-canvas: var(--surface);
   --step-border: color-mix(in srgb, var(--text) 12%, var(--surface));
