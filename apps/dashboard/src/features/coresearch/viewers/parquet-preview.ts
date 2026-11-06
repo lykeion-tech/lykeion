@@ -1,3 +1,4 @@
+import { logicalColumn } from './parquet-logical';
 import { gunzipPage } from './parquet-gzip';
 import { decompressSnappyRaw } from './snappy-raw';
 import { dictionaryIndexes } from './parquet-dictionary';
@@ -69,25 +70,9 @@ export async function parseParquet(bytes: Uint8Array): Promise<ParquetPreview | 
       const s = map(item),
         type = num(s.get(1), 6),
         name = decode(s.get(4));
-      if (
-        !(type in types) ||
-        !name ||
-        s.has(5) ||
-        !s.has(3) ||
-        num(s.get(3), 2) > 1 ||
-        s.has(7) ||
-        s.has(8)
-      )
-        throw Error();
-      if (s.has(6) && (type !== 6 || integer(s.get(6)) !== 0n)) throw Error();
-      let text = s.has(6);
-      if (s.has(10)) {
-        const logical = map(s.get(10));
-        if (type !== 6 || logical.size !== 1 || !logical.has(1) || map(logical.get(1)).size)
-          throw Error();
-        text = true;
-      }
-      return { name, type, text, optional: num(s.get(3), 2) === 1 };
+      if (!(type in types) || !name || s.has(5) || !s.has(3) || num(s.get(3), 2) > 1) throw Error();
+      const logical = logicalColumn(s, type, types[type]!);
+      return { name, type, ...logical, optional: num(s.get(3), 2) === 1 };
     });
     if (new Set(columns.map((c) => c.name)).size !== columns.length) throw Error();
     const total = integer(meta.get(3));
@@ -194,8 +179,8 @@ export async function parseParquet(bytes: Uint8Array): Promise<ParquetPreview | 
           for (let i = 0; i < count; i++) {
             let value: string;
             if (column.type === 0) value = String(!!(body[boolStart + (i >> 3)]! & (1 << (i & 7))));
-            else if (column.type === 1) value = String(view.getInt32(take(4), true));
-            else if (column.type === 2) value = String(view.getBigInt64(take(8), true));
+            else if (column.type === 1) value = column.format(BigInt(view.getInt32(take(4), true)));
+            else if (column.type === 2) value = column.format(view.getBigInt64(take(8), true));
             else if (column.type === 4 || column.type === 5) {
               const x =
                 column.type === 4 ? view.getFloat32(take(4), true) : view.getFloat64(take(8), true);
@@ -323,7 +308,7 @@ export async function parseParquet(bytes: Uint8Array): Promise<ParquetPreview | 
       for (let i = 0; i < need; i++) output.push(samples.map((s) => s[i] ?? null));
     }
     return {
-      columns: columns.map((c) => ({ name: c.name, type: types[c.type]! })),
+      columns: columns.map((c) => ({ name: c.name, type: c.label })),
       rows: output,
       totalRows: String(total),
       truncated: total > BigInt(output.length),

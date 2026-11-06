@@ -151,3 +151,20 @@ it('rejects corruption of gzip pages without a Parquet checksum', async () => {
   corrupt[header.next + definitionLength] ^= 1;
   expect(await parseParquet(corrupt)).toBeUndefined();
 });
+it('preserves logical date, time, timestamp and fixed-point decimal values exactly', async () => {
+  for (const codec of ['none', 'gzip']) {
+    const p = await parseParquet(fixture(`logical-primitives-${codec}.parquet`));
+    expect(p?.columns.map((c) => c.type)).toEqual([
+      'DATE · days since 1970-01-01',
+      'TIMESTAMP · ns since 1970-01-01 · UTC-adjusted',
+      'TIMESTAMP · µs since 1970-01-01 · local',
+      'TIME · ns since midnight · local',
+      'DECIMAL(18,4)',
+    ]);
+    expect(p?.rows).toEqual([
+      ['-1', '-9223372036854775807', '-1', '0', '-123.4500'],
+      ['1', '9223372036854775807', '0', '86399999999999', '99999999999999.9999'],
+      [null, '1', null, null, null],
+    ]);
+  }
+});

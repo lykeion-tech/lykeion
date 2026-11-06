@@ -53,7 +53,7 @@ watch(
   <p v-if="pending" role="status">Reading Parquet file…</p>
   <section v-else-if="preview" aria-label="Parquet preview">
     <p class="note">
-      Read-only physical values. Showing {{ preview.rows.length }} of {{ preview.totalRows }} rows;
+      Read-only sampled values. Showing {{ preview.rows.length }} of {{ preview.totalRows }} rows;
       binary values show their byte length.
     </p>
     <div class="table-scroll">
