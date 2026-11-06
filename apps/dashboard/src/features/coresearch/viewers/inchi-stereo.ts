@@ -24,6 +24,7 @@ export function safeStereoStructure(
   )
     return false;
   let bonds = 0;
+  const geometricBonds = new Set<string>();
   for (const [index, atom] of atoms.entries()) {
     if (
       !atom ||
@@ -58,7 +59,7 @@ export function safeStereoStructure(
   for (const s of stereo) {
     if (kind === 'geometric') {
       if (
-        stereo.length !== 1 ||
+        stereo.length > 2 ||
         !s ||
         s.type !== 1 ||
         ![1, 2].includes(s.parity) ||
@@ -70,6 +71,9 @@ export function safeStereoStructure(
       )
         return false;
       const [left, a, b, right] = s.neighbors as [number, number, number, number];
+      const bondKey = [Math.min(a, b), Math.max(a, b)].join(':');
+      if (geometricBonds.has(bondKey)) return false;
+      geometricBonds.add(bondKey);
       if (
         !atoms[a]!.bonds.some((x) => x.to === b && x.type === 2) ||
         !atoms[a]!.bonds.some((x) => x.to === left) ||
@@ -96,7 +100,7 @@ export function safeStereoStructure(
   return true;
 }
 export async function geometricMolfileCandidates(input: string): Promise<string[]> {
-  if (inchiRecord(input) !== input || !/\/b\d+-\d+[+-]$/.test(input)) return [];
+  if (inchiRecord(input) !== input || !/\/b\d+-\d+[+-](?:,\d+-\d+[+-])?$/.test(input)) return [];
   try {
     const [ocl, inchi] = await Promise.all([
       import('openchemlib'),
@@ -112,16 +116,20 @@ export async function geometricMolfileCandidates(input: string): Promise<string[
     const mapping = structure.atoms.map((atom) =>
       atom.element === 'H' && !atom.charge && !atom.radical && !atom.isotopicMass ? -1 : count++,
     );
-    const neighbors = structure.stereo[0]!.neighbors;
-    const a = mapping[neighbors[1]!]!,
-      b = mapping[neighbors[2]!]!;
-    if (a < 0 || b < 0) return [];
+    const pairs = structure.stereo.map(
+      ({ neighbors }) => [mapping[neighbors[1]!]!, mapping[neighbors[2]!]!] as const,
+    );
+    if (pairs.some(([a, b]) => a < 0 || b < 0)) return [];
     const candidates: string[] = [];
-    for (const parity of [ocl.Molecule.cBondParityEor1, ocl.Molecule.cBondParityZor2]) {
+    for (let combination = 0; combination < 2 ** pairs.length; combination++) {
       const molecule = inchi.oclMoleculeFromStructure(structure, ocl);
-      const bond = molecule.getBond(a, b);
-      if (bond < 0) return [];
-      molecule.setBondParity(bond, parity, false);
+      for (const [i, [a, b]] of pairs.entries()) {
+        const bond = molecule.getBond(a, b);
+        if (bond < 0) return [];
+        const parity =
+          combination & (1 << i) ? ocl.Molecule.cBondParityZor2 : ocl.Molecule.cBondParityEor1;
+        molecule.setBondParity(bond, parity, false);
+      }
       molecule.setParitiesValid(0);
       molecule.inventCoordinates();
       molecule.setStereoBondsFromParity();

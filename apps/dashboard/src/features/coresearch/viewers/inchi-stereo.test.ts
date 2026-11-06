@@ -66,14 +66,37 @@ it('reconstructs independent cis/trans 2-butene and verifies the final drawn geo
   const candidates = await geometricMolfileCandidates(maleic);
   expect(candidates.map((m) => depictInchi(kit, m, maleic, true)).filter(Boolean)).toHaveLength(1);
 });
-it('rejects geometric identifiers with multiple, mixed or isotopic stereo', async () => {
+it('rejects geometric identifiers with more than two, mixed or isotopic stereo', async () => {
   const { geometricMolfileCandidates } = await import('./inchi-stereo');
   for (const input of [
-    'InChI=1S/C6H10/c1-3-5-6-4-2/h3-6H,1-2H3/b5-3+,6-4-',
+    'InChI=1S/C8H12/c1-3-5-7-8-6-4-2/h3-8H,1-2H3/b5-3+,7-5-,8-6+',
     'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+/t2-/m0/s1',
     'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+/i1+1',
   ]) {
     expect(inchiRecord(input)).toBeUndefined();
     expect(await geometricMolfileCandidates(input)).toEqual([]);
   }
+});
+
+it('reconstructs both geometric bonds in NIST (2E,4E)-hexadiene with bounded candidates', async () => {
+  const { geometricMolfileCandidates } = await import('./inchi-stereo');
+  const kit = await createRequire(import.meta.url)('@rdkit/rdkit')();
+  // NIST Chemistry WebBook CAS 5194-51-4, (2E,4E)-hexadiene.
+  const input = 'InChI=1S/C6H10/c1-3-5-6-4-2/h3-6H,1-2H3/b5-3+,6-4+';
+  expect(inchiRecord(input)).toBe(input);
+  const candidates = await geometricMolfileCandidates(input);
+  expect(candidates).toHaveLength(4);
+  expect(candidates.map((m) => depictInchi(kit, m, input, true)).filter(Boolean)).toHaveLength(1);
+  const { structureFromInchi } = await import('./vendor/inchi/inchi-js.js');
+  const structure = await structureFromInchi(input);
+  expect(safeStereoStructure(structure.atoms, structure.stereo, 'geometric')).toBe(true);
+  expect(
+    safeStereoStructure(structure.atoms, [structure.stereo[0]!, structure.stereo[0]!], 'geometric'),
+  ).toBe(false);
+  expect(
+    safeStereoStructure(structure.atoms, [{ ...structure.stereo[0]!, parity: 3 }], 'geometric'),
+  ).toBe(false);
+  expect(
+    safeStereoStructure(structure.atoms, [...structure.stereo, structure.stereo[0]!], 'geometric'),
+  ).toBe(false);
 });

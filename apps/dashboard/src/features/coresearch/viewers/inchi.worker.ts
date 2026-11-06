@@ -5,7 +5,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
   try {
     const input = inchiRecord(event.data);
     if (!input) return self.postMessage(null);
-    if (/\/b\d+-\d+[+-]$/.test(input)) {
+    if (/\/b\d+-\d+[+-](?:,\d+-\d+[+-])?$/.test(input)) {
       const [{ geometricMolfileCandidates }, kit] = await Promise.all([
         import('./inchi-stereo'),
         loadCappedRdkit(),
