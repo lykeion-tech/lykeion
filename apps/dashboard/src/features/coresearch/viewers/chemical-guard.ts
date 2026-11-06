@@ -1,4 +1,5 @@
 import { cifGeometry } from './cif-geometry';
+import { pdbqtGeometry } from './pdbqt-geometry';
 import { mol2Geometry } from './mol2-geometry';
 import { coordinateGeometry } from './coordinate-geometry';
 const MAX_BYTES = 1024 * 1024;
@@ -11,6 +12,7 @@ export function chemicalInput(
   if (partial || text.length > MAX_BYTES || text.includes('\0')) return undefined;
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   if (lines.length > 20000) return undefined;
+  if (ext === 'pdbqt') return pdbqtGeometry(text);
   if (ext === 'mol2') return mol2Geometry(text);
   if (['xyz', 'gro'].includes(ext)) return coordinateGeometry(text, ext);
   if (['cif', 'mmcif'].includes(ext)) return cifGeometry(text);

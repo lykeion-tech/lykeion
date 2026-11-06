@@ -18,6 +18,7 @@ import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
 import TiffViewer from './TiffViewer.vue';
 import ParquetViewer from './ParquetViewer.vue';
+import NetcdfViewer from './NetcdfViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import ChemicalViewer from './ChemicalViewer.vue';
@@ -115,6 +116,7 @@ watch(
         npy.value ||
         npz.value ||
         ext.value === 'parquet' ||
+        ['nc', 'nc4', 'cdf'].includes(ext.value) ||
         office.value ||
         ext.value === 'xlsx'
       )
@@ -155,6 +157,7 @@ watch(
   <NpyViewer v-else-if="npy" :blob="blob" />
   <NpzViewer v-else-if="npz" :blob="blob" />
   <ParquetViewer v-else-if="ext === 'parquet'" :blob="blob" />
+  <NetcdfViewer v-else-if="['nc', 'nc4', 'cdf'].includes(ext)" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">
@@ -176,7 +179,9 @@ watch(
   />
   <SmilesViewer v-else-if="['smi', 'smiles'].includes(ext)" :text="text" :partial="partial" />
   <ChemicalViewer
-    v-else-if="['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif', 'xyz', 'gro', 'mol2'].includes(ext)"
+    v-else-if="
+      ['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif', 'xyz', 'gro', 'mol2', 'pdbqt'].includes(ext)
+    "
     :text="text"
     :extension="ext"
     :partial="partial"

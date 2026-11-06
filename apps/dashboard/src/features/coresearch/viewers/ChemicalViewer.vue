@@ -47,11 +47,12 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage));
       ></iframe>
       <p>
         Drag to rotate · scroll to zoom<span
-          v-if="['cif', 'mmcif', 'xyz', 'gro'].includes(extension)"
+          v-if="['cif', 'mmcif', 'xyz', 'gro', 'pdbqt'].includes(extension)"
         >
           · bonds inferred from coordinates</span
         >
       </p>
+      <p v-if="extension === 'pdbqt'">PDBQT charges and torsion data are not shown.</p>
     </template>
   </section>
 </template>
