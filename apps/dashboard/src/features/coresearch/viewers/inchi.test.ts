@@ -8,7 +8,9 @@ describe('InChI preview', () => {
   it('accepts a bounded single standard identifier and rejects incomplete or multiple records', () => {
     expect(inchiRecord('InChI=1S/CH4/h1H4')).toBe('InChI=1S/CH4/h1H4');
     expect(inchiRecord('InChI=1S/CH4\nInChI=1S/CH4')).toBeUndefined();
-    expect(inchiRecord('InChI=1S/C3H6O3/c1-2-3/t2-/m0/s1')).toBeUndefined();
+    expect(inchiRecord('InChI=1S/C3H6O3/c1-2-3/t2-/m0/s1')).toBe(
+      'InChI=1S/C3H6O3/c1-2-3/t2-/m0/s1',
+    );
     expect(inchiRecord('InChI=1S/' + 'C'.repeat(2050))).toBeUndefined();
   });
   it('lays out reconstructed molecules before rendering and deletes them', () => {
@@ -41,6 +43,19 @@ describe('InChI preview', () => {
     expect(
       depictInchi({ get_mol: () => mol }, validMolfile, 'InChI=1S/C3H6O3/t2-'),
     ).toBeUndefined();
+  });
+  it('rejects stereochemistry lost during coordinate generation', () => {
+    let calls = 0;
+    const input = 'InChI=1S/CH4/h1H4';
+    const mol = {
+      is_valid: () => true,
+      get_num_atoms: () => 1,
+      get_inchi: () => (++calls === 1 ? input : 'different'),
+      set_new_coords: () => {},
+      get_svg: () => '<svg></svg>',
+      delete: () => {},
+    };
+    expect(depictInchi({ get_mol: () => mol }, validMolfile, input)).toBeUndefined();
   });
 });
 
@@ -93,4 +108,25 @@ describe('InChI structure preflight', () => {
     ).toBeUndefined();
     expect(called).toBe(false);
   });
+});
+
+it('fails closed when the real converter loses stereochemistry', async () => {
+  // PubChem CID 62695 (trans-2-butene), its opposite geometric isomer,
+  // and opposite enantiomers of lactic acid.
+  const identifiers = [
+    'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+',
+    'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3-',
+    'InChI=1S/C3H6O3/c1-2(4)3(5)6/h2,4H,1H3,(H,5,6)/t2-/m0/s1',
+    'InChI=1S/C3H6O3/c1-2(4)3(5)6/h2,4H,1H3,(H,5,6)/t2-/m1/s1',
+  ];
+  const { createRequire } = await import('node:module');
+  const { molfileFromInchi } = await import('./vendor/inchi/inchi-js.js');
+  const init = createRequire(import.meta.url)('@rdkit/rdkit');
+  const kit = await init();
+  for (const input of identifiers) {
+    const result = await molfileFromInchi(input);
+    expect(result.returnCode).toBe(0);
+    if (input.includes('/b')) expect(inchiRecord(input)).toBeUndefined();
+    expect(depictInchi(kit, result.molfile, input)).toBeUndefined();
+  }
 });

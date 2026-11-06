@@ -10,9 +10,11 @@ interface Molecule {
 export function inchiRecord(text: string): string | undefined {
   if (text.length > 2048) return undefined;
   const value = text.trim();
-  return /^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value) && !/\/[btms]/.test(value)
-    ? value
-    : undefined;
+  if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value)) return;
+  if (!/\/[btms]/.test(value)) return value;
+  // Only absolute tetrahedral stereo is currently reconstructed. Geometric,
+  // isotopic and relative/racemic stereo remain unavailable.
+  return !/\/[bi]/.test(value) && /\/t[^/]+\/m[01]\/s1$/.test(value) ? value : undefined;
 }
 // Accept only the bounded V2000 subset emitted by the bundled converter.
 // Other variants fail closed before RDKit receives the molecule.
@@ -103,6 +105,7 @@ export function depictInchi(
       return undefined;
     if (mol.get_inchi() !== original) return undefined;
     mol.set_new_coords();
+    if (mol.get_inchi() !== original) return undefined;
     const svg = mol.get_svg();
     return safeMoleculeSvg(svg) ? svg : undefined;
   } catch {
