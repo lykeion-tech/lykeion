@@ -36,7 +36,7 @@ const transcriptMarkdown = new MarkdownIt({
 });
 transcriptMarkdown.renderer.rules = markdown.renderer.rules;
 const localPath = (url: string) =>
-  ['/private/tmp/', '/tmp/', '/private/var/folders/', '/var/folders/'].some((root) =>
+  ['/private/', '/tmp/', '/var/', '/Users/', '/home/', '/workspace/', '/mnt/', '/opt/', '/data/', '/srv/', '/Volumes/'].some((root) =>
     url.startsWith(root),
   );
 transcriptMarkdown.validateLink = (url) => markdown.validateLink(url) || localPath(url);
@@ -64,6 +64,8 @@ export function renderMarkdown(content: string, breaks = true, localFiles = fals
           child.tag = '';
           child.nesting = 0;
           child.content = ' (local file not available in Lykeion)';
+        } else if (child.type === 'text' && !links.length) {
+          child.content = cleanAssistantProse(child.content);
         }
       }
     }

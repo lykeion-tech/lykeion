@@ -914,6 +914,7 @@ function pin() {
           ref="studyOutputs"
           :card-id="id"
           :attachments="c.attachments"
+          :runs="agentRuns"
         />
       </template>
     </SurfacePane>

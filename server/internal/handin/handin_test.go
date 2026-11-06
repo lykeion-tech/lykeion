@@ -74,6 +74,55 @@ func TestParseRejectsShapeProblems(t *testing.T) {
 	}
 }
 
+func TestStudyHandInRefusesLocalPathsInAnswers(t *testing.T) {
+	const want = "answer: do not include local file paths; put files to keep in outputs/ and refer to them by name"
+	const reviewerWant = "answer: do not include local file paths; refer to files by name and describe unavailable evidence"
+	for _, answer := range []string{
+		"Saved [report](/Users/researcher/runs/one/report.md).",
+		"Saved at /home/researcher/work/results.csv.",
+		"See `/private/tmp/one.py`.",
+		"Open file:///Users/researcher/result.csv.",
+		`Saved to C:\Users\researcher\results.csv.`,
+		`Saved to \\server\share\results.csv.`,
+		"Saved at /workspace/results.csv.",
+		"See [report](/scratch/run/report).",
+		"Saved to /scratch/run/report.csv.",
+		"Saved to /scratch/run/report.fits.",
+	} {
+		raw, _ := json.Marshal(map[string]any{"status": "done", "answer": answer})
+		for _, kind := range []Kind{Grounding, Hypotheses, Experimentation, Validation, Auditor, Objector} {
+			_, problems := Parse(kind, raw)
+			expected := want
+			if kind == Auditor || kind == Objector {
+				expected = reviewerWant
+			}
+			if !contains(problems, expected) {
+				t.Errorf("%s answer %q: expected local-path correction, got %q", kind, answer, problems)
+			}
+		}
+	}
+	for _, answer := range []string{
+		"See [paper](https://example.org/Users/researcher/report) and doi:10.1234/example.",
+		"Saved results as outputs/result.csv and cite run:x1.",
+		"The estimate was 3/4 of the reference value.",
+		"See [study](/studies/example).",
+		"Open [team](/teams/team-id?tab=overview) or [agent](#/agents/id).",
+		"Refer to [result](outputs/result.csv) and [parent file](../data/result.csv).",
+		"Read [paper](//example.org/paper) or [preprint](https://example.org/scratch/run/report).",
+		`The equations are $$a=1 \\ b=2$$.`,
+		"The dose was 5 mg/kg/day and the ratio was 95% / 100.",
+		"See [paper](/doi/10.1234/example).",
+		"Example:\n```python\nopen('/tmp/example.txt')\n```\nThe result is 4.",
+		"Example:\n~~~python\nopen('/tmp/example.txt')\n~~~\nThe result is 4.",
+	} {
+		raw, _ := json.Marshal(map[string]any{"status": "done", "answer": answer})
+		_, problems := Parse(Grounding, raw)
+		if contains(problems, want) {
+			t.Errorf("valid answer %q was rejected: %q", answer, problems)
+		}
+	}
+}
+
 func TestReportedOutcomeMustFitReviewLimit(t *testing.T) {
 	for _, tc := range []struct {
 		value       string

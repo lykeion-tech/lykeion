@@ -427,6 +427,13 @@ describe('reading-first recorded run', () => {
     expect(mac).not.toContain('/var/folders/abc/T/');
     expect(mac).toContain('script (local file not available in Lykeion)');
     expect(mac).toContain('result (local file not available in Lykeion)');
+    const recovered = await render([
+      msg(1, 'text', 'Saved [report](/Users/alice/run/report.md), and /home/alice/run/results.csv. See [paper](https://example.com/home/alice/report).'),
+    ]);
+    expect(recovered).not.toContain('/Users/alice/run');
+    expect(recovered).not.toContain('/home/alice/run');
+    expect(recovered).toContain('report (local file not available in Lykeion)');
+    expect(recovered).toContain('href="https://example.com/home/alice/report"');
     expect(html).not.toContain('href="/private');
     expect(html).toContain('href="https://example.com"');
     const route = await render([msg(1, 'text', 'See [study](/app/#/studies/123).')]);

@@ -4,14 +4,16 @@ import { api, downloadFile, PreviewTooLargeError } from '../../api/client';
 import { useKindRecords } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { formatSize } from '../../lib/attachments';
-import { columnName } from '../../lib/studies';
-import type { Card, StudyRecord } from '../../api/types';
+import { columnName, roleLabel } from '../../lib/studies';
+import { agentNameWithoutCli } from '../../lib/agent-name';
+import type { AgentRun, Card, StudyRecord } from '../../api/types';
 import ArtifactViewer from '../coresearch/viewers/ArtifactViewer.vue';
 import StudyFileThumbnail from './StudyFileThumbnail.vue';
 import Icon from '../../ui/Icon.vue';
 
-const props = withDefaults(defineProps<{ cardId: string; attachments?: Card['attachments'] }>(), {
+const props = withDefaults(defineProps<{ cardId: string; attachments?: Card['attachments']; runs?: AgentRun[] }>(), {
   attachments: () => [],
+  runs: () => [],
 });
 const outputs = useKindRecords(() => props.cardId, 'output');
 type Entry = {
@@ -36,7 +38,10 @@ const entries = computed<Entry[]>(() => [
     name: typeof r.body.name === 'string' ? r.body.name : r.key,
     size: typeof r.body.size_bytes === 'number' ? r.body.size_bytes : undefined,
     date: r.created_at,
-    provenance: [r.role, r.agent_run_id].filter(Boolean).join(' · '),
+    provenance: (() => {
+      const run = props.runs.find((item) => item.id === r.agent_run_id);
+      return run ? agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness) : roleLabel(r.role);
+    })(),
     group: `${columnName(r.board_column)} · Round ${r.round}`,
     url: `/api/cards/${encodeURIComponent(props.cardId)}/outputs/${encodeURIComponent(r.key)}`,
   })),

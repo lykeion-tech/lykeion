@@ -71,3 +71,75 @@ function loaded(event: Event) {
     </p>
   </figure>
 </template>
+<style scoped>
+.artifact-image {
+  margin: 0;
+  min-width: 0;
+}
+.image-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.seg-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.seg-btn.is-active {
+  background: var(--input);
+}
+.seg-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.seg-btn:focus-visible {
+  outline: 2px solid var(--primary-text, #2563a6);
+  outline-offset: 2px;
+}
+.image-zoom-label {
+  min-width: 3em;
+  text-align: center;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.image-stage {
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+  min-height: 120px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, var(--input) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--input) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--input) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--input) 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+.image-el {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  image-rendering: pixelated;
+  border-radius: 2px;
+}
+.image-el.is-zoomed {
+  max-width: none;
+  max-height: none;
+}
+</style>

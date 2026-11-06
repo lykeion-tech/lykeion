@@ -35,9 +35,10 @@ function toggle(path: string) {
 <template>
   <div class="json-viewer">
     <p v-if="parsed.error" class="viewer-error">This file is not valid JSON: {{ parsed.error }}</p>
-    <div v-else class="viz-caption">
+    <div v-else class="json-toolbar">
       <input
         v-model="query"
+        class="json-search"
         type="search"
         placeholder="Search keys and values"
         aria-label="Search keys and values"
@@ -46,7 +47,7 @@ function toggle(path: string) {
       </button>
     </div>
     <CodeBlock v-if="raw || parsed.error" :code="text" lang="json" />
-    <ul v-else role="tree" class="json-tree">
+    <ul v-else class="json-tree">
       <JsonNode
         name="$"
         :value="parsed.value"
@@ -59,3 +60,58 @@ function toggle(path: string) {
     </ul>
   </div>
 </template>
+<style scoped>
+.json-viewer {
+  min-width: 0;
+  color: var(--text);
+}
+.json-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.json-viewer .json-search {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 2px;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.json-viewer .json-search:focus-visible {
+  outline: 2px solid var(--primary-text, #2563a6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.json-toolbar .quiet-action {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.json-toolbar .quiet-action[aria-pressed='true'] {
+  background: var(--input);
+}
+.json-toolbar .quiet-action:focus-visible {
+  outline: 2px solid var(--primary-text, #2563a6);
+  outline-offset: 2px;
+}
+.json-tree {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+</style>

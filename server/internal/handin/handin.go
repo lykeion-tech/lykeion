@@ -218,6 +218,65 @@ type QuestionIn struct {
 
 var optionID = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
 
+var localAnswerPath = regexp.MustCompile(`(?i)(^|[\s(\[<"'\x60])(?:file://|[a-z]:[\\/]|\\\\[a-z0-9._-]+\\[^\\\s]+|~[\\/]|/(?:users|home|private|tmp|var|mnt|media|opt|root|workspace|workspaces|data|srv|run|volumes|etc|usr|proc|dev)/)`)
+var absoluteMarkdownDestination = regexp.MustCompile(`\]\(\s*<?(/[^\s)>]+)`)
+var absoluteFilePath = regexp.MustCompile(`(?i)(^|[\s(\[<"'\x60])(/(?:[^/\s<>"'\x60]+/)+[^/\s<>"'\x60]+\.[a-z0-9][a-z0-9_-]*)`)
+
+func appRoute(path string) bool {
+	root := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)[0]
+	if i := strings.IndexAny(root, "?#"); i >= 0 {
+		root = root[:i]
+	}
+	return slices.Contains([]string{"studies", "my-studies", "agents", "teams", "projects", "coresearch", "decisions", "settings", "colleagues", "workflows", "autoresearch", "machines", "inbox", "updates", "signin", "invite", "onboarding", "api", "auth", "ws", "doi"}, root)
+}
+
+func hasLocalAnswerPath(answer string) bool {
+	// Code examples can legitimately mention local paths; check the prose around them.
+	var prose strings.Builder
+	var fence byte
+	fenceLen := 0
+	for _, line := range strings.Split(answer, "\n") {
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) <= 3 && len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
+			n := 0
+			for n < len(trimmed) && trimmed[n] == trimmed[0] {
+				n++
+			}
+			if n >= 3 && fence == 0 {
+				fence, fenceLen = trimmed[0], n
+				continue
+			}
+			if fence != 0 && trimmed[0] == fence && n >= fenceLen && strings.TrimSpace(trimmed[n:]) == "" {
+				fence = 0
+				continue
+			}
+		}
+		if fence == 0 {
+			prose.WriteString(line)
+			prose.WriteByte('\n')
+		}
+	}
+	answer = prose.String()
+	if localAnswerPath.MatchString(answer) {
+		return true
+	}
+	for _, match := range absoluteFilePath.FindAllStringSubmatch(answer, -1) {
+		if !appRoute(match[2]) {
+			return true
+		}
+	}
+	for _, match := range absoluteMarkdownDestination.FindAllStringSubmatch(answer, -1) {
+		dest := match[1]
+		if strings.HasPrefix(dest, "//") {
+			continue
+		}
+		if !appRoute(dest) {
+			return true
+		}
+	}
+	return false
+}
+
 type NewStudy struct {
 	Title    string `json:"title"`
 	Question string `json:"question"`
@@ -336,6 +395,13 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(slices.Contains([]string{"done", "could_not_do", "ask"}, h.Status), "status: must be done, could_not_do or ask")
 	}
 	add(within(h.Answer, 8000), "answer: say what you did, 1 to 8000 characters")
+	if k != Autoresearch {
+		if k == Auditor || k == Objector {
+			add(!hasLocalAnswerPath(h.Answer), "answer: do not include local file paths; refer to files by name and describe unavailable evidence")
+		} else {
+			add(!hasLocalAnswerPath(h.Answer), "answer: do not include local file paths; put files to keep in outputs/ and refer to them by name")
+		}
+	}
 	add(h.Status != "could_not_do" || strings.TrimSpace(deref(h.Reason)) != "", "reason: say what blocked the work")
 	if h.BlockedByEnvironment != nil {
 		add(slices.Contains([]string{"python", "r", "julia"}, *h.BlockedByEnvironment), "blocked_by_environment: must be python, r, julia or null")

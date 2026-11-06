@@ -3,6 +3,7 @@ import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import StudyOutputs from './StudyOutputs.vue';
 vi.mock('./StudyFileThumbnail.vue', () => ({ default: { template: '<span />' } }));
+vi.mock('../coresearch/viewers/ArtifactViewer.vue', () => ({ default: { template: '<div />' } }));
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
@@ -23,6 +24,7 @@ const output = {
 };
 function setup(
   attachments: { id: string; name: string; size_bytes: number; content_type: string }[] = [],
+  runs: InstanceType<typeof StudyOutputs>['$props']['runs'] = [],
 ) {
   workspaceId.value = 'w';
   const client = new QueryClient({
@@ -31,7 +33,7 @@ function setup(
   client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'output'], [output]);
   const id = ref('c'),
     root = node('root');
-  const app = createTreeApp({ render: () => h(StudyOutputs, { cardId: id.value, attachments }) });
+  const app = createTreeApp({ render: () => h(StudyOutputs, { cardId: id.value, attachments, runs }) });
   app.use(VueQueryPlugin, { queryClient: client });
   app.mount(root);
   return {
@@ -44,6 +46,13 @@ function setup(
     },
   };
 }
+it('shows the producing agent name without exposing the run ID', async () => {
+  const t = setup([], [{ id: 'run-1', agent_name: 'leader · Codex Same Model Test', role: 'leader', harness: 'codex' } as NonNullable<InstanceType<typeof StudyOutputs>['$props']['runs']>[number]]);
+  await nextTick();
+  expect(textOf(t.root)).toContain('Leader · Codex Same Model Test');
+  expect(textOf(t.root)).not.toContain('run-1');
+  t.dispose();
+});
 it('downloads the exact saved output using the scoped endpoint', async () => {
   const clicked = vi.fn(),
     fetch = vi.fn(async (_url: string) => new Response(new Blob(['data']), { status: 200 }));

@@ -26,25 +26,25 @@ const summary = computed(() =>
 );
 </script>
 <template>
-  <li v-if="!object" role="treeitem" :aria-label="name" class="json-leaf" @click.stop>
+  <li v-if="!object" class="json-leaf">
     <span class="json-key">{{ name }}</span
     >:
     <span class="json-value">{{
       typeof value === 'string' ? JSON.stringify(value) : String(value)
     }}</span>
   </li>
-  <li
-    v-else
-    role="treeitem"
-    :aria-label="`${name} ${summary}`"
-    :aria-expanded="expanded"
-    tabindex="0"
-    @click.stop="emit('toggle', path)"
-    @keydown.enter.stop.prevent="emit('toggle', path)"
-    @keydown.space.stop.prevent="emit('toggle', path)"
-  >
-    <span class="json-key">{{ name }}</span> <span class="viz-meta">{{ summary }}</span>
-    <ul v-if="expanded" role="group">
+  <li v-else class="json-branch">
+    <button
+      type="button"
+      class="json-toggle"
+      :aria-label="`${name} ${summary}`"
+      :aria-expanded="expanded"
+      @click="emit('toggle', path)"
+    >
+      <span class="json-chevron" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+      <span class="json-key">{{ name }}</span> <span class="json-summary">{{ summary }}</span>
+    </button>
+    <ul v-if="expanded" class="json-children">
       <JsonNode
         v-for="[k, v] in entries"
         :key="String(k)"
@@ -59,3 +59,46 @@ const summary = computed(() =>
     </ul>
   </li>
 </template>
+<style scoped>
+.json-branch,
+.json-leaf {
+  list-style: none;
+}
+.json-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.json-toggle:focus-visible {
+  outline: 2px solid var(--primary-text, #2563a6);
+  outline-offset: 2px;
+}
+.json-chevron,
+.json-summary {
+  color: var(--text-muted, var(--text));
+}
+.json-key {
+  font-weight: 600;
+}
+.json-leaf {
+  padding: 3px 4px 3px 20px;
+  overflow-wrap: anywhere;
+}
+.json-value {
+  color: var(--text);
+}
+.json-branch > .json-children {
+  list-style: none;
+  margin: 0 0 0 9px;
+  padding-left: 15px;
+  border-left: 1px solid var(--border);
+}
+</style>
