@@ -309,7 +309,7 @@ onUnmounted(() => {
   padding: 2px 10px;
 }
 .workspace-tab {
-  min-width: 94px;
+  width: 94px;
   display: flex;
   align-items: center;
   height: 30px;
@@ -326,11 +326,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   height: 30px;
+  flex: 1;
   min-width: 0;
   padding: 0 10px;
   font-size: 14px;
   line-height: 20px;
-  max-width: 230px;
 }
 .workspace-tab span {
   overflow: hidden;
@@ -344,6 +344,7 @@ onUnmounted(() => {
 }
 .pinned-marker {
   color: var(--muted);
+  flex-shrink: 0;
 }
 .tab-control {
   display: flex;

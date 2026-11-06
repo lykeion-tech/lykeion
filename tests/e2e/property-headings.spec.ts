@@ -53,9 +53,11 @@ test('a truncated workspace tab keeps its close icon centered beside its title a
     fixture.workspace_id,
   );
   await page.goto('/#/studies');
+  const defaultWidth = (await page.locator('.workspace-tab.active').boundingBox())!.width;
   await page.getByRole('button', { name: 'New tab', exact: true }).click();
   await page.goto(`/#/studies/${card.id}`);
   const tab = page.locator('.workspace-tab.active');
+  expect((await tab.boundingBox())!.width).toBe(defaultWidth);
   await expect(tab.getByRole('tab')).toHaveAccessibleName(new RegExp(card.title));
   await tab.hover();
   const title = tab.locator('[role="tab"] > span');
