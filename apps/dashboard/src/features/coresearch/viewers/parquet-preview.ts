@@ -1,3 +1,4 @@
+import { dictionaryIndexes } from './parquet-dictionary';
 import { optionalLevels } from './parquet-levels';
 import { readCompactStruct, type CompactValue } from './compact-thrift';
 export interface ParquetPreview {
@@ -108,19 +109,27 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           if (
             num(m.get(1), 6) !== columns[i]!.type ||
             num(m.get(4), 100) !== 0 ||
-            num(m.get(5), 1000000000) !== rows ||
-            m.has(11)
+            num(m.get(5), 1000000000) !== rows
           )
             throw Error();
           const enc = list(m.get(2));
-          if (!enc.every((e) => e === 0n || e === 3n) || !enc.includes(0n)) throw Error();
+          if (!enc.every((e) => e === 0n || e === 2n || e === 3n || e === 8n) || !enc.includes(0n))
+            throw Error();
           const path = list(m.get(3));
           if (path.length !== 1 || decode(path[0]) !== columns[i]!.name) throw Error();
-          const start = num(m.get(9), footer),
+          const dataStart = num(m.get(9), footer),
+            start = m.has(11) ? num(m.get(11), footer) : dataStart,
             size = num(m.get(7), footer);
-          if (num(m.get(6), footer) !== size || start < 4 || size > footer - start) throw Error();
+          if (
+            num(m.get(6), footer) !== size ||
+            start < 4 ||
+            size > footer - start ||
+            dataStart < start ||
+            dataStart >= start + size
+          )
+            throw Error();
           ranges.push([start, start + size]);
-          return { start, end: start + size };
+          return { start, dataStart, end: start + size };
         }),
       };
     });
@@ -136,19 +145,19 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           seen = 0;
         const out: (string | null)[] = [];
         const column = columns[index]!;
-        while (seen < need) {
+        const page = () => {
           const header = readCompactStruct(bytes, p, Math.min(chunk.end, p + 16384));
           if (!header) throw Error();
           p = header.next;
-          const h = header.fields;
-          if (num(h.get(1), 10) !== 0 || h.has(6) || h.has(7) || h.has(8)) throw Error();
-          const length = num(h.get(2), chunk.end - p);
+          const h = header.fields,
+            length = num(h.get(2), chunk.end - p);
           if (num(h.get(3), chunk.end - p) !== length || p + length > chunk.end) throw Error();
           const body = bytes.subarray(p, p + length);
+          p += length;
           if (h.has(4) && Number(integer(h.get(4))) >>> 0 !== crc32(body)) throw Error();
-          const ph = map(h.get(5)),
-            n = num(ph.get(1), 10000);
-          if (!n || n > group.rows - seen || num(ph.get(2), 10) !== 0) throw Error();
+          return { h, body };
+        };
+        const plain = (body: Uint8Array, count: number): string[] => {
           let pos = 0;
           const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
           const take = (nbytes: number) => {
@@ -157,7 +166,53 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
             pos += nbytes;
             return old;
           };
-          let levels: boolean[];
+          const values: string[] = [];
+          const boolStart = column.type === 0 ? take(Math.ceil(count / 8)) : 0;
+          for (let i = 0; i < count; i++) {
+            let value: string;
+            if (column.type === 0) value = String(!!(body[boolStart + (i >> 3)]! & (1 << (i & 7))));
+            else if (column.type === 1) value = String(view.getInt32(take(4), true));
+            else if (column.type === 2) value = String(view.getBigInt64(take(8), true));
+            else if (column.type === 4 || column.type === 5) {
+              const x =
+                column.type === 4 ? view.getFloat32(take(4), true) : view.getFloat64(take(8), true);
+              value = Object.is(x, -0) ? '-0' : String(x);
+            } else {
+              const size = view.getUint32(take(4), true);
+              if (size > 1024 * 1024) throw Error();
+              const at = take(size);
+              value = column.text
+                ? new TextDecoder('utf-8', { fatal: true }).decode(body.subarray(at, at + size))
+                : `[${size} bytes]`;
+              if (value.length > 512) value = value.slice(0, 512) + '…';
+            }
+            values.push(value);
+          }
+          if (pos !== body.length) throw Error();
+          return values;
+        };
+        let dictionary: string[] | undefined;
+        if (chunk.start !== chunk.dataStart) {
+          const { h, body } = page();
+          if (num(h.get(1), 10) !== 2 || h.has(5) || h.has(6) || h.has(8)) throw Error();
+          const dictHeader = map(h.get(7)),
+            count = num(dictHeader.get(1), 10000),
+            encoding = num(dictHeader.get(2), 10);
+          if ((encoding !== 0 && encoding !== 2) || p !== chunk.dataStart || column.type === 0)
+            throw Error();
+          dictionary = plain(body, count);
+        }
+        while (seen < need) {
+          if (p < chunk.dataStart) throw Error();
+          const { h, body } = page();
+          if (num(h.get(1), 10) !== 0 || h.has(6) || h.has(7) || h.has(8)) throw Error();
+          const ph = map(h.get(5)),
+            n = num(ph.get(1), 10000),
+            encoding = num(ph.get(2), 10);
+          if (!n || n > group.rows - seen || (encoding !== 0 && encoding !== 2 && encoding !== 8))
+            throw Error();
+          let pos = 0,
+            levels: boolean[];
           if (column.optional) {
             if (num(ph.get(3), 10) !== 3) throw Error();
             const decoded = optionalLevels(body, n);
@@ -166,37 +221,20 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
             pos = decoded.bytes;
           } else levels = Array(n).fill(true);
           const present = levels.reduce((total, bit) => total + Number(bit), 0);
-          const boolStart = column.type === 0 ? take(Math.ceil(present / 8)) : 0;
+          let values: string[];
+          if (encoding === 0) values = plain(body.subarray(pos), present);
+          else {
+            if (!dictionary) throw Error();
+            const indexes = dictionaryIndexes(body.subarray(pos), present, dictionary.length);
+            if (!indexes) throw Error();
+            values = indexes.map((i) => dictionary![i]!);
+          }
           let valueIndex = 0;
           for (const defined of levels) {
-            let value: string | null = null;
-            if (defined) {
-              if (column.type === 0)
-                value = String(!!(body[boolStart + (valueIndex >> 3)]! & (1 << (valueIndex & 7))));
-              else if (column.type === 1) value = String(view.getInt32(take(4), true));
-              else if (column.type === 2) value = String(view.getBigInt64(take(8), true));
-              else if (column.type === 4 || column.type === 5) {
-                const x =
-                  column.type === 4
-                    ? view.getFloat32(take(4), true)
-                    : view.getFloat64(take(8), true);
-                value = Object.is(x, -0) ? '-0' : String(x);
-              } else {
-                const size = view.getUint32(take(4), true);
-                if (size > 1024 * 1024) throw Error();
-                const at = take(size);
-                value = column.text
-                  ? new TextDecoder('utf-8', { fatal: true }).decode(body.subarray(at, at + size))
-                  : `[${size} bytes]`;
-                if (value.length > 512) value = value.slice(0, 512) + '…';
-              }
-              valueIndex++;
-            }
+            const value = defined ? values[valueIndex++]! : null;
             if (out.length < need) out.push(value);
           }
-          if (pos !== body.length) throw Error();
           seen += n;
-          p += length;
         }
         return out;
       });
