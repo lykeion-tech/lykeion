@@ -113,7 +113,7 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       planar !== 1 ||
       orient !== 1 ||
       fill !== 1 ||
-      predictor !== 1 ||
+      (predictor !== 1 && !(predictor === 2 && [8, 32946].includes(compression ?? 0))) ||
       !sampleFormat.every((v) => v === 1) ||
       ![1, samples].includes(sampleFormat.length) ||
       fields.has(338)
@@ -173,6 +173,22 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
           : await inflateTiffStrip(bytes.subarray(start, end), expected);
       if (!data || data.length !== expected) return;
       const stripView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      if (predictor === 2) {
+        const rowBytes = width * bytesPerPixel;
+        for (let row = 0; row < data.length; row += rowBytes) {
+          if (bits[0] === 8) {
+            for (let at = row + bytesPerPixel; at < row + rowBytes; at++)
+              data[at] = (data[at]! + data[at - bytesPerPixel]!) & 0xff;
+          } else {
+            for (let at = row + 2; at < row + rowBytes; at += 2)
+              stripView.setUint16(
+                at,
+                (stripView.getUint16(at, little) + stripView.getUint16(at - 2, little)) & 0xffff,
+                little,
+              );
+          }
+        }
+      }
       for (let at = 0; at < data.length; at += bytesPerPixel) {
         let r: number, g: number, b: number;
         if (samples === 3) {

@@ -31,7 +31,43 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
     const names: string[] = [],
       seen = new Set<string>(),
       explicit: boolean[] = [];
+    // BCF shares one numeric dictionary across FILTER, INFO and FORMAT;
+    // PASS is reserved at zero even when omitted from the header.
+    const filters = new Map<number, string>([[0, 'PASS']]);
+    const dictionary = new Map<number, string>([[0, 'PASS']]);
+    const dictionaryNames = new Map<string, number>([['PASS', 0]]);
+    let dictionaryMode: 'explicit' | 'implicit' | undefined;
     for (const line of lines) {
+      if (/^##(?:FILTER|INFO|FORMAT)=</.test(line)) {
+        if (line.length > 4096 || !line.endsWith('>')) return;
+        const fields = line
+          .slice(line.indexOf('<') + 1, -1)
+          .split(/,(?=(?:[^"\\]|\\.|"(?:[^"\\]|\\.)*")*$)/);
+        const ids = fields.filter((s) => s.startsWith('ID='));
+        const indexes = fields.filter((s) => s.startsWith('IDX='));
+        if (ids.length !== 1 || indexes.length > 1) return;
+        const name = ids[0]!.slice(3),
+          raw = indexes[0]?.slice(4);
+        if (!name || name.length > 512 || /[\x00-\x20"<>;,=]/.test(name)) return;
+        if (name !== 'PASS') {
+          const mode = raw === undefined ? 'implicit' : 'explicit';
+          if (dictionaryMode && dictionaryMode !== mode) return;
+          dictionaryMode = mode;
+        }
+        if (raw !== undefined && !/^\d+$/.test(raw)) return;
+        const index =
+          raw === undefined ? (dictionaryNames.get(name) ?? dictionary.size) : Number(raw);
+        if (
+          !Number.isSafeInteger(index) ||
+          index > 9999 ||
+          (dictionary.has(index) && dictionary.get(index) !== name) ||
+          (dictionaryNames.has(name) && dictionaryNames.get(name) !== index)
+        )
+          return;
+        dictionary.set(index, name);
+        dictionaryNames.set(name, index);
+        if (line.startsWith('##FILTER=<')) filters.set(index, name);
+      }
       if (!line.startsWith('##contig=<')) continue;
       if (line.length > 4096 || !line.endsWith('>')) return;
       const fields = line.slice(10, -1).split(/,(?=(?:[^"\\]|\\.|"(?:[^"\\]|\\.)*")*$)/);
@@ -148,7 +184,27 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         ref = readText(false),
         alt: string[] = [];
       for (let i = 1; i < alleles; i++) alt.push(readText(false));
-      if (![0, 1, 2, 3].includes(typed().type)) return;
+      const filter = typed();
+      if (![0, 1, 2, 3].includes(filter.type) || filter.len > 1000) return;
+      const filterValues: string[] = [];
+      if (filter.type !== 0) {
+        const size = filter.type === 1 ? 1 : filter.type === 2 ? 2 : 4;
+        const missing = filter.type === 1 ? -128 : filter.type === 2 ? -32768 : -2147483648;
+        for (let i = 0; i < filter.len; i++) {
+          const at = filter.at + i * size;
+          const n =
+            size === 1
+              ? view.getInt8(at)
+              : size === 2
+                ? view.getInt16(at, true)
+                : view.getInt32(at, true);
+          if (n === missing && filter.len === 1) break;
+          const value = filters.get(n);
+          if (!value || filterValues.includes(value)) return;
+          filterValues.push(value);
+        }
+        if (filterValues.includes('PASS') && filterValues.length !== 1) return;
+      }
       for (let i = 0; i < nInfo; i++) {
         const key = typed();
         if (![1, 2, 3].includes(key.type) || key.len !== 1) return;
@@ -164,7 +220,15 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
       if (p !== end) return;
       const q = qual === 0x7f800001 ? '.' : String(view.getFloat32(start + 12, true));
       if (q !== '.' && !Number.isFinite(Number(q))) return;
-      rows.push([names[chrom]!, String(position + 1), id, ref, alt.join(',') || '.', q]);
+      rows.push([
+        names[chrom]!,
+        String(position + 1),
+        id,
+        ref,
+        alt.join(',') || '.',
+        q,
+        filterValues.join(';') || '.',
+      ]);
       pos = end;
     }
     return { rows, truncated: partial || pos < bytes.length };

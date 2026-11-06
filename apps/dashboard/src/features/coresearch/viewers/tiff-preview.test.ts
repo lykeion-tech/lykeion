@@ -98,5 +98,43 @@ it('accepts TIFF Deflate tag 8 and rejects corrupted, truncated or predicted str
   corrupt[217] ^= 1;
   expect(await parseTiff(corrupt, 0)).toBeUndefined();
   expect(await parseTiff(f.slice(0, -1), 0)).toBeUndefined();
-  expect(await parseTiff(fixture('tiff-deflate-predictor.tif'), 0)).toBeUndefined();
+});
+
+it('reconstructs independent TIFF Deflate horizontal prediction in 8/16-bit gray and RGB', async () => {
+  const gray = await parseTiff(fixture('tiff-predict-gray.tif'), 0);
+  expect([...gray!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 64, 128, 255]);
+  const big = await parseTiff(fixture('tiff-predict-big16.tif'), 0);
+  expect([...big!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 255, 0]);
+  const rgb = await parseTiff(fixture('tiff-predict-rgb.tif'), 0);
+  expect([...rgb!.rgba]).toEqual([255, 0, 0, 255, 0, 255, 0, 255, 1, 2, 3, 255]);
+});
+it('resets prediction each row and strip and handles unsigned wraparound in both byte orders', async () => {
+  const x = await parseTiff(fixture('tiff-predict-rows.tif'), 0);
+  expect([...x!.rgba].filter((_, i) => i % 4 === 0)).toEqual([
+    250, 10, 249, 3, 255, 1, 199, 0, 200,
+  ]);
+  const y = await parseTiff(fixture('tiff-predict-little16.tif'), 0);
+  expect([...y!.rgba].filter((_, i) => i % 4 === 0)).toEqual([255, 0, 128]);
+});
+it('rejects unsupported predictors and predictor tags on uncompressed input', async () => {
+  const file = fixture('tiff-predict-gray.tif'),
+    view = new DataView(file.buffer),
+    le = file[0] === 0x49,
+    offset = view.getUint32(4, le),
+    n = view.getUint16(offset, le);
+  let predict = -1,
+    compression = -1;
+  for (let i = 0; i < n; i++) {
+    const at = offset + 2 + i * 12,
+      id = view.getUint16(at, le);
+    if (id === 317) predict = at;
+    if (id === 259) compression = at;
+  }
+  expect(predict).toBeGreaterThan(0);
+  const unknown = file.slice();
+  new DataView(unknown.buffer).setUint16(predict + 8, 3, le);
+  expect(await parseTiff(unknown, 0)).toBeUndefined();
+  const uncompressed = file.slice();
+  new DataView(uncompressed.buffer).setUint16(compression + 8, 1, le);
+  expect(await parseTiff(uncompressed, 0)).toBeUndefined();
 });

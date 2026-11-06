@@ -14,7 +14,9 @@ it('routes BCF files to the binary viewer without reading them as text', async (
     onerror = null;
     terminate = vi.fn();
     postMessage = vi.fn();
-    constructor() { workers.push(this); }
+    constructor() {
+      workers.push(this);
+    }
   }
   vi.stubGlobal('Worker', FakeWorker);
   vi.stubGlobal('self', { location: new URL('http://localhost/') });
@@ -59,5 +61,31 @@ it('terminates stale and timed-out workers', async () => {
   await nextTick();
   expect(workers[1]!.terminate).toHaveBeenCalledOnce();
   expect(textOf(root)).toContain('preview unavailable');
+  app.unmount();
+});
+it('shows decoded filters and describes the remaining omissions', async () => {
+  const workers: FakeWorker[] = [];
+  class FakeWorker {
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror = null;
+    terminate = vi.fn();
+    postMessage = vi.fn();
+    constructor() {
+      workers.push(this);
+    }
+  }
+  vi.stubGlobal('Worker', FakeWorker);
+  vi.stubGlobal('self', { location: new URL('http://localhost/') });
+  const app = createTreeApp({ render: () => h(BcfViewer, { blob: new Blob(['bcf']) }) });
+  const root = node('root');
+  app.mount(root);
+  workers[0]!.onmessage!({
+    data: { preview: { rows: [['1', '3', '.', 'A', 'T', '.', 'q10']], truncated: false } },
+  });
+  await nextTick();
+  expect(textOf(root)).toContain('FILTER');
+  expect(textOf(root)).toContain('q10');
+  expect(textOf(root)).not.toContain('FILTER, INFO');
+  expect(textOf(root)).toContain('INFO and sample genotypes are omitted');
   app.unmount();
 });
