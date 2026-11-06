@@ -36,7 +36,7 @@ func TestRelayCommentsToTheTurn(t *testing.T) {
 		case 1:
 			w.WriteHeader(503)
 		case 2:
-			w.Write([]byte(`[{"id":"c1","author":"u1","body":"the answer must be 7"}]`))
+			w.Write([]byte(`[{"id":"00000000-0000-0000-0000-000000000001","author":"00000000-0000-0000-0000-000000000002","body":"the answer must be 7"}]`))
 		default:
 			w.Write([]byte(`[]`))
 		}

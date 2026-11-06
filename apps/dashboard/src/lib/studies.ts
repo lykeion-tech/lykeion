@@ -204,7 +204,78 @@ export type TranscriptEntry =
   | { kind: 'comment'; at: string; comment: Comment }
   | { kind: 'run'; at: string; run: AgentRun }
   | { kind: 'jev'; at: string; text: string; column: Column }
-  | { kind: 'event'; at: string; text: string; id: number };
+  | { kind: 'event'; at: string; text: string; id: string | number };
+export type GroupedTranscriptEntry =
+  | Exclude<TranscriptEntry, { kind: 'event' }>
+  | { kind: 'activity-group'; items: Extract<TranscriptEntry, { kind: 'event' }>[] };
+
+// Keep activity groups in place between runs and comments.
+export function groupStudyActivity(entries: TranscriptEntry[]): GroupedTranscriptEntry[] {
+  const out: GroupedTranscriptEntry[] = [];
+  for (const entry of entries) {
+    const previous = out.at(-1);
+    if (entry.kind === 'event') {
+      if (previous?.kind === 'activity-group') previous.items.push(entry);
+      else out.push({ kind: 'activity-group', items: [entry] });
+    } else out.push(entry);
+  }
+  return out;
+}
+// Build history only from recorded facts; a missing prior stage is not inferred.
+export function studyActivity(
+  events: LykEvent[],
+  records: StudyRecord[],
+  actorName: (id: string) => string,
+): Extract<TranscriptEntry, { kind: 'event' }>[] {
+  const out: Extract<TranscriptEntry, { kind: 'event' }>[] = [];
+  const stages = new Set(['grounding', 'hypotheses', 'experimentation', 'validation']);
+  let previous = '';
+  for (const event of [...events].sort((a, b) => a.id - b.id)) {
+    const payload = event.payload ?? {};
+    const col = str(payload.column);
+    let text = '';
+    if (event.type === 'card.created') {
+      const actor = event.actor_id ? actorName(event.actor_id) : '';
+      text = actor ? `${actor} created this study` : 'Study created';
+    } else if (event.type === 'agent_run.started' && payload.role === 'auditor') {
+      const auditor = actorName(str(payload.agent_run_id));
+      text = auditor ? `${auditor} started reviewing` : 'Auditor started reviewing';
+    } else if (event.type === 'agent_run.queued' || event.type === 'card.started') {
+      if (!previous && stages.has(col)) previous = col;
+    } else if (event.type === 'card.steered') {
+      if (payload.state === 'done' && (stages.has(col) || col === 'done')) {
+        text = 'Study completed';
+        previous = '';
+      } else if (stages.has(col)) {
+        if (previous && previous !== col)
+          text = `Moved from ${columnName(previous)} to ${columnName(col)}`;
+        previous = col;
+      }
+    }
+    if (text) out.push({ kind: 'event', at: event.created_at, text, id: event.id });
+  }
+  for (const record of records) {
+    const member = str(record.body.member).trim();
+    if (record.kind === 'delegation' && member)
+      out.push({
+        kind: 'event',
+        at: record.created_at,
+        text: `Leader delegated to ${member}`,
+        id: `delegation:${record.id}`,
+      });
+    if (record.kind === 'output' && str(record.body.name).trim()) {
+      const actor = record.agent_run_id ? actorName(record.agent_run_id) : '';
+      out.push({
+        kind: 'event',
+        at: record.created_at,
+        text: `${actor || 'Agent'} generated ${str(record.body.name).trim()}`,
+        id: `output:${record.id}`,
+      });
+    }
+  }
+  return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 export function transcript(
   comments: Comment[],
   runs: AgentRun[],

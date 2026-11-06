@@ -2,6 +2,27 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createRenderer, h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AgentRunCard from './AgentRunCard.vue';
+vi.mock('../../ui/RecordedMarkdown.vue', async () => {
+  const { h } = await import('vue');
+  return {
+    default: {
+      props: ['content'],
+      setup: (p: { content: string }) => () =>
+        h('div', { class: 'recorded-markdown-stub' }, p.content),
+    },
+  };
+});
+vi.mock('../../ui/Modal.vue', async () => {
+  const { h } = await import('vue');
+  return {
+    default: {
+      setup:
+        (_: unknown, { slots }: { slots: { default?: () => unknown } }) =>
+        () =>
+          h('div', { role: 'dialog' }, slots.default?.() as never),
+    },
+  };
+});
 import type { AgentRun, Comment, RunMessage, Runtime } from '../../api/types';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
@@ -76,6 +97,7 @@ function setup(
   extra: Partial<AgentRun> = {},
   runtime: Runtime | null = null,
   replies: Comment[] = [],
+  overrides?: RunMessage[],
 ) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   workspaceId.value = 'w';
@@ -109,7 +131,9 @@ function setup(
       created_at: run.created_at,
     },
   ];
-  const fetch = vi.fn(async (_path: string, _init?: RequestInit) => Response.json(messages));
+  const fetch = vi.fn(async (_path: string, _init?: RequestInit) =>
+    Response.json(overrides ?? messages),
+  );
   vi.stubGlobal('fetch', fetch);
   const cancelled: string[] = [];
   const root = node('root');
@@ -174,28 +198,41 @@ it('does not offer removal for another member’s reply', async () => {
   await nextTick();
   expect(all(root).some((n) => n.props['aria-label'] === 'Remove comment')).toBe(false);
 });
-it('opens in place and shows the transcript', async () => {
-  const { root, fetch, header, clickHeader } = setup();
+it('explains that a saved file reply awaits the same agent even after its run ends', async () => {
+  const item: Comment = {
+    id: 'file-reply',
+    workspace_id: 'w',
+    card_id: 'c',
+    author_id: 'u',
+    body: '',
+    created_at: run.created_at,
+    delivery: null,
+    attachments: [{ id: 'a', name: 'photo.png', content_type: 'image/png', size_bytes: 2 }],
+  };
+  const { root } = setup({ status: 'completed' }, null, [item]);
   await nextTick();
-  expect(textOf(root)).toContain('A three-line preview.');
-  expect(textOf(root)).not.toContain('▸ show transcript');
-  expect(header().props['aria-expanded']).toBe(false);
-  expect(fetch).not.toHaveBeenCalled();
+  expect(textOf(root)).toContain('files will reach Ada only if Ada has a later eligible run');
+  expect(textOf(root)).toContain('this reply does not start one');
+});
+it('keeps the final answer visible and opens its transcript separately', async () => {
+  const { root, fetch } = setup();
+  await nextTick();
+  expect(textOf(root)).toContain('A **three-line** preview.');
   expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
-  await clickHeader();
-  expect(header()).toBeTruthy();
-  expect(header().props['aria-expanded']).toBe(true);
-  expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(true);
+  const log = all(root).find((n) => n.props['aria-label'] === 'Open full log')!;
+  (log.props.onClick as () => void)();
   await vi.waitFor(() => expect(textOf(root)).toContain('Full recorded transcript.'));
   expect(textOf(root)).toContain('Run finished');
   expect(fetch.mock.calls.map(([path]) => path)).toEqual([
     '/api/agent-runs/run-1/messages?after_attempt=0&after=0',
   ]);
-  await clickHeader();
+  const close = all(root).find((n) => n.props['aria-label'] === 'Close full log')!;
+  (close.props.onClick as () => void)();
+  await nextTick();
   expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
 });
-it('adds a reaction to the run without opening its transcript', async () => {
-  const { root, fetch, header } = setup();
+it('adds a reaction without opening the full log', async () => {
+  const { root, fetch } = setup();
   const control = all(root).find((n) => n.props['aria-label'] === 'Add run reaction')!;
   (control.props.onClick as () => void)();
   await nextTick();
@@ -203,23 +240,20 @@ it('adds a reaction to the run without opening its transcript', async () => {
   (emoji.props.onClick as () => void)();
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
   expect(fetch.mock.calls[0]?.[0]).toBe('/api/cards/c/runs/run-1/reactions');
-  expect(header().props['aria-expanded']).toBe(false);
+  expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
 });
 it.each(['running', 'dispatched'] as const)(
-  'starts open while the run is working (%s)',
+  'shows a working indicator while the run is %s',
   async (status) => {
-    const { root, header } = setup({ status });
+    const { root } = setup({ status });
     await nextTick();
-    expect(header()).toBeTruthy();
-    expect(header().props['aria-expanded']).toBe(true);
     expect(textOf(root)).toContain('Working…');
     expect(all(root).some((n) => String(n.props.class).includes('live-dot'))).toBe(true);
   },
 );
 it('omits the run environment while retaining machine notices', async () => {
-  const { root, clickHeader } = setup({ machine_name: 'Old bench', machine_owner_id: 'u' });
-  expect(textOf(root)).not.toContain('Old bench');
-  await clickHeader();
+  const { root } = setup({ machine_name: 'Old bench', machine_owner_id: 'u' });
+  await nextTick();
   expect(textOf(root)).not.toContain('Old bench (Owner)');
   expect(all(root).some((n) => n.props['aria-label'] === 'Run environment')).toBe(false);
   expect(textOf(root)).not.toContain('Runs on: Bench');
@@ -260,14 +294,14 @@ it('explains when a running Codex cannot receive live input', async () => {
   expect(textOf(root)).toContain('Codex cannot receive replies during this run');
 });
 
-it('shows readable text for a truncated structured answer in a stopped run', async () => {
+it('does not treat a truncated interim excerpt as the final answer', async () => {
   const { root } = setup({
     answer: '',
     status: 'cancelled',
     latest_text: '{"answer":"A useful finding.\\n\\nAnother incomplete',
   });
   await nextTick();
-  expect(textOf(root)).toContain('A useful finding. Another incomplete');
+  expect(textOf(root)).not.toContain('A useful finding. Another incomplete');
   expect(textOf(root)).not.toContain('{"answer"');
 });
 
@@ -279,4 +313,160 @@ it('does not expose a structured excerpt when its answer is not available', asyn
   });
   await nextTick();
   expect(textOf(root)).not.toContain('{"status"');
+});
+
+it('shows a final report separately from its full log and offers per-run stop', async () => {
+  const { root } = setup({
+    status: 'completed',
+    answer: 'Final **answer** with [source](https://example.org).',
+  });
+  await nextTick();
+  expect(all(root).some((n) => n.props['aria-label'] === 'Open full log')).toBe(true);
+  expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
+  const log = all(root).find((n) => n.props['aria-label'] === 'Open full log')!;
+  (log.props.onClick as () => void)();
+  await nextTick();
+  expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(true);
+  const running = setup({ id: 'active-run', status: 'running' });
+  await nextTick();
+  expect(all(running.root).some((n) => n.props['aria-label'] === 'Stop Ada run')).toBe(true);
+});
+
+it('cancels only the selected active run from its card', async () => {
+  const { root, fetch } = setup({ id: 'run-1', status: 'running' });
+  const stop = all(root).find((n) => n.props['aria-label'] === 'Stop Ada run')!;
+  expect(stop).toBeTruthy();
+  (stop.props.onClick as () => void)();
+  await vi.waitFor(() =>
+    expect(
+      fetch.mock.calls.some(
+        ([path, init]) => path === '/api/agent-runs/run-1/cancel' && init?.method === 'POST',
+      ),
+    ).toBe(true),
+  );
+  expect(fetch.mock.calls.some(([path]) => path.includes('/cards/c/stop'))).toBe(false);
+});
+
+it('allows a file-only reply attached to this run', async () => {
+  class UploadRequest {
+    upload: { onprogress?: (e: unknown) => void } = {};
+    status = 200;
+    responseText = JSON.stringify({ id: 'attachment-1', name: 'photo.png', size_bytes: 2 });
+    onload?: () => void;
+    open() {}
+    setRequestHeader() {}
+    send() {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal('XMLHttpRequest', UploadRequest);
+  const { root, fetch } = setup();
+  const picker = all(root).find((n) => n.tag === 'input' && n.props.type === 'file')!;
+  expect(picker).toBeTruthy();
+  (picker.props.onChange as (e: unknown) => void)({
+    target: { files: [new File(['hi'], 'photo.png')], value: '' },
+  });
+  await vi.waitFor(() => expect(textOf(root)).toContain('photo.png'));
+  const form = all(root).find((n) => n.tag === 'form' && n.props['aria-label'] === 'Reply to Ada')!;
+  (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault() {} });
+  await vi.waitFor(() =>
+    expect(fetch.mock.calls.some(([url]) => url === '/api/cards/c/comments')).toBe(true),
+  );
+  const [, init] = fetch.mock.calls.find(([url]) => url === '/api/cards/c/comments')!;
+  expect(JSON.parse(String(init?.body))).toEqual({
+    body: '',
+    target_run_id: 'run-1',
+    attachment_ids: ['attachment-1'],
+  });
+});
+
+it('does not send a reply while a file upload is pending and allows removal', async () => {
+  class PendingUpload {
+    upload = {};
+    open() {}
+    setRequestHeader() {}
+    send() {}
+  }
+  vi.stubGlobal('XMLHttpRequest', PendingUpload);
+  const { root, fetch } = setup();
+  const picker = all(root).find((n) => n.tag === 'input' && n.props.type === 'file')!;
+  (picker.props.onChange as (e: unknown) => void)({
+    target: { files: [new File(['hi'], 'pending.png')], value: '' },
+  });
+  await nextTick();
+  const send = all(root).find((n) => n.props['aria-label'] === 'Send reply to Ada')!;
+  expect(send.props.disabled).toBe(true);
+  const form = all(root).find((n) => n.tag === 'form' && n.props['aria-label'] === 'Reply to Ada')!;
+  (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault() {} });
+  expect(fetch.mock.calls.some(([url]) => url === '/api/cards/c/comments')).toBe(false);
+  const remove = all(root).find((n) => n.props['aria-label'] === 'Remove pending.png')!;
+  (remove.props.onClick as () => void)();
+  await nextTick();
+  expect(textOf(root)).not.toContain('pending.png');
+});
+
+it('offers stop for a queued run without stopping the study', async () => {
+  const { root } = setup({ status: 'queued' });
+  expect(all(root).some((n) => n.props['aria-label'] === 'Stop Ada run')).toBe(true);
+});
+
+it('does not label an interim text as the final message when no accepted answer exists', async () => {
+  const { root } = setup({ status: 'completed', answer: '', latest_text: 'intermediate thought' });
+  await vi.waitFor(() => expect(textOf(root)).toContain('Final message unavailable'));
+  expect(textOf(root)).not.toContain('Full recorded transcript.');
+  expect(textOf(root)).not.toContain('intermediate thought');
+});
+
+it('keeps the answer expanded with no model name or fold control', async () => {
+  const { root } = setup({ answer: 'Final **answer**', model: 'Secret model' });
+  await nextTick();
+  expect(textOf(root)).toContain('Final **answer**');
+  expect(textOf(root)).not.toContain('Secret model');
+  expect(
+    all(root).some(
+      (n) =>
+        n.props['aria-expanded'] !== undefined && String(n.props['aria-label']).includes('Run 1'),
+    ),
+  ).toBe(false);
+});
+
+function textMessage(
+  seq: number,
+  type: RunMessage['type'],
+  tool: string,
+  content: unknown,
+): RunMessage {
+  return {
+    agent_run_id: 'run-1',
+    attempt: 1,
+    seq,
+    type,
+    tool,
+    content,
+    created_at: run.created_at,
+  };
+}
+it('shows an explicit terminal output marker instead of earlier text', async () => {
+  const { root } = setup(
+    { answer: '', harness: 'claude' },
+    null,
+    [],
+    [
+      textMessage(1, 'text', '', 'interim'),
+      textMessage(2, 'status', 'lykeion.final_output', { text: 'Authoritative terminal result' }),
+    ],
+  );
+  await vi.waitFor(() => expect(textOf(root)).toContain('Authoritative terminal result'));
+  expect(textOf(root)).not.toContain('interim');
+});
+it('recovers old completed Codex final text but not Claude interim text', async () => {
+  const messages = [
+    textMessage(1, 'text', '', 'first'),
+    textMessage(2, 'text', '', 'actual Codex final'),
+  ];
+  const codex = setup({ answer: '', harness: 'codex' }, null, [], messages);
+  await vi.waitFor(() => expect(textOf(codex.root)).toContain('actual Codex final'));
+  const claude = setup({ answer: '', harness: 'claude' }, null, [], messages);
+  await vi.waitFor(() => expect(textOf(claude.root)).toContain('Final message unavailable'));
+  expect(textOf(claude.root)).not.toContain('actual Codex final');
 });

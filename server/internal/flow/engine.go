@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -233,6 +234,11 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 	if err != nil {
 		return "", nil, err
 	}
+	superseded, err := tx.PendingBeforeUserStop(ctx, c.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	comments = slices.DeleteFunc(comments, func(comment db.Comment) bool { return superseded[comment.ID] })
 	// Read at start, so a change to the research context reaches the next run.
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
 	if err != nil {
@@ -322,8 +328,8 @@ func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []d
 	if err != nil || !pending {
 		return false, err
 	}
-	// Failures and cancellations retain their normal settlement/retry or
-	// explicit machine recovery policy; a message cannot bypass those gates.
+	// Failures and system cancellations retain their recovery policy. Only a
+	// new message after a user stops a lead can resume that lead.
 	seen := map[string]bool{}
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
@@ -331,9 +337,17 @@ func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []d
 			continue
 		}
 		seen[r.Role] = true
-		if accessInterrupted(r) || leads(r.Role) && (r.Status == "failed" || r.Status == "cancelled") {
+		if accessInterrupted(r) || leads(r.Role) && r.Status == "failed" {
 			// Keep pending input from flowing into an audit of older work too.
 			return true, nil
+		}
+		if leads(r.Role) && r.Status == "cancelled" {
+			// An explicit new message can resume a run stopped by a person, but
+			// older pending input must not immediately undo that person's stop.
+			fresh, err := tx.ComposerAfterUserStop(ctx, c.ID, r.ID)
+			if err != nil || !fresh {
+				return true, err
+			}
 		}
 	}
 	active, err := tx.Q.CardInflightAgentRuns(ctx, db.CardInflightAgentRunsParams{WorkspaceID: tx.WS, CardID: &c.ID})
@@ -365,12 +379,20 @@ func (e *Engine) followUp(ctx context.Context, tx *store.Tx, c db.Card, runs []d
 
 // hasPendingComposer excludes cancelled, delivered and actively reserved inputs.
 func hasPendingComposer(ctx context.Context, tx *store.Tx, c db.Card) (bool, error) {
-	pending, err := tx.Q.UndeliveredComments(ctx, db.UndeliveredCommentsParams{WorkspaceID: tx.WS, CardID: c.ID, Since: time.Time{}})
+	return hasPendingComposerSince(ctx, tx, c, time.Time{})
+}
+
+func hasPendingComposerSince(ctx context.Context, tx *store.Tx, c db.Card, since time.Time) (bool, error) {
+	pending, err := tx.Q.UndeliveredComments(ctx, db.UndeliveredCommentsParams{WorkspaceID: tx.WS, CardID: c.ID, Since: since})
+	if err != nil {
+		return false, err
+	}
+	superseded, err := tx.PendingBeforeUserStop(ctx, c.ID)
 	if err != nil {
 		return false, err
 	}
 	for _, comment := range pending {
-		if comment.ReplyRunID == nil {
+		if comment.ReplyRunID == nil && !superseded[comment.ID] {
 			return true, nil
 		}
 	}

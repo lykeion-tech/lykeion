@@ -1042,12 +1042,17 @@ func (d *Door) memberResult(ctx context.Context, _ *mcp.CallToolRequest, in memb
 		case err == nil:
 			var s struct {
 				Status   string
-				Comments []json.RawMessage
+				Comments []service.SentComment
 			}
 			json.Unmarshal(out, &s)
 			// Comments the server handed out are this leader's now: they
 			// come back at once rather than wait under a later reply.
 			if s.Status != "working" || len(s.Comments) > 0 {
+				for _, comment := range s.Comments {
+					if comment.NeedsAck || len(comment.Attachments) != 0 {
+						return nil, nil, errors.New("file-bearing comments must wait for the next run")
+					}
+				}
 				return memberAnswer(out), nil, nil
 			}
 			last = out

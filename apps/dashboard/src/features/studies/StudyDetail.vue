@@ -13,12 +13,17 @@ import {
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
-import { Square } from '@lucide/vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
+import StudyFileThumbnail from './StudyFileThumbnail.vue';
 import StudyReview from './StudyReview.vue';
 import StudyNotebook from './StudyNotebook.vue';
 import StudyDescriptionControls from './StudyDescriptionControls.vue';
+import CommentFiles from './CommentFiles.vue';
+import CommentFilePicker from './CommentFilePicker.vue';
+import { uploadAttachment } from '../../api/queries';
+import { useAttachments } from '../../lib/attachments';
+import { registerDraftVisit } from '../../state/resource-draft';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
 import ExecutionLog from '../runs/ExecutionLog.vue';
@@ -40,12 +45,14 @@ import {
   useCards,
   useComments,
   useMe,
+  useKindRecords,
   useMembers,
+  useNotebookRecords,
   useRuns,
   useRuntimes,
   useWorkspace,
 } from '../../api/queries';
-import type { Card } from '../../api/types';
+import type { Card, Column } from '../../api/types';
 import {
   blockedActions,
   blockedMessage,
@@ -53,6 +60,8 @@ import {
   endLabel,
   stateLabel,
   studyNumber,
+  studyActivity,
+  groupStudyActivity,
   transcript,
 } from '../../lib/studies';
 import { feedLine, reviewingLine } from '../../lib/review';
@@ -79,6 +88,17 @@ const card = useCard(() => props.id);
 const cards = useCards();
 const comments = useComments(() => props.id);
 const events = useCardEvents(() => props.id);
+const activityRecords = useNotebookRecords(() => props.id);
+const outputFiles = useKindRecords(() => props.id, 'output');
+const generatedFiles = computed(() => {
+  if (!outputFiles.isSuccess.value) return [];
+  const seen = new Set<string>();
+  return (outputFiles.data.value ?? []).filter((file) => {
+    if (!file.key || seen.has(file.key)) return false;
+    seen.add(file.key);
+    return true;
+  });
+});
 const ratings = useCardRatings(() => props.id);
 const review = useCardReview(() => props.id);
 const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.dismissed));
@@ -128,6 +148,7 @@ onUnmounted(() => {
   clearInterval(reviewPoll);
 });
 const activeSurface = ref<string | null>(null);
+const reviewRequest = ref<{ column: Column } | null>(null);
 const paneFocused = ref(false);
 const studyOutputs = ref<InstanceType<typeof StudyOutputs>>();
 const paneSurface = computed({
@@ -205,6 +226,8 @@ const resourceReads = computed(() =>
   [
     { label: 'Comments', query: comments },
     { label: 'Events', query: events },
+    { label: 'Activity', query: activityRecords },
+    { label: 'Generated files', query: outputFiles },
     { label: 'Runs', query: runs },
     { label: 'Review', query: review },
   ].map(({ label, query }) => ({
@@ -233,7 +256,7 @@ const entries = computed(() => {
         !comment.reply_run_id || !agentRuns.value.some((run) => run.id === comment.reply_run_id),
     ),
     agentRuns.value,
-    (events.data.value ?? []).filter((e) => e.type !== 'card.created'),
+    [],
     columns.flatMap((column) =>
       column.attempts.map((attempt) => ({
         at: attempt.at,
@@ -242,6 +265,14 @@ const entries = computed(() => {
       })),
     ),
   );
+  entries.push(
+    ...studyActivity(events.data.value ?? [], activityRecords.data.value ?? [], (id) => {
+      const member = members.data.value?.find((item) => item.user_id === id);
+      const run = agentRuns.value.find((item) => item.id === id);
+      return member?.name || member?.email || run?.agent_name || '';
+    }),
+  );
+  entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   const current = c.value;
   if (!current || !review.isSuccess.value || !runs.isSuccess.value) return entries;
   const line = reviewingLine(current, agentRuns.value, columns);
@@ -258,7 +289,7 @@ const entries = computed(() => {
         column: current.board_column,
       });
     }
-    return entries;
+    return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   }
   const newest = agentRuns.value
     .filter((run) => run.board_column === current.board_column && run.round === current.round)
@@ -272,8 +303,9 @@ const entries = computed(() => {
       column: current.board_column,
     });
   }
-  return entries;
+  return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 });
+const groupedEntries = computed(() => groupStudyActivity(entries.value));
 const agentRuns = computed(() =>
   [...(runs.data.value ?? [])].sort(
     (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id),
@@ -329,15 +361,18 @@ function openNotebookAt(run: string) {
 }
 defineExpose({ openNotebookAt });
 const comment = ref('');
+const commentFiles = useAttachments(uploadAttachment);
+registerDraftVisit({
+  dirty: () => !!comment.value.trim() || commentFiles.items.value.length > 0,
+  discard: () => {
+    comment.value = '';
+    commentFiles.clear();
+  },
+  identity: () => `${workspaceId.value}:${props.id}:comment`,
+});
 const busy = ref(false);
 const error = ref('');
 const cancellingComment = ref('');
-const canStop = computed(
-  () =>
-    working.value &&
-    agentRuns.value.some((run) => run.status === 'running' || run.status === 'dispatched'),
-);
-const showStop = computed(() => canStop.value && !comment.value.trim());
 const blockedBar = computed(() => (c.value ? blockedMessage(c.value) : ''));
 const blocked = computed(() => (c.value ? blockedActions(c.value, me.data.value?.id) : []));
 const assignedTeams = computed(() => [
@@ -368,10 +403,12 @@ watch(
   () => {
     generation++;
     activeSurface.value = null;
+    reviewRequest.value = null;
     notebookRun.value = null;
     paneFocused.value = false;
     propertyBusy.value = false;
     comment.value = '';
+    commentFiles.clear();
     cancellingComment.value = '';
     busy.value = false;
     error.value = '';
@@ -407,39 +444,33 @@ const time = (iso: string) =>
 // Each continuation belongs to its captured visit.
 async function send() {
   const text = comment.value.trim();
-  if (busy.value || !text || !c.value) return;
+  if (
+    busy.value ||
+    (!text && !commentFiles.ids.value.length) ||
+    commentFiles.uploading.value ||
+    commentFiles.failed.value ||
+    !c.value
+  )
+    return;
+  const attachmentIds = [...commentFiles.ids.value];
   const scope = mutationScope();
   const ownDraftRevision = draftRevision;
   const base = `/api/cards/${scope.id}`;
   busy.value = true;
   error.value = '';
   try {
-    await api('POST', `${base}/comments`, { body: text });
+    await api(
+      'POST',
+      `${base}/comments`,
+      { body: text, ...(attachmentIds.length ? { attachment_ids: attachmentIds } : {}) },
+      undefined,
+      { workspace: scope.workspace },
+    );
     if (!scope.current()) return;
+    commentFiles.clear();
     if (ownDraftRevision === draftRevision) {
       comment.value = '';
     }
-    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
-    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
-  } catch (e) {
-    if (scope.current()) error.value = (e as Error).message;
-  } finally {
-    if (scope.current()) busy.value = false;
-  }
-}
-async function submitComposer() {
-  if (!showStop.value) return send();
-  if (
-    busy.value ||
-    !confirm(`Stop ${number.value}? This ends the study and it cannot be reopened.`)
-  )
-    return;
-  const scope = mutationScope();
-  busy.value = true;
-  error.value = '';
-  try {
-    await api('POST', `/api/cards/${scope.id}/stop`, { reason: 'Stopped by user' });
-    if (!scope.current()) return;
     await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
     if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
   } catch (e) {
@@ -514,12 +545,7 @@ function pin() {
           <h1 class="study-title">{{ studyDisplayTitle(c.title) }}</h1>
           <section class="study-description" aria-label="Study description">
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
-            <StudyDescriptionControls
-              :key="id"
-              :card-id="id"
-              :attachments="c.attachments ?? []"
-              @preview="previewAttachment"
-            />
+            <StudyDescriptionControls :key="id" :card-id="id" />
           </section>
           <h2 class="activity-heading">Activity</h2>
           <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
@@ -536,11 +562,11 @@ function pin() {
           </div>
           <p v-if="transcriptPending" role="status">Loading study activity…</p>
           <template
-            v-for="entry in entries"
+            v-for="entry in groupedEntries"
             :key="
               entry.kind +
-              (entry.kind === 'event'
-                ? entry.id
+              (entry.kind === 'activity-group'
+                ? entry.items[0]?.id
                 : entry.kind === 'jev'
                   ? `${entry.column}:${entry.at}:${entry.text}`
                   : entry.kind === 'run'
@@ -553,9 +579,14 @@ function pin() {
                 <span class="avatar">{{ name(entry.comment.author_id)[0] }}</span
                 >{{ name(entry.comment.author_id) }}<span class="tm">{{ time(entry.at) }}</span>
               </div>
-              <p class="bubble" :class="{ mine: entry.comment.author_id === me.data.value?.id }">
+              <p
+                v-if="entry.comment.body"
+                class="bubble"
+                :class="{ mine: entry.comment.author_id === me.data.value?.id }"
+              >
                 {{ entry.comment.body }}
               </p>
+              <CommentFiles :comment="entry.comment" :study-id="id" />
               <p
                 v-if="
                   (!entry.comment.delivery || entry.comment.cancelled) &&
@@ -564,6 +595,7 @@ function pin() {
                     unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
                     cancelled: entry.comment.cancelled,
                     reply: !!entry.comment.reply_run_id,
+                    files: !!entry.comment.attachments?.length,
                     who: roleNames.get(entry.comment.delivery?.role ?? ''),
                   })
                 "
@@ -576,14 +608,20 @@ function pin() {
                     unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
                     cancelled: entry.comment.cancelled,
                     reply: !!entry.comment.reply_run_id,
+                    files: !!entry.comment.attachments?.length,
                     who: roleNames.get(entry.comment.delivery?.role ?? ''),
                   })
                 }}
               </p>
             </div>
-            <div v-else-if="entry.kind === 'event'" class="event-line">
-              <span class="dot" />{{ entry.text }} · {{ time(entry.at) }}
-            </div>
+            <details v-else-if="entry.kind === 'activity-group'" class="activity-group">
+              <summary>
+                {{ entry.items.length }} {{ entry.items.length === 1 ? 'activity' : 'activities' }}
+              </summary>
+              <div v-for="item in entry.items" :key="item.id" class="event-line">
+                {{ item.text }} · {{ time(item.at) }}
+              </div>
+            </details>
             <AgentRunCard
               v-else-if="entry.kind === 'run'"
               class="activity-card"
@@ -607,21 +645,46 @@ function pin() {
               <span class="avatar jev-avatar" aria-hidden="true">J</span>
               <span class="jev-text">
                 {{ entry.text.slice(0, entry.text.lastIndexOf(' · ')) }} ·
-                <span :class="jevOutcomeClass(entry.text)">{{
-                  entry.text.slice(entry.text.lastIndexOf(' · ') + 3)
-                }}</span>
+                <button
+                  class="jev-review-link"
+                  :class="jevOutcomeClass(entry.text)"
+                  @click="
+                    reviewRequest = { column: entry.column };
+                    showMeta = true;
+                    activeSurface = 'review';
+                  "
+                >
+                  {{ entry.text.slice(entry.text.lastIndexOf(' · ') + 3) }}
+                </button>
               </span>
-              <button
-                class="jev-review-link"
-                @click="
-                  showMeta = true;
-                  activeSurface = 'review';
-                "
-              >
-                Open Review <span aria-hidden="true">→</span>
-              </button>
             </div>
           </template>
+          <section
+            v-if="generatedFiles.length"
+            class="generated-files"
+            aria-label="Generated files"
+          >
+            <hr class="generated-files-divider" />
+            <h3 class="generated-files-heading">FILES GENERATED</h3>
+            <div class="generated-files-grid">
+              <button
+                v-for="file in generatedFiles"
+                :key="file.id"
+                type="button"
+                class="generated-file"
+                @click="previewOutput(file.key)"
+              >
+                <StudyFileThumbnail
+                  :name="typeof file.body.name === 'string' ? file.body.name : file.key"
+                  :size="
+                    typeof file.body.size_bytes === 'number' ? file.body.size_bytes : undefined
+                  "
+                  :url="`/api/cards/${encodeURIComponent(id)}/outputs/${encodeURIComponent(file.key)}`"
+                />
+                <span>{{ typeof file.body.name === 'string' ? file.body.name : file.key }}</span>
+              </button>
+            </div>
+          </section>
         </div>
       </div>
       <div v-if="c && !c.ending" class="pinned-composer">
@@ -629,7 +692,7 @@ function pin() {
         <p v-if="composerHint" id="study-composer-hint" class="type-caption" role="status">
           {{ composerHint }}
         </p>
-        <form class="study-comment" @submit.prevent="submitComposer">
+        <form class="study-comment" @submit.prevent="send">
           <textarea
             v-model="comment"
             placeholder="Leave a comment…"
@@ -639,22 +702,26 @@ function pin() {
             @keydown.ctrl.enter.prevent="send"
           />
           <footer>
+            <CommentFilePicker
+              :items="commentFiles.items.value"
+              :error="commentFiles.error.value"
+              :disabled="busy"
+              @pick="commentFiles.add"
+              @remove="commentFiles.remove"
+            />
             <button
               class="round-send"
-              :class="{ 'stop-control': showStop }"
               type="submit"
-              :disabled="busy || (!comment.trim() && !canStop)"
-              :aria-label="showStop ? 'Stop' : 'Send'"
-              :title="showStop ? 'Stop' : 'Send comment'"
+              :disabled="
+                busy ||
+                commentFiles.uploading.value ||
+                commentFiles.failed.value ||
+                (!comment.trim() && !commentFiles.ids.value.length)
+              "
+              aria-label="Send"
+              title="Send comment"
             >
-              <Square
-                v-if="showStop"
-                :size="12"
-                fill="currentColor"
-                :stroke-width="0"
-                aria-hidden="true"
-              />
-              <Icon v-else name="up" :size="18" />
+              <Icon name="up" :size="18" />
             </button>
           </footer>
         </form>
@@ -822,7 +889,7 @@ function pin() {
         <div v-else-if="active === 'execution'" class="study-meta surface-content">
           <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
-        <StudyReview v-else-if="active === 'review'" :card-id="id" />
+        <StudyReview v-else-if="active === 'review'" :card-id="id" :request="reviewRequest" />
         <StudyNotebook
           v-else-if="active === 'notebook'"
           :card-id="id"
@@ -1560,11 +1627,8 @@ function pin() {
   flex: 1;
 }
 .jev-review-link {
-  flex: none;
-  color: var(--primary);
-}
-.jev-review-link:hover {
   text-decoration: underline;
+  cursor: pointer;
 }
 .jev-waiting {
   color: #c69c25;
@@ -1703,6 +1767,54 @@ function pin() {
   text-align: right;
   margin-left: 0;
 }
+.activity-group {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin: 16px 0 12px;
+}
+.generated-files {
+  margin-top: 24px;
+}
+.generated-files-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0 0 12px;
+}
+.generated-files-heading {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+}
+.generated-files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.generated-file {
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.generated-file > span {
+  display: block;
+  padding: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-group > summary {
+  display: list-item;
+  width: fit-content;
+  cursor: pointer;
+  padding: 6px 0 6px 14px;
+}
 .event-line {
   display: flex;
   gap: 10px;
@@ -1710,13 +1822,6 @@ function pin() {
   font-size: 12.5px;
   color: var(--muted);
   margin: 4px 0 10px 14px;
-}
-.event-line .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--control-border);
-  flex: none;
 }
 .study-meta {
   padding: 16px;

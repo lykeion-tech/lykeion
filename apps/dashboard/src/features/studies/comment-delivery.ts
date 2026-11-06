@@ -35,12 +35,14 @@ export function deliveryLine(
     unavailable,
     cancelled,
     reply,
+    files,
   }: {
     working: boolean;
     who?: string;
     unavailable?: string;
     cancelled?: boolean;
     reply?: boolean;
+    files?: boolean;
   },
 ): string {
   if (cancelled)
@@ -48,6 +50,11 @@ export function deliveryLine(
       ? 'Cancelled · already delivered input cannot be recalled'
       : 'Cancelled · will not be delivered';
   if (!d) {
+    if (files && reply) {
+      const agent = who || 'the same agent';
+      return `Saved · files will reach ${agent} only if ${agent} has a later eligible run; this reply does not start one`;
+    }
+    if (files) return 'Saved · files are pending delivery in an eligible run';
     if (reply) return 'Comment saved · replies do not start agent work';
     if (unavailable) return `Pending · ${unavailable}`;
     return working ? '' : 'Comment saved · this study cannot start agent work';

@@ -192,7 +192,14 @@ describe('study filters', () => {
   });
 });
 
-import { blockLabel, eventText, recordLine, transcript } from './studies';
+import {
+  blockLabel,
+  eventText,
+  recordLine,
+  transcript,
+  studyActivity,
+  groupStudyActivity,
+} from './studies';
 import type { AgentRun, BlockKind, Comment, LykEvent, StudyRecord } from '../api/types';
 
 const rec = (kind: string, body: Record<string, unknown>, key = ''): StudyRecord => ({
@@ -218,6 +225,107 @@ const lykEvent = (type: string, payload: Record<string, unknown>, at: string): L
   actor_id: null,
   payload,
   created_at: at,
+});
+
+describe('study activity groups', () => {
+  it('groups consecutive activity lines, preserving boundaries and chronological order', () => {
+    const lines = [
+      { kind: 'event' as const, id: 1, at: '2026-10-15T10:00:00Z', text: 'Created' },
+      { kind: 'event' as const, id: 2, at: '2026-10-15T10:01:00Z', text: 'Delegated' },
+      { kind: 'run' as const, at: '2026-10-15T10:02:00Z', run: { id: 'run' } as AgentRun },
+      { kind: 'event' as const, id: 3, at: '2026-10-15T10:03:00Z', text: 'Completed' },
+    ];
+    const result = groupStudyActivity(lines);
+    expect(result.map((item) => item.kind)).toEqual(['activity-group', 'run', 'activity-group']);
+    expect(result[0]).toMatchObject({ items: [{ text: 'Created' }, { text: 'Delegated' }] });
+    expect(result[2]).toMatchObject({ items: [{ text: 'Completed' }] });
+  });
+});
+
+describe('study activity', () => {
+  it('includes generated output records but not internal rerun files', () => {
+    const output = { ...rec('output', { name: 'result.csv' }), id: 'out', agent_run_id: 'run' };
+    const rerun = { ...rec('rerun_output', { name: 'internal.csv' }), id: 'rerun' };
+    expect(studyActivity([], [output, rerun], () => 'Curie').map((item) => item.text)).toEqual([
+      'Curie generated result.csv',
+    ]);
+  });
+  it('records an auditor starting review only when the auditor run starts', () => {
+    const queued = {
+      ...lykEvent(
+        'agent_run.queued',
+        { role: 'auditor', agent_run_id: 'audit' },
+        '2026-10-15T10:00:00Z',
+      ),
+      id: 1,
+    };
+    const started = {
+      ...lykEvent(
+        'agent_run.started',
+        { role: 'auditor', agent_run_id: 'audit' },
+        '2026-10-15T10:01:00Z',
+      ),
+      id: 2,
+    };
+    const member = {
+      ...lykEvent(
+        'agent_run.started',
+        { role: 'member', agent_run_id: 'member' },
+        '2026-10-15T10:02:00Z',
+      ),
+      id: 3,
+    };
+    expect(studyActivity([queued, member], [], () => '')).toEqual([]);
+    expect(
+      studyActivity([queued, started, member], [], () => 'Curie').map((item) => item.text),
+    ).toEqual(['Curie started reviewing']);
+  });
+  it('shows creation, real stage changes, delegation and study completion without routine events', () => {
+    const event = (
+      id: number,
+      type: string,
+      payload: Record<string, unknown>,
+      actor_type: LykEvent['actor_type'] = 'system',
+      actor_id: string | null = null,
+    ): LykEvent => ({
+      ...lykEvent(type, payload, `2026-10-15T10:0${id}:00Z`),
+      id,
+      actor_type,
+      actor_id,
+    });
+    const events = [
+      event(1, 'card.created', {}, 'user', 'u1'),
+      event(2, 'agent_run.queued', { column: 'grounding' }),
+      event(3, 'card.steered', { column: 'grounding', state: 'blocked' }),
+      event(4, 'card.steered', { column: 'hypotheses', state: 'working' }),
+      event(5, 'card.steered', { column: 'hypotheses', state: 'working' }),
+      event(6, 'card.steered', { column: 'hypotheses', state: 'done' }),
+    ];
+    const delegation = {
+      ...rec('delegation', { member: 'Scout', step: 'Check sources' }),
+      id: 'd',
+      created_at: '2026-10-15T10:03:30Z',
+    };
+    expect(
+      studyActivity(events, [delegation], (id) => (id === 'u1' ? 'Diego' : '')).map((x) => x.text),
+    ).toEqual([
+      'Diego created this study',
+      'Leader delegated to Scout',
+      'Moved from Grounding to Hypotheses',
+      'Study completed',
+    ]);
+  });
+  it('does not invent a source stage or a completion for stopped studies', () => {
+    const events = [
+      lykEvent('card.steered', { column: 'validation', state: 'working' }, '2026-10-15T10:00:00Z'),
+      lykEvent(
+        'card.steered',
+        { column: 'done', state: 'stopped', ending: 'stopped' },
+        '2026-10-15T10:01:00Z',
+      ),
+    ];
+    expect(studyActivity(events, [], () => '')).toEqual([]);
+  });
 });
 
 describe('stages and blocks', () => {

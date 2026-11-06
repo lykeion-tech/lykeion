@@ -1073,6 +1073,38 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   });
 }
 
+it('places study activity in a collapsed count toggle', async () => {
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client);
+      client.setQueryData(keys.events('w', 'c'), [
+        {
+          id: 1,
+          workspace_id: 'w',
+          card_id: 'c',
+          type: 'card.created',
+          actor_type: 'system',
+          actor_id: null,
+          payload: {},
+          created_at: '2026-10-25T10:00:00Z',
+        },
+      ]);
+    },
+  );
+  try {
+    const group = t.nodes().find((n) => n.tag === 'details' && n.props.class === 'activity-group');
+    expect(group).toBeTruthy();
+    expect(group?.props.open).toBeFalsy();
+    expect(t.text()).toContain('1 activity');
+    expect(t.text()).toContain('Study created');
+  } finally {
+    t.unmount();
+  }
+});
+
 it('does not put validation status lines above study activity', async () => {
   const t = await mount(
     StudyDetail,
@@ -1109,7 +1141,7 @@ it('does not put validation status lines above study activity', async () => {
   }
 });
 
-it('offers stop for an active run when empty and sends a typed comment', async () => {
+it('only sends messages from the composer while a run is active', async () => {
   const fetch = vi.fn(
     async (path: RequestInfo | URL, init?: RequestInit) =>
       new Response(
@@ -1159,22 +1191,10 @@ it('offers stop for an active run when empty and sends a typed comment', async (
     },
   );
   try {
-    expect(t.nodes().find((n) => n.props['aria-label'] === 'Stop')).toBeTruthy();
-    expect(t.nodes().find((n) => n.props['aria-label'] === 'Action')).toBeFalsy();
-    const confirmStop = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal('confirm', confirmStop);
+    expect(t.nodes().find((n) => n.props['aria-label'] === 'Stop')).toBeFalsy();
     const form = t.nodes().find((n) => n.tag === 'form' && n.props.class === 'study-comment')!;
     await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
     expect(fetch.mock.calls.some(([path]) => String(path).endsWith('/stop'))).toBe(false);
-    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
-    expect(
-      fetch.mock.calls.some(
-        ([path, init]) =>
-          String(path).endsWith('/stop') &&
-          init?.method === 'POST' &&
-          String(init.body).includes('Stopped by user'),
-      ),
-    ).toBe(true);
     await t.fill('Comment', 'Keep going');
     expect(t.nodes().find((n) => n.props['aria-label'] === 'Send')).toBeTruthy();
     await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
@@ -1742,7 +1762,86 @@ describe('study right-pane surfaces', () => {
   });
 });
 
-it('opens an attachment chip in Files and returns to the gallery using the pane back control', async () => {
+it('keeps uploaded and generated files out of the description', async () => {
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client, {
+        attachments: [
+          {
+            id: 'a1',
+            name: 'input.txt',
+            size_bytes: 4,
+            content_type: 'text/plain',
+          },
+          {
+            id: 'a2',
+            name: 'generated.csv',
+            size_bytes: 4,
+            content_type: 'text/csv',
+          },
+        ],
+      });
+    },
+  );
+  try {
+    expect(t.nodes().some((n) => n.props['aria-label'] === 'Study attachments')).toBe(false);
+    await t.click(/^Files$/);
+    expect(t.text()).toContain('input.txt');
+    expect(t.text()).toContain('generated.csv');
+  } finally {
+    t.unmount();
+  }
+});
+
+it('shows generated files at the end of activity and opens the exact output', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path: string) =>
+      path.includes('/outputs/o1')
+        ? new Response(new Blob(['result']), { status: 200 })
+        : Response.json([]),
+    ),
+  );
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client, {
+        attachments: [{ id: 'a', name: 'upload.txt', size_bytes: 2, content_type: 'text/plain' }],
+      });
+      client.setQueryData(
+        [...keys.recordsAll('w', 'c'), 'kind', 'output'],
+        [
+          {
+            id: 'r1',
+            key: 'o1',
+            kind: 'output',
+            body: { name: 'result.txt', size_bytes: 6 },
+            created_at: '2026-01-01',
+            board_column: 'experimentation',
+            round: 1,
+          },
+        ],
+      );
+    },
+  );
+  try {
+    expect(t.text()).toContain('FILES GENERATED');
+    const gallery = t.nodes().find((n) => n.props['aria-label'] === 'Generated files')!;
+    expect(textOf(gallery)).toContain('result.txt');
+    expect(textOf(gallery)).not.toContain('upload.txt');
+    await t.click(/result\.txt/);
+    await vi.waitFor(() => expect(t.text()).toContain('Download'));
+  } finally {
+    t.unmount();
+  }
+});
+
+it('opens an attachment in Files and returns to the gallery using the pane back control', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (path: string) =>
@@ -1759,28 +1858,45 @@ it('opens an attachment chip in Files and returns to the gallery using the pane 
     '/',
     (client) => {
       seedStudy(client, {
-        attachments: [{ id: 'a1', name: 'input.txt', size_bytes: 4, content_type: 'text/plain' }],
+        attachments: [
+          {
+            id: 'a1',
+            name: 'input.txt',
+            size_bytes: 4,
+            content_type: 'text/plain',
+            record_key: 'c1',
+          },
+        ],
       });
       client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'output'], []);
     },
   );
   try {
-    await t.click(/^input\.txt$/);
+    await t.click(/^Files$/);
+    await t.click(/input\.txt/);
     await vi.waitFor(() => expect(t.text()).toContain('Download'));
     const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;
     (back.props.onClick as () => void)();
     await nextTick();
     expect(t.text()).toContain('Your uploads');
     expect(t.text()).not.toContain('Download');
-    await t.click(/^input\.txt$/);
+    await t.click(/input\.txt/);
     await vi.waitFor(() => expect(t.text()).toContain('Download'));
-    (t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props.onClick as () => void)();
+    (
+      t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props
+        .onClick as () => void
+    )();
     await nextTick();
-    (t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props.onClick as () => void)();
+    (
+      t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props
+        .onClick as () => void
+    )();
     await nextTick();
     await t.click(/^Properties$/);
     const attached = t.nodes().find((n) => n.props['aria-label'] === 'Attached files')!;
-    const propertyFile = all(attached).find((n) => n.tag === 'button' && textOf(n).includes('input.txt'))!;
+    const propertyFile = all(attached).find(
+      (n) => n.tag === 'button' && textOf(n).includes('input.txt'),
+    )!;
     (propertyFile.props.onClick as () => void)();
     await vi.waitFor(() => expect(t.text()).toContain('Download'));
   } finally {
@@ -1814,13 +1930,22 @@ it('does not show an attachment preview after switching studies during the fetch
     '/',
     (client) => {
       seedStudy(client, {
-        attachments: [{ id: 'a1', name: 'input.txt', size_bytes: 4, content_type: 'text/plain' }],
+        attachments: [
+          {
+            id: 'a1',
+            name: 'input.txt',
+            size_bytes: 4,
+            content_type: 'text/plain',
+            record_key: 'c1',
+          },
+        ],
       });
       client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'output'], []);
     },
   );
   try {
-    await t.click(/^input\.txt$/);
+    await t.click(/^Files$/);
+    await t.click(/input\.txt/);
     await vi.waitFor(() => expect(finish).toBeDefined());
     id.value = 'another-study';
     await nextTick();
@@ -1870,7 +1995,12 @@ it('lists each saved study output separately with its stage and run provenance',
   try {
     await t.click(/^Files$/);
     expect(
-      t.nodes().filter((n) => n.tag === 'button' && textOf(n).includes('result.csv')),
+      t
+        .nodes()
+        .filter(
+          (n) =>
+            n.tag === 'button' && n.props.class === 'file-card' && textOf(n).includes('result.csv'),
+        ),
     ).toHaveLength(2);
     expect(t.text()).toContain('Grounding');
     expect(t.text()).toContain('Validation');
@@ -2087,6 +2217,62 @@ it('hides the waiting and delivered captions while preserving composer input', a
     expect(t.text()).toContain('Exact input');
     expect(t.text()).not.toContain('Delivered to the leader');
     expect(t.text()).not.toContain('Waiting for an eligible agent run');
+  } finally {
+    t.unmount();
+  }
+});
+
+it('allows a file-only study comment', async () => {
+  class UploadRequest {
+    upload = {};
+    status = 200;
+    responseText = JSON.stringify({ id: 'comment-file', name: 'figure.png', size_bytes: 2 });
+    onload?: () => void;
+    open() {}
+    setRequestHeader() {}
+    send() {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal('XMLHttpRequest', UploadRequest);
+  const fetch = vi.fn(
+    async (path: RequestInfo | URL, init?: RequestInit) =>
+      new Response(
+        init?.method === 'POST'
+          ? '{}'
+          : String(path) === '/api/cards/c'
+            ? JSON.stringify({
+                id: 'c',
+                title: 'Study',
+                question: 'Question',
+                state: 'working',
+                ending: '',
+                board_column: 'grounding',
+                round: 1,
+                teams: {},
+                attachments: [],
+                services: [],
+              })
+            : '[]',
+        { status: 200 },
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
+  try {
+    const form = t.nodes().find((n) => n.tag === 'form' && n.props.class === 'study-comment')!;
+    const picker = all(form).find((n) => n.tag === 'input' && n.props.type === 'file')!;
+    expect(picker).toBeTruthy();
+    (picker.props.onChange as (e: unknown) => void)({
+      target: { files: [new File(['hi'], 'figure.png')], value: '' },
+    });
+    await vi.waitFor(() => expect(t.text()).toContain('figure.png'));
+    await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    await vi.waitFor(() =>
+      expect(fetch.mock.calls.some(([path]) => String(path).endsWith('/comments'))).toBe(true),
+    );
+    const [, init] = fetch.mock.calls.find(([path]) => String(path).endsWith('/comments'))!;
+    expect(JSON.parse(String(init?.body))).toEqual({ body: '', attachment_ids: ['comment-file'] });
   } finally {
     t.unmount();
   }

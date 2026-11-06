@@ -163,6 +163,7 @@ export interface Comment {
   card_id: string;
   author_id: string;
   body: string;
+  attachments?: { id: string; name: string; content_type: string; size_bytes: number }[];
   created_at: string;
   reply_run_id?: string | null;
   steer_attempt?: number | null;

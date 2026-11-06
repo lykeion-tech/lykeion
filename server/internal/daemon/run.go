@@ -38,6 +38,12 @@ import (
 
 var errFenceBreach = errors.New("tool call outside the fence")
 
+const finalOutputTool = "lykeion.final_output"
+
+func reservedFinalOutput(m agent.Message) bool {
+	return m.Type == "status" && m.Tool == finalOutputTool
+}
+
 func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if c.Coresearch != nil {
 		return d.runCoresearchTurn(ctx, c)
@@ -203,6 +209,17 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
+	// Reserve this directory before the sandbox is built, including when the
+	// study has no initial files: live comments may add read-only files later.
+	attachmentDir := filepath.Join(dir, "attachments")
+	if err = os.Mkdir(attachmentDir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		fail(err)
+		return nil
+	}
+	if info, statErr := os.Lstat(attachmentDir); statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		fail(errors.New("invalid attachments directory"))
+		return nil
+	}
 	if err = placeClaimedSkills(c.AgentRun.Harness, dir, c.Skills); err != nil {
 		fail(err)
 		return nil
@@ -240,6 +257,11 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fence = agent.LabFenced
 	}
 	sink := func(m agent.Message) error {
+		if reservedFinalOutput(m) {
+			err := errors.New("reserved final output marker")
+			sinkErr = errors.Join(sinkErr, err)
+			return err
+		}
 		if len(doorToken) > 0 {
 			m.Content = bytes.ReplaceAll(m.Content, doorToken, []byte("[door token]"))
 		}
@@ -394,6 +416,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			fail(err)
 			return err
 		}
+		if err := d.placeCommentAttachments(runCtx, c.Token, dir, launchComments.Attachments); err != nil {
+			fail(fmt.Errorf("comment attachments: %w", err))
+			return err
+		}
 		prompt = launchComments.Prompt + skillsNote(c.Skills)
 	}
 	ackComments := func() error {
@@ -543,6 +569,19 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(fmt.Errorf("used %s, which is outside Lykeion's sources", breach))
 		r.FailureReason = agent.ReasonFenceBreach
 	}
+	// A clean generic Study run has no accepted hand-in. Persist the adapter's
+	// terminal output separately from its interim transcript, before settlement.
+	if c.OutputSchema == "" && c.AgentRun.CardID != nil && r.Kind == "complete" &&
+		res.Err == nil && streamErr == nil && sinkErr == nil && breach == "" && runCtx.Err() == nil && strings.TrimSpace(res.Output) != "" {
+		content := rawJSON(map[string]string{"text": res.Output})
+		if len(doorToken) > 0 {
+			content = bytes.ReplaceAll(content, doorToken, []byte("[door token]"))
+		}
+		if _, err := appendMessage(agent.Message{Type: "status", Tool: finalOutputTool, Content: content}); err != nil {
+			fail(err)
+			localErr = errors.Join(localErr, err)
+		}
+	}
 	if runCtx.Err() != nil && ctx.Err() == nil {
 		// The ACK is informational; durable replay carries final usage.
 		if err = d.api.Do(ctx, "POST", base+"/cancel-ack", ref, nil); err != nil {
@@ -550,6 +589,66 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 	}
 	return localErr
+}
+
+// placeCommentAttachments stages only files authorized for this run's comment snapshot.
+func (d *daemon) placeCommentAttachments(ctx context.Context, token, dir string, files []service.ClaimedAttachment) error {
+	if len(files) == 0 {
+		return nil
+	}
+	cache := filepath.Join(d.cfg.StateDir, "cache", "attachments")
+	if err := os.MkdirAll(cache, 0700); err != nil {
+		return err
+	}
+	into := filepath.Join(dir, "attachments")
+	if err := os.Mkdir(into, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(into)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("invalid attachments directory")
+	}
+	api := &apiclient.Client{Server: d.cfg.Server, Token: token, HTTP: &http.Client{}}
+	entries, err := os.ReadDir(into)
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(entries)+len(files))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	for _, file := range files {
+		names = append(names, file.DiskName)
+	}
+	for _, file := range files {
+		existing := filepath.Join(into, file.DiskName)
+		if info, err := os.Lstat(existing); err == nil {
+			if !info.Mode().IsRegular() || info.Size() != file.SizeBytes {
+				return errors.New("comment attachment name already exists")
+			}
+			f, err := os.Open(existing)
+			if err != nil {
+				return err
+			}
+			hash := sha256.New()
+			_, readErr := io.Copy(hash, f)
+			closeErr := f.Close()
+			if readErr != nil || closeErr != nil || hex.EncodeToString(hash.Sum(nil)) != file.Sha256 {
+				return errors.New("comment attachment name already exists")
+			}
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		folder, err := placeAttachment(ctx, api, cache, into, file, names)
+		if err != nil {
+			return err
+		}
+		if folder != "" {
+			names = append(names, folder)
+		}
+	}
+	return nil
 }
 
 // placeAttachments puts the study's files in the run folder's attachments

@@ -465,12 +465,12 @@ describe('hand-in answers and re-asks', () => {
     expect(html).toContain('Two papers fit.');
     expect(html).not.toContain('working on it');
   });
-  it('previews a structured progress message using its readable answer', async () => {
+  it('does not present a structured progress message as a final answer', async () => {
     const html = await renderCard({
       latest_text: '{"answer":"Checking sources.","status":"done"}',
       answer: '',
     });
-    expect(html).toContain('Checking sources.');
+    expect(html).not.toContain('Checking sources.');
     expect(html).not.toContain('&quot;answer&quot;');
   });
   it("tells a failed objector plainly, never with the harness's raw error", async () => {

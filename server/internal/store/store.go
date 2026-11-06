@@ -42,6 +42,54 @@ type Tx struct {
 	afterPublish   []func()
 }
 
+// ComposerAfterUserStop uses event sequence numbers under the workspace
+// execution lock, shared by cancellation and comment creation.
+func (t *Tx) ComposerAfterUserStop(ctx context.Context, card, run uuid.UUID) (bool, error) {
+	var found bool
+	err := t.raw.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM event stop JOIN event message
+		  ON message.workspace_id=stop.workspace_id AND message.card_id=stop.card_id
+		 AND message.type='comment.created' AND message.id>stop.id
+		JOIN comment c ON c.workspace_id=message.workspace_id AND c.card_id=message.card_id
+		 AND c.id::text=message.payload->>'comment_id'
+		WHERE stop.workspace_id=$1 AND stop.card_id=$2 AND stop.type='agent_run.cancelled'
+		 AND stop.actor_type='user' AND stop.actor_id IS NOT NULL AND stop.payload->>'agent_run_id'=$3
+		 AND c.reply_run_id IS NULL
+		 AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)
+		 AND NOT EXISTS (SELECT 1 FROM comment_reservation cr JOIN agent_run ar ON ar.id=cr.agent_run_id AND ar.workspace_id=cr.workspace_id WHERE cr.workspace_id=c.workspace_id AND cr.comment_id=c.id AND (cr.acknowledged_at IS NOT NULL OR ar.status IN ('queued','dispatched','running')))
+		 AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.card_id AND r.kind='comment_delivery' AND COALESCE(r.body->>'historical_unconfirmed','false') <> 'true' AND r.body->>'comment_id'=c.id::text)
+	)`, t.WS, card, run.String()).Scan(&found)
+	return found, err
+}
+
+// PendingBeforeUserStop identifies undelivered composer input superseded by a
+// user stop without changing or acknowledging the original comments.
+func (t *Tx) PendingBeforeUserStop(ctx context.Context, card uuid.UUID) (map[uuid.UUID]bool, error) {
+	rows, err := t.raw.Query(ctx, `WITH stop AS (
+		SELECT max(id) AS id FROM event WHERE workspace_id=$1 AND card_id=$2
+		 AND type='agent_run.cancelled' AND actor_type='user' AND actor_id IS NOT NULL
+		 AND payload->>'role' IN ('leader', 'agent')
+	) SELECT c.id FROM comment c CROSS JOIN stop
+	 WHERE c.workspace_id=$1 AND c.card_id=$2 AND c.reply_run_id IS NULL AND stop.id IS NOT NULL
+	 AND NOT EXISTS (SELECT 1 FROM event e WHERE e.workspace_id=c.workspace_id AND e.card_id=c.card_id AND e.type='comment.created' AND e.payload->>'comment_id'=c.id::text AND e.id>stop.id)
+	 AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)
+	 AND NOT EXISTS (SELECT 1 FROM comment_reservation cr JOIN agent_run ar ON ar.id=cr.agent_run_id AND ar.workspace_id=cr.workspace_id WHERE cr.workspace_id=c.workspace_id AND cr.comment_id=c.id AND (cr.acknowledged_at IS NOT NULL OR ar.status IN ('queued','dispatched','running')))
+	 AND NOT EXISTS (SELECT 1 FROM record r WHERE r.workspace_id=c.workspace_id AND r.card_id=c.card_id AND r.kind='comment_delivery' AND COALESCE(r.body->>'historical_unconfirmed','false') <> 'true' AND r.body->>'comment_id'=c.id::text)`, t.WS, card)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[uuid.UUID]bool)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
+
 type AgentCapabilities struct {
 	Skills     json.RawMessage `json:"skills"`
 	Connectors json.RawMessage `json:"connectors"`

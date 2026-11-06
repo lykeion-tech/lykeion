@@ -14,7 +14,7 @@ import {
 } from '../../lib/review';
 import { columnName } from '../../lib/studies';
 
-const props = defineProps<{ cardId: string }>();
+const props = defineProps<{ cardId: string; request?: { column: Column } | null }>();
 const card = useCard(() => props.cardId);
 const review = useCardReview(() => props.cardId);
 const stages: Column[] = ['grounding', 'hypotheses', 'experimentation', 'validation'];
@@ -55,6 +55,13 @@ function showColumn(column: Column) {
   manuallyShown.value = true;
   shown.value = column;
 }
+watch(
+  () => props.request,
+  (request) => {
+    if (request) showColumn(request.column);
+  },
+  { immediate: true },
+);
 const attempt = computed(() =>
   columns.value.find((c) => c.column === shown.value)?.attempts.at(-1),
 );
@@ -412,8 +419,7 @@ const unlinkedObjections = computed(() =>
         </div>
         <section v-if="selected && attempt" class="selected-check" aria-label="Selected check">
           <div class="selected-title">
-            <span class="type-caption">SELECTED</span
-            ><b>{{ selected.item.label }}</b>
+            <span class="type-caption">SELECTED</span><b>{{ selected.item.label }}</b>
           </div>
           <div class="selected-status">
             <b :style="{ color: colors[selected.check.status] }">{{

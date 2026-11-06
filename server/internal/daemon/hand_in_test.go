@@ -265,6 +265,29 @@ func TestOutputsSavedBeforeSubmit(t *testing.T) {
 	}
 }
 
+func TestCleanGenericRunPersistsFinalOutputMarker(t *testing.T) {
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(context.Background(), "UPDATE agent_run SET board_column = '' WHERE id = $1", f.id)
+	must(t, err)
+	f.handInOutput = "The definitive answer."
+	handInRun(t, f, nil, nil)
+	var output string
+	err = f.env.Owner.QueryRow(context.Background(), `SELECT content->>'text' FROM agent_run_message WHERE agent_run_id=$1 AND type='status' AND tool='lykeion.final_output'`, f.id).Scan(&output)
+	must(t, err)
+	if output != "The definitive answer." {
+		t.Fatalf("final output = %q", output)
+	}
+}
+
+func TestReservedFinalOutputMarker(t *testing.T) {
+	if !reservedFinalOutput(agent.Message{Type: "status", Tool: "lykeion.final_output"}) {
+		t.Fatal("reserved marker was not rejected")
+	}
+	if reservedFinalOutput(agent.Message{Type: "text", Tool: "lykeion.final_output"}) || reservedFinalOutput(agent.Message{Type: "status", Tool: "other"}) {
+		t.Fatal("ordinary message was incorrectly rejected")
+	}
+}
+
 func TestRunWithoutSchemaUnchanged(t *testing.T) {
 	f := fixture(t)
 	// Every study column owes a hand-in; a run outside the board owes none.

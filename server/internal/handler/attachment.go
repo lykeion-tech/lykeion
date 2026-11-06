@@ -462,11 +462,21 @@ func (h *H) roleAttachment(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if snapshot != nil && !slices.Contains(snapshot, id) {
-			return storage.ErrNotFound
+		if snapshot == nil || slices.Contains(snapshot, id) {
+			row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, ID: id})
+			if err == nil && row.Kind == "file" {
+				return nil
+			}
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
 		}
-		row, err = tx.Q.CardAttachment(r.Context(), db.CardAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: &role.CardID, ID: id})
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && row.Kind != "file" {
+		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{WorkspaceID: role.WorkspaceID, ID: role.AgentRunID})
+		if err != nil {
+			return err
+		}
+		row, err = tx.Q.RunCommentAttachment(r.Context(), db.RunCommentAttachmentParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, ID: id, AgentRunID: role.AgentRunID, Attempt: run.Attempt})
+		if errors.Is(err, pgx.ErrNoRows) {
 			return storage.ErrNotFound
 		}
 		return err

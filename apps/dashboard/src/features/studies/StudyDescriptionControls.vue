@@ -7,12 +7,9 @@ import Icon from '../../ui/Icon.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { formatSize } from '../../lib/attachments';
 
 type Reaction = { emoji: string; count: number; mine: boolean };
-type Attachment = { id: string; name: string; size_bytes: number };
-const props = defineProps<{ cardId: string; attachments: Attachment[] }>();
-const emit = defineEmits<{ preview: [Attachment] }>();
+const props = defineProps<{ cardId: string }>();
 const client = useQueryClient();
 const key = computed(() => ['ws', workspaceId.value, 'study-reactions', props.cardId]);
 const reactions = useQuery({
@@ -158,12 +155,6 @@ async function attach(event: Event) {
       <input ref="input" type="file" multiple hidden @change="attach" />
       <span v-if="uploading" role="status" class="attachment-status">Uploading…</span>
     </div>
-    <ul v-if="attachments.length" class="description-files" aria-label="Study attachments">
-      <li v-for="file in attachments" :key="file.id">
-        <button @click="emit('preview', file)">{{ file.name }}</button
-        ><span>{{ formatSize(file.size_bytes) }}</span>
-      </li>
-    </ul>
     <p v-if="reactions.isError?.value" class="inline-error" role="alert">
       Reactions could not be loaded.
       <button class="reaction-more" @click="reactions.refetch()">Retry</button>
@@ -255,30 +246,6 @@ async function attach(event: Event) {
 .reaction-chip.mine {
   color: var(--accent);
   border-color: var(--accent);
-}
-.description-files {
-  list-style: none;
-  margin: 8px 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.description-files li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 12px;
-}
-.description-files button {
-  border: 0;
-  padding: 0;
-  color: var(--accent);
-  background: transparent;
-  cursor: pointer;
 }
 .attachment-status {
   font-size: 11px;

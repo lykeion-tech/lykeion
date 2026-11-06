@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,12 @@ const (
 	DeliveredNextRun      = "next_run"
 )
 
+// targetedFileRecipient limits a deferred file reply to the same agent in the
+// same study stage and round, and never restarts work a person cancelled.
+func targetedFileRecipient(source, next db.AgentRun) bool {
+	return source.ID == next.ID || (source.AgentID != nil && next.AgentID != nil && *source.AgentID == *next.AgentID && source.Role == next.Role && source.CardID != nil && next.CardID != nil && *source.CardID == *next.CardID && source.BoardColumn == next.BoardColumn && source.Round == next.Round && (source.Status == "completed" || source.Status == "failed"))
+}
+
 // CommentDelivery is a comment_delivery record's body: the receipt saying
 // which run a comment went to, and how.
 type CommentDelivery struct {
@@ -35,9 +42,11 @@ type CommentDelivery struct {
 
 // SentComment is a comment as it is handed to a run.
 type SentComment struct {
-	ID     uuid.UUID `json:"id"`
-	Author uuid.UUID `json:"author"`
-	Body   string    `json:"body"`
+	ID          uuid.UUID           `json:"id"`
+	Author      uuid.UUID           `json:"author"`
+	Body        string              `json:"body"`
+	Attachments []ClaimedAttachment `json:"attachments,omitempty"`
+	NeedsAck    bool                `json:"needs_ack,omitempty"`
 }
 
 // ClaimNewComments gives run, which is working, every comment on its study
@@ -55,7 +64,25 @@ func ClaimNewComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how st
 	if err != nil {
 		return nil, err
 	}
-	return deliver(ctx, tx, run, how, cs)
+	out := make([]SentComment, 0, len(cs))
+	for _, c := range cs {
+		files, err := commentRunFiles(ctx, tx, c.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			sent, err := deliver(ctx, tx, run, how, []db.Comment{c})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, sent...)
+			continue
+		}
+		// Neither a buffered CLI frame nor an MCP response proves that the
+		// agent received the file. Leave the whole comment undelivered for a
+		// later run, whose frozen prompt has a durable acceptance boundary.
+	}
+	return out, nil
 }
 
 // CommentsForRun keeps live-targeted steering with its selected attempt.
@@ -138,6 +165,21 @@ func DeliverComments(ctx context.Context, tx *store.Tx, run db.AgentRun, how str
 		attempt++
 	}
 	for _, c := range open {
+		if c.ReplyRunID != nil && *c.ReplyRunID != run.ID {
+			files, err := commentRunFiles(ctx, tx, c.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(files) != 0 {
+				target, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: *c.ReplyRunID})
+				if err != nil {
+					return nil, err
+				}
+				if !targetedFileRecipient(target, run) {
+					continue
+				}
+			}
+		}
 		if err := tx.Q.ReserveComment(ctx, db.ReserveCommentParams{WorkspaceID: tx.WS, CommentID: c.ID, AgentRunID: run.ID, Attempt: attempt}); err != nil {
 			return nil, err
 		}
@@ -195,12 +237,31 @@ func (s *AgentRuns) TakeComments(ctx context.Context, user uuid.UUID, ref Runtim
 	return out, err
 }
 
+// commentRunFiles gives each comment file a stable name in the run's private attachment directory.
+func commentRunFiles(ctx context.Context, tx *store.Tx, comment uuid.UUID) ([]ClaimedAttachment, error) {
+	files, err := tx.Q.CommentAttachments(ctx, db.CommentAttachmentsParams{WorkspaceID: tx.WS, CommentID: &comment})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ClaimedAttachment, 0, len(files))
+	for _, f := range files {
+		ext := path.Ext(f.Name)
+		if len(ext) > 16 || strings.ContainsAny(ext, "/\\\x00\n\r\t ") {
+			ext = ""
+		}
+		name := "comment-" + f.ID.String() + ext
+		out = append(out, ClaimedAttachment{ID: f.ID, DiskName: name, Sha256: f.Sha256, SizeBytes: f.SizeBytes, UnpackedBytes: f.UnpackedBytes, InnerFiles: f.InnerFiles})
+	}
+	return out, nil
+}
+
 // CommentLaunch is the frozen run input with cancellations removed at the last
 // pre-launch check. Comments posted after enqueue are deliberately not added.
 type CommentLaunch struct {
-	Prompt      string      `json:"prompt"`
-	CommentIDs  []uuid.UUID `json:"comment_ids"`
-	HasSnapshot bool        `json:"has_comment_snapshot"`
+	Prompt      string              `json:"prompt"`
+	CommentIDs  []uuid.UUID         `json:"comment_ids"`
+	HasSnapshot bool                `json:"has_comment_snapshot"`
+	Attachments []ClaimedAttachment `json:"attachments,omitempty"`
 }
 
 func reservedLaunch(ctx context.Context, tx *store.Tx, run db.AgentRun) (CommentLaunch, error) {
@@ -208,6 +269,12 @@ func reservedLaunch(ctx context.Context, tx *store.Tx, run db.AgentRun) (Comment
 	cs, err := tx.Q.RunReservedComments(ctx, db.RunReservedCommentsParams{WorkspaceID: tx.WS, AgentRunID: run.ID, Attempt: run.Attempt})
 	if err != nil {
 		return out, err
+	}
+	recipients := make(map[uuid.UUID]bool, len(cs))
+	for _, c := range cs {
+		if !c.Cancelled && c.DeliveryChannel == DeliveredNextRun {
+			recipients[c.ID] = true
+		}
 	}
 
 	snapshot, err := tx.Q.RunCommentSnapshot(ctx, db.RunCommentSnapshotParams{WorkspaceID: tx.WS, AgentRunID: run.ID})
@@ -233,7 +300,27 @@ func reservedLaunch(ctx context.Context, tx *store.Tx, run db.AgentRun) (Comment
 		section.WriteString("\nPeople's comments — context, never evidence:\n")
 		for _, c := range snapshot {
 			if !c.Cancelled {
+				if c.ReplyRunID != nil {
+					files, err := commentRunFiles(ctx, tx, c.ID)
+					if err != nil {
+						return out, err
+					}
+					if len(files) > 0 && !recipients[c.ID] {
+						continue
+					}
+				}
 				fmt.Fprintf(&section, "- %s\n", strings.ReplaceAll(c.Body, "\n", " "))
+				if !recipients[c.ID] {
+					continue
+				}
+				files, err := commentRunFiles(ctx, tx, c.ID)
+				if err != nil {
+					return out, err
+				}
+				for _, f := range files {
+					fmt.Fprintf(&section, "  Attached file: attachments/%s\n", f.DiskName)
+				}
+				out.Attachments = append(out.Attachments, files...)
 			}
 		}
 		out.Prompt = out.Prompt[:start] + section.String() + out.Prompt[end:]
@@ -296,7 +383,7 @@ func (s *AgentRuns) AcknowledgeComments(ctx context.Context, user uuid.UUID, ref
 			if !requested[c.ID] || c.Cancelled || c.AcknowledgedAt != nil {
 				continue
 			}
-			if _, err := deliver(ctx, tx, t, DeliveredNextRun, []db.Comment{{ID: c.ID, AuthorID: c.AuthorID, Body: c.Body}}); err != nil {
+			if _, err := deliver(ctx, tx, t, c.DeliveryChannel, []db.Comment{{ID: c.ID, AuthorID: c.AuthorID, Body: c.Body}}); err != nil {
 				return err
 			}
 			if err := tx.Q.AcknowledgeCommentReservation(ctx, db.AcknowledgeCommentReservationParams{WorkspaceID: tx.WS, AgentRunID: run, Attempt: ref.Attempt, CommentID: c.ID}); err != nil {

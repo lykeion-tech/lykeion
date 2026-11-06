@@ -717,15 +717,23 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Body        string     `json:"body"`
-		TargetRunID *uuid.UUID `json:"target_run_id"`
+		Body          string      `json:"body"`
+		TargetRunID   *uuid.UUID  `json:"target_run_id"`
+		AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 	}
-	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Body) == "" {
+	if err := readJSON(r, &in); err != nil || (strings.TrimSpace(in.Body) == "" && len(in.AttachmentIDs) == 0) {
 		writeErr(w, http.StatusBadRequest, "body required")
 		return
 	}
+	files, err := h.studyFiles(r, in.AttachmentIDs)
+	if !answer(w, r, err) {
+		return
+	}
 	var comment db.Comment
-	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+			return err
+		}
 		if _, err := tx.Q.LockCard(r.Context(), db.LockCardParams{WorkspaceID: ws, ID: id}); err != nil {
 			return err
 		}
@@ -749,6 +757,15 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		for _, f := range files {
+			n, err := tx.Q.LinkCommentAttachment(r.Context(), db.LinkCommentAttachmentParams{CommentID: &comment.ID, WorkspaceID: ws, UploaderID: user, ID: f.ID})
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return errFileTaken
+			}
+		}
 		return tx.Emit(r.Context(), "comment.created", &id, store.User(user), map[string]string{
 			"comment_id": comment.ID.String(),
 		})
@@ -760,7 +777,7 @@ func (h *H) createComment(w http.ResponseWriter, r *http.Request) {
 	if h.Engine != nil && in.TargetRunID == nil {
 		h.Engine.OnComment(comment.WorkspaceID, id, comment.AuthorID, comment.Body)
 	}
-	writeJSON(w, http.StatusCreated, comment)
+	writeJSON(w, http.StatusCreated, listedComment{Comment: comment, Attachments: commentFileViews(files)})
 }
 
 func (h *H) cancelComment(w http.ResponseWriter, r *http.Request) {
@@ -796,7 +813,8 @@ func (h *H) cancelComment(w http.ResponseWriter, r *http.Request) {
 // listedComment is a comment with where it went: which run's work it
 // reached and how, or nil while it waits for the next step.
 type listedComment struct {
-	Cancelled bool `json:"cancelled,omitempty"`
+	Attachments []commentFile `json:"attachments,omitempty"`
+	Cancelled   bool          `json:"cancelled,omitempty"`
 	db.Comment
 	Delivery *commentDelivery `json:"delivery"`
 }
@@ -856,7 +874,11 @@ func (h *H) listComments(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for _, c := range comments {
-			out = append(out, listedComment{Comment: c, Delivery: went[c.ID]})
+			files, err := tx.Q.CommentAttachments(r.Context(), db.CommentAttachmentsParams{WorkspaceID: ws, CommentID: &c.ID})
+			if err != nil {
+				return err
+			}
+			out = append(out, listedComment{Comment: c, Delivery: went[c.ID], Attachments: commentFileViews(files)})
 		}
 		return nil
 	})
@@ -1002,6 +1024,11 @@ func (h *H) deleteCard(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		files = append(files, services...)
+		commentFiles, err := tx.Q.CardCommentAttachments(r.Context(), db.CardCommentAttachmentsParams{WorkspaceID: ws, CardID: id})
+		if err != nil {
+			return err
+		}
+		files = append(files, commentFiles...)
 		if err := tx.Q.DeleteCard(r.Context(), db.DeleteCardParams{ID: id, WorkspaceID: ws}); err != nil {
 			return err
 		}

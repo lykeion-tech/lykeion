@@ -3,13 +3,16 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/internal/fence"
+	"lykeion/server/internal/service"
 )
 
 // commentPoll is how often a running turn asks for new comments.
@@ -28,6 +31,19 @@ func commentText(body string) string {
 // to the running turn. The server writes the receipt as it hands one out. A
 // failed poll is the machine's or the server's trouble, never the agent's:
 // the next tick asks again.
+func commentWithFiles(c service.SentComment) string {
+	text := commentText(c.Body)
+	if len(c.Attachments) > 0 {
+		var b strings.Builder
+		b.WriteString("\nAttached files (read-only):\n")
+		for _, f := range c.Attachments {
+			fmt.Fprintf(&b, "- attachments/%s\n", f.DiskName)
+		}
+		text += b.String()
+	}
+	return text
+}
+
 func (d *daemon) relayComments(ctx context.Context, base string, r Report, out chan<- string) {
 	q := url.Values{"workspace_id": {r.WorkspaceID.String()}, "runtime_id": {r.RuntimeID.String()}, "attempt": {strconv.Itoa(int(r.Attempt))}}
 	t := time.NewTicker(commentPoll)
@@ -38,15 +54,16 @@ func (d *daemon) relayComments(ctx context.Context, base string, r Report, out c
 			return
 		case <-t.C:
 		}
-		var got []struct {
-			Body string `json:"body"`
-		}
+		var got []service.SentComment
 		if err := d.api.Do(ctx, "GET", base+"/comments?"+q.Encode(), nil, &got); err != nil {
 			continue
 		}
 		for _, c := range got {
+			if c.NeedsAck || len(c.Attachments) != 0 {
+				continue
+			}
 			select {
-			case out <- commentText(c.Body):
+			case out <- commentWithFiles(c):
 			case <-ctx.Done():
 				return
 			}
@@ -61,9 +78,7 @@ func memberAnswer(reply json.RawMessage) *mcp.CallToolResult {
 	if json.Unmarshal(reply, &m) != nil {
 		return cited("", string(reply))
 	}
-	var comments []struct {
-		Body string `json:"body"`
-	}
+	var comments []service.SentComment
 	json.Unmarshal(m["comments"], &comments)
 	delete(m, "comments")
 	b, err := json.Marshal(m)
@@ -72,7 +87,7 @@ func memberAnswer(reply json.RawMessage) *mcp.CallToolResult {
 	}
 	text := string(b)
 	for _, c := range comments {
-		text += "\n\n" + commentText(c.Body)
+		text += "\n\n" + commentWithFiles(c)
 	}
 	return cited("", text)
 }

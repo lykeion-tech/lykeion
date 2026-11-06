@@ -340,7 +340,12 @@ type InsertEnvironmentHoldParams struct {
 }
 
 func (q *Queries) InsertEnvironmentHold(ctx context.Context, arg InsertEnvironmentHoldParams) error {
-	_, err := q.db.Exec(ctx, insertEnvironmentHold, arg.WorkspaceID, arg.CardID, arg.UserID, arg.Text)
+	_, err := q.db.Exec(ctx, insertEnvironmentHold,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.UserID,
+		arg.Text,
+	)
 	return err
 }
 

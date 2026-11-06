@@ -1,6 +1,18 @@
 import { expect, it } from 'vitest';
 import { deliveryLine, composerAvailability } from './comment-delivery';
 
+it('explains when saved file messages still need an eligible run', () => {
+  expect(deliveryLine(null, { working: true, files: true, reply: true, who: 'Ada' })).toBe(
+    'Saved · files will reach Ada only if Ada has a later eligible run; this reply does not start one',
+  );
+  expect(deliveryLine(null, { working: true, files: true })).toBe(
+    'Saved · files are pending delivery in an eligible run',
+  );
+  expect(deliveryLine({ how: 'next_run', role: 'leader' }, { working: true, files: true })).toBe(
+    'Delivered to the leader',
+  );
+});
+
 it('waits for acknowledged input rather than treating queued work as delivered', () => {
   expect(deliveryLine(null, { working: true })).toBe('');
   expect(deliveryLine(null, { working: true, unavailable: 'Agent runtime is offline' })).toBe(
@@ -62,7 +74,5 @@ it('prioritizes an active lead over a newer member failure without claiming deli
     [],
   );
   expect(unavailable).toBe('');
-  expect(deliveryLine(null, { working: true, unavailable })).toBe(
-    '',
-  );
+  expect(deliveryLine(null, { working: true, unavailable })).toBe('');
 });

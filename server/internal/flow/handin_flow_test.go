@@ -198,6 +198,41 @@ func TestAWorkingStudysCommentQueuesNoRun(t *testing.T) {
 	}
 }
 
+func TestFileComposerDuringRunQueuesSuccessorBeforeReview(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	old := l.latestRun(t, c.ID, "agent")
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='running' WHERE id=$1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	comment := l.composer(t, c, "Please inspect this data", nil)
+	file := uuid.New()
+	if _, err := l.env.Owner.Exec(t.Context(), `INSERT INTO attachment(id, workspace_id, uploader_id, comment_id, name, content_type, size_bytes, sha256, blob_key) VALUES($1,$2,$3,$4,'data.csv','text/csv',4,'hash','test-blob')`, file, l.ws, l.owner, comment.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.e.OnComment(l.ws, c.ID, l.owner, comment.Body)
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("queued while run active: %+v", q)
+	}
+	if err := l.declare(t, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.settle(t, old, "completed", "", "")
+	q := l.runs(t, c.ID)
+	if len(q) != 1 || q[0].Role != "agent" || !strings.Contains(q[0].Prompt, comment.Body) {
+		t.Fatalf("missing follow-up: %+v", q)
+	}
+	next := l.latestRun(t, c.ID, "agent")
+	if n := l.count(t, `SELECT count(*) FROM comment_reservation WHERE comment_id=$1 AND agent_run_id=$2`, comment.ID, next.ID); n != 1 {
+		t.Fatalf("file-bearing comment not reserved to follow-up: %d", n)
+	}
+	if got := l.card(t, c.ID); got.State != "working" || got.BoardColumn != c.BoardColumn {
+		t.Fatalf("study advanced before input: %+v", got)
+	}
+}
+
 func TestRunBookkeepingNeverReachesJev(t *testing.T) {
 	for _, legacy := range []bool{true, false} {
 		l := newLab(t)
@@ -270,7 +305,10 @@ func (l *lab) composer(t *testing.T, c db.Card, body string, reply *uuid.UUID) d
 	var out db.Comment
 	l.in(t, func(tx *store.Tx) (err error) {
 		out, err = tx.Q.CreateComment(t.Context(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: body, ReplyRunID: reply})
-		return err
+		if err != nil {
+			return err
+		}
+		return tx.Emit(t.Context(), "comment.created", &c.ID, store.User(l.owner), map[string]string{"comment_id": out.ID.String()})
 	})
 	return out
 }
@@ -363,6 +401,164 @@ func TestComposerFollowUpRespectsClosedAndCancelledWork(t *testing.T) {
 				t.Fatalf("ineligible work restarted: %+v", q)
 			}
 		})
+	}
+}
+
+func TestComposerResumesOnlyAfterAUserStopsTheLeaderAndSendsNewInput(t *testing.T) {
+	l := newLab(t)
+	c := l.study(t, "hypotheses", true, nil)
+	l.e.Kick(l.ws, c.ID)
+	lead := l.latestRun(t, c.ID, "leader")
+	old := l.composer(t, c, "Earlier message", nil)
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE comment SET created_at=now()-interval '1 minute' WHERE id=$1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	var sibling db.AgentRun
+	l.in(t, func(tx *store.Tx) error {
+		_, m, _, err := l.e.worker(t.Context(), tx, c)
+		if err != nil {
+			return err
+		}
+		member := l.man.Members[0].Name
+		a, err := teamAgent(t.Context(), tx, l.pack.ID, l.owner, member)
+		if err != nil {
+			return err
+		}
+		sibling, err = l.e.enqueue(t.Context(), tx, c, member, m, a, "Independent member work")
+		return err
+	})
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='running' WHERE id=$1", sibling.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.AgentRuns.Cancel(t.Context(), l.ws, l.owner, lead.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("old pending input restarted stopped work: %+v", q)
+	}
+	msg := l.composer(t, c, "Please continue with a new plan", nil)
+	// A transaction can start before the stop and create its comment after it.
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE comment SET created_at=now()-interval '1 minute' WHERE id=$1", msg.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.e.OnComment(l.ws, c.ID, l.owner, msg.Body)
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("restarted while member still active: %+v", q)
+	}
+	var status string
+	if err := l.env.Owner.QueryRow(t.Context(), "SELECT status FROM agent_run WHERE id=$1", sibling.ID).Scan(&status); err != nil || status != "running" {
+		t.Fatalf("sibling changed: %s %v", status, err)
+	}
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", sibling.ID); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	q := l.runs(t, c.ID)
+	if len(q) != 1 || q[0].Role != "leader" || !strings.Contains(q[0].Prompt, msg.Body) {
+		t.Fatalf("new input did not resume leader: %+v", q)
+	}
+	if strings.Contains(q[0].Prompt, old.Body) {
+		t.Fatal("pre-stop pending message replayed in resumed run")
+	}
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 1 {
+		t.Fatalf("duplicate follow-up: %+v", q)
+	}
+}
+
+func TestUserStoppedLeadDoesNotRestartWithoutMessage(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	lead := l.latestRun(t, c.ID, "agent")
+	if err := l.e.AgentRuns.Cancel(t.Context(), l.ws, l.owner, lead.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("stopped work restarted without a message: %+v", q)
+	}
+}
+
+func TestComposerTransactionStartedBeforeStopResumesAfterStop(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	lead := l.latestRun(t, c.ID, "agent")
+	started, proceed := make(chan struct{}), make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- l.e.Store.InWorkspace(t.Context(), l.ws, l.owner, func(tx *store.Tx) error {
+			// now() is fixed here, before the cancellation transaction.
+			close(started)
+			<-proceed
+			if _, err := tx.Q.LockWorkspaceExecution(t.Context(), l.ws); err != nil {
+				return err
+			}
+			if _, err := tx.Q.LockCard(t.Context(), db.LockCardParams{WorkspaceID: l.ws, ID: c.ID}); err != nil {
+				return err
+			}
+			comment, err := tx.Q.CreateComment(t.Context(), db.CreateCommentParams{WorkspaceID: l.ws, CardID: c.ID, AuthorID: l.owner, Body: "Continue after the stop"})
+			if err != nil {
+				return err
+			}
+			return tx.Emit(t.Context(), "comment.created", &c.ID, store.User(l.owner), map[string]string{"comment_id": comment.ID.String()})
+		})
+	}()
+	<-started
+	if err := l.e.AgentRuns.Cancel(t.Context(), l.ws, l.owner, lead.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(proceed)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 1 || !strings.Contains(q[0].Prompt, "Continue after the stop") {
+		t.Fatalf("later serialized comment did not resume: %+v", q)
+	}
+}
+
+func TestComposerDoesNotResumeSystemCancelledLead(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "codex", "", "Curie")
+	c := l.study(t, "hypotheses", false, &a)
+	l.e.Kick(l.ws, c.ID)
+	lead := l.latestRun(t, c.ID, "agent")
+	l.in(t, func(tx *store.Tx) error { return l.e.AgentRuns.CancelInTx(t.Context(), tx, uuid.Nil, lead) })
+	msg := l.composer(t, c, "Please continue", nil)
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE comment SET created_at=now()+interval '1 second' WHERE id=$1", msg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Advance(t.Context(), l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if q := l.runs(t, c.ID); len(q) != 0 {
+		t.Fatalf("system cancellation was bypassed: %+v", q)
 	}
 }
 

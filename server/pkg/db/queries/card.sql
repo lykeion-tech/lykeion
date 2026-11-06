@@ -145,7 +145,7 @@ UPDATE comment_reservation SET attempt = @attempt
 WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND acknowledged_at IS NULL;
 
 -- name: RunReservedComments :many
-SELECT c.*, cr.acknowledged_at, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
+SELECT c.*, cr.acknowledged_at, cr.delivery_channel, EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id=c.workspace_id AND x.comment_id=c.id)::boolean AS cancelled
 FROM comment_reservation cr JOIN comment c ON c.workspace_id=cr.workspace_id AND c.id=cr.comment_id
 WHERE cr.workspace_id= @workspace_id AND cr.agent_run_id= @agent_run_id AND cr.attempt= @attempt
 ORDER BY c.created_at, c.id;
@@ -178,3 +178,14 @@ WHERE workspace_id = @workspace_id AND agent_run_id = @original_run AND acknowle
 SELECT c.* FROM comment c
 WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id AND c.created_at <= @frozen_at
 ORDER BY c.created_at,c.id;
+
+-- name: ReserveLiveComment :execrows
+INSERT INTO comment_reservation(workspace_id, comment_id, agent_run_id, attempt, delivery_channel)
+VALUES (@workspace_id, @comment_id, @agent_run_id, @attempt, @delivery_channel)
+ON CONFLICT (workspace_id, comment_id) DO NOTHING;
+
+-- name: RunPendingLiveComments :many
+SELECT c.* FROM comment_reservation cr JOIN comment c ON c.workspace_id = cr.workspace_id AND c.id = cr.comment_id
+WHERE cr.workspace_id = @workspace_id AND cr.agent_run_id = @agent_run_id AND cr.attempt = @attempt AND cr.delivery_channel = @delivery_channel AND cr.acknowledged_at IS NULL
+AND NOT EXISTS (SELECT 1 FROM comment_cancellation x WHERE x.workspace_id = c.workspace_id AND x.comment_id = c.id)
+ORDER BY c.created_at, c.id;

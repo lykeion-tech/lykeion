@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { h, nextTick } from 'vue';
+import { h, nextTick, ref } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import StudyReview from './StudyReview.vue';
 import type { Column, ReviewAttempt, ReviewColumn, StudyRecord } from '../../api/types';
@@ -88,6 +88,7 @@ function setup(
   reviews = columns(),
   current: Column = 'experimentation',
   legacy?: { scores: StudyRecord[]; outcomes: StudyRecord[] },
+  request = ref<{ column: Column } | null>(null),
 ) {
   workspaceId.value = 'w';
   const client = new QueryClient({
@@ -100,7 +101,9 @@ function setup(
     client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'outcome'], legacy.outcomes);
   }
   const root = node('root');
-  const app = createTreeApp({ render: () => h(StudyReview, { cardId: 'c' }) });
+  const app = createTreeApp({
+    render: () => h(StudyReview, { cardId: 'c', request: request.value }),
+  });
   app.use(VueQueryPlugin, { queryClient: client });
   app.mount(root);
   disposals.push(() => {
@@ -109,6 +112,20 @@ function setup(
   });
   return { root, client };
 }
+
+it('honors each requested review stage, including repeated requests while open', async () => {
+  const request = ref<{ column: Column } | null>({ column: 'hypotheses' });
+  const { root } = setup(columns(), 'experimentation', undefined, request);
+  await nextTick();
+  const tile = (column: string) =>
+    all(root).find((n) => n.props['aria-label'] === `Show ${column} review`)!;
+  expect(tile('Hypotheses').props['aria-pressed']).toBe(true);
+  (tile('Grounding').props.onClick as () => void)();
+  await nextTick();
+  request.value = { column: 'hypotheses' };
+  await nextTick();
+  expect(tile('Hypotheses').props['aria-pressed']).toBe(true);
+});
 const spokeButtons = (root: ReturnType<typeof node>) =>
   all(root).filter((n) => n.props.role === 'button' && String(n.props['aria-label']).endsWith('%'));
 const selected = (root: ReturnType<typeof node>) =>
