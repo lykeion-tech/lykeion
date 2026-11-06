@@ -3,18 +3,18 @@ import { readFileSync } from 'node:fs';
 import { parseBcf } from './bcf-preview';
 import { readBgzf } from './bgzf-preview';
 
-function fixture(filter = [0x00], definitions = '') {
+function fixture(filter = [0x00], definitions = '', infoBytes: number[] = [], infoCount = 0) {
   const header = new TextEncoder().encode(
     `##fileformat=VCFv4.3\n${definitions}##contig=<ID=chr1,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\0`,
   );
-  const body = new Uint8Array(24 + 1 + 4 + 2 + 2 + filter.length - 1);
+  const body = new Uint8Array(24 + 1 + 4 + 2 + 2 + filter.length - 1 + infoBytes.length);
   const b = new DataView(body.buffer);
   b.setInt32(0, 0, true);
   b.setInt32(4, 9, true);
   b.setInt32(8, 1, true);
   b.setUint32(12, 0x7f800001, true);
-  b.setUint32(16, 2 << 16, true);
-  body.set([0x37, 114, 115, 49, 0x17, 65, 0x17, 67, ...filter], 24);
+  b.setUint32(16, (2 << 16) | infoCount, true);
+  body.set([0x37, 114, 115, 49, 0x17, 65, 0x17, 67, ...filter, ...infoBytes], 24);
   const out = new Uint8Array(9 + header.length + 8 + body.length);
   out.set([66, 67, 70, 2, 2]);
   new DataView(out.buffer).setUint32(5, header.length, true);
@@ -24,7 +24,30 @@ function fixture(filter = [0x00], definitions = '') {
   return out;
 }
 it('reads variant coordinates and missing quality without inventing annotations', () => {
-  expect(parseBcf(fixture(), false)?.rows).toEqual([['chr1', '10', 'rs1', 'A', 'C', '.', '.']]);
+  expect(parseBcf(fixture(), false)?.rows).toEqual([
+    ['chr1', '10', 'rs1', 'A', 'C', '.', '.', '.'],
+  ]);
+});
+it('validates INFO types, numeric sentinel values, counts and dictionary keys', () => {
+  const defs =
+    '##INFO=<ID=DP,Number=1,Type=Integer,IDX=1>\n##INFO=<ID=AF,Number=A,Type=Float,IDX=2>\n##INFO=<ID=FLAG,Number=0,Type=Flag,IDX=3>\n';
+  expect(
+    parseBcf(
+      fixture([0], defs, [0x11, 1, 0x11, 7, 0x11, 2, 0x15, 0, 0, 0, 0x3f, 0x11, 3, 0], 3),
+      false,
+    )?.rows[0]?.[7],
+  ).toBe('DP=7;AF=0.5;FLAG');
+  expect(parseBcf(fixture([0], defs, [0x11, 1, 0x11, 0x80], 1), false)?.rows[0]?.[7]).toBe('DP=.');
+  expect(
+    parseBcf(fixture([0], defs, [0x11, 2, 0x15, 1, 0, 0x80, 0x7f], 1), false)?.rows[0]?.[7],
+  ).toBe('AF=.');
+  expect(parseBcf(fixture([0], defs, [0x11, 2, 0x15, 0, 0, 0x80, 0x7f], 1), false)).toBeUndefined();
+  expect(parseBcf(fixture([0], defs, [0x11, 1, 0x21, 7, 8], 1), false)?.rows[0]?.[7]).toBe(
+    'DP=7,8',
+  );
+  expect(parseBcf(fixture([0], defs, [0x11, 1, 0x15, 0, 0, 0, 0x3f], 1), false)).toBeUndefined();
+  expect(parseBcf(fixture([0], defs, [0x11, 4, 0x11, 7], 1), false)).toBeUndefined();
+  expect(parseBcf(fixture([0], defs, [0x11, 1, 0x31, 7, 0x81, 8], 1), false)).toBeUndefined();
 });
 it('distinguishes missing and named filters and rejects invalid or ambiguous dictionary indices', () => {
   const definitions =
@@ -64,9 +87,27 @@ it('reads the independently produced HTSlib BCF fixture', async () => {
   const decoded = await readBgzf(new Blob([bytes]));
   expect(decoded).toBeDefined();
   expect(parseBcf(decoded!.bytes, decoded!.partial)?.rows.slice(0, 4)).toEqual([
-    ['1', '3000150', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS'],
-    ['1', '3000151', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS'],
-    ['1', '3062915', 'id3D', 'GTTT', 'G', String(Math.fround(12.9)), 'q10'],
-    ['1', '3062915', 'idSNP', 'G', 'T,C', String(Math.fround(12.6)), 'test'],
+    ['1', '3000150', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS', 'AN=4;AC=2'],
+    ['1', '3000151', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS', 'AN=4;AC=2'],
+    [
+      '1',
+      '3062915',
+      'id3D',
+      'GTTT',
+      'G',
+      String(Math.fround(12.9)),
+      'q10',
+      'DP4=1,2,3,4;AN=4;AC=2;INDEL;STR=test',
+    ],
+    [
+      '1',
+      '3062915',
+      'idSNP',
+      'G',
+      'T,C',
+      String(Math.fround(12.6)),
+      'test',
+      'TEST=5;DP4=1,2,3,4;AN=3;AC=1,1',
+    ],
   ]);
 });

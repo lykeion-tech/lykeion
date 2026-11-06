@@ -55,9 +55,7 @@ watch(
   <p v-if="pending" role="status">Reading BCF file…</p>
   <section v-else-if="preview" aria-label="BCF preview">
     <p>
-      Variant site sample only. INFO and sample genotypes are omitted.<template
-        v-if="preview.truncated"
-      >
+      Variant site sample only. Sample genotypes are omitted.<template v-if="preview.truncated">
         Additional records are not shown.</template
       >
     </p>
@@ -66,7 +64,10 @@ watch(
       <table>
         <thead>
           <tr>
-            <th v-for="col in ['CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER']" :key="col">
+            <th
+              v-for="col in ['CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO']"
+              :key="col"
+            >
               {{ col }}
             </th>
           </tr>

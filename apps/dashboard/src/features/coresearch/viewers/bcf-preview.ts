@@ -36,6 +36,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
     const filters = new Map<number, string>([[0, 'PASS']]);
     const dictionary = new Map<number, string>([[0, 'PASS']]);
     const dictionaryNames = new Map<string, number>([['PASS', 0]]);
+    const info = new Map<number, { name: string; type: string; number: string }>();
     let dictionaryMode: 'explicit' | 'implicit' | undefined;
     for (const line of lines) {
       if (/^##(?:FILTER|INFO|FORMAT)=</.test(line)) {
@@ -67,6 +68,20 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         dictionary.set(index, name);
         dictionaryNames.set(name, index);
         if (line.startsWith('##FILTER=<')) filters.set(index, name);
+        if (line.startsWith('##INFO=<')) {
+          const types = fields.filter((s) => s.startsWith('Type='));
+          const numbers = fields.filter((s) => s.startsWith('Number='));
+          if (types.length !== 1 || numbers.length !== 1 || info.has(index)) return;
+          const type = types[0]!.slice(5),
+            number = numbers[0]!.slice(7);
+          if (
+            !['Integer', 'Float', 'String', 'Character', 'Flag'].includes(type) ||
+            !/^(?:\d+|[ARG.])$/.test(number) ||
+            (type === 'Flag' && number !== '0')
+          )
+            return;
+          info.set(index, { name, type, number });
+        }
       }
       if (!line.startsWith('##contig=<')) continue;
       if (line.length > 4096 || !line.endsWith('>')) return;
@@ -205,10 +220,82 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         }
         if (filterValues.includes('PASS') && filterValues.length !== 1) return;
       }
+      if (nInfo > 256) return;
+      const infoValues: string[] = [];
+      const seenInfo = new Set<number>();
+      let infoSize = 0;
       for (let i = 0; i < nInfo; i++) {
         const key = typed();
         if (![1, 2, 3].includes(key.type) || key.len !== 1) return;
-        typed();
+        const index =
+          key.type === 1
+            ? view.getInt8(key.at)
+            : key.type === 2
+              ? view.getInt16(key.at, true)
+              : view.getInt32(key.at, true);
+        const declaration = info.get(index);
+        if (!declaration || seenInfo.has(index)) return;
+        seenInfo.add(index);
+        const value = typed();
+        if (value.len > 1024) return;
+        if (declaration.type === 'Flag') {
+          if (value.len !== 0) return;
+          infoValues.push(declaration.name);
+          infoSize += declaration.name.length + 1;
+          if (infoSize > 16384) return;
+          continue;
+        }
+        const parts: string[] = [];
+        if (declaration.type === 'Integer') {
+          if (![1, 2, 3].includes(value.type)) return;
+          const size = value.type === 1 ? 1 : value.type === 2 ? 2 : 4;
+          const missing = value.type === 1 ? -128 : value.type === 2 ? -32768 : -2147483648;
+          let ended = false;
+          for (let j = 0; j < value.len; j++) {
+            const at = value.at + j * size;
+            const n =
+              size === 1
+                ? view.getInt8(at)
+                : size === 2
+                  ? view.getInt16(at, true)
+                  : view.getInt32(at, true);
+            if (n === missing + 1) {
+              ended = true;
+              continue;
+            }
+            if (ended) return;
+            parts.push(n === missing ? '.' : String(n));
+          }
+        } else if (declaration.type === 'Float') {
+          if (value.type !== 5) return;
+          let ended = false;
+          for (let j = 0; j < value.len; j++) {
+            const at = value.at + j * 4,
+              bits = view.getUint32(at, true);
+            if (bits === 0x7f800002) {
+              ended = true;
+              continue;
+            }
+            if (ended) return;
+            const n = view.getFloat32(at, true);
+            if (bits !== 0x7f800001 && !Number.isFinite(n)) return;
+            parts.push(bits === 0x7f800001 ? '.' : Object.is(n, -0) ? '-0' : String(n));
+          }
+        } else {
+          if (value.type !== 7) return;
+          const text = decoder.decode(bytes.subarray(value.at, value.at + value.len));
+          if (/[\x00-\x20\x7f;=]/.test(text)) return;
+          parts.push(...(text || '.').split(','));
+        }
+        if (
+          declaration.type === 'Character' &&
+          parts.some((part) => part !== '.' && [...part].length !== 1)
+        )
+          return;
+        const entry = `${declaration.name}=${parts.join(',') || '.'}`;
+        infoSize += entry.length + 1;
+        if (infoSize > 16384) return;
+        infoValues.push(entry);
       }
       if (p !== end) return;
       end += indiv;
@@ -228,6 +315,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         alt.join(',') || '.',
         q,
         filterValues.join(';') || '.',
+        infoValues.join(';') || '.',
       ]);
       pos = end;
     }
