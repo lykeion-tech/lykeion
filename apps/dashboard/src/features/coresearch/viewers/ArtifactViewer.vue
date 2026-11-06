@@ -13,6 +13,7 @@ import SequenceViewer from './SequenceViewer.vue';
 import NpyViewer from './NpyViewer.vue';
 import SqliteSnapshotViewer from './SqliteSnapshotViewer.vue';
 import FitsViewer from './FitsViewer.vue';
+import CompressedFitsViewer from './CompressedFitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
@@ -49,6 +50,7 @@ const sqlite = computed(() => ['sqlite', 'sqlite3', 'db'].includes(ext.value));
 const niftiGzip = computed(() => props.path.toLowerCase().endsWith('.nii.gz'));
 const nifti = computed(() => ext.value === 'nii' || niftiGzip.value);
 const fits = computed(() => ['fits', 'fit', 'fts'].includes(ext.value));
+const fitsGzip = computed(() => /\.(fits|fit|fts)\.gz$/i.test(props.path));
 const tiff = computed(() => ['tif', 'tiff'].includes(ext.value));
 const office = computed(() =>
   ext.value === 'docx' || ext.value === 'pptx' ? ext.value : undefined,
@@ -115,6 +117,7 @@ watch(
         nifti.value ||
         tiff.value ||
         fits.value ||
+        fitsGzip.value ||
         sqlite.value ||
         npy.value ||
         npz.value ||
@@ -157,6 +160,7 @@ watch(
   <TiffViewer v-else-if="tiff" :blob="blob" />
   <NiftiViewer v-else-if="nifti" :blob="blob" :compressed="niftiGzip" />
   <FitsViewer v-else-if="fits" :blob="blob" />
+  <CompressedFitsViewer v-else-if="fitsGzip" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />
   <WorkbookViewer v-else-if="ext === 'xlsx'" :blob="blob" />
   <SqliteSnapshotViewer v-else-if="sqlite" :blob="blob" />
