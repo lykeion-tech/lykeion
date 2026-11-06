@@ -46,7 +46,9 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage));
         class="chemical-canvas"
       ></iframe>
       <p>
-        Drag to rotate · scroll to zoom<span v-if="['cif', 'mmcif'].includes(extension)">
+        Drag to rotate · scroll to zoom<span
+          v-if="['cif', 'mmcif', 'xyz', 'gro'].includes(extension)"
+        >
           · bonds inferred from coordinates</span
         >
       </p>
