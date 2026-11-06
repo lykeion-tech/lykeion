@@ -13,8 +13,9 @@ export function inchiRecord(text: string): string | undefined {
   const value = text.trim();
   if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value)) return;
   if (!/\/[btms]/.test(value)) return value;
-  // Permit up to two geometric bonds and optional absolute tetrahedral stereo.
-  // Isotopic and relative/racemic stereo remain unavailable.
+  // Permit up to two non-isotopic geometric bonds, optionally with absolute
+  // tetrahedral stereo, or absolute tetrahedral stereo with a supported
+  // trailing isotope layer. Relative and racemic stereo remain unavailable.
   const bondLayer = value.indexOf('/b');
   if (
     bondLayer >= 0 &&
@@ -22,7 +23,14 @@ export function inchiRecord(text: string): string | undefined {
     /\/b\d+-\d+[+-](?:,\d+-\d+[+-])?(?:\/t[^/]+\/m[01]\/s1)?$/.test(value)
   )
     return value;
-  return !/\/[bi]/.test(value) && /\/t[^/]+\/m[01]\/s1$/.test(value) ? value : undefined;
+  return !/\/b/.test(value) && isTetrahedralInput(value) ? value : undefined;
+}
+export function isTetrahedralInput(value: string): boolean {
+  const isotope = value.indexOf('/i');
+  return (
+    (isotope < 0 || isotope > value.indexOf('/t')) &&
+    /\/t[^/]+\/m[01]\/s1(?:\/i[^/]+(?:\/t[^/]+)?)?$/.test(value)
+  );
 }
 // Accept only the bounded V2000 subset emitted by the bundled converter.
 // Other variants fail closed before RDKit receives the molecule.

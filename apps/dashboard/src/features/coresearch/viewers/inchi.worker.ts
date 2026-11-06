@@ -1,6 +1,6 @@
 import { loadCappedRdkit } from './capped-rdkit-loader';
 import { molfileFromInchi } from './vendor/inchi/inchi-js.js';
-import { inchiRecord, depictInchi } from './inchi';
+import { inchiRecord, isTetrahedralInput, depictInchi } from './inchi';
 self.onmessage = async (event: MessageEvent<string>) => {
   try {
     const input = inchiRecord(event.data);
@@ -17,7 +17,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
       return self.postMessage(matches.length === 1 ? matches[0] : null);
     }
     let molfile: string | undefined;
-    if (/\/t[^/]+\/m[01]\/s1$/.test(input)) {
+    if (isTetrahedralInput(input)) {
       const { tetrahedralMolfile } = await import('./inchi-stereo');
       molfile = await tetrahedralMolfile(input);
     } else {
@@ -26,7 +26,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
     }
     if (!molfile) return self.postMessage(null);
     const kit = await loadCappedRdkit();
-    self.postMessage(depictInchi(kit, molfile, input) ?? null);
+    self.postMessage(depictInchi(kit, molfile, input, input.includes('/i')) ?? null);
   } catch {
     self.postMessage(null);
   }

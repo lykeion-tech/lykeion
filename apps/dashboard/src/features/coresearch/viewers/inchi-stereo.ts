@@ -1,4 +1,4 @@
-import { inchiRecord, safeInchiMolfile } from './inchi';
+import { inchiRecord, isTetrahedralInput, safeInchiMolfile } from './inchi';
 
 type Atom = {
   element: string;
@@ -154,15 +154,29 @@ export async function geometricMolfileCandidates(input: string): Promise<string[
   }
 }
 export async function tetrahedralMolfile(input: string): Promise<string | undefined> {
-  if (inchiRecord(input) !== input || !/\/t[^/]+\/m[01]\/s1$/.test(input)) return;
+  if (inchiRecord(input) !== input || !isTetrahedralInput(input)) return;
   try {
     const [ocl, inchi] = await Promise.all([
       import('openchemlib'),
       import('./vendor/inchi/inchi-js.js'),
     ]);
-    const structure = await inchi.structureFromInchi(input);
-    if (structure.returnCode !== 0 || !safeStereoStructure(structure.atoms, structure.stereo))
-      return;
+    const raw = await inchi.structureFromInchi(input);
+    if (raw.returnCode !== 0 || !Array.isArray(raw.atoms) || raw.atoms.length > 200) return;
+    // InChI represents relative isotope shifts as 10000 plus the offset from
+    // rounded average atomic mass; OpenChemLib expects an absolute mass number.
+    const atoms = raw.atoms.map((atom) => {
+      if (!atom || !Number.isInteger(atom.isotopicMass)) throw Error();
+      const isotope = atom.isotopicMass;
+      if (isotope === 0) return atom;
+      const atomicNumber = ocl.Molecule.getAtomicNoFromLabel(atom.element);
+      const base = ocl.Molecule.cRoundedMass[atomicNumber];
+      const mass = isotope >= 9900 && isotope <= 10100 ? (base ?? 0) + isotope - 10000 : isotope;
+      if (!atomicNumber || !base || !Number.isInteger(mass) || mass < 1 || mass > 300)
+        throw Error();
+      return { ...atom, isotopicMass: mass };
+    });
+    const structure = { ...raw, atoms };
+    if (!safeStereoStructure(structure.atoms, structure.stereo)) return;
     const molecule = inchi.oclMoleculeFromStructure(structure, ocl);
     const molfile = `${molecule.toMolfile().trimEnd()}\n$$$$\n`;
     return safeInchiMolfile(molfile) ? molfile : undefined;
