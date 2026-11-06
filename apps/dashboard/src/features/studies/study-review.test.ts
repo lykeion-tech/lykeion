@@ -232,6 +232,7 @@ it('shows the fingerprint without percentage scale labels', async () => {
     expect(textOf(chart)).not.toContain(label);
   }
   expect(textOf(chart)).toContain('Support index');
+  expect(textOf(root)).not.toContain('spoke length = evidence the claim holds');
 });
 
 it('keeps claim labels outside the fingerprint graphic', async () => {

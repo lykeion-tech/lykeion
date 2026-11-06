@@ -413,9 +413,6 @@ const unlinkedObjections = computed(() =>
           <span><i :style="{ color: colors.unclear }">◐</i> Unclear</span>
           <span><i :style="{ color: colors.fail }">○</i> Unsupported</span>
         </div>
-        <p v-if="checks.length" class="fingerprint-note type-caption">
-          spoke length = evidence the claim holds
-        </p>
         <section v-if="selected && attempt" class="selected-check" aria-label="Selected check">
           <div class="selected-title">
             <span class="type-caption">SELECTED</span
@@ -608,11 +605,6 @@ const unlinkedObjections = computed(() =>
 }
 .legend i {
   font-style: normal;
-}
-.fingerprint-note {
-  color: var(--muted);
-  text-align: center;
-  margin: 7px 0 18px;
 }
 .selected-check {
   border: 1px solid var(--border);
