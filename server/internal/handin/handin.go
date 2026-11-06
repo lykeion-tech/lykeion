@@ -441,6 +441,7 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	names := map[string]bool{}
 	for i, v := range h.Values {
 		add(v.Name != "" && v.Value != "", "values %d: name and value are both required", i+1)
+		add(v.Value == "" || within(v.Value, 2000), "values %d: value must be 1 to 2000 characters", i+1)
 		n := strings.ToLower(strings.Join(strings.Fields(v.Name), " "))
 		add(n == "" || !names[n], "values %d: another value already has the name %s", i+1, v.Name)
 		names[n] = true

@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -465,12 +467,46 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 // wordsIn says whether text, trimmed, is printed in texts as whole words,
 // in any case.
 func wordsIn(texts []string, text string) bool {
+	return slices.ContainsFunc(texts, func(s string) bool { return wordIndex(s, text) >= 0 })
+}
+
+func wordIndex(source, text string) int {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return false
+		return -1
 	}
-	re := regexp.MustCompile(`(?i)(^|[^\pL\pN_])` + regexp.QuoteMeta(text) + `($|[^\pL\pN_])`)
-	return slices.ContainsFunc(texts, re.MatchString)
+	re, err := regexp.Compile(`(?i)` + regexp.QuoteMeta(text))
+	if err != nil {
+		return -1
+	}
+	first, _ := utf8.DecodeRuneInString(text)
+	last, _ := utf8.DecodeLastRuneInString(text)
+	isWord := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' }
+	isSeparator := func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(",;:./!?()[]{}\"'“”‘’", r)
+	}
+	for offset := 0; offset < len(source); {
+		loc := re.FindStringIndex(source[offset:])
+		if loc == nil {
+			break
+		}
+		start, end := offset+loc[0], offset+loc[1]
+		valid := true
+		if start > 0 {
+			before, _ := utf8.DecodeLastRuneInString(source[:start])
+			valid = !isWord(before) && (isWord(first) || isSeparator(before))
+		}
+		if end < len(source) {
+			after, _ := utf8.DecodeRuneInString(source[end:])
+			valid = valid && !isWord(after) && (isWord(last) || isSeparator(after))
+		}
+		if valid {
+			return start
+		}
+		_, size := utf8.DecodeRuneInString(source[start:])
+		offset = start + size
+	}
+	return -1
 }
 
 // writeRerun stores the server's `rerun` record for a Validation round,

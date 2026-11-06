@@ -82,6 +82,20 @@ func TestUntracedValueFails(t *testing.T) {
 	}
 }
 
+func TestCategoricalValueAsksAboutOutcomeNotNumber(t *testing.T) {
+	a := &fakeAsker{}
+	r, err := Experimentation(context.Background(), a, ExperimentationInput{
+		Values: []ValueCheck{{Record: "r1", Value: "A", Sentence: "Outcome", Found: true, Where: "run:x1", Textual: true}},
+	})
+	if err != nil || len(r.Items) != 1 {
+		t.Fatalf("review: %+v %v", r, err)
+	}
+	q := a.noul[0].Questions["described"]
+	if q != "Does the sentence describe this outcome correctly?" {
+		t.Fatalf("question: %s", q)
+	}
+}
+
 func TestMisdescribedNumberOnlyWarns(t *testing.T) {
 	a := &fakeAsker{p: func(_, _ string) float64 { return 0.1 }}
 	r, err := Experimentation(context.Background(), a, ExperimentationInput{

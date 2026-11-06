@@ -74,6 +74,22 @@ func TestParseRejectsShapeProblems(t *testing.T) {
 	}
 }
 
+func TestReportedOutcomeMustFitReviewLimit(t *testing.T) {
+	for _, tc := range []struct {
+		value       string
+		wantProblem bool
+	}{
+		{strings.Repeat("é", 2000), false},
+		{strings.Repeat("é", 2001), true},
+	} {
+		b, _ := json.Marshal(map[string]any{"status": "done", "answer": "ok", "values": []any{map[string]any{"name": "outcome", "value": tc.value, "file": "result.txt"}}})
+		_, probs := Parse(Experimentation, b)
+		if got := contains(probs, "values 1: value must be 1 to 2000 characters"); got != tc.wantProblem {
+			t.Fatalf("runes=%d, problems=%v", len([]rune(tc.value)), probs)
+		}
+	}
+}
+
 func contains(l []string, s string) bool {
 	for _, x := range l {
 		if x == s {

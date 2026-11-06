@@ -19,6 +19,7 @@ type ValueCheck struct {
 	Where    string // "run:x3" or "output:o2"
 	Sentence string // the work record's text, for Jev
 	Context  string // up to 300 bytes around the match
+	Textual  bool   // a categorical or other nonnumeric outcome
 }
 
 type ExperimentationInput struct {
@@ -63,7 +64,7 @@ func clip(s string) string {
 
 // Experimentation reviews an Experimentation column: the server checks that
 // each declared output file was saved and that each reported value was
-// traced, and Jev warns where a sentence misdescribes a traced number.
+// traced, and Jev warns where a sentence misdescribes a traced value.
 func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Result, error) {
 	r := Result{Column: board.Experimentation, Attempt: in.Attempt}
 
@@ -106,7 +107,11 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 		}
 		it.Checks = []Check{traced}
 		if v.Found {
-			qs := map[string]string{"described": describedQuestion}
+			question := describedQuestion
+			if v.Textual {
+				question = "Does the sentence describe this outcome correctly?"
+			}
+			qs := map[string]string{"described": question}
 			state := ItemState("Experimentation", "Value: "+v.Value+"\n"+v.Sentence, []string{v.Context}, MaxState)
 			ps, err := a.Noul(ctx, state, qs)
 			if err != nil {
@@ -118,7 +123,7 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 			}
 			status := StatusOf(p)
 			p = stored(p)
-			it.Checks = append(it.Checks, Check{ID: "described", By: "jev", Question: describedQuestion, P: &p, Status: status, Warning: true})
+			it.Checks = append(it.Checks, Check{ID: "described", By: "jev", Question: question, P: &p, Status: status, Warning: true})
 		}
 		it.Status = ItemStatus(it.Checks)
 		r.Items = append(r.Items, it)

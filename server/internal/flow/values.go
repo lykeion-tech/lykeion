@@ -202,7 +202,8 @@ func roundTo(r *big.Rat, d int) *big.Rat {
 // cites. A value is a JSON number or a numeric string under a `value` field,
 // or in a `values` list, at any depth of a record's body, checked against the
 // runs named by the `cites` of the nearest enclosing object that has one.
-// A value matches a printed number equal to it once that number is rounded to
+// Explicit value records also match textual outcomes as whole words. A number
+// matches a printed number equal to it once that number is rounded to
 // the places the value states; an integer value must be equal exactly.
 // Records of the free kinds report no values, and server-written records are
 // not the agent's reports; both are skipped.
@@ -284,9 +285,11 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 		if d.Decode(&body) != nil {
 			continue
 		}
-		walkValues(body, nil, false, func(v string, cites []string, calls bool, file string, scriptRun bool) {
+		walkValues(body, nil, false, rec.Kind == "value", func(v string, cites []string, calls bool, file string, scriptRun bool) {
 			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0 && !calls, CallsOnly: len(cites) == 0 && calls}
 			n, ok := parseNumber(v)
+			textual := !numberText.MatchString(v) && utf8.RuneCountInString(v) <= 2000
+			matches := func(text string) bool { return textual && wordsIn([]string{text}, v) }
 			// Only a script run that exited with status 0 counts; a timeout's
 			// status is -1.
 			counts := func(r Run) bool { return r.Tool == "run_script" && r.ExitStatus == 0 }
@@ -296,7 +299,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 				if !cited {
 					continue
 				}
-				if ok && prints(k, n) {
+				if (ok && prints(k, n)) || matches(r.Stdout) {
 					if counts(r) {
 						m.Matched, m.Run = true, k
 						break
@@ -313,7 +316,7 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 			}
 		files:
 			for _, k := range cites {
-				if m.Matched || !ok || scriptRun {
+				if m.Matched || (!ok && !textual) || scriptRun {
 					break
 				}
 				r, cited := runs[k]
@@ -321,17 +324,17 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 					continue
 				}
 				for _, f := range saved[r.AgentRunID] {
-					if in(true, f, n) {
+					if (ok && in(true, f, n)) || matches(files[f]) {
 						m.Matched, m.Run, m.File = true, k, f
 						break files
 					}
 				}
 			}
 			for _, f := range named[file] {
-				if m.Matched || !ok || scriptRun {
+				if m.Matched || (!ok && !textual) || scriptRun {
 					break
 				}
-				if in(true, f, n) {
+				if (ok && in(true, f, n)) || matches(files[f]) {
 					m.Matched, m.File = true, f
 				}
 			}
@@ -359,21 +362,21 @@ func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]strin
 // walkValues finds each value as walkQuotes finds quotes, keeping only the
 // `run:` entries of a `cites` list; calls is set when that list also names a
 // `call:` entry. file is the `file` field of the object holding the value.
-func walkValues(v any, cites []string, calls bool, found func(value string, cites []string, calls bool, file string, scriptRun bool)) {
+func walkValues(v any, cites []string, calls, explicit bool, found func(value string, cites []string, calls bool, file string, scriptRun bool)) {
 	text := func(e any) (string, bool) {
 		switch e := e.(type) {
 		case json.Number:
 			return e.String(), true
 		case string:
 			s := strings.TrimSpace(e)
-			return s, numberText.MatchString(s)
+			return s, numberText.MatchString(s) || explicit
 		}
 		return "", false
 	}
 	switch v := v.(type) {
 	case []any:
 		for _, e := range v {
-			walkValues(e, cites, calls, found)
+			walkValues(e, cites, calls, false, found)
 		}
 	case map[string]any:
 		if list, ok := v["cites"].([]any); ok {
@@ -402,13 +405,13 @@ func walkValues(v any, cites []string, calls bool, found func(value string, cite
 						if s, ok := text(x); ok {
 							found(s, cites, calls, file, scriptRun)
 						} else {
-							walkValues(x, cites, calls, found)
+							walkValues(x, cites, calls, false, found)
 						}
 					}
 					continue
 				}
 			}
-			walkValues(e, cites, calls, found)
+			walkValues(e, cites, calls, false, found)
 		}
 	}
 }

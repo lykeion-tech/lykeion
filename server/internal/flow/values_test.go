@@ -23,6 +23,87 @@ func valueRec(key, kind string, body map[string]any) db.Record {
 // is checked on its own below.
 const scriptOut = "effect 0.123456\nn 42\np 1e-3\nshare 12.5%\ncount 1,234\nzero -0.0\n"
 
+func TestExplicitTextualValuesAreTracedWithoutInventingEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, stdout, tool string
+		exit                      int
+		want                      bool
+	}{
+		{"categorical outcome", "A", "outcome: A", "run_script", 0, true},
+		{"whole word only", "A", "outcome: AA", "run_script", 0, false},
+		{"distinct plus outcome", "A+", "outcome: A++", "run_script", 0, false},
+		{"distinct repeated plus outcome", "C++", "outcome: C+++", "run_script", 0, false},
+		{"different symbol outcome", "A+", "outcome: A+-", "run_script", 0, false},
+		{"punctuation separated outcome", "A+", "outcome: A+, next", "run_script", 0, true},
+		{"slash separated outcome", "A+", "outcome: A+/B", "run_script", 0, true},
+		{"unicode outcome at limit", strings.Repeat("é", 2000), strings.Repeat("é", 2000), "run_script", 0, true},
+		{"expression is not its result", "2 + 2 = 4", "4", "run_script", 0, false},
+		{"expression actually printed", "2 + 2 = 4", "2 + 2 = 4", "run_script", 0, true},
+		{"failed run", "A", "A", "run_script", 1, false},
+		{"exploratory run", "A", "A", "run_code", 0, false},
+		{"whitespace-only value", "   ", "anything", "run_script", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := valueRec("r1", "value", map[string]any{"value": tc.value, "cites": []string{"run:x1"}})
+			got := MatchValues([]db.Record{r}, map[string]Run{"x1": {Tool: tc.tool, Stdout: tc.stdout, ExitStatus: tc.exit}})
+			if len(got) != 1 || got[0].Matched != tc.want {
+				t.Fatalf("got %+v, want one check matched=%v", got, tc.want)
+			}
+		})
+	}
+	legacy := valueRec("r2", "result", map[string]any{"value": "narrative", "cites": []string{"run:x1"}})
+	if got := MatchValues([]db.Record{legacy}, nil); len(got) != 0 {
+		t.Fatalf("legacy narrative unexpectedly scored: %+v", got)
+	}
+}
+
+func TestTextualReplayDistinguishesPunctuationOutcomes(t *testing.T) {
+	if wordsIn([]string{"outcome: A++"}, "A+") || wordsIn([]string{"outcome: C+++"}, "C++") {
+		t.Fatal("different punctuation outcomes matched")
+	}
+	if !wordsIn([]string{"outcome: A+, next"}, "A+") {
+		t.Fatal("genuine outcome before separator did not match")
+	}
+	if !wordsIn([]string{"outcome: A+/B"}, "A+") {
+		t.Fatal("genuine slash-separated outcome did not match")
+	}
+	if !wordsIn([]string{"outcome: A++ and A+"}, "A+") {
+		t.Fatal("later valid occurrence was skipped")
+	}
+}
+
+func TestTextualValueReviewHasItsEvidenceContext(t *testing.T) {
+	rec := valueRec("r1", "value", map[string]any{"name": "outcome", "value": "A", "cites": []string{"run:x1"}})
+	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: "outcome: a"}}
+	checks := valueChecks(MatchValues([]db.Record{rec}, runs), []db.Record{rec}, runs, nil)
+	if len(checks) != 1 || !checks[0].Found || !strings.Contains(checks[0].Context, "outcome: a") {
+		t.Fatalf("review checks: %+v", checks)
+	}
+}
+
+func TestTextualValuesRespectScriptSourceAndSavedFiles(t *testing.T) {
+	runID := uuid.New()
+	runs := map[string]Run{"x1": {Tool: "run_script", AgentRunID: runID, Stdout: "other"}}
+	output := valueRec("o1", "output", map[string]any{"name": "outcome.txt"})
+	output.AgentRunID = &runID
+	files := map[string]string{"o1": "outcome: A"}
+	for _, tc := range []struct {
+		name            string
+		scriptRun, want bool
+	}{
+		{"saved output allowed", false, true},
+		{"explicit script excludes saved output", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := valueRec("r1", "value", map[string]any{"value": "A", "file": "outcome.txt", "script_run": tc.scriptRun, "cites": []string{"run:x1"}})
+			got := MatchValuesIn([]db.Record{r, output}, runs, files)
+			if len(got) != 1 || got[0].Matched != tc.want {
+				t.Fatalf("got %+v, want matched=%v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestValueMatchingRules(t *testing.T) {
 	runs := map[string]Run{"x1": {Tool: "run_script", Stdout: scriptOut}}
 	for _, tc := range []struct {

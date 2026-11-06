@@ -440,7 +440,7 @@ func valueChecks(ms []ValueMatch, work []db.Record, runs map[string]Run, files m
 	}
 	var out []review.ValueCheck
 	for _, m := range ms {
-		v := review.ValueCheck{Record: m.Record, Value: m.Value, Found: m.Matched, Sentence: text[m.Record]}
+		v := review.ValueCheck{Record: m.Record, Value: m.Value, Found: m.Matched, Sentence: text[m.Record], Textual: !numberText.MatchString(m.Value)}
 		if m.Matched {
 			src := runs[m.Run].Stdout
 			v.Where = "run:" + m.Run
@@ -454,24 +454,24 @@ func valueChecks(ms []ValueMatch, work []db.Record, runs map[string]Run, files m
 	return out
 }
 
-// around is up to 300 bytes of out around the first number that matches
-// value by the value check's rounding rule.
+// around is up to 300 bytes around the first matching number or textual outcome.
 func around(out, value string) string {
 	n, ok := parseNumber(value)
-	if !ok {
-		return ""
-	}
 	at := -1
-	eachToken(out, func(start int, r *big.Rat) bool {
-		if !n.integer {
-			r = roundTo(r, n.places)
-		}
-		if r.Cmp(n.r) == 0 {
-			at = start
-			return false
-		}
-		return true
-	})
+	if ok {
+		eachToken(out, func(start int, r *big.Rat) bool {
+			if !n.integer {
+				r = roundTo(r, n.places)
+			}
+			if r.Cmp(n.r) == 0 {
+				at = start
+				return false
+			}
+			return true
+		})
+	} else if value != "" && utf8.RuneCountInString(value) <= 2000 {
+		at = wordIndex(out, value)
+	}
 	if at < 0 {
 		return ""
 	}
