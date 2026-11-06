@@ -128,3 +128,38 @@ it('maps complex fields by name when their storage order is reversed', async () 
   const p = await readTargetedHdf(fixture('targeted-complex-reversed.mat'), 'matlab', wasm);
   expect(p?.items[0]?.values).toEqual(['(1, 2)', '(-3, -4)']);
 });
+it('shows bounded root dimensions and typed global attributes from a genuine NetCDF-4 file', async () => {
+  const p = await readTargetedHdf(fixture('targeted-nc4-metadata.nc4'), 'netcdf', wasm);
+  expect(p?.dimensions).toEqual(
+    expect.arrayContaining([
+      { name: 'x', length: 3, unlimited: false, lowerBound: false },
+      { name: 'time', length: 2, unlimited: true, lowerBound: true },
+    ]),
+  );
+  expect(p?.attributes).toEqual(
+    expect.arrayContaining([
+      { name: 'title', type: 'string', values: ['Measured climate'] },
+      { name: 'signed', type: 'int64', values: ['-9223372036854775807'] },
+      { name: 'unsigned', type: 'uint64', values: ['18446744073709551615'] },
+      { name: 'range', type: 'int32', values: ['1', '4', '7'] },
+    ]),
+  );
+  expect(p?.attributes?.some((a) => a.name === '_NCProperties')).toBe(false);
+  expect(p?.partial).toBe(true);
+});
+it('omits oversized, variable-length and compound attributes without exposing their content', async () => {
+  const p = await readTargetedHdf(fixture('targeted-nc4-unsafe-metadata.nc4'), 'netcdf', wasm);
+  expect(p?.attributes).toEqual([{ name: 'safe', type: 'string', values: ['ordinary'] }]);
+  expect(p?.partial).toBe(true);
+  expect(JSON.stringify(p)).not.toContain('SECRET-');
+});
+it('rejects embedded-NUL strings and avoids attributing extents to duplicate dimension identifiers', async () => {
+  const p = await readTargetedHdf(fixture('targeted-nc4-ambiguous-metadata.nc4'), 'netcdf', wasm);
+  expect(p?.attributes).toEqual([{ name: 'trailing', type: 'string', values: ['good'] }]);
+  expect(p?.dimensions).toEqual(expect.arrayContaining([
+    { name: 'd0', length: 1, unlimited: true, lowerBound: true },
+    { name: 'd1', length: 2, unlimited: true, lowerBound: true },
+    { name: 'd2', length: 3, unlimited: true, lowerBound: true },
+  ]));
+  expect(p?.partial).toBe(true);
+});

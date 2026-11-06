@@ -12,5 +12,5 @@ SOURCE_DATE_EPOCH=0 "$EMCC" reader.c -I"$HDF5_WASM_ROOT/include" \
  -O2 -s MODULARIZE=1 -s EXPORT_ES6=1 -s ENVIRONMENT=web,worker -s FORCE_FILESYSTEM=1 \
  -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=33554432 -s MAXIMUM_MEMORY=134217728 \
  -s EXPORTED_RUNTIME_METHODS=FS,UTF8ToString \
- -s EXPORTED_FUNCTIONS=_inspect,_item_count,_is_partial,_item_name,_item_type,_item_rank,_item_dim,_item_length,_item_value \
+ -s EXPORTED_FUNCTIONS=_inspect,_item_count,_is_partial,_item_name,_item_type,_item_rank,_item_dim,_item_length,_item_value,_dimension_length,_dimension_name,_dimension_size,_dimension_unlimited,_dimension_lower_bound,_attribute_length,_attribute_name,_attribute_type,_attribute_count_values,_attribute_value \
  -o hdf-reader.js

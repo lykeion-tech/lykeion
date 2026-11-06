@@ -57,10 +57,32 @@ watch(
   <p v-if="pending" role="status">Reading file…</p>
   <section v-else-if="preview" aria-label="Scientific data preview">
     <p class="note">
-      Read-only sample of supported top-level numeric datasets; attributes and nested groups are not
-      shown. Values are not scaled.
+      Read-only sample of supported top-level numeric datasets. Values are not scaled.
+      <template v-if="mode === 'netcdf'"
+        >Root dimensions and global attributes are shown when supported; variable attributes and
+        nested groups are omitted.</template
+      >
+      <template v-else>Attributes and nested groups are not shown.</template>
       <template v-if="mode === 'matlab'">Values follow MATLAB column-major order.</template>
     </p>
+    <details v-if="mode === 'netcdf' && preview.dimensions?.length">
+      <summary>Root dimensions</summary>
+      <ul>
+        <li v-for="dimension in preview.dimensions" :key="dimension.name">
+          {{ dimension.name }}: {{ dimension.lowerBound ? 'reported extent (unverified): ' : '' }}{{ dimension.length
+          }}{{ dimension.unlimited ? ' (unlimited)' : '' }}
+        </li>
+      </ul>
+    </details>
+    <details v-if="mode === 'netcdf' && preview.attributes?.length">
+      <summary>Global attributes</summary>
+      <dl>
+        <template v-for="attribute in preview.attributes" :key="attribute.name"
+          ><dt>{{ attribute.name }} · {{ attribute.type }}</dt>
+          <dd>{{ attribute.values.join(', ') }}</dd></template
+        >
+      </dl>
+    </details>
     <p v-if="preview.partial" class="note">Some data is omitted or unsupported.</p>
     <p v-if="!preview.items.length">No supported numeric datasets available.</p>
     <template v-else

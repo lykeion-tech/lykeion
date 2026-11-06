@@ -76,3 +76,38 @@ it('explains complex sample pairs when the selected MATLAB dataset is complex', 
   expect(textOf(root)).toContain('(1, 2)');
   app.unmount();
 });
+it('labels bounded NetCDF root attributes and unlimited dimension lower bounds', async () => {
+  let worker: FakeWorker;
+  class FakeWorker {
+    onmessage: ((event: MessageEvent<any>) => void) | null = null;
+    onerror = null;
+    terminate = vi.fn();
+    postMessage = vi.fn();
+    constructor() {
+      worker = this;
+    }
+  }
+  vi.stubGlobal('Worker', FakeWorker);
+  vi.stubGlobal('self', { location: new URL('http://localhost/') });
+  const app = createTreeApp({
+    render: () => h(TargetedHdfViewer, { blob: new Blob(['x']), mode: 'netcdf' }),
+  });
+  const root = node('root');
+  app.mount(root);
+  worker!.onmessage?.({
+    data: {
+      preview: {
+        items: [],
+        partial: true,
+        dimensions: [{ name: 'time', length: 2, unlimited: true, lowerBound: true }],
+        attributes: [{ name: 'title', type: 'string', values: ['Measured climate'] }],
+      },
+    },
+  } as MessageEvent);
+  await nextTick();
+  expect(textOf(root)).toContain('time');
+  expect(textOf(root)).toContain('reported extent (unverified): 2');
+  expect(textOf(root)).toContain('Measured climate');
+  expect(textOf(root)).toContain('nested groups');
+  app.unmount();
+});

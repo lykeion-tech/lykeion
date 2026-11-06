@@ -10,6 +10,16 @@ interface HdfModule {
   _item_dim(i: number, j: number): number;
   _item_length(i: number): number;
   _item_value(i: number, j: number): number;
+  _dimension_length(): number;
+  _dimension_name(i: number): number;
+  _dimension_size(i: number): number;
+  _dimension_unlimited(i: number): number;
+  _dimension_lower_bound(i: number): number;
+  _attribute_length(): number;
+  _attribute_name(i: number): number;
+  _attribute_type(i: number): number;
+  _attribute_count_values(i: number): number;
+  _attribute_value(i: number, j: number): number;
 }
 declare function createModule(options?: {
   wasmBinary?: Uint8Array;
