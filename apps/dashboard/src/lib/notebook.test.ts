@@ -45,7 +45,7 @@ it('skips other tools, other record kinds and records without a script', () => {
   expect(
     notebookCells([
       script({ body: { tool: 'call_tool', script: 'print(1)' } }),
-      script({ body: { tool: 'run_code', code: 'print(1)' } }),
+      script({ body: { tool: 'run_code' } }),
       script({ kind: 'call_tool' }),
       script({ body: { tool: 'run_script' } }),
       script({ body: { tool: 'run_script', script: 123 } }),

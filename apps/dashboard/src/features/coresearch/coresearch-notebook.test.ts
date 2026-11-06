@@ -71,6 +71,8 @@ async function mount(
     },
   });
   client.setQueryData(keys.coresearchCells('lab', 'p', 'c'), []);
+  client.setQueryData(keys.coresearchRuns('lab', 'p'), []);
+  client.setQueryData(keys.coresearchFiles('lab', 'p'), []);
   client.setQueryData(keys.coresearchEnvironment('lab', 'p'), {
     python_version: '3.12.8',
     setups: [],
@@ -107,6 +109,51 @@ async function mount(
   return { root, client, settle };
 }
 describe('Coresearch notebook and compute', () => {
+  it('shows agent recorded Python, R and Julia runs from this conversation', async () => {
+    const { root, settle } = await mount(NotebookPane, false, (c) => {
+      const paths = ['analysis.py', 'analysis.R', 'analysis.jl'];
+      c.setQueryData(
+        keys.coresearchFiles('lab', 'p'),
+        paths.map((path, i) => ({ id: `file-${i}`, path })),
+      );
+      c.setQueryData(
+        keys.coresearchRuns('lab', 'p'),
+        paths
+          .map((_, i) => ({
+            id: `run-${i}`,
+            key: `R${i + 1}`,
+            chat_id: 'c',
+            agent_run_id: 'agent',
+            script_file_id: `file-${i}`,
+            script_n: 1,
+            status: 'ok',
+            facts: null,
+          }))
+          .concat([
+            {
+              id: 'other',
+              key: 'R4',
+              chat_id: 'other',
+              agent_run_id: 'agent',
+              script_file_id: 'file-0',
+              script_n: 1,
+              status: 'ok',
+              facts: null,
+            },
+          ]),
+      );
+      paths.forEach((path, i) =>
+        c.setQueryData(
+          keys.coresearchContent('lab', 'p', `file-${i}`, 1),
+          new Blob([`source ${path}`]),
+        ),
+      );
+    });
+    await settle();
+    for (const path of ['analysis.py', 'analysis.R', 'analysis.jl'])
+      expect(textOf(root)).toContain(path);
+    expect(textOf(root)).not.toContain('R4');
+  });
   it('machine identity requires every recorded binding field', () => {
     const exact = {
       workspace_id: 'lab',

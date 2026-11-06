@@ -510,7 +510,7 @@ onUnmounted(() => {
       </template>
     </DecisionRail>
     <RailFabs
-      v-if="aristotleShell || cowriteShell || inboxShell"
+      v-if="!collapsed && (aristotleShell || cowriteShell || inboxShell)"
       :view="railView"
       :session="cowriteShell"
       :inbox="inboxShell"

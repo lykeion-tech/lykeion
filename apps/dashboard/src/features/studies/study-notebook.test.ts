@@ -63,6 +63,25 @@ function setup(records: StudyRecord[] | null = [], runId: string | null = null) 
 const cells = (root: ReturnType<typeof node>) => all(root).filter((n) => n.tag === 'article');
 const button = (root: ReturnType<typeof node>, label: string) =>
   all(root).find((n) => n.tag === 'button' && textOf(n) === label)!;
+it('shows interactive agent code for Python, R and Julia', async () => {
+  const { root } = setup(
+    ['python', 'r', 'julia'].map((language, i) =>
+      script(`interactive-${i}`, {
+        body: {
+          tool: 'run_code',
+          language,
+          code: `example_${language}()`,
+          output: 'ok',
+          exit_status: 0,
+        },
+      }),
+    ),
+  );
+  await nextTick();
+  expect(cells(root)).toHaveLength(3);
+  for (const language of ['python', 'r', 'julia'])
+    expect(textOf(root)).toContain(`example_${language}()`);
+});
 it('shows one read-only cell per recorded script, including superseded cells', async () => {
   const { root } = setup([script('x1', { superseded_at: '2026-11-03T11:00:00Z' }), script('x2')]);
   await nextTick();

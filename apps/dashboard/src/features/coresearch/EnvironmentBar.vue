@@ -14,7 +14,6 @@ const props = defineProps<{
 const environment = useCoresearchEnvironment(() => props.project.id),
   client = useQueryClient();
 const python = ref(props.project.python_version ?? ''),
-  conda = ref(''),
   busy = ref(false),
   error = ref('');
 const setup = computed(
@@ -49,10 +48,10 @@ async function perform() {
       {
         chat_id: c,
         python: python.value.trim() || null,
-        conda: conda.value
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
+        conda:
+          [...(environment.data.value?.setups ?? [])]
+            .filter((item) => item.status === 'ok')
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.conda ?? [],
       },
       undefined,
       { workspace: ws },
@@ -112,19 +111,12 @@ async function perform() {
         <pre v-if="setup?.log" class="envbar-log">{{ setup.log }}</pre>
         <p v-if="setup?.failure_reason" class="envbar-excerpt">{{ setup.failure_reason }}</p>
         <div v-if="owner" class="flex flex-col gap-2">
-          <label class="type-small"
+          <label class="type-small envbar-python"
             >Python version<input
               v-model="python"
-              class="envbar-trigger w-full"
+              class="envbar-trigger"
               aria-label="Setup Python version"
               placeholder="Leave blank to keep recorded version"
-              :disabled="disabled || busy" /></label
-          ><label class="type-small"
-            >Conda packages, one per line<textarea
-              v-model="conda"
-              class="envbar-log w-full"
-              aria-label="Conda packages"
-              rows="2"
               :disabled="disabled || busy"
             />
           </label>
@@ -137,3 +129,14 @@ async function perform() {
     <p v-if="error" class="envbar-excerpt" role="alert">{{ error }}</p>
   </div>
 </template>
+<style scoped>
+.envbar-python {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.envbar-python input {
+  width: 90px;
+  max-width: 100%;
+}
+</style>

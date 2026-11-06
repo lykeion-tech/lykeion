@@ -129,6 +129,8 @@ export interface RecordedRun {
   id: string;
   key: string;
   chat_id: string;
+  agent_run_id: string | null;
+  created_at: string;
   script_file_id: string;
   script_n: number;
   inputs: FileRef[] | null;

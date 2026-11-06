@@ -22,7 +22,10 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 export function notebookCells(records: StudyRecord[]): NotebookCell[] {
   return records
     .filter(
-      (r) => r.kind === 'run' && r.body.tool === 'run_script' && typeof r.body.script === 'string',
+      (r) =>
+        r.kind === 'run' &&
+        ((r.body.tool === 'run_script' && typeof r.body.script === 'string') ||
+          (r.body.tool === 'run_code' && typeof r.body.code === 'string')),
     )
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
     .map((r) => ({
@@ -32,7 +35,7 @@ export function notebookCells(records: StudyRecord[]): NotebookCell[] {
       round: r.round,
       language: text(r.body.language),
       path: text(r.body.path),
-      code: text(r.body.script),
+      code: text(r.body.tool === 'run_code' ? r.body.code : r.body.script),
       exit: typeof r.body.exit_status === 'number' ? r.body.exit_status : null,
       output: text(r.body.output),
       at: r.created_at,

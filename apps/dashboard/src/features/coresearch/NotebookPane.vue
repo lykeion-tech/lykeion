@@ -3,10 +3,11 @@ import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
-import { chatPath, keys, useCoresearchCells } from './api';
+import { chatPath, keys, useCoresearchCells, useCoresearchFiles, useCoresearchRuns } from './api';
 import { buildNotebookContexts, kernelsOf } from './notebook-model';
 import type { ProjectRow, ChatRow } from './types';
 import NotebookCell from './NotebookCell.vue';
+import RecordedNotebookCell from './RecordedNotebookCell.vue';
 import NotebookAxis from './NotebookAxis.vue';
 import EnvironmentBar from './EnvironmentBar.vue';
 const props = defineProps<{ project: ProjectRow; chat: ChatRow; owner: boolean }>();
@@ -16,7 +17,22 @@ const cells = useCoresearchCells(
   ),
   client = useQueryClient();
 const context = computed(() => buildNotebookContexts(cells.data.value ?? [])[0]!);
-const kernels = computed(() => kernelsOf(context.value)),
+const runs = useCoresearchRuns(() => props.project.id);
+const files = useCoresearchFiles(() => props.project.id);
+const recorded = computed(() =>
+  (runs.data.value ?? []).flatMap((run) => {
+    const path = files.data.value?.find((file) => file.id === run.script_file_id)?.path;
+    if (run.chat_id !== props.chat.id || !run.agent_run_id || !path || !/\.(py|r|jl)$/i.test(path))
+      return [];
+    const kernel = /\.py$/i.test(path) ? 'python3' : /\.jl$/i.test(path) ? 'julia' : 'r';
+    return [{ run, path, kernel }];
+  }),
+);
+const kernels = computed(() =>
+    [
+      ...new Set([...kernelsOf(context.value), ...recorded.value.map((item) => item.kernel)]),
+    ].sort(),
+  ),
   active = ref<string | null>(null);
 const agentCells = computed(() => context.value.cells.filter((cell) => !!cell.agent_run_id));
 const userCells = computed(() => context.value.cells.filter((cell) => !cell.agent_run_id));
@@ -24,6 +40,9 @@ const shown = computed(() =>
   active.value === null
     ? agentCells.value
     : agentCells.value.filter((cell) => cell.kernel === active.value),
+);
+const shownRuns = computed(() =>
+  recorded.value.filter((item) => !active.value || item.kernel === active.value),
 );
 const consoleOpen = ref(false);
 watch(kernels, (names) => {
@@ -77,8 +96,17 @@ async function perform() {
       <p v-if="cells.error.value" class="nbp-warning" role="alert">
         {{ cells.error.value.message }}
       </p>
-      <p v-else-if="cells.isPending.value" class="nbp-loading" role="status">Loading notebook…</p>
-      <p v-else-if="!shown.length" class="nbp-empty">
+      <p v-if="runs.error.value || files.error.value" class="nbp-warning" role="alert">
+        Recorded scripts could not be loaded.
+      </p>
+      <p
+        v-else-if="cells.isPending.value || runs.isPending.value || files.isPending.value"
+        class="nbp-loading"
+        role="status"
+      >
+        Loading notebook…
+      </p>
+      <p v-else-if="!shown.length && !shownRuns.length" class="nbp-empty">
         {{ active ? `No ${active} cells. Choose All to see the rest.` : 'No agent cells yet.' }}
       </p>
       <NotebookCell
@@ -87,6 +115,13 @@ async function perform() {
         :project-id="project.id"
         :chat-id="chat.id"
         :cell="cell"
+      />
+      <RecordedNotebookCell
+        v-for="item in shownRuns"
+        :key="item.run.id"
+        :project-id="project.id"
+        :run="item.run"
+        :path="item.path"
       />
     </div>
     <EnvironmentBar :project="project" :chat="chat" :owner="owner" :disabled="disabled" />
