@@ -23,7 +23,7 @@ import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
-import { useCoresearchProject } from './features/coresearch/api';
+import { useCoresearchFiles, useCoresearchProject } from './features/coresearch/api';
 import { useAristotle } from './features/coresearch/aristotle';
 import ConversationRail from './features/coresearch/ConversationRail.vue';
 import RailFabs from './features/coresearch/RailFabs.vue';
@@ -34,7 +34,19 @@ const labWindow = ref<InstanceType<typeof AristotleWindow>>();
 const route = useRoute();
 const router = useRouter();
 const currentCoresearchProject = useCoresearchProject(() => String(route.params.projectId ?? ''));
-const cowriteShell = computed(() => currentCoresearchProject.data.value?.mode === 'cowrite');
+const artifactFiles = useCoresearchFiles(() =>
+  route.name === 'coresearch-artifact' ? String(route.params.projectId ?? '') : '',
+);
+const artifactName = computed(() =>
+  artifactFiles.data.value
+    ?.find((f) => f.id === route.params.fileId)
+    ?.path.split('/')
+    .pop(),
+);
+const cowriteShell = computed(
+  () =>
+    route.name !== 'coresearch-artifact' && currentCoresearchProject.data.value?.mode === 'cowrite',
+);
 const client = useQueryClient();
 const me = useMe();
 const aristotle = useAristotle();
@@ -167,9 +179,11 @@ const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.v
 const tabTitle = computed(() =>
   shownCard.value
     ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${studyDisplayTitle(shownCard.value.title)}`
-    : cowriteShell.value
-      ? (currentCoresearchProject.data.value?.name ?? '')
-      : (route.meta.tabTitle ?? heading.value),
+    : route.name === 'coresearch-artifact'
+      ? (artifactName.value ?? 'File')
+      : cowriteShell.value
+        ? (currentCoresearchProject.data.value?.name ?? '')
+        : (route.meta.tabTitle ?? heading.value),
 );
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',

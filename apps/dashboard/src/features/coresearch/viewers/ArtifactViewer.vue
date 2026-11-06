@@ -7,6 +7,10 @@ import CodeBlock from '../CodeBlock.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import JsonViewer from './JsonViewer.vue';
 import ImageViewer from './ImageViewer.vue';
+import PdfDocumentPreview from './PdfDocumentPreview.vue';
+import NotebookViewer from './NotebookViewer.vue';
+import SequenceViewer from './SequenceViewer.vue';
+import { scientificTable } from './scientific-text';
 const props = defineProps<{ blob: Blob; path: string }>();
 const emit = defineEmits<{ text: [text: string | undefined, partial: boolean] }>();
 const text = ref<string>(),
@@ -15,6 +19,16 @@ const text = ref<string>(),
   pending = ref(true),
   error = ref('');
 const ext = computed(() => props.path.split('.').pop()?.toLowerCase() ?? '');
+const medicalImage = computed(
+  () => ['dcm', 'dicom'].includes(ext.value) || props.blob.type === 'application/dicom',
+);
+const pdf = computed(() => ext.value === 'pdf');
+const sequence = computed(() =>
+  ['fasta', 'fa', 'faa', 'fna', 'ffn', 'fastq', 'fq'].includes(ext.value),
+);
+const bioTable = computed(() =>
+  text.value === undefined ? undefined : scientificTable(text.value, ext.value, partial.value),
+);
 const image = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext.value));
 const mime = computed(
   () =>
@@ -39,7 +53,11 @@ watch(
   async (_, __, cleanup) => {
     let live = true;
     const object = URL.createObjectURL(
-      image.value ? new Blob([props.blob], { type: mime.value }) : props.blob,
+      image.value
+        ? new Blob([props.blob], { type: mime.value })
+        : pdf.value
+          ? new Blob([props.blob], { type: 'application/pdf' })
+          : props.blob,
     );
     url.value = object;
     cleanup(() => {
@@ -51,13 +69,16 @@ watch(
     text.value = undefined;
     emit('text', undefined, false);
     try {
+      if (pdf.value || medicalImage.value) return;
       const got = await readFormatText(
         props.blob,
-        ['csv', 'tsv'].includes(ext.value)
-          ? props.blob.size <= TABLE_FULL_MAX_BYTES
-            ? TABLE_FULL_MAX_BYTES
-            : TABLE_HEAD_BYTES
-          : undefined,
+        ext.value === 'ipynb'
+          ? 8 * 1024 * 1024
+          : ['csv', 'tsv'].includes(ext.value)
+            ? props.blob.size <= TABLE_FULL_MAX_BYTES
+              ? TABLE_FULL_MAX_BYTES
+              : TABLE_HEAD_BYTES
+            : undefined,
       );
       if (live) {
         text.value = got.text;
@@ -75,11 +96,39 @@ watch(
 </script>
 <template>
   <p v-if="pending" class="nbp-empty">Reading…</p>
+  <p v-else-if="medicalImage" class="prov-empty">No preview for this file.</p>
+  <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">
     <p class="prov-empty">{{ error || 'No preview for this file.' }}</p>
     <a class="quiet-action" :href="url" :download="path.split('/').pop()">Download</a>
   </div>
+  <SequenceViewer v-else-if="sequence" :text="text" :extension="ext" :partial="partial" />
+  <figure
+    v-else-if="bioTable"
+    class="viz-figure artifact-table"
+    aria-label="Scientific table preview"
+  >
+    <div v-if="bioTable.partial" class="viz-caption">First part only</div>
+    <details v-if="bioTable.metadata.length" class="viz-caption">
+      <summary>Header metadata</summary>
+      <pre>{{ bioTable.metadata.join('\n') }}</pre>
+    </details>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="(cell, i) in bioTable.header" :key="i">{{ cell }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, i) in bioTable.rows" :key="i">
+            <td v-for="(_, j) in bioTable.header" :key="j">{{ row[j] ?? '' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </figure>
   <figure v-else-if="table" class="viz-figure artifact-table">
     <div v-if="partial" class="viz-caption"><span class="viz-meta">First part only</span></div>
     <div class="table-scroll">
@@ -102,14 +151,47 @@ watch(
       </table>
     </div>
   </figure>
+  <NotebookViewer v-else-if="ext === 'ipynb'" :text="text" :partial="partial" />
   <MarkdownViewer v-else-if="['md', 'markdown'].includes(ext)" :text="text" />
   <JsonViewer v-else-if="ext === 'json' && !partial" :text="text" />
   <div v-else class="artifact-text">
-    <div class="viz-caption">
-      <span class="viz-meta"
-        >{{ blob.type || 'text/plain' }}{{ partial ? ' · first part only' : '' }}</span
-      >
-    </div>
+    <div v-if="partial" class="viz-caption">First part only</div>
     <CodeBlock :code="text" :lang="langForPath(path) || 'text'" line-numbers />
   </div>
 </template>
+<style scoped>
+.artifact-table,
+.artifact-text {
+  margin: 0;
+  min-width: 0;
+}
+.table-scroll {
+  overflow: auto;
+  max-width: 100%;
+}
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.data-table th,
+.data-table td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.col-type {
+  color: var(--muted);
+  margin-right: 8px;
+  font-size: 11px;
+}
+.viz-caption {
+  color: var(--muted);
+  padding: 6px 0;
+  font-size: 12px;
+}
+.viewer-failure {
+  padding: 12px;
+}
+</style>

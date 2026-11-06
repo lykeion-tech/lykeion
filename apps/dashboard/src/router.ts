@@ -10,6 +10,7 @@ import {
 import CoresearchList from './features/coresearch/CoresearchList.vue';
 import AristotleChat from './features/coresearch/AristotleChat.vue';
 import CoresearchProject from './features/coresearch/CoresearchProject.vue';
+import CoresearchFileView from './features/coresearch/CoresearchFileView.vue';
 import StudyBoard from './features/studies/StudyBoard.vue';
 import ResearchesView from './features/projects/ResearchesView.vue';
 import AutoresearchView from './features/autoresearch/AutoresearchView.vue';
@@ -72,6 +73,13 @@ const routes: RouteRecordRaw[] = [
     path: '/coresearch/conversations/:conversationId',
     component: AristotleChat,
     meta: { page: 'coresearch', title: 'Coresearch', ownHeader: true, conversationRail: true },
+  },
+  {
+    path: '/coresearch/artifacts/:projectId/:fileId',
+    name: 'coresearch-artifact',
+    component: CoresearchFileView,
+    props: true,
+    meta: { page: 'coresearch', title: 'File', ownHeader: true },
   },
   {
     path: '/coresearch/:projectId/:chatId?',

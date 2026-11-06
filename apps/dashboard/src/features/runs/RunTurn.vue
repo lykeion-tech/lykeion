@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, provide, ref } from 'vue';
 import RunTimeline from './RunTimeline.vue';
 import StudyHandIn from './StudyHandIn.vue';
 import { matchesAccepted, messagePreview, structuredMessage } from './study-hand-in';
@@ -32,6 +32,13 @@ const RecordedMarkdown = defineAsyncComponent({
 });
 
 const props = defineProps<{ run: AgentRun; study?: { title: string; question: string } }>();
+const emit = defineEmits<{ openOutput: [key: string] }>();
+provide('study-output-preview', {
+  get cardId() {
+    return props.run.card_id;
+  },
+  open: (key: string) => emit('openOutput', key),
+});
 const assignment = computed(() => readableAssignment(props.run, props.study));
 const messages = useRunMessages(() => props.run, true);
 const finalKey = computed(() => {
@@ -138,6 +145,9 @@ const ending = computed(() => {
           :role="run.role"
           :column="run.board_column"
           :review-state="reviewState"
+          :card-id="run.card_id"
+          :run-id="run.id"
+          @open-output="emit('openOutput', $event)"
         />
         <template v-else-if="structuredMessage(block.text)">
           <RecordedMarkdown
@@ -162,6 +172,9 @@ const ending = computed(() => {
       :role="run.role"
       :column="run.board_column"
       :review-state="reviewState"
+      :card-id="run.card_id"
+      :run-id="run.id"
+      @open-output="emit('openOutput', $event)"
     />
     <p v-if="run.error && !systemRun(run.role)" class="run-error">{{ run.error }}</p>
   </div>

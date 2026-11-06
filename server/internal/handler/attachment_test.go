@@ -310,6 +310,17 @@ func TestAStudyListsAndServesItsFiles(t *testing.T) {
 	if resp.StatusCode != 200 || string(body) != attachedCSV {
 		t.Fatalf("download %d %q", resp.StatusCode, body)
 	}
+	req, _ := http.NewRequest("GET", s.URL+"/api/cards/"+c.ID+"/attachments/"+csv+"?workspace="+w.ID+"&download=1", nil)
+	req.AddCookie(&http.Cookie{Name: middleware.SessionCookie, Value: a})
+	streamed, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamedBody, _ := io.ReadAll(streamed.Body)
+	streamed.Body.Close()
+	if streamed.StatusCode != 200 || string(streamedBody) != attachedCSV {
+		t.Fatalf("cookie download %d %q", streamed.StatusCode, streamedBody)
+	}
 	if got := resp.Header.Get("Content-Disposition"); got != `attachment; filename=data.csv` && got != `attachment; filename="data.csv"` {
 		t.Fatalf("disposition %q", got)
 	}
@@ -348,6 +359,16 @@ func TestAnotherWorkspaceCantSeeTheFiles(t *testing.T) {
 	for _, ws := range []string{wb.ID, wa.ID} {
 		if resp, _ := s.download(t, b, ws, c.ID, csv); resp.StatusCode != 404 {
 			t.Fatalf("download under %s: %d", ws, resp.StatusCode)
+		}
+		req, _ := http.NewRequest("GET", s.URL+"/api/cards/"+c.ID+"/attachments/"+csv+"?download=1&workspace="+ws, nil)
+		req.AddCookie(&http.Cookie{Name: middleware.SessionCookie, Value: b})
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 {
+			t.Fatalf("cookie download under %s: %d", ws, resp.StatusCode)
 		}
 	}
 }

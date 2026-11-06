@@ -278,7 +278,7 @@ func (h *H) uploadCoresearchFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *H) downloadCoresearchFile(w http.ResponseWriter, r *http.Request) {
-	ws, err := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	ws, err := downloadWorkspace(r)
 	if err != nil {
 		coresearchAnswer(w, r, pgx.ErrNoRows)
 		return
@@ -317,7 +317,7 @@ func (h *H) downloadCoresearchFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", typ)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	media, _, _ := mime.ParseMediaType(typ)
-	if media != "image/png" && media != "text/plain" {
+	if r.URL.Query().Get("download") == "1" || media != "image/png" && media != "text/plain" {
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(f.Path)}))
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(v.Size, 10))

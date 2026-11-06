@@ -1,13 +1,37 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
+import { useKindRecords } from '../../api/queries';
+import StudyFileThumbnail from '../studies/StudyFileThumbnail.vue';
 
 const props = defineProps<{
   handIn: Record<string, unknown>;
   role: string;
   column: string;
   reviewState?: 'unknown' | 'pending' | 'available';
+  cardId?: string;
+  runId?: string;
 }>();
+const emit = defineEmits<{ openOutput: [key: string] }>();
+const outputNames = computed(() =>
+  props.cardId && props.runId && Array.isArray(props.handIn.outputs)
+    ? props.handIn.outputs.filter((name): name is string => typeof name === 'string' && !!name)
+    : [],
+);
+const outputRecords = useKindRecords(
+  () => props.cardId ?? '',
+  'output',
+  () => outputNames.value.length > 0,
+);
+const files = computed(() =>
+  outputNames.value.map((name) => ({
+    name,
+    record: outputRecords.data.value?.find(
+      (record) =>
+        record.agent_run_id === props.runId && (record.body.name === name || record.key === name),
+    ),
+  })),
+);
 const labels: Record<string, string> = {
   papers: 'Sources',
   datasets: 'Datasets',
@@ -55,7 +79,7 @@ const fields = computed(() =>
 const sections = computed(() =>
   [...new Set(fields.value)].flatMap((key) => {
     const label = labels[key];
-    if (!label) return [];
+    if (!label || (key === 'outputs' && outputNames.value.length)) return [];
     const value = props.handIn[key];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) return [];
     return [{ key, label, value: Array.isArray(value) ? value : [value] }];
@@ -131,6 +155,29 @@ function entries(value: unknown, prefix = ''): [string, string][] {
         </p>
       </div>
     </details>
+    <div v-if="files.length" class="hand-in-files" aria-label="Output files">
+      <button
+        v-for="file in files"
+        :key="file.name"
+        type="button"
+        class="hand-in-file"
+        :disabled="!file.record"
+        @click="file.record && emit('openOutput', file.record.key)"
+      >
+        <StudyFileThumbnail
+          v-if="file.record"
+          :name="file.name"
+          :size="
+            typeof file.record.body.size_bytes === 'number'
+              ? file.record.body.size_bytes
+              : undefined
+          "
+          :url="`/api/cards/${encodeURIComponent(cardId ?? '')}/outputs/${encodeURIComponent(file.record.key)}`"
+        />
+        <span v-else class="file-placeholder" aria-hidden="true">FILE</span>
+        <span class="file-name">{{ file.name }}</span>
+      </button>
+    </div>
   </section>
 </template>
 <style scoped>
@@ -155,5 +202,38 @@ function entries(value: unknown, prefix = ''): [string, string][] {
 }
 .hand-in-item p {
   margin: 3px 0;
+}
+.hand-in-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.hand-in-file {
+  width: 150px;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.hand-in-file:disabled {
+  cursor: default;
+}
+.file-placeholder {
+  height: 110px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--fill-preview);
+}
+.file-name {
+  display: block;
+  padding: 8px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 </style>

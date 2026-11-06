@@ -175,6 +175,27 @@ func TestCoresearchDownload(t *testing.T) {
 		if (strings.HasSuffix(name, "svg") || strings.HasSuffix(name, "html")) && !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") {
 			t.Fatal("active content inline")
 		}
+		streamReq, _ := http.NewRequest("GET", s.URL+path+"?workspace="+ws+"&download=1", nil)
+		streamReq.AddCookie(&http.Cookie{Name: "lyk_session", Value: a})
+		stream, err := http.DefaultClient.Do(streamReq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		streamBody, _ := io.ReadAll(stream.Body)
+		stream.Body.Close()
+		if stream.StatusCode != 200 || string(streamBody) != "content" || !strings.HasPrefix(stream.Header.Get("Content-Disposition"), "attachment") {
+			t.Fatalf("cookie download %d %q %v", stream.StatusCode, streamBody, stream.Header)
+		}
+		streamReq, _ = http.NewRequest("GET", s.URL+path+"?workspace="+ws+"&download=1", nil)
+		streamReq.AddCookie(&http.Cookie{Name: "lyk_session", Value: b})
+		stream, err = http.DefaultClient.Do(streamReq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream.Body.Close()
+		if stream.StatusCode != 404 {
+			t.Fatalf("other user download %d", stream.StatusCode)
+		}
 		if c := s.call(t, "GET", path, b, ws, nil, nil); c != 404 {
 			t.Fatal(c)
 		}

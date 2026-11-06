@@ -82,6 +82,7 @@ const tree = computed(() => {
   return rows;
 });
 const metadata = computed(() => detail.data.value?.files.find((f) => f.path === path.value));
+const previewableBinary = computed(() => /\.(png|jpe?g|gif|webp|svg|pdf)$/i.test(path.value));
 const author = computed(() => {
   const s = detail.data.value;
   if (s?.origin === 'bundled') return 'Bundled by Lykeion';
@@ -260,11 +261,11 @@ async function cancelEdit() {
           </nav>
           <p v-if="file.isPending.value" role="status">Loading file…</p>
           <p v-else-if="file.error.value" role="alert">{{ file.error.value.message }}</p>
-          <template v-else-if="metadata?.binary"
+          <template v-else-if="metadata?.binary && !previewableBinary"
             ><strong>Binary file</strong>
             <p class="muted">{{ metadata.size }} bytes · SHA256 {{ metadata.sha256 }}</p></template
           >
-          <SkillFileViewer v-else :path="path" :content="preview" />
+          <SkillFileViewer v-else :path="path" :content="preview" :blob="file.data.value" />
         </template>
         <template v-if="tab === 'editing'"
           ><label class="editor-label" for="skill-content">SKILL.md</label

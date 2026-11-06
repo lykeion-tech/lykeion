@@ -211,7 +211,7 @@ export function useCoresearchContent(
         `${filePath(toValue(id), toValue(file))}/versions/${toValue(n)}/content`,
         undefined,
         undefined,
-        { signal, workspace: workspaceId.value, response: 'blob' },
+        { signal, workspace: workspaceId.value, response: 'blob', maxBytes: 32 * 1024 * 1024 },
       ),
   });
 }

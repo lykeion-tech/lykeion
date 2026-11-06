@@ -34,6 +34,7 @@ describe('member hand-in tool output', () => {
       '{"status":"done","hand_in":{"agent_run_id":"r1","attempt":1,"hand_in":{"answer":"Two sources.","papers":[]}}}\n\nResearcher comment',
     );
     expect(result?.handIn.answer).toBe('Two sources.');
+    expect(result?.agentRunId).toBe('r1');
     expect(result?.trailing).toBe('Researcher comment');
   });
   it('leaves unrelated, working and malformed tool outputs alone', () => {

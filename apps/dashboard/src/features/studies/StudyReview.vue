@@ -310,9 +310,6 @@ const unlinkedObjections = computed(() =>
     </section>
     <template v-else>
       <div class="fingerprint-panel">
-        <p v-if="attempt && shown === 'experimentation'" class="warning-caption type-caption">
-          Experimentation · warnings only
-        </p>
         <p v-if="!newest" class="review-empty">
           Jev reviews each column when its agents finish. Nothing to review yet.
         </p>
@@ -559,10 +556,6 @@ const unlinkedObjections = computed(() =>
 .review-heading {
   margin: 0 0 8px;
   font-size: 16px;
-}
-.warning-caption {
-  margin: 0 0 8px;
-  color: var(--muted);
 }
 .fingerprint-panel {
   border: 1px solid var(--border);

@@ -219,7 +219,7 @@ func (h *H) serveOutput(w http.ResponseWriter, r *http.Request, rec db.Record, w
 // downloadOutput streams one of a study's outputs to a member. Like an
 // attachment download it runs outside the buffering workspace scope.
 func (h *H) downloadOutput(w http.ResponseWriter, r *http.Request) {
-	ws, wsErr := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	ws, wsErr := downloadWorkspace(r)
 	card, cardErr := uuid.Parse(chi.URLParam(r, "id"))
 	if err := errors.Join(wsErr, cardErr); err != nil {
 		writeErr(w, 404, "not found")

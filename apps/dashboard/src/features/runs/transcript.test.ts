@@ -83,6 +83,24 @@ afterEach(() => {
   workspaceId.value = '';
 });
 describe('a retried run', () => {
+  it('shows hand-in outputs as file cards instead of a collapsed text list', async () => {
+    const hand = {
+      status: 'done',
+      answer: 'Done.',
+      outputs: ['outputs/result.csv'],
+      values: [{ name: 'Count', value: '81' }],
+    };
+    const html = await render([msg(1, 'text', JSON.stringify(hand))], {
+      board_column: 'experimentation',
+      role: 'agent',
+      hand_in: hand,
+      hand_in_id: 'accepted-record',
+    });
+    expect(html).toContain('hand-in-files');
+    expect(html).toContain('outputs/result.csv');
+    expect(html.indexOf('Recorded values')).toBeLessThan(html.indexOf('hand-in-files'));
+    expect(html).not.toContain('<summary>Outputs</summary>');
+  });
   it('keeps the earlier attempt above a divider that says why it ended', async () => {
     const html = await render(
       [
@@ -400,7 +418,11 @@ describe('reading-first recorded run', () => {
     expect(html).not.toContain('/tmp/run/result.csv');
     expect(html).toContain('results (local file not available in Lykeion)');
     const mac = await render([
-      msg(1, 'text', '[script](/private/var/folders/abc/T/run/script.py) [result](/var/folders/abc/T/run/out.csv)'),
+      msg(
+        1,
+        'text',
+        '[script](/private/var/folders/abc/T/run/script.py) [result](/var/folders/abc/T/run/out.csv)',
+      ),
     ]);
     expect(mac).not.toContain('/var/folders/abc/T/');
     expect(mac).toContain('script (local file not available in Lykeion)');

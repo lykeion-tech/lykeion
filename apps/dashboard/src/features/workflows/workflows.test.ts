@@ -137,6 +137,7 @@ async function mount(component: Component, props: Record<string, unknown>) {
       { path: 'instruction.md', size: 5, embedded: true },
       { path: 'tests/test.sh', size: 900, embedded: false },
       { path: 'solution/solve.sh', size: 12, embedded: true },
+      { path: 'results.csv', size: 21, embedded: true },
     ],
   });
   const router = createRouter({
@@ -197,6 +198,45 @@ describe('Workflows pages', () => {
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('solution%2Fsolve.sh');
     expect(m.text()).toContain('echo solved');
     vi.unstubAllGlobals();
+  });
+
+  it('renders an embedded CSV as a table', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('name,value\nalpha,42\n')));
+    const m = await mount(WorkflowDetail, { slug: 'b' });
+    try {
+      await m.click(/^Files$/);
+      await m.click(/^results\.csv$/);
+      await new Promise((r) => setTimeout(r, 0));
+      await nextTick();
+      expect(m.text()).toContain('alpha');
+      expect(m.text()).toContain('42');
+      expect(m.text()).not.toContain('name,value');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not show a late preview after selecting another file', async () => {
+    let resolveFirst!: (response: Response) => void;
+    const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    vi.stubGlobal('fetch', vi.fn((url: RequestInfo | URL) =>
+      String(url).includes('results.csv') ? first : Promise.resolve(new Response('echo current')),
+    ));
+    const m = await mount(WorkflowDetail, { slug: 'b' });
+    try {
+      await m.click(/^Files$/);
+      await m.click(/^results\.csv$/);
+      await m.click(/solution$/);
+      await m.click(/^solve\.sh$/);
+      await new Promise((r) => setTimeout(r, 0));
+      resolveFirst(new Response('name,value\nstale,42\n'));
+      await new Promise((r) => setTimeout(r, 0));
+      await nextTick();
+      expect(m.text()).toContain('echo current');
+      expect(m.text()).not.toContain('stale');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

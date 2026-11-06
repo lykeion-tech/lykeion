@@ -305,6 +305,17 @@ func TestAMemberDownloadsAnOutput(t *testing.T) {
 	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Content-Length") != "5000" {
 		t.Fatalf("headers %v", resp.Header)
 	}
+	req, _ := http.NewRequest("GET", l.s.URL+"/api/cards/"+l.card.ID+"/outputs/o1?download=1&workspace="+l.ws, nil)
+	req.AddCookie(&http.Cookie{Name: "lyk_session", Value: l.jwt})
+	stream, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(stream.Body)
+	stream.Body.Close()
+	if stream.StatusCode != 200 || len(data) != 5000 {
+		t.Fatalf("cookie download %d, %d bytes", stream.StatusCode, len(data))
+	}
 }
 
 func TestOutputsAreHiddenOutsideTheStudy(t *testing.T) {
@@ -319,6 +330,16 @@ func TestOutputsAreHiddenOutsideTheStudy(t *testing.T) {
 	}
 	other := l.s.signIn(t, "b@other.org")
 	wb := l.s.workspace(t, other, "other").ID
+	req, _ := http.NewRequest("GET", l.s.URL+"/api/cards/"+l.card.ID+"/outputs/o1?download=1&workspace="+l.ws, nil)
+	req.AddCookie(&http.Cookie{Name: "lyk_session", Value: other})
+	stream, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream.Body.Close()
+	if stream.StatusCode != 404 {
+		t.Fatalf("non-member cookie download %d", stream.StatusCode)
+	}
 	resp, unknown := l.getOutput(t, l.jwt, l.ws, "o99")
 	if resp.StatusCode != 404 {
 		t.Fatalf("unknown key %d", resp.StatusCode)

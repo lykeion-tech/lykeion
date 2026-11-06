@@ -12,7 +12,7 @@ import { formatSize } from '../../lib/attachments';
 type Reaction = { emoji: string; count: number; mine: boolean };
 type Attachment = { id: string; name: string; size_bytes: number };
 const props = defineProps<{ cardId: string; attachments: Attachment[] }>();
-const emit = defineEmits<{ download: [Attachment] }>();
+const emit = defineEmits<{ preview: [Attachment] }>();
 const client = useQueryClient();
 const key = computed(() => ['ws', workspaceId.value, 'study-reactions', props.cardId]);
 const reactions = useQuery({
@@ -160,7 +160,7 @@ async function attach(event: Event) {
     </div>
     <ul v-if="attachments.length" class="description-files" aria-label="Study attachments">
       <li v-for="file in attachments" :key="file.id">
-        <button @click="emit('download', file)">{{ file.name }}</button
+        <button @click="emit('preview', file)">{{ file.name }}</button
         ><span>{{ formatSize(file.size_bytes) }}</span>
       </li>
     </ul>

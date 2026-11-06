@@ -5,6 +5,7 @@ import {
   defineAsyncComponent,
   defineComponent,
   h,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -128,6 +129,17 @@ onUnmounted(() => {
 });
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
+const studyOutputs = ref<InstanceType<typeof StudyOutputs>>();
+const paneSurface = computed({
+  get: () => activeSurface.value,
+  set: (surface: string | null) => {
+    if (surface === null && activeSurface.value === 'files' && studyOutputs.value?.hasPreview) {
+      studyOutputs.value.back();
+      return;
+    }
+    activeSurface.value = surface;
+  },
+});
 watch(activeSurface, (surface) => {
   if (surface === 'properties') paneFocused.value = false;
 });
@@ -179,25 +191,6 @@ const propertyStateLabel = computed(() => {
   return stateLabel(current);
 });
 const services = computed(() => c.value?.services ?? []);
-async function download(a: { id: string; name: string }) {
-  try {
-    const blob = await api<Blob>(
-      'GET',
-      `/api/cards/${props.id}/attachments/${a.id}`,
-      undefined,
-      undefined,
-      { response: 'blob' },
-    );
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = a.name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (e) {
-    notify(`${a.name}: ${(e as Error).message}`);
-  }
-}
 const creator = computed(
   () =>
     events.data.value?.find(
@@ -306,12 +299,28 @@ const composerUnavailable = computed(() =>
   ),
 );
 const composerHint = computed(() =>
-  c.value?.state === 'done' || !!c.value?.ending
-    ? undefined
-    : composerUnavailable.value,
+  c.value?.state === 'done' || !!c.value?.ending ? undefined : composerUnavailable.value,
 );
 const showMeta = ref(readText('lykeion.study-meta') !== 'false');
 watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
+let attachmentRequest = 0;
+async function previewAttachment(attachment: { id: string }) {
+  const visit = generation,
+    request = ++attachmentRequest;
+  showMeta.value = true;
+  activeSurface.value = 'files';
+  await nextTick();
+  if (visit === generation && request === attachmentRequest)
+    studyOutputs.value?.openAttachment(attachment.id);
+}
+async function previewOutput(key: string) {
+  const visit = generation,
+    request = ++attachmentRequest;
+  showMeta.value = true;
+  activeSurface.value = 'files';
+  await nextTick();
+  if (visit === generation && request === attachmentRequest) studyOutputs.value?.openOutput(key);
+}
 function openNotebookAt(run: string) {
   notebookRun.value = run;
   notebookScrollRequest.value++;
@@ -509,7 +518,7 @@ function pin() {
               :key="id"
               :card-id="id"
               :attachments="c.attachments ?? []"
-              @download="download"
+              @preview="previewAttachment"
             />
           </section>
           <h2 class="activity-heading">Activity</h2>
@@ -549,7 +558,8 @@ function pin() {
               </p>
               <p
                 v-if="
-                  (!entry.comment.delivery || entry.comment.cancelled) && deliveryLine(entry.comment.delivery, {
+                  (!entry.comment.delivery || entry.comment.cancelled) &&
+                  deliveryLine(entry.comment.delivery, {
                     working,
                     unavailable: c.state === 'done' || c.ending ? undefined : composerUnavailable,
                     cancelled: entry.comment.cancelled,
@@ -591,6 +601,7 @@ function pin() {
                 )
               "
               @cancel-comment="cancelComment"
+              @open-output="previewOutput"
             />
             <div v-else-if="entry.kind === 'jev'" class="jev-card">
               <span class="avatar jev-avatar" aria-hidden="true">J</span>
@@ -659,7 +670,7 @@ function pin() {
     <SurfacePane
       v-if="c"
       v-model:open="showMeta"
-      v-model:active="activeSurface"
+      v-model:active="paneSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
       :maximizable="activeSurface !== 'properties'"
@@ -787,7 +798,7 @@ function pin() {
               <small>Attached files</small>
               <ul class="v attached-files" aria-label="Attached files">
                 <li v-for="a in c.attachments" :key="a.id">
-                  <button type="button" class="text-button" @click="download(a)">
+                  <button type="button" class="text-button" @click="previewAttachment(a)">
                     {{ a.name }}
                   </button>
                   <small>{{ formatSize(a.size_bytes) }}</small>
@@ -818,7 +829,12 @@ function pin() {
           :run-id="notebookRun"
           :scroll-request="notebookScrollRequest"
         />
-        <StudyOutputs v-else-if="active === 'files'" :card-id="id" />
+        <StudyOutputs
+          v-else-if="active === 'files'"
+          ref="studyOutputs"
+          :card-id="id"
+          :attachments="c.attachments"
+        />
       </template>
     </SurfacePane>
   </section>

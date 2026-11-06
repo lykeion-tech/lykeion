@@ -281,7 +281,7 @@ it('draws Experimentation warnings dashed and keeps the stored status', async ()
   ];
   const { root } = setup([{ column: 'experimentation', attempts: [a] }]);
   await nextTick();
-  expect(textOf(root)).toContain('· warnings only');
+  expect(textOf(root)).not.toContain('Experimentation · warnings only');
   expect(textOf(selected(root))).toContain('Unclear');
   expect(all(root).some((n) => n.tag === 'line' && n.props['stroke-dasharray'] === '4 4')).toBe(
     true,

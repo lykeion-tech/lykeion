@@ -30,7 +30,7 @@ import { agentNameWithoutCli } from '../../lib/agent-name';
 import NotebookPane from './NotebookPane.vue';
 import FilesPane from './FilesPane.vue';
 import ComputePane from './ComputePane.vue';
-import SidebarFiles from './SidebarFiles.vue';
+import ExperimentFilesGallery from './ExperimentFilesGallery.vue';
 import {
   chatPath,
   isActiveTurn,
@@ -246,7 +246,10 @@ const runtime = computed(() => {
   const own =
     runtimes.data.value?.filter(
       (r) =>
-        r.owner_id === me.data.value?.id && r.status === 'online' && !r.unhealthy_reason && r.harness === harness.value,
+        r.owner_id === me.data.value?.id &&
+        r.status === 'online' &&
+        !r.unhealthy_reason &&
+        r.harness === harness.value,
     ) ?? [];
   return own.find((r) => r.id === selectedRuntime.value) ?? own[0];
 });
@@ -818,13 +821,14 @@ async function stop() {
               :project="project.data.value"
               :file="activeFile"
             />
-            <section v-else-if="activePane === 'files'" aria-label="Files">
+            <section v-else-if="activePane === 'files'" class="experiment-files" aria-label="Files">
               <header class="art-header experiment-files-header">
                 <span class="art-title"
                   ><Icon name="file" :size="16" aria-hidden="true" />Files</span
                 >
               </header>
-              <SidebarFiles
+              <ExperimentFilesGallery
+                :project-id="project.data.value.id"
                 :files="files.data.value ?? []"
                 :loading="files.isPending.value"
                 :error="files.error.value?.message"
@@ -877,6 +881,11 @@ async function stop() {
   border: 0;
   border-radius: 0;
   height: 100%;
+}
+.experiment-files {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .experiment-surface-layout :deep(.task-rightpane-card),
 .experiment-surface-layout :deep(.notebook-panel),

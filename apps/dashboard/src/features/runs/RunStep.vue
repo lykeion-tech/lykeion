@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
 import { CheckCircle2, Circle, CircleX, LoaderCircle } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import RunStepCode from './RunStepCode.vue';
@@ -12,6 +12,10 @@ const props = defineProps<{
   nested?: boolean;
   studyColumn?: string;
 }>();
+const outputPreview = inject<{ cardId: string; open: (key: string) => void } | undefined>(
+  'study-output-preview',
+  undefined,
+);
 const member = computed(() =>
   props.studyColumn && props.step.messages[0] && isMemberResult(props.step.messages[0])
     ? memberResult('member_result', props.step.output)
@@ -73,7 +77,14 @@ const fallback = computed(() => {
           <pre class="step-output" tabindex="0">{{ fallback }}</pre>
         </template>
         <template v-if="member">
-          <StudyHandIn :hand-in="member.handIn" role="member" :column="studyColumn || ''" />
+          <StudyHandIn
+            :hand-in="member.handIn"
+            role="member"
+            :column="studyColumn || ''"
+            :card-id="outputPreview?.cardId"
+            :run-id="member.agentRunId"
+            @open-output="outputPreview?.open($event)"
+          />
           <p v-if="member.trailing" class="step-output">{{ member.trailing }}</p>
           <details>
             <summary>Recorded tool output</summary>

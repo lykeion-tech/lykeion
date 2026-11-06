@@ -11,7 +11,7 @@ import {
   useCoresearchFiles,
 } from './api';
 import type { FileRow } from './types';
-import SidebarFiles from './SidebarFiles.vue';
+import ExperimentFilesGallery from './ExperimentFilesGallery.vue';
 import ChatTranscript from './ChatTranscript.vue';
 import ChatComposer from './ChatComposer.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
@@ -248,13 +248,14 @@ async function openFile(file: FileRow) {
                   :project="project.data.value"
                   :file="activeFile"
                 />
-                <section v-else-if="activePane === 'files'" aria-label="Files">
+                <section v-else-if="activePane === 'files'" class="experiment-files" aria-label="Files">
                   <header class="art-header experiment-files-header">
                     <span class="art-title"
                       ><Icon name="file" :size="16" aria-hidden="true" />Files</span
                     >
                   </header>
-                  <SidebarFiles
+                  <ExperimentFilesGallery
+                    :project-id="projectId"
                     :files="files.data.value ?? []"
                     :loading="files.isPending.value"
                     :error="files.error.value?.message"
@@ -307,6 +308,11 @@ async function openFile(file: FileRow) {
   border: 0;
   border-radius: 0;
   height: 100%;
+}
+.experiment-files {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .experiment-surface-layout :deep(.task-rightpane-card),
 .experiment-surface-layout :deep(.notebook-panel),

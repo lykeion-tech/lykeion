@@ -72,7 +72,11 @@ export function memberResult(tool: string, output: string) {
       typeof handIn.answer !== 'string'
     )
       return null;
-    return { handIn: handIn as Record<string, unknown>, trailing: rest.join('\n\n').trim() };
+    return {
+      handIn: handIn as Record<string, unknown>,
+      agentRunId: record.agent_run_id,
+      trailing: rest.join('\n\n').trim(),
+    };
   } catch {
     return null;
   }

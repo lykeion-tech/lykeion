@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
 import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
+import ArtifactViewer from '../coresearch/viewers/ArtifactViewer.vue';
 import { useWorkflow, workflowFile } from '../../api/workflows';
 import { domainLabel, stripComments } from '../../lib/workflows';
 import { matchesQuery } from '../../lib/search';
@@ -16,7 +17,10 @@ const tab = ref<(typeof tabs)[number]>('README');
 const filter = ref('');
 const selected = ref('');
 const preview = ref('');
+const previewBlob = ref<Blob>();
+const previewLoading = ref(false);
 const previewFailed = ref(false);
+let previewRequest = 0;
 const open = ref<string[]>([]);
 // Top-level folders first, each holding its files; loose files follow.
 const tree = computed(() => {
@@ -56,24 +60,36 @@ const rows = computed(() => {
 watch(
   () => props.slug,
   () => {
+    previewRequest++;
     selected.value = '';
     preview.value = '';
+    previewBlob.value = undefined;
+    previewLoading.value = false;
     previewFailed.value = false;
     open.value = [];
     filter.value = '';
   },
 );
 async function select(path: string) {
+  const request = ++previewRequest;
   selected.value = path;
   preview.value = '';
+  previewBlob.value = undefined;
+  previewLoading.value = false;
   previewFailed.value = false;
   const file = w.value?.files.find((f) => f.path === path);
   if (!file?.embedded) return;
+  previewLoading.value = true;
   try {
-    const text = await (await workflowFile(props.slug, path)).text();
-    if (selected.value === path) preview.value = text;
+    const blob = await workflowFile(props.slug, path);
+    const text = isMarkdown(path) ? await blob.text() : '';
+    if (request !== previewRequest) return;
+    preview.value = text;
+    previewBlob.value = blob;
   } catch {
-    if (selected.value === path) previewFailed.value = true;
+    if (request === previewRequest) previewFailed.value = true;
+  } finally {
+    if (request === previewRequest) previewLoading.value = false;
   }
 }
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path);
@@ -167,12 +183,13 @@ const unavailable = computed(
         <div class="workflow-preview">
           <p v-if="!chosen" class="workflow-count">Select a file to preview it.</p>
           <p v-else-if="unavailable">Preview unavailable ({{ chosen.size }} bytes)</p>
+          <p v-else-if="previewLoading">Reading…</p>
           <RecordedMarkdown
             v-else-if="isMarkdown(chosen.path)"
             :content="stripComments(preview)"
             :breaks="false"
           />
-          <pre v-else>{{ preview }}</pre>
+          <ArtifactViewer v-else-if="previewBlob" :blob="previewBlob" :path="chosen.path" />
         </div>
       </div>
     </template>
@@ -266,8 +283,52 @@ const unavailable = computed(
   color: var(--muted);
   margin: 0 0 8px;
 }
-.workflow-preview pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.workflow-preview {
+  min-width: 0;
+}
+.workflow-preview :deep(.viz-figure) {
+  margin: 0;
+}
+.workflow-preview :deep(.table-scroll),
+.workflow-preview :deep(.image-stage),
+.workflow-preview :deep(.code-block-pre) {
+  overflow: auto;
+}
+.workflow-preview :deep(.table-scroll) {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.workflow-preview :deep(.data-table) {
+  border-collapse: collapse;
+  width: 100%;
+}
+.workflow-preview :deep(.data-table th),
+.workflow-preview :deep(.data-table td) {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+.workflow-preview :deep(.col-type) {
+  margin-right: 6px;
+  color: var(--muted);
+}
+.workflow-preview :deep(.image-controls) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.workflow-preview :deep(.image-stage) {
+  display: flex;
+  justify-content: center;
+  max-height: 70vh;
+}
+.workflow-preview :deep(.image-el:not(.is-zoomed)) {
+  max-width: 100%;
+  object-fit: contain;
+}
+.workflow-preview :deep(.code-block-pre) {
+  white-space: pre;
 }
 </style>

@@ -325,6 +325,16 @@ describe('shared capability HTTP client', () => {
       api('GET', '/api/skills/s1/files', undefined, undefined, { response: 'blob' }),
     ).rejects.toMatchObject({ status: 404, message: 'gone' });
   });
+  it('bounds actual preview bytes even when Content-Length underreports the body', async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(3)); controller.enqueue(new Uint8Array(3)); },
+      cancel() { cancelled = true; },
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream, { headers: { 'Content-Length': '2' } })));
+    await expect(api('GET', '/api/cards/c/outputs/o1', undefined, undefined, { response: 'blob', maxBytes: 4 })).rejects.toMatchObject({ name: 'PreviewTooLargeError' });
+    expect(cancelled).toBe(true);
+  });
 });
 
 describe('shared library queries and mutations', () => {

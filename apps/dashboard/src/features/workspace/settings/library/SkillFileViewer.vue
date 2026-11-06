@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, defineComponent, h, ref, watch } from 'vue';
 import Icon from '../../../../ui/Icon.vue';
 import type { highlightToolCode } from '../../../../lib/tool-code';
+import ArtifactViewer from '../../../coresearch/viewers/ArtifactViewer.vue';
 
 const PlainRecordedText = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -14,7 +15,7 @@ const RecordedMarkdown = defineAsyncComponent({
   delay: 0,
 });
 
-const props = defineProps<{ path: string; content: string }>();
+const props = defineProps<{ path: string; content: string; blob?: Blob }>();
 const markdown = computed(() => /\.(md|markdown)$/i.test(props.path));
 const python = computed(() => /\.(py|pyw)$/i.test(props.path));
 const mode = ref<'preview' | 'source'>('preview');
@@ -32,7 +33,7 @@ watch(
       cancelled = true;
     });
     tokens.value = undefined;
-    if (!python.value) return;
+    if (!python.value || props.blob) return;
     try {
       const { highlightToolCode } = await import('../../../../lib/tool-code');
       const result = await highlightToolCode(content, 'python');
@@ -75,6 +76,7 @@ watch(
       class="file-markdown"
       :content="renderedContent"
     />
+    <ArtifactViewer v-else-if="!markdown && blob" :blob="blob" :path="path" />
     <pre
       v-else-if="python && tokens"
       class="file-code"

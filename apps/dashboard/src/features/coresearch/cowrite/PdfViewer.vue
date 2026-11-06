@@ -13,7 +13,7 @@ import { loadPdfjs } from './lib/pdf-render';
 import { PX_PER_PT, fitScale, keepCentre, nextZoom } from './lib/pdf-zoom';
 import PdfSheet from './PdfSheet.vue';
 const intersectionSupported = typeof IntersectionObserver !== 'undefined';
-const props = defineProps<{ src: string; path: string }>();
+const props = defineProps<{ src: string; path: string; maxPages?: number }>();
 const emit = defineEmits<{ view: [view: PdfView] }>();
 const stage = ref<HTMLDivElement>(),
   doc = shallowRef<PDFDocumentProxy>(),
@@ -133,6 +133,11 @@ watch(
         task = pdfjs.getDocument({ url: src, enableXfa: false });
         const loaded = await task.promise;
         if (cancelled) return dispose();
+        if (props.maxPages && loaded.numPages > props.maxPages) {
+          failure.value = `This PDF has more than ${props.maxPages} pages and cannot be previewed here.`;
+          dispose();
+          return;
+        }
         const first = (await loaded.getPage(1)).getViewport({ scale: 1 });
         if (cancelled) return dispose();
         sizes.value = Array.from({ length: loaded.numPages }, () => ({

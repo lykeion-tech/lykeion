@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api, ApiError } from '../../api/client';
+import { api, ApiError, downloadFile, PreviewTooLargeError } from '../../api/client';
 import { workspaceId } from '../../api/session';
-import { registerDraftVisit } from '../../state/resource-draft';
+import { guardResourceDrafts, registerDraftVisit } from '../../state/resource-draft';
+import { useWorkspaceTabs } from '../../state/workspace-tabs';
 import {
   keys,
   filePath,
@@ -18,7 +19,14 @@ import { readFormatText } from './format-text';
 import ArtifactViewer from './viewers/ArtifactViewer.vue';
 import CodeBlock from './CodeBlock.vue';
 import ProvenancePanel from './ProvenancePanel.vue';
-const props = defineProps<{ project: ProjectRow; file?: FileRow; selectedN?: number }>();
+const props = defineProps<{
+  project: ProjectRow;
+  file?: FileRow;
+  selectedN?: number;
+  inWorkspaceTab?: boolean;
+}>();
+const emit = defineEmits<{ 'update:selectedN': [number | undefined] }>();
+const workspaceTabs = useWorkspaceTabs();
 const client = useQueryClient(),
   files = useCoresearchFiles(() => props.project.id);
 const versions = useCoresearchVersions(
@@ -65,10 +73,15 @@ const earlier = computed(() => chain.value.filter((v) => v.n < shownN.value));
 const comparison = computed(
   () => earlier.value.find((v) => v.n === comparePin.value) ?? earlier.value.at(-1),
 );
+const PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
+const metadataTooLarge = computed(() => !!version.value && version.value.size > PREVIEW_MAX_BYTES);
 const content = useCoresearchContent(
   () => props.project.id,
-  () => props.file?.id ?? '',
+  () => (version.value && !metadataTooLarge.value ? (props.file?.id ?? '') : ''),
   () => shownN.value,
+);
+const tooLarge = computed(
+  () => metadataTooLarge.value || content.error.value instanceof PreviewTooLargeError,
 );
 const compareContent = useCoresearchContent(
   () => props.project.id,
@@ -81,6 +94,10 @@ const compareContent = useCoresearchContent(
   () => comparison.value?.n ?? 0,
 );
 const dirty = computed(() => editing.value && draft.value !== initial.value);
+function download() {
+  if (!props.file) return;
+  downloadFile(`${filePath(props.project.id, props.file.id)}/versions/${shownN.value}/content`, workspaceId.value);
+}
 registerDraftVisit({
   dirty: () => dirty.value,
   discard: cancel,
@@ -89,6 +106,7 @@ registerDraftVisit({
 watch(
   () => props.selectedN,
   (n) => {
+    if (editing.value && !dirty.value) cancel();
     if (!editing.value) pin.value = n;
   },
 );
@@ -125,6 +143,12 @@ const diff = computed(() => {
   const result = boundedUnifiedDiff(oldText.value, previewText.value);
   return result.kind === 'diff' ? { text: result.text } : { message: 'Too large to compare.' };
 });
+async function openInTab() {
+  if (!props.file || editing.value || !(await guardResourceDrafts())) return;
+  const path = `/coresearch/artifacts/${encodeURIComponent(props.project.id)}/${encodeURIComponent(props.file.id)}`;
+  const version = shownN.value < head.value ? `?version=${shownN.value}` : '';
+  workspaceTabs.openTab(path + version, props.file.path.split('/').at(-1) || 'File', 'file');
+}
 function startEdit() {
   editBase.value = shownN.value;
   initial.value = previewText.value ?? '';
@@ -142,6 +166,7 @@ function cancel() {
 async function reload() {
   cancel();
   pin.value = undefined;
+  if (props.inWorkspaceTab) emit('update:selectedN', undefined);
   await Promise.all([versions.refetch(), files.refetch()]);
 }
 function refresh(ws: string, id: string) {
@@ -179,6 +204,7 @@ async function save(force = false) {
     ]);
     cancel();
     pin.value = undefined;
+    if (props.inWorkspaceTab) emit('update:selectedN', undefined);
     refresh(ws, id);
   } catch (e) {
     if (e instanceof ApiError && e.status === 409 && e.body.error === 'stale_base') {
@@ -207,6 +233,7 @@ async function restore() {
       ...(old ?? []),
     ]);
     pin.value = undefined;
+    if (props.inWorkspaceTab) emit('update:selectedN', undefined);
     refresh(ws, id);
   } catch (e) {
     error.value =
@@ -217,9 +244,11 @@ async function restore() {
     busy.value = false;
   }
 }
-function step(n: number | undefined) {
+async function step(n: number | undefined) {
   if (editing.value) return;
+  if (props.inWorkspaceTab && !(await guardResourceDrafts())) return;
   pin.value = n;
+  if (props.inWorkspaceTab) emit('update:selectedN', n);
   picker.value = false;
 }
 </script>
@@ -229,6 +258,15 @@ function step(n: number | undefined) {
     <template v-else
       ><header class="art-header">
         <span class="art-title" :title="file.path">{{ file.path.split('/').pop() }}</span
+        ><button
+          v-if="!inWorkspaceTab"
+          type="button"
+          class="art-icon-btn"
+          aria-label="Open file in tab"
+          :disabled="editing"
+          @click="openInTab"
+        >
+          Open in tab</button
         ><span v-if="chain.length > 1" class="art-stepper"
           ><button
             type="button"
@@ -300,12 +338,17 @@ function step(n: number | undefined) {
             </button>
           </div></template
         >
+        <button type="button" class="quiet-action" @click="download">Download file</button>
       </header>
       <div class="artifact-pane-body">
-        <p v-if="versions.error.value || content.error.value" class="nbp-repl-error" role="alert">
+        <p
+          v-if="versions.error.value || (content.error.value && !tooLarge)"
+          class="nbp-repl-error"
+          role="alert"
+        >
           {{ versions.error.value?.message || content.error.value?.message }}
         </p>
-        <p v-else-if="!version || !content.data.value" class="nbp-empty">
+        <p v-else-if="!version || (!content.data.value && !tooLarge)" class="nbp-empty">
           {{
             versions.isPending.value || content.isPending.value
               ? 'Loading…'
@@ -357,7 +400,10 @@ function step(n: number | undefined) {
           </div>
           <div class="viz-body">
             <template v-if="tab === 'preview'"
-              ><div v-if="editing" class="artifact-editor">
+              ><div v-if="tooLarge" class="nbp-empty">
+                This file is too large to preview.
+              </div>
+              <div v-else-if="editing" class="artifact-editor">
                 <textarea
                   v-model="draft"
                   class="artifact-editor-host code-text raw-text"
@@ -387,7 +433,7 @@ function step(n: number | undefined) {
                 <p v-if="diff.message" class="nbp-empty">{{ diff.message }}</p>
                 <CodeBlock v-else :code="diff.text ?? ''" lang="diff" />
               </div>
-              <div :hidden="editing || diffing">
+              <div v-if="!tooLarge && content.data.value" :hidden="editing || diffing">
                 <ArtifactViewer
                   :key="`${file.id}:${shownN}`"
                   :blob="content.data.value"

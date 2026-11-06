@@ -1,6 +1,15 @@
 import { workspaceId } from './session';
 import { authenticationEpoch, authenticationLost } from './auth-loss';
 
+// Let the browser stream to its download manager without buffering the file in JS.
+export function downloadFile(path: string, workspace: string) {
+  const query = new URLSearchParams({ download: '1', workspace });
+  const anchor = document.createElement('a');
+  anchor.href = `${path}?${query}`;
+  anchor.download = '';
+  anchor.click();
+}
+
 // A refused request: the HTTP status, the server's "error" text and the whole
 // JSON body, which some refusals extend (a duplicate names the card it matched).
 export class ApiError extends Error {
@@ -13,6 +22,40 @@ export class ApiError extends Error {
   }
 }
 
+export class PreviewTooLargeError extends Error {
+  constructor() {
+    super('File exceeds the preview size limit.');
+    this.name = 'PreviewTooLargeError';
+  }
+}
+
+async function boundedBlob(res: Response, limit: number): Promise<Blob> {
+  const length = Number(res.headers.get('Content-Length'));
+  if (length > limit) {
+    await res.body?.cancel().catch(() => {});
+    throw new PreviewTooLargeError();
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return new Blob([], { type: res.headers.get('Content-Type') ?? '' });
+  const chunks: ArrayBuffer[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel().catch(() => {});
+        throw new PreviewTooLargeError();
+      }
+      chunks.push(value.slice().buffer as ArrayBuffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return new Blob(chunks, { type: res.headers.get('Content-Type') ?? '' });
+}
+
 // One request to the Go server on the dashboard's own origin, so the session
 // cookie rides along. JSON or form data in, JSON or bytes out; 204 gives undefined.
 export async function api<T = void>(
@@ -20,7 +63,7 @@ export async function api<T = void>(
   path: string,
   body?: unknown,
   raw?: { data: Blob; type: string },
-  options: { workspace?: string; signal?: AbortSignal; response?: 'blob' } = {},
+  options: { workspace?: string; signal?: AbortSignal; response?: 'blob'; maxBytes?: number } = {},
 ): Promise<T> {
   const requestEpoch = authenticationEpoch();
   const headers: Record<string, string> = {};
@@ -45,7 +88,8 @@ export async function api<T = void>(
   });
   if (res.status === 401) authenticationLost(requestEpoch);
   if (res.status === 204) return undefined as T;
-  if (res.ok && options.response === 'blob') return (await res.blob()) as T;
+  if (res.ok && options.response === 'blob')
+    return (await (options.maxBytes === undefined ? res.blob() : boundedBlob(res, options.maxBytes))) as T;
   const text = await res.text();
   let data: unknown;
   try {

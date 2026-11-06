@@ -1722,6 +1722,97 @@ describe('study right-pane surfaces', () => {
   });
 });
 
+it('opens an attachment chip in Files and returns to the gallery using the pane back control', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path: string) =>
+      path.includes('/attachments/a1')
+        ? new Response(new Blob(['test']), { status: 200 })
+        : Response.json([]),
+    ),
+  );
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: 'c' }),
+    '/',
+    (client) => {
+      seedStudy(client, {
+        attachments: [{ id: 'a1', name: 'input.txt', size_bytes: 4, content_type: 'text/plain' }],
+      });
+      client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'output'], []);
+    },
+  );
+  try {
+    await t.click(/^input\.txt$/);
+    await vi.waitFor(() => expect(t.text()).toContain('Download'));
+    const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;
+    (back.props.onClick as () => void)();
+    await nextTick();
+    expect(t.text()).toContain('Your uploads');
+    expect(t.text()).not.toContain('Download');
+    await t.click(/^input\.txt$/);
+    await vi.waitFor(() => expect(t.text()).toContain('Download'));
+    (t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props.onClick as () => void)();
+    await nextTick();
+    (t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!.props.onClick as () => void)();
+    await nextTick();
+    await t.click(/^Properties$/);
+    const attached = t.nodes().find((n) => n.props['aria-label'] === 'Attached files')!;
+    const propertyFile = all(attached).find((n) => n.tag === 'button' && textOf(n).includes('input.txt'))!;
+    (propertyFile.props.onClick as () => void)();
+    await vi.waitFor(() => expect(t.text()).toContain('Download'));
+  } finally {
+    t.unmount();
+  }
+});
+
+it('does not show an attachment preview after switching studies during the fetch', async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) =>
+      path.includes('/attachments/a1')
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(Response.json([])),
+    ),
+  );
+  const id = ref('c');
+  const t = await mount(
+    StudyDetail,
+    () => ({ id: id.value }),
+    '/',
+    (client) => {
+      seedStudy(client, {
+        attachments: [{ id: 'a1', name: 'input.txt', size_bytes: 4, content_type: 'text/plain' }],
+      });
+      client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'output'], []);
+    },
+  );
+  try {
+    await t.click(/^input\.txt$/);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    id.value = 'another-study';
+    await nextTick();
+    finish(new Response(new Blob(['old private contents']), { status: 200 }));
+    await nextTick();
+    expect(t.text()).not.toContain('old private contents');
+    expect(t.text()).not.toContain('Download');
+  } finally {
+    t.unmount();
+  }
+});
+
 it('lists each saved study output separately with its stage and run provenance', async () => {
   const t = await mount(
     StudyDetail,
@@ -1772,27 +1863,40 @@ it('lists each saved study output separately with its stage and run provenance',
 
 describe('a Workflow study', () => {
   it('announces workflow and ordinary study creation accurately', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === 'POST' ? Response.json({ id: 'card' }) : Response.json([]),
-    ));
-    vi.stubGlobal('XMLHttpRequest', class {
-      upload = {};
-      status = 200;
-      responseText = JSON.stringify({ id: 'file', name: 'data.csv', size_bytes: 1 });
-      onload?: () => void;
-      open() {}
-      setRequestHeader() {}
-      send() { this.onload?.(); }
-    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) =>
+        init?.method === 'POST' ? Response.json({ id: 'card' }) : Response.json([]),
+      ),
+    );
+    vi.stubGlobal(
+      'XMLHttpRequest',
+      class {
+        upload = {};
+        status = 200;
+        responseText = JSON.stringify({ id: 'file', name: 'data.csv', size_bytes: 1 });
+        onload?: () => void;
+        open() {}
+        setRequestHeader() {}
+        send() {
+          this.onload?.();
+        }
+      },
+    );
     for (const workflow of ['mendota-ice-phenology', 'variable-star-vetting', '']) {
       notice.value = '';
-      const t = await mount(CreateStudy, () => ({
-        ...(workflow ? { workflow } : {}),
-        assignee: { type: 'agent', id: 'a1' },
-      }), '/', (client) => {
-        seedStudy(client);
-        client.setQueryData(keys.workflows, { release: 'test', workflows: [] });
-      });
+      const t = await mount(
+        CreateStudy,
+        () => ({
+          ...(workflow ? { workflow } : {}),
+          assignee: { type: 'agent', id: 'a1' },
+        }),
+        '/',
+        (client) => {
+          seedStudy(client);
+          client.setQueryData(keys.workflows, { release: 'test', workflows: [] });
+        },
+      );
       try {
         await t.fill('Describe your study', 'Question');
         if (workflow) {

@@ -26,7 +26,7 @@ const props = defineProps<{
   authorId?: string;
   cancellingComment?: string;
 }>();
-const emit = defineEmits<{ cancelComment: [id: string] }>();
+const emit = defineEmits<{ cancelComment: [id: string]; openOutput: [key: string] }>();
 const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
 const open = ref(active.value);
 const members = useMembers();
@@ -87,8 +87,7 @@ function replyAuthor(item: Comment) {
 }
 function replyStatus(item: Comment) {
   if (item.delivery) return deliveryLine(item.delivery, { working: active.value, who: name.value });
-  if (!item.steer_attempt || !active.value || item.steer_attempt !== props.run.attempt)
-    return '';
+  if (!item.steer_attempt || !active.value || item.steer_attempt !== props.run.attempt) return '';
   return props.run.harness === 'codex'
     ? 'Live steering is unavailable for Codex'
     : `Waiting to reach ${name.value}`;
@@ -164,7 +163,11 @@ const lastActive = computed(
         <p class="preview">{{ preview }}</p>
       </template>
       <div v-else :id="`run-transcript-${run.id}`" class="open-transcript">
-        <RunTurn :run="run" :study="studyCard.data.value" />
+        <RunTurn
+          :run="run"
+          :study="studyCard.data.value"
+          @open-output="emit('openOutput', $event)"
+        />
         <p v-if="studyCard.data.value?.machine_notice" class="machine-notice" role="status">
           {{ studyCard.data.value.machine_notice }}
         </p>
@@ -175,9 +178,11 @@ const lastActive = computed(
           <div class="reply-content">
             <div class="reply-heading">
               <b>{{ replyAuthor(item) }}</b>
-              <time :datetime="item.created_at" :title="new Date(item.created_at).toLocaleString()">{{
-                timeAgo(item.created_at)
-              }}</time>
+              <time
+                :datetime="item.created_at"
+                :title="new Date(item.created_at).toLocaleString()"
+                >{{ timeAgo(item.created_at) }}</time
+              >
             </div>
             <p>{{ item.body }}</p>
             <small v-if="replyStatus(item)">{{ replyStatus(item) }}</small>
@@ -223,7 +228,6 @@ const lastActive = computed(
         This reply will be saved as a study comment.
       </p>
     </article>
-
   </section>
 </template>
 <style scoped>

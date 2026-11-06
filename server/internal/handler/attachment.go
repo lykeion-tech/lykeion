@@ -386,8 +386,16 @@ func (h *H) uploadText(name, typ string, f io.ReaderAt, size int64) (*io.Section
 // downloadAttachment streams one of a study's files. It runs outside the
 // buffering workspace scope so a 5 GB file never sits in memory, and it
 // checks membership and the file's study before reading the blob.
+func downloadWorkspace(r *http.Request) (uuid.UUID, error) {
+	workspace := r.Header.Get("X-Workspace-ID")
+	if workspace == "" && r.URL.Query().Get("download") == "1" {
+		workspace = r.URL.Query().Get("workspace")
+	}
+	return uuid.Parse(workspace)
+}
+
 func (h *H) downloadAttachment(w http.ResponseWriter, r *http.Request) {
-	ws, wsErr := uuid.Parse(r.Header.Get("X-Workspace-ID"))
+	ws, wsErr := downloadWorkspace(r)
 	card, cardErr := uuid.Parse(chi.URLParam(r, "id"))
 	aid, aidErr := uuid.Parse(chi.URLParam(r, "aid"))
 	if err := errors.Join(wsErr, cardErr, aidErr); err != nil {
