@@ -3,9 +3,17 @@ import { readFileSync } from 'node:fs';
 import { parseBcf } from './bcf-preview';
 import { readBgzf } from './bgzf-preview';
 
-function fixture(filter = [0x00], definitions = '', infoBytes: number[] = [], infoCount = 0) {
+function fixture(
+  filter = [0x00],
+  definitions = '',
+  infoBytes: number[] = [],
+  infoCount = 0,
+  sampleNames: string[] = [],
+  formatBytes: number[] = [],
+  formatCount = 0,
+) {
   const header = new TextEncoder().encode(
-    `##fileformat=VCFv4.3\n${definitions}##contig=<ID=chr1,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\0`,
+    `##fileformat=VCFv4.3\n${definitions}##contig=<ID=chr1,IDX=0>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO${sampleNames.length ? '\tFORMAT\t' + sampleNames.join('\t') : ''}\n\0`,
   );
   const body = new Uint8Array(24 + 1 + 4 + 2 + 2 + filter.length - 1 + infoBytes.length);
   const b = new DataView(body.buffer);
@@ -14,15 +22,44 @@ function fixture(filter = [0x00], definitions = '', infoBytes: number[] = [], in
   b.setInt32(8, 1, true);
   b.setUint32(12, 0x7f800001, true);
   b.setUint32(16, (2 << 16) | infoCount, true);
+  b.setUint32(20, (formatCount << 24) | sampleNames.length, true);
   body.set([0x37, 114, 115, 49, 0x17, 65, 0x17, 67, ...filter, ...infoBytes], 24);
-  const out = new Uint8Array(9 + header.length + 8 + body.length);
+  const out = new Uint8Array(9 + header.length + 8 + body.length + formatBytes.length);
   out.set([66, 67, 70, 2, 2]);
   new DataView(out.buffer).setUint32(5, header.length, true);
   out.set(header, 9);
   new DataView(out.buffer).setUint32(9 + header.length, body.length, true);
+  new DataView(out.buffer).setUint32(13 + header.length, formatBytes.length, true);
   out.set(body, 17 + header.length);
+  out.set(formatBytes, 17 + header.length + body.length);
   return out;
 }
+it('decodes phased, missing and haploid genotypes while rejecting invalid alleles and padding', () => {
+  const defs = '##FORMAT=<ID=GT,Number=1,Type=String,IDX=1>\n';
+  const samples = ['one', 'two', 'three'];
+  const record = (data: number[]) =>
+    fixture([0], defs, [], 0, samples, [0x11, 1, 0x21, ...data], 1);
+  expect(parseBcf(record([2, 5, 0, 2, 4, 0x81]), false)?.rows[0]?.slice(8)).toEqual([
+    '0|1',
+    './0',
+    '1',
+  ]);
+  expect(parseBcf(record([2, 6, 0, 2, 4, 0x81]), false)).toBeUndefined();
+  expect(parseBcf(record([0x81, 2, 0, 2, 4, 0x81]), false)).toBeUndefined();
+  const newer = record([2, 5, 0, 2, 4, 0x81]);
+  const marker = new TextEncoder().encode('VCFv4.3');
+  const offset = newer.findIndex((_, i) => marker.every((value, j) => newer[i + j] === value));
+  newer[offset + marker.length - 1] = 0x34;
+  expect(parseBcf(newer, false)).toBeUndefined();
+  const many = Array.from({ length: 17 }, (_, i) => `S${i}`);
+  const preview = parseBcf(
+    fixture([0], defs, [], 0, many, [0x11, 1, 0x11, ...many.map(() => 2)], 1),
+    false,
+  );
+  expect(preview?.samples.length).toBe(16);
+  expect(preview?.samplesTruncated).toBe(true);
+  expect(preview?.rows[0]?.slice(8)).toEqual(Array(16).fill('0'));
+});
 it('reads variant coordinates and missing quality without inventing annotations', () => {
   expect(parseBcf(fixture(), false)?.rows).toEqual([
     ['chr1', '10', 'rs1', 'A', 'C', '.', '.', '.'],
@@ -86,7 +123,11 @@ it('reads the independently produced HTSlib BCF fixture', async () => {
   );
   const decoded = await readBgzf(new Blob([bytes]));
   expect(decoded).toBeDefined();
-  expect(parseBcf(decoded!.bytes, decoded!.partial)?.rows.slice(0, 4)).toEqual([
+  expect(
+    parseBcf(decoded!.bytes, decoded!.partial)
+      ?.rows.slice(0, 4)
+      .map((row) => row.slice(0, 8)),
+  ).toEqual([
     ['1', '3000150', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS', 'AN=4;AC=2'],
     ['1', '3000151', '.', 'C', 'T', String(Math.fround(59.2)), 'PASS', 'AN=4;AC=2'],
     [
@@ -109,5 +150,13 @@ it('reads the independently produced HTSlib BCF fixture', async () => {
       'test',
       'TEST=5;DP4=1,2,3,4;AN=3;AC=1,1',
     ],
+  ]);
+  const preview = parseBcf(decoded!.bytes, decoded!.partial);
+  expect(preview?.samples).toEqual(['A', 'B']);
+  expect(preview?.rows.slice(0, 4).map((row) => row.slice(8))).toEqual([
+    ['0/1', '0/1'],
+    ['0/1', '0/1'],
+    ['0/1', '0/1'],
+    ['0/1', '2'],
   ]);
 });

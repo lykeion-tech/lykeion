@@ -55,9 +55,11 @@ watch(
   <p v-if="pending" role="status">Reading BCF file…</p>
   <section v-else-if="preview" aria-label="BCF preview">
     <p>
-      Variant site sample only. Sample genotypes are omitted.<template v-if="preview.truncated">
-        Additional records are not shown.</template
-      >
+      Variant site sample only.<template v-if="preview.samples.length">
+        Sample columns show GT for VCF 4.3 and earlier; — means GT was not provided. Other FORMAT
+        fields are omitted.</template
+      ><template v-if="preview.samplesTruncated"> Only the first 16 samples are shown.</template
+      ><template v-if="preview.truncated"> Additional records are not shown.</template>
     </p>
     <p v-if="!preview.rows.length">No variant records in this sample.</p>
     <div v-else class="scroll">
@@ -70,6 +72,7 @@ watch(
             >
               {{ col }}
             </th>
+            <th v-for="sample in preview.samples" :key="sample">{{ sample }}</th>
           </tr>
         </thead>
         <tbody>

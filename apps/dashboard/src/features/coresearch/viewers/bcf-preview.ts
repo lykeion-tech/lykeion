@@ -1,6 +1,8 @@
 export interface BcfPreview {
   rows: string[][];
   truncated: boolean;
+  samples: string[];
+  samplesTruncated: boolean;
 }
 const LIMIT = 4 * 1024 * 1024;
 export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | undefined {
@@ -28,6 +30,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
       !lines.at(-1)?.startsWith('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO')
     )
       return;
+    const vcfVersion = /^##fileformat=VCFv(\d+)\.(\d+)$/.exec(lines[0]!);
     const names: string[] = [],
       seen = new Set<string>(),
       explicit: boolean[] = [];
@@ -37,6 +40,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
     const dictionary = new Map<number, string>([[0, 'PASS']]);
     const dictionaryNames = new Map<string, number>([['PASS', 0]]);
     const info = new Map<number, { name: string; type: string; number: string }>();
+    let genotypeIndex: number | undefined;
     let dictionaryMode: 'explicit' | 'implicit' | undefined;
     for (const line of lines) {
       if (/^##(?:FILTER|INFO|FORMAT)=</.test(line)) {
@@ -68,6 +72,15 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         dictionary.set(index, name);
         dictionaryNames.set(name, index);
         if (line.startsWith('##FILTER=<')) filters.set(index, name);
+        if (line.startsWith('##FORMAT=<') && name === 'GT') {
+          if (
+            genotypeIndex !== undefined ||
+            !fields.includes('Type=String') ||
+            !fields.includes('Number=1')
+          )
+            return;
+          genotypeIndex = index;
+        }
         if (line.startsWith('##INFO=<')) {
           const types = fields.filter((s) => s.startsWith('Type='));
           const numbers = fields.filter((s) => s.startsWith('Number='));
@@ -116,6 +129,12 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
     if (samples !== 8 && samples < 10) return;
     const sampleCount = samples === 8 ? 0 : samples - 9,
       rows: string[][] = [];
+    const sampleNames = headerFields.slice(9, 25);
+    if (
+      sampleNames.some((name) => !name || name.length > 512 || /[\x00-\x20\x7f]/.test(name)) ||
+      new Set(sampleNames).size !== sampleNames.length
+    )
+      return;
     let pos = 9 + length;
     const decoder = new TextDecoder('utf-8', { fatal: true });
     while (pos < bytes.length && rows.length < 200) {
@@ -299,10 +318,55 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
       }
       if (p !== end) return;
       end += indiv;
+      let genotypes: string[] | undefined;
       for (let i = 0; i < nFmt; i++) {
         const key = typed();
         if (![1, 2, 3].includes(key.type) || key.len !== 1 || !nSample) return;
-        typed(nSample);
+        const index =
+          key.type === 1
+            ? view.getInt8(key.at)
+            : key.type === 2
+              ? view.getInt16(key.at, true)
+              : view.getInt32(key.at, true);
+        const value = typed(nSample);
+        if (index === genotypeIndex) {
+          // VCF 4.4 introduced meaningful leading phase markers. Fail closed
+          // until those markers can be represented without ambiguity.
+          if (
+            !vcfVersion ||
+            Number(vcfVersion[1]) > 4 ||
+            (Number(vcfVersion[1]) === 4 && Number(vcfVersion[2]) >= 4)
+          )
+            return;
+          if (genotypes || ![1, 2, 3].includes(value.type) || value.len < 1 || value.len > 64)
+            return;
+          const size = value.type === 1 ? 1 : value.type === 2 ? 2 : 4;
+          const missing = value.type === 1 ? -128 : value.type === 2 ? -32768 : -2147483648;
+          genotypes = [];
+          for (let sample = 0; sample < sampleNames.length; sample++) {
+            const pieces: string[] = [];
+            let ended = false;
+            for (let j = 0; j < value.len; j++) {
+              const at = value.at + (sample * value.len + j) * size;
+              const n =
+                size === 1
+                  ? view.getInt8(at)
+                  : size === 2
+                    ? view.getInt16(at, true)
+                    : view.getInt32(at, true);
+              if (n === missing + 1) {
+                ended = true;
+                continue;
+              }
+              if (ended || n < 0) return;
+              const allele = (n >> 1) - 1;
+              if (allele >= alleles) return;
+              pieces.push(`${j ? (n & 1 ? '|' : '/') : ''}${allele < 0 ? '.' : allele}`);
+            }
+            if (!pieces.length) return;
+            genotypes.push(pieces.join(''));
+          }
+        }
       }
       if (p !== end) return;
       const q = qual === 0x7f800001 ? '.' : String(view.getFloat32(start + 12, true));
@@ -316,10 +380,16 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         q,
         filterValues.join(';') || '.',
         infoValues.join(';') || '.',
+        ...(genotypes ?? sampleNames.map(() => '—')),
       ]);
       pos = end;
     }
-    return { rows, truncated: partial || pos < bytes.length };
+    return {
+      rows,
+      truncated: partial || pos < bytes.length,
+      samples: sampleNames,
+      samplesTruncated: sampleCount > sampleNames.length,
+    };
   } catch {
     return;
   }

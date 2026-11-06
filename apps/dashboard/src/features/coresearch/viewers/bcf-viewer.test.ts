@@ -80,13 +80,22 @@ it('shows decoded filters and describes the remaining omissions', async () => {
   const root = node('root');
   app.mount(root);
   workers[0]!.onmessage!({
-    data: { preview: { rows: [['1', '3', '.', 'A', 'T', '.', 'q10', 'DP=7']], truncated: false } },
+    data: {
+      preview: {
+        rows: [['1', '3', '.', 'A', 'T', '.', 'q10', 'DP=7', '0|1']],
+        truncated: false,
+        samples: ['sample A'],
+        samplesTruncated: false,
+      },
+    },
   });
   await nextTick();
   expect(textOf(root)).toContain('FILTER');
   expect(textOf(root)).toContain('q10');
   expect(textOf(root)).toContain('INFO');
   expect(textOf(root)).toContain('DP=7');
-  expect(textOf(root)).toContain('Sample genotypes are omitted');
+  expect(textOf(root)).toContain('sample A');
+  expect(textOf(root)).toContain('0|1');
+  expect(textOf(root)).toContain('Other FORMAT fields are omitted');
   app.unmount();
 });
