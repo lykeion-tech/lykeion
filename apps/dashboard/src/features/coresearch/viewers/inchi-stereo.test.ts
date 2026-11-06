@@ -66,11 +66,11 @@ it('reconstructs independent cis/trans 2-butene and verifies the final drawn geo
   const candidates = await geometricMolfileCandidates(maleic);
   expect(candidates.map((m) => depictInchi(kit, m, maleic, true)).filter(Boolean)).toHaveLength(1);
 });
-it('rejects geometric identifiers with more than two, mixed or isotopic stereo', async () => {
+it('rejects geometric identifiers with more than two, relative or isotopic stereo', async () => {
   const { geometricMolfileCandidates } = await import('./inchi-stereo');
   for (const input of [
     'InChI=1S/C8H12/c1-3-5-7-8-6-4-2/h3-8H,1-2H3/b5-3+,7-5-,8-6+',
-    'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+/t2-/m0/s1',
+    'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+/t2-/m0/s2',
     'InChI=1S/C4H8/c1-3-4-2/h3-4H,1-2H3/b4-3+/i1+1',
   ]) {
     expect(inchiRecord(input)).toBeUndefined();
@@ -98,5 +98,65 @@ it('reconstructs both geometric bonds in NIST (2E,4E)-hexadiene with bounded can
   ).toBe(false);
   expect(
     safeStereoStructure(structure.atoms, [...structure.stereo, structure.stereo[0]!], 'geometric'),
+  ).toBe(false);
+});
+
+it('preserves both tetrahedral and geometric stereo for PubChem methyl jasmonate', async () => {
+  const { geometricMolfileCandidates } = await import('./inchi-stereo');
+  const kit = await createRequire(import.meta.url)('@rdkit/rdkit')();
+  // PubChem CID 5281929, (-)-methyl jasmonate.
+  const input =
+    'InChI=1S/C13H20O3/c1-3-4-5-6-11-10(7-8-12(11)14)9-13(15)16-2/h4-5,10-11H,3,6-9H2,1-2H3/b5-4-/t10-,11-/m1/s1';
+  expect(inchiRecord(input)).toBe(input);
+  const candidates = await geometricMolfileCandidates(input);
+  expect(candidates).toHaveLength(2);
+  const matching = candidates.map((m) => depictInchi(kit, m, input, true)).filter(Boolean);
+  expect(matching).toHaveLength(1);
+  // NIST WebBook R169605 gives the opposite absolute tetrahedral configuration.
+  const opposite = input.replace('/m1/s1', '/m0/s1');
+  const oppositeCandidates = await geometricMolfileCandidates(opposite);
+  const oppositeMatching = oppositeCandidates
+    .map((m) => depictInchi(kit, m, opposite, true))
+    .filter(Boolean);
+  expect(oppositeMatching).toHaveLength(1);
+  expect(oppositeMatching[0]).not.toBe(matching[0]);
+  // PubChem CID 14525433: two geometric bonds and three tetrahedral centers.
+  const complex =
+    'InChI=1S/C13H20O3/c1-2-3-4-5-6-7-10-8-11(14)13(16)12(15)9-10/h4-7,10-11,13-14,16H,2-3,8-9H2,1H3/b5-4+,7-6+/t10-,11-,13-/m1/s1';
+  const complexCandidates = await geometricMolfileCandidates(complex);
+  expect(complexCandidates).toHaveLength(4);
+  expect(
+    complexCandidates.map((m) => depictInchi(kit, m, complex, true)).filter(Boolean),
+  ).toHaveLength(1);
+  const { structureFromInchi } = await import('./vendor/inchi/inchi-js.js');
+  const structure = await structureFromInchi(complex);
+  expect(safeStereoStructure(structure.atoms, structure.stereo, 'mixed')).toBe(true);
+  expect(
+    safeStereoStructure(
+      structure.atoms,
+      structure.stereo.filter((entry) => entry.type === 2),
+      'mixed',
+    ),
+  ).toBe(false);
+  expect(
+    safeStereoStructure(
+      structure.atoms,
+      structure.stereo.filter((entry) => entry.type === 1),
+      'mixed',
+    ),
+  ).toBe(false);
+  expect(
+    safeStereoStructure(
+      structure.atoms,
+      [...structure.stereo, structure.stereo.find((entry) => entry.type === 1)!],
+      'mixed',
+    ),
+  ).toBe(false);
+  expect(
+    safeStereoStructure(
+      structure.atoms,
+      structure.stereo.map((entry) => (entry.type === 2 ? { ...entry, parity: 3 } : entry)),
+      'mixed',
+    ),
   ).toBe(false);
 });

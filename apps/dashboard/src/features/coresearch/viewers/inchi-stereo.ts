@@ -12,7 +12,7 @@ type Stereo = { type: number; parity: number; centralAtom: number; neighbors: nu
 export function safeStereoStructure(
   atoms: Atom[],
   stereo: Stereo[],
-  kind: 'tetrahedral' | 'geometric' = 'tetrahedral',
+  kind: 'tetrahedral' | 'geometric' | 'mixed' = 'tetrahedral',
 ): boolean {
   if (
     !Array.isArray(atoms) ||
@@ -25,6 +25,7 @@ export function safeStereoStructure(
     return false;
   let bonds = 0;
   const geometricBonds = new Set<string>();
+  let tetrahedralCount = 0;
   for (const [index, atom] of atoms.entries()) {
     if (
       !atom ||
@@ -57,9 +58,8 @@ export function safeStereoStructure(
     }
   }
   for (const s of stereo) {
-    if (kind === 'geometric') {
+    if (kind !== 'tetrahedral' && s?.type === 1) {
       if (
-        stereo.length > 2 ||
         !s ||
         s.type !== 1 ||
         ![1, 2].includes(s.parity) ||
@@ -74,6 +74,7 @@ export function safeStereoStructure(
       const bondKey = [Math.min(a, b), Math.max(a, b)].join(':');
       if (geometricBonds.has(bondKey)) return false;
       geometricBonds.add(bondKey);
+      if (geometricBonds.size > 2) return false;
       if (
         !atoms[a]!.bonds.some((x) => x.to === b && x.type === 2) ||
         !atoms[a]!.bonds.some((x) => x.to === left) ||
@@ -82,6 +83,7 @@ export function safeStereoStructure(
         return false;
       continue;
     }
+    if (kind === 'geometric') return false;
     if (
       !s ||
       s.type !== 2 ||
@@ -96,11 +98,16 @@ export function safeStereoStructure(
       return false;
     const actual = s.neighbors.filter((n) => n !== -1 && n !== s.centralAtom);
     if (actual.length < 3 || new Set(actual).size !== actual.length) return false;
+    tetrahedralCount++;
   }
-  return true;
+  return kind === 'mixed' ? geometricBonds.size > 0 && tetrahedralCount > 0 : true;
 }
 export async function geometricMolfileCandidates(input: string): Promise<string[]> {
-  if (inchiRecord(input) !== input || !/\/b\d+-\d+[+-](?:,\d+-\d+[+-])?$/.test(input)) return [];
+  if (
+    inchiRecord(input) !== input ||
+    !/\/b\d+-\d+[+-](?:,\d+-\d+[+-])?(?:\/t[^/]+\/m[01]\/s1)?$/.test(input)
+  )
+    return [];
   try {
     const [ocl, inchi] = await Promise.all([
       import('openchemlib'),
@@ -109,16 +116,20 @@ export async function geometricMolfileCandidates(input: string): Promise<string[
     const structure = await inchi.structureFromInchi(input);
     if (
       structure.returnCode !== 0 ||
-      !safeStereoStructure(structure.atoms, structure.stereo, 'geometric')
+      !safeStereoStructure(
+        structure.atoms,
+        structure.stereo,
+        /\/t/.test(input) ? 'mixed' : 'geometric',
+      )
     )
       return [];
     let count = 0;
     const mapping = structure.atoms.map((atom) =>
       atom.element === 'H' && !atom.charge && !atom.radical && !atom.isotopicMass ? -1 : count++,
     );
-    const pairs = structure.stereo.map(
-      ({ neighbors }) => [mapping[neighbors[1]!]!, mapping[neighbors[2]!]!] as const,
-    );
+    const pairs = structure.stereo
+      .filter((s) => s.type === 1)
+      .map(({ neighbors }) => [mapping[neighbors[1]!]!, mapping[neighbors[2]!]!] as const);
     if (pairs.some(([a, b]) => a < 0 || b < 0)) return [];
     const candidates: string[] = [];
     for (let combination = 0; combination < 2 ** pairs.length; combination++) {

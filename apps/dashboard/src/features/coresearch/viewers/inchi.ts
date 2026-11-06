@@ -13,9 +13,15 @@ export function inchiRecord(text: string): string | undefined {
   const value = text.trim();
   if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value)) return;
   if (!/\/[btms]/.test(value)) return value;
-  // Permit up to two absolute geometric bonds, or absolute tetrahedral stereo.
-  // Mixed, more complex, isotopic and relative/racemic stereo remain unavailable.
-  if (!/\/[itms]/.test(value) && /\/b\d+-\d+[+-](?:,\d+-\d+[+-])?$/.test(value)) return value;
+  // Permit up to two geometric bonds and optional absolute tetrahedral stereo.
+  // Isotopic and relative/racemic stereo remain unavailable.
+  const bondLayer = value.indexOf('/b');
+  if (
+    bondLayer >= 0 &&
+    !/\/[itms]/.test(value.slice(0, bondLayer)) &&
+    /\/b\d+-\d+[+-](?:,\d+-\d+[+-])?(?:\/t[^/]+\/m[01]\/s1)?$/.test(value)
+  )
+    return value;
   return !/\/[bi]/.test(value) && /\/t[^/]+\/m[01]\/s1$/.test(value) ? value : undefined;
 }
 // Accept only the bounded V2000 subset emitted by the bundled converter.
