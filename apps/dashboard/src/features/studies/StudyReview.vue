@@ -576,9 +576,6 @@ const unlinkedObjections = computed(() =>
         <ServerChecks v-if="attempt && shown !== 'experimentation'" />
         <section v-if="shown === 'validation'" class="validation-details" aria-label="Validation">
           <h2>Validation</h2>
-          <span v-if="validation?.same_family || objector?.same_family" class="review-tag"
-            >same-family objector</span
-          >
           <p v-if="objector?.ran === false">{{ objector.reason }}</p>
           <template v-if="validation?.mode === 'runs'">
             <section v-for="(status, i) in validationStatuses" :key="i" class="validation-status">

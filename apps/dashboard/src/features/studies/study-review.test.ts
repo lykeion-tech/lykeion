@@ -606,7 +606,7 @@ it('preserves distinct missed item groups and selection when status filters chan
   expect(textOf(selected(root))).toContain('Third missing source');
 });
 
-it('says why the objector did not run and marks a same-family objector', async () => {
+it('says why the objector did not run without showing the same-family label', async () => {
   const skipped = setup(
     validation({
       objector: { ran: false, reason: 'No independent backend available', same_family: false },
@@ -616,7 +616,7 @@ it('says why the objector did not run and marks a same-family objector', async (
   expect(textOf(skipped.root)).toContain('No independent backend available');
   const same = setup(validation({ same_family: true }));
   await nextTick();
-  expect(textOf(same.root)).toContain('same-family objector');
+  expect(textOf(same.root)).not.toContain('same-family objector');
 });
 
 it('uses generic item checks for Validation without runs', async () => {
