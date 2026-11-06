@@ -10,6 +10,7 @@ const props = withDefaults(
 <template>
   <span
     class="chat-agent-avatar"
+    :class="{ 'is-aristotle': !agent?.avatar_url && (agent?.built_in_key === 'aristotle' || (!agent && fallbackAristotle)) }"
     :style="{ width: size + 'px', height: size + 'px' }"
     aria-hidden="true"
   >
@@ -34,5 +35,8 @@ const props = withDefaults(
   overflow: hidden;
   border-radius: 50%;
   background: var(--input);
+}
+.chat-agent-avatar.is-aristotle {
+  background: var(--palette-accent);
 }
 </style>
