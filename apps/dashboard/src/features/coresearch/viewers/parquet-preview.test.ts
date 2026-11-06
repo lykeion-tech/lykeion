@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { parseParquet } from './parquet-preview';
+import { readCompactStruct } from './compact-thrift';
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(`apps/dashboard/src/features/coresearch/viewers/fixtures/${name}`));
 it('samples real required, plain, uncompressed PyArrow pages across row groups', () => {
@@ -21,7 +22,7 @@ it('samples real required, plain, uncompressed PyArrow pages across row groups',
   expect(result?.totalRows).toBe('3');
 });
 it('fails closed for unsupported compression and malformed/truncated files', () => {
-  expect(parseParquet(fixture('unsupported-snappy.parquet'))).toBeUndefined();
+  expect(parseParquet(fixture('unsupported-gzip.parquet'))).toBeUndefined();
   const valid = fixture('plain-required.parquet');
   expect(parseParquet(valid.slice(0, -1))).toBeUndefined();
   expect(parseParquet(new Uint8Array([80, 65, 82, 49]))).toBeUndefined();
@@ -71,4 +72,27 @@ it('rejects corrupted dictionary pages before interpreting values', () => {
   const bytes = fixture('dictionary-primitives.parquet');
   bytes[30] ^= 1;
   expect(parseParquet(bytes)).toBeUndefined();
+});
+
+it('samples Snappy compressed pages with plain and dictionary values, including nulls', () => {
+  for (const [compressed, reference] of [
+    ['unsupported-snappy.parquet', 'plain-required.parquet'],
+    ['optional-primitives-snappy.parquet', 'optional-primitives.parquet'],
+    ['dictionary-primitives-snappy.parquet', 'dictionary-primitives.parquet'],
+    ['dictionary-multipage-snappy.parquet', 'dictionary-multipage.parquet'],
+  ]) {
+    expect(parseParquet(fixture(compressed))?.rows).toEqual(parseParquet(fixture(reference))?.rows);
+  }
+});
+
+it('rejects corrupted compressed data with CRC and invalid Snappy sizes without CRC', () => {
+  const crc = fixture('dictionary-primitives-snappy.parquet');
+  const dict = readCompactStruct(crc, 4, crc.length)!;
+  crc[dict.next] ^= 1;
+  expect(parseParquet(crc)).toBeUndefined();
+  const noCrc = fixture('snappy-no-crc.parquet');
+  expect(parseParquet(noCrc)?.rows).toHaveLength(100);
+  const header = readCompactStruct(noCrc, 4, noCrc.length)!;
+  noCrc[header.next] ^= 1;
+  expect(parseParquet(noCrc)).toBeUndefined();
 });
