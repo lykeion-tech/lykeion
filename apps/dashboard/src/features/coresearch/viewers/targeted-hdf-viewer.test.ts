@@ -45,3 +45,34 @@ it('terminates stale and timed-out targeted readers', async () => {
   expect(textOf(root)).toContain('Preview unavailable');
   app.unmount();
 });
+it('explains complex sample pairs when the selected MATLAB dataset is complex', async () => {
+  let worker: FakeWorker;
+  class FakeWorker {
+    onmessage: ((event: MessageEvent<any>) => void) | null = null;
+    onerror = null;
+    terminate = vi.fn();
+    postMessage = vi.fn();
+    constructor() {
+      worker = this;
+    }
+  }
+  vi.stubGlobal('Worker', FakeWorker);
+  vi.stubGlobal('self', { location: new URL('http://localhost/') });
+  const app = createTreeApp({
+    render: () => h(TargetedHdfViewer, { blob: new Blob(['x']), mode: 'matlab' }),
+  });
+  const root = node('root');
+  app.mount(root);
+  worker!.onmessage?.({
+    data: {
+      preview: {
+        items: [{ name: 'z', type: 'complex float64', shape: [1], values: ['(1, 2)'] }],
+        partial: false,
+      },
+    },
+  } as MessageEvent);
+  await nextTick();
+  expect(textOf(root)).toContain('Complex values are shown as (real, imaginary).');
+  expect(textOf(root)).toContain('(1, 2)');
+  app.unmount();
+});

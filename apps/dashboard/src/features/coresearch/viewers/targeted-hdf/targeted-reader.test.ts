@@ -83,3 +83,48 @@ it('omits a compressed chunk larger than the native decode budget', async () => 
     partial: true,
   });
 });
+it.each(['double', 'single'])(
+  'samples independently written MATLAB 7.3 complex %s arrays in MATLAB order',
+  async (kind) => {
+    const p = await readTargetedHdf(fixture(`targeted-complex-${kind}.mat`), 'matlab', wasm);
+    expect(p?.items).toEqual([
+      {
+        name: 'z',
+        type: `complex ${kind === 'double' ? 'float64' : 'float32'}`,
+        shape: [2, 2],
+        values: ['(1, 2)', '(5, 6)', '(-3, -4)', '(7, -8)'],
+      },
+    ]);
+  },
+);
+it('reads big-endian and bounded compressed complex datasets', async () => {
+  const be = await readTargetedHdf(fixture('targeted-complex-be.mat'), 'matlab', wasm);
+  expect(be?.items[0]?.values).toEqual(['(1, 2)', '(-3, -4)']);
+  const compressed = await readTargetedHdf(
+    fixture('targeted-complex-compressed.mat'),
+    'matlab',
+    wasm,
+  );
+  expect(compressed?.items[0]?.values.slice(0, 3)).toEqual(['(0, -0)', '(1, -1)', '(2, -2)']);
+  expect(compressed?.items[0]?.values).toHaveLength(200);
+  expect(compressed?.partial).toBe(true);
+});
+it('omits unrelated, incompatible or non-MATLAB compound datasets', async () => {
+  for (const name of [
+    'targeted-complex-other.mat',
+    'targeted-complex-extra.mat',
+    'targeted-complex-mismatch.mat',
+    'targeted-complex-class.mat',
+  ])
+    expect(await readTargetedHdf(fixture(name), 'matlab', wasm)).toMatchObject({
+      items: [],
+      partial: true,
+    });
+  expect(
+    await readTargetedHdf(fixture('targeted-complex-netcdf.nc4'), 'netcdf', wasm),
+  ).toMatchObject({ items: [], partial: true });
+});
+it('maps complex fields by name when their storage order is reversed', async () => {
+  const p = await readTargetedHdf(fixture('targeted-complex-reversed.mat'), 'matlab', wasm);
+  expect(p?.items[0]?.values).toEqual(['(1, 2)', '(-3, -4)']);
+});

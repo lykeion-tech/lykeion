@@ -79,6 +79,9 @@ watch(
               : 'scalar'
           }}
         </p>
+        <p v-if="preview.items[selected]!.type.startsWith('complex ')" class="note">
+          Complex values are shown as (real, imaginary).
+        </p>
         <ol>
           <li v-for="(value, i) in preview.items[selected]!.values" :key="i">
             <code>{{ value }}</code>
