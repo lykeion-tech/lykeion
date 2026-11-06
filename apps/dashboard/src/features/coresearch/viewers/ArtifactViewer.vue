@@ -11,6 +11,7 @@ import PdfDocumentPreview from './PdfDocumentPreview.vue';
 import NotebookViewer from './NotebookViewer.vue';
 import SequenceViewer from './SequenceViewer.vue';
 import NpyViewer from './NpyViewer.vue';
+import NpzViewer from './NpzViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
 import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
 import JsonLinesViewer from './JsonLinesViewer.vue';
@@ -28,6 +29,7 @@ const medicalImage = computed(
 );
 const pdf = computed(() => ext.value === 'pdf');
 const npy = computed(() => ext.value === 'npy');
+const npz = computed(() => ext.value === 'npz');
 const sequence = computed(() =>
   ['fasta', 'fa', 'faa', 'fna', 'ffn', 'fastq', 'fq'].includes(ext.value),
 );
@@ -83,7 +85,7 @@ watch(
     text.value = undefined;
     emit('text', undefined, false);
     try {
-      if (pdf.value || medicalImage.value || npy.value) return;
+      if (pdf.value || medicalImage.value || npy.value || npz.value) return;
       const got = await readFormatText(
         props.blob,
         ext.value === 'ipynb'
@@ -112,6 +114,7 @@ watch(
   <p v-if="pending" class="nbp-empty">Reading…</p>
   <p v-else-if="medicalImage" class="prov-empty">No preview for this file.</p>
   <NpyViewer v-else-if="npy" :blob="blob" />
+  <NpzViewer v-else-if="npz" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">
