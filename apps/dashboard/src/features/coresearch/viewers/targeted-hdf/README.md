@@ -1,0 +1,5 @@
+This custom, local-only HDF5 shim is restricted to targeted NetCDF-4 and MATLAB 7.3 previews. It is not a general HDF5 or AnnData viewer. Only bounded root-level hard-linked numeric datasets are sampled; unsupported layouts, missing chunks, filters, groups, and types are omitted. External/soft links fail closed. MAT shape is reversed to reflect MATLAB order. Values are not scaled and attributes are not shown.
+
+Build with `build.sh` using Emscripten 4.0.23 and the HDF5 2.0.0 WASM archive from the NIST libhdf5-wasm release `v0.6.0_4.0.23`. Verify that archive's SHA-256 is `d4dc6719ef164679728d9a50d6a4d97c826f563e22a40c4dec63e485b29781be`. The WASM output has an initial 32 MiB memory and a maximum of 128 MiB; the worker has an independent timeout and input bound. The compiled binary is distributed with the included HDF5, zlib, libaec, Emscripten, and h5wasm notices. No host or network filesystem is mounted.
+
+`targeted-real.nc4` and `targeted-compressed.nc4` are generated with netCDF4 1.7.5.1. `targeted-real-mat73.mat` is the MATLAB 7.3 sample distributed by PyTables in `tables/tests/matlab_file.mat`; other targeted fixture files are synthetic h5py cases.
