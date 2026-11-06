@@ -11,6 +11,7 @@ import CreateStudy from './CreateStudy.vue';
 import StudyDetail from './StudyDetail.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
+import { notice } from '../../state/notice';
 import type { Picked, Range } from '../../lib/studies';
 
 vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
@@ -1770,6 +1771,46 @@ it('lists each saved study output separately with its stage and run provenance',
 });
 
 describe('a Workflow study', () => {
+  it('announces workflow and ordinary study creation accurately', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'POST' ? Response.json({ id: 'card' }) : Response.json([]),
+    ));
+    vi.stubGlobal('XMLHttpRequest', class {
+      upload = {};
+      status = 200;
+      responseText = JSON.stringify({ id: 'file', name: 'data.csv', size_bytes: 1 });
+      onload?: () => void;
+      open() {}
+      setRequestHeader() {}
+      send() { this.onload?.(); }
+    });
+    for (const workflow of ['mendota-ice-phenology', 'variable-star-vetting', '']) {
+      notice.value = '';
+      const t = await mount(CreateStudy, () => ({
+        ...(workflow ? { workflow } : {}),
+        assignee: { type: 'agent', id: 'a1' },
+      }), '/', (client) => {
+        seedStudy(client);
+        client.setQueryData(keys.workflows, { release: 'test', workflows: [] });
+      });
+      try {
+        await t.fill('Describe your study', 'Question');
+        if (workflow) {
+          const input = t.nodes().find((n) => n.props.id === 'composer-files-input')!;
+          await (input.props.onChange as (event: unknown) => Promise<void>)({
+            target: { files: [new File(['x'], 'data.csv')], value: '' },
+          });
+          await nextTick();
+        }
+        await vi.waitFor(() => expect(t.button(/^Create study/)?.props.disabled).toBe(false));
+        await t.submit();
+        expect(notice.value).toBe(workflow ? 'Workflow created.' : 'Study created.');
+      } finally {
+        t.unmount();
+      }
+    }
+  });
+
   it('cannot be created without an attached file', async () => {
     vi.stubGlobal(
       'fetch',

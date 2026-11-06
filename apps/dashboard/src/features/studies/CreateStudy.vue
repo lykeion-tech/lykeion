@@ -275,7 +275,7 @@ async function submit() {
       });
     await client.invalidateQueries({ queryKey: keys.cards(workspace) });
     if (!current()) return;
-    notify('Study created.');
+    notify(fields.workflow ? 'Workflow created.' : 'Study created.');
     emit('close');
   } catch (e) {
     if (!current()) return;
