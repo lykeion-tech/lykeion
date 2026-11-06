@@ -45,6 +45,57 @@ const relevant = new Set([
 ]);
 const tag = (group: number, element: number) =>
   `${group.toString(16).padStart(4, '0')}:${element.toString(16).padStart(4, '0')}`;
+// Implicit VR has no in-band type. Only known scalar attributes are accepted:
+// unknown attributes may be sequences or display transformations.
+const implicitVr: Record<string, string> = {
+  '0008:0005': 'CS',
+  '0008:0012': 'DA',
+  '0008:0013': 'TM',
+  '0008:0016': 'UI',
+  '0008:0018': 'UI',
+  '0008:0020': 'DA',
+  '0008:0021': 'DA',
+  '0008:0022': 'DA',
+  '0008:0023': 'DA',
+  '0008:0030': 'TM',
+  '0008:0031': 'TM',
+  '0008:0032': 'TM',
+  '0008:0033': 'TM',
+  '0008:0050': 'SH',
+  '0008:0060': 'CS',
+  '0008:0070': 'LO',
+  '0008:0080': 'LO',
+  '0008:0090': 'PN',
+  '0008:1030': 'LO',
+  '0008:103e': 'LO',
+  '0010:0010': 'PN',
+  '0010:0020': 'LO',
+  '0010:0030': 'DA',
+  '0010:0040': 'CS',
+  '0010:1010': 'AS',
+  '0010:1020': 'DS',
+  '0010:1030': 'DS',
+  '0020:000d': 'UI',
+  '0020:000e': 'UI',
+  '0020:0010': 'SH',
+  '0020:0011': 'IS',
+  '0020:0013': 'IS',
+  '0028:0002': 'US',
+  '0028:0004': 'CS',
+  '0028:0008': 'IS',
+  '0028:0010': 'US',
+  '0028:0011': 'US',
+  '0028:0030': 'DS',
+  '0028:0034': 'IS',
+  '0028:0100': 'US',
+  '0028:0101': 'US',
+  '0028:0102': 'US',
+  '0028:0103': 'US',
+  '0018:1164': 'DS',
+  '0018:2010': 'DS',
+  '3002:0011': 'DS',
+  '7fe0:0010': 'OW',
+};
 export function parseDicom(bytes: Uint8Array, frame: number): DicomPreview | undefined {
   try {
     if (
@@ -91,13 +142,21 @@ export function parseDicom(bytes: Uint8Array, frame: number): DicomPreview | und
         (group === 0x7fe0 && [0x0008, 0x0009].includes(element))
       )
         return;
-      const vr = String.fromCharCode(bytes[at + 4]!, bytes[at + 5]!);
+      const syntax = fields.get('0002:0010');
+      const implicit = inData && syntax === '1.2.840.10008.1.2';
+      if (inData && syntax !== '1.2.840.10008.1.2' && syntax !== '1.2.840.10008.1.2.1') return;
+      const vr = implicit ? implicitVr[key] : String.fromCharCode(bytes[at + 4]!, bytes[at + 5]!);
+      if (!vr) return;
       if (vr === 'SQ') return;
-      const long = LONG_VR.has(vr);
-      if (!long && !SHORT_VR.has(vr)) return;
+      const long = !implicit && LONG_VR.has(vr);
+      if (!implicit && !long && !SHORT_VR.has(vr)) return;
       if (long && (at + 12 > bytes.length || view.getUint16(at + 6, true) !== 0)) return;
       const header = long ? 12 : 8,
-        length = long ? view.getUint32(at + 8, true) : view.getUint16(at + 6, true);
+        length = implicit
+          ? view.getUint32(at + 4, true)
+          : long
+            ? view.getUint32(at + 8, true)
+            : view.getUint16(at + 6, true);
       if (length === 0xffffffff || length % 2 || at + header + length > bytes.length) return;
       const start = at + header;
       if (['0028:0030', '0028:0034', '0018:1164', '0018:2010', '3002:0011'].includes(key)) {
@@ -145,7 +204,8 @@ export function parseDicom(bytes: Uint8Array, frame: number): DicomPreview | und
       }
       at = start + length;
     }
-    if (fields.get('0002:0010') !== '1.2.840.10008.1.2.1') return;
+    if (!['1.2.840.10008.1.2', '1.2.840.10008.1.2.1'].includes(fields.get('0002:0010') as string))
+      return;
     const width = fields.get('0028:0011'),
       height = fields.get('0028:0010'),
       samples = fields.get('0028:0002');

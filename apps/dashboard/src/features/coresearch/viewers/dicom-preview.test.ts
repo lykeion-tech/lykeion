@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { parseDicom } from './dicom-preview';
+import { readFileSync } from 'node:fs';
 type Entry = [number, number, string, Uint8Array];
 const bytes = (...values: number[]) => new Uint8Array(values);
 const us = (n: number) => bytes(n & 255, n >>> 8);
@@ -27,6 +28,7 @@ function file(
     extra?: Entry[];
     rows?: number;
     cols?: number;
+    implicitData?: boolean;
   } = {},
 ) {
   const bits = changes.bits ?? 8,
@@ -51,9 +53,67 @@ function file(
     73,
     67,
     77,
-    ...data.flatMap((x) => entry(...x)),
+    ...data.flatMap((x) => {
+      if (!changes.implicitData || x[0] === 0x0002) return entry(...x);
+      const head = new Uint8Array(8),
+        view = new DataView(head.buffer);
+      view.setUint16(0, x[0], true);
+      view.setUint16(2, x[1], true);
+      view.setUint32(4, x[3].length, true);
+      return [...head, ...x[3]];
+    }),
   ]);
 }
+it('reads independently produced implicit-VR little-endian monochrome images without metadata', () => {
+  for (const bits of [8, 16]) {
+    const input = readFileSync(
+      `apps/dashboard/src/features/coresearch/viewers/fixtures/dicom/implicit-mono-${bits}.dcm`,
+    );
+    const result = parseDicom(input, 0);
+    expect(result).toMatchObject({ width: 2, height: 2, frames: 1 });
+    expect([...result!.rgba]).toEqual([
+      0, 0, 0, 255, 64, 64, 64, 255, 128, 128, 128, 255, 255, 255, 255, 255,
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SYNTHETIC/);
+  }
+});
+it('enforces transform, sequence, pixel and length safety for implicit VR', () => {
+  const options = { syntax: '1.2.840.10008.1.2', implicitData: true };
+  expect(parseDicom(file(options), 0)).toMatchObject({ width: 2, height: 1 });
+  expect(
+    parseDicom(file({ ...options, bits: 16, stored: 12, signed: 1, pixels: [0xff, 0x0f, 1, 0] }), 0)
+      ?.rgba,
+  ).toEqual(new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]));
+  expect(
+    parseDicom(file({ ...options, extra: [[0x0028, 0x1050, 'DS', str('20')]] }), 0),
+  ).toBeUndefined();
+  expect(
+    parseDicom(file({ ...options, extra: [[0x0008, 0x1110, 'SQ', bytes()]] }), 0),
+  ).toBeUndefined();
+  expect(
+    parseDicom(file({ ...options, extra: [[0x0011, 0x1001, 'LO', str('private')]] }), 0),
+  ).toBeUndefined();
+  expect(
+    parseDicom(file({ ...options, extra: [[0x0028, 0x0030, 'DS', str('1\\2')]] }), 0),
+  ).toBeUndefined();
+  expect(parseDicom(file({ ...options, pixels: [0, 1, 2, 3] }), 0)).toBeUndefined();
+  const frames = file({
+    ...options,
+    extra: [[0x0028, 0x0008, 'IS', str('2')]],
+    pixels: [0, 0, 200, 100],
+  });
+  expect([...parseDicom(frames, 1)!.rgba]).toEqual([255, 255, 255, 255, 0, 0, 0, 255]);
+  expect(parseDicom(frames, 2)).toBeUndefined();
+  expect(parseDicom(file({ ...options, syntax: '1.2.840.10008.1.2.4.50' }), 0)).toBeUndefined();
+  const invalid = file(options);
+  const at = invalid.findIndex(
+    (v, i) => v === 0x10 && invalid[i + 1] === 0 && invalid[i + 2] === 0x10 && invalid[i + 3] === 0,
+  );
+  expect(at).toBeGreaterThan(132);
+  new DataView(invalid.buffer).setUint32(at + 4, 0xffffffff, true);
+  expect(parseDicom(invalid, 0)).toBeUndefined();
+  expect(parseDicom(file(options).slice(0, -1), 0)).toBeUndefined();
+});
 it('renders unsigned native monochrome pixels without exposing patient tags', () => {
   const result = parseDicom(file(), 0);
   expect(result).toMatchObject({ width: 2, height: 1, frames: 1 });
