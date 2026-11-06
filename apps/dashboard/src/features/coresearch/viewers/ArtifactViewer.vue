@@ -13,7 +13,9 @@ import SequenceViewer from './SequenceViewer.vue';
 import NpyViewer from './NpyViewer.vue';
 import FitsViewer from './FitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
+import WorkbookViewer from './WorkbookViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
+import MassXmlViewer from './MassXmlViewer.vue';
 import NpzViewer from './NpzViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
 import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
@@ -92,7 +94,15 @@ watch(
     text.value = undefined;
     emit('text', undefined, false);
     try {
-      if (pdf.value || medicalImage.value || fits.value || npy.value || npz.value || office.value)
+      if (
+        pdf.value ||
+        medicalImage.value ||
+        fits.value ||
+        npy.value ||
+        npz.value ||
+        office.value ||
+        ext.value === 'xlsx'
+      )
         return;
       const got = await readFormatText(
         props.blob,
@@ -123,6 +133,7 @@ watch(
   <p v-else-if="medicalImage" class="prov-empty">No preview for this file.</p>
   <FitsViewer v-else-if="fits" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />
+  <WorkbookViewer v-else-if="ext === 'xlsx'" :blob="blob" />
   <NpyViewer v-else-if="npy" :blob="blob" />
   <NpzViewer v-else-if="npz" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
@@ -134,6 +145,12 @@ watch(
   <AlignmentTreeViewer v-else-if="alignmentTree" :text="text" :extension="ext" :partial="partial" />
   <SpectrumViewer
     v-else-if="['mgf', 'jdx', 'dx'].includes(ext)"
+    :text="text"
+    :extension="ext"
+    :partial="partial"
+  />
+  <MassXmlViewer
+    v-else-if="['mzml', 'mzxml'].includes(ext)"
     :text="text"
     :extension="ext"
     :partial="partial"
