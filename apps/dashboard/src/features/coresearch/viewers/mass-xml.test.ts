@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { deflateSync } from 'node:zlib';
 import { readMassXml } from './mass-xml';
 function b64(values: number[], little: boolean) {
   const bytes = new Uint8Array(values.length * 4);
@@ -74,4 +75,37 @@ it('scales small intensities by their actual maximum', async () => {
     ).map((p) => p.y),
   ).toEqual([50, 10]);
   expect(spectrumPlot([{ mz: 1, intensity: 0 }], 1, 1)[0]?.y).toBe(90);
+});
+
+it('decodes zlib spectra and rejects overrun, corruption and trailing bytes', async () => {
+  const floats = new Uint8Array(16);
+  const view = new DataView(floats.buffer);
+  [100, 5, 200, 10].forEach((v, i) => view.setFloat32(i * 4, v, false));
+  const compressed = deflateSync(floats);
+  const encoded = (bytes: Uint8Array) =>
+    btoa(Array.from(bytes, (x) => String.fromCharCode(x)).join(''));
+  const file = (bytes: Uint8Array, n = 2) =>
+    mzxml(encoded(bytes), n).replace('compressionType="none"', 'compressionType="zlib"');
+  expect((await readMassXml(file(compressed), 'mzxml'))?.spectra[0]?.tic).toBe(15);
+  expect(await readMassXml(file(compressed, 1), 'mzxml')).toBeUndefined();
+  expect(await readMassXml(file(compressed.slice(0, -1)), 'mzxml')).toBeUndefined();
+  expect(await readMassXml(file(Uint8Array.from([...compressed, 0])), 'mzxml')).toBeUndefined();
+});
+
+it('decodes zlib-compressed mzML arrays and rejects conflicting encodings', async () => {
+  const array = (term: string, values: number[]) => {
+    const bytes = new Uint8Array(values.length * 8),
+      d = new DataView(bytes.buffer);
+    values.forEach((n, i) => d.setFloat64(i * 8, n, true));
+    const data = btoa(Array.from(deflateSync(bytes), (b) => String.fromCharCode(b)).join(''));
+    return `<binaryDataArray><cvParam accession="${term}"/><cvParam accession="MS:1000523"/><cvParam accession="MS:1000574"/><binary>${data}</binary></binaryDataArray>`;
+  };
+  const xml = `<mzML><spectrumList count="1"><spectrum defaultArrayLength="2">${array('MS:1000514', [100, 200])}${array('MS:1000515', [5, 10])}</spectrum></spectrumList></mzML>`;
+  expect((await readMassXml(xml, 'mzml'))?.spectra[0]?.tic).toBe(15);
+  expect(
+    await readMassXml(
+      xml.replace('MS:1000574"/>', 'MS:1000574"/><cvParam accession="MS:1000576"/>'),
+      'mzml',
+    ),
+  ).toBeUndefined();
 });

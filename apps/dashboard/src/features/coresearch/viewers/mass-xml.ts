@@ -92,6 +92,41 @@ function decode64(text: string, maxBytes: number): Uint8Array | undefined {
     return undefined;
   }
 }
+async function decodeArray(
+  text: string,
+  expectedBytes: number,
+  compressed: boolean,
+): Promise<Uint8Array | undefined> {
+  const encoded = decode64(
+    text,
+    compressed ? Math.min(MAX_TEXT, expectedBytes + 65536) : expectedBytes,
+  );
+  if (!encoded) return undefined;
+  if (!compressed) return encoded.length === expectedBytes ? encoded : undefined;
+  if (typeof DecompressionStream === 'undefined') return undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const input = Uint8Array.from(encoded).buffer;
+    reader = new Blob([input]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+    const result = new Uint8Array(expectedBytes);
+    let offset = 0;
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      if (offset + chunk.value.length > expectedBytes) {
+        await reader.cancel();
+        return undefined;
+      }
+      result.set(chunk.value, offset);
+      offset += chunk.value.length;
+    }
+    return offset === expectedBytes ? result : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    reader?.releaseLock();
+  }
+}
 function values(
   data: Uint8Array,
   precision: number,
@@ -181,11 +216,19 @@ export async function readMassXml(
         p.children.length ||
         ![32, 64].includes(precision) ||
         !['network', 'big'].includes(p.attrs.byteOrder ?? '') ||
-        !['none', ''].includes(p.attrs.compressionType ?? '') ||
+        !['none', '', 'zlib'].includes(p.attrs.compressionType ?? '') ||
         (p.attrs.pairOrder && p.attrs.pairOrder !== 'm/z-int')
       )
         return undefined;
-      const decoded = decode64(p.text, ((length * precision) / 8) * 2);
+      if (p.attrs.compressedLen !== undefined) {
+        const encoded = decode64(p.text, MAX_TEXT);
+        if (!encoded || count(p.attrs.compressedLen) !== encoded.length) return undefined;
+      }
+      const decoded = await decodeArray(
+        p.text,
+        ((length * precision) / 8) * 2,
+        p.attrs.compressionType === 'zlib',
+      );
       if (!decoded) return undefined;
       const paired = values(decoded, precision, false, length * 2);
       if (!paired) return undefined;
@@ -200,17 +243,22 @@ export async function readMassXml(
           terms.some(
             (c) =>
               /compression|numpress/i.test(c.attrs.name ?? '') &&
-              c.attrs.accession !== 'MS:1000576',
+              !['MS:1000576', 'MS:1000574'].includes(c.attrs.accession ?? ''),
           )
         )
           return undefined;
         const cv = terms.map((c) => c.attrs.accession);
-        const allowed = ['MS:1000514', 'MS:1000515', 'MS:1000521', 'MS:1000523', 'MS:1000576'];
+        const allowed = [
+          'MS:1000514',
+          'MS:1000515',
+          'MS:1000521',
+          'MS:1000523',
+          'MS:1000576',
+          'MS:1000574',
+        ];
         if (cv.some((x) => !x || !allowed.includes(x)) || new Set(cv).size !== cv.length)
           return undefined;
-        if (
-          cv.some((x) => ['MS:1000574', 'MS:1002312', 'MS:1002313', 'MS:1002314'].includes(x ?? ''))
-        )
+        if (cv.some((x) => ['MS:1002312', 'MS:1002313', 'MS:1002314'].includes(x ?? '')))
           return undefined;
         const precision =
           cv.includes('MS:1000521') && !cv.includes('MS:1000523')
@@ -223,13 +271,22 @@ export async function readMassXml(
         const binaries = a.children.filter((x) => local(x) === 'binary');
         if (
           !precision ||
-          !cv.includes('MS:1000576') ||
+          cv.includes('MS:1000576') === cv.includes('MS:1000574') ||
           isMz === isIntensity ||
           binaries.length !== 1 ||
           binaries[0]!.children.length > 0
         )
           return undefined;
-        const decoded = decode64(binaries[0]!.text, (length * precision) / 8);
+        if (
+          a.attrs.encodedLength !== undefined &&
+          count(a.attrs.encodedLength) !== binaries[0]!.text.replace(/\s/g, '').length
+        )
+          return undefined;
+        const decoded = await decodeArray(
+          binaries[0]!.text,
+          (length * precision) / 8,
+          cv.includes('MS:1000574'),
+        );
         if (!decoded) return undefined;
         const parsed = values(decoded, precision, true, length);
         if (!parsed) return undefined;
