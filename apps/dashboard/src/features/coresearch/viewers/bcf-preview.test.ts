@@ -40,9 +40,9 @@ it('decodes phased, missing and haploid genotypes while rejecting invalid allele
   const record = (data: number[]) =>
     fixture([0], defs, [], 0, samples, [0x11, 1, 0x21, ...data], 1);
   expect(parseBcf(record([2, 5, 0, 2, 4, 0x81]), false)?.rows[0]?.slice(8)).toEqual([
-    '0|1',
-    './0',
-    '1',
+    'GT=0|1',
+    'GT=./0',
+    'GT=1',
   ]);
   expect(parseBcf(record([2, 6, 0, 2, 4, 0x81]), false)).toBeUndefined();
   expect(parseBcf(record([0x81, 2, 0, 2, 4, 0x81]), false)).toBeUndefined();
@@ -50,7 +50,7 @@ it('decodes phased, missing and haploid genotypes while rejecting invalid allele
   const marker = new TextEncoder().encode('VCFv4.3');
   const offset = newer.findIndex((_, i) => marker.every((value, j) => newer[i + j] === value));
   newer[offset + marker.length - 1] = 0x34;
-  expect(parseBcf(newer, false)?.rows[0]?.slice(8)).toEqual(['/0|1', './0', '/1']);
+  expect(parseBcf(newer, false)?.rows[0]?.slice(8)).toEqual(['GT=/0|1', 'GT=./0', 'GT=/1']);
   const many = Array.from({ length: 17 }, (_, i) => `S${i}`);
   const preview = parseBcf(
     fixture([0], defs, [], 0, many, [0x11, 1, 0x11, ...many.map(() => 2)], 1),
@@ -58,7 +58,35 @@ it('decodes phased, missing and haploid genotypes while rejecting invalid allele
   );
   expect(preview?.samples.length).toBe(16);
   expect(preview?.samplesTruncated).toBe(true);
-  expect(preview?.rows[0]?.slice(8)).toEqual(Array(16).fill('0'));
+  expect(preview?.rows[0]?.slice(8)).toEqual(Array(16).fill('GT=0'));
+});
+it('rejects malformed FORMAT values and preserves missing numeric and padded strings', () => {
+  const defs =
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,IDX=1>\n##FORMAT=<ID=ST,Number=1,Type=String,IDX=2>\n';
+  const build = (data: number[], count = 2) => fixture([0], defs, [], 0, ['A', 'B'], data, count);
+  expect(
+    parseBcf(
+      build([0x11, 1, 0x11, 7, 0x80, 0x11, 2, 0x37, 65, 66, 0, 67, 0, 0]),
+      false,
+    )?.rows[0]?.slice(8),
+  ).toEqual(['DP=7;ST=AB', 'DP=.;ST=C']);
+  expect(
+    parseBcf(build([0x11, 1, 0x11, 7, 0x80, 0x11, 2, 0x37, 65, 0, 66, 67, 0, 0]), false),
+  ).toBeUndefined();
+  expect(parseBcf(build([0x11, 1, 0x11, 7, 0x80, 0x11, 1, 0x11, 7, 8]), false)).toBeUndefined();
+  expect(parseBcf(build([0x11, 9, 0x11, 7, 8], 1), false)).toBeUndefined();
+  expect(parseBcf(build([0x11, 1, 0x15, 0, 0, 0, 0, 0, 0, 0, 0], 1), false)).toBeUndefined();
+});
+it('supports comma-separated Character FORMAT values and rejects invalid members', () => {
+  const defs = '##FORMAT=<ID=CH,Number=.,Type=Character,IDX=1>\n';
+  const record = (data: number[]) =>
+    fixture([0], defs, [], 0, ['A', 'B'], [0x11, 1, 0x37, ...data], 1);
+  expect(parseBcf(record([65, 44, 66, 46, 44, 67]), false)?.rows[0]?.slice(8)).toEqual([
+    'CH=A,B',
+    'CH=.,C',
+  ]);
+  expect(parseBcf(record([65, 44, 0, 46, 44, 67]), false)).toBeUndefined();
+  expect(parseBcf(record([65, 66, 0, 46, 44, 67]), false)).toBeUndefined();
 });
 it('reads variant coordinates and missing quality without inventing annotations', () => {
   expect(parseBcf(fixture(), false)?.rows).toEqual([
@@ -154,10 +182,13 @@ it('reads the independently produced HTSlib BCF fixture', async () => {
   const preview = parseBcf(decoded!.bytes, decoded!.partial);
   expect(preview?.samples).toEqual(['A', 'B']);
   expect(preview?.rows.slice(0, 4).map((row) => row.slice(8))).toEqual([
-    ['0/1', '0/1'],
-    ['0/1', '0/1'],
-    ['0/1', '0/1'],
-    ['0/1', '2'],
+    ['GT=0/1;GQ=245', 'GT=0/1;GQ=245'],
+    ['GT=0/1;DP=32;GQ=245', 'GT=0/1;DP=32;GQ=245'],
+    ['GT=0/1;GQ=409;DP=35;GL=-20,-5,-20', 'GT=0/1;GQ=409;DP=35;GL=-20,-5,-20'],
+    [
+      'GT=0/1;TT=0,1;GQ=409;DP=35;GL=-20,-5,-20,-20,-5,-20',
+      'GT=2;TT=0,1;GQ=409;DP=35;GL=-20,-5,-20',
+    ],
   ]);
 });
 
@@ -167,19 +198,38 @@ it('preserves VCF 4.4 leading phasing using a synthetic BCF produced with HTSlib
   );
   const decoded = await readBgzf(new Blob([bytes]));
   const preview = parseBcf(decoded!.bytes, decoded!.partial);
-  expect(preview?.rows.map((row) => row[8])).toEqual(['|0/1', '/0|1', '0|1', './1', '1']);
+  expect(preview?.rows.map((row) => row[8])).toEqual([
+    'GT=|0/1',
+    'GT=/0|1',
+    'GT=0|1',
+    'GT=./1',
+    'GT=1',
+  ]);
   const bytes45 = decoded!.bytes.slice();
   const marker = new TextEncoder().encode('VCFv4.4');
   const offset = bytes45.findIndex((_, i) => marker.every((value, j) => bytes45[i + j] === value));
   expect(offset).toBeGreaterThanOrEqual(0);
   bytes45[offset + marker.length - 1] = 0x35;
   expect(parseBcf(bytes45, false)?.rows.map((row) => row[8])).toEqual([
-    '|0/1',
-    '/0|1',
-    '0|1',
-    './1',
-    '1',
+    'GT=|0/1',
+    'GT=/0|1',
+    'GT=0|1',
+    'GT=./1',
+    'GT=1',
   ]);
   bytes45[offset + marker.length - 1] = 0x36;
   expect(parseBcf(bytes45, false)).toBeUndefined();
+});
+
+it('decodes per-sample integer, float, string and missing FORMAT values from an HTSlib fixture', async () => {
+  const bytes = readFileSync(
+    'apps/dashboard/src/features/coresearch/viewers/fixtures/lykeion-bcf-format.bcf',
+  );
+  const decoded = await readBgzf(new Blob([bytes]));
+  const preview = parseBcf(decoded!.bytes, decoded!.partial);
+  expect(preview?.samples).toEqual(['A', 'B']);
+  expect(preview?.rows[0]?.slice(8)).toEqual([
+    'GT=0|1;DP=12;AF=0.5,.;ST=abc',
+    'GT=./.;DP=.;AF=.;ST=z',
+  ]);
 });

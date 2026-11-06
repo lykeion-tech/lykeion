@@ -82,7 +82,7 @@ it('shows decoded filters and describes the remaining omissions', async () => {
   workers[0]!.onmessage!({
     data: {
       preview: {
-        rows: [['1', '3', '.', 'A', 'T', '.', 'q10', 'DP=7', '0|1']],
+        rows: [['1', '3', '.', 'A', 'T', '.', 'q10', 'DP=7', 'GT=0|1;GQ=25']],
         truncated: false,
         samples: ['sample A'],
         samplesTruncated: false,
@@ -96,6 +96,7 @@ it('shows decoded filters and describes the remaining omissions', async () => {
   expect(textOf(root)).toContain('DP=7');
   expect(textOf(root)).toContain('sample A');
   expect(textOf(root)).toContain('0|1');
-  expect(textOf(root)).toContain('Other FORMAT fields are omitted');
+  expect(textOf(root)).toContain('GQ=25');
+  expect(textOf(root)).toContain('Sample columns show FORMAT keys and values');
   app.unmount();
 });

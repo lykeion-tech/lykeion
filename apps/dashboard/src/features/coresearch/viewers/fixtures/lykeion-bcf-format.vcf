@@ -1,0 +1,8 @@
+##fileformat=VCFv4.3
+##contig=<ID=chr1,length=100>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=AF,Number=.,Type=Float,Description="Fractions">
+##FORMAT=<ID=ST,Number=1,Type=String,Description="Value">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	A	B
+chr1	1	.	A	C	.	PASS	.	GT:DP:AF:ST	0|1:12:0.5,.:abc	./.:.:.:z

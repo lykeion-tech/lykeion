@@ -40,6 +40,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
     const dictionary = new Map<number, string>([[0, 'PASS']]);
     const dictionaryNames = new Map<string, number>([['PASS', 0]]);
     const info = new Map<number, { name: string; type: string; number: string }>();
+    const format = new Map<number, { name: string; type: string }>();
     let genotypeIndex: number | undefined;
     let dictionaryMode: 'explicit' | 'implicit' | undefined;
     for (const line of lines) {
@@ -80,6 +81,19 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
           )
             return;
           genotypeIndex = index;
+        }
+        if (line.startsWith('##FORMAT=<')) {
+          const types = fields.filter((s) => s.startsWith('Type='));
+          const numbers = fields.filter((s) => s.startsWith('Number='));
+          if (types.length !== 1 || numbers.length !== 1 || format.has(index)) return;
+          const type = types[0]!.slice(5),
+            number = numbers[0]!.slice(7);
+          if (
+            !['Integer', 'Float', 'String', 'Character'].includes(type) ||
+            !/^(?:\d+|[ARG.])$/.test(number)
+          )
+            return;
+          format.set(index, { name, type });
         }
         if (line.startsWith('##INFO=<')) {
           const types = fields.filter((s) => s.startsWith('Type='));
@@ -318,7 +332,10 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
       }
       if (p !== end) return;
       end += indiv;
-      let genotypes: string[] | undefined;
+      if (nFmt > 64) return;
+      const sampleValues = sampleNames.map(() => [] as string[]);
+      const seenFormat = new Set<number>();
+      let sampleOutputSize = 0;
       for (let i = 0; i < nFmt; i++) {
         const key = typed();
         if (![1, 2, 3].includes(key.type) || key.len !== 1 || !nSample) return;
@@ -329,14 +346,15 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
               ? view.getInt16(key.at, true)
               : view.getInt32(key.at, true);
         const value = typed(nSample);
+        const declaration = format.get(index);
+        if (!declaration || seenFormat.has(index)) return;
+        seenFormat.add(index);
         if (index === genotypeIndex) {
           if (!vcfVersion || Number(vcfVersion[1]) !== 4 || Number(vcfVersion[2]) > 5) return;
           const leadingPhase = Number(vcfVersion[2]) >= 4;
-          if (genotypes || ![1, 2, 3].includes(value.type) || value.len < 1 || value.len > 64)
-            return;
+          if (![1, 2, 3].includes(value.type) || value.len < 1 || value.len > 64) return;
           const size = value.type === 1 ? 1 : value.type === 2 ? 2 : 4;
           const missing = value.type === 1 ? -128 : value.type === 2 ? -32768 : -2147483648;
-          genotypes = [];
           for (let sample = 0; sample < sampleNames.length; sample++) {
             const pieces: string[] = [];
             let ended = false;
@@ -364,7 +382,74 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
             if (!pieces.length) return;
             const prefix =
               leadingPhase && firstPhased !== allLaterPhased ? (firstPhased ? '|' : '/') : '';
-            genotypes.push(prefix + pieces.join(''));
+            const entry = `${declaration.name}=${prefix}${pieces.join('')}`;
+            sampleOutputSize += entry.length + 1;
+            if (sampleOutputSize > 16384) return;
+            sampleValues[sample]!.push(entry);
+          }
+        } else {
+          if (
+            value.len > 1024 ||
+            ((declaration.type === 'Integer' || declaration.type === 'Float') && value.len > 64)
+          )
+            return;
+          for (let sample = 0; sample < sampleNames.length; sample++) {
+            const parts: string[] = [];
+            if (declaration.type === 'Integer' || declaration.type === 'Float') {
+              if (
+                declaration.type === 'Integer' ? ![1, 2, 3].includes(value.type) : value.type !== 5
+              )
+                return;
+              const size = value.type === 1 ? 1 : value.type === 2 ? 2 : 4;
+              const missing = value.type === 1 ? -128 : value.type === 2 ? -32768 : -2147483648;
+              let ended = false;
+              for (let j = 0; j < value.len; j++) {
+                const at = value.at + (sample * value.len + j) * size;
+                if (value.type === 5) {
+                  const bits = view.getUint32(at, true);
+                  if (bits === 0x7f800002) {
+                    ended = true;
+                    continue;
+                  }
+                  if (ended) return;
+                  const n = view.getFloat32(at, true);
+                  if (bits !== 0x7f800001 && !Number.isFinite(n)) return;
+                  parts.push(bits === 0x7f800001 ? '.' : Object.is(n, -0) ? '-0' : String(n));
+                } else {
+                  const n =
+                    size === 1
+                      ? view.getInt8(at)
+                      : size === 2
+                        ? view.getInt16(at, true)
+                        : view.getInt32(at, true);
+                  if (n === missing + 1) {
+                    ended = true;
+                    continue;
+                  }
+                  if (ended) return;
+                  parts.push(n === missing ? '.' : String(n));
+                }
+              }
+            } else {
+              if (value.type !== 7) return;
+              const at = value.at + sample * value.len;
+              const raw = bytes.subarray(at, at + value.len);
+              const zero = raw.indexOf(0);
+              if (zero >= 0 && raw.subarray(zero).some((c) => c !== 0)) return;
+              const text = decoder.decode(zero < 0 ? raw : raw.subarray(0, zero));
+              if (/[\x00-\x20\x7f;:=]/.test(text)) return;
+              parts.push(text || '.');
+              if (
+                declaration.type === 'Character' &&
+                text &&
+                text.split(',').some((part) => part !== '.' && [...part].length !== 1)
+              )
+                return;
+            }
+            const entry = `${declaration.name}=${parts.join(',') || '.'}`;
+            sampleOutputSize += entry.length + 1;
+            if (sampleOutputSize > 16384) return;
+            sampleValues[sample]!.push(entry);
           }
         }
       }
@@ -380,7 +465,7 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
         q,
         filterValues.join(';') || '.',
         infoValues.join(';') || '.',
-        ...(genotypes ?? sampleNames.map(() => '—')),
+        ...sampleValues.map((parts) => parts.join(';') || '—'),
       ]);
       pos = end;
     }
