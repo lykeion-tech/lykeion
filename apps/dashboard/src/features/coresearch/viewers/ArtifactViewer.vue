@@ -10,6 +10,9 @@ import ImageViewer from './ImageViewer.vue';
 import PdfDocumentPreview from './PdfDocumentPreview.vue';
 import NotebookViewer from './NotebookViewer.vue';
 import SequenceViewer from './SequenceViewer.vue';
+import SpectrumViewer from './SpectrumViewer.vue';
+import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
+import JsonLinesViewer from './JsonLinesViewer.vue';
 import { scientificTable } from './scientific-text';
 const props = defineProps<{ blob: Blob; path: string }>();
 const emit = defineEmits<{ text: [text: string | undefined, partial: boolean] }>();
@@ -25,6 +28,11 @@ const medicalImage = computed(
 const pdf = computed(() => ext.value === 'pdf');
 const sequence = computed(() =>
   ['fasta', 'fa', 'faa', 'fna', 'ffn', 'fastq', 'fq'].includes(ext.value),
+);
+const alignmentTree = computed(() =>
+  ['aln', 'clustal', 'sto', 'stk', 'phy', 'phylip', 'nwk', 'newick', 'tree', 'nhx'].includes(
+    ext.value,
+  ),
 );
 const bioTable = computed(() =>
   text.value === undefined ? undefined : scientificTable(text.value, ext.value, partial.value),
@@ -103,6 +111,13 @@ watch(
     <p class="prov-empty">{{ error || 'No preview for this file.' }}</p>
     <a class="quiet-action" :href="url" :download="path.split('/').pop()">Download</a>
   </div>
+  <AlignmentTreeViewer v-else-if="alignmentTree" :text="text" :extension="ext" :partial="partial" />
+  <SpectrumViewer
+    v-else-if="['mgf', 'jdx', 'dx'].includes(ext)"
+    :text="text"
+    :extension="ext"
+    :partial="partial"
+  />
   <SequenceViewer v-else-if="sequence" :text="text" :extension="ext" :partial="partial" />
   <figure
     v-else-if="bioTable"
@@ -151,6 +166,7 @@ watch(
       </table>
     </div>
   </figure>
+  <JsonLinesViewer v-else-if="['jsonl', 'ndjson'].includes(ext)" :text="text" :partial="partial" />
   <NotebookViewer v-else-if="ext === 'ipynb'" :text="text" :partial="partial" />
   <MarkdownViewer v-else-if="['md', 'markdown'].includes(ext)" :text="text" />
   <JsonViewer v-else-if="ext === 'json' && !partial" :text="text" />
