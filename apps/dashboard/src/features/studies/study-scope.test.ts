@@ -90,12 +90,40 @@ describe('study page scope', () => {
     const t = await mount();
     t.client.setQueryData(keys.cards('lab'), [
       card('Finished experiment', 'me', { board_column: 'experimentation', state: 'done' }),
+      card('Complete journey', 'me', {
+        board_column: 'validation',
+        state: 'done',
+        scope_from: 'grounding',
+        scope_to: 'validation',
+      }),
+      card('Validation only', 'me', {
+        board_column: 'validation',
+        state: 'done',
+        scope_from: 'validation',
+        scope_to: 'validation',
+      }),
+      card('Interrupted journey', 'me', {
+        board_column: 'validation',
+        state: 'done',
+        ending: 'stopped',
+        scope_from: 'grounding',
+        scope_to: 'validation',
+      }),
       card('Legacy completed', 'me', { board_column: 'done', state: 'done' }),
     ]);
     await t.settle();
     const cards = all(t.root).filter((n) => n.tag === 'button' && n.props['data-card']);
     const experiment = textOf(cards.find((n) => n.props['data-card'] === 'Finished experiment')!);
     const legacy = textOf(cards.find((n) => n.props['data-card'] === 'Legacy completed')!);
+    expect(textOf(cards.find((n) => n.props['data-card'] === 'Complete journey')!)).toContain(
+      'Full study',
+    );
+    expect(textOf(cards.find((n) => n.props['data-card'] === 'Validation only')!)).toContain(
+      'Validation',
+    );
+    expect(
+      textOf(cards.find((n) => n.props['data-card'] === 'Interrupted journey')!),
+    ).not.toContain('Full study');
     expect(experiment).toContain('Experimentation');
     expect(experiment).not.toContain('Done');
     expect(legacy).not.toContain('Done');
@@ -106,6 +134,9 @@ describe('study page scope', () => {
       'Experimentation',
     );
     expect(textOf(rows.find((n) => textOf(n).includes('Legacy completed'))!)).not.toContain('Done');
+    expect(textOf(rows.find((n) => textOf(n).includes('Complete journey'))!)).toContain(
+      'Full study',
+    );
   });
   it('shows Working only for an actually running agent', async () => {
     const t = await mount();

@@ -195,6 +195,13 @@ function cardStateLabel(card: Card) {
     : stateLabel(card);
 }
 function finalStage(card: Card) {
+  if (
+    card.state === 'done' &&
+    !card.ending &&
+    card.board_column === 'validation' &&
+    card.scope_from === 'grounding' &&
+    card.scope_to === 'validation'
+  ) return 'Full study';
   return boardColumnOf(card) === 'done' && stages.includes(card.board_column)
     ? columnName(card.board_column)
     : '';
