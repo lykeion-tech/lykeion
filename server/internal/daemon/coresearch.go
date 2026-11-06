@@ -724,13 +724,22 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	h.mu.Lock()
 	study := h.study
 	h.mu.Unlock()
-	opts := agent.ExecOptions{Coresearch: true, Aristotle: c.Coresearch.Aristotle, SourcesURL: d.sourcesURL(), Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandbox(h.dir, study, false), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
+	self, err := os.Executable()
+	if err != nil {
+		fail(err)
+		return nil
+	}
+	cliDir, cleanupCLI, err := coresearchCLIPath(self)
+	if err != nil {
+		fail(err)
+		return nil
+	}
+	defer cleanupCLI()
+	opts := agent.ExecOptions{Coresearch: true, Aristotle: c.Coresearch.Aristotle, SourcesURL: d.sourcesURL(), Dir: h.dir, ScratchReservation: reservation, Sandbox: d.cliSandboxWithRetention(h.dir, study, false, "", nil, cliDir), MCPToken: c.Token, CacheDir: d.cacheDir(), OnMessage: sink, Env: []string{"LYK_TOKEN=" + c.Token, "LYK_SERVER=" + d.cfg.Server, "LYK_CONFIG=" + filepath.Join(h.dir, ".lyk", "config.json")}}
 	if c.Coresearch.Aristotle {
 		opts.Model = c.AgentRun.RequestedModel
 	}
-	if lyk, e := lykDir(); e == nil {
-		opts.Env = append(opts.Env, "PATH="+lyk+string(os.PathListSeparator)+os.Getenv("PATH"))
-	}
+	opts.Env = append(opts.Env, "PATH="+cliDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if study != nil {
 		opts.ReadDirs = append([]string{study.Dir}, study.Bases.Folders()...)
 	}

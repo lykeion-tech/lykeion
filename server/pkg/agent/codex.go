@@ -74,7 +74,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			args = append(args, "-c", setting)
 		}
 	}
-	if o.Guest {
+	if o.Guest || o.Coresearch {
 		// Login profiles replace the trusted run PATH before shell tools run.
 		args = append(args, "-c", "allow_login_shell=false")
 	}

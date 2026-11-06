@@ -190,7 +190,7 @@ func (d *daemon) cliSandbox(runDir string, study *envs.Study, readOnly bool, gue
 	return d.cliSandboxWithRetention(runDir, study, readOnly, guest, nil)
 }
 
-func (d *daemon) cliSandboxWithRetention(runDir string, study *envs.Study, readOnly bool, guest string, reservation *agent.ScratchReservation) agent.SandboxCommand {
+func (d *daemon) cliSandboxWithRetention(runDir string, study *envs.Study, readOnly bool, guest string, reservation *agent.ScratchReservation, extraReads ...string) agent.SandboxCommand {
 	return func(ctx context.Context, cli agent.CLIPaths, name string, args ...string) (*exec.Cmd, error) {
 		if reservation != nil {
 			if cli.ManagedSkills != "" || guest != "" || readOnly || study != nil {
@@ -227,6 +227,7 @@ func (d *daemon) cliSandboxWithRetention(runDir string, study *envs.Study, readO
 		if err != nil {
 			return nil, err
 		}
+		p.Read = append(p.Read, extraReads...)
 		if runtime.GOOS == "linux" {
 			if err := protectCLIExecutable(&p, cli, name); err != nil {
 				return nil, err
