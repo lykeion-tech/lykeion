@@ -1,5 +1,4 @@
-import initRDKitModule from '@rdkit/rdkit';
-import wasmUrl from '@rdkit/rdkit/RDKit_minimal.wasm?url';
+import { loadCappedRdkit } from './capped-rdkit-loader';
 import { depictSmiles, smilesRecord } from './smiles';
 self.onmessage = async (event: MessageEvent<string>) => {
   try {
@@ -8,7 +7,7 @@ self.onmessage = async (event: MessageEvent<string>) => {
       self.postMessage(null);
       return;
     }
-    const kit = await initRDKitModule({ locateFile: () => wasmUrl });
+    const kit = await loadCappedRdkit();
     self.postMessage(depictSmiles(kit, input) ?? null);
   } catch {
     self.postMessage(null);
