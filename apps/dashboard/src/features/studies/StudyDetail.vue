@@ -128,6 +128,9 @@ onUnmounted(() => {
 });
 const activeSurface = ref<string | null>(null);
 const paneFocused = ref(false);
+watch(activeSurface, (surface) => {
+  if (surface === 'properties') paneFocused.value = false;
+});
 const notebookRun = ref<string | null>(null);
 const notebookScrollRequest = ref(0);
 const studySurfaces = [
@@ -659,6 +662,7 @@ function pin() {
       v-model:active="activeSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
+      :maximizable="activeSurface !== 'properties'"
       :default-width="240"
       :restore-width="false"
       hide-title

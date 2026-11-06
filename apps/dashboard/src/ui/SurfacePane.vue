@@ -14,8 +14,9 @@ const props = withDefaults(
     hideTitle?: boolean;
     defaultWidth?: number;
     restoreWidth?: boolean;
+    maximizable?: boolean;
   }>(),
-  { restoreWidth: true },
+  { restoreWidth: true, maximizable: true },
 );
 const emit = defineEmits<{
   'update:open': [boolean];
@@ -216,7 +217,7 @@ function cancelSlide(element: Element) {
         <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
         <span class="surface-spacer" />
         <button
-          v-if="active"
+          v-if="active && maximizable"
           class="surface-icon"
           :aria-label="focused ? 'Restore pane size' : 'Maximize pane'"
           :aria-pressed="focused"

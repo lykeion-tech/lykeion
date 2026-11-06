@@ -1665,7 +1665,7 @@ describe('study right-pane surfaces', () => {
       seedStudy,
     );
     try {
-      await t.click(/^Properties$/);
+      await t.click(/^Timeline$/);
       const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
       (maximize.props.onClick as () => void)();
       await nextTick();
@@ -1691,6 +1691,7 @@ describe('study right-pane surfaces', () => {
       for (const label of ['Properties', 'Timeline', 'Files']) {
         await t.click(new RegExp(`^${label}$`));
         if (label === 'Properties') {
+          expect(t.nodes().some((n) => n.props['aria-label'] === 'Maximize pane')).toBe(false);
           expect(t.text()).toContain('Owner');
           expect(t.text()).toContain('Due date');
           expect(t.text()).toContain('Created');
@@ -1698,6 +1699,7 @@ describe('study right-pane surfaces', () => {
           expect(t.text()).not.toContain('Details');
         }
         if (label === 'Timeline') {
+          expect(t.nodes().some((n) => n.props['aria-label'] === 'Maximize pane')).toBe(true);
           expect(t.text()).toContain('No runs yet.');
           expect(t.text()).toContain('Spent');
           expect(t.text()).not.toContain('Open timeline');
