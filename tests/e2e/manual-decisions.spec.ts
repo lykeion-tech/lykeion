@@ -81,6 +81,18 @@ async function fixture(page: Page) {
   });
 }
 
+test('AI builder machine and model selectors stay compact', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/#/decisions/new');
+  await page.getByRole('button', { name: /Create with AI/ }).click();
+  const setup = page.getByRole('dialog', { name: 'Choose a machine' });
+  for (const name of ['Machine and CLI', 'Builder model']) {
+    const select = setup.getByRole('combobox', { name });
+    await expect(select).toBeVisible();
+    await expect.poll(async () => (await select.boundingBox())?.width ?? 0).toBeLessThanOrEqual(210);
+  }
+});
+
 test('blank creation is keyboard accessible, survives reload and archives only after Create', async ({
   page,
 }) => {
