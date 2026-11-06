@@ -192,6 +192,36 @@ func TestConvertExperimentation(t *testing.T) {
 	}
 }
 
+func TestCorrectedValueReplyNamesThePriorItem(t *testing.T) {
+	prev := Review{Failed: map[string]string{"slope": "r1", "0.42: slope": "r1"}}
+	for _, name := range []string{" SLOPE ", "0.42: slope"} {
+		h := HandIn{Status: "done", Answer: "corrected", Values: []Value{{Name: "Slope", Value: "0.43", File: "fit.py"}}, Replies: []Reply{{Item: name, Action: "corrected", Reason: "Recalculated."}}}
+		recs, problems := Convert(Experimentation, true, h, studyEvidence(), prev)
+		if len(problems) != 0 {
+			t.Fatalf("reply %q: %v", name, problems)
+		}
+		if got := body(t, recs[0])["name"]; got != "Slope" {
+			t.Fatalf("reply %q value name = %v", name, got)
+		}
+	}
+	// A new, unrelated value must not answer the failed item.
+	h := HandIn{Status: "done", Answer: "new value", Values: []Value{{Name: "Other", Value: "0.43", File: "fit.py"}}, Replies: []Reply{{Item: "slope", Action: "corrected", Reason: "Replaced."}}}
+	if _, problems := Convert(Experimentation, true, h, studyEvidence(), prev); len(problems) == 0 {
+		t.Fatal("unrelated value accepted as a correction")
+	}
+	h = HandIn{Status: "done", Answer: "conflicting replies", Values: []Value{{Name: "Slope", Value: "0.43", File: "fit.py"}}, Replies: []Reply{
+		{Item: "slope", Action: "corrected", Reason: "Recalculated."},
+		{Item: "0.42: slope", Action: "withdrawn", Reason: "Removed."},
+	}}
+	if _, problems := Convert(Experimentation, true, h, studyEvidence(), prev); len(problems) == 0 {
+		t.Fatal("conflicting replies to the same value were accepted")
+	}
+	h.Replies = h.Replies[:1]
+	if _, problems := Convert(Experimentation, true, h, studyEvidence(), Review{Failed: map[string]string{"slope": "r1", " SLOPE ": "r2"}}); len(problems) == 0 {
+		t.Fatal("an ambiguous name was accepted as a correction")
+	}
+}
+
 func TestExperimentationValueMayReferenceAnExactRecordedScriptRun(t *testing.T) {
 	e := NewEvidence([]db.Record{
 		rec(board.Experimentation, "run", "x1", map[string]any{"tool": "run_script", "path": "readiness.py", "exit_status": 0}),

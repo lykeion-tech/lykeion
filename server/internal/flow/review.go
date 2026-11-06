@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/handin"
@@ -143,6 +144,25 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		if err != nil {
 			return err
 		}
+		attempts := map[uuid.UUID]int32{}
+		if slices.ContainsFunc(prev.Items, func(it review.Item) bool { return it.Kind == "value" && it.Status == review.Fail }) {
+			for _, r := range recs {
+				if r.Kind != "hand_in" || r.Round != c.Round || !handin.Leads(r.Role) || r.AgentRunID == nil {
+					continue
+				}
+				if _, ok := attempts[*r.AgentRunID]; ok {
+					continue
+				}
+				run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{WorkspaceID: tx.WS, ID: *r.AgentRunID})
+				if errors.Is(err, pgx.ErrNoRows) {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+				attempts[run.ID] = run.Attempt
+			}
+		}
 		for _, it := range prev.Items {
 			if (it.Status == review.Pass || it.Status == review.Unclear) && it.Kind != review.KindOutputs {
 				rv.carried = append(rv.carried, it)
@@ -158,7 +178,8 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		// again; withdrawn, it no longer counts; left unanswered, it fails again.
 		for _, it := range prev.Items {
 			if it.Status != review.Fail || it.Kind == review.KindOutputs ||
-				slices.ContainsFunc(rv.items, func(r db.Record) bool { return sameItem(it, r) }) {
+				slices.ContainsFunc(rv.items, func(r db.Record) bool { return sameItem(it, r) }) ||
+				(it.Kind == "value" && correctedValue(it, prev, recs, rv.work, c.Round, attempts)) {
 				continue
 			}
 			if reason, ok := withdrawal(it, withdrawn, recs); ok {
@@ -224,6 +245,77 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 	return rv, err
 }
 
+// correctedValue accepts only a lead's recorded hand-in explicitly answering
+// the failed value and re-declaring it in that same run.
+func correctedValue(item review.Item, prev review.Result, recs, work []db.Record, round int32, attempts map[uuid.UUID]int32) bool {
+	norm := func(s string) string { return strings.Join(strings.Fields(handin.NormID(s)), " ") }
+	aliases := map[string]string{}
+	for _, it := range prev.Items {
+		if it.Status != review.Fail || it.Kind == review.KindOutputs {
+			continue
+		}
+		ids := []string{it.Identity}
+		if it.Identity == "" {
+			ids = []string{it.Label}
+		}
+		if it.Kind == "value" {
+			ids = append(ids, it.Label)
+			if i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); i >= 0 {
+				ids = append(ids, valueOf(recs[i]).Name)
+			}
+		}
+		for _, id := range ids {
+			id = norm(id)
+			if id == "" {
+				continue
+			}
+			if old, ok := aliases[id]; ok && old != it.Key {
+				aliases[id] = ""
+			} else if !ok {
+				aliases[id] = it.Key
+			}
+		}
+	}
+	i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == item.Key && r.Kind == "value" })
+	if i < 0 || norm(valueOf(recs[i]).Name) == "" {
+		return false
+	}
+	name := norm(valueOf(recs[i]).Name)
+	for _, r := range recs {
+		if r.Kind != "hand_in" || r.Round != round || !handin.Leads(r.Role) || r.AgentRunID == nil {
+			continue
+		}
+		var body struct {
+			HandIn           handin.HandIn `json:"hand_in"`
+			Attempt          int32         `json:"attempt"`
+			ConvertedRecords []uuid.UUID   `json:"converted_records"`
+		}
+		attempt, ok := attempts[*r.AgentRunID]
+		if !ok || json.Unmarshal(r.Body, &body) != nil || body.Attempt != attempt || body.HandIn.Status != "done" {
+			continue
+		}
+		answered := slices.ContainsFunc(body.HandIn.Replies, func(reply handin.Reply) bool {
+			return reply.Action == "corrected" && aliases[norm(reply.Item)] == item.Key
+		})
+		if !answered {
+			continue
+		}
+		for _, v := range body.HandIn.Values {
+			if norm(v.Name) != name {
+				continue
+			}
+			if slices.ContainsFunc(work, func(w db.Record) bool {
+				return w.Kind == "value" && w.Round == round && w.AgentRunID != nil &&
+					*w.AgentRunID == *r.AgentRunID && slices.Contains(body.ConvertedRecords, w.ID) &&
+					norm(valueOf(w).Name) == name && valueOf(w).Value == v.Value
+			}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // lastReview is the review that ended the round before round, among a
 // column's records; the zero Result when there is none.
 func lastReview(recs []db.Record, round int32) (review.Result, error) {
@@ -253,21 +345,28 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 	if err != nil {
 		return out, err
 	}
+	addFailed := func(id, key string) {
+		if old, exists := out.Failed[id]; exists && old != key {
+			out.Failed[id] = ""
+		} else if !exists {
+			out.Failed[id] = key
+		}
+	}
 	for _, it := range prev.Items {
 		if it.Status == review.Fail && it.Kind != review.KindOutputs {
 			id := it.Identity
 			if id == "" {
 				id = it.Label // reviews written before items carried their identity
 			}
-			out.Failed[id] = it.Key
+			addFailed(id, it.Key)
 			// A reply names a value by the name it was handed in with.
 			if it.Kind == "value" {
 				if i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); i >= 0 {
 					if name := valueOf(recs[i]).Name; name != "" {
-						out.Failed[name] = it.Key
+						addFailed(name, it.Key)
 					}
 				}
-				out.Failed[it.Label] = it.Key
+				addFailed(it.Label, it.Key)
 			}
 		}
 	}

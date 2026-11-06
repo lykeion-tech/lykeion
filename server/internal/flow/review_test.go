@@ -20,6 +20,7 @@ import (
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -526,6 +527,109 @@ func TestAnUnansweredFailureIsCarriedAsFailed(t *testing.T) {
 	}
 	if got := l.card(t, c.ID); got.State != "blocked" || got.BlockKind != "low_score" {
 		t.Fatalf("after an unanswered failure: %s %s", got.State, got.BlockKind)
+	}
+}
+
+func TestCorrectedValueNeedsTheLeadsExplicitReply(t *testing.T) {
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Codex tester", "codex", "", "")
+	c := l.scoped(t, "experimentation", "experimentation", a)
+	old := l.put(t, c.ID, "experimentation", 1, "value", "agent", map[string]any{"name": "slope", "value": "0.42", "file": "fit.py"})
+	l.put(t, c.ID, "experimentation", 1, "review", "server", review.Result{Column: "experimentation", Items: []review.Item{{Key: old, Kind: "value", Label: "0.42: slope", Identity: old + " 0.42", Status: review.Fail}}})
+	c = l.move(t, c.ID, "experimentation", 2)
+	l.e.Kick(l.ws, c.ID)
+	ctx := context.Background()
+	runtimes, err := l.e.AgentRuns.Register(ctx, l.owner, l.ws, "codex-test", "test", []string{"codex"}, nil, agent.Platform{})
+	if err != nil || len(runtimes) != 1 {
+		t.Fatalf("register: %v", err)
+	}
+	ref := service.RuntimeRef{WorkspaceID: l.ws, RuntimeID: runtimes[0].ID}
+	claims, err := l.e.AgentRuns.Claim(ctx, l.owner, []service.RuntimeRef{ref}, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("claim: %v", err)
+	}
+	run := claims[0].AgentRun
+	ref.Attempt = run.Attempt
+	if err := l.e.AgentRuns.Start(ctx, l.owner, ref, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(ctx, db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", Round: 2, Kind: "run", Role: "server", Key: "x1", AgentRunID: &run.ID, Body: []byte(`{"tool":"run_script","path":"fit.py","output":"0.43","exit_status":0}`)})
+		return err
+	})
+	unanswered := l.putBy(t, run, "value", map[string]any{"name": "slope", "value": "0.43", "file": "fit.py"})
+	rv, err := l.e.readReview(context.Background(), l.ws, c)
+	if err != nil || len(rv.carried) != 1 || rv.carried[0].Status != review.Fail {
+		t.Fatalf("unanswered: %+v, %v", rv.carried, err)
+	}
+	if _, err := l.env.Owner.Exec(ctx, `UPDATE record SET superseded_at = now() WHERE card_id = $1 AND key = $2`, c.ID, unanswered); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"status":"done","answer":"Corrected the slope.","values":[{"name":"slope","value":"0.43","file":"fit.py"}],"outputs":[],"replies":[{"item":"0.42: slope","action":"corrected","reason":"Recalculated."}]}`)
+	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
+	if problems, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(problems) != 0 {
+		t.Fatalf("submit: %v %v", problems, err)
+	}
+	rv, err = l.e.readReview(context.Background(), l.ws, c)
+	if err != nil || len(rv.carried) != 0 {
+		t.Fatalf("explicit correction: %+v, %v", rv.carried, err)
+	}
+	result, err := l.e.runReview(ctx, l.ws, scoring{card: c, attempt: 2}, rv)
+	if err != nil || len(result.Items) != 1 || result.Items[0].Status != review.Pass || result.Items[0].Checks[0].Detail == "" {
+		t.Fatalf("corrected value review: %+v, %v", result.Items, err)
+	}
+}
+
+func TestCorrectedValueRequiresAnUnambiguousLeadHandIn(t *testing.T) {
+	run, other := uuid.New(), uuid.New()
+	old := valueRec("r1", "value", map[string]any{"name": "slope", "value": "0.42"})
+	item := review.Item{Key: "r1", Kind: "value", Label: "0.42: slope", Identity: "r1 0.42", Status: review.Fail}
+	prev := review.Result{Items: []review.Item{item}}
+	value := valueRec("r2", "value", map[string]any{"name": "slope", "value": "0.43"})
+	value.ID, value.Round, value.AgentRunID = uuid.New(), 2, &run
+	body, _ := json.Marshal(map[string]any{"attempt": 1, "converted_records": []uuid.UUID{value.ID}, "hand_in": map[string]any{"status": "done", "values": []any{map[string]any{"name": "slope", "value": "0.43"}}, "replies": []any{map[string]any{"item": "slope", "action": "corrected"}}}})
+	hand := db.Record{Kind: "hand_in", Round: 2, Role: "agent", AgentRunID: &run, Body: body}
+	attempts := map[uuid.UUID]int32{run: 1}
+	if !correctedValue(item, prev, []db.Record{old, hand}, []db.Record{value}, 2, attempts) {
+		t.Fatal("valid explicit correction was not recognized")
+	}
+	for _, tc := range []struct {
+		name  string
+		hand  db.Record
+		value db.Record
+	}{
+		{"member", func() db.Record { h := hand; h.Role = "member"; return h }(), value},
+		{"other run", hand, func() db.Record { v := value; v.AgentRunID = &other; return v }()},
+		{"wrong round", func() db.Record { h := hand; h.Round = 1; return h }(), value},
+		{"different value", hand, func() db.Record { v := value; v.Body = []byte(`{"name":"slope","value":"999"}`); return v }()},
+		{"no reply", func() db.Record {
+			h := hand
+			h.Body = []byte(`{"hand_in":{"status":"done","values":[{"name":"slope","value":"0.43"}],"replies":[]}}`)
+			return h
+		}(), value},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if correctedValue(item, prev, []db.Record{old, tc.hand}, []db.Record{tc.value}, 2, attempts) {
+				t.Fatal("untrusted or unanswered correction accepted")
+			}
+		})
+	}
+	second := valueRec("r3", "value", map[string]any{"name": "slope", "value": "0.5"})
+	prev.Items = append(prev.Items, review.Item{Key: "r3", Kind: "value", Label: "0.5: slope", Identity: "r3 0.5", Status: review.Fail})
+	if correctedValue(item, prev, []db.Record{old, second, hand}, []db.Record{value}, 2, attempts) {
+		t.Fatal("ambiguous value name answered multiple failed items")
+	}
+	prev.Items = prev.Items[:1]
+	newHand := hand
+	newHand.Body = []byte(`{"attempt":2,"hand_in":{"status":"done","values":[{"name":"slope","value":"0.43"}],"replies":[]}}`)
+	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, 2, map[uuid.UUID]int32{run: 2}) {
+		t.Fatal("an earlier hand-in answered a later attempt")
+	}
+	newBody, _ := json.Marshal(map[string]any{"attempt": 2, "converted_records": []uuid.UUID{uuid.New()}, "hand_in": map[string]any{"status": "done", "values": []any{map[string]any{"name": "slope", "value": "0.43"}}, "replies": []any{map[string]any{"item": "slope", "action": "corrected"}}}})
+	newHand.Body = newBody
+	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, 2, map[uuid.UUID]int32{run: 2}) {
+		t.Fatal("a previous attempt's value was paired with the current hand-in")
 	}
 }
 

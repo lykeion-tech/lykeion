@@ -54,6 +54,7 @@ type handInBody struct {
 	MessageSeq               int32           `json:"message_seq,omitempty"`
 	EnvironmentFailures      []string        `json:"environment_failures,omitempty"`
 	EnvironmentFailureMember *uuid.UUID      `json:"environment_failure_member,omitempty"`
+	ConvertedRecords         []uuid.UUID     `json:"converted_records,omitempty"`
 }
 
 // Submit checks the hand-in of run's attempt ref.Attempt and, when nothing is
@@ -216,13 +217,16 @@ func (s *HandIns) SubmitWithEnvironment(ctx context.Context, user uuid.UUID, ref
 		if probs = append(probs, more...); len(probs) > 0 {
 			return nil
 		}
-		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq, EnvironmentFailures: attested, EnvironmentFailureMember: failureMember}); err != nil {
-			return err
-		}
+		var converted []uuid.UUID
 		for _, r := range recs {
-			if _, err := records.WriteAs(ctx, tx, w, r.Kind, r.Body); err != nil {
+			rec, err := records.WriteAs(ctx, tx, w, r.Kind, r.Body)
+			if err != nil {
 				return err
 			}
+			converted = append(converted, rec.ID)
+		}
+		if _, err := records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq, EnvironmentFailures: attested, EnvironmentFailureMember: failureMember, ConvertedRecords: converted}); err != nil {
+			return err
 		}
 		return nil
 	})

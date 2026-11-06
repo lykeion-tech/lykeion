@@ -338,16 +338,40 @@ func (c *converter) source(s string) (string, bool) {
 func (c *converter) replies(rs []Reply, prev Review) {
 	failed := map[string]string{}
 	for id, key := range prev.Failed {
-		failed[identity(id)] = key
+		id = identity(id)
+		if old, exists := failed[id]; exists && old != key {
+			failed[id] = ""
+		} else if !exists {
+			failed[id] = key
+		}
 	}
 	missed := map[string]bool{}
 	for _, id := range prev.Missed {
 		missed[identity(id)] = true
 	}
+	answered := map[string]bool{}
 	for i, r := range rs {
 		id := identity(r.Item)
+		if key := failed[id]; c.column == board.Experimentation && key != "" && (r.Action == "corrected" || r.Action == "withdrawn") {
+			if answered[key] {
+				c.problem("reply %d: the same item was already answered", i+1)
+				continue
+			}
+			answered[key] = true
+		}
 		switch r.Action {
 		case "corrected":
+			// Values are named in a hand-in; a review may also refer to the
+			// same value by its displayed label or earlier identity.
+			if c.column == board.Experimentation && failed[id] != "" {
+				matched := slices.ContainsFunc(c.recs, func(rec NewRecord) bool {
+					v, ok := rec.Body.(valueBody)
+					return ok && failed[identity(v.Name)] == failed[id]
+				})
+				if matched {
+					continue
+				}
+			}
 			if !c.declared[id] {
 				c.problem("reply %d: corrected, but no item %s is in this hand-in", i+1, r.Item)
 			}
@@ -359,7 +383,7 @@ func (c *converter) replies(rs []Reply, prev Review) {
 			c.recs = append(c.recs, NewRecord{Kind: "declined", Body: declinedBody{Item: NormID(r.Item), Reason: r.Reason}})
 		case "withdrawn":
 			key, ok := failed[id]
-			if !ok {
+			if !ok || key == "" {
 				c.problem("reply %d: %s was not sent back by the last review, so it cannot be withdrawn", i+1, r.Item)
 				continue
 			}
