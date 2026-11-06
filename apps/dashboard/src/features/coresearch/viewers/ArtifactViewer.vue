@@ -19,6 +19,7 @@ import TiffViewer from './TiffViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import ChemicalViewer from './ChemicalViewer.vue';
+import SmilesViewer from './SmilesViewer.vue';
 import MassXmlViewer from './MassXmlViewer.vue';
 import NpzViewer from './NpzViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
@@ -166,6 +167,7 @@ watch(
     :extension="ext"
     :partial="partial"
   />
+  <SmilesViewer v-else-if="['smi', 'smiles'].includes(ext)" :text="text" :partial="partial" />
   <ChemicalViewer
     v-else-if="['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif'].includes(ext)"
     :text="text"

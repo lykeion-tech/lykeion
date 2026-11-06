@@ -69,3 +69,5 @@ THE SOFTWARE.
 Terminal-Bench-Science (https://github.com/harbor-framework/terminal-bench-science), release v0.1.0, Copyright the Terminal-Bench-Science authors, Apache License 2.0: task READMEs, instructions, solutions, tests and environment files under server/internal/workflow/bundle. The licence text is server/internal/workflow/bundle/LICENSE.
 
 3Dmol.js (https://github.com/3dmol/3Dmol.js), version 2.5.5, Copyright University of Pittsburgh and contributors, BSD-3-Clause. Its license and included component notices are in apps/dashboard/src/features/coresearch/viewers/3dmol-LICENSE.
+
+RDKit.js (https://github.com/rdkit/rdkit), version 2026.9.2, BSD-3-Clause. The RDKit license text is distributed in apps/dashboard/public/licenses/rdkit-LICENSE.txt.
