@@ -305,6 +305,15 @@ it.each(['running', 'dispatched'] as const)(
     await nextTick();
     expect(textOf(root)).toContain('Working…');
     expect(all(root).some((n) => String(n.props.class).includes('live-dot'))).toBe(true);
+    expect(all(root).some((n) => String(n.props.class).includes('run-status-spinner'))).toBe(true);
+  },
+);
+it.each(['queued', 'completed', 'failed', 'cancelled'] as const)(
+  'does not show a working spinner when the run is %s',
+  async (status) => {
+    const { root } = setup({ status });
+    await nextTick();
+    expect(all(root).some((n) => String(n.props.class).includes('run-status-spinner'))).toBe(false);
   },
 );
 it('omits the run environment while retaining machine notices', async () => {

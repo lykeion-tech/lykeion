@@ -155,6 +155,9 @@ const copy = computed(() =>
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
 }
+.transcript-files :deep(.experiment-file-preview) {
+  background: var(--fill-preview);
+}
 .coresearch-run-timeline {
   --step-canvas: var(--surface);
   --step-border: color-mix(in srgb, var(--text) 12%, var(--surface));

@@ -17,6 +17,7 @@ import { workspaceId } from '../../api/session';
 import { deliveryLine } from '../studies/comment-delivery';
 import { registerDraftVisit } from '../../state/resource-draft';
 import RunTurn from './RunTurn.vue';
+import RunStatus from './RunStatus.vue';
 import RunReactions from './RunReactions.vue';
 import { roleLabel, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
@@ -275,7 +276,7 @@ const lastActive = computed(
         <p v-else-if="run.status === 'completed'">
           Final message unavailable. Open the full log to inspect the run.
         </p>
-        <p v-else-if="active">Working…</p>
+        <RunStatus v-else-if="active" text="Working…" working />
         <p v-else-if="run.status === 'failed'">
           {{
             run.failure_reason === 'runtime_offline'
