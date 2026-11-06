@@ -1,0 +1,9 @@
+$$ Synthetic peak data using the XUNITS/YUNITS labels from IUPAC JCAMP-DX MS example 1: https://media.iupac.org/jcamp/protocols/dxms01.pdf
+##TITLE=Test mass spectrum
+##JCAMP-DX=5.00
+##XUNITS=M/Z $$ mass-to-charge ratio
+##YUNITS=RELATIVE ABUNDANCE
+##NPOINTS=2
+##PEAK TABLE=(XY..XY)
+50,5.84 51,8.50
+##END=

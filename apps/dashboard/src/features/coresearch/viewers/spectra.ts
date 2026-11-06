@@ -1,5 +1,5 @@
 type Point = [number, number];
-type Scan = { name: string; points: Point[] };
+type Scan = { name: string; points: Point[]; xUnit?: string; yUnit?: string };
 const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 const limit = 50_000;
 
@@ -100,6 +100,18 @@ function jcamp(lines: string[]): Scan[] | undefined {
     yFactor = 1,
     delta: number | undefined;
   let count: number | undefined;
+  let xUnit: string | undefined, yUnit: string | undefined;
+  let xSeen = false,
+    ySeen = false;
+  const unit = (raw: string): string | undefined => {
+    const value = raw.split('$$', 1)[0]!.trim();
+    return value.length > 0 &&
+      value.length <= 80 &&
+      /[\p{L}\p{N}%]/u.test(value) &&
+      !/[\p{Cc}\p{Cf}<>]/u.test(value)
+      ? value
+      : undefined;
+  };
   let mode: 'pairs' | 'increment' | undefined,
     ended = false;
   const points: Point[] = [];
@@ -116,6 +128,14 @@ function jcamp(lines: string[]): Scan[] | undefined {
           .replace(/[\s_-]/g, ''),
         value = match[2]!.trim();
       if (key === 'TITLE') name = value.slice(0, 200);
+      if (key === 'XUNITS') {
+        xUnit = xSeen ? undefined : unit(value);
+        xSeen = true;
+      }
+      if (key === 'YUNITS') {
+        yUnit = ySeen ? undefined : unit(value);
+        ySeen = true;
+      }
       if (key === 'NPOINTS') {
         count = Number(value);
         if (!/^\d+$/.test(value) || !Number.isSafeInteger(count) || count > limit) return;
@@ -155,7 +175,7 @@ function jcamp(lines: string[]): Scan[] | undefined {
     points.length &&
     (count === undefined || count === points.length) &&
     points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
-    ? [{ name, points }]
+    ? [{ name, points, ...(xUnit ? { xUnit } : {}), ...(yUnit ? { yUnit } : {}) }]
     : undefined;
 }
 

@@ -75,8 +75,11 @@ const plotted = computed(() => {
       />
     </svg>
     <p>
-      Horizontal: {{ bounds.minX }} to {{ bounds.maxX }} · Vertical: {{ bounds.minY }} to
-      {{ bounds.maxY }}
+      Horizontal<span v-if="extension !== 'mgf'">
+        ({{ parsed.scans[selected]?.xUnit || 'unit unspecified' }})</span
+      >: {{ bounds.minX }} to {{ bounds.maxX }} · Vertical<span v-if="extension !== 'mgf'">
+        ({{ parsed.scans[selected]?.yUnit || 'unit unspecified' }})</span
+      >: {{ bounds.minY }} to {{ bounds.maxY }}
     </p>
     <p>
       {{ points.length }} points<span v-if="points.length > 1000">

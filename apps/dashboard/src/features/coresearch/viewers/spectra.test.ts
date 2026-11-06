@@ -86,3 +86,31 @@ describe('spectral previews', () => {
     );
   });
 });
+it('retains IUPAC JCAMP axis-unit labels while stripping comments', async () => {
+  const { readFileSync } = await import('node:fs');
+  const text = readFileSync(
+    'apps/dashboard/src/features/coresearch/viewers/fixtures/jcamp-iupac-units.jdx',
+    'utf8',
+  );
+  const result = parseSpectrum(text, 'jdx', false);
+  expect(result?.scans[0]).toMatchObject({
+    xUnit: 'M/Z',
+    yUnit: 'RELATIVE ABUNDANCE',
+    points: [
+      [50, 5.84],
+      [51, 8.5],
+    ],
+  });
+});
+it('does not guess missing, malformed, overlong or conflicting axis labels', () => {
+  const data = '##XYPOINTS=(XY..XY)\n1 2\n##END=';
+  expect(parseSpectrum(data, 'dx', false)?.scans[0]?.xUnit).toBeUndefined();
+  for (const header of [
+    '##XUNITS=\n',
+    '##XUNITS=<>\n',
+    '##XUNITS=' + 'a'.repeat(81) + '\n',
+    '##XUNITS=1/CM\n##XUNITS=SECONDS\n',
+    '##XUNITS=cm\u202em\n',
+  ])
+    expect(parseSpectrum(header + data, 'jdx', false)?.scans[0]?.xUnit).toBeUndefined();
+});
