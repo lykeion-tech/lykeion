@@ -621,8 +621,8 @@ onUnmounted(() => {
   color: var(--text);
   box-sizing: border-box;
   box-shadow:
-    0 6px 28px color-mix(in srgb, var(--text) 18%, transparent),
-    0 1px 4px color-mix(in srgb, var(--text) 16%, transparent);
+    0 6px 28px rgb(0 0 0 / 18%),
+    0 1px 4px rgb(0 0 0 / 16%);
 }
 .aristotle-fab {
   right: max(20px, env(safe-area-inset-right));
