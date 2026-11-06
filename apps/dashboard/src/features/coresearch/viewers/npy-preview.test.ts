@@ -10,6 +10,28 @@ function npy(descr: string, shape: string, data: number[], fortran = false) {
   return new Blob([result]);
 }
 describe('NumPy preview', () => {
+  it('samples a valid array larger than 32 MiB without treating the whole file as table data', async () => {
+    const count = 33 * 1024 * 1024;
+    const header = new TextEncoder().encode(
+      `{'descr': '|u1', 'fortran_order': False, 'shape': (${count},), }\n`,
+    );
+    const prefix = new Uint8Array([
+      0x93,
+      0x4e,
+      0x55,
+      0x4d,
+      0x50,
+      0x59,
+      1,
+      0,
+      header.length & 255,
+      header.length >> 8,
+    ]);
+    const result = await readNpy(new Blob([prefix, header, new Uint8Array(count)]));
+    expect(result?.shape).toEqual([count]);
+    expect(result?.values.length).toBeLessThanOrEqual(100);
+    expect(result?.values.every((value) => value === '0')).toBe(true);
+  });
   it('reads big-endian ints with shape and C-order values', async () => {
     expect(await readNpy(npy('>i2', '2, 2', [0, 1, 0, 2, 0, 3, 0, 4]))).toMatchObject({
       shape: [2, 2],

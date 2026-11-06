@@ -8,6 +8,27 @@ function fits(cards: string[], bytes: number[]) {
   return new Blob([header, body]);
 }
 describe('FITS preview', () => {
+  it('samples a valid image larger than 32 MiB', async () => {
+    const count = 33 * 1024 * 1024;
+    const cards = [
+      'SIMPLE  =                    T',
+      'BITPIX  =                    8',
+      'NAXIS   =                    1',
+      `NAXIS1  = ${String(count).padStart(20)}`,
+      'END',
+    ];
+    const header = new TextEncoder().encode(
+      cards
+        .map((card) => card.padEnd(80, ' '))
+        .join('')
+        .padEnd(2880, ' '),
+    );
+    const body = new Uint8Array(Math.ceil(count / 2880) * 2880);
+    const result = await readFits(new Blob([header, body]));
+    expect(result?.shape).toEqual([count]);
+    expect(result?.values.length).toBeLessThanOrEqual(100);
+    expect(result?.values.every((value) => value === '0')).toBe(true);
+  });
   it('decodes big-endian scaled integer images with FITS axis order', async () => {
     const b = fits(
       [

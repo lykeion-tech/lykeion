@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { h, nextTick, type Component } from 'vue';
+import { h, nextTick, ref, type Component } from 'vue';
+import { useCoresearchContent } from './api';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import FilesPane from './FilesPane.vue';
 import { keys } from '../../api/keys';
@@ -113,8 +114,126 @@ describe('Coresearch files', () => {
     vi.stubGlobal('document', { activeElement: null, createElement: () => link });
     expect(button(root, 'Download file')).toBeTruthy();
     (button(root, 'Download file')!.props.onClick as () => void)();
-    expect(link.href).toBe('/api/coresearch/projects/p/files/f/versions/1/content?download=1&workspace=lab');
+    expect(link.href).toBe(
+      '/api/coresearch/projects/p/files/f/versions/1/content?download=1&workspace=lab',
+    );
     expect(link.click).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(['result.fits', 'result.FIT', 'result.fts', 'array.npy'])(
+    'fetches a 40 MiB %s preview without reusing a smaller-limit cache entry',
+    async (path) => {
+      const fetch = vi.fn(async () => new Response(new Uint8Array([0])));
+      vi.stubGlobal('fetch', fetch);
+      const big = { ...file, path, head: version(1, { size: 40 * 1024 * 1024 }) };
+      const { root } = await mount(FilesPane, { file: big }, (client) => {
+        client.setQueryData(keys.coresearchFiles('lab', 'p'), [big]);
+        client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [big.head]);
+        client.setQueryData(keys.coresearchContent('lab', 'p', 'f', 1), new Blob(['stale text']));
+      });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+      expect(textOf(root)).not.toContain('too large to preview');
+      expect(textOf(root)).not.toContain('stale text');
+      expect(button(root, 'Edit content')).toBeUndefined();
+    },
+  );
+  it.each(['result.fits', 'array.npy'])('refuses metadata above 50 MiB for %s', async (path) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const big = { ...file, path, head: version(1, { size: 50 * 1024 * 1024 + 1 }) };
+    const { root } = await mount(FilesPane, { file: big }, (client) => {
+      client.setQueryData(keys.coresearchFiles('lab', 'p'), [big]);
+      client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [big.head]);
+    });
+    expect(textOf(root)).toContain('too large to preview');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('accepts scientific preview bytes above 32 MiB and keeps them in a separate bounded cache entry', async () => {
+    const bytes = new Uint8Array(33 * 1024 * 1024);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(bytes)),
+    );
+    const big = { ...file, path: 'data.npy', head: version(1, { size: bytes.length }) };
+    const { root, client } = await mount(FilesPane, { file: big }, (cache) => {
+      cache.setQueryData(keys.coresearchFiles('lab', 'p'), [big]);
+      cache.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [big.head]);
+    });
+    const key = [...keys.coresearchContent('lab', 'p', 'f', 1), 'maxBytes', 50 * 1024 * 1024];
+    await vi.waitFor(() => expect(client.getQueryData<Blob>(key)?.size).toBe(bytes.length));
+    expect(button(root, 'Edit content')).toBeUndefined();
+  });
+  it('cancels an oversized scientific response despite understated headers and metadata', async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(26 * 1024 * 1024));
+        controller.enqueue(new Uint8Array(25 * 1024 * 1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(stream, { headers: { 'Content-Length': '1' } })),
+    );
+    const big = { ...file, path: 'data.npy', head: version(1, { size: 40 * 1024 * 1024 }) };
+    const { root } = await mount(FilesPane, { file: big }, (client) => {
+      client.setQueryData(keys.coresearchFiles('lab', 'p'), [big]);
+      client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [big.head]);
+    });
+    await vi.waitFor(() => expect(textOf(root)).toContain('too large to preview'));
+    expect(cancelled).toBe(true);
+    expect(button(root, 'Edit content')).toBeUndefined();
+  });
+  it('isolates large preview versions when an older request finishes late', async () => {
+    workspaceId.value = 'lab';
+    const pending = new Map<string, (response: Response) => void>();
+    const signals = new Map<string, AbortSignal>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init: RequestInit) => {
+        signals.set(url, init.signal as AbortSignal);
+        return new Promise<Response>((resolve) => pending.set(url, resolve));
+      }),
+    );
+    const selected = ref(1);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
+    });
+    const app = createTreeApp({
+      setup() {
+        const content = useCoresearchContent('p', 'f', selected, 50 * 1024 * 1024);
+        return () => h('div', String(content.data.value?.size ?? 'waiting'));
+      },
+    });
+    app.use(VueQueryPlugin, { queryClient: client });
+    const root = node('root');
+    app.mount(root);
+    const first = '/api/coresearch/projects/p/files/f/versions/1/content';
+    const second = '/api/coresearch/projects/p/files/f/versions/2/content';
+    await vi.waitFor(() => expect(pending.has(first)).toBe(true));
+    selected.value = 2;
+    await vi.waitFor(() => expect(pending.has(second)).toBe(true));
+    expect(signals.get(first)?.aborted).toBe(true);
+    pending.get(second)!(new Response('new'));
+    await vi.waitFor(() => expect(textOf(root)).toBe('3'));
+    pending.get(first)!(new Response('outdated'));
+    await nextTick();
+    expect(textOf(root)).toBe('3');
+    app.unmount();
+    client.clear();
+  });
+  it('keeps compressed FITS under the regular 32 MiB limit', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const big = { ...file, path: 'result.fits.gz', head: version(1, { size: 40 * 1024 * 1024 }) };
+    const { root } = await mount(FilesPane, { file: big }, (client) => {
+      client.setQueryData(keys.coresearchFiles('lab', 'p'), [big]);
+      client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [big.head]);
+    });
+    expect(textOf(root)).toContain('too large to preview');
     expect(fetch).not.toHaveBeenCalled();
   });
   it('offers a download without fetching a file too large to preview', async () => {
@@ -132,7 +251,9 @@ describe('Coresearch files', () => {
     vi.stubGlobal('document', { activeElement: null, createElement: () => link });
     (button(root, 'Download file')!.props.onClick as () => void)();
     expect(fetch).not.toHaveBeenCalled();
-    expect(link.href).toBe('/api/coresearch/projects/p/files/f/versions/1/content?download=1&workspace=lab');
+    expect(link.href).toBe(
+      '/api/coresearch/projects/p/files/f/versions/1/content?download=1&workspace=lab',
+    );
     expect(link.click).toHaveBeenCalledOnce();
   });
   it('offers download when the response exceeds its reported file size', async () => {

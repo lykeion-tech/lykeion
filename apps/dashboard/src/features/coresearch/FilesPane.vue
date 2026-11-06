@@ -74,11 +74,18 @@ const comparison = computed(
   () => earlier.value.find((v) => v.n === comparePin.value) ?? earlier.value.at(-1),
 );
 const PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
-const metadataTooLarge = computed(() => !!version.value && version.value.size > PREVIEW_MAX_BYTES);
+const scientificBinary = computed(() => /\.(?:fits|fit|fts|npy)$/i.test(props.file?.path ?? ''));
+const previewMaxBytes = computed(() =>
+  scientificBinary.value ? 50 * 1024 * 1024 : PREVIEW_MAX_BYTES,
+);
+const metadataTooLarge = computed(
+  () => !!version.value && version.value.size > previewMaxBytes.value,
+);
 const content = useCoresearchContent(
   () => props.project.id,
   () => (version.value && !metadataTooLarge.value ? (props.file?.id ?? '') : ''),
   () => shownN.value,
+  () => previewMaxBytes.value,
 );
 const tooLarge = computed(
   () => metadataTooLarge.value || content.error.value instanceof PreviewTooLargeError,
@@ -96,7 +103,10 @@ const compareContent = useCoresearchContent(
 const dirty = computed(() => editing.value && draft.value !== initial.value);
 function download() {
   if (!props.file) return;
-  downloadFile(`${filePath(props.project.id, props.file.id)}/versions/${shownN.value}/content`, workspaceId.value);
+  downloadFile(
+    `${filePath(props.project.id, props.file.id)}/versions/${shownN.value}/content`,
+    workspaceId.value,
+  );
 }
 registerDraftVisit({
   dirty: () => dirty.value,
@@ -150,6 +160,7 @@ async function openInTab() {
   workspaceTabs.openTab(path + version, props.file.path.split('/').at(-1) || 'File', 'file');
 }
 function startEdit() {
+  if (scientificBinary.value) return;
   editBase.value = shownN.value;
   initial.value = previewText.value ?? '';
   draft.value = initial.value;
@@ -380,6 +391,7 @@ async function step(n: number | undefined) {
                   shownN === head &&
                   previewText !== undefined &&
                   !partial &&
+                  !scientificBinary &&
                   !project.archived_at
                 "
                 type="button"
@@ -400,9 +412,7 @@ async function step(n: number | undefined) {
           </div>
           <div class="viz-body">
             <template v-if="tab === 'preview'"
-              ><div v-if="tooLarge" class="nbp-empty">
-                This file is too large to preview.
-              </div>
+              ><div v-if="tooLarge" class="nbp-empty">This file is too large to preview.</div>
               <div v-else-if="editing" class="artifact-editor">
                 <textarea
                   v-model="draft"

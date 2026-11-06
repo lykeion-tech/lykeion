@@ -196,22 +196,30 @@ export function useCoresearchContent(
   id: MaybeRefOrGetter<string>,
   file: MaybeRefOrGetter<string>,
   n: MaybeRefOrGetter<number>,
+  maxBytes: MaybeRefOrGetter<number> = 32 * 1024 * 1024,
 ) {
   return useQuery({
-    queryKey: computed(() =>
-      keys.coresearchContent(workspaceId.value, toValue(id), toValue(file), toValue(n)),
-    ),
+    queryKey: computed(() => {
+      const key = keys.coresearchContent(workspaceId.value, toValue(id), toValue(file), toValue(n));
+      const limit = toValue(maxBytes);
+      return limit === 32 * 1024 * 1024 ? key : ([...key, 'maxBytes', limit] as const);
+    }),
     enabled: computed(
       () => !!workspaceId.value && !!toValue(id) && !!toValue(file) && toValue(n) > 0,
     ),
     staleTime: Infinity,
-    queryFn: ({ signal }) =>
+    queryFn: ({ signal, queryKey }) =>
       api<Blob>(
         'GET',
-        `${filePath(toValue(id), toValue(file))}/versions/${toValue(n)}/content`,
+        `${filePath(queryKey[3], queryKey[5])}/versions/${queryKey[6]}/content`,
         undefined,
         undefined,
-        { signal, workspace: workspaceId.value, response: 'blob', maxBytes: 32 * 1024 * 1024 },
+        {
+          signal,
+          workspace: queryKey[1],
+          response: 'blob',
+          maxBytes: queryKey.length === 7 ? 32 * 1024 * 1024 : queryKey[8],
+        },
       ),
   });
 }
