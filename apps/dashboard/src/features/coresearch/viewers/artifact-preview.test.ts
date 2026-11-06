@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { h, nextTick } from 'vue';
+import { h, nextTick, ref } from 'vue';
 import { all, createTreeApp, node, textOf } from '../../../../../../tests/daemon-tree';
 import ArtifactViewer from './ArtifactViewer.vue';
 
@@ -115,4 +115,66 @@ it('renders a FASTA sequence preview and a VCF table', async () => {
   expect(textOf(table)).toContain('CHROM');
   expect(textOf(table)).toContain('VCFv4.2');
   vcf.unmount();
+});
+
+it('renders NumPy arrays through the shared viewer', async () => {
+  const header = "{'descr': '|u1', 'fortran_order': False, 'shape': (2,), }\n";
+  const headerBytes = new TextEncoder().encode(header);
+  const bytes = new Uint8Array(10 + headerBytes.length + 2);
+  bytes.set([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0, headerBytes.length, 0]);
+  bytes.set(headerBytes, 10);
+  bytes.set([7, 9], 10 + headerBytes.length);
+  const app = createTreeApp({
+    render: () => h(ArtifactViewer, { path: 'values.npy', blob: new Blob([bytes]) }),
+  });
+  const root = node('root');
+  app.mount(root);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(textOf(root)).toContain('Data type');
+  expect(textOf(root)).toContain('7');
+  expect(all(root).some((n) => n.tag === 'svg')).toBe(true);
+  app.unmount();
+});
+
+it('does not display an older NumPy file after switching files', async () => {
+  const makeFile = (value: number) => {
+    const header = new TextEncoder().encode(
+      "{'descr': '|u1', 'fortran_order': False, 'shape': (1,), }\n",
+    );
+    const bytes = new Uint8Array(10 + header.length + 1);
+    bytes.set([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0, header.length, 0]);
+    bytes.set(header, 10);
+    bytes[10 + header.length] = value;
+    return new Blob([bytes]);
+  };
+  const older = makeFile(17),
+    newer = makeFile(42);
+  const slice = older.slice.bind(older);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(older, 'slice').mockImplementation((...args) => {
+    const part = slice(...args);
+    const arrayBuffer = part.arrayBuffer.bind(part);
+    vi.spyOn(part, 'arrayBuffer').mockImplementation(async () => {
+      await gate;
+      return arrayBuffer();
+    });
+    return part;
+  });
+  const selected = ref(older);
+  const app = createTreeApp({
+    render: () => h(ArtifactViewer, { path: 'values.npy', blob: selected.value }),
+  });
+  const root = node('root');
+  app.mount(root);
+  selected.value = newer;
+  await nextTick();
+  await new Promise((r) => setTimeout(r, 30));
+  release();
+  await new Promise((r) => setTimeout(r, 30));
+  expect(textOf(root)).toContain('42');
+  expect(textOf(root)).not.toContain('17');
+  app.unmount();
 });

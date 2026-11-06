@@ -82,7 +82,7 @@ const tree = computed(() => {
   return rows;
 });
 const metadata = computed(() => detail.data.value?.files.find((f) => f.path === path.value));
-const previewableBinary = computed(() => /\.(png|jpe?g|gif|webp|svg|pdf)$/i.test(path.value));
+const previewableBinary = computed(() => /\.(png|jpe?g|gif|webp|bmp|ico|svg|pdf)$/i.test(path.value));
 const author = computed(() => {
   const s = detail.data.value;
   if (s?.origin === 'bundled') return 'Bundled by Lykeion';

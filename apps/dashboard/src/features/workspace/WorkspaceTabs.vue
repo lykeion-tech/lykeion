@@ -221,7 +221,7 @@ onUnmounted(() => {
         v-for="t in tabs"
         :key="t.id"
         class="workspace-tab"
-        :class="{ active: t.id === selected, pinned: t.pinned }"
+        :class="{ active: t.id === selected, pinned: t.pinned, 'short-title': t.title.length <= 10 }"
         draggable="true"
         @dragstart="dragged = t.id"
         @dragover.prevent
@@ -309,6 +309,7 @@ onUnmounted(() => {
   padding: 2px 10px;
 }
 .workspace-tab {
+  position: relative;
   width: 94px;
   display: flex;
   align-items: center;
@@ -321,6 +322,11 @@ onUnmounted(() => {
   background: var(--selected);
   color: var(--text);
 }
+.workspace-tab.short-title {
+  width: max-content;
+  min-width: 94px;
+  max-width: 152px;
+}
 .workspace-tab > button[role='tab'] {
   display: flex;
   align-items: center;
@@ -331,6 +337,11 @@ onUnmounted(() => {
   padding: 0 10px;
   font-size: 14px;
   line-height: 20px;
+}
+.workspace-tab.short-title > button[role='tab'],
+.workspace-tab:has(.tab-control):hover > button[role='tab'],
+.workspace-tab:has(.tab-control:focus-visible) > button[role='tab'] {
+  padding-right: 24px;
 }
 .workspace-tab span {
   overflow: hidden;
@@ -347,6 +358,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .tab-control {
+  position: absolute;
+  right: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -356,10 +369,12 @@ onUnmounted(() => {
   padding: 0;
   line-height: 1;
   opacity: 0;
+  pointer-events: none;
 }
 .workspace-tab:hover .tab-control,
 .tab-control:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .new-tab {
   margin-left: 0;

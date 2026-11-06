@@ -10,6 +10,7 @@ import ImageViewer from './ImageViewer.vue';
 import PdfDocumentPreview from './PdfDocumentPreview.vue';
 import NotebookViewer from './NotebookViewer.vue';
 import SequenceViewer from './SequenceViewer.vue';
+import NpyViewer from './NpyViewer.vue';
 import SpectrumViewer from './SpectrumViewer.vue';
 import AlignmentTreeViewer from './AlignmentTreeViewer.vue';
 import JsonLinesViewer from './JsonLinesViewer.vue';
@@ -26,6 +27,7 @@ const medicalImage = computed(
   () => ['dcm', 'dicom'].includes(ext.value) || props.blob.type === 'application/dicom',
 );
 const pdf = computed(() => ext.value === 'pdf');
+const npy = computed(() => ext.value === 'npy');
 const sequence = computed(() =>
   ['fasta', 'fa', 'faa', 'fna', 'ffn', 'fastq', 'fq'].includes(ext.value),
 );
@@ -37,7 +39,9 @@ const alignmentTree = computed(() =>
 const bioTable = computed(() =>
   text.value === undefined ? undefined : scientificTable(text.value, ext.value, partial.value),
 );
-const image = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext.value));
+const image = computed(() =>
+  ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext.value),
+);
 const mime = computed(
   () =>
     (
@@ -48,6 +52,8 @@ const mime = computed(
         jpeg: 'image/jpeg',
         gif: 'image/gif',
         webp: 'image/webp',
+        bmp: 'image/bmp',
+        ico: 'image/x-icon',
       }) as Record<string, string>
     )[ext.value],
 );
@@ -77,7 +83,7 @@ watch(
     text.value = undefined;
     emit('text', undefined, false);
     try {
-      if (pdf.value || medicalImage.value) return;
+      if (pdf.value || medicalImage.value || npy.value) return;
       const got = await readFormatText(
         props.blob,
         ext.value === 'ipynb'
@@ -105,6 +111,7 @@ watch(
 <template>
   <p v-if="pending" class="nbp-empty">Reading…</p>
   <p v-else-if="medicalImage" class="prov-empty">No preview for this file.</p>
+  <NpyViewer v-else-if="npy" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">

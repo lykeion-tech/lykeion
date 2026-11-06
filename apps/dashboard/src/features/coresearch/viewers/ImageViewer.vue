@@ -5,11 +5,13 @@ const steps = [0.25, 0.5, 0.75, 1];
 const zoom = ref<number | 'fit'>('fit'),
   dims = ref<{ w: number; h: number }>(),
   img = ref<HTMLImageElement>();
+const failed = ref(false);
 watch(
   () => props.src,
   () => {
     zoom.value = 'fit';
     dims.value = undefined;
+    failed.value = false;
   },
 );
 const sized = computed(() =>
@@ -37,7 +39,7 @@ function loaded(event: Event) {
 </script>
 <template>
   <figure class="viz-figure artifact-image">
-    <div class="image-controls" role="group" aria-label="Zoom">
+    <div v-if="!failed" class="image-controls" role="group" aria-label="Zoom">
       <button
         type="button"
         class="seg-btn"
@@ -52,7 +54,7 @@ function loaded(event: Event) {
       ><button type="button" class="seg-btn" :disabled="zoom === 1" @click="zoomIn">Zoom in</button
       ><button v-if="zoom !== 1" type="button" class="seg-btn" @click="zoom = 1">100%</button>
     </div>
-    <div class="image-stage">
+    <div v-if="!failed" class="image-stage">
       <img
         ref="img"
         class="image-el"
@@ -61,7 +63,11 @@ function loaded(event: Event) {
         :alt="path"
         :style="sized"
         @load="loaded"
+        @error="failed = true"
       />
     </div>
+    <p v-else role="status">
+      Image preview unavailable. <a :href="src" :download="path.split('/').pop()">Download</a>
+    </p>
   </figure>
 </template>

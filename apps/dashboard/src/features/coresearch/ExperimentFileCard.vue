@@ -13,7 +13,9 @@ const props = defineProps<{
 }>();
 defineEmits<{ open: [file: FileRow] }>();
 const ext = computed(() => props.file.path.split('.').pop()?.toLowerCase() ?? '');
-const picture = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext.value));
+const picture = computed(() =>
+  ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'].includes(ext.value),
+);
 const readable = computed(() =>
   ['csv', 'tsv', 'json', 'txt', 'md', 'py', 'r', 'js', 'ts'].includes(ext.value),
 );
@@ -86,7 +88,7 @@ watch(
       );
       if (!current) return;
       if (picture.value) {
-        const mime = ext.value === 'jpg' ? 'jpeg' : ext.value;
+        const mime = ext.value === 'jpg' ? 'jpeg' : ext.value === 'ico' ? 'x-icon' : ext.value;
         object = URL.createObjectURL(new Blob([blob], { type: `image/${mime}` }));
         url.value = object;
       } else {
@@ -111,7 +113,7 @@ watch(
     @click="$emit('open', file)"
   >
     <span v-if="!list" class="experiment-file-preview" aria-hidden="true">
-      <img v-if="url" :src="url" alt="" />
+      <img v-if="url" :src="url" alt="" @error="url = ''" />
       <span v-else-if="preview" class="experiment-file-text">{{ preview }}</span>
       <span v-else class="experiment-file-type">{{ ext || 'file' }}</span>
     </span>

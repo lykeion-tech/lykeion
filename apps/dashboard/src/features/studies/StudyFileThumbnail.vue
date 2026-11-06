@@ -25,7 +25,13 @@ const types: Record<string, string> = {
   jpeg: 'image/jpeg',
   gif: 'image/gif',
   webp: 'image/webp',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
 };
+function imageFailed() {
+  if (image.value) URL.revokeObjectURL(image.value);
+  image.value = '';
+}
 const textTypes = [
   'csv',
   'tsv',
@@ -103,7 +109,7 @@ onUnmounted(() => {
 </script>
 <template>
   <span ref="thumbnail" class="thumbnail" aria-hidden="true">
-    <img v-if="image" :src="image" alt="" />
+    <img v-if="image" :src="image" alt="" @error="imageFailed" />
     <span v-else-if="table" class="columns">
       <small v-if="table.rows !== undefined"
         >{{ table.rows }} rows · {{ table.columns }} columns</small
