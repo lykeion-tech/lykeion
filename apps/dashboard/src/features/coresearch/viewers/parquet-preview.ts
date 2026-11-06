@@ -1,7 +1,8 @@
+import { optionalLevels } from './parquet-levels';
 import { readCompactStruct, type CompactValue } from './compact-thrift';
 export interface ParquetPreview {
   columns: { name: string; type: string }[];
-  rows: string[][];
+  rows: (string | null)[][];
   totalRows: string;
   truncated: boolean;
 }
@@ -70,7 +71,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
         !name ||
         s.has(5) ||
         !s.has(3) ||
-        num(s.get(3), 2) !== 0 ||
+        num(s.get(3), 2) > 1 ||
         s.has(7) ||
         s.has(8)
       )
@@ -83,7 +84,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           throw Error();
         text = true;
       }
-      return { name, type, text };
+      return { name, type, text, optional: num(s.get(3), 2) === 1 };
     });
     if (new Set(columns.map((c) => c.name)).size !== columns.length) throw Error();
     const total = integer(meta.get(3));
@@ -126,14 +127,14 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
     if (rowCount !== total) throw Error();
     ranges.sort((a, b) => a[0] - b[0]);
     for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) throw Error();
-    const output: string[][] = [];
+    const output: (string | null)[][] = [];
     for (const group of chunks) {
       const need = Math.min(group.rows, 200 - output.length);
       if (need <= 0) continue;
       const samples = group.columns.map((chunk, index) => {
         let p = chunk.start,
           seen = 0;
-        const out: string[] = [];
+        const out: (string | null)[] = [];
         const column = columns[index]!;
         while (seen < need) {
           const header = readCompactStruct(bytes, p, Math.min(chunk.end, p + 16384));
@@ -156,14 +157,23 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
             pos += nbytes;
             return old;
           };
-          if (column.type === 0) {
-            take(Math.ceil(n / 8));
-            for (let j = 0; j < n && out.length < need; j++)
-              out.push(String(!!(body[j >> 3]! & (1 << (j & 7)))));
-          } else
-            for (let j = 0; j < n; j++) {
-              let value: string;
-              if (column.type === 1) value = String(view.getInt32(take(4), true));
+          let levels: boolean[];
+          if (column.optional) {
+            if (num(ph.get(3), 10) !== 3) throw Error();
+            const decoded = optionalLevels(body, n);
+            if (!decoded) throw Error();
+            levels = decoded.levels;
+            pos = decoded.bytes;
+          } else levels = Array(n).fill(true);
+          const present = levels.reduce((total, bit) => total + Number(bit), 0);
+          const boolStart = column.type === 0 ? take(Math.ceil(present / 8)) : 0;
+          let valueIndex = 0;
+          for (const defined of levels) {
+            let value: string | null = null;
+            if (defined) {
+              if (column.type === 0)
+                value = String(!!(body[boolStart + (valueIndex >> 3)]! & (1 << (valueIndex & 7))));
+              else if (column.type === 1) value = String(view.getInt32(take(4), true));
               else if (column.type === 2) value = String(view.getBigInt64(take(8), true));
               else if (column.type === 4 || column.type === 5) {
                 const x =
@@ -180,15 +190,17 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
                   : `[${size} bytes]`;
                 if (value.length > 512) value = value.slice(0, 512) + '…';
               }
-              if (out.length < need) out.push(value);
+              valueIndex++;
             }
+            if (out.length < need) out.push(value);
+          }
           if (pos !== body.length) throw Error();
           seen += n;
           p += length;
         }
         return out;
       });
-      for (let i = 0; i < need; i++) output.push(samples.map((s) => s[i]!));
+      for (let i = 0; i < need; i++) output.push(samples.map((s) => s[i] ?? null));
     }
     return {
       columns: columns.map((c) => ({ name: c.name, type: types[c.type]! })),

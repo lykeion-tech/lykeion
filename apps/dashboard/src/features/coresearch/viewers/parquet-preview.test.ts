@@ -26,11 +26,25 @@ it('fails closed for unsupported compression and malformed/truncated files', () 
   expect(parseParquet(valid.slice(0, -1))).toBeUndefined();
   expect(parseParquet(new Uint8Array([80, 65, 82, 49]))).toBeUndefined();
 });
-it('rejects nullable columns, dictionary pages, corrupt data and oversized input', () => {
-  expect(parseParquet(fixture('unsupported-optional.parquet'))).toBeUndefined();
+it('rejects dictionary pages, corrupt data and oversized input', () => {
   expect(parseParquet(fixture('unsupported-dictionary.parquet'))).toBeUndefined();
   const corrupt = fixture('plain-required.parquet');
   corrupt[30] ^= 1;
   expect(parseParquet(corrupt)).toBeUndefined();
   expect(parseParquet(new Uint8Array(32 * 1024 * 1024 + 1))).toBeUndefined();
+});
+
+it('samples independently generated nullable primitives across row groups', () => {
+  expect(parseParquet(fixture('optional-primitives.parquet'))?.rows).toEqual([
+    ['1', null, 'null'],
+    [null, 'true', null],
+    ['9007199254740993', 'false', 'x'],
+    [null, null, ''],
+  ]);
+});
+it('preserves nullable values across pages and row groups when sampling', () => {
+  const p = parseParquet(fixture('optional-multipage.parquet'));
+  expect(p?.totalRows).toBe('400');
+  expect(p?.truncated).toBe(true);
+  expect(p?.rows).toEqual(Array.from({ length: 200 }, (_, i) => [i % 3 === 0 ? null : String(i)]));
 });

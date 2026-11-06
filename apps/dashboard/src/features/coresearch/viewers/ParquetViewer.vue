@@ -67,18 +67,24 @@ watch(
         </thead>
         <tbody>
           <tr v-for="(row, i) in preview.rows" :key="i">
-            <td v-for="(cell, j) in row" :key="j">{{ cell }}</td>
+            <td v-for="(cell, j) in row" :key="j">
+              <span v-if="cell === null" class="null-value">NULL</span
+              ><template v-else>{{ cell }}</template>
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
   </section>
   <p v-else>
-    Parquet preview unavailable. Only uncompressed, flat, required columns with plain encoding are
-    supported.
+    Parquet preview unavailable. Only uncompressed, flat columns with plain encoding are supported.
   </p>
 </template>
 <style scoped>
+.null-value {
+  color: var(--muted);
+  font-style: italic;
+}
 .note,
 th span {
   color: var(--muted);
