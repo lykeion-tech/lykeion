@@ -11,6 +11,7 @@ import PdfDocumentPreview from './PdfDocumentPreview.vue';
 import NotebookViewer from './NotebookViewer.vue';
 import SequenceViewer from './SequenceViewer.vue';
 import NpyViewer from './NpyViewer.vue';
+import SqliteSnapshotViewer from './SqliteSnapshotViewer.vue';
 import FitsViewer from './FitsViewer.vue';
 import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
@@ -39,6 +40,7 @@ const medicalImage = computed(
 );
 const pdf = computed(() => ext.value === 'pdf');
 const npy = computed(() => ext.value === 'npy');
+const sqlite = computed(() => ['sqlite', 'sqlite3', 'db'].includes(ext.value));
 const niftiGzip = computed(() => props.path.toLowerCase().endsWith('.nii.gz'));
 const nifti = computed(() => ext.value === 'nii' || niftiGzip.value);
 const fits = computed(() => ['fits', 'fit', 'fts'].includes(ext.value));
@@ -108,6 +110,7 @@ watch(
         nifti.value ||
         tiff.value ||
         fits.value ||
+        sqlite.value ||
         npy.value ||
         npz.value ||
         office.value ||
@@ -146,6 +149,7 @@ watch(
   <FitsViewer v-else-if="fits" :blob="blob" />
   <OfficeViewer v-else-if="office" :blob="blob" :format="office" />
   <WorkbookViewer v-else-if="ext === 'xlsx'" :blob="blob" />
+  <SqliteSnapshotViewer v-else-if="sqlite" :blob="blob" />
   <NpyViewer v-else-if="npy" :blob="blob" />
   <NpzViewer v-else-if="npz" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
