@@ -135,7 +135,7 @@ it('cannot start the AI studio without a healthy machine', async () => {
   expect(button(root, 'Start conversation').props.disabled).toBe(true);
   expect(api.mock.calls.some((c) => c[0] === 'POST')).toBe(false);
 });
-it('keeps the CLI visible and the full machine name accessible for long names', async () => {
+it('keeps the full machine and CLI accessible for long names without an extra label', async () => {
   backend();
   runtimes.value = [{ id: 'runtime-1', owner_id: 'me', harness: 'codex', device_name: 'My extremely long research workstation', status: 'online', unhealthy_reason: null, models: [] }];
   const { root } = await mount(ManualDecisionCreate);
@@ -147,7 +147,7 @@ it('keeps the CLI visible and the full machine name accessible for long names', 
   expect(select.props.title).toBe('My extremely long research workstation · Codex');
   expect(option.props['aria-label']).toBe('My extremely long research workstation · Codex');
   expect(textOf(option)).toBe('My extremely long research workstation · Codex');
-  expect(all(root).some((n) => n.props['aria-label'] === 'Selected CLI: Codex')).toBe(true);
+  expect(all(root).some((n) => n.props['aria-label'] === 'Selected CLI: Codex')).toBe(false);
 });
 it.each(['Start blank', 'Create with AI'])(
   'persists a purpose-bound draft for %s without creating a note',

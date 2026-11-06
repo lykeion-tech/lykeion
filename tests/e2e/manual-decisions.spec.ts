@@ -89,7 +89,7 @@ test('AI builder machine and model selectors stay compact', async ({ page }) => 
   for (const name of ['Machine and CLI', 'Builder model']) {
     const select = setup.getByRole('combobox', { name });
     await expect(select).toBeVisible();
-    await expect.poll(async () => (await select.boundingBox())?.width ?? 0).toBeLessThanOrEqual(210);
+    await expect.poll(async () => (await select.boundingBox())?.width ?? 0).toBeLessThanOrEqual(145);
   }
 });
 
