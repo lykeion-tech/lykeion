@@ -90,8 +90,12 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       bits = values(258),
       compression = one(259, 1),
       photo = one(262),
-      offsets = values(273),
-      counts = values(279),
+      stripOffsets = values(273),
+      stripCounts = values(279),
+      tileWidth = one(322),
+      tileHeight = one(323),
+      tileOffsets = values(324),
+      tileCounts = values(325),
       samples = one(277, 1),
       rows = one(278, 0xffffffff),
       planar = one(284, 1),
@@ -103,8 +107,6 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       !width ||
       !height ||
       !bits ||
-      !offsets ||
-      !counts ||
       !rows ||
       !samples ||
       !sampleFormat ||
@@ -128,24 +130,64 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       (samples === 3 && photo === 2 && bits.length === 3 && bits.every((v) => v === 8))
     ))
       return;
-    const bytesPerPixel = samples * (bits[0]! / 8),
-      numStrips = Math.ceil(height / rows);
-    if (numStrips > 4096 || offsets.length !== numStrips || counts.length !== numStrips) return;
-    const strips: [number, number][] = [];
-    for (let i = 0; i < numStrips; i++) {
+    const bytesPerPixel = samples * (bits[0]! / 8);
+    const tiled = [322, 323, 324, 325].some((id) => fields.has(id));
+    type Block = {
+      start: number;
+      end: number;
+      width: number;
+      height: number;
+      x: number;
+      y: number;
+    };
+    const blocks: Block[] = [];
+    let totalDecoded = 0;
+    if (
+      tiled &&
+      (fields.has(273) ||
+        fields.has(279) ||
+        !tileWidth ||
+        !tileHeight ||
+        !tileOffsets ||
+        !tileCounts ||
+        tileWidth % 16 ||
+        tileHeight % 16)
+    )
+      return;
+    if (!tiled && (!stripOffsets || !stripCounts)) return;
+    const blockWidth = tiled ? tileWidth! : width;
+    const blockHeight = tiled ? tileHeight! : rows;
+    const columns = tiled ? Math.ceil(width / blockWidth) : 1;
+    const blockCount = columns * Math.ceil(height / blockHeight);
+    const offsets = tiled ? tileOffsets! : stripOffsets!;
+    const counts = tiled ? tileCounts! : stripCounts!;
+    if (
+      !Number.isSafeInteger(blockCount) ||
+      blockCount > 4096 ||
+      offsets.length !== blockCount ||
+      counts.length !== blockCount
+    )
+      return;
+    for (let i = 0; i < blockCount; i++) {
       const start = offsets[i]!,
         length = counts[i]!,
-        expected = width * Math.min(rows, height - i * rows) * bytesPerPixel,
         end = start + length;
+      const x = tiled ? (i % columns) * blockWidth : 0;
+      const y = Math.floor(i / columns) * blockHeight;
+      const h = tiled ? blockHeight : Math.min(blockHeight, height - y);
+      const expected = blockWidth * h * bytesPerPixel;
       if (
+        !Number.isSafeInteger(expected) ||
+        expected > 6 * 1024 * 1024 ||
+        (totalDecoded += expected) > 32 * 1024 * 1024 ||
         (compression === 1 && length !== expected) ||
         (compression !== 1 && !length) ||
         end > bytes.length ||
         ranges.some(([a, b]) => start < b && end > a) ||
-        strips.some(([a, b]) => start < b && end > a)
+        blocks.some(({ start: a, end: b }) => start < b && end > a)
       )
         return;
-      strips.push([start, end]);
+      blocks.push({ start, end, width: blockWidth, height: h, x, y });
     }
     const xRes = fields.get(282),
       yRes = fields.get(283);
@@ -164,10 +206,9 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
     }
     if (!Number.isFinite(aspect) || aspect < 0.001 || aspect > 1000) return;
     const rgba = new Uint8ClampedArray(width * height * 4);
-    let pixel = 0;
-    for (let i = 0; i < strips.length; i++) {
-      const [start, end] = strips[i]!;
-      const expected = width * Math.min(rows, height - i * rows) * bytesPerPixel;
+    for (const block of blocks) {
+      const { start, end } = block;
+      const expected = block.width * block.height * bytesPerPixel;
       const data =
         compression === 1
           ? bytes.subarray(start, end)
@@ -177,7 +218,7 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       if (!data || data.length !== expected) return;
       const stripView = new DataView(data.buffer, data.byteOffset, data.byteLength);
       if (predictor === 2) {
-        const rowBytes = width * bytesPerPixel;
+        const rowBytes = block.width * bytesPerPixel;
         for (let row = 0; row < data.length; row += rowBytes) {
           if (bits[0] === 8) {
             for (let at = row + bytesPerPixel; at < row + rowBytes; at++)
@@ -204,11 +245,15 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
           g = r;
           b = r;
         }
+        const localPixel = at / bytesPerPixel;
+        const x = block.x + (localPixel % block.width);
+        const y = block.y + Math.floor(localPixel / block.width);
+        if (x >= width || y >= height) continue;
+        const pixel = y * width + x;
         rgba[pixel * 4] = r;
         rgba[pixel * 4 + 1] = g;
         rgba[pixel * 4 + 2] = b;
         rgba[pixel * 4 + 3] = 255;
-        pixel++;
       }
     }
     return {

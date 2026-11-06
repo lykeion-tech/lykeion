@@ -156,3 +156,48 @@ it('decodes independently generated LZW horizontal-prediction strips separately'
   const p = await parseTiff(fixture('tiff-lzw-multistrip.tif'), 0);
   expect([...p!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 64, 128, 255]);
 });
+it.each(['none', 'deflate', 'lzw'])(
+  'renders edge-clipped tiled %s TIFF with correct row ordering',
+  async (compression) => {
+    const p = await parseTiff(fixture(`tiff-tiles-${compression}.tif`), 0);
+    expect(p).toMatchObject({ width: 18, height: 17 });
+    expect(new Uint8Array([...p!.rgba].filter((_, i) => i % 4 === 0))).toEqual(
+      fixture('tiff-tiles-gray.raw'),
+    );
+  },
+);
+it('renders big-endian 16-bit tiled Deflate predictor', async () => {
+  const p = await parseTiff(fixture('tiff-tiles-big16.tif'), 0);
+  expect(new Uint8Array([...p!.rgba].filter((_, i) => i % 4 === 0))).toEqual(
+    fixture('tiff-tiles-gray16.raw'),
+  );
+});
+it('renders tiled RGB predictors without mixing channels or padded edges', async () => {
+  const p = await parseTiff(fixture('tiff-tiles-rgb.tif'), 0);
+  const rgb = Uint8Array.from([...p!.rgba].filter((_, i) => i % 4 !== 3));
+  expect(rgb).toEqual(fixture('tiff-tiles-rgb.raw'));
+});
+it('rejects oversized, mixed-layout, overlapping and truncated tiles', async () => {
+  const file = fixture('tiff-tiles-deflate.tif'),
+    v = new DataView(file.buffer),
+    le = file[0] === 0x49,
+    ifd = v.getUint32(4, le),
+    count = v.getUint16(ifd, le);
+  const tags = new Map<number, number>();
+  for (let i = 0; i < count; i++) {
+    const at = ifd + 2 + i * 12;
+    tags.set(v.getUint16(at, le), at);
+  }
+  const huge = file.slice();
+  new DataView(huge.buffer).setUint32(tags.get(322)! + 8, 65536, le);
+  expect(await parseTiff(huge, 0)).toBeUndefined();
+  const overlap = file.slice(),
+    ov = new DataView(overlap.buffer),
+    at = ov.getUint32(tags.get(324)! + 8, le);
+  ov.setUint32(at + 4, ov.getUint32(at, le), le);
+  expect(await parseTiff(overlap, 0)).toBeUndefined();
+  const mixed = file.slice();
+  new DataView(mixed.buffer).setUint16(tags.get(325)!, 279, le);
+  expect(await parseTiff(mixed, 0)).toBeUndefined();
+  expect(await parseTiff(file.slice(0, -1), 0)).toBeUndefined();
+});
