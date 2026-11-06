@@ -1640,8 +1640,6 @@ function pin() {
   font-size: 14px;
 }
 .jev-avatar {
-  color: #b5841b;
-  background: #b5841b30;
   font-weight: 600;
 }
 .jev-text {

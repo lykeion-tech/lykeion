@@ -433,8 +433,6 @@ const lastActive = computed(
 .avatar.agent {
   position: relative;
   flex: none;
-  background: #fff3d6;
-  color: #b5841b;
 }
 .agent-profile-link {
   color: inherit;
