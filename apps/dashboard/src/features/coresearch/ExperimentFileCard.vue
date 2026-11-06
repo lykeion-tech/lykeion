@@ -146,7 +146,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface, #fff);
+  background: var(--fill-preview);
   overflow: hidden;
   border-bottom: 1px solid var(--border);
 }
