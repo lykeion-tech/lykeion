@@ -45,7 +45,11 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage));
         title="Interactive molecular structure"
         class="chemical-canvas"
       ></iframe>
-      <p>Drag to rotate · scroll to zoom</p>
+      <p>
+        Drag to rotate · scroll to zoom<span v-if="['cif', 'mmcif'].includes(extension)">
+          · bonds inferred from coordinates</span
+        >
+      </p>
     </template>
   </section>
 </template>

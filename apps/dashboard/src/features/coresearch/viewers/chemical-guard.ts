@@ -1,3 +1,4 @@
+import { cifGeometry } from './cif-geometry';
 const MAX_BYTES = 1024 * 1024;
 const MAX_ATOMS = 1000;
 export function chemicalInput(
@@ -8,6 +9,7 @@ export function chemicalInput(
   if (partial || text.length > MAX_BYTES || text.includes('\0')) return undefined;
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   if (lines.length > 20000) return undefined;
+  if (['cif', 'mmcif'].includes(ext)) return cifGeometry(text);
   if (['pdb', 'ent'].includes(ext)) {
     if (lines.filter((line) => line.startsWith('MODEL ')).length > 1) return undefined;
     const keep: string[] = [];

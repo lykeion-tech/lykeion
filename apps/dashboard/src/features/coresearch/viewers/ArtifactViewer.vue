@@ -163,7 +163,7 @@ watch(
     :partial="partial"
   />
   <ChemicalViewer
-    v-else-if="['pdb', 'ent', 'sdf', 'mol'].includes(ext)"
+    v-else-if="['pdb', 'ent', 'sdf', 'mol', 'cif', 'mmcif'].includes(ext)"
     :text="text"
     :extension="ext"
     :partial="partial"
