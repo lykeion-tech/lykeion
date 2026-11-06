@@ -388,6 +388,35 @@ func TestValidationReplies(t *testing.T) {
 	}
 }
 
+func TestValidationRetryAliases(t *testing.T) {
+	prev := Review{Failed: map[string]string{"c": "r8", "retry-ref-example": "r8"}, Aliases: map[string]string{"retry-ref-example": "c"}}
+	for _, action := range []string{"corrected", "withdrawn"} {
+		h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[],"verdicts":[`+verdictOK+`],"flagged_errors":[],"replies":[{"item":"retry-ref-example","action":"`+action+`","reason":"fixed"}]}`)
+		_, probs := Convert(Validation, true, h, validationEvidence("claims"), prev)
+		if len(probs) != 0 {
+			t.Errorf("%s: %v", action, probs)
+		}
+	}
+	for _, aliases := range []map[string]string{nil, {"retry-ref-example": ""}} {
+		h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[],"verdicts":[`+verdictOK+`],"flagged_errors":[],"replies":[{"item":"retry-ref-example","action":"withdrawn","reason":"fixed"}]}`)
+		if _, probs := Convert(Validation, true, h, validationEvidence("claims"), Review{Failed: map[string]string{"c": "r8"}, Aliases: aliases}); len(probs) == 0 {
+			t.Error("stale or ambiguous alias accepted")
+		}
+	}
+	h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[],"verdicts":[`+verdictOK+`],"flagged_errors":[],"replies":[{"item":"retry-ref-example","action":"corrected","reason":"fixed"}]}`)
+	if _, probs := Convert(Validation, true, h, validationEvidence("claims"), Review{Failed: map[string]string{"c": "", "retry-ref-example": "r8"}, Aliases: map[string]string{"retry-ref-example": "c"}}); len(probs) == 0 {
+		t.Error("alias targeting an ambiguous identity accepted")
+	}
+}
+
+func TestOrdinaryRetryPrefixedIdentityIsNotAnAlias(t *testing.T) {
+	h := parsed(t, Validation, `{`+validEmpty[:len(validEmpty)-len(`,"replies":[]`)]+`,"assessments":[],"verdicts":[{"claim":"retry-ref-ordinary","verdict":"supported","source":"data.csv","quote":"x,y"}],"flagged_errors":[],"replies":[{"item":"retry-ref-ordinary","action":"corrected","reason":"fixed"}]}`)
+	_, probs := Convert(Validation, true, h, validationEvidence("claims"), Review{Failed: map[string]string{"retry-ref-ordinary": "r8"}})
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+}
+
 func TestConvertObjector(t *testing.T) {
 	h := parsed(t, Objector, `{"status":"done","answer":"Two problems.","reason":null,"objections":[
 		{"target":"Rival B","type":"leakage","quote":"split after scaling","problem":"the test set was scaled with the train set"},

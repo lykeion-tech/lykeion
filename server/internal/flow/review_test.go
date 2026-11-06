@@ -591,7 +591,7 @@ func TestCorrectedValueRequiresAnUnambiguousLeadHandIn(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"attempt": 1, "converted_records": []uuid.UUID{value.ID}, "hand_in": map[string]any{"status": "done", "values": []any{map[string]any{"name": "slope", "value": "0.43"}}, "replies": []any{map[string]any{"item": "slope", "action": "corrected"}}}})
 	hand := db.Record{Kind: "hand_in", Round: 2, Role: "agent", AgentRunID: &run, Body: body}
 	attempts := map[uuid.UUID]int32{run: 1}
-	if !correctedValue(item, prev, []db.Record{old, hand}, []db.Record{value}, 2, attempts) {
+	if !correctedValue(item, prev, []db.Record{old, hand}, []db.Record{value}, db.Card{Round: 2}, attempts) {
 		t.Fatal("valid explicit correction was not recognized")
 	}
 	for _, tc := range []struct {
@@ -610,25 +610,25 @@ func TestCorrectedValueRequiresAnUnambiguousLeadHandIn(t *testing.T) {
 		}(), value},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if correctedValue(item, prev, []db.Record{old, tc.hand}, []db.Record{tc.value}, 2, attempts) {
+			if correctedValue(item, prev, []db.Record{old, tc.hand}, []db.Record{tc.value}, db.Card{Round: 2}, attempts) {
 				t.Fatal("untrusted or unanswered correction accepted")
 			}
 		})
 	}
 	second := valueRec("r3", "value", map[string]any{"name": "slope", "value": "0.5"})
 	prev.Items = append(prev.Items, review.Item{Key: "r3", Kind: "value", Label: "0.5: slope", Identity: "r3 0.5", Status: review.Fail})
-	if correctedValue(item, prev, []db.Record{old, second, hand}, []db.Record{value}, 2, attempts) {
+	if correctedValue(item, prev, []db.Record{old, second, hand}, []db.Record{value}, db.Card{Round: 2}, attempts) {
 		t.Fatal("ambiguous value name answered multiple failed items")
 	}
 	prev.Items = prev.Items[:1]
 	newHand := hand
 	newHand.Body = []byte(`{"attempt":2,"hand_in":{"status":"done","values":[{"name":"slope","value":"0.43"}],"replies":[]}}`)
-	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, 2, map[uuid.UUID]int32{run: 2}) {
+	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, db.Card{Round: 2}, map[uuid.UUID]int32{run: 2}) {
 		t.Fatal("an earlier hand-in answered a later attempt")
 	}
 	newBody, _ := json.Marshal(map[string]any{"attempt": 2, "converted_records": []uuid.UUID{uuid.New()}, "hand_in": map[string]any{"status": "done", "values": []any{map[string]any{"name": "slope", "value": "0.43"}}, "replies": []any{map[string]any{"item": "slope", "action": "corrected"}}}})
 	newHand.Body = newBody
-	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, 2, map[uuid.UUID]int32{run: 2}) {
+	if correctedValue(item, prev, []db.Record{old, hand, newHand}, []db.Record{value}, db.Card{Round: 2}, map[uuid.UUID]int32{run: 2}) {
 		t.Fatal("a previous attempt's value was paired with the current hand-in")
 	}
 }

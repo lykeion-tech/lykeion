@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,7 +180,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		for _, it := range prev.Items {
 			if it.Status != review.Fail || it.Kind == review.KindOutputs ||
 				slices.ContainsFunc(rv.items, func(r db.Record) bool { return sameItem(it, r) }) ||
-				(it.Kind == "value" && correctedValue(it, prev, recs, rv.work, c.Round, attempts)) {
+				(it.Kind == "value" && correctedValue(it, prev, recs, rv.work, c, attempts)) {
 				continue
 			}
 			if reason, ok := withdrawal(it, withdrawn, recs); ok {
@@ -247,7 +248,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 
 // correctedValue accepts only a lead's recorded hand-in explicitly answering
 // the failed value and re-declaring it in that same run.
-func correctedValue(item review.Item, prev review.Result, recs, work []db.Record, round int32, attempts map[uuid.UUID]int32) bool {
+func correctedValue(item review.Item, prev review.Result, recs, work []db.Record, c db.Card, attempts map[uuid.UUID]int32) bool {
 	norm := func(s string) string { return strings.Join(strings.Fields(handin.NormID(s)), " ") }
 	aliases := map[string]string{}
 	for _, it := range prev.Items {
@@ -263,6 +264,9 @@ func correctedValue(item review.Item, prev review.Result, recs, work []db.Record
 			if i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); i >= 0 {
 				ids = append(ids, valueOf(recs[i]).Name)
 			}
+		}
+		if needsRetryAlias(it) {
+			ids = append(ids, retryAlias(c, c.Round-1, it))
 		}
 		for _, id := range ids {
 			id = norm(id)
@@ -282,7 +286,7 @@ func correctedValue(item review.Item, prev review.Result, recs, work []db.Record
 	}
 	name := norm(valueOf(recs[i]).Name)
 	for _, r := range recs {
-		if r.Kind != "hand_in" || r.Round != round || !handin.Leads(r.Role) || r.AgentRunID == nil {
+		if r.Kind != "hand_in" || r.Round != c.Round || !handin.Leads(r.Role) || r.AgentRunID == nil {
 			continue
 		}
 		var body struct {
@@ -305,7 +309,7 @@ func correctedValue(item review.Item, prev review.Result, recs, work []db.Record
 				continue
 			}
 			if slices.ContainsFunc(work, func(w db.Record) bool {
-				return w.Kind == "value" && w.Round == round && w.AgentRunID != nil &&
+				return w.Kind == "value" && w.Round == c.Round && w.AgentRunID != nil &&
 					*w.AgentRunID == *r.AgentRunID && slices.Contains(body.ConvertedRecords, w.ID) &&
 					norm(valueOf(w).Name) == name && valueOf(w).Value == v.Value
 			}) {
@@ -336,7 +340,7 @@ func lastReview(recs []db.Record, round int32) (review.Result, error) {
 // it found missing. Outputs are checked afresh each attempt, so they are
 // never sent back to answer.
 func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.Review, error) {
-	out := handin.Review{Failed: map[string]string{}}
+	out := handin.Review{Failed: map[string]string{}, Aliases: map[string]string{}}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 	if err != nil {
 		return out, err
@@ -370,15 +374,33 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 			}
 		}
 	}
+	for _, it := range prev.Items {
+		if it.Status == review.Fail && needsRetryAlias(it) {
+			alias := retryAlias(c, c.Round-1, it)
+			addFailed(alias, it.Key)
+			if old, exists := out.Aliases[alias]; exists && old != it.Identity {
+				out.Aliases[alias] = ""
+			} else if !exists {
+				out.Aliases[alias] = it.Identity
+			}
+		}
+	}
 	for _, it := range prev.Missed {
 		out.Missed = append(out.Missed, it.Label)
 	}
 	return out, nil
 }
 
-// redoNote is the note that sends res's failed items back. A hypothesis is
-// named by its whole text, as a reply names it; the review labels it cut
-// short.
+func needsRetryAlias(it review.Item) bool {
+	return it.Kind != review.KindOutputs && utf8.RuneCountInString(it.Identity) > 2000
+}
+
+func retryAlias(c db.Card, round int32, it review.Item) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s", c.ID, c.BoardColumn, round, it.Key, it.Identity)))
+	return fmt.Sprintf("retry-ref-%x", sum[:16])
+}
+
+// redoNote names failed items by identities accepted by the reply converter.
 func redoNote(ctx context.Context, tx *store.Tx, c db.Card, res review.Result) (string, error) {
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 	if err != nil {
@@ -386,11 +408,19 @@ func redoNote(ctx context.Context, tx *store.Tx, c db.Card, res review.Result) (
 	}
 	res.Items = slices.Clone(res.Items)
 	for i, it := range res.Items {
-		if it.Kind != review.KindHypothesis || it.Status != review.Fail {
+		if it.Status != review.Fail || it.Kind == review.KindOutputs {
 			continue
 		}
-		if j := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); j >= 0 {
-			res.Items[i].Label = oneLine(records.Body[review.HypothesisBody](recs[j]).Text)
+		if it.Identity != "" {
+			res.Items[i].Label = oneLine(it.Identity)
+		}
+		if needsRetryAlias(it) {
+			res.Items[i].Label = retryAlias(c, c.Round, it)
+		}
+		if it.Kind == review.KindHypothesis && !needsRetryAlias(it) {
+			if j := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == it.Key }); j >= 0 {
+				res.Items[i].Label = oneLine(records.Body[review.HypothesisBody](recs[j]).Text)
+			}
 		}
 	}
 	return review.RedoNote(res), nil

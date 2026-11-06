@@ -12,11 +12,12 @@ import (
 )
 
 // Review is what the column's last review sent back: each failed item's
-// identity with the key of the record that declared it, and the ids of the
-// papers it found missing.
+// identity with the key of the record that declared it, bounded retry aliases
+// with their identities, and the ids of papers it found missing.
 type Review struct {
-	Failed map[string]string
-	Missed []string
+	Failed  map[string]string
+	Missed  []string
+	Aliases map[string]string
 }
 
 // NewRecord is one record a hand-in becomes, written on the run's behalf.
@@ -352,6 +353,14 @@ func (c *converter) replies(rs []Reply, prev Review) {
 	answered := map[string]bool{}
 	for i, r := range rs {
 		id := identity(r.Item)
+		if target, isAlias := prev.Aliases[id]; isAlias {
+			original := identity(target)
+			if original == "" || failed[id] == "" || failed[id] != failed[original] {
+				c.problem("reply %d: retry reference is stale or ambiguous", i+1)
+				continue
+			}
+			id = original
+		}
 		if key := failed[id]; c.column == board.Experimentation && key != "" && (r.Action == "corrected" || r.Action == "withdrawn") {
 			if answered[key] {
 				c.problem("reply %d: the same item was already answered", i+1)

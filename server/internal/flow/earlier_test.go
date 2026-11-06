@@ -257,3 +257,63 @@ func TestTheRedoNoteNamesAHypothesisAsWritten(t *testing.T) {
 		t.Fatalf("note:\n%s", note)
 	}
 }
+
+func TestTheRedoNoteNamesFailedItemsByTheirFullIdentity(t *testing.T) {
+	l := newLab(t)
+	c, _ := earlierStudy(t, l)
+	for _, tc := range []struct{ column, kind, body string }{
+		{"grounding", review.KindNoQualifying, `{"text":"This is a long explanation of why no suitable published papers satisfy the specific criteria for this research question."}`},
+		{"validation", review.KindVerdict, `{"claim":"A detailed scientific claim that is long enough to be truncated when displayed on the review screen and requires correction."}`},
+	} {
+		c = l.move(t, c.ID, tc.column, 1)
+		var body any
+		if err := json.Unmarshal([]byte(tc.body), &body); err != nil {
+			t.Fatal(err)
+		}
+		key := l.put(t, c.ID, tc.column, 1, tc.kind, "agent", body)
+		rec := db.Record{Key: key, Kind: tc.kind, Body: json.RawMessage(tc.body)}
+		res := review.Result{Items: []review.Item{{Key: key, Kind: tc.kind, Label: review.LabelOf(rec), Identity: review.IdentityOf(rec), Status: review.Fail}}}
+		var note string
+		l.in(t, func(tx *store.Tx) (err error) { note, err = redoNote(context.Background(), tx, c, res); return err })
+		if !strings.Contains(strings.ToLower(note), "- "+review.IdentityOf(rec)+":") {
+			t.Errorf("%s retry note omitted the full reply identity:\n%s", tc.kind, note)
+		}
+	}
+}
+
+func TestLongValidationRetryIdentityUsesBoundedRoundScopedAlias(t *testing.T) {
+	l := newLab(t)
+	c, _ := earlierStudy(t, l)
+	c = l.move(t, c.ID, "validation", 1)
+	claim := strings.Repeat("claim ", 500)
+	body := review.VerdictBody{Claim: claim, Verdict: "supported", Source: "source", Quote: "quote"}
+	key := l.put(t, c.ID, "validation", 1, review.KindVerdict, "agent", body)
+	b, _ := json.Marshal(body)
+	rec := db.Record{Key: key, Kind: review.KindVerdict, Body: b}
+	it := review.Item{Key: key, Kind: rec.Kind, Label: review.LabelOf(rec), Identity: review.IdentityOf(rec), Status: review.Fail}
+	res := review.Result{Items: []review.Item{it}}
+	var note string
+	l.in(t, func(tx *store.Tx) (err error) { note, err = redoNote(context.Background(), tx, c, res); return err })
+	alias := retryAlias(c, c.Round, it)
+	if !strings.Contains(note, alias) || strings.Contains(note, strings.Repeat("claim ", 100)) || len(note) > 1500 {
+		t.Fatalf("retry note not bounded: %s", note)
+	}
+	l.put(t, c.ID, "validation", 1, "review", "server", res)
+	c = l.move(t, c.ID, "validation", 2)
+	var prev handin.Review
+	l.in(t, func(tx *store.Tx) (err error) { prev, err = l.e.SentBack(context.Background(), tx, c); return err })
+	if prev.Failed[alias] != key || prev.Aliases[alias] != it.Identity {
+		t.Fatalf("retry reference not recognized: %+v", prev)
+	}
+	if retryAlias(c, c.Round, it) == alias {
+		t.Fatal("retry reference must change for a new round")
+	}
+}
+
+func TestLongRetryIdentitiesUseAliasesForEveryItemKind(t *testing.T) {
+	for _, kind := range []string{review.KindNoQualifying, review.KindPaper, review.KindDataset, review.KindHypothesis, review.KindAssessment, review.KindVerdict, review.KindFlaggedError, "value"} {
+		if !needsRetryAlias(review.Item{Kind: kind, Identity: strings.Repeat("x", 2001)}) {
+			t.Errorf("%s long identity lacks an alias", kind)
+		}
+	}
+}
