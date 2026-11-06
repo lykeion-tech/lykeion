@@ -12,18 +12,29 @@ const raw = ref(false);
         Raw
       </button>
     </div>
-    <CodeBlock v-if="raw" :code="text" lang="markdown" /><AssistantMessage
-      v-else
-      :text="text"
-      prose
-    />
+    <CodeBlock v-if="raw" :code="text" lang="markdown" />
+    <div v-else class="lyk-reading">
+      <AssistantMessage class="markdown-body" :text="text" prose />
+    </div>
   </div>
 </template>
 <style scoped>
 .viz-caption {
+  display: flex;
+  justify-content: flex-end;
   margin-bottom: 12px;
 }
-.viz-caption button {
-  padding: 6px 4px;
+.artifact-markdown .viz-caption .quiet-action {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.artifact-markdown .viz-caption .quiet-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 </style>

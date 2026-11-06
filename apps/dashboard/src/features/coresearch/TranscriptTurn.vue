@@ -146,7 +146,7 @@ const copy = computed(() =>
 .generated-files-heading {
   font-size: 11px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 60%, var(--surface));
+  color: var(--muted);
   letter-spacing: 0.04em;
   margin: 0 0 8px;
 }

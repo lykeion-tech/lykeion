@@ -254,6 +254,7 @@ func coresearchRunCmd(e *env) *cobra.Command {
 	}}
 	cmd.Flags().StringArrayVar(&inputs, "in", nil, "saved input path (repeatable)")
 	cmd.Flags().StringVar(&rerun, "rerun", "", "repeat a successful run, e.g. R3")
+	cmd.Long = "Run a saved script with pinned inputs. Save the script and inputs as project files first. Pass inputs with --in and read them in the run as in/<path>. The run directory is read-only except for out/ and temporary files; eligible outputs written to out/<name> are collected and versioned at results/<name>. Check the run result for skipped outputs or save errors. Interactive scratch files must be saved explicitly with lyk file save."
 	return cmd
 }
 func coresearchFolder() (*localfiles.Folder, error) {

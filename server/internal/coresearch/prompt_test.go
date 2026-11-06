@@ -67,3 +67,12 @@ func TestPromptRequestsHumanReadablePathsWithoutHidingFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestExperimentPromptExplainsRecordedRunFiles(t *testing.T) {
+	p := Prompt(PromptIn{Mode: "experiment"})
+	for _, s := range []string{"in/<path>", "out/<name>", "results/<name>", "read-only"} {
+		if !strings.Contains(p, s) {
+			t.Fatalf("missing %q in recorded-run guidance: %s", s, p)
+		}
+	}
+}

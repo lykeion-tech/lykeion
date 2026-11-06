@@ -47,6 +47,17 @@ func coresearchExecute(input string, args ...string) (string, error) {
 	err := cmd.Execute()
 	return out.String(), err
 }
+func TestCoresearchRunHelpExplainsFiles(t *testing.T) {
+	out, err := coresearchExecute("", "run", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"in/<path>", "out/<name>", "results/<name>", "read-only"} {
+		if !strings.Contains(out, s) {
+			t.Fatalf("missing %q in run help: %s", s, out)
+		}
+	}
+}
 func TestCellRunPrintsOutputs(t *testing.T) {
 	gets := 0
 	coresearchServer(t, func(w http.ResponseWriter, r *http.Request) {
