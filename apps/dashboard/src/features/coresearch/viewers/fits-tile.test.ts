@@ -13,8 +13,8 @@ it('reconstructs independent Astropy GZIP_1 tiles including partial edge tiles',
     bitpix: 16,
   });
 });
-it('rejects unsupported RICE_1 and truncated tiles', async () => {
-  expect(await inflateFitsTiles(fixture('fits-tiles-RICE_1.fz'))).toBeUndefined();
+it('rejects unsupported GZIP_2 and truncated tiles', async () => {
+  expect(await inflateFitsTiles(fixture('fits-tiles-GZIP_2.fz'))).toBeUndefined();
   const f = fixture('fits-tiles-GZIP_1.fz');
   expect(await inflateFitsTiles(f.slice(0, -1))).toBeUndefined();
 });
@@ -51,4 +51,39 @@ it('rejects corrupted gzip tiles, overlapping descriptors and invalid offsets', 
   const out = bytes.slice();
   new DataView(out.buffer).setInt32(table + 4, 0x7fffffff, false);
   expect(await inflateFitsTiles(new Blob([out]))).toBeUndefined();
+});
+
+it.each([
+  ['u8', ['0', '255', '1', '255', '0', '255']],
+  ['i16', ['-32768', '32767', '-1', '0', '32767', '-32768']],
+  ['i32', ['-2147483648', '2147483647', '-1', '0', '2147483647', '-2147483648']],
+])('reconstructs Astropy RICE_1 %s pixels with wraparound', async (kind, values) => {
+  const b = await inflateFitsTiles(fixture(`fits-rice-${kind}.fz`));
+  expect((await readFits(b!))?.values).toEqual(values);
+});
+it.each(['u8', 'i16', 'i32'])(
+  'matches independently decoded high-entropy and constant Rice blocks for %s',
+  async (kind) => {
+    const expected = JSON.parse(
+      readFileSync(
+        `apps/dashboard/src/features/coresearch/viewers/fixtures/fits-rice-random-${kind}.json`,
+        'utf8',
+      ),
+    );
+    const b = await inflateFitsTiles(fixture(`fits-rice-random-${kind}.fz`));
+    expect((await readFits(b!))?.values).toEqual(expected);
+  },
+);
+it('preserves Rice image scaling and BLANK pixels', async () => {
+  const b = await inflateFitsTiles(fixture('fits-rice-scaled.fz'));
+  expect((await readFits(b!))?.values).toEqual(['10', '12', 'blank']);
+});
+it('rejects unsupported Rice parameter values without interpreting pixel data', async () => {
+  const src = new Uint8Array(await fixture('fits-rice-i16.fz').arrayBuffer());
+  const ascii = new TextDecoder().decode(src),
+    at = ascii.indexOf('ZVAL1');
+  expect(at).toBeGreaterThan(0);
+  const changed = src.slice();
+  changed.set(new TextEncoder().encode('ZVAL1   =                   16'.padEnd(80, ' ')), at);
+  expect(await inflateFitsTiles(new Blob([changed]))).toBeUndefined();
 });

@@ -52,11 +52,13 @@ watch(
 <template>
   <p v-if="pending" role="status">Reading tiled FITS image…</p>
   <template v-else-if="expanded"
-    ><p>Showing one image reconstructed from lossless GZIP_1 tiles; other HDUs are omitted.</p>
+    ><p>
+      Showing one image reconstructed from lossless GZIP_1 or RICE_1 tiles; other HDUs are omitted.
+    </p>
     <FitsViewer :blob="expanded"
   /></template>
   <p v-else>
-    FITS tile preview unavailable. Only bounded, two-dimensional lossless GZIP_1 images are
-    supported; RICE and quantized images are not supported.
+    FITS tile preview unavailable. Only bounded, two-dimensional lossless GZIP_1 and integer RICE_1
+    images are supported; quantized images are not supported.
   </p>
 </template>

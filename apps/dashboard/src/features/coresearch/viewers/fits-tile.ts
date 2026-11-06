@@ -1,3 +1,4 @@
+import { decodeFitsRice } from './fits-rice';
 import { listFitsHdus } from './fits-preview';
 const LIMIT = 8 * 1024 * 1024;
 const str = (v: string | undefined) => v?.match(/^'([^']*)'$/)?.[1]?.trim();
@@ -25,7 +26,7 @@ async function unpack(input: Blob, expected: number): Promise<Uint8Array | undef
     return;
   }
 }
-/** Narrow lossless GZIP_1 two-dimensional tiled image convention; no quantization. */
+/** Narrow lossless GZIP_1/RICE_1 two-dimensional tiled image convention; no quantization. */
 export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
   try {
     if (blob.size > 32 * 1024 * 1024) return;
@@ -37,12 +38,12 @@ export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
       f = h.fields;
     if (
       str(f.get('XTENSION')) !== 'BINTABLE' ||
-      str(f.get('ZCMPTYPE')) !== 'GZIP_1' ||
+      !['GZIP_1', 'RICE_1'].includes(str(f.get('ZCMPTYPE')) ?? '') ||
       f.has('ZQUANTIZ') ||
       f.has('ZSCALE') ||
       f.has('ZZERO') ||
       f.has('ZMASKCMP') ||
-      [...f.keys()].some((k) => /^Z(NAME|VAL)\d+$/.test(k))
+      (str(f.get('ZCMPTYPE')) === 'GZIP_1' && [...f.keys()].some((k) => /^Z(NAME|VAL)\d+$/.test(k)))
     )
       return;
     const bitpix = integer(f.get('ZBITPIX')),
@@ -74,6 +75,20 @@ export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
       (f.has('ZGCOUNT') && integer(f.get('ZGCOUNT')) !== 1)
     )
       return;
+    const codec = str(f.get('ZCMPTYPE'));
+    if (codec === 'RICE_1') {
+      if (![8, 16, 32].includes(bitpix)) return;
+      const keys = [...f.keys()].filter((k) => /^Z(NAME|VAL)\d+$/.test(k));
+      if (keys.length !== 4) return;
+      const parameters = new Map<string, number>();
+      for (const i of [1, 2]) {
+        const name = str(f.get(`ZNAME${i}`));
+        const value = integer(f.get(`ZVAL${i}`));
+        if (!name || parameters.has(name) || !Number.isSafeInteger(value)) return;
+        parameters.set(name, value);
+      }
+      if (parameters.get('BLOCKSIZE') !== 32 || parameters.get('BYTEPIX') !== bitpix / 8) return;
+    }
     const size = Math.abs(bitpix) / 8,
       total = width * height * size,
       across = Math.ceil(width / tw),
@@ -115,10 +130,11 @@ export async function inflateFitsTiles(blob: Blob): Promise<Blob | undefined> {
         expected = w * ht * size;
       decoded += expected;
       if (decoded > LIMIT) return;
-      const tile = await unpack(
-        blob.slice(h.offset + heap + offset, h.offset + heap + offset + len),
-        expected,
-      );
+      const compressed = blob.slice(h.offset + heap + offset, h.offset + heap + offset + len);
+      const tile =
+        codec === 'RICE_1'
+          ? decodeFitsRice(new Uint8Array(await compressed.arrayBuffer()), w * ht, size, 32)
+          : await unpack(compressed, expected);
       if (!tile) return;
       for (let row = 0; row < ht; row++)
         image.set(
