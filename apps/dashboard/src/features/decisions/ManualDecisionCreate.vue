@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import { useMe, useRuntimes } from '../../api/queries';
@@ -377,16 +378,20 @@ async function create() {
       <h2>Choose a machine</h2>
       <p>Choose the machine and CLI for this conversation. The Decision is not tied to a machine.</p>
       <label>Machine and CLI
+        <SelectPicker :title="setupRuntime ? runtimeLabel(setupRuntime) : undefined">
         <select v-model="selectedRuntimeID" aria-label="Machine and CLI" :title="setupRuntime ? runtimeLabel(setupRuntime) : undefined">
           <option v-if="!availableRuntimes.length" value="">No available machines</option>
           <option v-for="runtime in availableRuntimes" :key="runtime.id" :value="runtime.id" :aria-label="runtimeLabel(runtime)" :title="runtimeLabel(runtime)">{{ runtimeLabel(runtime) }}</option>
         </select>
+        </SelectPicker>
       </label>
       <label>Model
+        <SelectPicker>
         <select v-model="selectedModel" aria-label="Builder model">
           <option value="">Harness default</option>
           <option v-for="model in setupRuntime?.models ?? []" :key="model.value" :value="model.value">{{ model.label }}</option>
         </select>
+        </SelectPicker>
       </label>
       <div class="setup-actions"><button class="button" @click="setup = false">Cancel</button><button class="button primary" :disabled="busy || !setupRuntime" @click="start(true)">Start conversation</button></div>
     </div>
@@ -457,7 +462,9 @@ async function create() {
 .builder-setup h2 { margin:0 0 8px; font-size:20px; }
 .builder-setup p { color:var(--muted); font-size:13px; line-height:1.5; }
 .builder-setup label { display:flex; flex-direction:column; gap:6px; margin-top:16px; font-size:13px; }
-.builder-setup select { width:min(145px, 100%); padding:5px 8px; border:1px solid var(--border); border-radius:6px; color:var(--text); background:var(--surface); }
+.builder-setup :deep(.select-picker) { width:min(145px, 100%); }
+:global(.select-picker-popup[aria-label='Machine and CLI'] button span),
+:global(.select-picker-popup[aria-label='Builder model'] button span) { white-space:normal; overflow-wrap:anywhere; }
 .setup-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
 .form-wrap h2 {
   font-size: 24px;

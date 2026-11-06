@@ -15,6 +15,7 @@ const choices = ref<Choice[]>([]),
   accessibleName = ref('');
 const open = ref(false),
   position = ref({ left: 0, top: 0, width: 200 });
+const activeOption = ref('');
 const target = ref<HTMLElement | string>('body');
 const id = useId();
 let observer: MutationObserver | undefined;
@@ -71,6 +72,7 @@ function sync() {
 }
 function close(restore = false) {
   open.value = false;
+  activeOption.value = '';
   if (restore) trigger.value?.focus();
 }
 async function show() {
@@ -84,6 +86,8 @@ async function show() {
   target.value = trigger.value?.closest('dialog') || 'body';
   open.value = true;
   await nextTick();
+  positionPopup();
+  await nextTick();
   focusOption(
     popup.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]:not(:disabled)') ??
       popup.value?.querySelector<HTMLButtonElement>('button:not(:disabled)'),
@@ -93,19 +97,19 @@ function positionPopup() {
   if (!trigger.value) return;
   const bounds = trigger.value.getBoundingClientRect();
   const width = Math.min(Math.max(bounds.width, 180), 280, window.innerWidth - 16);
-  const height = Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
+  const height = popup.value?.getBoundingClientRect().height ?? Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
+  const top = bounds.bottom + height + 6 <= window.innerHeight - 8
+    ? bounds.bottom + 6
+    : bounds.top - height - 6;
   position.value = {
     width,
     left: Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8)),
-    top:
-      bounds.bottom + height + 6 <= window.innerHeight
-        ? bounds.bottom + 6
-        : Math.max(8, bounds.top - height - 6),
+    top: Math.max(8, Math.min(top, window.innerHeight - height - 8)),
   };
 }
 function focusOption(option?: HTMLButtonElement | null) {
   if (!option) return;
-  option.focus({ preventScroll: true });
+  activeOption.value = option.id;
   if (popup.value) {
     const top = option.offsetTop,
       bottom = top + option.offsetHeight;
@@ -145,7 +149,7 @@ function key(event: KeyboardEvent) {
   if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     event.preventDefault();
     event.stopPropagation();
-    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const index = items.findIndex((item) => item.id === activeOption.value);
     const next =
       event.key === 'Home'
         ? 0
@@ -153,6 +157,9 @@ function key(event: KeyboardEvent) {
           ? items.length - 1
           : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
     focusOption(items[next]);
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    items.find((item) => item.id === activeOption.value)?.click();
   } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
     typeahead += event.key.toLowerCase();
     clearTimeout(typeTimer);
@@ -166,10 +173,13 @@ function outside(event: PointerEvent) {
   if (!root.value?.contains(event.target as Node) && !popup.value?.contains(event.target as Node))
     close();
 }
-function dismiss(event: Event) {
+async function dismiss(event: Event) {
   if (event.type === 'resize') sync();
-  if (open.value && (event.type !== 'scroll' || !popup.value?.contains(event.target as Node)))
+  if (open.value && (event.type !== 'scroll' || !popup.value?.contains(event.target as Node))) {
     positionPopup();
+    await nextTick();
+    if (open.value) positionPopup();
+  }
 }
 function nativeFocus(event: FocusEvent) {
   if (event.target === input.value) trigger.value?.focus();
@@ -219,6 +229,7 @@ onUnmounted(() => {
       :aria-label="accessibleName"
       :aria-expanded="open"
       :aria-controls="id"
+      :aria-activedescendant="open && activeOption ? activeOption : undefined"
       :aria-required="required || undefined"
       :data-value="value"
       aria-haspopup="listbox"
@@ -255,9 +266,13 @@ onUnmounted(() => {
           <button
             type="button"
             role="option"
+            :id="`${id}-option-${index}`"
+            tabindex="-1"
+            :class="{ 'is-active': activeOption === `${id}-option-${index}` }"
             :aria-selected="choice.value === value"
             :data-value="choice.value"
             :disabled="choice.disabled"
+            @mousedown.prevent
             @click="choose(choice)"
           >
             <span>{{ choice.label }}</span
@@ -344,6 +359,7 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 .select-picker-popup button:hover:not(:disabled),
+.select-picker-popup button.is-active:not(:disabled),
 .select-picker-popup button:focus-visible {
   background: var(--selected);
   outline: none;

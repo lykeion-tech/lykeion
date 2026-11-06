@@ -19,6 +19,9 @@ vi.mock('../../api/queries', () => ({
   useCards: () => ({ data: cards }),
   useRuntimes: () => ({ data: runtimes }),
 }));
+vi.mock('../../ui/SelectPicker.vue', () => ({
+  default: { inheritAttrs: false, setup: (_: unknown, { slots, attrs }: any) => () => h('span', { ...attrs, class: 'select-picker' }, slots.default?.()) },
+}));
 vi.mock('./DecisionBuilderConversation.vue', () => ({
   default: {
     props: ['manualDraft', 'submitManualQuestion', 'appliedMessageId'],
@@ -148,6 +151,14 @@ it('keeps the full machine and CLI accessible for long names without an extra la
   expect(option.props['aria-label']).toBe('My extremely long research workstation · Codex');
   expect(textOf(option)).toBe('My extremely long research workstation · Codex');
   expect(all(root).some((n) => n.props['aria-label'] === 'Selected CLI: Codex')).toBe(false);
+});
+it('uses the app selector for both machine and model', async () => {
+  backend();
+  const { root } = await mount(ManualDecisionCreate);
+  const choice = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Create with AI'))!;
+  await (choice.props.onClick as Function)();
+  await settle();
+  expect(all(root).filter((n) => n.props.class === 'select-picker')).toHaveLength(2);
 });
 it.each(['Start blank', 'Create with AI'])(
   'persists a purpose-bound draft for %s without creating a note',

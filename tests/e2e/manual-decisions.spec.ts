@@ -90,7 +90,42 @@ test('AI builder machine and model selectors stay compact', async ({ page }) => 
     const select = setup.getByRole('combobox', { name });
     await expect(select).toBeVisible();
     await expect.poll(async () => (await select.boundingBox())?.width ?? 0).toBeLessThanOrEqual(145);
+    await select.click();
+    const menu = page.getByRole('listbox', { name });
+    await expect(menu).toBeVisible();
+    await expect.poll(async () => (await menu.boundingBox())?.width ?? 0).toBeLessThanOrEqual(280);
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(select).toBeFocused();
   }
+  const machine = setup.getByRole('combobox', { name: 'Machine and CLI' });
+  const model = setup.getByRole('combobox', { name: 'Builder model' });
+  await machine.click();
+  await page.keyboard.press('Tab');
+  await expect(model).toBeFocused();
+  await model.click();
+  await page.keyboard.press('Shift+Tab');
+  await expect(machine).toBeFocused();
+  const cancel = setup.getByRole('button', { name: 'Cancel' });
+  await machine.evaluate((el) => el.setAttribute('tabindex', '3'));
+  await model.evaluate((el) => el.setAttribute('tabindex', '2'));
+  await cancel.evaluate((el) => el.setAttribute('tabindex', '4'));
+  await machine.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown');
+  await expect(machine).toBeFocused();
+  await expect(machine).toHaveAttribute('aria-activedescendant', /.+/);
+  await page.keyboard.press('Tab');
+  await expect(cancel).toBeFocused();
+  for (const control of [machine, model, cancel]) await control.evaluate((el) => el.removeAttribute('tabindex'));
+  await page.setViewportSize({ width: 900, height: 240 });
+  await model.click();
+  const popup = page.getByRole('listbox', { name: 'Builder model' });
+  const box = await popup.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(240);
+  await page.keyboard.press('Escape');
 });
 
 test('blank creation is keyboard accessible, survives reload and archives only after Create', async ({
