@@ -17,6 +17,7 @@ import OfficeViewer from './OfficeViewer.vue';
 import WorkbookViewer from './WorkbookViewer.vue';
 import DicomViewer from './DicomViewer.vue';
 import TiffViewer from './TiffViewer.vue';
+import ParquetViewer from './ParquetViewer.vue';
 import NiftiViewer from './NiftiViewer.vue';
 import MatrixMarketViewer from './MatrixMarketViewer.vue';
 import ChemicalViewer from './ChemicalViewer.vue';
@@ -113,6 +114,7 @@ watch(
         sqlite.value ||
         npy.value ||
         npz.value ||
+        ext.value === 'parquet' ||
         office.value ||
         ext.value === 'xlsx'
       )
@@ -152,6 +154,7 @@ watch(
   <SqliteSnapshotViewer v-else-if="sqlite" :blob="blob" />
   <NpyViewer v-else-if="npy" :blob="blob" />
   <NpzViewer v-else-if="npz" :blob="blob" />
+  <ParquetViewer v-else-if="ext === 'parquet'" :blob="blob" />
   <PdfDocumentPreview v-else-if="pdf" :src="url" :path="path" />
   <ImageViewer v-else-if="image" :src="url" :path="path" />
   <div v-else-if="error || text === undefined" class="viewer-failure">
