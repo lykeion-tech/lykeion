@@ -19,6 +19,7 @@ import StudyFileThumbnail from './StudyFileThumbnail.vue';
 import StudyReview from './StudyReview.vue';
 import StudyNotebook from './StudyNotebook.vue';
 import StudyDescriptionControls from './StudyDescriptionControls.vue';
+import StudyParticipants from './StudyParticipants.vue';
 import CommentFiles from './CommentFiles.vue';
 import CommentFilePicker from './CommentFilePicker.vue';
 import { uploadAttachment } from '../../api/queries';
@@ -547,7 +548,16 @@ function pin() {
             <RecordedMarkdown class="lyk-reading" :content="c.question" />
             <StudyDescriptionControls :key="id" :card-id="id" />
           </section>
-          <h2 class="activity-heading">Activity</h2>
+          <div class="activity-heading">
+            <h2>Activity</h2>
+            <StudyParticipants
+              :runs="agentRuns"
+              :agents="agents.data.value ?? []"
+              :runtimes="runtimes.data.value ?? []"
+              :teams="c.teams ?? {}"
+              :owner="members.data.value?.find((member) => member.user_id === c?.owner_id)"
+            />
+          </div>
           <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
           <div
             v-for="read in readErrors"
@@ -626,6 +636,9 @@ function pin() {
               v-else-if="entry.kind === 'run'"
               class="activity-card"
               :run="entry.run"
+              :agent="
+                (agents.data.value ?? []).find((agent) => agent.id === entry.run.agent_id) ?? null
+              "
               :study="studyDisplayTitle(c.title)"
               :position="agentRuns.findIndex((run) => run.id === entry.run.id) + 1"
               :runtime="runtime(entry.run.runtime_id)"
@@ -1595,6 +1608,8 @@ function pin() {
   padding-inline-start: 20px;
 }
 .activity-heading {
+  display: flex;
+  align-items: center;
   margin: 32px 0 0;
   padding-top: 32px;
   border-top: 1px solid var(--border);
@@ -1602,8 +1617,15 @@ function pin() {
   line-height: 24px;
   font-weight: 600;
 }
+.activity-heading h2 {
+  margin: 0;
+  font: inherit;
+}
 .activity-card {
-  margin: 12px 0;
+  margin: 0;
+}
+.activity-card + .activity-card {
+  margin-top: 12px;
 }
 .jev-card {
   margin: 40px 0;
@@ -1772,7 +1794,6 @@ function pin() {
   font-size: 12.5px;
   margin: 0;
 }
-.activity-card:has(+ .activity-group),
 .jev-card:has(+ .activity-group) {
   margin-bottom: 0;
 }

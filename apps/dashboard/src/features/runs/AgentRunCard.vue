@@ -5,7 +5,8 @@ import Modal from '../../ui/Modal.vue';
 import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
-import type { AgentRun, Comment, Runtime } from '../../api/types';
+import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import type { AgentDefinition, AgentRun, Comment, Runtime } from '../../api/types';
 import { useCard, useMembers, useRunMessages, uploadAttachment } from '../../api/queries';
 import { useAttachments } from '../../lib/attachments';
 import CommentFiles from '../studies/CommentFiles.vue';
@@ -22,6 +23,7 @@ import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
 const props = defineProps<{
   run: AgentRun;
+  agent?: AgentDefinition | null;
   study: string;
   position: number;
   runtime?: Runtime | null;
@@ -211,7 +213,17 @@ const lastActive = computed(
     <article class="agent-card" :data-status="run.status">
       <div class="run-header-row">
         <div class="run-header" :aria-label="`${name} (${state}), Run ${position}`">
-          <span class="avatar agent">
+          <RouterLink
+            v-if="run.agent_id && agent?.id === run.agent_id"
+            class="avatar agent agent-profile-link"
+            :to="`/agents/${encodeURIComponent(run.agent_id)}`"
+            :aria-label="`Open ${name}’s agent details`"
+          >
+            <AvatarDisplay v-if="agent.avatar_url" :value="agent.avatar_url.slice(6)" :size="16" />
+            <template v-else>{{ name[0] }}</template>
+            <span v-if="active" class="live-dot" :title="state" />
+          </RouterLink>
+          <span v-else class="avatar agent">
             {{ name[0] }}
             <span v-if="active" class="live-dot" :title="state" />
           </span>
@@ -423,6 +435,10 @@ const lastActive = computed(
   flex: none;
   background: #fff3d6;
   color: #b5841b;
+}
+.agent-profile-link {
+  color: inherit;
+  text-decoration: none;
 }
 .live-dot {
   position: absolute;

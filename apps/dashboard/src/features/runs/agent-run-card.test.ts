@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createRenderer, h, nextTick } from 'vue';
+import { createRenderer, defineComponent, h, nextTick } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AgentRunCard from './AgentRunCard.vue';
 vi.mock('../../ui/RecordedMarkdown.vue', async () => {
@@ -23,7 +23,7 @@ vi.mock('../../ui/Modal.vue', async () => {
     },
   };
 });
-import type { AgentRun, Comment, RunMessage, Runtime } from '../../api/types';
+import type { AgentDefinition, AgentRun, Comment, RunMessage, Runtime } from '../../api/types';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { all, node, textOf } from '../../../../../tests/daemon-tree';
@@ -93,11 +93,27 @@ const run: AgentRun = {
   answer: 'A **three-line** preview.',
   last_activity_at: null,
 };
+const visibleAgent: AgentDefinition = {
+  id: 'a',
+  workspace_id: 'w',
+  name: 'Ada',
+  avatar_url: 'emoji:🐸',
+  description: '',
+  instructions: '',
+  harness: 'claude',
+  model: '',
+  visibility: 'workspace',
+  owner_id: 'u',
+  archived_at: null,
+  created_at: '',
+  updated_at: '',
+};
 function setup(
   extra: Partial<AgentRun> = {},
   runtime: Runtime | null = null,
   replies: Comment[] = [],
   overrides?: RunMessage[],
+  agent: AgentDefinition | null = visibleAgent,
 ) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   workspaceId.value = 'w';
@@ -141,6 +157,7 @@ function setup(
     render: () =>
       h(AgentRunCard, {
         run: { ...run, ...extra },
+        agent,
         study: 'Study',
         position: 1,
         studyId: 'c',
@@ -150,6 +167,16 @@ function setup(
         onCancelComment: (id: string) => cancelled.push(id),
       }),
   });
+  app.component(
+    'RouterLink',
+    defineComponent({
+      props: { to: { type: String, required: true }, ariaLabel: String },
+      setup:
+        (props, { slots }) =>
+        () =>
+          h('a', { href: props.to, 'aria-label': props.ariaLabel }, slots.default?.()),
+    }),
+  );
   app.use(VueQueryPlugin, { queryClient: client });
   app.mount(root);
   disposals.push(() => {
@@ -165,6 +192,35 @@ function setup(
   };
   return { root, fetch, cancelled, header, clickHeader };
 }
+it('links the agent avatar to its profile when the run has an agent', async () => {
+  const { root } = setup();
+  await nextTick();
+  const link = all(root).find((n) => n.tag === 'a' && n.props.href === '/agents/a');
+  expect(link?.props['aria-label']).toBe('Open Ada’s agent details');
+});
+it('does not link an avatar for a legacy or deleted agent', async () => {
+  const { root } = setup({ agent_id: null });
+  await nextTick();
+  expect(all(root).some((n) => n.tag === 'a' && String(n.props.href).startsWith('/agents/'))).toBe(
+    false,
+  );
+});
+it('shows the configured agent avatar and does not link an inaccessible agent', async () => {
+  const visible = setup();
+  await nextTick();
+  expect(textOf(visible.root)).toContain('🐸');
+  const inaccessible = setup({}, null, [], undefined, null);
+  await nextTick();
+  expect(all(inaccessible.root).some((n) => n.tag === 'a' && n.props.href === '/agents/a')).toBe(
+    false,
+  );
+  expect(textOf(inaccessible.root)).toContain('Ada');
+  const wrongAgent = setup({}, null, [], undefined, { ...visibleAgent, id: 'other' });
+  await nextTick();
+  expect(all(wrongAgent.root).some((n) => n.tag === 'a' && n.props.href === '/agents/a')).toBe(
+    false,
+  );
+});
 it('lets the author remove a reply and uses the round send control', async () => {
   const item: Comment = {
     id: 'reply',

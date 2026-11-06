@@ -9,6 +9,7 @@ import TeamsView from '../teams/TeamsView.vue';
 import AgentsView from '../agents/AgentsView.vue';
 import CreateStudy from './CreateStudy.vue';
 import StudyDetail from './StudyDetail.vue';
+import StudyParticipants from './StudyParticipants.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
 import { notice } from '../../state/notice';
@@ -2276,4 +2277,48 @@ it('allows a file-only study comment', async () => {
   } finally {
     t.unmount();
   }
+});
+
+it('shows each study agent once and opens its recorded runtime and current team skills', async () => {
+  const run = {
+    agent_id: 'a1',
+    agent_name: 'Solo agent',
+    role: 'leader',
+    board_column: 'grounding',
+    harness: 'codex',
+    model: 'model-one',
+    runtime_id: 'r1',
+  };
+  const t = await mount(
+    StudyParticipants,
+    () => ({
+      runs: [run, { ...run }, { ...run, agent_id: null, agent_name: 'Former agent' }],
+      agents: [{ id: 'a1', name: 'Solo agent', avatar_url: '' }],
+      owner: { user_id: 'u1', name: 'Diego', email: 'test@example.com', avatar_url: '' },
+      runtimes: [{ id: 'r1', custom_name: 'Lab Mac', device_name: 'Mac' }],
+      teams: { grounding: { pack_id: 'team-1' } },
+    }),
+    '/',
+    (c) =>
+      c.setQueryData(['ws', 'w', 'agent-capabilities', 'a1'], {
+        team_member: true,
+        skills: [],
+        teams: [
+          { id: 'other', skills: ['wrong'] },
+          { id: 'team-1', skills: ['statistics'] },
+        ],
+      }),
+  );
+  const avatars = t.nodes().filter((n) => n.props['aria-label'] === 'Show Solo agent details');
+  expect(avatars).toHaveLength(1);
+  expect(t.nodes().some((n) => n.props['aria-label'] === 'Show Former agent details')).toBe(true);
+  expect(t.nodes().some((n) => n.props['aria-label'] === 'Open Diego details')).toBe(true);
+  (avatars[0]!.props.onClick as () => void)();
+  await nextTick();
+  expect(t.text()).toContain('codex · Lab Mac');
+  expect(t.text()).toContain('model-one');
+  expect(t.text()).toContain('statistics');
+  expect(t.text()).not.toContain('wrong');
+  expect(t.nodes().some((n) => n.tag === 'a' && n.props.href === '/agents/a1')).toBe(true);
+  t.unmount();
 });
