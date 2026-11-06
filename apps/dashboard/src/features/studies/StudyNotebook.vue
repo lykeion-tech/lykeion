@@ -92,7 +92,6 @@ watch(
       :key="`${group.column}:${group.round}`"
       class="cell-group"
     >
-      <h3>{{ columnName(group.column) }} · try {{ group.round }}</h3>
       <article
         v-for="cell in group.cells"
         :key="cell.key"
@@ -153,11 +152,6 @@ h2 {
   margin: 0 0 16px;
   font-size: 16px;
 }
-h3 {
-  margin: 24px 0 12px;
-  font-size: 13px;
-  color: var(--muted);
-}
 .notebook-cell {
   margin-bottom: 16px;
   border: 1px solid var(--border);
@@ -206,6 +200,9 @@ button {
   color: var(--muted);
   text-decoration: underline;
   cursor: pointer;
+}
+.cell-output button {
+  padding: 0;
 }
 .empty,
 .truncated {

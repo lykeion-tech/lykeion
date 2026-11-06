@@ -68,6 +68,7 @@ it('shows one read-only cell per recorded script, including superseded cells', a
   await nextTick();
   expect(cells(root)).toHaveLength(2);
   expect(textOf(root)).toContain('Ada · Experimentation · try 1');
+  expect(all(root).filter((n) => n.tag === 'h3')).toHaveLength(0);
   for (const key of ['x1', 'x2']) {
     expect(textOf(root)).toContain(`${key}.py`);
     expect(textOf(root)).toContain(`output ${key}`);
