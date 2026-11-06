@@ -630,7 +630,7 @@ onUnmounted(() => {
   width: 48px;
   height: 48px;
   border: 2px solid var(--surface);
-  background: white;
+  background: var(--palette-accent);
   border-radius: 50%;
   display: grid;
   place-items: center;

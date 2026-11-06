@@ -435,7 +435,11 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         :disabled="agentOnly || (assignee?.type === 'team' && !unstaged)"
         @click="openMenu('stages')"
       >
-        <Icon name="circle" :size="14" />
+        <span
+          class="stage-picker-icon"
+          :class="!unstaged ? `stage-picker-icon--${range.from}` : undefined"
+          aria-hidden="true"
+        ></span>
         <span
           >{{
             unstaged

@@ -86,6 +86,27 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
   return { root, client, props, router, button, click, settle };
 }
 describe('study page scope', () => {
+  it('shows the actual final stage on completed cards without a redundant Done badge', async () => {
+    const t = await mount();
+    t.client.setQueryData(keys.cards('lab'), [
+      card('Finished experiment', 'me', { board_column: 'experimentation', state: 'done' }),
+      card('Legacy completed', 'me', { board_column: 'done', state: 'done' }),
+    ]);
+    await t.settle();
+    const cards = all(t.root).filter((n) => n.tag === 'button' && n.props['data-card']);
+    const experiment = textOf(cards.find((n) => n.props['data-card'] === 'Finished experiment')!);
+    const legacy = textOf(cards.find((n) => n.props['data-card'] === 'Legacy completed')!);
+    expect(experiment).toContain('Experimentation');
+    expect(experiment).not.toContain('Done');
+    expect(legacy).not.toContain('Done');
+    expect(legacy).not.toContain('Experimentation');
+    await t.click('Board');
+    const rows = all(t.root).filter((n) => n.props.class === 'list-row');
+    expect(textOf(rows.find((n) => textOf(n).includes('Finished experiment'))!)).toContain(
+      'Experimentation',
+    );
+    expect(textOf(rows.find((n) => textOf(n).includes('Legacy completed'))!)).not.toContain('Done');
+  });
   it('shows Working only for an actually running agent', async () => {
     const t = await mount();
     t.client.setQueryData(keys.cards('lab'), [

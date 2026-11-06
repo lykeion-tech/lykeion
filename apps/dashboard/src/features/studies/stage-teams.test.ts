@@ -512,6 +512,26 @@ describe('AssignPicker', () => {
     }
   });
 
+  it('shows the first selected stage icon for both a range and a single stage', async () => {
+    const p = await mountPicker();
+    try {
+      for (const range of [
+        { from: 'hypotheses', to: 'validation' },
+        { from: 'experimentation', to: 'experimentation' },
+        { from: 'validation', to: 'validation' },
+      ]) {
+        p.range.value = range;
+        await nextTick();
+        const pill = p.nodes().find((n) => String(n.props.class).includes('stages-pill'))!;
+        expect(
+          all(pill).some((n) => String(n.props.class).includes(`stage-picker-icon--${range.from}`)),
+        ).toBe(true);
+      }
+    } finally {
+      p.unmount();
+    }
+  });
+
   it('selects a continuous range of stages from the stage menu', async () => {
     const p = await mountPicker();
     try {

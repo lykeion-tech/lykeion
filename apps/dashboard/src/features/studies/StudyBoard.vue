@@ -31,6 +31,7 @@ import {
   boardActivity,
   matchesFilters,
   roleLabel,
+  stages,
   stateLabel,
   studyNumber,
   studyDisplayTitle,
@@ -189,7 +190,14 @@ function assignedAgent(card: Card) {
     : undefined;
 }
 function cardStateLabel(card: Card) {
-  return card.state === 'working' && !card.agent_running ? '' : stateLabel(card);
+  return card.state === 'done' || (card.state === 'working' && !card.agent_running)
+    ? ''
+    : stateLabel(card);
+}
+function finalStage(card: Card) {
+  return boardColumnOf(card) === 'done' && stages.includes(card.board_column)
+    ? columnName(card.board_column)
+    : '';
 }
 const options = (category: Category) =>
   category === 'Owner'
@@ -515,18 +523,27 @@ onUnmounted(() => {
             @click="open(card.id)"
           >
             <small class="card-id"
-              >{{ number(card) }}<span v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')" class="chip" :class="'chip-' + card.ending">{{ endLabel(card) }}</span><span
+              >{{ number(card)
+              }}<span
+                v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')"
+                class="chip"
+                :class="'chip-' + card.ending"
+                >{{ endLabel(card) }}</span
+              ><span
                 v-if="cardStateLabel(card) && column.id !== 'blocked'"
                 class="chip"
                 :class="'chip-' + card.state"
-                >{{ cardStateLabel(card) }}</span><span v-if="column.id === 'blocked'" class="chip">{{
+                >{{ cardStateLabel(card) }}</span
+              ><span v-if="column.id === 'blocked'" class="chip">{{
                 columnName(card.board_column)
               }}</span
+              ><span v-if="finalStage(card)" class="chip">{{ finalStage(card) }}</span
               ><span
                 v-if="card.flag === 'escalated' || card.state === 'blocked'"
                 class="chip chip-escalated"
                 :title="card.hold_text || undefined"
-                >{{ blockBadge(card) }}</span></small
+                >{{ blockBadge(card) }}</span
+              ></small
             ><span>{{ studyDisplayTitle(card.title) }}</span>
             <span
               v-if="display.properties.includes('Question') && card.question"
@@ -620,9 +637,13 @@ onUnmounted(() => {
             <span v-if="group.id === 'blocked'" class="chip">{{
               columnName(card.board_column)
             }}</span>
-            <span v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')" class="chip" :class="'chip-' + card.ending">{{
-              endLabel(card)
-            }}</span>
+            <span v-if="finalStage(card)" class="chip">{{ finalStage(card) }}</span>
+            <span
+              v-if="card.ending && !(card.ending === 'stopped' && boardColumnOf(card) === 'done')"
+              class="chip"
+              :class="'chip-' + card.ending"
+              >{{ endLabel(card) }}</span
+            >
             <span v-if="card.role">{{ roleLabel(card.role) }}</span>
             <span>{{ ownerName(card.owner_id) }}</span>
           </span>
