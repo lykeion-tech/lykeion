@@ -138,3 +138,21 @@ it('rejects unsupported predictors and predictor tags on uncompressed input', as
   new DataView(uncompressed.buffer).setUint16(compression + 8, 1, le);
   expect(await parseTiff(uncompressed, 0)).toBeUndefined();
 });
+it('renders real LZW grayscale, RGB horizontal prediction, and 16-bit TIFFs', async () => {
+  const gray = await parseTiff(fixture('tiff-lzw-gray.tif'), 0);
+  expect([...gray!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 64, 128, 255]);
+  const rgb = await parseTiff(fixture('tiff-lzw-rgb-predict.tif'), 0);
+  expect([...rgb!.rgba].slice(0, 12)).toEqual([255, 0, 0, 255, 0, 255, 0, 255, 1, 2, 3, 255]);
+  const bits = await parseTiff(fixture('tiff-lzw-gray16.tif'), 0);
+  expect([...bits!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 255, 128]);
+});
+it('handles full LZW dictionary growth and reset without changing pixels', async () => {
+  const p = await parseTiff(fixture('tiff-lzw-dictionary.tif'), 0);
+  expect(new Uint8Array([...p!.rgba].filter((_, i) => i % 4 === 0))).toEqual(
+    fixture('tiff-lzw-dictionary.raw'),
+  );
+});
+it('decodes independently generated LZW horizontal-prediction strips separately', async () => {
+  const p = await parseTiff(fixture('tiff-lzw-multistrip.tif'), 0);
+  expect([...p!.rgba].filter((_, i) => i % 4 === 0)).toEqual([0, 64, 128, 255]);
+});

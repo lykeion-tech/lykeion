@@ -1,3 +1,4 @@
+import { decodeTiffLzw } from './tiff-lzw';
 import { inflateTiffStrip } from './tiff-deflate';
 export interface TiffPreview {
   width: number;
@@ -109,11 +110,11 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       !sampleFormat ||
       width * height > 2 * 1024 * 1024 ||
       !Number.isSafeInteger(width * height) ||
-      ![1, 8, 32946].includes(compression ?? 0) ||
+      ![1, 5, 8, 32946].includes(compression ?? 0) ||
       planar !== 1 ||
       orient !== 1 ||
       fill !== 1 ||
-      (predictor !== 1 && !(predictor === 2 && [8, 32946].includes(compression ?? 0))) ||
+      (predictor !== 1 && !(predictor === 2 && [5, 8, 32946].includes(compression ?? 0))) ||
       !sampleFormat.every((v) => v === 1) ||
       ![1, samples].includes(sampleFormat.length) ||
       fields.has(338)
@@ -170,7 +171,9 @@ export async function parseTiff(bytes: Uint8Array, page: number): Promise<TiffPr
       const data =
         compression === 1
           ? bytes.subarray(start, end)
-          : await inflateTiffStrip(bytes.subarray(start, end), expected);
+          : compression === 5
+            ? decodeTiffLzw(bytes.subarray(start, end), expected)
+            : await inflateTiffStrip(bytes.subarray(start, end), expected);
       if (!data || data.length !== expected) return;
       const stripView = new DataView(data.buffer, data.byteOffset, data.byteLength);
       if (predictor === 2) {
