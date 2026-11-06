@@ -96,3 +96,32 @@ it('rejects corrupted compressed data with CRC and invalid Snappy sizes without 
   noCrc[header.next] ^= 1;
   expect(parseParquet(noCrc)).toBeUndefined();
 });
+it('samples PyArrow Data Page V2 with plain and dictionary values and both codecs', () => {
+  for (const name of [
+    'plain-required',
+    'optional-primitives',
+    'dictionary-primitives',
+    'dictionary-multipage',
+  ])
+    for (const codec of ['none', 'snappy']) {
+      expect(parseParquet(fixture(`${name}-v2-${codec}.parquet`))?.rows).toEqual(
+        parseParquet(fixture(`${name}.parquet`))?.rows,
+      );
+    }
+});
+it('rejects V2 inconsistent rows, null counts and level lengths without relying on CRC', () => {
+  const f = fixture('optional-v2-no-crc.parquet');
+  expect(parseParquet(f)).toBeDefined();
+  const signature = [0x5c, 0x15, 8, 0x15, 4, 0x15, 8, 0x15, 0, 0x15, 4, 0x15, 0];
+  const at = f.findIndex((_, i) => signature.every((b, j) => f[i + j] === b));
+  expect(at).toBeGreaterThan(0);
+  for (const [offset, value] of [
+    [4, 0],
+    [6, 6],
+    [10, 126],
+  ]) {
+    const corrupt = f.slice();
+    corrupt[at + offset] = value;
+    expect(parseParquet(corrupt)).toBeUndefined();
+  }
+});

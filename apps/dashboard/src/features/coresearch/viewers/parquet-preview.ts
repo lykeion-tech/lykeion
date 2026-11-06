@@ -114,8 +114,7 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           )
             throw Error();
           const enc = list(m.get(2));
-          if (!enc.every((e) => e === 0n || e === 2n || e === 3n || e === 8n) || !enc.includes(0n))
-            throw Error();
+          if (!enc.every((e) => e === 0n || e === 2n || e === 3n || e === 8n)) throw Error();
           const path = list(m.get(3));
           if (path.length !== 1 || decode(path[0]) !== columns[i]!.name) throw Error();
           const dataStart = num(m.get(9), footer),
@@ -162,12 +161,16 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
           if (h.has(4) && Number(integer(h.get(4))) >>> 0 !== crc32(compressed)) throw Error();
           decompressedBytes += expanded;
           if (decompressedBytes > 32 * 1024 * 1024) throw Error();
-          const body =
-            chunk.codec === 1
-              ? decompressSnappyRaw(compressed, expanded, 8 * 1024 * 1024)
-              : compressed;
-          if (!body || body.length !== expanded) throw Error();
-          return { h, body };
+          return { h, compressed, expanded };
+        };
+        const expand = (input: Uint8Array, expected: number, compressed: boolean): Uint8Array => {
+          if (expected < 0 || expected > 8 * 1024 * 1024) throw Error();
+          const result =
+            compressed && chunk.codec === 1
+              ? decompressSnappyRaw(input, expected, 8 * 1024 * 1024)
+              : input;
+          if (!result || result.length !== expected) throw Error();
+          return result;
         };
         const plain = (body: Uint8Array, count: number): string[] => {
           let pos = 0;
@@ -205,7 +208,8 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
         };
         let dictionary: string[] | undefined;
         if (chunk.start !== chunk.dataStart) {
-          const { h, body } = page();
+          const { h, compressed, expanded } = page();
+          const body = expand(compressed, expanded, true);
           if (num(h.get(1), 10) !== 2 || h.has(5) || h.has(6) || h.has(8)) throw Error();
           const dictHeader = map(h.get(7)),
             count = num(dictHeader.get(1), 10000),
@@ -216,28 +220,86 @@ export function parseParquet(bytes: Uint8Array): ParquetPreview | undefined {
         }
         while (seen < need) {
           if (p < chunk.dataStart) throw Error();
-          const { h, body } = page();
-          if (num(h.get(1), 10) !== 0 || h.has(6) || h.has(7) || h.has(8)) throw Error();
-          const ph = map(h.get(5)),
-            n = num(ph.get(1), 10000),
+          const { h, compressed, expanded } = page();
+          const pageType = num(h.get(1), 10);
+          if (h.has(6) || h.has(7) || (pageType !== 0 && pageType !== 3)) throw Error();
+          let n: number, encoding: number, levels: boolean[], valuesBody: Uint8Array;
+          if (pageType === 0) {
+            if (h.has(8)) throw Error();
+            const body = expand(compressed, expanded, true),
+              ph = map(h.get(5));
+            n = num(ph.get(1), 10000);
             encoding = num(ph.get(2), 10);
-          if (!n || n > group.rows - seen || (encoding !== 0 && encoding !== 2 && encoding !== 8))
+            let pos = 0;
+            if (column.optional) {
+              if (num(ph.get(3), 10) !== 3) throw Error();
+              const decoded = optionalLevels(body, n);
+              if (!decoded) throw Error();
+              levels = decoded.levels;
+              pos = decoded.bytes;
+            } else levels = Array(n).fill(true);
+            valuesBody = body.subarray(pos);
+          } else {
+            if (h.has(5)) throw Error();
+            const ph = map(h.get(8));
+            n = num(ph.get(1), 10000);
+            const nulls = num(ph.get(2), 10000),
+              rows = num(ph.get(3), 10000);
+            encoding = num(ph.get(4), 10);
+            const defLength = num(ph.get(5), 50000),
+              repLength = num(ph.get(6), 50000);
+            if (
+              rows !== n ||
+              repLength !== 0 ||
+              defLength > compressed.length ||
+              defLength > expanded ||
+              (!column.optional && (defLength !== 0 || nulls !== 0))
+            )
+              throw Error();
+            if (column.optional) {
+              const framed = new Uint8Array(defLength + 4);
+              new DataView(framed.buffer).setUint32(0, defLength, true);
+              framed.set(compressed.subarray(0, defLength), 4);
+              const decoded = optionalLevels(framed, n);
+              if (!decoded) throw Error();
+              levels = decoded.levels;
+            } else levels = Array(n).fill(true);
+            if (levels.reduce((sum, value) => sum + Number(!value), 0) !== nulls) throw Error();
+            const compressedFlag = ph.get(7);
+            if (compressedFlag !== undefined && typeof compressedFlag !== 'boolean') throw Error();
+            valuesBody = expand(
+              compressed.subarray(defLength),
+              expanded - defLength,
+              compressedFlag !== false,
+            );
+          }
+          if (
+            !n ||
+            n > group.rows - seen ||
+            (encoding !== 0 &&
+              encoding !== 2 &&
+              encoding !== 8 &&
+              !(encoding === 3 && column.type === 0))
+          )
             throw Error();
-          let pos = 0,
-            levels: boolean[];
-          if (column.optional) {
-            if (num(ph.get(3), 10) !== 3) throw Error();
-            const decoded = optionalLevels(body, n);
-            if (!decoded) throw Error();
-            levels = decoded.levels;
-            pos = decoded.bytes;
-          } else levels = Array(n).fill(true);
           const present = levels.reduce((total, bit) => total + Number(bit), 0);
           let values: string[];
-          if (encoding === 0) values = plain(body.subarray(pos), present);
-          else {
+          if (encoding === 0) values = plain(valuesBody, present);
+          else if (encoding === 3) {
+            if (
+              present === 0 &&
+              (valuesBody.length === 0 ||
+                (valuesBody.length === 4 && valuesBody.every((b) => b === 0)))
+            )
+              values = [];
+            else {
+              const decoded = optionalLevels(valuesBody, present);
+              if (!decoded || decoded.bytes !== valuesBody.length) throw Error();
+              values = decoded.levels.map(String);
+            }
+          } else {
             if (!dictionary) throw Error();
-            const indexes = dictionaryIndexes(body.subarray(pos), present, dictionary.length);
+            const indexes = dictionaryIndexes(valuesBody, present, dictionary.length);
             if (!indexes) throw Error();
             values = indexes.map((i) => dictionary![i]!);
           }
