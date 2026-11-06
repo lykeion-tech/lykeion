@@ -13,8 +13,21 @@ export interface NetcdfPreview {
   globalAttributes: Record<string, string>;
   globalAttributeTypes: Record<string, string>;
 }
-const sizes = [0, 1, 1, 2, 4, 4, 8],
-  names = ['', 'BYTE', 'CHAR', 'SHORT', 'INT', 'FLOAT', 'DOUBLE'];
+const sizes = [0, 1, 1, 2, 4, 4, 8, 1, 2, 4, 8, 8],
+  names = [
+    '',
+    'BYTE',
+    'CHAR',
+    'SHORT',
+    'INT',
+    'FLOAT',
+    'DOUBLE',
+    'UBYTE',
+    'USHORT',
+    'UINT',
+    'INT64',
+    'UINT64',
+  ];
 export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined {
   try {
     if (
@@ -23,7 +36,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       bytes[0] !== 67 ||
       bytes[1] !== 68 ||
       bytes[2] !== 70 ||
-      (bytes[3] !== 1 && bytes[3] !== 2)
+      (bytes[3] !== 1 && bytes[3] !== 2 && bytes[3] !== 5)
     )
       throw Error();
     const version = bytes[3],
@@ -36,6 +49,12 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       return p;
     };
     const u32 = () => view.getUint32(take(4), false);
+    const nonneg = () => {
+      if (version !== 5) return u32();
+      const value = view.getBigInt64(take(8), false);
+      if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw Error();
+      return Number(value);
+    };
     const off = () => (version === 1 ? BigInt(u32()) : view.getBigUint64(take(8), false));
     const padding = (n: number) => {
       const pad = (4 - (n % 4)) % 4,
@@ -43,7 +62,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       for (let i = 0; i < pad; i++) if (bytes[at + i] !== 0) throw Error();
     };
     const str = () => {
-      const n = u32();
+      const n = nonneg();
       if (!n || n > 1024) throw Error();
       const at = take(n),
         result = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(at, at + n));
@@ -53,7 +72,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
     };
     const list = (tag: number, read: () => void) => {
       const t = u32(),
-        count = u32();
+        count = nonneg();
       if (t === 0) {
         if (count !== 0) throw Error();
         return;
@@ -62,7 +81,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       for (let i = 0; i < count; i++) read();
     };
     const val = (at: number, type: number) => {
-      let v: number;
+      let v: number | bigint;
       switch (type) {
         case 1:
           v = view.getInt8(at);
@@ -83,6 +102,21 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
         case 6:
           v = view.getFloat64(at, false);
           break;
+        case 7:
+          v = view.getUint8(at);
+          break;
+        case 8:
+          v = view.getUint16(at, false);
+          break;
+        case 9:
+          v = view.getUint32(at, false);
+          break;
+        case 10:
+          v = view.getBigInt64(at, false);
+          break;
+        case 11:
+          v = view.getBigUint64(at, false);
+          break;
         default:
           throw Error();
       }
@@ -94,9 +128,10 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       list(12, () => {
         const name = str(),
           type = u32(),
-          n = u32(),
+          n = nonneg(),
           size = sizes[type];
-        if (!size || n > 1024 || Object.hasOwn(attrs, name)) throw Error();
+        if (!size || (version !== 5 && type > 6) || n > 1024 || Object.hasOwn(attrs, name))
+          throw Error();
         const length = n * size,
           at = take(length);
         padding(length);
@@ -113,12 +148,12 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
       });
       return { attrs, types };
     };
-    const records = u32();
+    const records = nonneg();
     if (records === 0xffffffff) throw Error();
     const dims: { name: string; length: number }[] = [];
     list(10, () => {
       const name = str(),
-        length = u32();
+        length = nonneg();
       if (dims.some((d) => d.name === name) || (!length && dims.some((d) => d.length === 0)))
         throw Error();
       dims.push({ name, length });
@@ -138,20 +173,20 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
     }[] = [];
     list(11, () => {
       const name = str(),
-        rank = u32();
+        rank = nonneg();
       if (rank > 8 || vars.some((v) => v.name === name)) throw Error();
       const ids: number[] = [];
       for (let i = 0; i < rank; i++) {
-        const id = u32();
+        const id = nonneg();
         if (id >= dims.length || (dims[id]!.length === 0 && i !== 0)) throw Error();
         ids.push(id);
       }
       const a = attrs(),
         type = u32(),
-        vsize = u32(),
+        vsize = nonneg(),
         begin = off(),
         size = sizes[type];
-      if (!size || begin % 4n !== 0n) throw Error();
+      if (!size || (version !== 5 && type > 6) || begin % 4n !== 0n) throw Error();
       const record = ids.length > 0 && dims[ids[0]!]!.length === 0;
       let slab = BigInt(size);
       for (const id of ids.slice(record ? 1 : 0)) {
@@ -159,7 +194,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
         if (slab > BigInt(bytes.length)) throw Error();
       }
       const padded = (slab + 3n) & ~3n;
-      if (vsize !== Number(padded) && !(record && type <= 3 && vsize === Number(slab)))
+      if (vsize !== Number(padded) && !(record && size < 4 && vsize === Number(slab)))
         throw Error();
       const shape = ids.map((id) => dims[id]!.length || records);
       vars.push({
@@ -178,7 +213,7 @@ export function parseClassicNetcdf(bytes: Uint8Array): NetcdfPreview | undefined
     const headerEnd = BigInt(pos),
       recordVars = vars.filter((v) => v.record),
       stride =
-        recordVars.length === 1 && recordVars[0]!.type <= 3
+        recordVars.length === 1 && sizes[recordVars[0]!.type]! < 4
           ? recordVars[0]!.slab
           : recordVars.reduce((a, v) => a + BigInt(v.vsize), 0n);
     const fixed = vars

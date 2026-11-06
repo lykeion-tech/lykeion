@@ -61,3 +61,54 @@ it('rejects misaligned variable offsets and missing fixed-variable padding', () 
   expect(parseClassicNetcdf(overlapping)).toBeUndefined();
   expect(parseClassicNetcdf(f.slice(0, -1))).toBeUndefined();
 });
+it('reads genuine CDF-5 64-bit headers, record data and exact unsigned and signed values', () => {
+  const result = parseClassicNetcdf(fixture('netcdf-cdf5.nc'));
+  expect(result?.variables.find((v) => v.name === 'x')?.values).toEqual([
+    '0',
+    '9007199254740993',
+    '18446744073709551615',
+  ]);
+  expect(result?.variables.find((v) => v.name === 'big')?.values).toEqual([
+    '-9223372036854775807',
+    '9223372036854775807',
+  ]);
+  expect(result?.variables.find((v) => v.name === 'flags')?.values).toEqual([
+    '0',
+    '65535',
+    '42',
+    '23',
+    '12',
+    '5',
+  ]);
+  expect(result?.variables.find((v) => v.name === 'big')?.attributes.units).toBe('test');
+});
+it('handles the CDF-5 single unpadded byte record variable', () => {
+  expect(parseClassicNetcdf(fixture('netcdf-cdf5-single.nc'))?.variables[0]?.values).toEqual([
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+  ]);
+});
+it('reads scalar CDF-5 unsigned types and exact signed and unsigned attributes', () => {
+  const p = parseClassicNetcdf(fixture('netcdf-cdf5-scalars.nc'));
+  expect(p?.globalAttributes.unsigned).toBe('18446744073709551615');
+  expect(p?.globalAttributeTypes.unsigned).toBe('UINT64');
+  expect(p?.globalAttributes.signed).toBe('-9223372036854775807');
+  expect(p?.variables.map((v) => v.values)).toEqual([['255'], ['65535'], ['4294967295']]);
+});
+it('rejects CDF-5 overflowing or indeterminate counts, truncated offsets and data', () => {
+  const f = fixture('netcdf-cdf5.nc');
+  const streaming = f.slice();
+  streaming.fill(255, 4, 12);
+  expect(parseClassicNetcdf(streaming)).toBeUndefined();
+  const overflow = f.slice();
+  overflow.set([0, 32, 0, 0, 0, 0, 0, 0], 4);
+  expect(parseClassicNetcdf(overflow)).toBeUndefined();
+  const badCount = f.slice();
+  badCount.fill(255, 16, 24);
+  expect(parseClassicNetcdf(badCount)).toBeUndefined();
+  expect(parseClassicNetcdf(f.slice(0, -1))).toBeUndefined();
+});

@@ -1,0 +1,1 @@
+Synthetic VCF 4.4 phasing test, generated from lykeion-bcf-phased.vcf with pysam 0.24.1 / HTSlib 1.24. To regenerate, open the VCF with pysam.VariantFile, open a BCF writer with mode wb and the source header, and write each record. It contains no patient or personal data.

@@ -56,7 +56,7 @@ watch(
   <section v-else-if="preview" aria-label="BCF preview">
     <p>
       Variant site sample only.<template v-if="preview.samples.length">
-        Sample columns show GT for VCF 4.3 and earlier; — means GT was not provided. Other FORMAT
+        Sample columns show GT for VCF 4.5 and earlier; — means GT was not provided. Other FORMAT
         fields are omitted.</template
       ><template v-if="preview.samplesTruncated"> Only the first 16 samples are shown.</template
       ><template v-if="preview.truncated"> Additional records are not shown.</template>

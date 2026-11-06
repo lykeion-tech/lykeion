@@ -330,14 +330,8 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
               : view.getInt32(key.at, true);
         const value = typed(nSample);
         if (index === genotypeIndex) {
-          // VCF 4.4 introduced meaningful leading phase markers. Fail closed
-          // until those markers can be represented without ambiguity.
-          if (
-            !vcfVersion ||
-            Number(vcfVersion[1]) > 4 ||
-            (Number(vcfVersion[1]) === 4 && Number(vcfVersion[2]) >= 4)
-          )
-            return;
+          if (!vcfVersion || Number(vcfVersion[1]) !== 4 || Number(vcfVersion[2]) > 5) return;
+          const leadingPhase = Number(vcfVersion[2]) >= 4;
           if (genotypes || ![1, 2, 3].includes(value.type) || value.len < 1 || value.len > 64)
             return;
           const size = value.type === 1 ? 1 : value.type === 2 ? 2 : 4;
@@ -346,6 +340,8 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
           for (let sample = 0; sample < sampleNames.length; sample++) {
             const pieces: string[] = [];
             let ended = false;
+            let firstPhased = false;
+            let allLaterPhased = true;
             for (let j = 0; j < value.len; j++) {
               const at = value.at + (sample * value.len + j) * size;
               const n =
@@ -361,10 +357,14 @@ export function parseBcf(bytes: Uint8Array, partial: boolean): BcfPreview | unde
               if (ended || n < 0) return;
               const allele = (n >> 1) - 1;
               if (allele >= alleles) return;
+              if (j === 0) firstPhased = !!(n & 1);
+              else if (!(n & 1)) allLaterPhased = false;
               pieces.push(`${j ? (n & 1 ? '|' : '/') : ''}${allele < 0 ? '.' : allele}`);
             }
             if (!pieces.length) return;
-            genotypes.push(pieces.join(''));
+            const prefix =
+              leadingPhase && firstPhased !== allLaterPhased ? (firstPhased ? '|' : '/') : '';
+            genotypes.push(prefix + pieces.join(''));
           }
         }
       }

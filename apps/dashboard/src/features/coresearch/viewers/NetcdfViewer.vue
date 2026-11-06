@@ -108,7 +108,8 @@ watch(
     </template>
   </section>
   <p v-else>
-    NetCDF preview unavailable. This preview currently supports classic CDF-1 and CDF-2 files only.
+    NetCDF preview unavailable. This preview currently supports classic CDF-1, CDF-2 and CDF-5 files
+    only.
   </p>
 </template>
 <style scoped>

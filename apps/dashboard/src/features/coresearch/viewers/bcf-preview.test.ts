@@ -50,7 +50,7 @@ it('decodes phased, missing and haploid genotypes while rejecting invalid allele
   const marker = new TextEncoder().encode('VCFv4.3');
   const offset = newer.findIndex((_, i) => marker.every((value, j) => newer[i + j] === value));
   newer[offset + marker.length - 1] = 0x34;
-  expect(parseBcf(newer, false)).toBeUndefined();
+  expect(parseBcf(newer, false)?.rows[0]?.slice(8)).toEqual(['/0|1', './0', '/1']);
   const many = Array.from({ length: 17 }, (_, i) => `S${i}`);
   const preview = parseBcf(
     fixture([0], defs, [], 0, many, [0x11, 1, 0x11, ...many.map(() => 2)], 1),
@@ -159,4 +159,27 @@ it('reads the independently produced HTSlib BCF fixture', async () => {
     ['0/1', '0/1'],
     ['0/1', '2'],
   ]);
+});
+
+it('preserves VCF 4.4 leading phasing using a synthetic BCF produced with HTSlib 1.24', async () => {
+  const bytes = readFileSync(
+    'apps/dashboard/src/features/coresearch/viewers/fixtures/lykeion-bcf-phased.bcf',
+  );
+  const decoded = await readBgzf(new Blob([bytes]));
+  const preview = parseBcf(decoded!.bytes, decoded!.partial);
+  expect(preview?.rows.map((row) => row[8])).toEqual(['|0/1', '/0|1', '0|1', './1', '1']);
+  const bytes45 = decoded!.bytes.slice();
+  const marker = new TextEncoder().encode('VCFv4.4');
+  const offset = bytes45.findIndex((_, i) => marker.every((value, j) => bytes45[i + j] === value));
+  expect(offset).toBeGreaterThanOrEqual(0);
+  bytes45[offset + marker.length - 1] = 0x35;
+  expect(parseBcf(bytes45, false)?.rows.map((row) => row[8])).toEqual([
+    '|0/1',
+    '/0|1',
+    '0|1',
+    './1',
+    '1',
+  ]);
+  bytes45[offset + marker.length - 1] = 0x36;
+  expect(parseBcf(bytes45, false)).toBeUndefined();
 });
