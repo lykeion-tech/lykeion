@@ -15,7 +15,7 @@ const same = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
 // A bounded ZIP directory reader. Filenames are labels and are never used as paths.
-export async function listNpz(blob: Blob): Promise<NpzEntry[] | undefined> {
+export async function listZip(blob: Blob, maxEntries: number): Promise<NpzEntry[] | undefined> {
   try {
     if (blob.size < 22 || blob.size > MAX_ARCHIVE) return;
     const tailStart = Math.max(0, blob.size - 65557);
@@ -34,7 +34,7 @@ export async function listNpz(blob: Blob): Promise<NpzEntry[] | undefined> {
       offset = u32(tail, end + 16);
     if (
       !count ||
-      count > MAX_ENTRIES ||
+      count > maxEntries ||
       u16(tail, end + 8) !== count ||
       offset + length !== tailStart + end
     )
@@ -70,7 +70,7 @@ export async function listNpz(blob: Blob): Promise<NpzEntry[] | undefined> {
         return;
       const nameBytes = directory.slice(at + 46, at + 46 + nameLength);
       const name = new TextDecoder('utf-8', { fatal: true }).decode(nameBytes);
-      if (!name.endsWith('.npy') || name.includes('\0') || names.has(name)) return;
+      if (name.includes('\0') || names.has(name)) return;
       names.add(name);
       const localBytes = new Uint8Array(await blob.slice(local, local + 30).arrayBuffer());
       const head = new DataView(localBytes.buffer);
@@ -130,6 +130,11 @@ export async function listNpz(blob: Blob): Promise<NpzEntry[] | undefined> {
   } catch {
     return undefined;
   }
+}
+
+export async function listNpz(blob: Blob): Promise<NpzEntry[] | undefined> {
+  const entries = await listZip(blob, MAX_ENTRIES);
+  return entries?.every((entry) => entry.name.endsWith('.npy')) ? entries : undefined;
 }
 
 function crcUpdate(crc: number, bytes: Uint8Array): number {

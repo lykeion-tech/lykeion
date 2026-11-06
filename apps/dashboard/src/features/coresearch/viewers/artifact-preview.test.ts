@@ -189,3 +189,27 @@ it('opens Matrix Market files in the shared matrix preview', async () => {
   expect(textOf(root)).toContain('3');
   app.unmount();
 });
+
+it('opens FITS images through the shared viewer', async () => {
+  const header = [
+    'SIMPLE  =                    T',
+    'BITPIX  =                    8',
+    'NAXIS   =                    1',
+    'NAXIS1  =                    2',
+    'END',
+  ]
+    .map((s) => s.padEnd(80, ' '))
+    .join('')
+    .padEnd(2880, ' ');
+  const body = new Uint8Array(2880);
+  body.set([4, 7]);
+  const app = createTreeApp({
+    render: () => h(ArtifactViewer, { path: 'sky.fits', blob: new Blob([header, body]) }),
+  });
+  const root = node('root');
+  app.mount(root);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(textOf(root)).toContain('FITS image');
+  expect(textOf(root)).toContain('7');
+  app.unmount();
+});
