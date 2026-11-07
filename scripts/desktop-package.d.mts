@@ -7,6 +7,11 @@ export function desktopTarget(
   builder: string[];
 };
 export function releaseOrigin(value?: string): string;
+export function debianMaintainer(
+  platform: string,
+  args: string[],
+  value?: string,
+): string | undefined;
 export function verifyGoBuild(info: string, commit: string, goos: string, goarch: string): void;
 export function verifyBundledBinary(built: string, bundled: string): void;
 export function safeBuildEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
