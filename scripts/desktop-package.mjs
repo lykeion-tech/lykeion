@@ -3,6 +3,7 @@ import {
   cpSync,
   mkdirSync,
   mkdtempSync,
+  existsSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -68,11 +69,21 @@ export function safeBuildEnvironment(input) {
   return env;
 }
 
-export function replaceOutput(source, output) {
+function recoverOutput(output) {
   const parent = path.dirname(output);
   mkdirSync(parent, { recursive: true });
+  const backup = `${output}.previous`;
+  if (existsSync(backup)) {
+    if (existsSync(output)) rmSync(backup, { recursive: true, force: true });
+    else renameSync(backup, output);
+  }
+}
+
+export function replaceOutput(source, output) {
+  recoverOutput(output);
+  const parent = path.dirname(output);
+  const backup = `${output}.previous`;
   const staging = mkdtempSync(path.join(parent, '.desktop-stage-'));
-  const backup = `${staging}-previous`;
   let movedOld = false;
   try {
     cpSync(source, staging, { recursive: true, verbatimSymlinks: true });
@@ -183,19 +194,47 @@ function revision() {
 }
 
 function main() {
-  const [platform = process.platform, arch = process.arch, ...args] = process.argv.slice(2);
+  const input = process.argv.slice(2);
+  const lockedCommit = input[0] === '--locked-build' ? input[1] : undefined;
+  const [platform = process.platform, arch = process.arch, ...args] = lockedCommit
+    ? input.slice(2)
+    : input;
   if (args.some((arg) => arg !== '--dir')) throw new Error('Unsupported packaging option');
   const target = desktopTarget(platform, arch);
   const hostedOrigin = releaseOrigin(process.env.LYK_HOSTED_API_URL);
   const commit = revision();
+  const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
+  const env = safeBuildEnvironment(process.env);
+  env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+  if (!lockedCommit) {
+    mkdirSync(path.dirname(output), { recursive: true });
+    run(
+      'go',
+      [
+        'run',
+        path.join(root, 'scripts/desktop-package-lock.go'),
+        `${output}.lock`,
+        process.execPath,
+        fileURLToPath(import.meta.url),
+        '--locked-build',
+        commit,
+        platform,
+        arch,
+        ...args,
+      ],
+      { env: { ...env, LYK_HOSTED_API_URL: hostedOrigin } },
+    );
+    return;
+  }
+  if (lockedCommit !== commit)
+    throw new Error('Source changed while waiting for desktop packaging lock');
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version))
     throw new Error('Desktop package requires an explicit version');
   const temp = mkdtempSync(path.join(os.tmpdir(), 'lykeion-desktop-release-'));
   const source = path.join(temp, 'source');
-  const env = safeBuildEnvironment(process.env);
-  env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
   try {
+    recoverOutput(output);
     extractTrackedSnapshot(root, source);
     // Go discovers this VCS marker; Git is directed at the selected revision and isolated source tree.
     mkdirSync(path.join(source, '.git'));
@@ -275,12 +314,16 @@ function main() {
         path.join(resources, 'bin/lyk'),
       );
     }
-    const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
     replaceOutput(path.join(source, 'dist/desktop-release'), output);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
-  main();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  if (process.argv[2] === '--replace-output' && process.argv.length === 5)
+    replaceOutput(process.argv[3], process.argv[4]);
+  else if (process.argv[2] === '--recover-output' && process.argv.length === 4)
+    recoverOutput(process.argv[3]);
+  else main();
+}

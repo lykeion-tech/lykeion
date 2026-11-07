@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import * as asar from '@electron/asar';
 import { desktopUserData } from '../apps/desktop/src/desktop-user-data';
 import {
@@ -190,6 +190,92 @@ describe('desktop release packaging', () => {
       rmSync(temp, { recursive: true, force: true });
     }
   });
+
+  it('recovers an output interrupted between renames before attempting a new copy', () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-recover-test-'));
+    try {
+      const output = path.join(temp, 'target');
+      mkdirSync(`${output}.previous`);
+      writeFileSync(path.join(`${output}.previous`, 'origin.txt'), 'previous');
+      expect(() => replaceOutput(path.join(temp, 'missing'), output)).toThrow();
+      expect(readFileSync(path.join(output, 'origin.txt'), 'utf8')).toBe('previous');
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers an interrupted output on the next locked startup', () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-restart-test-'));
+    try {
+      const output = path.join(temp, 'target');
+      mkdirSync(`${output}.previous`);
+      writeFileSync(path.join(`${output}.previous`, 'origin.txt'), 'previous');
+      const env = {
+        ...safeBuildEnvironment(process.env),
+        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
+      };
+      execFileSync(
+        'go',
+        [
+          'run',
+          path.resolve('scripts/desktop-package-lock.go'),
+          `${output}.lock`,
+          process.execPath,
+          path.resolve('scripts/desktop-package.mjs'),
+          '--recover-output',
+          output,
+        ],
+        { env },
+      );
+      expect(readFileSync(path.join(output, 'origin.txt'), 'utf8')).toBe('previous');
+      expect(existsSync(`${output}.previous`)).toBe(false);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it('serializes competing replacement processes for one target', async () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-lock-test-'));
+    try {
+      const marker = path.join(temp, 'events');
+      const lock = path.join(temp, 'lock');
+      const helper = path.resolve('scripts/desktop-package-lock.go');
+      const env = {
+        ...safeBuildEnvironment(process.env),
+        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
+      };
+      const script =
+        'const fs=require("node:fs");fs.appendFileSync(process.argv[1],process.argv[2]+" start\\n");setTimeout(()=>fs.appendFileSync(process.argv[1],process.argv[2]+" end\\n"),2000)';
+      const start = (id: string) =>
+        spawn('go', ['run', helper, lock, process.execPath, '-e', script, marker, id], {
+          env,
+          stdio: 'pipe',
+        });
+      const done = (child: ReturnType<typeof spawn>) =>
+        new Promise<void>((resolve, reject) => {
+          child.on('error', reject);
+          child.on('exit', (code) =>
+            code === 0 ? resolve() : reject(new Error(`lock helper exited ${code}`)),
+          );
+        });
+      const first = start('first');
+      const firstDone = done(first);
+      for (let n = 0; n < 150 && !existsSync(marker); n++)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(existsSync(marker)).toBe(true);
+      const second = start('second');
+      const secondDone = done(second);
+      await Promise.all([firstDone, secondDone]);
+      expect(readFileSync(marker, 'utf8').trim().split('\n')).toEqual([
+        'first start',
+        'first end',
+        'second start',
+        'second end',
+      ]);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  }, 30000);
 
   it('inspects real asar contents and rejects missing assets or injected files', async () => {
     const temp = mkdtempSync(path.join(tmpdir(), 'desktop-asar-test-'));
