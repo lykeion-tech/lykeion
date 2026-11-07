@@ -192,7 +192,7 @@ describe('the dashboard source layout', () => {
 
   it('dashboard unit tests live with their code', () => {
     const left = readdirSync('tests').filter((f) => f.endsWith('.test.ts')).sort();
-    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-daemon.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-visuals.test.ts']);
+    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-daemon.test.ts', 'desktop-packaging.test.ts', 'desktop-renderer.test.ts', 'desktop-runtime-config.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-visuals.test.ts']);
   });
 
   it('study files carry the study name', () => {
