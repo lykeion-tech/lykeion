@@ -13,6 +13,7 @@ import { useRunMessages, useDecisions, useDecisionCount, useAutoresearchRun } fr
 import { keys } from './keys';
 import type { AgentRun, RunMessage } from './types';
 import { api, ApiError } from './client';
+import { advanceAuthenticationEpoch } from './auth-loss';
 import { workspaceId } from './session';
 
 function respond(status: number, body?: string, statusText = '') {
@@ -42,6 +43,28 @@ afterEach(() => {
 });
 
 describe('api', () => {
+  it('does not deliver a previous account’s successful mutation after identity changes', async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })));
+    const outcome = api('POST', '/api/autoresearch-runs', { name: 'private' });
+    advanceAuthenticationEpoch();
+    release(Response.json({ id: 'old-account-item' }));
+    await expect(outcome).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('does not deliver a previous account’s response body after identity changes', async () => {
+    let release!: (value: Uint8Array) => void;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) {
+      release = (value) => { controller.enqueue(value); controller.close(); };
+    } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(stream)));
+    const outcome = api('GET', '/api/data');
+    await Promise.resolve();
+    advanceAuthenticationEpoch();
+    release(new TextEncoder().encode('{"private":"old-account"}'));
+    await expect(outcome).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('reserves and releases desktop authentication and refuses it during shutdown', async () => {
     const reserveAuth = vi.fn<() => string | null>(() => 'reservation');
     const releaseAuth = vi.fn();

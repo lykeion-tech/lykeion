@@ -67,6 +67,10 @@ export async function api<T = void>(
   options: { workspace?: string; signal?: AbortSignal; response?: 'blob'; maxBytes?: number } = {},
 ): Promise<T> {
   const requestEpoch = authenticationEpoch();
+  const requireCurrentAccount = () => {
+    if (requestEpoch !== authenticationEpoch())
+      throw new DOMException('The account changed while this request was pending.', 'AbortError');
+  };
   const headers: Record<string, string> = {};
   const workspace = options.workspace ?? workspaceId.value;
   if (workspace && path.startsWith('/api/')) headers['X-Workspace-ID'] = workspace;
@@ -110,6 +114,7 @@ export async function api<T = void>(
       credentials: 'same-origin',
       signal: options.signal,
     });
+    if (res.ok) requireCurrentAccount();
     if (res.status === 401) authenticationLost(requestEpoch);
     if (res.status === 204)
       return (
@@ -117,11 +122,15 @@ export async function api<T = void>(
           ? { localOnly: true }
           : undefined
       ) as T;
-    if (res.ok && options.response === 'blob')
-      return (await (options.maxBytes === undefined
+    if (res.ok && options.response === 'blob') {
+      const blob = await (options.maxBytes === undefined
         ? res.blob()
-        : boundedBlob(res, options.maxBytes))) as T;
+        : boundedBlob(res, options.maxBytes));
+      requireCurrentAccount();
+      return blob as T;
+    }
     const text = await res.text();
+    if (res.ok) requireCurrentAccount();
     let data: unknown;
     try {
       data = text ? JSON.parse(text) : undefined;

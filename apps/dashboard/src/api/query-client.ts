@@ -20,7 +20,8 @@ export function createDashboardQueryClient(router: Router) {
     }),
     defaultOptions: {
       queries: {
-        retry: (count, error) => !(error instanceof ApiError) && count < 2,
+        retry: (count, error) =>
+          !(error instanceof ApiError) && error.name !== 'AbortError' && count < 2,
         staleTime: 30_000,
       },
     },
