@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import {
   desktopEntryURL,
   desktopAssetPath,
@@ -8,9 +9,54 @@ import {
   desktopPartition,
   validExternalURL,
   createRequestCancellation,
+  bindDesktopRequestLifetime,
 } from '../apps/desktop/src/renderer-origin';
 
 describe('desktop renderer origin', () => {
+  it('does not let an earlier redirect release the current request registration', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const registry = createRequestCancellation();
+    const oldHop = vi.fn();
+    const newHop = vi.fn();
+    expect(registry.register(id, oldHop)).toBe(true);
+    registry.release(id, oldHop);
+    expect(registry.register(id, newHop)).toBe(true);
+    registry.release(id, oldHop);
+    registry.cancel(id);
+    expect(newHop).toHaveBeenCalledOnce();
+  });
+  it('drains active requests when a document departs without affecting new registrations', () => {
+    const first = '11111111-1111-4111-8111-111111111111';
+    const second = '22222222-2222-4222-8222-222222222222';
+    const registry = createRequestCancellation();
+    const old = vi.fn();
+    const next = vi.fn();
+    registry.register(first, old);
+    registry.cancelAll();
+    expect(old).toHaveBeenCalledOnce();
+    expect(registry.register(second, next)).toBe(true);
+    expect(next).not.toHaveBeenCalled();
+  });
+  it('drains only the current main document on replacement, crash and destruction', () => {
+    const contents = new EventEmitter();
+    const cancellation = { cancelAll: vi.fn() };
+    let current = true;
+    const closed = bindDesktopRequestLifetime(
+      contents as never,
+      cancellation as never,
+      () => current,
+    );
+    contents.emit('did-start-navigation', {}, 'https://lab.example/', true, true);
+    contents.emit('did-start-navigation', {}, 'https://lab.example/', false, false);
+    expect(cancellation.cancelAll).not.toHaveBeenCalled();
+    contents.emit('did-start-navigation', {}, 'https://lab.example/', false, true);
+    contents.emit('render-process-gone');
+    expect(cancellation.cancelAll).toHaveBeenCalledTimes(2);
+    current = false;
+    contents.emit('destroyed');
+    closed();
+    expect(cancellation.cancelAll).toHaveBeenCalledTimes(2);
+  });
   it('cancels only the matching active request and fences early or duplicate IDs', () => {
     const first = '11111111-1111-4111-8111-111111111111';
     const second = '22222222-2222-4222-8222-222222222222';

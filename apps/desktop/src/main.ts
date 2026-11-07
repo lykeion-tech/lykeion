@@ -9,6 +9,7 @@ import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
 import {
   desktopEntryURL,
   desktopPartition,
+  bindDesktopRequestLifetime,
   installDesktopRenderer,
   trustedDesktopFrame,
   validExternalURL,
@@ -37,7 +38,7 @@ const configBase =
 let daemon: DaemonManager | null = null;
 let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
-let cancelDesktopRequest: ((id: unknown) => void) | null = null;
+let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -72,6 +73,10 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  const owner = window;
+  const drain = desktopCancellation
+    ? bindDesktopRequestLifetime(owner.webContents, desktopCancellation, () => window === owner)
+    : () => {};
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event) => {
     event.preventDefault();
@@ -82,7 +87,8 @@ function createWindow() {
   if (developmentUrl) void window.loadURL(developmentUrl);
   else void window.loadURL(desktopEntryURL(selectedOrigin));
   window.on('closed', () => {
-    window = null;
+    drain();
+    if (window === owner) window = null;
   });
 }
 void app.whenReady().then(async () => {
@@ -109,11 +115,11 @@ void app.whenReady().then(async () => {
   selectedOrigin = apiOrigin;
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
-    cancelDesktopRequest = installDesktopRenderer(
+    desktopCancellation = installDesktopRenderer(
       desktopSession,
       apiOrigin,
       path.dirname(bundledPath),
-    ).cancel;
+    );
   }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
@@ -161,8 +167,8 @@ void app.whenReady().then(async () => {
     void shell.openExternal(url);
   });
   ipcMain.on('lykeion:cancel-request', (event, id: unknown) => {
-    if (window && cancelDesktopRequest && trustedDesktopFrame(event, window.webContents, apiOrigin))
-      cancelDesktopRequest(id);
+    if (window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin))
+      desktopCancellation.cancel(id);
   });
   createWindow();
   app.on('activate', () => {

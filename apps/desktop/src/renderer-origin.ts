@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
 import { createHash } from 'node:crypto';
 import { net } from 'electron';
-import type { Session } from 'electron';
+import type { Session, WebContents } from 'electron';
 
 const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
@@ -31,12 +31,34 @@ export function createRequestCancellation() {
       active.set(id, abort);
       return true;
     },
-    release(id: string) {
-      active.delete(id);
+    release(id: string, abort: () => void) {
+      if (active.get(id) === abort) active.delete(id);
+    },
+    cancelAll() {
+      const callbacks = [...active.values()];
+      active.clear();
+      early.clear();
+      for (const callback of callbacks) callback();
     },
   };
 }
 type RequestCancellation = ReturnType<typeof createRequestCancellation>;
+
+export function bindDesktopRequestLifetime(
+  contents: WebContents,
+  cancellation: RequestCancellation,
+  isCurrent: () => boolean,
+): () => void {
+  const drain = () => {
+    if (isCurrent()) cancellation.cancelAll();
+  };
+  contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
+    if (mainFrame && !inPlace) drain();
+  });
+  contents.on('render-process-gone', drain);
+  contents.on('destroyed', drain);
+  return drain;
+}
 
 export function desktopPartition(origin: string): string {
   return `persist:lykeion-${createHash('sha256').update(origin).digest('hex')}`;
@@ -154,7 +176,7 @@ export function forward(
     let stream: Readable | undefined;
     const id = incoming.headers.get(requestHeader);
     const release = () => {
-      if (id) cancellation.release(id);
+      if (id) cancellation.release(id, abort);
     };
     const abort = () => {
       release();
