@@ -19,8 +19,9 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
 if (developmentUrl && !previewOrigins.has(developmentUrl))
   throw new Error('Unsupported development renderer origin');
-app.setName('Lykeion Preview');
-app.setPath('userData', path.join(app.getPath('appData'), 'Lykeion Preview'));
+const appName = app.isPackaged ? 'Lykeion' : 'Lykeion Preview';
+app.setName(appName);
+app.setPath('userData', path.join(app.getPath('appData'), appName));
 let window: BrowserWindow | null = null;
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.quit();
