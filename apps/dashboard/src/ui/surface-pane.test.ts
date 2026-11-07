@@ -392,3 +392,31 @@ it('restores pane focus when a narrow surface replaces its content', async () =>
   expect(focused).toBe(true);
   app.unmount();
 });
+
+it('renders the requested floating pane without changing its full-screen view', async () => {
+  const oldWindow = globalThis.window;
+  Object.assign(globalThis, {
+    window: { innerWidth: 1500, addEventListener() {}, removeEventListener() {} },
+  });
+  const focused = ref(false);
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(SurfacePane, {
+        open: true,
+        active: 'files',
+        focused: focused.value,
+        surfaces: [],
+        floating: true,
+      }),
+  });
+  app.mount(root);
+  await nextTick();
+  const pane = () => all(root).find((n) => n.props['aria-label'] === 'Right pane')!;
+  expect(pane().props.class).toContain('surface-floating');
+  focused.value = true;
+  await nextTick();
+  expect(pane().props.class).toContain('surface-focused');
+  app.unmount();
+  Object.assign(globalThis, { window: oldWindow });
+});

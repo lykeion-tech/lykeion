@@ -530,7 +530,6 @@ function pin() {
             <Icon name="tag" />
           </button>
           <button
-            v-if="!showMeta"
             class="icon-button study-pane-toggle"
             :aria-pressed="showMeta"
             aria-label="Toggle details"
@@ -751,6 +750,7 @@ function pin() {
     </div>
     <SurfacePane
       v-if="c"
+      floating
       v-model:open="showMeta"
       v-model:active="paneSurface"
       v-model:focused="paneFocused"

@@ -143,10 +143,10 @@ async function openTranscriptFile(item: TranscriptFile) {
           <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
             <div class="task-stage-row">
               <button
-                v-if="paneMode === 'closed'"
                 type="button"
                 class="experiment-toggle"
-                aria-label="Open experiment surfaces"
+                :aria-label="paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'"
+                :aria-pressed="paneMode !== 'closed'"
                 @click="toggleSurfaces"
               >
                 <Icon name="panel" :size="16" aria-hidden="true" />
@@ -223,6 +223,7 @@ async function openTranscriptFile(item: TranscriptFile) {
             </div>
           </div>
           <SurfacePane
+            floating
             hide-title
             :open="paneMode !== 'closed'"
             :active="activePane"

@@ -561,10 +561,11 @@ async function stop() {
             ><small>Your research companion</small>
           </div>
           <button
-            v-if="experiment && paneMode === 'closed'"
+            v-if="experiment"
             type="button"
             class="experiment-toggle"
-            aria-label="Open experiment surfaces"
+            :aria-label="paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'"
+            :aria-pressed="paneMode !== 'closed'"
             @click="toggleSurfaces"
           >
             <Icon name="panel" :size="16" aria-hidden="true" />
@@ -783,6 +784,7 @@ async function stop() {
       </div>
       <SurfacePane
         v-if="experiment"
+        floating
         hide-title
         :open="paneMode !== 'closed'"
         :active="activePane"

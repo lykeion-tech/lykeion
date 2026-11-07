@@ -15,6 +15,7 @@ const props = withDefaults(
     defaultWidth?: number;
     restoreWidth?: boolean;
     maximizable?: boolean;
+    floating?: boolean;
   }>(),
   { restoreWidth: true, maximizable: true },
 );
@@ -141,12 +142,18 @@ function slide(element: Element, done: () => void, opening: boolean) {
     return;
   }
   const width = `${el.getBoundingClientRect().width}px`;
-  const frames = narrow.value
-    ? [{ transform: 'translateX(100%)' }, { transform: 'translateX(0)' }]
-    : [
-        { flexGrow: '0', flexShrink: '0', flexBasis: '0px', width: '0px', overflow: 'hidden' },
-        { flexGrow: '0', flexShrink: '0', flexBasis: width, width, overflow: 'hidden' },
-      ];
+  const frames =
+    props.floating && !narrow.value && !props.focused
+      ? [
+          { opacity: 0, transform: 'translateY(-6px)' },
+          { opacity: 1, transform: 'translateY(0)' },
+        ]
+      : narrow.value
+        ? [{ transform: 'translateX(100%)' }, { transform: 'translateX(0)' }]
+        : [
+            { flexGrow: '0', flexShrink: '0', flexBasis: '0px', width: '0px', overflow: 'hidden' },
+            { flexGrow: '0', flexShrink: '0', flexBasis: width, width, overflow: 'hidden' },
+          ];
   const animation = el.animate(opening ? frames : frames.reverse(), {
     duration: 220,
     easing: 'cubic-bezier(.22, 1, .36, 1)',
@@ -188,6 +195,7 @@ function cancelSlide(element: Element) {
         'surface-focused': focused,
         'surface-overlay': narrow,
         'surface-resizing': resize.dragging.value,
+        'surface-floating': floating && !narrow,
       }"
       :style="{ '--surface-width': resize.width.value + 'px' }"
       aria-label="Right pane"
@@ -225,7 +233,12 @@ function cancelSlide(element: Element) {
         >
           <Icon name="expand" />
         </button>
-        <button class="surface-icon" aria-label="Close pane" @click="close">
+        <button
+          v-if="!floating || narrow || focused"
+          class="surface-icon"
+          aria-label="Close pane"
+          @click="close"
+        >
           <Icon name="panel" />
         </button>
       </header>
@@ -265,6 +278,18 @@ function cancelSlide(element: Element) {
 .surface-focused {
   flex: 1;
   width: auto;
+}
+.surface-pane.surface-floating:not(.surface-focused) {
+  position: absolute;
+  z-index: 20;
+  top: 48px;
+  right: 8px;
+  width: min(var(--surface-width), calc(100% - 16px));
+  height: min(560px, calc(100% - 64px));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.2);
+  overflow: hidden;
 }
 .surface-separator {
   position: absolute;
