@@ -9,6 +9,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { once } from 'node:events';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import * as asar from '@electron/asar';
@@ -151,7 +152,7 @@ describe('desktop release packaging', () => {
       const input = {
         PATH: process.env.PATH,
         HOME: temp,
-        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
+        GOCACHE: process.env.GOCACHE || path.join(temp, 'go-cache'),
       };
       execFileSync('go', ['env', '-w', `GOFLAGS=-overlay=${overlay}`], { env: input });
       expect(execFileSync('go', ['run', '.'], { cwd: project, env: input, encoding: 'utf8' })).toBe(
@@ -212,7 +213,7 @@ describe('desktop release packaging', () => {
       writeFileSync(path.join(`${output}.previous`, 'origin.txt'), 'previous');
       const env = {
         ...safeBuildEnvironment(process.env),
-        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
+        GOCACHE: process.env.GOCACHE || path.join(temp, 'go-cache'),
       };
       execFileSync(
         'go',
@@ -234,48 +235,62 @@ describe('desktop release packaging', () => {
     }
   }, 30000);
 
-  it('serializes competing replacement processes for one target', async () => {
-    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-lock-test-'));
-    try {
-      const marker = path.join(temp, 'events');
-      const lock = path.join(temp, 'lock');
-      const helper = path.resolve('scripts/desktop-package-lock.go');
-      const env = {
-        ...safeBuildEnvironment(process.env),
-        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
-      };
-      const script =
-        'const fs=require("node:fs");fs.appendFileSync(process.argv[1],process.argv[2]+" start\\n");setTimeout(()=>fs.appendFileSync(process.argv[1],process.argv[2]+" end\\n"),2000)';
-      const start = (id: string) =>
-        spawn('go', ['run', helper, lock, process.execPath, '-e', script, marker, id], {
-          env,
-          stdio: 'pipe',
-        });
-      const done = (child: ReturnType<typeof spawn>) =>
-        new Promise<void>((resolve, reject) => {
-          child.on('error', reject);
-          child.on('exit', (code) =>
-            code === 0 ? resolve() : reject(new Error(`lock helper exited ${code}`)),
-          );
-        });
-      const first = start('first');
-      const firstDone = done(first);
-      for (let n = 0; n < 150 && !existsSync(marker); n++)
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(existsSync(marker)).toBe(true);
-      const second = start('second');
-      const secondDone = done(second);
-      await Promise.all([firstDone, secondDone]);
-      expect(readFileSync(marker, 'utf8').trim().split('\n')).toEqual([
-        'first start',
-        'first end',
-        'second start',
-        'second end',
-      ]);
-    } finally {
-      rmSync(temp, { recursive: true, force: true });
-    }
-  }, 30000);
+  it.each([false, true])(
+    'serializes competing builds when the first helper is killed: %s',
+    async (killHelper) => {
+      const temp = mkdtempSync(path.join(tmpdir(), 'desktop-lock-test-'));
+      try {
+        const marker = path.join(temp, 'events');
+        const lock = path.join(temp, 'lock');
+        const helper = path.join(temp, 'lock-helper');
+        const env = {
+          ...safeBuildEnvironment(process.env),
+          GOCACHE: process.env.GOCACHE || path.join(temp, 'go-cache'),
+        };
+        execFileSync('go', ['build', '-o', helper, 'scripts/desktop-package-lock.go'], { env });
+        const script = `
+        const fs = require('node:fs');
+        const [marker, id] = process.argv.slice(1);
+        fs.appendFileSync(marker, id + ' start\\n');
+        const finish = () => fs.appendFileSync(marker, id + ' end\\n');
+        if (id === 'first') {
+          const poll = setInterval(() => {
+            if (fs.existsSync(marker + '.release')) { clearInterval(poll); finish(); }
+          }, 10);
+          setTimeout(() => process.exit(1), 10000).unref();
+        } else finish();
+      `;
+        const start = (id: string) =>
+          spawn(helper, [lock, process.execPath, '-e', script, marker, id]);
+        const first = start('first');
+        const firstExit = once(first, 'exit');
+        try {
+          await expect.poll(() => existsSync(marker)).toBe(true);
+          if (killHelper) {
+            first.kill('SIGKILL');
+            expect(await firstExit).toEqual([null, 'SIGKILL']);
+          }
+          const second = start('second');
+          const secondExit = once(second, 'exit');
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          writeFileSync(marker + '.release', '');
+          expect(await secondExit).toEqual([0, null]);
+          if (!killHelper) expect(await firstExit).toEqual([0, null]);
+          expect(readFileSync(marker, 'utf8').trim().split('\n')).toEqual([
+            'first start',
+            'first end',
+            'second start',
+            'second end',
+          ]);
+        } finally {
+          writeFileSync(marker + '.release', '');
+        }
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    },
+    30000,
+  );
 
   it('inspects real asar contents and rejects missing assets or injected files', async () => {
     const temp = mkdtempSync(path.join(tmpdir(), 'desktop-asar-test-'));

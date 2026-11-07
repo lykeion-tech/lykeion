@@ -24,8 +24,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	// The build keeps the flock if this helper dies; the last close releases it.
+	cmd.ExtraFiles = []*os.File{f}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
