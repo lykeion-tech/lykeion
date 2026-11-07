@@ -29,3 +29,30 @@ export async function recoverLogoutIntent(
   await clearAbandonedLogout(session, origin);
   intent.clear();
 }
+
+export async function waitForLogoutRecovery(
+  pending: Promise<void>,
+  timeoutMs = 15000,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      pending,
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Logout recovery did not finish')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function finalizeLogoutShutdown(
+  startupRecovery: Promise<void>,
+  session: Session | null,
+  intent: LogoutIntent | null,
+): Promise<void> {
+  await startupRecovery;
+  await session?.cookies.flushStore();
+  intent?.clear();
+}

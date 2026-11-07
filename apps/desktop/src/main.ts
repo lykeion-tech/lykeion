@@ -16,7 +16,12 @@ import {
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
-import { clearAbandonedLogout, recoverLogoutIntent } from './desktop-auth-logout.js';
+import {
+  clearAbandonedLogout,
+  finalizeLogoutShutdown,
+  recoverLogoutIntent,
+  waitForLogoutRecovery,
+} from './desktop-auth-logout.js';
 import { LogoutIntent } from './desktop-logout-intent.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -43,10 +48,20 @@ let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 let logoutIntent: LogoutIntent | null = null;
+let startupRecovery: Promise<void> = Promise.resolve();
 const authGate = new DesktopAuthGate(() => {
   if (!logoutIntent) throw new Error('Logout recovery unavailable');
   logoutIntent.mark();
 });
+async function finishLogoutRecovery(): Promise<void> {
+  authGate.beginLogoutRecovery();
+  await authGate.recoverAbandonedLogout(async () => {
+    if (!desktopSession || !selectedOrigin || !logoutIntent)
+      throw new Error('Logout recovery unavailable');
+    await clearAbandonedLogout(desktopSession, selectedOrigin);
+    logoutIntent.clear();
+  });
+}
 function abandonDocumentAuthentication() {
   authGate.abandonUnclaimed();
   if (authGate.acknowledgeInterruptedVerification())
@@ -56,7 +71,10 @@ function abandonDocumentAuthentication() {
     );
   if (desktopSession && selectedOrigin) {
     void authGate
-      .recoverAbandonedLogout(() => clearAbandonedLogout(desktopSession!, selectedOrigin))
+      .recoverAbandonedLogout(async () => {
+        await clearAbandonedLogout(desktopSession!, selectedOrigin);
+        logoutIntent?.clear();
+      })
       .catch(() => {
         console.error('Interrupted logout could not be recovered');
       });
@@ -78,6 +96,7 @@ app.on('before-quit', (event) => {
       async () => {
         if (!desktopSession || !selectedOrigin) throw new Error('Logout recovery unavailable');
         await clearAbandonedLogout(desktopSession, selectedOrigin);
+        logoutIntent?.clear();
       },
     )
     .then(async (results) => {
@@ -95,8 +114,7 @@ app.on('before-quit', (event) => {
       if (results[1]?.status === 'rejected')
         console.error('Desktop daemon could not be stopped before quit');
       try {
-        await desktopSession?.cookies.flushStore();
-        logoutIntent?.clear();
+        await finalizeLogoutShutdown(startupRecovery, desktopSession, logoutIntent);
       } catch {
         quitPending = false;
         dialog.showErrorBox(
@@ -177,7 +195,10 @@ void app.whenReady().then(async () => {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
     logoutIntent = new LogoutIntent(app.getPath('userData'), apiOrigin);
     try {
-      await recoverLogoutIntent(logoutIntent, desktopSession, apiOrigin);
+      startupRecovery = waitForLogoutRecovery(
+        recoverLogoutIntent(logoutIntent, desktopSession, apiOrigin),
+      );
+      await startupRecovery;
     } catch {
       dialog.showErrorBox(
         'Lykeion could not start',
@@ -196,6 +217,8 @@ void app.whenReady().then(async () => {
         networkBlocked: () => authGate.networkBlocked(),
         networkEpoch: () => authGate.networkEpoch(),
         finish: (id) => authGate.finishMutation(id),
+        completeLogout: finishLogoutRecovery,
+        waitForLogoutTurn: (id) => authGate.waitForLogoutTurn(id),
       },
     );
   }
@@ -274,7 +297,7 @@ void app.whenReady().then(async () => {
       typeof token === 'string' &&
       trustedDesktopFrame(event, window.webContents, apiOrigin)
     )
-      authGate.release(token);
+      if (authGate.release(token)) void finishLogoutRecovery().catch(() => {});
   });
   createWindow();
   app.on('activate', () => {

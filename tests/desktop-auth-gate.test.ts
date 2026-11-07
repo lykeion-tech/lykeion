@@ -10,6 +10,34 @@ it('persists logout before issuing its reservation and rejects storage failure',
   expect(gate.reserve('/auth/verify-code')).toBeTruthy();
 });
 
+it('holds later verification until logout has drained older writes and recovered', async () => {
+  const gate = new DesktopAuthGate();
+  const older = gate.reserve('/auth/verify-code')!;
+  expect(gate.continueMutation(-1, older, '/auth/verify-code')).toBe(true);
+  const logout = gate.reserve('/auth/logout')!;
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+  expect(gate.continueMutation(-2, logout, '/auth/logout')).toBe(true);
+  let logoutReady = false;
+  const turn = gate.waitForLogoutTurn(-2).then(() => {
+    logoutReady = true;
+  });
+  await Promise.resolve();
+  expect(logoutReady).toBe(false);
+  gate.finishMutation(-1);
+  await turn;
+  expect(logoutReady).toBe(true);
+  gate.finishMutation(-2);
+  gate.beginLogoutRecovery();
+  let cleaned = false;
+  const recovery = gate.recoverAbandonedLogout(async () => {
+    cleaned = true;
+  });
+  await Promise.resolve();
+  await recovery;
+  expect(cleaned).toBe(true);
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
 it('transfers only an admitted, path-bound request across shutdown', async () => {
   const gate = new DesktopAuthGate();
   const token = gate.reserve('/auth/logout')!;
@@ -40,13 +68,21 @@ it('bounds stalled shutdown and retries without admitting new requests', async (
   expect((await gate.shutdown(async () => {}, 20))[0]?.status).toBe('rejected');
   expect(gate.reserve('/auth/logout')).toBeNull();
   gate.release(token);
-  expect((await gate.shutdown(async () => {}, 20))[0]?.status).toBe('fulfilled');
+  expect(
+    (
+      await gate.shutdown(
+        async () => {},
+        20,
+        async () => {},
+      )
+    )[0]?.status,
+  ).toBe('fulfilled');
 });
 
 it('invalidates abandoned logout and clears only after claimed writes finish', async () => {
   const gate = new DesktopAuthGate();
-  const stale = gate.reserve('/auth/logout')!;
   const active = gate.reserve('/auth/verify-code')!;
+  const stale = gate.reserve('/auth/logout')!;
   expect(gate.continueMutation(-1, active, '/auth/verify-code')).toBe(true);
   gate.abandonUnclaimed();
   expect(gate.continueMutation(-2, stale, '/auth/logout')).toBe(false);

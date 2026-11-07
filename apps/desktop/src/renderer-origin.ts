@@ -129,6 +129,8 @@ export function installDesktopRenderer(
     networkReady(): Promise<void>;
     networkBlocked(): boolean;
     networkEpoch(hasSessionCookie?: boolean): number;
+    waitForLogoutTurn?(id: number): Promise<void>;
+    completeLogout?(): Promise<void>;
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
@@ -212,7 +214,44 @@ export function installDesktopRenderer(
       const token = request.headers.get(authHeader);
       if (!token || !auth.continue(id, token, path))
         return new Response('Authentication request not admitted', { status: 503 });
-      return forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
+      if (path !== '/auth/logout' || !auth.completeLogout)
+        return forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
+      let response: Response;
+      let body: ArrayBuffer | null = null;
+      try {
+        await auth.waitForLogoutTurn?.(id);
+        response = await forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
+        if (response.body) {
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let size = 0;
+          for (;;) {
+            const item = await reader.read();
+            if (item.done) break;
+            size += item.value.length;
+            if (size > 65536) {
+              await reader.cancel();
+              throw new Error('Logout response is too large');
+            }
+            chunks.push(item.value);
+          }
+          const bytes = new Uint8Array(size);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.length;
+          }
+          body = bytes.buffer;
+        }
+      } finally {
+        auth.finish(id);
+        await auth.completeLogout();
+      }
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     }
     return forward(session, request, cancellation);
   });

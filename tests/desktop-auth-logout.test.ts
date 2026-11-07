@@ -7,7 +7,12 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { LogoutIntent } from '../apps/desktop/src/desktop-logout-intent';
 import type { Session } from 'electron';
-import { clearAbandonedLogout, recoverLogoutIntent } from '../apps/desktop/src/desktop-auth-logout';
+import {
+  clearAbandonedLogout,
+  finalizeLogoutShutdown,
+  recoverLogoutIntent,
+  waitForLogoutRecovery,
+} from '../apps/desktop/src/desktop-auth-logout';
 
 it('refuses ambiguous same-name cookies without removing them', async () => {
   const remove = vi.fn();
@@ -142,6 +147,44 @@ it('keeps the intent until its selected cookie is cleared, verified and flushed'
     await recoverLogoutIntent(intent, session, 'https://lab.example');
     expect(intent.exists()).toBe(false);
     expect(flush).toHaveBeenCalledTimes(2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('does not flush or remove an intent while startup recovery is still running', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-quit-'));
+  try {
+    const intent = new LogoutIntent(directory, 'https://lab.example');
+    intent.mark();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const flushStore = vi.fn(async () => {});
+    const session = { cookies: { flushStore } } as unknown as Session;
+    const shutdown = finalizeLogoutShutdown(pending, session, intent);
+    await Promise.resolve();
+    expect(intent.exists()).toBe(true);
+    expect(flushStore).not.toHaveBeenCalled();
+    finish();
+    await shutdown;
+    expect(intent.exists()).toBe(false);
+    expect(flushStore).toHaveBeenCalledOnce();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('times out startup recovery without clearing its marker', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-timeout-'));
+  try {
+    const intent = new LogoutIntent(directory, 'https://lab.example');
+    intent.mark();
+    await expect(waitForLogoutRecovery(new Promise<void>(() => {}), 10)).rejects.toThrow(
+      'did not finish',
+    );
+    expect(intent.exists()).toBe(true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

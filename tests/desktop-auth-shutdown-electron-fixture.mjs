@@ -16,7 +16,12 @@ app
     let entered = false,
       release,
       meCookie = 'not-called',
-      staleReceived = false;
+      staleReceived = false,
+      logoutStatus = 204,
+      logoutDeletes = true,
+      holdVerification = false,
+      verificationEntered,
+      releaseVerification;
     const server = createServer(async (req, res) => {
       if (req.url === '/api/me') {
         meCookie = req.headers.cookie || '';
@@ -30,7 +35,16 @@ app
         res.end('unexpected');
         return;
       }
-      if (req.url !== '/auth/logout') {
+      if (req.url === '/auth/verify-code' && holdVerification) {
+        verificationEntered = true;
+        await new Promise((resolve) => {
+          releaseVerification = resolve;
+        });
+        res.writeHead(204, { 'Set-Cookie': 'lyk_session=late; Path=/; HttpOnly; SameSite=Lax' });
+        res.end();
+        return;
+      }
+      if (!['/auth/logout', '/auth/verify-code'].includes(req.url)) {
         res.writeHead(404);
         res.end();
         return;
@@ -41,9 +55,12 @@ app
       await new Promise((resolve) => {
         release = resolve;
       });
-      res.writeHead(204, {
-        'Set-Cookie': 'lyk_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax',
-      });
+      res.writeHead(
+        logoutStatus,
+        logoutDeletes
+          ? { 'Set-Cookie': 'lyk_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax' }
+          : {},
+      );
       res.end();
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -259,11 +276,11 @@ app
         webPreferences: { session: interleavedSession, sandbox: true },
       });
       await interleavedWindow.loadURL(desktopEntryURL(origin));
-      const admitted = interleavedGate.reserve('/auth/logout');
+      const admitted = interleavedGate.reserve('/auth/verify-code');
       interleavedGate.reserve('/auth/logout');
       entered = false;
       await interleavedWindow.webContents.executeJavaScript(
-        `void fetch('/auth/logout',{method:'POST',headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(admitted)}}}).catch(()=>{}); true`,
+        `void fetch('/auth/verify-code',{method:'POST',headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(admitted)}}}).catch(()=>{}); true`,
       );
       for (let i = 0; i < 100 && !entered; i++)
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -369,6 +386,88 @@ app
       assert.equal(domainCookies[0].hostOnly, false);
       await assert.rejects(clearAbandonedLogout(variants, 'http://lykeion.test'));
       await variants.clearStorageData();
+      const verifiedSession = session.fromPartition('verified-logout');
+      const verifiedGate = new DesktopAuthGate();
+      installDesktopRenderer(verifiedSession, origin, profile, {
+        finish: (id) => verifiedGate.finishMutation(id),
+        continue: (id, token, path) => verifiedGate.continueMutation(id, token, path),
+        networkReady: () => verifiedGate.networkReady(),
+        networkBlocked: () => verifiedGate.networkBlocked(),
+        networkEpoch: () => verifiedGate.networkEpoch(),
+        waitForLogoutTurn: (id) => verifiedGate.waitForLogoutTurn(id),
+        completeLogout: async () => {
+          verifiedGate.beginLogoutRecovery();
+          await verifiedGate.recoverAbandonedLogout(() =>
+            clearAbandonedLogout(verifiedSession, origin),
+          );
+        },
+      });
+      const verifiedWindow = new BrowserWindow({
+        show: false,
+        webPreferences: { session: verifiedSession, sandbox: true },
+      });
+      await verifiedWindow.loadURL(desktopEntryURL(origin));
+      const runVerifiedLogout = async (status, cookiePath) => {
+        await verifiedSession.clearStorageData();
+        await verifiedSession.cookies.set({
+          url: `${origin}${cookiePath}`,
+          name: 'lyk_session',
+          value: 'old',
+          path: cookiePath,
+        });
+        entered = false;
+        logoutStatus = status;
+        logoutDeletes = false;
+        const token = verifiedGate.reserve('/auth/logout');
+        await verifiedWindow.webContents.executeJavaScript(
+          `window.logoutResult = fetch('/auth/logout', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(token)}}}).then(r=>r.status).catch(()=>-1); true`,
+        );
+        for (let i = 0; i < 100 && !entered; i++)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(entered, true);
+        release();
+        return verifiedWindow.webContents.executeJavaScript('window.logoutResult');
+      };
+      assert.equal(await runVerifiedLogout(204, '/'), 204);
+      assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      assert.equal(await runVerifiedLogout(500, '/'), 500);
+      assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      holdVerification = true;
+      verificationEntered = false;
+      entered = false;
+      const verification = verifiedGate.reserve('/auth/verify-code');
+      await verifiedWindow.webContents.executeJavaScript(
+        `window.verifyResult = fetch('/auth/verify-code', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(verification)}}}).then(r=>r.status); true`,
+      );
+      for (let i = 0; i < 100 && !verificationEntered; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(verificationEntered, true);
+      const concurrentLogout = verifiedGate.reserve('/auth/logout');
+      await verifiedWindow.webContents.executeJavaScript(
+        `window.concurrentLogout = fetch('/auth/logout', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(concurrentLogout)}}}).then(r=>r.status); true`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(entered, false);
+      releaseVerification();
+      assert.equal(await verifiedWindow.webContents.executeJavaScript('window.verifyResult'), 204);
+      for (let i = 0; i < 100 && !entered; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(entered, true);
+      release();
+      assert.equal(
+        await verifiedWindow.webContents.executeJavaScript('window.concurrentLogout'),
+        500,
+      );
+      assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      const nextSignIn = verifiedGate.reserve('/auth/verify-code');
+      assert.ok(nextSignIn);
+      verifiedGate.release(nextSignIn);
+      holdVerification = false;
+      assert.equal(await runVerifiedLogout(204, '/api'), -1);
+      assert.equal(verifiedGate.networkBlocked(), true);
+      assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 1);
+      verifiedWindow.destroy();
+      await verifiedSession.clearStorageData();
       console.log('desktop authentication shutdown fixture passed');
     } finally {
       window.destroy();
