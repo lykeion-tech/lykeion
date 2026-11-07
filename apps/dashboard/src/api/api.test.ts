@@ -42,6 +42,19 @@ afterEach(() => {
 });
 
 describe('api', () => {
+  it('reserves and releases desktop authentication and refuses it during shutdown', async () => {
+    const reserveAuth = vi.fn<() => string | null>(() => 'reservation');
+    const releaseAuth = vi.fn();
+    vi.stubGlobal('window', { lykeionDesktop: { reserveAuth, releaseAuth } });
+    const fetch = respond(204);
+    await api('POST', '/auth/logout');
+    expect(reserveAuth).toHaveBeenCalledExactlyOnceWith('/auth/logout');
+    expect(headers(fetch)['X-Lykeion-Desktop-Auth-Reservation']).toBe('reservation');
+    expect(releaseAuth).toHaveBeenCalledExactlyOnceWith('reservation');
+    reserveAuth.mockReturnValue(null);
+    await expect(api('POST', '/auth/logout')).rejects.toThrow('shutting down');
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it('cancels only its own packaged desktop request when the signal aborts', async () => {
     const cancelRequest = vi.fn();
     vi.stubGlobal('window', { lykeionDesktop: { cancelRequest, requestDocument: '11111111-1111-4111-8111-111111111111' } });

@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld(
       ? {
           requestDocument: documentID,
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
+          reserveAuth: (path: string) =>
+            ipcRenderer.sendSync('lykeion:reserve-auth', path) as string | null,
+          releaseAuth: (token: string) => ipcRenderer.send('lykeion:release-auth', token),
         }
       : {}),
     daemon,

@@ -2,10 +2,9 @@
 import { expect, it } from 'vitest';
 import { DesktopAuthGate } from '../apps/desktop/src/desktop-auth-gate';
 
-it('drains admitted authentication requests despite daemon failure and rejects new requests', async () => {
+it('transfers only an admitted, path-bound request across shutdown', async () => {
   const gate = new DesktopAuthGate();
-  await gate.mutation(1);
-  await gate.mutation(-1);
+  const token = gate.reserve('/auth/logout')!;
   let finished = false;
   const shutdown = gate
     .shutdown(async () => {
@@ -15,12 +14,23 @@ it('drains admitted authentication requests despite daemon failure and rejects n
       finished = true;
       return result;
     });
-  await expect(gate.mutation(2)).rejects.toThrow();
-  gate.finishMutation(1);
+  expect(gate.reserve('/auth/logout')).toBeNull();
+  expect(gate.continueMutation(-1, token, '/auth/verify-code')).toBe(false);
+  expect(gate.continueMutation(-1, token, '/auth/logout')).toBe(true);
+  expect(gate.continueMutation(-2, token, '/auth/logout')).toBe(false);
   await Promise.resolve();
   expect(finished).toBe(false);
   gate.finishMutation(-1);
   const result = await shutdown;
   expect(result[0]?.status).toBe('fulfilled');
   expect(result[1]?.status).toBe('rejected');
+});
+
+it('bounds stalled shutdown and retries without admitting new requests', async () => {
+  const gate = new DesktopAuthGate();
+  const token = gate.reserve('/auth/logout')!;
+  expect((await gate.shutdown(async () => {}, 20))[0]?.status).toBe('rejected');
+  expect(gate.reserve('/auth/logout')).toBeNull();
+  gate.release(token);
+  expect((await gate.shutdown(async () => {}, 20))[0]?.status).toBe('fulfilled');
 });

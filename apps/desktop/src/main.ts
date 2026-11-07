@@ -53,6 +53,14 @@ app.on('before-quit', (event) => {
       await daemon?.beforeQuit();
     })
     .then(async (results) => {
+      if (results[0]?.status === 'rejected') {
+        quitPending = false;
+        dialog.showErrorBox(
+          'Lykeion could not close',
+          'An authentication request did not finish. Sign-in or sign-out may not have completed. Try closing Lykeion again after the request finishes.',
+        );
+        return;
+      }
       if (results[1]?.status === 'rejected')
         console.error('Desktop daemon could not be stopped before quit');
       try {
@@ -133,9 +141,7 @@ void app.whenReady().then(async () => {
       apiOrigin,
       path.dirname(bundledPath),
       {
-        start: (id) => {
-          return authGate.mutation(id);
-        },
+        continue: (id, token, path) => authGate.continueMutation(id, token, path),
         finish: (id) => authGate.finishMutation(id),
       },
     );
@@ -194,6 +200,22 @@ void app.whenReady().then(async () => {
       window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin)
         ? desktopCancellation.beginDocument()
         : null;
+  });
+  ipcMain.on('lykeion:reserve-auth', (event, path: unknown) => {
+    event.returnValue =
+      window &&
+      typeof path === 'string' &&
+      trustedDesktopFrame(event, window.webContents, apiOrigin)
+        ? authGate.reserve(path)
+        : null;
+  });
+  ipcMain.on('lykeion:release-auth', (event, token: unknown) => {
+    if (
+      window &&
+      typeof token === 'string' &&
+      trustedDesktopFrame(event, window.webContents, apiOrigin)
+    )
+      authGate.release(token);
   });
   createWindow();
   app.on('activate', () => {

@@ -85,6 +85,14 @@ export async function api<T = void>(
   const requestID =
     cancel && documentID && options.signal ? `${documentID}.${crypto.randomUUID()}` : undefined;
   if (requestID) headers['X-Lykeion-Desktop-Request'] = requestID;
+  const desktop = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+  const needsAuthReservation =
+    method === 'POST' &&
+    ['/auth/verify-code', '/auth/logout'].includes(path) &&
+    desktop?.reserveAuth;
+  const authReservation = needsAuthReservation ? desktop.reserveAuth!(path) : undefined;
+  if (needsAuthReservation && !authReservation) throw new Error('Application is shutting down');
+  if (authReservation) headers['X-Lykeion-Desktop-Auth-Reservation'] = authReservation;
   const abort = () => {
     if (requestID) cancel?.(requestID);
   };
@@ -121,5 +129,6 @@ export async function api<T = void>(
     return data as T;
   } finally {
     options.signal?.removeEventListener('abort', abort);
+    if (authReservation) desktop?.releaseAuth?.(authReservation);
   }
 }

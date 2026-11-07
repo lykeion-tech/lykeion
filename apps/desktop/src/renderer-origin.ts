@@ -8,6 +8,7 @@ import type { Session, WebContents } from 'electron';
 const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
 const requestHeader = 'x-lykeion-desktop-request';
+const authHeader = 'x-lykeion-desktop-auth-reservation';
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const requestID = new RegExp(`^(${uuid})\\.${uuid}$`);
 
@@ -122,8 +123,8 @@ export function installDesktopRenderer(
   origin: string,
   root: string,
   auth?: {
-    start(id: number): Promise<void>;
     finish(id: number): void;
+    continue(id: number, token: string, path: string): boolean;
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
@@ -139,27 +140,9 @@ export function installDesktopRenderer(
       const denied =
         target.origin !== selected.origin ||
         (executableRequests.has(request.resourceType) && !asset);
-      if (
-        !denied &&
-        auth &&
-        request.resourceType === 'xhr' &&
-        request.method === 'POST' &&
-        ['/auth/verify-code', '/auth/logout'].includes(target.pathname)
-      ) {
-        void auth.start(request.id).then(
-          () => done({ cancel: false }),
-          () => {
-            auth.finish(request.id);
-            done({ cancel: true });
-          },
-        );
-      } else done({ cancel: denied });
+      done({ cancel: denied });
     },
   );
-  if (auth) {
-    session.webRequest.onCompleted((request) => auth.finish(request.id));
-    session.webRequest.onErrorOccurred((request) => auth.finish(request.id));
-  }
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))
@@ -169,12 +152,9 @@ export function installDesktopRenderer(
     const path = new URL(request.url).pathname;
     if (auth && request.method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path)) {
       const id = nativeAuthID--;
-      try {
-        await auth.start(id);
-      } catch {
-        auth.finish(id);
-        return new Response('Authentication recovery required', { status: 503 });
-      }
+      const token = request.headers.get(authHeader);
+      if (!token || !auth.continue(id, token, path))
+        return new Response('Authentication request not admitted', { status: 503 });
       return forward(session, request, cancellation, () => auth.finish(id));
     }
     return forward(session, request, cancellation);
@@ -210,6 +190,7 @@ export function forward(
           'connection',
           'transfer-encoding',
           requestHeader,
+          authHeader,
         ].includes(key.toLowerCase())
       )
         request.setHeader(key, value);

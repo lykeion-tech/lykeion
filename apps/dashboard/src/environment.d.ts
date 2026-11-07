@@ -6,6 +6,8 @@ interface Window {
     openDocumentation(): Promise<void>;
     cancelRequest?(id: string): void;
     requestDocument?: string;
+    reserveAuth?(path: string): string | null;
+    releaseAuth?(token: string): void;
     daemon?: import('../../desktop/src/daemon-types.js').DesktopDaemonBridge;
   };
 }
