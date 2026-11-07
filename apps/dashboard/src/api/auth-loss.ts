@@ -1,5 +1,8 @@
 let epoch = 0;
 let dataGeneration = 0;
+export function invalidateAuthenticationData() {
+  dataGeneration++;
+}
 let recovery: 'normal' | 'lost' | 'restoring' = 'normal';
 export const authenticationIsLost = () => recovery === 'lost';
 export const authenticationIsRestoring = () => recovery === 'restoring';
@@ -10,14 +13,14 @@ export const authenticationEpoch = () => epoch;
 export const authenticationDataGeneration = () => dataGeneration;
 export function advanceAuthenticationEpoch() {
   epoch++;
-  dataGeneration++;
+  invalidateAuthenticationData();
 }
 
 const listeners = new Set<() => void>();
 
 export function authenticationLost(requestEpoch = epoch) {
   if (requestEpoch !== epoch) return;
-  if (recovery !== 'lost') dataGeneration++;
+  if (recovery !== 'lost') invalidateAuthenticationData();
   recovery = 'lost';
   for (const listener of listeners) listener();
 }
@@ -31,7 +34,7 @@ const restoredListeners = new Set<() => void>();
 
 export function authenticationRestored() {
   epoch++;
-  dataGeneration++;
+  invalidateAuthenticationData();
   // Only successful SignIn verification calls this in the application.
   recovery = 'restoring';
   for (const listener of restoredListeners) listener();
@@ -40,4 +43,13 @@ export function authenticationRestored() {
 export function onAuthenticationRestored(listener: () => void) {
   restoredListeners.add(listener);
   return () => restoredListeners.delete(listener);
+}
+
+const credentialListeners = new Set<() => void>();
+export function onCredentialsCommitted(listener: () => void) {
+  credentialListeners.add(listener);
+  return () => credentialListeners.delete(listener);
+}
+export function credentialsCommitted() {
+  for (const listener of credentialListeners) listener();
 }

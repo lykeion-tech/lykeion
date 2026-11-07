@@ -13,7 +13,7 @@ import { useRunMessages, useDecisions, useDecisionCount, useAutoresearchRun } fr
 import { keys } from './keys';
 import type { AgentRun, RunMessage } from './types';
 import { api, ApiError } from './client';
-import { advanceAuthenticationEpoch } from './auth-loss';
+import { advanceAuthenticationEpoch, authenticationRestored, finishAuthenticationRecovery } from './auth-loss';
 import { workspaceId } from './session';
 
 function respond(status: number, body?: string, statusText = '') {
@@ -102,6 +102,37 @@ describe('api', () => {
     await expect(old).rejects.toMatchObject({ name: 'AbortError' });
     releaseBody();
     await expect(signIn).resolves.toEqual({});
+  });
+
+  it.each(['/auth/logout', '/auth/verify-code'])(
+    'fences private work started during %s when its response headers arrive',
+    async (path) => {
+      let finishAuth!: (response: Response) => void;
+      let finishPrivate!: (response: Response) => void;
+      vi.stubGlobal('fetch', vi.fn((url: string) => new Promise<Response>((resolve) => {
+        if (url === path) finishAuth = resolve;
+        else finishPrivate = resolve;
+      })));
+      const auth = api('POST', path, {});
+      const privateWork = api('POST', '/api/autoresearch', {});
+      finishAuth(new Response(null, { status: 204 }));
+      await auth;
+      finishPrivate(Response.json({ id: 'old' }));
+      await expect(privateWork).rejects.toMatchObject({ name: 'AbortError' });
+    },
+  );
+
+  it('accepts successful verification after a concurrent private read reports 401', async () => {
+    authenticationRestored();
+    finishAuthenticationRecovery();
+    let finishAuth!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((url: string) => url === '/auth/verify-code'
+      ? new Promise<Response>((resolve) => { finishAuth = resolve; })
+      : Promise.resolve(new Response(null, { status: 401 }))));
+    const auth = api('POST', '/auth/verify-code', {});
+    await expect(api('GET', '/api/me')).rejects.toMatchObject({ status: 401 });
+    finishAuth(new Response(null, { status: 204 }));
+    await expect(auth).resolves.toBeUndefined();
   });
 
   it('reserves and releases desktop authentication and refuses it during shutdown', async () => {

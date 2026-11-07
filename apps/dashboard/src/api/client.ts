@@ -4,6 +4,8 @@ import {
   authenticationDataGeneration,
   authenticationEpoch,
   authenticationLost,
+  credentialsCommitted,
+  invalidateAuthenticationData,
 } from './auth-loss';
 
 // Let the browser stream to its download manager without buffering the file in JS.
@@ -71,12 +73,17 @@ export async function api<T = void>(
   raw?: { data: Blob; type: string },
   options: { workspace?: string; signal?: AbortSignal; response?: 'blob'; maxBytes?: number } = {},
 ): Promise<T> {
-  if (method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path))
-    advanceAuthenticationEpoch();
+  const credentialChange =
+    method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path);
+  if (credentialChange) advanceAuthenticationEpoch();
   const requestEpoch = authenticationEpoch();
   const requestGeneration = authenticationDataGeneration();
   const requireCurrentAccount = () => {
-    if (requestGeneration !== authenticationDataGeneration())
+    if (
+      credentialChange
+        ? requestEpoch !== authenticationEpoch()
+        : requestGeneration !== authenticationDataGeneration()
+    )
       throw new DOMException('The account changed while this request was pending.', 'AbortError');
   };
   const headers: Record<string, string> = {};
@@ -105,8 +112,12 @@ export async function api<T = void>(
     desktop?.reserveAuth;
   const authReservation = needsAuthReservation ? desktop.reserveAuth!(path) : undefined;
   if (needsAuthReservation && !authReservation) {
-    if (path === '/auth/logout' && (await desktop?.retryLogout?.()))
+    if (path === '/auth/logout' && (await desktop?.retryLogout?.())) {
+      requireCurrentAccount();
+      invalidateAuthenticationData();
+      credentialsCommitted();
       return { localOnly: true } as T;
+    }
     throw new Error('Application is shutting down or authentication is busy');
   }
   if (authReservation) headers['X-Lykeion-Desktop-Auth-Reservation'] = authReservation;
@@ -123,7 +134,11 @@ export async function api<T = void>(
       signal: options.signal,
     });
     if (res.ok) requireCurrentAccount();
-    if (res.status === 401) authenticationLost(requestEpoch);
+    if (res.ok && credentialChange) {
+      invalidateAuthenticationData();
+      credentialsCommitted();
+    }
+    if (res.status === 401 && path !== '/auth/verify-code') authenticationLost(requestEpoch);
     if (res.status === 204)
       return (
         path === '/auth/logout' && res.headers.get('X-Lykeion-Local-Logout') === '1'

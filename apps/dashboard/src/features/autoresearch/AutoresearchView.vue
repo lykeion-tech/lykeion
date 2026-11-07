@@ -1,7 +1,18 @@
 <script lang="ts">
 import { ref } from 'vue';
+import {
+  onAuthenticationLost,
+  onAuthenticationRestored,
+  onCredentialsCommitted,
+} from '../../api/auth-loss';
 // A webhook's URL is shown only once, right after it is created; the server keeps only its hash.
 const freshWebhooks = ref<Record<string, string>>({});
+const clearFreshWebhooks = () => {
+  freshWebhooks.value = {};
+};
+onAuthenticationLost(clearFreshWebhooks);
+onAuthenticationRestored(clearFreshWebhooks);
+onCredentialsCommitted(clearFreshWebhooks);
 </script>
 <script setup lang="ts">
 import SelectPicker from '../../ui/SelectPicker.vue';
