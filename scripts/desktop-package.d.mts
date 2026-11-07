@@ -8,3 +8,11 @@ export function desktopTarget(
 };
 export function releaseOrigin(value?: string): string;
 export function verifyGoBuild(info: string, commit: string, goos: string, goarch: string): void;
+export function verifyBundledBinary(built: string, bundled: string): void;
+export function safeBuildEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+export function extractTrackedSnapshot(repo: string, destination: string): void;
+export function verifyArchive(
+  archive: string,
+  expected: { version: string; commit: string; platform: string; arch: string },
+  hostedOrigin: string,
+): void;
