@@ -54,6 +54,7 @@ func TestDesktopStopRequestsAuthenticatedSelfShutdown(t *testing.T) {
 		return hex.EncodeToString(mac.Sum(nil))
 	}
 	var shutdown atomic.Int32
+	serverNonce := strings.Repeat("b", 64)
 	live := map[string]any{"status": "running", "pid": child.Process.Pid, "started": started, "nonce": "health", "daemon_id": "daemon-a", "profile": "desktop-test", "server_url": "https://lab.example"}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -69,10 +70,10 @@ func TestDesktopStopRequestsAuthenticatedSelfShutdown(t *testing.T) {
 				w.WriteHeader(403)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"proof": proof("server", challenge)})
+			_ = json.NewEncoder(w).Encode(map[string]string{"server_nonce": serverNonce, "proof": proof("server", challenge+serverNonce)})
 		case "/shutdown":
 			challenge := r.Header.Get("X-Lykeion-Challenge")
-			if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+proof("client", challenge) {
+			if r.Method != "POST" || r.Header.Get("X-Lykeion-Server-Nonce") != serverNonce || r.Header.Get("Authorization") != "Bearer "+proof("client", challenge+serverNonce) {
 				t.Error("shutdown lacked private control key")
 				w.WriteHeader(403)
 				return

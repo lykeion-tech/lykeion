@@ -273,7 +273,7 @@ func TestDesktopShutdownRejectsChallengeReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	challenge := strings.Repeat("a", 64)
-	issue := func() int {
+	issue := func() string {
 		req, _ := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/shutdown-challenge?nonce=%s", record.Port, challenge), nil)
 		req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "request", challenge, record.Nonce))
 		res, err := http.DefaultClient.Do(req)
@@ -281,12 +281,22 @@ func TestDesktopShutdownRejectsChallengeReplay(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer res.Body.Close()
-		return res.StatusCode
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("challenge refused: %d", res.StatusCode)
+		}
+		var answer struct {
+			ServerNonce string `json:"server_nonce"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&answer); err != nil {
+			t.Fatal(err)
+		}
+		return answer.ServerNonce
 	}
-	stop := func() int {
+	stop := func(serverNonce string) int {
 		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
 		req.Header.Set("X-Lykeion-Challenge", challenge)
-		req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge, record.Nonce))
+		req.Header.Set("X-Lykeion-Server-Nonce", serverNonce)
+		req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge+serverNonce, record.Nonce))
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -294,20 +304,67 @@ func TestDesktopShutdownRejectsChallengeReplay(t *testing.T) {
 		defer res.Body.Close()
 		return res.StatusCode
 	}
-	if issue() != http.StatusOK {
-		t.Fatal("challenge refused")
-	}
-	if stop() != http.StatusNoContent {
+	first := issue()
+	if stop(first) != http.StatusNoContent {
 		t.Fatal("valid stop refused")
 	}
-	if stop() != http.StatusForbidden {
+	if stop(first) != http.StatusForbidden {
 		t.Fatal("replayed stop accepted")
 	}
-	if issue() != http.StatusForbidden {
-		t.Fatal("consumed challenge reissued")
+	second := issue()
+	if first == second {
+		t.Fatal("server nonce reused")
+	}
+	if stop(first) != http.StatusForbidden {
+		t.Fatal("old proof accepted after reissue")
+	}
+	req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
+	req.Header.Set("X-Lykeion-Challenge", challenge)
+	req.Header.Set("X-Lykeion-Server-Nonce", second)
+	req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge+first, record.Nonce))
+	replayed, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed.Body.Close()
+	if replayed.StatusCode != http.StatusForbidden {
+		t.Fatal("old client proof accepted with a fresh server nonce")
 	}
 	if calls.Load() != 1 {
 		t.Fatal("incorrect shutdown count")
+	}
+}
+
+func TestShutdownChallengeCapacityRecoversWithoutReplay(t *testing.T) {
+	store := newShutdownChallenges(2, 10*time.Second)
+	now := time.Now()
+	first, err := store.issue("client-a", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.issue("client-b", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.issue("client-c", now); err == nil {
+		t.Fatal("challenge limit not enforced")
+	}
+	later := now.Add(11 * time.Second)
+	third, err := store.issue("client-a", later)
+	if err != nil {
+		t.Fatalf("expired challenge capacity not recovered: %v", err)
+	}
+	if third == first || third == second {
+		t.Fatal("server reused an expired challenge")
+	}
+	if store.consume(first, "client-a", later) {
+		t.Fatal("expired challenge replay accepted")
+	}
+	if !store.consume(third, "client-a", later) {
+		t.Fatal("fresh challenge refused")
+	}
+	if store.consume(third, "client-a", later) {
+		t.Fatal("consumed challenge replay accepted")
 	}
 }
 
