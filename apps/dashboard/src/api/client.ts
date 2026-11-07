@@ -1,6 +1,5 @@
 import { workspaceId } from './session';
 import { authenticationEpoch, authenticationLost } from './auth-loss';
-import { announceAuthenticationChanged } from './auth-sync';
 
 // Let the browser stream to its download manager without buffering the file in JS.
 export function downloadFile(path: string, workspace: string) {
@@ -112,8 +111,6 @@ export async function api<T = void>(
       signal: options.signal,
     });
     if (res.status === 401) authenticationLost(requestEpoch);
-    if (res.ok && method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path))
-      announceAuthenticationChanged();
     if (res.status === 204)
       return (
         path === '/auth/logout' && res.headers.get('X-Lykeion-Local-Logout') === '1'

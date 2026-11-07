@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
 import { authenticationRestored, finishAuthenticationRecovery } from '../../api/auth-loss';
-import { markGoogleAuthenticationPending } from '../../api/auth-sync';
 import { workspaceId } from '../../api/session';
 import { readText, writeText } from '../../storage';
 import { notice } from '../../state/notice';
@@ -84,7 +83,6 @@ async function verify() {
 }
 
 function google() {
-  markGoogleAuthenticationPending();
   window.location.href = '/auth/google';
 }
 </script>

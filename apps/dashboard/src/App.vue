@@ -13,10 +13,6 @@ import CommandPalette from './ui/CommandPalette.vue';
 import CreateStudy from './features/studies/CreateStudy.vue';
 import { api, ApiError } from './api/client';
 import {
-  announceReturnedGoogleAuthentication,
-  onExternalAuthenticationChanged,
-} from './api/auth-sync';
-import {
   advanceAuthenticationEpoch,
   authenticationEpoch,
   authenticationIsLost,
@@ -66,7 +62,6 @@ const switchingAccount = ref(workspaceTabs.hasPendingSwitch());
 const authLost = ref(authenticationIsLost());
 const accountSwitchBusy = ref(false);
 const accountSwitchError = ref('');
-const externalRecheck = ref(false);
 let lastAccount: string | undefined;
 let accountGeneration = 0;
 let accountSwitchTarget = '/studies';
@@ -276,7 +271,6 @@ const stopAuthLoss = onAuthenticationLost(() => {
   accountSwitchBusy.value = false;
   accountSwitchError.value = '';
   authLost.value = true;
-  externalRecheck.value = false;
   clearAccountShell();
 });
 const stopAuthRestore = onAuthenticationRestored(() => {
@@ -286,53 +280,11 @@ const stopAuthRestore = onAuthenticationRestored(() => {
   accountSwitchBusy.value = false;
   accountSwitchError.value = '';
   authLost.value = false;
-  externalRecheck.value = false;
   clearAccountShell();
 });
 onUnmounted(() => {
   stopAuthLoss();
   stopAuthRestore();
-  stopExternalAuth();
-});
-async function recheckExternalAccount() {
-  if (accountSwitchBusy.value) return;
-  const generation = accountGeneration;
-  accountSwitchBusy.value = true;
-  accountSwitchError.value = '';
-  try {
-    await client.cancelQueries();
-    if (generation !== accountGeneration) return;
-    await client.resetQueries();
-    if (generation !== accountGeneration) return;
-    const id = (await me.refetch({ throwOnError: true })).data?.id;
-    if (generation !== accountGeneration) return;
-    if (!id) throw new Error('Identity unavailable');
-    await router.replace('/studies');
-    if (generation !== accountGeneration) return;
-    if (route.path !== '/studies') throw new Error('Navigation was blocked');
-    workspaceTabs.setAccount(id);
-    lastAccount = id;
-    externalRecheck.value = false;
-    switchingAccount.value = false;
-  } catch {
-    if (generation === accountGeneration)
-      accountSwitchError.value = 'Could not verify your account. Try again.';
-  } finally {
-    if (generation === accountGeneration) accountSwitchBusy.value = false;
-  }
-}
-const stopExternalAuth = onExternalAuthenticationChanged(() => {
-  advanceAuthenticationEpoch();
-  accountGeneration++;
-  accountSwitchBusy.value = false;
-  lastAccount = undefined;
-  externalRecheck.value = true;
-  switchingAccount.value = true;
-  workspaceTabs.clearAccount();
-  clearAccountShell();
-  notice.value = '';
-  workspaceId.value = '';
-  void recheckExternalAccount();
 });
 async function retryAccountSwitch() {
   const id = lastAccount;
@@ -369,8 +321,7 @@ async function retryAccountSwitch() {
   }
 }
 async function retryAccountIdentity() {
-  if (externalRecheck.value) await recheckExternalAccount();
-  else if (switchingAccount.value && lastAccount) await retryAccountSwitch();
+  if (switchingAccount.value && lastAccount) await retryAccountSwitch();
   else await me.refetch();
 }
 watch(
@@ -614,7 +565,6 @@ watch(
 );
 watch(heading, (x) => (document.title = `${x} | Lykeion`), { immediate: true });
 onMounted(() => {
-  announceReturnedGoogleAuthentication();
   window.addEventListener('keydown', key);
   window.addEventListener('pointerdown', outsidePopup);
 });
