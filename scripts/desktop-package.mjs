@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -219,10 +227,16 @@ function main() {
         ['node_modules/electron-builder/cli.js', ...target.builder, '--publish', 'never'],
         { cwd: source, env },
       );
-    mkdirSync(path.join(root, 'dist/desktop-release'), { recursive: true });
-    cpSync(path.join(source, 'dist/desktop-release'), path.join(root, 'dist/desktop-release'), {
-      recursive: true,
-    });
+    const output = path.join(root, 'dist/desktop-release');
+    mkdirSync(output, { recursive: true });
+    for (const name of readdirSync(path.join(source, 'dist/desktop-release'))) {
+      const destination = path.join(output, name);
+      rmSync(destination, { recursive: true, force: true });
+      cpSync(path.join(source, 'dist/desktop-release', name), destination, {
+        recursive: true,
+        verbatimSymlinks: true,
+      });
+    }
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
