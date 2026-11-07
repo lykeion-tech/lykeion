@@ -44,6 +44,7 @@ it('waits for the new account before accepting a fresh invitation after legacy m
     release = resolve;
   });
   let identityRequests = 0;
+  const acceptedFrom: string[] = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/api/me') {
       identityRequests++;
@@ -52,7 +53,10 @@ it('waits for the new account before accepting a fresh invitation after legacy m
         : Response.json({ id: 'b', onboarded_at: 'yes' });
     }
     if (url === '/api/workspaces') return Response.json([{ id: 'workspace-b', name: 'B' }]);
-    if (url.includes('/invitations/')) return new Promise<Response>(() => {});
+    if (url.includes('/invitations/')) {
+      acceptedFrom.push(router.currentRoute.value.fullPath);
+      return new Promise<Response>(() => {});
+    }
     if (init?.method === 'POST') return new Response(null, { status: 204 });
     return Response.json([]);
   });
@@ -69,7 +73,7 @@ it('waits for the new account before accepting a fresh invitation after legacy m
       { path: '/signin', component: { render: () => null }, meta: { bare: true, public: true } },
     ],
   });
-  await router.push('/invite/recipient-token');
+  await router.push('/invite/recipient-token?file=private-a.tex#private-a');
   await router.isReady();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const app = createTreeApp({ render: () => h(App) });
@@ -85,6 +89,7 @@ it('waits for the new account before accepting a fresh invitation after legacy m
   expect(fetch.mock.calls.find(([url]) => url.includes('/invitations/'))?.[0]).toContain(
     'recipient-token',
   );
+  expect(acceptedFrom).toEqual(['/invite/recipient-token']);
   app.unmount();
   client.clear();
 });

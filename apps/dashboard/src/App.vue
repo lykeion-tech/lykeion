@@ -346,7 +346,7 @@ watch(
     switchingAccount.value = true;
     accountSwitchBusy.value = false;
     accountSwitchTarget =
-      route.path.startsWith('/invite/') && route.params.token ? route.fullPath : '/studies';
+      route.path.startsWith('/invite/') && route.params.token ? route.path : '/studies';
     workspaceId.value = '';
     void retryAccountSwitch();
   },
