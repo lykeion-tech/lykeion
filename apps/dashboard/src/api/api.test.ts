@@ -102,6 +102,18 @@ describe('api', () => {
     await expect(api('DELETE', '/api/cards/c1')).resolves.toBeUndefined();
   });
 
+  it('reports a verified local-only logout and retries interrupted recovery', async () => {
+    const reserveAuth = vi.fn<() => string | null>(() => 'reservation');
+    const releaseAuth = vi.fn();
+    const retryLogout = vi.fn(async () => true);
+    vi.stubGlobal('window', { lykeionDesktop: { reserveAuth, releaseAuth, retryLogout } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204, headers: { 'X-Lykeion-Local-Logout': '1' } })));
+    await expect(api('POST', '/auth/logout')).resolves.toEqual({ localOnly: true });
+    reserveAuth.mockReturnValue(null);
+    await expect(api('POST', '/auth/logout')).resolves.toEqual({ localOnly: true });
+    expect(retryLogout).toHaveBeenCalledOnce();
+  });
+
   it('turns a JSON error into an ApiError carrying the body', async () => {
     respond(409, '{"error":"an active card already asks this: #4","card_id":"c4","number":4}');
     const err = await api('POST', '/api/cards', { question: 'q' }).catch((e: unknown) => e);

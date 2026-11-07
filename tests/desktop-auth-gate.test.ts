@@ -144,6 +144,21 @@ it('retains failed logout recovery for a later retry', async () => {
   expect(cleared).toBe(true);
 });
 
+it('allows cleanup retry after a transient logout failure without admitting verification', async () => {
+  const gate = new DesktopAuthGate();
+  const token = gate.reserve('/auth/logout')!;
+  expect(gate.release(token)).toBe(true);
+  await expect(
+    gate.recoverAbandonedLogout(async () => {
+      throw new Error('temporary');
+    }),
+  ).rejects.toThrow('temporary');
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+  await gate.recoverAbandonedLogout(async () => {});
+  expect(gate.networkBlocked()).toBe(false);
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
 it('holds reopened-window network until abandoned logout is cleared', async () => {
   const gate = new DesktopAuthGate();
   gate.reserve('/auth/logout');

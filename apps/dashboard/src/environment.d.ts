@@ -8,6 +8,7 @@ interface Window {
     requestDocument?: string;
     reserveAuth?(path: string): string | null;
     releaseAuth?(token: string): void;
+    retryLogout?(): Promise<boolean>;
     daemon?: import('../../desktop/src/daemon-types.js').DesktopDaemonBridge;
   };
 }

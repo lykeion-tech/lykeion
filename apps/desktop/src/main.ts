@@ -114,7 +114,7 @@ app.on('before-quit', (event) => {
       if (results[1]?.status === 'rejected')
         console.error('Desktop daemon could not be stopped before quit');
       try {
-        await finalizeLogoutShutdown(startupRecovery, desktopSession, logoutIntent);
+        await finalizeLogoutShutdown(startupRecovery, desktopSession);
       } catch {
         quitPending = false;
         dialog.showErrorBox(
@@ -298,6 +298,17 @@ void app.whenReady().then(async () => {
       trustedDesktopFrame(event, window.webContents, apiOrigin)
     )
       if (authGate.release(token)) void finishLogoutRecovery().catch(() => {});
+  });
+  ipcMain.handle('lykeion:retry-logout', async (event) => {
+    if (
+      !window ||
+      !desktopCancellation ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin)
+    )
+      throw new Error('Invalid sender');
+    if (!authGate.networkBlocked()) return false;
+    await finishLogoutRecovery();
+    return true;
   });
   createWindow();
   app.on('activate', () => {

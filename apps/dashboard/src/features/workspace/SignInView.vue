@@ -6,6 +6,7 @@ import { api, ApiError } from '../../api/client';
 import { authenticationRestored, finishAuthenticationRecovery } from '../../api/auth-loss';
 import { workspaceId } from '../../api/session';
 import { readText, writeText } from '../../storage';
+import { notice } from '../../state/notice';
 
 const router = useRouter();
 const client = useQueryClient();
@@ -89,6 +90,7 @@ function google() {
     <form v-if="step === 'email'" class="signin-card" @submit.prevent="send">
       <span class="brand"><b>Λ</b> Lykeion</span>
       <h1>Sign in</h1>
+      <p v-if="notice" role="status">{{ notice }}</p>
       <p class="sub">Use your work email; we'll send a 6-digit code.</p>
       <input
         v-model="email"

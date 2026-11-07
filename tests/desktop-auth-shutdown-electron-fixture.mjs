@@ -19,6 +19,8 @@ app
       staleReceived = false,
       logoutStatus = 204,
       logoutDeletes = true,
+      stallLogout = false,
+      stalledClosed,
       holdVerification = false,
       verificationEntered,
       releaseVerification;
@@ -52,6 +54,14 @@ app
       entered = true;
       assert.equal(req.headers['x-lykeion-desktop-auth-reservation'], undefined);
       assert.equal(req.headers['x-lykeion-desktop-native-auth'], undefined);
+      if (stallLogout) {
+        res.on('close', () => {
+          stalledClosed = true;
+        });
+        res.writeHead(500);
+        res.write(Buffer.alloc(65536));
+        return;
+      }
       await new Promise((resolve) => {
         release = resolve;
       });
@@ -401,6 +411,7 @@ app
             clearAbandonedLogout(verifiedSession, origin),
           );
         },
+        logoutTimeoutMs: 500,
       });
       const verifiedWindow = new BrowserWindow({
         show: false,
@@ -420,7 +431,7 @@ app
         logoutDeletes = false;
         const token = verifiedGate.reserve('/auth/logout');
         await verifiedWindow.webContents.executeJavaScript(
-          `window.logoutResult = fetch('/auth/logout', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(token)}}}).then(r=>r.status).catch(()=>-1); true`,
+          `window.logoutResult = fetch('/auth/logout', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(token)}}}).then(r=>({status:r.status,local:r.headers.get('X-Lykeion-Local-Logout')})).catch(()=>null); true`,
         );
         for (let i = 0; i < 100 && !entered; i++)
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -428,9 +439,9 @@ app
         release();
         return verifiedWindow.webContents.executeJavaScript('window.logoutResult');
       };
-      assert.equal(await runVerifiedLogout(204, '/'), 204);
+      assert.deepEqual(await runVerifiedLogout(204, '/'), { status: 204, local: null });
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
-      assert.equal(await runVerifiedLogout(500, '/'), 500);
+      assert.deepEqual(await runVerifiedLogout(500, '/'), { status: 204, local: '1' });
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
       holdVerification = true;
       verificationEntered = false;
@@ -456,14 +467,28 @@ app
       release();
       assert.equal(
         await verifiedWindow.webContents.executeJavaScript('window.concurrentLogout'),
-        500,
+        204,
       );
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
       const nextSignIn = verifiedGate.reserve('/auth/verify-code');
       assert.ok(nextSignIn);
       verifiedGate.release(nextSignIn);
       holdVerification = false;
-      assert.equal(await runVerifiedLogout(204, '/api'), -1);
+      await verifiedSession.cookies.set({ url: origin, name: 'lyk_session', value: 'old' });
+      entered = false;
+      stalledClosed = false;
+      stallLogout = true;
+      const stalledToken = verifiedGate.reserve('/auth/logout');
+      const stalledResult = verifiedWindow.webContents.executeJavaScript(
+        `fetch('/auth/logout',{method:'POST',headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(stalledToken)}}}).then(r=>({status:r.status,local:r.headers.get('X-Lykeion-Local-Logout')}))`,
+      );
+      assert.deepEqual(await stalledResult, { status: 204, local: '1' });
+      for (let i = 0; i < 100 && !stalledClosed; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(stalledClosed, true);
+      assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      stallLogout = false;
+      assert.equal(await runVerifiedLogout(204, '/api'), null);
       assert.equal(verifiedGate.networkBlocked(), true);
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 1);
       verifiedWindow.destroy();

@@ -91,7 +91,11 @@ export async function api<T = void>(
     ['/auth/verify-code', '/auth/logout'].includes(path) &&
     desktop?.reserveAuth;
   const authReservation = needsAuthReservation ? desktop.reserveAuth!(path) : undefined;
-  if (needsAuthReservation && !authReservation) throw new Error('Application is shutting down');
+  if (needsAuthReservation && !authReservation) {
+    if (path === '/auth/logout' && (await desktop?.retryLogout?.()))
+      return { localOnly: true } as T;
+    throw new Error('Application is shutting down or authentication is busy');
+  }
   if (authReservation) headers['X-Lykeion-Desktop-Auth-Reservation'] = authReservation;
   const abort = () => {
     if (requestID) cancel?.(requestID);
@@ -106,7 +110,12 @@ export async function api<T = void>(
       signal: options.signal,
     });
     if (res.status === 401) authenticationLost(requestEpoch);
-    if (res.status === 204) return undefined as T;
+    if (res.status === 204)
+      return (
+        path === '/auth/logout' && res.headers.get('X-Lykeion-Local-Logout') === '1'
+          ? { localOnly: true }
+          : undefined
+      ) as T;
     if (res.ok && options.response === 'blob')
       return (await (options.maxBytes === undefined
         ? res.blob()

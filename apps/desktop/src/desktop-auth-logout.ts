@@ -50,9 +50,7 @@ export async function waitForLogoutRecovery(
 export async function finalizeLogoutShutdown(
   startupRecovery: Promise<void>,
   session: Session | null,
-  intent: LogoutIntent | null,
 ): Promise<void> {
   await startupRecovery;
   await session?.cookies.flushStore();
-  intent?.clear();
 }

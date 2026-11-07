@@ -292,7 +292,9 @@ async function logOut() {
         return false;
       }
       try {
-        await api('POST', '/auth/logout');
+        const result = await api<{ localOnly?: boolean } | undefined>('POST', '/auth/logout');
+        if (result?.localOnly)
+          notify('Signed out on this computer. The server did not confirm sign-out.');
       } catch {
         notify('Could not reach the server to log out. Try again.');
         return false;

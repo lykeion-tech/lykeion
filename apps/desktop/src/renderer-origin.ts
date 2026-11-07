@@ -131,6 +131,7 @@ export function installDesktopRenderer(
     networkEpoch(hasSessionCookie?: boolean): number;
     waitForLogoutTurn?(id: number): Promise<void>;
     completeLogout?(): Promise<void>;
+    logoutTimeoutMs?: number;
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
@@ -216,14 +217,22 @@ export function installDesktopRenderer(
         return new Response('Authentication request not admitted', { status: 503 });
       if (path !== '/auth/logout' || !auth.completeLogout)
         return forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
-      let response: Response;
-      let body: ArrayBuffer | null = null;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), auth.logoutTimeoutMs ?? 15000);
+      let localOnly = false;
       try {
         await auth.waitForLogoutTurn?.(id);
-        response = await forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
+        const response = await forward(
+          session,
+          request,
+          cancellation,
+          undefined,
+          nativeAuth,
+          controller.signal,
+        );
+        if (!response.ok) localOnly = true;
         if (response.body) {
           const reader = response.body.getReader();
-          const chunks: Uint8Array[] = [];
           let size = 0;
           for (;;) {
             const item = await reader.read();
@@ -233,24 +242,19 @@ export function installDesktopRenderer(
               await reader.cancel();
               throw new Error('Logout response is too large');
             }
-            chunks.push(item.value);
           }
-          const bytes = new Uint8Array(size);
-          let offset = 0;
-          for (const chunk of chunks) {
-            bytes.set(chunk, offset);
-            offset += chunk.length;
-          }
-          body = bytes.buffer;
         }
+      } catch {
+        localOnly = true;
       } finally {
+        clearTimeout(timer);
+        const recovery = auth.completeLogout();
         auth.finish(id);
-        await auth.completeLogout();
+        await recovery;
       }
-      return new Response(body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
+      return new Response(null, {
+        status: 204,
+        headers: localOnly ? { 'X-Lykeion-Local-Logout': '1' } : {},
       });
     }
     return forward(session, request, cancellation);
@@ -264,9 +268,10 @@ export function forward(
   cancellation: RequestCancellation,
   finishAuth?: () => void,
   nativeAuth?: Map<string, string>,
+  signal: AbortSignal = incoming.signal,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
-    if (incoming.signal.aborted) {
+    if (signal.aborted) {
       finishAuth?.();
       return reject(new DOMException('Request aborted', 'AbortError'));
     }
@@ -353,7 +358,7 @@ export function forward(
       stream?.destroy();
       reject(error);
     });
-    incoming.signal.addEventListener('abort', abort, { once: true });
+    signal.addEventListener('abort', abort, { once: true });
     if (incoming.body) {
       stream = Readable.fromWeb(incoming.body as import('node:stream/web').ReadableStream);
       stream.on('data', (chunk: Uint8Array) => {

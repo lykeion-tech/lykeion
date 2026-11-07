@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld(
           reserveAuth: (path: string) =>
             ipcRenderer.sendSync('lykeion:reserve-auth', path) as string | null,
           releaseAuth: (token: string) => ipcRenderer.send('lykeion:release-auth', token),
+          retryLogout: () => ipcRenderer.invoke('lykeion:retry-logout') as Promise<boolean>,
         }
       : {}),
     daemon,

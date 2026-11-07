@@ -163,13 +163,13 @@ it('does not flush or remove an intent while startup recovery is still running',
     });
     const flushStore = vi.fn(async () => {});
     const session = { cookies: { flushStore } } as unknown as Session;
-    const shutdown = finalizeLogoutShutdown(pending, session, intent);
+    const shutdown = finalizeLogoutShutdown(pending, session);
     await Promise.resolve();
     expect(intent.exists()).toBe(true);
     expect(flushStore).not.toHaveBeenCalled();
     finish();
     await shutdown;
-    expect(intent.exists()).toBe(false);
+    expect(intent.exists()).toBe(true);
     expect(flushStore).toHaveBeenCalledOnce();
   } finally {
     rmSync(directory, { recursive: true, force: true });

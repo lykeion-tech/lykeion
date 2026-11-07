@@ -7,6 +7,7 @@ import { createDaemonSession, daemonSessionKey } from '../../lib/daemon-session'
 import MachinesView from './MachinesView.vue';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
+import { notice } from '../../state/notice';
 import DaemonSettings from './DaemonSettings.vue';
 import type { DaemonSnapshot, DesktopDaemonBridge } from '../../../../desktop/src/daemon-types';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
@@ -634,4 +635,43 @@ describe('Daemon settings mounted section', () => {
       }
     },
   );
+  it('leaves the workspace after verified local-only logout', async () => {
+    vi.stubGlobal('window', {
+      lykeionDesktop: { reserveAuth: () => 'reservation', releaseAuth: () => {} },
+    });
+    vi.stubGlobal('document', { baseURI: 'http://127.0.0.1/' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/auth/logout'
+          ? new Response(null, { status: 204, headers: { 'X-Lykeion-Local-Logout': '1' } })
+          : new Response('[]'),
+      ),
+    );
+    workspaceId.value = 'workspace-a';
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(keys.workspaces, []);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:p(.*)*', component: { render: () => null } }],
+    });
+    await router.push('/onboarding');
+    const root = node('root');
+    const app = createTreeApp({ render: () => h(OnboardingView) });
+    app.use(router);
+    app.use(VueQueryPlugin, { queryClient: client });
+    app.mount(root);
+    cleanups.push(() => {
+      app.unmount();
+      client.clear();
+      notice.value = '';
+    });
+    const logout = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Log out')!;
+    await (logout.props.onClick as () => Promise<void>)();
+    expect(workspaceId.value).toBe('');
+    expect(router.currentRoute.value.path).toBe('/signin');
+    expect(notice.value).toContain('server did not confirm sign-out');
+  });
 });
