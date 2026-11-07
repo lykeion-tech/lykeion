@@ -14,8 +14,8 @@ export class LogoutIntent {
   readonly directory: string;
   readonly path: string;
 
-  constructor(userData: string, origin: string) {
-    this.directory = path.join(userData, 'logout-intents');
+  constructor(userData: string, origin: string, kind: 'logout' | 'verification' = 'logout') {
+    this.directory = path.join(userData, kind + '-intents');
     this.path = path.join(this.directory, createHash('sha256').update(origin).digest('hex'));
   }
 

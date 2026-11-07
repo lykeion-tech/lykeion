@@ -142,6 +142,37 @@ describe('api', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['headers', 'body'])('aborts hung OTP %s before revalidation and releases its reservation', async (part) => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(controller.signal);
+    const cancelRequest = vi.fn();
+    const releaseAuth = vi.fn();
+    vi.stubGlobal('window', { lykeionDesktop: { cancelRequest, releaseAuth, reserveAuth: () => 'ticket', requestDocument: '11111111-1111-4111-8111-111111111111' } });
+    let running = true;
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+      let bodyError: ((e: Error) => void) | undefined;
+      init.signal!.addEventListener('abort', () => {
+        running = false;
+        const reason = new DOMException('deadline', 'TimeoutError');
+        bodyError?.(reason);
+        reject(reason);
+      });
+      if (part === 'body') resolve(new Response(new ReadableStream({ start(body) { bodyError = error => body.error(error); } })));
+    })));
+    try {
+      const old = api('POST', '/auth/verify-code', {});
+      await Promise.resolve();
+      await expect(api('POST', '/auth/logout')).rejects.toThrow('busy');
+      controller.abort();
+      await expect(old).rejects.toMatchObject({name: 'TimeoutError'});
+      expect(timeout).toHaveBeenCalledWith(15_000);
+      expect(running).toBe(false);
+      expect(cancelRequest).toHaveBeenCalledOnce();
+      expect(releaseAuth).toHaveBeenCalledExactlyOnceWith('ticket');
+      expect(verification.value).toMatchObject({stage:'checking', accepted: part === 'body'});
+    } finally { timeout.mockRestore(); }
+  });
+
   it('rejects overlapping credential changes and admits retries after completion or failure', async () => {
     let finish!: (response: Response) => void;
     const fetch = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));

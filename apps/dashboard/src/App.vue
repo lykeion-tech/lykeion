@@ -19,6 +19,7 @@ import {
   authenticationRestored,
   finishAuthenticationRecovery,
   checkVerifiedIdentity,
+  finishVerification,
   verification,
   verifying,
   authenticationIsLost,
@@ -69,7 +70,7 @@ const switchingAccount = ref(workspaceTabs.hasPendingSwitch());
 const authLost = ref(authenticationIsLost());
 const accountSwitchBusy = ref(false);
 const accountSwitchError = ref('');
-let lastAccount: string | undefined;
+let lastAccount = workspaceTabs.currentAccount();
 let accountGeneration = 0;
 let accountSwitchTarget = '/studies';
 const aristotle = useAristotle();
@@ -307,6 +308,10 @@ function dropAccountData() {
   }
   client.getMutationCache().clear();
 }
+let verificationMounted = true;
+onUnmounted(() => {
+  verificationMounted = false;
+});
 let clearingVerification = -1;
 let clearedVerification = -1;
 const verificationDialog = ref<HTMLDialogElement>();
@@ -329,9 +334,13 @@ watch(
     try {
       const user = await checkVerifiedIdentity(state);
       if (!current()) return;
-      const signedOut = authenticationIsLost() || !lastAccount;
+      const signedOut = authenticationIsLost() || state.wasLost === true;
       if (!user || (signedOut && !state.accepted)) {
         if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+        if (state.resumed) {
+          await desktopSession.clearForIdentityChange();
+          if (!current()) return;
+        }
         authenticationLost(state.epoch);
         await client.cancelQueries();
         if (!current()) return;
@@ -340,11 +349,12 @@ watch(
         await router.replace('/signin');
         if (!current()) return;
         if (route.path !== '/signin') throw new Error('Sign-out navigation was blocked');
-        verification.value = undefined;
+        finishVerification();
         return;
       }
       if (
         !signedOut &&
+        !state.resumed &&
         !switchingAccount.value &&
         lastAccount === user.id &&
         clearedVerification !== state.epoch
@@ -364,7 +374,7 @@ watch(
           if (invite) writeText('lykeion.invite', '', 'session');
           switchingAccount.value = false;
         }
-        verification.value = undefined;
+        finishVerification();
         void client.refetchQueries({
           type: 'active',
           predicate: (q) => q.state.status === 'error' || q.state.data === undefined,
@@ -402,12 +412,13 @@ watch(
       switchingAccount.value = false;
       accountSwitchBusy.value = false;
       accountSwitchError.value = '';
-      verification.value = undefined;
+      finishVerification();
       await client.refetchQueries({
         type: 'active',
         predicate: (q) => q.queryKey[0] !== keys.me[0],
       });
-      finishAuthenticationRecovery();
+      if (verificationMounted && authenticationEpoch() === state.epoch)
+        finishAuthenticationRecovery();
     } catch {
       if (current()) verification.value = { ...state, stage: 'retry' };
     }

@@ -479,9 +479,11 @@ export class DaemonManager {
     if (!this.options.supported) return this.getSnapshot();
     return this.enqueue(async () => {
       const configured = await readJSON(this.config);
-      if (configured || this.session) await this.stopManaged();
+      if (configured || (await this.snapshot()).status !== 'stopped') await this.stopManaged();
       await this.clearCredentials();
-      return this.snapshot();
+      const cleared = await this.snapshot();
+      if (cleared.status !== 'stopped') throw new Error('Desktop daemon stop could not be verified');
+      return cleared;
     });
   }
   private async startManaged(version: number): Promise<DaemonSnapshot> {

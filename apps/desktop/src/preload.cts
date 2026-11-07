@@ -6,10 +6,12 @@ import type {
   DesktopDaemonBridge,
 } from './daemon-types.js';
 
-const documentID =
+const startup =
   window.location.pathname === '/__lykeion_desktop__/'
-    ? (ipcRenderer.sendSync('lykeion:document-start') as string | null)
+    ? (ipcRenderer.sendSync('lykeion:document-start') as
+        { id: string; verificationPending: boolean } | string | null)
     : null;
+const documentID = typeof startup === 'string' ? startup : startup?.id;
 
 window.addEventListener(
   'click',
@@ -57,6 +59,13 @@ contextBridge.exposeInMainWorld(
     ...(documentID
       ? {
           requestDocument: documentID,
+          ...(startup && typeof startup !== 'string'
+            ? {
+                verificationPending: startup.verificationPending,
+                finishVerification: () =>
+                  ipcRenderer.sendSync('lykeion:finish-verification', documentID) === true,
+              }
+            : {}),
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
           reserveAuth: (path: string) =>
             ipcRenderer.sendSync('lykeion:reserve-auth', path) as string | null,

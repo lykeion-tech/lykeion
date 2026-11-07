@@ -94,6 +94,16 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
+  it('stops the verified running profile before clearing even if its config has disappeared', async () => {
+    const f = await fixture();
+    const snapshot = await f.manager.configureSession(session);
+    expect(snapshot.status).toBe('running');
+    await rm(path.join(f.root, 'profiles', snapshot.profile!, 'config.json'));
+    const cleared = await f.manager.clearSession();
+    expect(f.calls).toContain('daemon stop');
+    expect(cleared.status).toBe('stopped');
+    expect(cleared.authenticatedUserID).toBeNull();
+  });
   it('makes standard agent installation locations available to GUI-launched daemon starts', async () => {
     const f = await fixture();
     const oldPath = process.env.PATH;

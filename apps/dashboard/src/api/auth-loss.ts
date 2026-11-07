@@ -1,12 +1,43 @@
 import { computed, shallowRef } from 'vue';
+import { readJSON, writeJSON } from '../storage';
 import { careerStages, type Me } from './types';
 
 type Verification = {
   epoch: number;
   stage: 'submitting' | 'checking' | 'retry';
   accepted: boolean;
+  resumed?: boolean;
+  wasLost?: boolean;
 };
-export const verification = shallowRef<Verification>();
+const hintKey = 'lykeion.verification';
+const desktop = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+const hint = readJSON<{ accepted?: boolean; wasLost?: boolean } | null>(hintKey, null);
+export const verification = shallowRef<Verification | undefined>(
+  desktop?.verificationPending
+    ? {
+        epoch: 0,
+        stage: 'checking',
+        resumed: true,
+        accepted: hint?.accepted === true,
+        wasLost: hint?.wasLost !== false,
+      }
+    : undefined,
+);
+export function rememberVerification(state: Verification) {
+  const bridge = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+  if (
+    bridge?.finishVerification &&
+    !writeJSON(hintKey, { accepted: state.accepted, wasLost: state.wasLost === true })
+  )
+    throw new Error('Could not save account verification state');
+  verification.value = state;
+}
+export function finishVerification() {
+  const bridge = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+  if (bridge?.finishVerification && !bridge.finishVerification())
+    throw new Error('Could not complete account verification');
+  verification.value = undefined;
+}
 export const verifying = computed(() => Boolean(verification.value));
 export async function checkVerifiedIdentity(state: Verification): Promise<Me | null> {
   const res = await fetch('/api/me', {
@@ -52,7 +83,8 @@ export const authenticationDataGeneration = () => dataGeneration;
 export function advanceAuthenticationEpoch() {
   epoch++;
   invalidateAuthenticationData();
-  if (verification.value) verification.value = { epoch, stage: 'retry', accepted: false };
+  if (verification.value)
+    verification.value = { ...verification.value, epoch, stage: 'retry', accepted: false };
 }
 
 const listeners = new Set<() => void>();

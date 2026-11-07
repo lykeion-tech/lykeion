@@ -127,6 +127,7 @@ export function installDesktopRenderer(
     finish(id: number): void;
     continue(id: number, token: string, path: string): boolean;
     networkReady(): Promise<void>;
+    waitForIdentityRead?(): Promise<void>;
     networkBlocked(): boolean;
     networkEpoch(hasSessionCookie?: boolean): number;
     waitForLogoutTurn?(id: number): Promise<void>;
@@ -215,8 +216,13 @@ export function installDesktopRenderer(
       const token = request.headers.get(authHeader);
       if (!token || !auth.continue(id, token, path))
         return new Response('Authentication request not admitted', { status: 503 });
-      if (path !== '/auth/logout' || !auth.completeLogout)
-        return forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
+      if (path !== '/auth/logout' || !auth.completeLogout) {
+        const signal =
+          path === '/auth/verify-code'
+            ? AbortSignal.any([request.signal, AbortSignal.timeout(15_000)])
+            : request.signal;
+        return forward(session, request, cancellation, () => auth.finish(id), nativeAuth, signal);
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), auth.logoutTimeoutMs ?? 15000);
       let localOnly = false;
@@ -256,6 +262,14 @@ export function installDesktopRenderer(
         status: 204,
         headers: localOnly ? { 'X-Lykeion-Local-Logout': '1' } : {},
       });
+    }
+    // Renderer abort and native cancellation can arrive in either order.
+    if (request.method === 'GET' && path === '/api/me' && auth?.waitForIdentityRead) {
+      try {
+        await auth.waitForIdentityRead();
+      } catch {
+        return new Response('Authentication is pending', { status: 503 });
+      }
     }
     return forward(session, request, cancellation);
   });
@@ -318,9 +332,9 @@ export function forward(
       finishAuth = undefined;
     };
     const abort = () => {
-      release();
       stream?.destroy();
       request.abort();
+      release();
       reject(new DOMException('Request aborted', 'AbortError'));
     };
     if (id && !cancellation.register(id, abort)) {

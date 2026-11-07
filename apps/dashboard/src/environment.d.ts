@@ -6,6 +6,8 @@ interface Window {
     openDocumentation(): Promise<void>;
     cancelRequest?(id: string): void;
     requestDocument?: string;
+    verificationPending?: boolean;
+    finishVerification?(): boolean;
     reserveAuth?(path: string): string | null;
     releaseAuth?(token: string): void;
     retryLogout?(): Promise<boolean>;

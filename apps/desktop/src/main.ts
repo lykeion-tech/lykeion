@@ -48,6 +48,8 @@ let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 let logoutIntent: LogoutIntent | null = null;
+let verificationIntent: LogoutIntent | null = null;
+let currentDocument: string | null = null;
 let startupRecovery: Promise<void> = Promise.resolve();
 const authGate = new DesktopAuthGate(() => {
   if (!logoutIntent) throw new Error('Logout recovery unavailable');
@@ -194,6 +196,7 @@ void app.whenReady().then(async () => {
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
     logoutIntent = new LogoutIntent(app.getPath('userData'), apiOrigin);
+    verificationIntent = new LogoutIntent(app.getPath('userData'), apiOrigin, 'verification');
     try {
       startupRecovery = waitForLogoutRecovery(
         recoverLogoutIntent(logoutIntent, desktopSession, apiOrigin),
@@ -214,6 +217,7 @@ void app.whenReady().then(async () => {
       {
         continue: (id, token, path) => authGate.continueMutation(id, token, path),
         networkReady: () => authGate.networkReady(),
+        waitForIdentityRead: () => authGate.waitForDrain(),
         networkBlocked: () => authGate.networkBlocked(),
         networkEpoch: () => authGate.networkEpoch(),
         finish: (id) => authGate.finishMutation(id),
@@ -274,21 +278,67 @@ void app.whenReady().then(async () => {
   ipcMain.on('lykeion:document-start', (event) => {
     if (window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin))
       abandonDocumentAuthentication();
-    event.returnValue =
-      window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin)
-        ? desktopCancellation.beginDocument()
-        : null;
+    if (
+      !window ||
+      !desktopCancellation ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin)
+    ) {
+      event.returnValue = null;
+      return;
+    }
+    currentDocument = desktopCancellation.beginDocument();
+    let pending = true;
+    try {
+      pending = verificationIntent?.exists() ?? true;
+    } catch {
+      /* keep private reads gated */
+    }
+    event.returnValue = { id: currentDocument, verificationPending: pending };
   });
   ipcMain.on('lykeion:reserve-auth', (event, path: unknown) => {
     try {
-      event.returnValue =
-        window &&
-        typeof path === 'string' &&
-        trustedDesktopFrame(event, window.webContents, apiOrigin)
-          ? authGate.reserve(path)
-          : null;
+      if (
+        !window ||
+        typeof path !== 'string' ||
+        !trustedDesktopFrame(event, window.webContents, apiOrigin)
+      ) {
+        event.returnValue = null;
+        return;
+      }
+      if (path === '/auth/verify-code' && (!verificationIntent || verificationIntent.exists())) {
+        event.returnValue = null;
+        return;
+      }
+      const token = authGate.reserve(path);
+      if (token && path === '/auth/verify-code') {
+        try {
+          verificationIntent!.mark();
+        } catch (error) {
+          authGate.release(token);
+          throw error;
+        }
+      }
+      event.returnValue = token;
     } catch {
       event.returnValue = null;
+    }
+  });
+  ipcMain.on('lykeion:finish-verification', (event, documentID: unknown) => {
+    if (
+      !currentDocument ||
+      documentID !== currentDocument ||
+      !window ||
+      !verificationIntent ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin)
+    ) {
+      event.returnValue = false;
+      return;
+    }
+    try {
+      verificationIntent.clear();
+      event.returnValue = true;
+    } catch {
+      event.returnValue = false;
     }
   });
   ipcMain.on('lykeion:release-auth', (event, token: unknown) => {

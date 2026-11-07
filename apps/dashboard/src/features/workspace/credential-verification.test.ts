@@ -38,8 +38,8 @@ function held<T>() {
   });
   return { promise, resolve, reject };
 }
-async function privateEditor() {
-  const storage = new Map<string, string>();
+async function privateEditor(initialMe?: Promise<Response>, replacement?: { storage: Map<string, string>; clear: Promise<object> }) {
+  const storage = replacement?.storage ?? new Map<string, string>();
   const adapter = {
     getItem: (k: string) => storage.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -56,9 +56,11 @@ async function privateEditor() {
     clearSession: vi.fn(async () => ({})),
     getSnapshot: vi.fn(async () => ({ availability: 'available' })),
   };
+  if (replacement) native.clearSession.mockReturnValueOnce(replacement.clear);
+  const finishVerification = vi.fn(() => true);
   vi.stubGlobal('window', {
     location: { origin: 'https://app.example' },
-    lykeionDesktop: { daemon: native },
+    lykeionDesktop: { daemon: native, verificationPending: Boolean(replacement), finishVerification },
     matchMedia: () => ({ matches: false }),
     addEventListener() {},
     removeEventListener() {},
@@ -76,6 +78,7 @@ async function privateEditor() {
   const { workspaceId } = await import('../../api/session');
   const verify = held<Response>();
   const probe = vi.fn(async () => Response.json(identity('a')));
+  if (replacement) probe.mockImplementation(async () => Response.json(identity('b')));
   const gatedCalls: string[] = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/auth/verify-code') return verify.promise;
@@ -87,7 +90,7 @@ async function privateEditor() {
     if (url === '/auth/logout')
       return new Response(null, { status: 204, headers: { 'X-Lykeion-Local-Logout': '1' } });
     if (auth.verifying.value) gatedCalls.push(url);
-    if (url === '/api/me') return Response.json(identity('a'));
+    if (url === '/api/me') return initialMe ?? Response.json(identity('a'));
     if (url === '/api/workspaces') return Response.json([{ id: 'w', name: 'Workspace' }]);
     if (url === '/api/cli-token') return Response.json({ token: 'ephemeral' });
     return Response.json([]);
@@ -129,17 +132,20 @@ async function privateEditor() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
-  const app = createTreeApp({ render: () => h(App) });
+  const mount = ref(0);
+  const app = createTreeApp({ render: () => h(App, { key: mount.value }) });
   app.use(router);
   app.use(VueQueryPlugin, { queryClient: client });
   const root = node('root');
   app.mount(root);
   await router.isReady();
   const editor = () => all(root).find((n) => n.tag === 'input');
-  await vi.waitFor(() => expect(editor()).toBeDefined());
-  await vi.waitFor(() => expect(native.configureSession).toHaveBeenCalledTimes(1));
+  if (!initialMe && !replacement) {
+    await vi.waitFor(() => expect(editor()).toBeDefined());
+    await vi.waitFor(() => expect(native.configureSession).toHaveBeenCalledTimes(1));
+  }
   const original = editor()!;
-  (original.props.onInput as (v: string) => void)('Unsubmitted edit');
+  if (original) (original.props.onInput as (v: string) => void)('Unsubmitted edit');
   client.setQueryData(['private-a'], 'one-time value');
   const committed = vi.fn();
   const stop = auth.onCredentialsCommitted(committed);
@@ -167,7 +173,12 @@ async function privateEditor() {
     original,
     opens,
     committed,
+    finishVerification,
     retry,
+    remount: async () => {
+      mount.value++;
+      await nextTick();
+    },
     dispose,
     fetch,
     workspaceId,
@@ -204,6 +215,50 @@ it('keeps the same mounted editor, cached private data and daemon through verifi
     expect(t.native.configureSession).toHaveBeenCalledTimes(1);
     expect(t.committed).not.toHaveBeenCalled();
     expect(t.gatedCalls).toEqual([]);
+  } finally {
+    t.dispose();
+  }
+});
+
+it('preserves the verified owner when the App remounts while the OTP is pending', async () => {
+  const t = await privateEditor();
+  try {
+    const lost = vi.fn();
+    const stop = t.auth.onAuthenticationLost(lost);
+    t.client.setQueryData(['retained-draft', 'a'], t.original.props.value);
+    const verify = t.api('POST', '/auth/verify-code', {});
+    await t.remount();
+    t.verify.resolve(new Response(null, { status: 401 }));
+    await expect(verify).rejects.toMatchObject({ status: 401 });
+    await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
+    expect(lost).not.toHaveBeenCalled();
+    expect(t.router.currentRoute.value.path).toBe('/editor');
+    expect(t.client.getQueryData(['retained-draft', 'a'])).toBe('Unsubmitted edit');
+    expect(t.client.getQueryData(['private-a'])).toBe('one-time value');
+    expect(t.native.clearSession).not.toHaveBeenCalled();
+    expect(t.committed).not.toHaveBeenCalled();
+    stop();
+  } finally {
+    t.dispose();
+  }
+});
+
+it('admits the verified identity when an OTP is rejected before initial me resolves', async () => {
+  const initial = held<Response>();
+  const t = await privateEditor(initial.promise);
+  try {
+    const lost = vi.fn();
+    const stop = t.auth.onAuthenticationLost(lost);
+    const verify = t.api('POST', '/auth/verify-code', {});
+    t.verify.resolve(new Response(null, { status: 401 }));
+    await expect(verify).rejects.toMatchObject({ status: 401 });
+    await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
+    initial.resolve(Response.json(identity('stale')));
+    await nextTick();
+    expect(lost).not.toHaveBeenCalled();
+    expect(t.client.getQueryData(['me'])).toMatchObject({ id: 'a' });
+    expect(t.router.currentRoute.value.path).not.toBe('/signin');
+    stop();
   } finally {
     t.dispose();
   }
@@ -250,6 +305,51 @@ it('keeps B gated after successful headers and an aborted body until native clea
   } finally {
     t.dispose();
   }
+});
+
+it('restores quarantine in a replacement document after native clearance failed', async () => {
+  const a = await privateEditor();
+  a.native.clearSession.mockRejectedValueOnce(new Error('stop failed'));
+  a.probe.mockResolvedValueOnce(Response.json(identity('b')));
+  const verify = a.api('POST', '/auth/verify-code', {});
+  a.verify.resolve(new Response(null, {status: 204}));
+  await verify;
+  await vi.waitFor(() => expect(a.auth.verification.value?.stage).toBe('retry'));
+  expect(a.finishVerification).not.toHaveBeenCalled();
+  a.dispose();
+  vi.resetModules();
+  const clear = held<object>();
+  const b = await privateEditor(undefined, { storage: a.storage, clear: clear.promise });
+  try {
+    await vi.waitFor(() => expect(b.native.clearSession).toHaveBeenCalledOnce());
+    expect(b.auth.verifying.value).toBe(true);
+    expect(b.native.configureSession).not.toHaveBeenCalled();
+    expect(b.editor()).toBeUndefined();
+    await expect(b.api('GET', '/api/workspaces')).rejects.toMatchObject({ name: 'AbortError' });
+    clear.resolve({});
+    await vi.waitFor(() => expect(b.auth.verifying.value).toBe(false));
+    expect(b.client.getQueryData(['me'])).toMatchObject({id: 'b'});
+    expect(b.router.currentRoute.value.path).toBe('/studies');
+    expect(b.finishVerification).toHaveBeenCalledOnce();
+    expect(b.gatedCalls).toEqual([]);
+  } finally { b.dispose(); }
+});
+
+it('does not finish a newer recovery when an older released refetch settles', async () => {
+  const t = await privateEditor();
+  try {
+    const pending = held<void>();
+    const refetch = vi.spyOn(t.client, 'refetchQueries').mockReturnValueOnce(pending.promise);
+    t.probe.mockResolvedValueOnce(Response.json(identity('b')));
+    const verify = t.api('POST', '/auth/verify-code', {});
+    t.verify.resolve(new Response(null, {status: 204}));
+    await verify;
+    await vi.waitFor(() => expect(refetch).toHaveBeenCalledOnce());
+    t.auth.authenticationRestored();
+    pending.resolve();
+    await nextTick();
+    expect(t.auth.authenticationIsRestoring()).toBe(true);
+  } finally { t.dispose(); }
 });
 
 it('rejects a stale B identity when its response arrives after a newer account epoch', async () => {

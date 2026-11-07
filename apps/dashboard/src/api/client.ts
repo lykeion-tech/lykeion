@@ -7,6 +7,8 @@ import {
   credentialsCommitted,
   invalidateAuthenticationData,
   verification,
+  rememberVerification,
+  authenticationIsLost,
   verifying,
 } from './auth-loss';
 
@@ -89,9 +91,20 @@ export async function api<T = void>(
   credentialChangeInProgress = true;
   advanceAuthenticationEpoch();
   const epoch = authenticationEpoch();
-  if (path === '/auth/verify-code')
-    verification.value = { epoch, stage: 'submitting', accepted: false };
   try {
+    if (path === '/auth/verify-code') {
+      rememberVerification({
+        epoch,
+        stage: 'submitting',
+        accepted: false,
+        wasLost: authenticationIsLost(),
+      });
+      const deadline = AbortSignal.timeout(15_000);
+      options = {
+        ...options,
+        signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+      };
+    }
     return await request<T>(method, path, body, raw, options);
   } finally {
     credentialChangeInProgress = false;
@@ -174,7 +187,7 @@ async function request<T = void>(
         credentialsCommitted();
         if (res.headers.get('X-Lykeion-Local-Logout') === '1') authenticationLost(requestEpoch);
       } else if (verification.value?.epoch === requestEpoch) {
-        verification.value = { ...verification.value, accepted: true };
+        rememberVerification({ ...verification.value, accepted: true });
       }
     }
     if (res.status === 401 && path !== '/auth/verify-code') authenticationLost(requestEpoch);

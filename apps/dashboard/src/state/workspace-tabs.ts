@@ -181,5 +181,6 @@ export function useWorkspaceTabs() {
     clearAccount,
     confirmAccountSwitch,
     hasPendingSwitch,
+    currentAccount: () => account ?? undefined,
   };
 }

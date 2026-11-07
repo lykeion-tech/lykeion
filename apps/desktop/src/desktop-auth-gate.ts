@@ -95,7 +95,7 @@ export class DesktopAuthGate {
       if (timer) clearTimeout(timer);
     }
   }
-  private waitForDrain(timeoutMs: number): Promise<void> {
+  waitForDrain(timeoutMs = 15000): Promise<void> {
     return this.mutations.size
       ? new Promise<void>((resolve, reject) => {
           const done = () => {
