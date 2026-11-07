@@ -173,6 +173,60 @@ describe('workspace tab defaults', () => {
     expect([...stored.values()].join(' ')).not.toContain('Legacy secret');
   });
 
+  it('reports a saved-owner mismatch before a cold reload can reopen a private route', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    stored.set(
+      'lykeion.workspace-tabs',
+      JSON.stringify({ account: 'account-a', tabs: [], selected: 0 }),
+    );
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const state = useWorkspaceTabs();
+    expect(state.setAccount('account-b')).toBe(true);
+    expect(state.tabs.value).toEqual([]);
+    vi.resetModules();
+    const interrupted = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(interrupted.setAccount('account-b')).toBe(true);
+    interrupted.confirmAccountSwitch();
+    vi.resetModules();
+    const completed = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(completed.setAccount('account-b')).toBe(false);
+  });
+
+  it('keeps the account switch fenced after a failed identity refresh until a successful retry', async () => {
+    const { verifyAccountSwitch } = await import('./workspace-tabs');
+    const reset = vi.fn().mockResolvedValue(undefined);
+    const identify = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue('account-b');
+    const navigate = vi.fn().mockResolvedValue(true);
+    await expect(
+      verifyAccountSwitch('account-b', () => true, reset, identify, navigate),
+    ).rejects.toThrow('offline');
+    expect(navigate).not.toHaveBeenCalled();
+    await expect(
+      verifyAccountSwitch('account-b', () => true, reset, identify, navigate),
+    ).resolves.toBe(true);
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not navigate when a newer account transition overtakes a refresh', async () => {
+    const { verifyAccountSwitch } = await import('./workspace-tabs');
+    let current = true;
+    const navigate = vi.fn().mockResolvedValue(true);
+    const result = await verifyAccountSwitch(
+      'account-b',
+      () => current,
+      async () => {
+        current = false;
+      },
+      async () => 'account-b',
+      navigate,
+    );
+    expect(result).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('clears tab titles immediately when the authentication session is lost', async () => {
     vi.stubGlobal('sessionStorage', memoryStorage());
     const { useWorkspaceTabs } = await import('./workspace-tabs');
@@ -197,5 +251,20 @@ describe('workspace tab defaults', () => {
     state.setAccount('account-b');
     expect(state.tabs.value).toEqual([]);
     expect([...stored.values()].join(' ')).not.toContain('Private A');
+  });
+
+  it('ignores a delayed 401 from the prior account after a direct switch', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const { authenticationEpoch, authenticationLost, advanceAuthenticationEpoch } =
+      await import('../api/auth-loss');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    const oldRequest = authenticationEpoch();
+    state.setAccount('account-b');
+    advanceAuthenticationEpoch();
+    state.openTab('/studies/new', 'Account B study', 'tasks');
+    authenticationLost(oldRequest);
+    expect(state.tabs.value.map((tab) => tab.title)).toEqual(['Account B study']);
   });
 });

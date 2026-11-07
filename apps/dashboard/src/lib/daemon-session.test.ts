@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { authenticationRestored } from '../api/auth-loss';
+import { advanceAuthenticationEpoch, authenticationRestored } from '../api/auth-loss';
 import { createDashboardQueryClient } from '../api/query-client';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { api, ApiError } from '../api/client';
@@ -157,6 +157,29 @@ describe('desktop daemon authenticated session', () => {
     await old;
     expect(t.bridge.configureSession).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/signin'));
+    client.clear();
+  });
+
+  it('ignores a prior account query 401 after an identity switch', async () => {
+    const t = setup();
+    const response = deferred<Response>();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(response.promise));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:p(.*)*', component: { render: () => null } }],
+    });
+    await router.push('/settings');
+    const client = createDashboardQueryClient(router);
+    const old = client.fetchQuery({
+      queryKey: ['old-account'],
+      queryFn: () => api('GET', '/api/me'),
+    });
+    await Promise.resolve();
+    advanceAuthenticationEpoch();
+    response.resolve(new Response('{"error":"old session"}', { status: 401 }));
+    await expect(old).rejects.toThrow('old session');
+    expect(t.bridge.clearSession).not.toHaveBeenCalled();
+    expect(router.currentRoute.value.path).toBe('/settings');
     client.clear();
   });
 

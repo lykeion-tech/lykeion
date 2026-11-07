@@ -12,6 +12,13 @@ import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
 import CommandPalette from './ui/CommandPalette.vue';
 import CreateStudy from './features/studies/CreateStudy.vue';
 import { api, ApiError } from './api/client';
+import {
+  advanceAuthenticationEpoch,
+  authenticationEpoch,
+  authenticationIsLost,
+  onAuthenticationLost,
+  onAuthenticationRestored,
+} from './api/auth-loss';
 import { selectWorkspace, workspaceId } from './api/session';
 import DiscardDraftDialog from './features/workspace/settings/library/DiscardDraftDialog.vue';
 import { guardResourceDrafts } from './state/resource-draft';
@@ -21,7 +28,7 @@ import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
-import { useWorkspaceTabs } from './state/workspace-tabs';
+import { useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
 import { useCoresearchFiles, useCoresearchProject } from './features/coresearch/api';
@@ -52,6 +59,9 @@ const client = useQueryClient();
 const me = useMe();
 const workspaceTabs = useWorkspaceTabs();
 const switchingAccount = ref(false);
+const authLost = ref(authenticationIsLost());
+const accountSwitchBusy = ref(false);
+const accountSwitchError = ref('');
 let lastAccount: string | undefined;
 let accountGeneration = 0;
 const aristotle = useAristotle();
@@ -86,46 +96,11 @@ const cards = useCards();
 const { reconnecting, lost } = useRealtimeSync(workspaceId, client);
 const unauthorized = computed(() =>
   [me.error.value, workspaces.error.value, workspace.error.value, cards.error.value].some(
-    (error) => error instanceof ApiError && error.status === 401,
+    (error) =>
+      error instanceof ApiError &&
+      error.status === 401 &&
+      error.authEpoch === authenticationEpoch(),
   ),
-);
-watch(
-  [() => me.data.value?.id, unauthorized],
-  ([id, signedOut]) => {
-    if (signedOut) {
-      accountGeneration++;
-      lastAccount = undefined;
-      workspaceTabs.clearAccount();
-      switchingAccount.value = false;
-      return;
-    }
-    if (!id) return;
-    const changed = Boolean(lastAccount && lastAccount !== id);
-    lastAccount = id;
-    workspaceTabs.setAccount(id);
-    if (!changed) return;
-    const generation = ++accountGeneration;
-    switchingAccount.value = true;
-    workspaceId.value = '';
-    void (async () => {
-      try {
-        await client.cancelQueries();
-        await client.resetQueries();
-        if (generation !== accountGeneration || me.data.value?.id !== id) return;
-        await router.replace('/studies');
-        if (
-          generation === accountGeneration &&
-          me.data.value?.id === id &&
-          (route.path === '/studies' || route.meta.bare)
-        )
-          switchingAccount.value = false;
-      } catch {
-        if (generation === accountGeneration)
-          notify('Could not switch accounts. Reload to try again.');
-      }
-    })();
-  },
-  { immediate: true, flush: 'sync' },
 );
 const desktopSession = createDaemonSession({
   bridge: window.lykeionDesktop?.daemon,
@@ -150,9 +125,9 @@ onUnmounted(desktopSession.dispose);
 
 // A cached refusal still protects navigation after the request has settled.
 watch(
-  [() => route.fullPath, unauthorized],
-  ([, signedOut]) => {
-    if (!signedOut || route.meta.public) return;
+  [() => route.fullPath, unauthorized, authLost],
+  ([, signedOut, lost]) => {
+    if ((!signedOut && !lost) || route.meta.public) return;
     if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
     void router.replace('/signin');
   },
@@ -280,6 +255,84 @@ watch(
 );
 const feedbackText = ref('');
 
+function clearAccountShell() {
+  feedback.value = false;
+  feedbackText.value = '';
+  paletteOpen.value = false;
+  workspaceMenu.value = false;
+  help.value = false;
+  closeComposer();
+}
+const stopAuthLoss = onAuthenticationLost(() => {
+  authLost.value = true;
+  clearAccountShell();
+});
+const stopAuthRestore = onAuthenticationRestored(() => {
+  authLost.value = false;
+  clearAccountShell();
+});
+onUnmounted(() => {
+  stopAuthLoss();
+  stopAuthRestore();
+});
+async function retryAccountSwitch() {
+  const id = lastAccount;
+  if (!id || accountSwitchBusy.value) return;
+  const generation = accountGeneration;
+  accountSwitchBusy.value = true;
+  accountSwitchError.value = '';
+  try {
+    const ready = await verifyAccountSwitch(
+      id,
+      () => generation === accountGeneration,
+      async () => {
+        await client.cancelQueries();
+        await client.resetQueries();
+      },
+      async () => (await me.refetch({ throwOnError: true })).data?.id,
+      async () => {
+        await router.replace('/studies');
+        return route.path === '/studies' || !!route.meta.bare;
+      },
+    );
+    if (ready) {
+      workspaceTabs.confirmAccountSwitch();
+      switchingAccount.value = false;
+    }
+  } catch {
+    if (generation === accountGeneration)
+      accountSwitchError.value = 'Could not verify your account. Try again.';
+  } finally {
+    if (generation === accountGeneration) accountSwitchBusy.value = false;
+  }
+}
+watch(
+  [() => me.data.value?.id, unauthorized],
+  ([id, signedOut]) => {
+    if (signedOut) {
+      accountGeneration++;
+      lastAccount = undefined;
+      workspaceTabs.clearAccount();
+      clearAccountShell();
+      switchingAccount.value = false;
+      accountSwitchBusy.value = false;
+      return;
+    }
+    if (!id) return;
+    const changed = workspaceTabs.setAccount(id) || Boolean(lastAccount && lastAccount !== id);
+    lastAccount = id;
+    if (!changed) return;
+    advanceAuthenticationEpoch();
+    accountGeneration++;
+    clearAccountShell();
+    switchingAccount.value = true;
+    accountSwitchBusy.value = false;
+    workspaceId.value = '';
+    void retryAccountSwitch();
+  },
+  { immediate: true, flush: 'sync' },
+);
+
 // The shown workspace must be one the person belongs to; otherwise the first.
 watch(
   () => workspaces.data.value,
@@ -343,6 +396,7 @@ async function logOut() {
         return false;
       }
       workspaceTabs.clearAccount();
+      clearAccountShell();
       await client.cancelQueries();
       return true;
     }))
@@ -501,9 +555,21 @@ onUnmounted(() => {
 </script>
 <template>
   <DiscardDraftDialog />
-  <RouterView v-if="route.meta.bare" />
+  <div v-if="switchingAccount" class="center-empty" role="status">
+    <p v-if="accountSwitchError" role="alert">{{ accountSwitchError }}</p>
+    <p v-else>Verifying your account…</p>
+    <button
+      v-if="accountSwitchError"
+      class="button"
+      :disabled="accountSwitchBusy"
+      @click="retryAccountSwitch"
+    >
+      Try again
+    </button>
+  </div>
+  <RouterView v-else-if="route.meta.bare && (!authLost || route.meta.public)" />
   <div
-    v-else-if="!unauthorized && !onboardingTarget && !switchingAccount"
+    v-else-if="!authLost && !unauthorized && !onboardingTarget && !switchingAccount"
     class="application"
     :class="{
       'sidebar-hidden': collapsed,

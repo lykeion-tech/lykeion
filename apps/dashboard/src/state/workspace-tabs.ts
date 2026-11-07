@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue';
 import { onAuthenticationLost, onAuthenticationRestored } from '../api/auth-loss';
-import { readJSON, writeJSON, writeText } from '../storage';
+import { readJSON, readText, writeJSON, writeText } from '../storage';
 
 export type Tab = {
   id: number;
@@ -14,6 +14,24 @@ export type Tab = {
 
 export const validPath = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
+
+export async function verifyAccountSwitch(
+  id: string,
+  current: () => boolean,
+  reset: () => Promise<void>,
+  identify: () => Promise<string | undefined>,
+  navigate: () => Promise<boolean>,
+): Promise<boolean> {
+  await reset();
+  if (!current()) return false;
+  const verified = await identify();
+  if (!current()) return false;
+  if (verified !== id) throw new Error('Identity could not be verified');
+  const safe = await navigate();
+  if (!current()) return false;
+  if (!safe) throw new Error('Navigation was blocked');
+  return true;
+}
 
 function restored(t: unknown): Tab[] {
   try {
@@ -53,14 +71,17 @@ const tabs = ref<Tab[]>([]);
 const selected = ref(0);
 let account: string | null = null;
 let restoring = false;
+let pendingSwitch = false;
 let nextId = Date.now() + 1;
+const legacy = readText('lykeion.tabs', 'session');
+let legacyUnowned = !!legacy && legacy !== '[]';
 writeJSON('lykeion.tabs', [], 'session');
 writeText('lykeion.active-tab', '0', 'session');
 function persist() {
   if (account && !restoring)
     writeJSON(
       'lykeion.workspace-tabs',
-      { account, tabs: tabs.value, selected: selected.value },
+      { account, tabs: tabs.value, selected: selected.value, pendingSwitch },
       'session',
     );
 }
@@ -69,28 +90,43 @@ watch(tabs, persist, { deep: true, flush: 'sync' });
 
 function clearAccount() {
   account = null;
+  pendingSwitch = false;
   tabs.value = [];
   selected.value = 0;
   writeJSON('lykeion.workspace-tabs', null, 'session');
 }
 
 function setAccount(id: string) {
-  if (!id || account === id) return;
+  if (!id || account === id) return false;
   const saved = account
     ? null
-    : readJSON<{ account?: unknown; tabs?: unknown; selected?: unknown } | null>(
-        'lykeion.workspace-tabs',
-        null,
-        'session',
-      );
+    : readJSON<{
+        account?: unknown;
+        tabs?: unknown;
+        selected?: unknown;
+        pendingSwitch?: unknown;
+      } | null>('lykeion.workspace-tabs', null, 'session');
+  const changed =
+    account !== null ||
+    legacyUnowned ||
+    (typeof saved?.account === 'string' && saved.account !== id) ||
+    saved?.pendingSwitch === true;
   restoring = true;
   account = id;
+  legacyUnowned = false;
+  pendingSwitch = changed;
   tabs.value = saved?.account === id ? restored(saved.tabs) : [];
   selected.value = tabs.value.some((t) => t.id === saved?.selected)
     ? (saved!.selected as number)
     : (tabs.value[0]?.id ?? 0);
   nextId = Math.max(Date.now(), ...tabs.value.map((t) => t.id)) + 1;
   restoring = false;
+  persist();
+  return changed;
+}
+
+function confirmAccountSwitch() {
+  pendingSwitch = false;
   persist();
 }
 
@@ -112,5 +148,5 @@ function ensureTab(path: string, title: string, icon: string) {
 
 // The tab strip and Coresearch share one account-bound session.
 export function useWorkspaceTabs() {
-  return { tabs, selected, openTab, ensureTab, setAccount, clearAccount };
+  return { tabs, selected, openTab, ensureTab, setAccount, clearAccount, confirmAccountSwitch };
 }

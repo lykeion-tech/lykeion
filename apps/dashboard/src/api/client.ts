@@ -17,6 +17,7 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly body: Record<string, unknown> = {},
+    readonly authEpoch = authenticationEpoch(),
   ) {
     super(message);
   }
@@ -133,7 +134,7 @@ export async function api<T = void>(
         typeof obj.error === 'string'
           ? obj.error
           : res.statusText || `Request failed (${res.status})`;
-      throw new ApiError(res.status, message, obj);
+      throw new ApiError(res.status, message, obj, requestEpoch);
     }
     return data as T;
   } finally {

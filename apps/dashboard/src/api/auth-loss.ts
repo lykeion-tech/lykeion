@@ -6,6 +6,9 @@ export function finishAuthenticationRecovery() {
   if (recovery === 'restoring') recovery = 'normal';
 }
 export const authenticationEpoch = () => epoch;
+export function advanceAuthenticationEpoch() {
+  epoch++;
+}
 
 const listeners = new Set<() => void>();
 
