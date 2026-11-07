@@ -122,3 +122,24 @@ it('holds reopened-window network until abandoned logout is cleared', async () =
   await request;
   expect(admitted).toBe(true);
 });
+
+it('bounds a hung cookie cleanup without starting a conflicting retry', async () => {
+  const gate = new DesktopAuthGate();
+  gate.reserve('/auth/logout');
+  gate.abandonUnclaimed();
+  let finish!: () => void;
+  let calls = 0;
+  const clear = () => {
+    calls++;
+    return new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  };
+  await expect(gate.recoverAbandonedLogout(clear, 20)).rejects.toThrow('did not finish');
+  await expect(gate.recoverAbandonedLogout(clear, 20)).rejects.toThrow('did not finish');
+  expect(calls).toBe(1);
+  expect(gate.networkBlocked()).toBe(true);
+  finish();
+  await gate.recoverAbandonedLogout(clear, 100);
+  expect(gate.networkBlocked()).toBe(false);
+});

@@ -63,8 +63,21 @@ export class DesktopAuthGate {
     return this.abandonedLogout;
   }
   async networkReady(): Promise<void> {
-    await this.recovery?.catch(() => {});
+    if (this.recovery) await this.withTimeout(this.recovery, 15000).catch(() => {});
     if (this.abandonedLogout) throw new Error('Logout recovery required');
+  }
+  private async withTimeout(pending: Promise<void>, timeoutMs: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        pending,
+        new Promise<void>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Logout cleanup did not finish')), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   private waitForDrain(timeoutMs: number): Promise<void> {
     return this.mutations.size
@@ -90,13 +103,17 @@ export class DesktopAuthGate {
         .then(() => {
           this.abandonedLogout = false;
         });
+      const task = this.recovery;
+      void task.then(
+        () => {
+          if (this.recovery === task) this.recovery = null;
+        },
+        () => {
+          if (this.recovery === task) this.recovery = null;
+        },
+      );
     }
-    const pending = this.recovery;
-    try {
-      await pending;
-    } finally {
-      if (this.recovery === pending) this.recovery = null;
-    }
+    await this.withTimeout(this.recovery, timeoutMs);
   }
   async shutdown(
     stopDaemon: () => Promise<void>,

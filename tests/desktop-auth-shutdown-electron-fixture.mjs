@@ -30,6 +30,7 @@ app
       }
       entered = true;
       assert.equal(req.headers['x-lykeion-desktop-auth-reservation'], undefined);
+      assert.equal(req.headers['x-lykeion-desktop-native-auth'], undefined);
       await new Promise((resolve) => {
         release = resolve;
       });
@@ -219,6 +220,71 @@ app
       );
       assert.equal((await target.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
       reloadWindow.destroy();
+      const interleavedSession = session.fromPartition('interleaved-auth');
+      const interleavedGate = new DesktopAuthGate();
+      await interleavedSession.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'old',
+        httpOnly: true,
+      });
+      let interleavedRecovery;
+      installDesktopRenderer(interleavedSession, origin, profile, {
+        finish: (id) => interleavedGate.finishMutation(id),
+        continue: (id, token, path) => {
+          const claimed = interleavedGate.continueMutation(id, token, path);
+          if (claimed) {
+            interleavedGate.abandonUnclaimed();
+            interleavedRecovery = interleavedGate.recoverAbandonedLogout(() =>
+              clearAbandonedLogout(interleavedSession, origin),
+            );
+          }
+          return claimed;
+        },
+        networkReady: () => interleavedGate.networkReady(),
+        networkBlocked: () => interleavedGate.networkBlocked(),
+      });
+      const interleavedWindow = new BrowserWindow({
+        show: false,
+        webPreferences: { session: interleavedSession, sandbox: true },
+      });
+      await interleavedWindow.loadURL(desktopEntryURL(origin));
+      const admitted = interleavedGate.reserve('/auth/logout');
+      interleavedGate.reserve('/auth/logout');
+      entered = false;
+      await interleavedWindow.webContents.executeJavaScript(
+        `void fetch('/auth/logout',{method:'POST',headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(admitted)}}}).catch(()=>{}); true`,
+      );
+      for (let i = 0; i < 100 && !entered; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(entered, true);
+      release();
+      await interleavedRecovery;
+      assert.equal((await interleavedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      interleavedWindow.destroy();
+      await interleavedSession.clearStorageData();
+      const variants = session.fromPartition('auth-cookie-variants');
+      await variants.cookies.set({
+        url: 'http://lykeion.test/api',
+        name: 'lyk_session',
+        value: 'valid-looking',
+        path: '/api',
+        httpOnly: true,
+      });
+      await assert.rejects(clearAbandonedLogout(variants, 'http://lykeion.test'));
+      await variants.clearStorageData();
+      await variants.cookies.set({
+        url: 'http://lykeion.test/',
+        name: 'lyk_session',
+        value: 'valid-looking',
+        domain: '.lykeion.test',
+        path: '/',
+        httpOnly: true,
+      });
+      const domainCookies = await variants.cookies.get({ name: 'lyk_session' });
+      assert.equal(domainCookies[0].hostOnly, false);
+      await assert.rejects(clearAbandonedLogout(variants, 'http://lykeion.test'));
+      await variants.clearStorageData();
       console.log('desktop authentication shutdown fixture passed');
     } finally {
       window.destroy();

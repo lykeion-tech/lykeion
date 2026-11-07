@@ -9,6 +9,7 @@ const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
 const requestHeader = 'x-lykeion-desktop-request';
 const authHeader = 'x-lykeion-desktop-auth-reservation';
+const nativeAuthHeader = 'x-lykeion-desktop-native-auth';
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const requestID = new RegExp(`^(${uuid})\\.${uuid}$`);
 
@@ -130,6 +131,7 @@ export function installDesktopRenderer(
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
+  const nativeAuth = new Map<string, string>();
   let nativeAuthID = -1;
   session.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
@@ -143,6 +145,12 @@ export function installDesktopRenderer(
         target.origin !== selected.origin ||
         (executableRequests.has(request.resourceType) && !asset);
       if (denied || !auth) return done({ cancel: denied });
+      if (
+        request.resourceType === 'other' &&
+        request.method === 'POST' &&
+        [...nativeAuth.values()].includes(request.url)
+      )
+        return done({ cancel: false });
       const ready = () => {
         void auth.networkReady().then(
           () => {
@@ -155,6 +163,28 @@ export function installDesktopRenderer(
       ready();
     },
   );
+  if (auth)
+    session.webRequest.onBeforeSendHeaders((request, done) => {
+      const headers = { ...request.requestHeaders };
+      const markerKey = Object.keys(headers).find((key) => key.toLowerCase() === nativeAuthHeader);
+      const token = markerKey ? headers[markerKey] : undefined;
+      if (markerKey) delete headers[markerKey];
+      if (token && nativeAuth.get(token) === request.url) {
+        nativeAuth.delete(token);
+        done({ requestHeaders: headers });
+        return;
+      }
+      const ready = () => {
+        void auth.networkReady().then(
+          () => {
+            if (auth.networkBlocked()) ready();
+            else done({ requestHeaders: headers });
+          },
+          () => done({ cancel: true }),
+        );
+      };
+      ready();
+    });
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))
@@ -167,7 +197,7 @@ export function installDesktopRenderer(
       const token = request.headers.get(authHeader);
       if (!token || !auth.continue(id, token, path))
         return new Response('Authentication request not admitted', { status: 503 });
-      return forward(session, request, cancellation, () => auth.finish(id));
+      return forward(session, request, cancellation, () => auth.finish(id), nativeAuth);
     }
     return forward(session, request, cancellation);
   });
@@ -179,20 +209,31 @@ export function forward(
   incoming: Request,
   cancellation: RequestCancellation,
   finishAuth?: () => void,
+  nativeAuth?: Map<string, string>,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     if (incoming.signal.aborted) {
       finishAuth?.();
       return reject(new DOMException('Request aborted', 'AbortError'));
     }
-    const request = net.request({
-      url: incoming.url,
-      method: incoming.method,
-      session,
-      bypassCustomProtocolHandlers: true,
-      useSessionCookies: incoming.credentials !== 'omit',
-      redirect: 'manual',
-    });
+    const marker = nativeAuth ? randomUUID() : undefined;
+    if (marker) nativeAuth!.set(marker, incoming.url);
+    let request: ReturnType<typeof net.request>;
+    try {
+      request = net.request({
+        url: incoming.url,
+        method: incoming.method,
+        session,
+        bypassCustomProtocolHandlers: true,
+        useSessionCookies: incoming.credentials !== 'omit',
+        redirect: 'manual',
+      });
+    } catch (error) {
+      if (marker) nativeAuth?.delete(marker);
+      finishAuth?.();
+      reject(error);
+      return;
+    }
     for (const [key, value] of incoming.headers) {
       if (
         ![
@@ -203,13 +244,16 @@ export function forward(
           'transfer-encoding',
           requestHeader,
           authHeader,
+          nativeAuthHeader,
         ].includes(key.toLowerCase())
       )
         request.setHeader(key, value);
     }
+    if (marker) request.setHeader(nativeAuthHeader, marker);
     let stream: Readable | undefined;
     const id = incoming.headers.get(requestHeader);
     const release = () => {
+      if (marker) nativeAuth?.delete(marker);
       if (id) cancellation.release(id, abort);
       finishAuth?.();
       finishAuth = undefined;
