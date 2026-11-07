@@ -231,3 +231,96 @@ it.each(['loss', 'logout', 'switch'])(
     fixture.detail = null;
   },
 );
+
+it.each(['creation', 'trigger'])(
+  'stops continuation when identity changes after %s success',
+  async (stage) => {
+    vi.stubGlobal('document', {
+      addEventListener() {},
+      removeEventListener() {},
+      querySelector: () => null,
+    });
+    vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+    vi.stubGlobal('Document', class Document {});
+    vi.stubGlobal('ShadowRoot', class ShadowRoot {});
+    vi.stubGlobal('location', { origin: 'https://app.example' });
+    let triggerCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/triggers')) triggerCalls++;
+        const selected =
+          stage === 'creation' ? url === '/api/autoresearch' : url.endsWith('/triggers');
+        const result = Response.json(
+          url.endsWith('/triggers')
+            ? { url: 'https://hooks.example/secret-a' }
+            : { id: 'private-a' },
+        );
+        if (selected) {
+          const original = result.text.bind(result);
+          result.text = () =>
+            original().then((value) => {
+              queueMicrotask(() => queueMicrotask(() => authenticationRestored()));
+              return value;
+            });
+        }
+        return result;
+      }),
+    );
+    const { default: View } = await import('./AutoresearchView.vue');
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: View }],
+    });
+    await router.push('/autoresearch');
+    await router.isReady();
+    const root = node('root');
+    const app = createTreeApp({ render: () => h(View) });
+    app.use(router);
+    app.use(VueQueryPlugin, { queryClient: new QueryClient() });
+    app.mount(root);
+    await nextTick();
+    const open = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Start from scratch'),
+    )!;
+    (open.props.onClick as () => void)();
+    await nextTick();
+    const choose = all(root).find((n) => n.tag === 'button' && textOf(n) === 'Choose agent')!;
+    (choose.props.onClick as () => void)();
+    await nextTick();
+    const name = all(root).find(
+      (n) => n.tag === 'input' && n.props['aria-label'] === 'Autoresearch name',
+    )!;
+    const runbook = all(root).find(
+      (n) => n.tag === 'textarea' && n.props['aria-label'] === 'Runbook',
+    )!;
+    (name.props['onUpdate:modelValue'] as (value: string) => void)('Private A');
+    (runbook.props['onUpdate:modelValue'] as (value: string) => void)('Run');
+    await nextTick();
+    (
+      all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Webhook')!.props
+        .onClick as () => void
+    )();
+    await nextTick();
+    const form = all(root).find((n) => n.tag === 'form')!;
+    const promise = (form.props.onSubmit as (event: Event) => Promise<void>)({
+      preventDefault() {},
+    } as Event);
+    await promise;
+    await nextTick();
+    expect(triggerCalls).toBe(stage === 'creation' ? 0 : 1);
+    expect(router.currentRoute.value.path).toBe('/autoresearch');
+    expect(notice.value).toBe('');
+    app.unmount();
+    fixture.detail = { id: 'private-a', title: 'Private A', triggers: [] };
+    const detailRoot = node('root');
+    const detailApp = createTreeApp({ render: () => h(View, { id: 'private-a' }) });
+    detailApp.use(router);
+    detailApp.use(VueQueryPlugin, { queryClient: new QueryClient() });
+    detailApp.mount(detailRoot);
+    await nextTick();
+    expect(all(detailRoot).find((n) => n.props['aria-label'] === 'Webhook URL')).toBeUndefined();
+    detailApp.unmount();
+    fixture.detail = null;
+  },
+);

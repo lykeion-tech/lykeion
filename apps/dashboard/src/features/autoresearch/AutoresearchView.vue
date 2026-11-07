@@ -174,6 +174,7 @@ async function create() {
       assignee: assignee.value,
       ...scope(assignee.value!),
     });
+    if (generation !== authenticationDataGeneration()) return;
     // ponytail: two requests; a refused trigger leaves the autoresearch without one, said in a notice.
     try {
       const made = await api<{ url?: string }>(
@@ -183,6 +184,7 @@ async function create() {
           ? { kind: 'schedule', cron: scheduleCron(schedule), tz: schedule.timezone }
           : { kind: 'webhook' },
       );
+      if (generation !== authenticationDataGeneration()) return;
       if (made.url) freshWebhooks.value[ap.id] = new URL(made.url, location.origin).href;
     } catch (e) {
       if (
