@@ -198,6 +198,18 @@ describe('Daemon settings mounted section', () => {
     expect(t.text()).not.toContain('Set up an agent tool');
     expect(t.bridge.restart).not.toHaveBeenCalled();
   });
+  it.each([
+    { cliAvailable: false, error: 'The Lykeion runtime is missing or invalid.' },
+    { status: 'unknown' as const, error: 'Daemon identity could not be verified.' },
+  ])(
+    'shows recovery instead of unusable tool setup when controls cannot be used',
+    async (extra) => {
+      const t = await mount({ snapshot: snapshot(extra) });
+      await vi.waitFor(() => expect(t.text()).toContain(extra.error));
+      expect(t.text()).not.toContain('select Restart above');
+      expect(t.text()).not.toContain('select Start above');
+    },
+  );
   it('keeps a verified unregistered desktop profile reachable through Start and registration', async () => {
     const stopped = snapshot({
       status: 'stopped',

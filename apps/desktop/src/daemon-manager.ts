@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import type { DaemonPreferences, DaemonSession, DaemonSnapshot } from './daemon-types.js';
 import { validPreferences, validSession } from './daemon-ipc.js';
 
@@ -211,6 +212,12 @@ export class DaemonManager {
       {
         env: {
           ...process.env,
+          PATH: [
+            ...(process.env.PATH?.split(path.delimiter).filter(Boolean) ?? []),
+            path.join(os.homedir(), '.local', 'bin'),
+            '/usr/local/bin',
+            ...(process.platform === 'darwin' ? ['/opt/homebrew/bin'] : []),
+          ].join(path.delimiter),
           LYK_CONFIG: this.config,
           LYK_DAEMON_PROFILE: this.profile,
           LYK_DESKTOP_SAFE_STOP: action === 'stop' ? '1' : '',

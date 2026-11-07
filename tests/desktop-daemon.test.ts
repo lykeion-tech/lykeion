@@ -93,6 +93,27 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
+  it('makes standard agent installation locations available to GUI-launched daemon starts', async () => {
+    const f = await fixture();
+    const oldPath = process.env.PATH;
+    process.env.PATH = '/usr/bin:/bin';
+    try {
+      await f.manager.configureSession(session);
+      const start = f.execute.mock.calls.find((c) => c[1][1] === 'start')!;
+      const paths = start[2].env.PATH!.split(path.delimiter);
+      expect(paths.slice(0, 2)).toEqual(['/usr/bin', '/bin']);
+      const localBin = path.join(os.homedir(), '.local', 'bin');
+      expect(paths).toContain(localBin);
+      expect(paths).toContain('/usr/local/bin');
+      if (process.platform === 'darwin') expect(paths).toContain('/opt/homebrew/bin');
+      await f.manager.restart();
+      const starts = f.execute.mock.calls.filter((c) => c[1][1] === 'start');
+      expect(starts).toHaveLength(2);
+      expect(starts[1]![2].env.PATH!.split(path.delimiter)).toContain(localBin);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
   it('keeps packaged daemons disabled until their executable is verified', () => {
     expect(
       desktopDaemonOptions('darwin', true, true, '/preview/out', '/app/resources', 'http://evil'),

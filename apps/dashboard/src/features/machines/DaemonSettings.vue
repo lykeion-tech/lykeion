@@ -192,7 +192,11 @@ defineExpose({
     <p v-if="error || (matches && snapshot?.error)" class="inline-error" role="alert">
       {{ error || snapshot?.error }}
     </p>
-    <section v-if="available" class="tool-setup" aria-labelledby="tool-setup-heading">
+    <section
+      v-if="available && snapshot?.cliAvailable && snapshot.status !== 'unknown'"
+      class="tool-setup"
+      aria-labelledby="tool-setup-heading"
+    >
       <h3 id="tool-setup-heading">Set up an agent tool</h3>
       <p>
         Install and sign in to at least one tool on this computer using its official guide:
@@ -210,6 +214,10 @@ defineExpose({
       <p v-else>
         After setup, wait for active runs to finish, then select Restart above to detect your tools.
         Restarting interrupts active runs.
+      </p>
+      <p>
+        If a tool is still missing, quit the desktop app and launch its executable from a terminal
+        where the tool works, then restart the daemon after active runs finish.
       </p>
     </section>
     <div class="daemon-preferences">
