@@ -151,6 +151,10 @@ function main() {
     // Go discovers this VCS marker; Git is directed at the selected revision and isolated source tree.
     mkdirSync(path.join(source, '.git'));
     const gitDir = run('git', ['rev-parse', '--absolute-git-dir'], { stdio: 'pipe' });
+    const userConfig = path.join(temp, 'npm-user-config');
+    const globalConfig = path.join(temp, 'npm-global-config');
+    writeFileSync(userConfig, '');
+    writeFileSync(globalConfig, '');
     run(
       'npm',
       [
@@ -158,8 +162,8 @@ function main() {
         '--ignore-scripts',
         '--no-audit',
         '--no-fund',
-        '--userconfig=/dev/null',
-        '--globalconfig=/dev/null',
+        `--userconfig=${userConfig}`,
+        `--globalconfig=${globalConfig}`,
       ],
       { cwd: source, env },
     );
