@@ -33,18 +33,13 @@ export function createDaemonSession(options: {
     configured = false;
     pending = false;
     if (!bridge || disposed) return Promise.resolve();
-    clearing = bridge
-      .getSnapshot()
-      .then((snapshot) =>
-        snapshot.availability === 'available' ? bridge.clearSession() : undefined,
-      )
-      .then(
-        () => {},
-        () => {
-          options.reportError(stopFailure);
-          throw new Error(stopFailure);
-        },
-      );
+    clearing = bridge.clearSession().then(
+      () => {},
+      () => {
+        options.reportError(stopFailure);
+        throw new Error(stopFailure);
+      },
+    );
     // Keep a failed clear as a barrier for subsequent account configuration.
     void clearing.catch(() => {});
     return clearing;

@@ -48,7 +48,7 @@ describe('desktop daemon authenticated session', () => {
     await t.session.clear();
     expect(t.token).not.toHaveBeenCalled();
     expect(t.bridge.configureSession).not.toHaveBeenCalled();
-    expect(t.bridge.clearSession).not.toHaveBeenCalled();
+    expect(t.bridge.clearSession).toHaveBeenCalledTimes(1);
   });
   it('hands off an ephemeral token once per authenticated identity', async () => {
     const t = setup();

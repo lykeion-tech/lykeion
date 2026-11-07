@@ -7,6 +7,36 @@ import type { Session } from 'electron';
 
 const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
+const requestHeader = 'x-lykeion-desktop-request';
+const requestID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function createRequestCancellation() {
+  const active = new Map<string, () => void>();
+  const early = new Map<string, number>();
+  return {
+    cancel(id: unknown) {
+      if (typeof id !== 'string' || !requestID.test(id)) return;
+      const abort = active.get(id);
+      if (abort) return abort();
+      const now = Date.now();
+      for (const [key, expires] of early) if (expires <= now) early.delete(key);
+      if (early.size >= 256) early.delete(early.keys().next().value!);
+      early.set(id, now + 30_000);
+    },
+    register(id: string, abort: () => void): boolean {
+      if (!requestID.test(id) || active.has(id)) return false;
+      const expires = early.get(id);
+      early.delete(id);
+      if (expires && expires > Date.now()) return false;
+      active.set(id, abort);
+      return true;
+    },
+    release(id: string) {
+      active.delete(id);
+    },
+  };
+}
+type RequestCancellation = ReturnType<typeof createRequestCancellation>;
 
 export function desktopPartition(origin: string): string {
   return `persist:lykeion-${createHash('sha256').update(origin).digest('hex')}`;
@@ -61,7 +91,12 @@ export function trustedDesktopFrame(
   }
 }
 
-export function installDesktopRenderer(session: Session, origin: string, root: string): void {
+export function installDesktopRenderer(
+  session: Session,
+  origin: string,
+  root: string,
+): RequestCancellation {
+  const cancellation = createRequestCancellation();
   session.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
     (request, done) => {
@@ -83,12 +118,18 @@ export function installDesktopRenderer(session: Session, origin: string, root: s
       return new Response('Not found', { status: 404 });
     if (asset) return session.fetch(pathToFileURL(asset).href);
     if (new URL(request.url).origin !== origin) return new Response('Forbidden', { status: 403 });
-    return forward(session, request);
+    return forward(session, request, cancellation);
   });
+  return cancellation;
 }
 
-function forward(session: Session, incoming: Request): Promise<Response> {
+export function forward(
+  session: Session,
+  incoming: Request,
+  cancellation: RequestCancellation,
+): Promise<Response> {
   return new Promise((resolve, reject) => {
+    if (incoming.signal.aborted) return reject(new DOMException('Request aborted', 'AbortError'));
     const request = net.request({
       url: incoming.url,
       method: incoming.method,
@@ -99,17 +140,38 @@ function forward(session: Session, incoming: Request): Promise<Response> {
     });
     for (const [key, value] of incoming.headers) {
       if (
-        !['host', 'cookie', 'content-length', 'connection', 'transfer-encoding'].includes(
-          key.toLowerCase(),
-        )
+        ![
+          'host',
+          'cookie',
+          'content-length',
+          'connection',
+          'transfer-encoding',
+          requestHeader,
+        ].includes(key.toLowerCase())
       )
         request.setHeader(key, value);
+    }
+    let stream: Readable | undefined;
+    const id = incoming.headers.get(requestHeader);
+    const release = () => {
+      if (id) cancellation.release(id);
+    };
+    const abort = () => {
+      release();
+      stream?.destroy();
+      request.abort();
+      reject(new DOMException('Request aborted', 'AbortError'));
+    };
+    if (id && !cancellation.register(id, abort)) {
+      request.abort();
+      return reject(new DOMException('Request aborted', 'AbortError'));
     }
     request.on('redirect', (status, _method, url, headers) => {
       const result = new Headers();
       for (const [key, values] of Object.entries(headers))
         for (const value of values) result.append(key, value);
       result.set('location', url);
+      release();
       resolve(new Response(null, { status, headers: result }));
     });
     request.on('response', (response) => {
@@ -122,32 +184,30 @@ function forward(session: Session, incoming: Request): Promise<Response> {
         incoming.method === 'HEAD' || [204, 205, 304].includes(status)
           ? null
           : (Readable.toWeb(response as unknown as Readable) as ReadableStream<Uint8Array>);
+      if (body) {
+        response.on('end', release);
+        (response as unknown as Readable).on('close', release);
+        response.on('error', release);
+      } else release();
       resolve(new Response(body, { status, headers }));
     });
+    request.on('error', (error) => {
+      release();
+      stream?.destroy();
+      reject(error);
+    });
+    incoming.signal.addEventListener('abort', abort, { once: true });
     if (incoming.body) {
-      request.chunkedEncoding = true;
-      const stream = Readable.fromWeb(incoming.body as import('node:stream/web').ReadableStream);
-      request.on('error', (error) => {
-        stream.destroy();
-        reject(error);
+      stream = Readable.fromWeb(incoming.body as import('node:stream/web').ReadableStream);
+      stream.on('data', (chunk: Uint8Array) => {
+        if (chunk.length && !request.chunkedEncoding) request.chunkedEncoding = true;
       });
-      incoming.signal.addEventListener(
-        'abort',
-        () => {
-          stream.destroy();
-          request.abort();
-        },
-        { once: true },
-      );
       stream.on('error', (error) => {
+        release();
         request.abort();
         reject(error);
       });
       stream.pipe(request as unknown as NodeJS.WritableStream);
-    } else {
-      request.on('error', reject);
-      incoming.signal.addEventListener('abort', () => request.abort(), { once: true });
-      request.end();
-    }
+    } else request.end();
   });
 }

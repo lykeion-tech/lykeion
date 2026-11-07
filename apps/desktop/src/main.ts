@@ -37,6 +37,7 @@ const configBase =
 let daemon: DaemonManager | null = null;
 let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
+let cancelDesktopRequest: ((id: unknown) => void) | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -108,7 +109,11 @@ void app.whenReady().then(async () => {
   selectedOrigin = apiOrigin;
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
-    installDesktopRenderer(desktopSession, apiOrigin, path.dirname(bundledPath));
+    cancelDesktopRequest = installDesktopRenderer(
+      desktopSession,
+      apiOrigin,
+      path.dirname(bundledPath),
+    ).cancel;
   }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
@@ -154,6 +159,10 @@ void app.whenReady().then(async () => {
     )
       return;
     void shell.openExternal(url);
+  });
+  ipcMain.on('lykeion:cancel-request', (event, id: unknown) => {
+    if (window && cancelDesktopRequest && trustedDesktopFrame(event, window.webContents, apiOrigin))
+      cancelDesktopRequest(id);
   });
   createWindow();
   app.on('activate', () => {

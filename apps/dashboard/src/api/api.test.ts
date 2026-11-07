@@ -42,6 +42,28 @@ afterEach(() => {
 });
 
 describe('api', () => {
+  it('cancels only its own packaged desktop request when the signal aborts', async () => {
+    const cancelRequest = vi.fn();
+    vi.stubGlobal('window', { lykeionDesktop: { cancelRequest } });
+    const fetch = vi.fn(
+      (_path: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal!.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const pending = api('GET', '/api/file', undefined, undefined, { signal: controller.signal });
+    const id = (fetch.mock.calls[0]![1].headers as Record<string, string>)[
+      'X-Lykeion-Desktop-Request'
+    ];
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(cancelRequest).toHaveBeenCalledExactlyOnceWith(id);
+  });
   it('names the current workspace on /api routes only', async () => {
     workspaceId.value = 'w1';
     let fetch = respond(200, '[]');

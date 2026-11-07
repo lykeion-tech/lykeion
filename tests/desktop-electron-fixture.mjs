@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -15,7 +15,12 @@ app.whenReady().then(async () => {
   let foreignRequests = 0;
   let uploadFirstChunk = false;
   let uploadAborted = false;
+  let cancelStarted = false;
+  let cancelAborted = false;
+  let cancellationHeaderLeaked = false;
+  let responseAborted = false;
   const server = http.createServer((q, s) => {
+    if (q.headers['x-lykeion-desktop-request']) cancellationHeaderLeaked = true;
     apiOrigin = q.headers.origin || apiOrigin;
     if (q.url === '/api/gzip') {
       s.writeHead(200, { 'Content-Encoding': 'gzip' });
@@ -26,6 +31,23 @@ app.whenReady().then(async () => {
     } else if (q.url === '/api/collect') {
       foreignRequests++;
       s.end('unexpected');
+    } else if (q.url === '/api/slow-response') {
+      s.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      s.write(Buffer.alloc(65536));
+      s.on('close', () => {
+        responseAborted = true;
+      });
+    } else if (q.url === '/api/cancel') {
+      cancelStarted = true;
+      q.on('close', () => {
+        cancelAborted = true;
+      });
+    } else if (q.url === '/api/empty-upload') {
+      let n = 0;
+      q.on('data', (chunk) => {
+        n += chunk.length;
+      });
+      q.on('end', () => s.end(String(n)));
     } else if (q.url === '/api/abort-upload') {
       q.on('data', () => {});
       q.on('aborted', () => {
@@ -93,7 +115,35 @@ app.whenReady().then(async () => {
       domain: '.lab.example',
       secure: true,
     });
-    route.installDesktopRenderer(currentSession, origin, root + '/dist/dashboard');
+    const cancellation = route.installDesktopRenderer(
+      currentSession,
+      origin,
+      root + '/dist/dashboard',
+    );
+    const beforeStart = new AbortController();
+    beforeStart.abort();
+    const preAborted = await route
+      .forward(
+        currentSession,
+        new Request(origin + '/api/cancel', { signal: beforeStart.signal }),
+        cancellation,
+      )
+      .then(
+        () => false,
+        (error) => error.name === 'AbortError',
+      );
+    const earlyID = crypto.randomUUID();
+    cancellation.cancel(earlyID);
+    const earlyCanceled = await route
+      .forward(
+        currentSession,
+        new Request(origin + '/api/cancel', { headers: { 'X-Lykeion-Desktop-Request': earlyID } }),
+        cancellation,
+      )
+      .then(
+        () => false,
+        (error) => error.name === 'AbortError',
+      );
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyk-download-'));
     const downloaded = new Promise((resolve) => {
       const timer = setTimeout(() => resolve(false), 10000);
@@ -112,14 +162,37 @@ app.whenReady().then(async () => {
       show: false,
       webPreferences: {
         session: currentSession,
+        preload: path.join(root, 'apps/desktop/out/preload.cjs'),
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
+    ipcMain.on('lykeion:cancel-request', (event, id) => {
+      if (route.trustedDesktopFrame(event, w.webContents, origin)) cancellation.cancel(id);
+    });
     w.webContents.on('will-navigate', (event) => event.preventDefault());
     try {
       await w.loadURL(route.desktopEntryURL(origin));
+      const emptyUpload = await w.webContents.executeJavaScript(
+        `Promise.race([fetch('/api/empty-upload',{method:'POST',duplex:'half',body:new ReadableStream({start(c){c.close()}})}).then(r=>r.text(),()=> 'error'),new Promise(r=>setTimeout(()=>r('timeout'),1000))])`,
+      );
+      await w.webContents.executeJavaScript(
+        `window.cancelController=new AbortController(); const id=crypto.randomUUID(); window.cancelController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(id));window.cancelResult=fetch('/api/cancel',{headers:{'X-Lykeion-Desktop-Request':id},signal:window.cancelController.signal}).then(()=> 'response',()=> 'aborted'); true`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await w.webContents.executeJavaScript('window.cancelController.abort(); window.cancelResult');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await Promise.race([
+        w.webContents.executeJavaScript(
+          `(async()=>{window.responseController=new AbortController();const rid=crypto.randomUUID();window.responseController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(rid));window.responseStream=(await fetch('/api/slow-response',{headers:{'X-Lykeion-Desktop-Request':rid},signal:window.responseController.signal})).body.getReader();await window.responseStream.read();return true})()`,
+        ),
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error('streamed response timed out')), 3000),
+        ),
+      ]);
+      await w.webContents.executeJavaScript('window.responseController.abort(); true');
+      await new Promise((resolve) => setTimeout(resolve, 250));
       await w.webContents.executeJavaScript(
         `window.uploadController=null; window.uploadResult=fetch('/api/stream-upload',{method:'POST',duplex:'half',body:new ReadableStream({start(c){window.uploadController=c;c.enqueue(new Uint8Array(8192))}})}).then(r=>r.text()); true`,
       );
@@ -158,6 +231,13 @@ app.whenReady().then(async () => {
           relatedDomainCookieLeak,
           streamedBeforeEnd,
           uploadAborted,
+          emptyUpload,
+          cancelStarted,
+          cancelAborted,
+          cancellationHeaderLeaked,
+          responseAborted,
+          preAborted,
+          earlyCanceled,
         }),
       );
       if (
@@ -167,6 +247,13 @@ app.whenReady().then(async () => {
         r.worker !== 'blocked' ||
         r.redirected !== 'blocked' ||
         foreignRequests !== 0 ||
+        !preAborted ||
+        !earlyCanceled ||
+        emptyUpload !== '0' ||
+        !cancelStarted ||
+        !cancelAborted ||
+        !responseAborted ||
+        cancellationHeaderLeaked ||
         !streamedBeforeEnd ||
         !uploadAborted ||
         !download ||

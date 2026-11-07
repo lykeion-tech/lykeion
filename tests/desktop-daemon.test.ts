@@ -10,6 +10,7 @@ import {
   requestDaemonAPI,
   desktopDaemonOptions,
 } from '../apps/desktop/src/daemon-manager.js';
+import { createDaemonSession } from '../apps/dashboard/src/lib/daemon-session';
 import {
   installDaemonIPC,
   validateDaemonRequest,
@@ -653,6 +654,43 @@ describe('desktop daemon manager', () => {
     );
     expect(f.request).not.toHaveBeenCalled();
   });
+});
+
+it('dashboard logout immediately fences an in-flight native credential mint before daemon start', async () => {
+  const f = await fixture();
+  const gate = deferred<void>();
+  const request = f.request.getMockImplementation()!;
+  let minting = false;
+  f.request.mockImplementation(async (url, options) => {
+    if (options.method === 'POST') {
+      minting = true;
+      await gate.promise;
+    }
+    return request(url, options);
+  });
+  const bridge = {
+    getSnapshot: () => f.manager.getSnapshot(),
+    configureSession: (value: typeof session) => f.manager.configureSession(value),
+    clearSession: () => f.manager.clearSession(),
+  };
+  const ui = createDaemonSession({
+    bridge: bridge as never,
+    apiOrigin: origin,
+    token: async () => ({ token: session.sessionToken }),
+    reportError: () => {},
+  });
+  const login = ui.update(session.userID);
+  await vi.waitFor(() => expect(minting).toBe(true));
+  const logout = ui.clear();
+  gate.resolve();
+  await Promise.all([login, logout]);
+  expect(f.calls).not.toContain('daemon start');
+  const snapshot = await f.manager.getSnapshot();
+  expect(snapshot.authenticatedUserID).toBeNull();
+  await expect(
+    readFile(path.join(f.root, 'profiles', snapshot.profile!, 'config.json')),
+  ).rejects.toMatchObject({ code: 'ENOENT' });
+  ui.dispose();
 });
 
 describe('unsupported desktop daemon', () => {

@@ -7,9 +7,27 @@ import {
   installDesktopRenderer,
   desktopPartition,
   validExternalURL,
+  createRequestCancellation,
 } from '../apps/desktop/src/renderer-origin';
 
 describe('desktop renderer origin', () => {
+  it('cancels only the matching active request and fences early or duplicate IDs', () => {
+    const first = '11111111-1111-4111-8111-111111111111';
+    const second = '22222222-2222-4222-8222-222222222222';
+    const third = '33333333-3333-4333-8333-333333333333';
+    const registry = createRequestCancellation();
+    const abortFirst = vi.fn();
+    const abortSecond = vi.fn();
+    expect(registry.register(first, abortFirst)).toBe(true);
+    expect(registry.register(second, abortSecond)).toBe(true);
+    expect(registry.register(first, vi.fn())).toBe(false);
+    registry.cancel(first);
+    expect(abortFirst).toHaveBeenCalledOnce();
+    expect(abortSecond).not.toHaveBeenCalled();
+    registry.cancel(third);
+    expect(registry.register(third, vi.fn())).toBe(false);
+    expect(registry.register('bad-id', vi.fn())).toBe(false);
+  });
   it('separates complete origins, including ports and related domains', () => {
     expect(desktopPartition('http://127.0.0.1:8080')).not.toBe(
       desktopPartition('http://127.0.0.1:9090'),

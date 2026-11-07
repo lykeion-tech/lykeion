@@ -79,31 +79,44 @@ export async function api<T = void>(
     payload = JSON.stringify(body);
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: payload,
-    credentials: 'same-origin',
-    signal: options.signal,
-  });
-  if (res.status === 401) authenticationLost(requestEpoch);
-  if (res.status === 204) return undefined as T;
-  if (res.ok && options.response === 'blob')
-    return (await (options.maxBytes === undefined ? res.blob() : boundedBlob(res, options.maxBytes))) as T;
-  const text = await res.text();
-  let data: unknown;
+  const cancel = typeof window !== 'undefined' ? window.lykeionDesktop?.cancelRequest : undefined;
+  const requestID = cancel && options.signal ? crypto.randomUUID() : undefined;
+  if (requestID) headers['X-Lykeion-Desktop-Request'] = requestID;
+  const abort = () => {
+    if (requestID) cancel?.(requestID);
+  };
+  options.signal?.addEventListener('abort', abort, { once: true });
   try {
-    data = text ? JSON.parse(text) : undefined;
-  } catch {
-    data = undefined;
+    const res = await fetch(path, {
+      method,
+      headers,
+      body: payload,
+      credentials: 'same-origin',
+      signal: options.signal,
+    });
+    if (res.status === 401) authenticationLost(requestEpoch);
+    if (res.status === 204) return undefined as T;
+    if (res.ok && options.response === 'blob')
+      return (await (options.maxBytes === undefined
+        ? res.blob()
+        : boundedBlob(res, options.maxBytes))) as T;
+    const text = await res.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      data = undefined;
+    }
+    if (!res.ok) {
+      const obj = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+      const message =
+        typeof obj.error === 'string'
+          ? obj.error
+          : res.statusText || `Request failed (${res.status})`;
+      throw new ApiError(res.status, message, obj);
+    }
+    return data as T;
+  } finally {
+    options.signal?.removeEventListener('abort', abort);
   }
-  if (!res.ok) {
-    const obj = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-    const message =
-      typeof obj.error === 'string'
-        ? obj.error
-        : res.statusText || `Request failed (${res.status})`;
-    throw new ApiError(res.status, message, obj);
-  }
-  return data as T;
 }
