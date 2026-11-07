@@ -128,4 +128,74 @@ describe('workspace tab defaults', () => {
     ]);
     expect(state.selected.value).toBe(state.tabs.value[2]!.id);
   });
+
+  it('restores tabs only after the same account is known and clears them on logout', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    state.openTab('/studies/private', 'Private study A', 'tasks');
+    await nextTick();
+    vi.resetModules();
+    const reloaded = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(reloaded.tabs.value).toEqual([]);
+    reloaded.setAccount('account-a');
+    expect(reloaded.tabs.value.map((tab) => tab.title)).toEqual(['Private study A']);
+    reloaded.clearAccount();
+    reloaded.setAccount('account-b');
+    expect(reloaded.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('Private study A');
+  });
+
+  it('drops prior-account tabs on a direct switch and never adopts legacy tabs', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    stored.set(
+      'lykeion.tabs',
+      JSON.stringify([
+        {
+          id: 1,
+          path: '/studies/secret',
+          title: 'Legacy secret',
+          icon: 'tasks',
+          history: ['/studies/secret'],
+          index: 0,
+        },
+      ]),
+    );
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    expect(state.tabs.value).toEqual([]);
+    state.openTab('/studies/secret', 'Secret A', 'tasks');
+    state.setAccount('account-b');
+    expect(state.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('Secret A');
+    expect([...stored.values()].join(' ')).not.toContain('Legacy secret');
+  });
+
+  it('clears tab titles immediately when the authentication session is lost', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const { authenticationLost } = await import('../api/auth-loss');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    state.openTab('/studies/private', 'Private A', 'tasks');
+    authenticationLost();
+    expect(state.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('Private A');
+  });
+
+  it('clears prior-account tabs when a new sign-in is verified', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const { authenticationRestored } = await import('../api/auth-loss');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    state.openTab('/studies/private', 'Private A', 'tasks');
+    authenticationRestored();
+    expect(state.tabs.value).toEqual([]);
+    state.setAccount('account-b');
+    expect(state.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('Private A');
+  });
 });

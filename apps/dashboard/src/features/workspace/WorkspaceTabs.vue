@@ -21,6 +21,7 @@ const canCloseOthers = computed(() =>
 function record() {
   if (navigating) return;
   const t = active.value;
+  if (!t) return;
   if (t.path !== route.fullPath) {
     t.history = t.history.slice(0, t.index + 1);
     if (t.path === '/coresearch' && route.path.startsWith('/coresearch/')) {
@@ -37,7 +38,7 @@ function record() {
 watch(() => [route.fullPath, props.title], record, { flush: 'post', immediate: true });
 // A tab opened from anywhere, the new-tab button included, is selected first and shown here.
 watch(selected, () => {
-  if (!navigating) void select(active.value);
+  if (!navigating && active.value) void select(active.value);
 });
 async function select(t: Tab) {
   context.value = null;
@@ -52,8 +53,7 @@ async function select(t: Tab) {
 async function history(delta: number) {
   const t = active.value;
   let index = t.index + delta;
-  if (delta < 0 && t.history[index] === '/coresearch' && t.path.startsWith('/coresearch/'))
-    index--;
+  if (delta < 0 && t.history[index] === '/coresearch' && t.path.startsWith('/coresearch/')) index--;
   if (index < 0 || index >= t.history.length) return;
   t.index = index;
   t.path = t.history[index]!;
@@ -143,7 +143,7 @@ function tabKey(event: KeyboardEvent, t: Tab) {
   }
 }
 function key(e: KeyboardEvent) {
-  if (!(e.metaKey || e.ctrlKey) || document.querySelector('dialog[open]')) return;
+  if (!active.value || !(e.metaKey || e.ctrlKey) || document.querySelector('dialog[open]')) return;
   const letter = e.key.toLowerCase();
   if (letter === 't') {
     e.preventDefault();
@@ -186,7 +186,7 @@ function drop(t: Tab) {
   dragged.value = null;
 }
 onMounted(() => {
-  if (active.value.path !== route.fullPath) void select(active.value);
+  if (active.value && active.value.path !== route.fullPath) void select(active.value);
   window.addEventListener('keydown', key);
   window.addEventListener('pointerdown', outside);
 });
@@ -196,7 +196,7 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <header class="workspace-tabs">
+  <header v-if="active" class="workspace-tabs">
     <div class="window-navigation">
       <button
         class="icon-button"
@@ -221,7 +221,11 @@ onUnmounted(() => {
         v-for="t in tabs"
         :key="t.id"
         class="workspace-tab"
-        :class="{ active: t.id === selected, pinned: t.pinned, 'short-title': t.title.length <= 10 }"
+        :class="{
+          active: t.id === selected,
+          pinned: t.pinned,
+          'short-title': t.title.length <= 10,
+        }"
         draggable="true"
         @dragstart="dragged = t.id"
         @dragover.prevent

@@ -21,6 +21,7 @@ import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
+import { useWorkspaceTabs } from './state/workspace-tabs';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
 import { useCoresearchFiles, useCoresearchProject } from './features/coresearch/api';
@@ -49,6 +50,10 @@ const cowriteShell = computed(
 );
 const client = useQueryClient();
 const me = useMe();
+const workspaceTabs = useWorkspaceTabs();
+const switchingAccount = ref(false);
+let lastAccount: string | undefined;
+let accountGeneration = 0;
 const aristotle = useAristotle();
 const aristotleShell = computed(() => !!route.meta.conversationRail);
 const inboxShell = computed(() => route.meta.page === 'decisions');
@@ -83,6 +88,44 @@ const unauthorized = computed(() =>
   [me.error.value, workspaces.error.value, workspace.error.value, cards.error.value].some(
     (error) => error instanceof ApiError && error.status === 401,
   ),
+);
+watch(
+  [() => me.data.value?.id, unauthorized],
+  ([id, signedOut]) => {
+    if (signedOut) {
+      accountGeneration++;
+      lastAccount = undefined;
+      workspaceTabs.clearAccount();
+      switchingAccount.value = false;
+      return;
+    }
+    if (!id) return;
+    const changed = Boolean(lastAccount && lastAccount !== id);
+    lastAccount = id;
+    workspaceTabs.setAccount(id);
+    if (!changed) return;
+    const generation = ++accountGeneration;
+    switchingAccount.value = true;
+    workspaceId.value = '';
+    void (async () => {
+      try {
+        await client.cancelQueries();
+        await client.resetQueries();
+        if (generation !== accountGeneration || me.data.value?.id !== id) return;
+        await router.replace('/studies');
+        if (
+          generation === accountGeneration &&
+          me.data.value?.id === id &&
+          (route.path === '/studies' || route.meta.bare)
+        )
+          switchingAccount.value = false;
+      } catch {
+        if (generation === accountGeneration)
+          notify('Could not switch accounts. Reload to try again.');
+      }
+    })();
+  },
+  { immediate: true, flush: 'sync' },
 );
 const desktopSession = createDaemonSession({
   bridge: window.lykeionDesktop?.daemon,
@@ -299,6 +342,7 @@ async function logOut() {
         notify('Could not reach the server to log out. Try again.');
         return false;
       }
+      workspaceTabs.clearAccount();
       await client.cancelQueries();
       return true;
     }))
@@ -459,7 +503,7 @@ onUnmounted(() => {
   <DiscardDraftDialog />
   <RouterView v-if="route.meta.bare" />
   <div
-    v-else-if="!unauthorized && !onboardingTarget"
+    v-else-if="!unauthorized && !onboardingTarget && !switchingAccount"
     class="application"
     :class="{
       'sidebar-hidden': collapsed,
@@ -471,6 +515,8 @@ onUnmounted(() => {
     :style="{ '--rail-width': rail.width.value + 'px' }"
   >
     <WorkspaceTabs
+      v-if="me.data.value?.id"
+      :key="me.data.value.id"
       :title="tabTitle"
       :icon="headingIcon"
       :collapsed="collapsed"

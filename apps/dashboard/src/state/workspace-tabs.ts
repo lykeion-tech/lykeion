@@ -1,5 +1,6 @@
 import { ref, watch } from 'vue';
-import { readJSON, readText, writeJSON, writeText } from '../storage';
+import { onAuthenticationLost, onAuthenticationRestored } from '../api/auth-loss';
+import { readJSON, writeJSON, writeText } from '../storage';
 
 export type Tab = {
   id: number;
@@ -14,8 +15,7 @@ export type Tab = {
 export const validPath = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
 
-function restored(): Tab[] {
-  const t = readJSON<unknown>('lykeion.tabs', null, 'session');
+function restored(t: unknown): Tab[] {
   try {
     if (
       Array.isArray(t) &&
@@ -48,15 +48,54 @@ function restored(): Tab[] {
   return [];
 }
 
-// Tabs live for the browser tab's session, so they are kept in sessionStorage.
-const tabs = ref<Tab[]>(restored());
-const savedSelected = Number(readText('lykeion.active-tab', 'session'));
-const selected = ref(
-  tabs.value.some((t) => t.id === savedSelected) ? savedSelected : (tabs.value[0]?.id ?? 0),
-);
-let nextId = Math.max(Date.now(), ...tabs.value.map((t) => t.id)) + 1;
-watch(selected, (id) => writeText('lykeion.active-tab', String(id), 'session'));
-watch(tabs, (x) => writeJSON('lykeion.tabs', x, 'session'), { deep: true });
+// Never expose saved titles until the server has identified their owner.
+const tabs = ref<Tab[]>([]);
+const selected = ref(0);
+let account: string | null = null;
+let restoring = false;
+let nextId = Date.now() + 1;
+writeJSON('lykeion.tabs', [], 'session');
+writeText('lykeion.active-tab', '0', 'session');
+function persist() {
+  if (account && !restoring)
+    writeJSON(
+      'lykeion.workspace-tabs',
+      { account, tabs: tabs.value, selected: selected.value },
+      'session',
+    );
+}
+watch(selected, persist, { flush: 'sync' });
+watch(tabs, persist, { deep: true, flush: 'sync' });
+
+function clearAccount() {
+  account = null;
+  tabs.value = [];
+  selected.value = 0;
+  writeJSON('lykeion.workspace-tabs', null, 'session');
+}
+
+function setAccount(id: string) {
+  if (!id || account === id) return;
+  const saved = account
+    ? null
+    : readJSON<{ account?: unknown; tabs?: unknown; selected?: unknown } | null>(
+        'lykeion.workspace-tabs',
+        null,
+        'session',
+      );
+  restoring = true;
+  account = id;
+  tabs.value = saved?.account === id ? restored(saved.tabs) : [];
+  selected.value = tabs.value.some((t) => t.id === saved?.selected)
+    ? (saved!.selected as number)
+    : (tabs.value[0]?.id ?? 0);
+  nextId = Math.max(Date.now(), ...tabs.value.map((t) => t.id)) + 1;
+  restoring = false;
+  persist();
+}
+
+onAuthenticationLost(clearAccount);
+onAuthenticationRestored(clearAccount);
 
 // Adds a tab and selects it; WorkspaceTabs navigates to whichever tab is selected.
 function openTab(path = '/studies', title = 'Studies', icon = 'tasks') {
@@ -71,7 +110,7 @@ function ensureTab(path: string, title: string, icon: string) {
   if (!tabs.value.length) openTab(path, title, icon);
 }
 
-// The one owner of the session keys 'lykeion.tabs' and 'lykeion.active-tab'.
+// The tab strip and Coresearch share one account-bound session.
 export function useWorkspaceTabs() {
-  return { tabs, selected, openTab, ensureTab };
+  return { tabs, selected, openTab, ensureTab, setAccount, clearAccount };
 }

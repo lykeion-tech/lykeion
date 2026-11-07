@@ -16,6 +16,7 @@ import { notify } from '../../state/notice';
 import { useRuntimes, useWorkspaces } from '../../api/queries';
 import type { Workspace } from '../../api/types';
 import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../../lib/studies';
+import { useWorkspaceTabs } from '../../state/workspace-tabs';
 
 const desktopSession = inject(daemonSessionKey, null);
 const route = useRoute();
@@ -153,6 +154,7 @@ async function logOut() {
     error.value = 'Could not reach the server to log out. Try again.';
     return;
   }
+  useWorkspaceTabs().clearAccount();
   await client.cancelQueries();
   workspaceId.value = '';
   await nextTick();
