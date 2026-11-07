@@ -8,17 +8,34 @@ import Modal from '../../ui/Modal.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { useCards, useInvitations, useMe, useMembers, useWorkspaces } from '../../api/queries';
+import {
+  useCards,
+  useInvitations,
+  useMe,
+  useMembers,
+  useWorkspace,
+  useWorkspaces,
+} from '../../api/queries';
 import type { Member, Role } from '../../api/types';
-import { timeAgo } from '../../lib/studies';
+import {
+  boardColumnOf,
+  boardColumns,
+  studyDisplayTitle,
+  studyNumber,
+  timeAgo,
+} from '../../lib/studies';
+import { matchesQuery } from '../../lib/search';
 
 const client = useQueryClient();
 const me = useMe();
 const workspaces = useWorkspaces();
+const workspace = useWorkspace();
 const members = useMembers();
 const cards = useCards();
 const route = useRoute();
 const search = ref('');
+const studySearch = ref('');
+const collapsed = ref<string[]>([]);
 const roleFilter = ref<'all' | Role>('all');
 const detailTab = ref<'overview' | 'studies' | 'access'>('overview');
 const selectedMember = computed(() =>
@@ -39,10 +56,27 @@ const memberStudies = computed(() =>
         (c.assignee_type === 'member' && c.assignee_id === selectedMember.value.user_id)),
   ),
 );
+const studyGroups = computed(() =>
+  boardColumns.map((column) => ({
+    ...column,
+    cards: memberStudies.value
+      .filter(
+        (card) =>
+          boardColumnOf(card) === column.id &&
+          matchesQuery(
+            `${studyNumber(workspace.data.value, card)} ${card.title} ${card.question}`,
+            studySearch.value,
+          ),
+      )
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+  })),
+);
 watch(
   () => route.params.memberId,
   () => {
     detailTab.value = 'overview';
+    studySearch.value = '';
+    collapsed.value = [];
   },
 );
 const myRole = computed(() => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role);
@@ -208,16 +242,42 @@ const invite = () =>
               <h3>Workspace</h3>
               <p class="muted">{{ roleNames[selectedMember.role] }}</p>
             </div>
-            <div class="colleague-panel" v-else-if="detailTab === 'studies'">
-              <h3>Studies</h3>
-              <p v-if="!memberStudies.length" class="muted">
-                No visible studies owned by or assigned to this colleague.
-              </p>
-              <ul v-else>
-                <li v-for="study in memberStudies" :key="study.id">
-                  <router-link :to="`/studies/${study.id}`">{{ study.title }}</router-link>
-                </li>
-              </ul>
+            <div class="agent-work" v-else-if="detailTab === 'studies'">
+              <div class="agent-work-toolbar">
+                <label class="agent-search"
+                  ><Icon name="search" :size="14" /><input
+                    v-model="studySearch"
+                    placeholder="Search studies..."
+                    aria-label="Search studies"
+                /></label>
+              </div>
+              <section v-for="group in studyGroups" :key="group.id" class="agent-group">
+                <button
+                  class="agent-group-head"
+                  :class="'group-' + group.id"
+                  :aria-expanded="!collapsed.includes(group.id)"
+                  @click="
+                    collapsed = collapsed.includes(group.id)
+                      ? collapsed.filter((id) => id !== group.id)
+                      : [...collapsed, group.id]
+                  "
+                >
+                  <Icon name="down" :size="12" /><span class="stage-ring" />{{ group.name
+                  }}<small>{{ group.cards.length }}</small>
+                </button>
+                <template v-if="!collapsed.includes(group.id)">
+                  <router-link
+                    v-for="study in group.cards"
+                    :key="study.id"
+                    :to="`/studies/${study.id}`"
+                    class="agent-study"
+                    ><small>{{ studyNumber(workspace.data.value, study) }}</small
+                    ><span>{{ studyDisplayTitle(study.title || study.question) }}</span
+                    ><em>{{ timeAgo(study.updated_at) }}</em></router-link
+                  >
+                  <p v-if="!group.cards.length" class="agent-group-empty">No studies</p>
+                </template>
+              </section>
             </div>
             <div class="colleague-panel" v-else>
               <h3>Workspace access</h3>
@@ -368,6 +428,91 @@ const invite = () =>
 </template>
 <style scoped src="../../ui/resources.css"></style>
 <style scoped>
+.agent-work {
+  padding: 24px;
+}
+.agent-study {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.agent-study:hover {
+  background: var(--hover);
+}
+.agent-study small {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.agent-study span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-study em {
+  flex: none;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+.agent-work-toolbar {
+  margin-bottom: 10px;
+}
+.agent-group {
+  margin-bottom: 8px;
+}
+.agent-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--input);
+  font-size: 12px;
+  font-weight: 500;
+}
+.agent-group-head[aria-expanded='false'] > .icon {
+  transform: rotate(-90deg);
+}
+.agent-group-head small {
+  font-weight: 400;
+  color: var(--muted);
+}
+.stage-ring {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--stage-dot);
+}
+.group-hypotheses .stage-ring {
+  border-color: var(--stage-hypotheses-dot);
+}
+.group-experimentation .stage-ring {
+  border-color: var(--stage-experimentation-dot);
+}
+.group-validation .stage-ring {
+  border-color: var(--stage-validation-dot);
+}
+.group-blocked .stage-ring {
+  border-color: var(--stage-blocked-dot);
+}
+.group-done .stage-ring {
+  background: var(--stage-dot);
+}
+.agent-group-empty {
+  padding: 22px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .colleagues {
   padding: 16px 24px;
 }
