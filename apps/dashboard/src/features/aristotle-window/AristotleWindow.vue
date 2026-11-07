@@ -875,6 +875,9 @@ header {
   left: 10px;
 }
 .menu.chat-menu {
+  right: auto;
+  left: 44px;
+  width: min(270px, calc(100% - 54px));
   box-shadow: none;
 }
 .menu small,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, watch } from 'vue';
 import { useNotebookRecords, useRuns } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import { agentDisplayName } from '../../lib/agent-name';
@@ -23,26 +23,10 @@ const groups = computed(() =>
       }));
   }),
 );
-const expanded = ref(new Set<string>());
-watch([workspaceId, () => props.cardId], () => {
-  expanded.value = new Set();
-});
 const agentName = (cell: NotebookCell) => {
   const run = runs.data.value?.find((run) => run.id === cell.run);
   return run?.agent_name ? agentDisplayName(run.agent_name) : 'Agent not recorded';
 };
-const lines = (output: string) => output.replace(/\r?\n$/, '').split(/\r?\n/);
-const visibleOutput = (cell: NotebookCell, error = false) => {
-  const stream = error ? cell.error : cell.output;
-  return expanded.value.has(`${cell.key}:${error}`) || lines(stream).length <= 12
-    ? stream
-    : lines(stream).slice(0, 12).join('\n');
-};
-function toggle(cell: NotebookCell, error = false) {
-  const key = `${cell.key}:${error}`;
-  if (expanded.value.has(key)) expanded.value.delete(key);
-  else expanded.value.add(key);
-}
 const elements = new Map<string, HTMLElement>();
 function rememberCell(key: string, element: unknown) {
   if (element) elements.set(key, element as HTMLElement);
@@ -110,34 +94,13 @@ watch(
         </header>
         <HighlightedSource :code="cell.code" :language="cell.language" />
         <div v-if="cell.output || cell.outputTruncated" class="cell-output">
-          <pre aria-label="Printed output">{{ visibleOutput(cell) }}</pre>
-          <button
-            v-if="lines(cell.output).length > 12"
-            :aria-expanded="expanded.has(`${cell.key}:false`)"
-            @click="toggle(cell)"
-          >
-            {{
-              expanded.has(`${cell.key}:false`)
-                ? 'show less'
-                : `show all ${lines(cell.output).length} lines`
-            }}
-          </button>
+          <small>Output</small>
+          <pre v-if="cell.output" aria-label="Printed output" tabindex="0">{{ cell.output }}</pre>
           <p v-if="cell.outputTruncated" class="truncated">Recorded output was truncated.</p>
         </div>
         <div v-if="cell.error || cell.errorTruncated" class="cell-output cell-error">
           <small>Standard error</small>
-          <pre aria-label="Standard error">{{ visibleOutput(cell, true) }}</pre>
-          <button
-            v-if="lines(cell.error).length > 12"
-            :aria-expanded="expanded.has(`${cell.key}:true`)"
-            @click="toggle(cell, true)"
-          >
-            {{
-              expanded.has(`${cell.key}:true`)
-                ? 'show less'
-                : `show all ${lines(cell.error).length} lines`
-            }}
-          </button>
+          <pre v-if="cell.error" aria-label="Standard error" tabindex="0">{{ cell.error }}</pre>
           <p v-if="cell.errorTruncated" class="truncated">Recorded error was truncated.</p>
         </div>
       </article>
@@ -179,19 +142,29 @@ header {
   font-size: 13px;
 }
 .cell-output {
-  border-top: 1px solid var(--border);
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  min-width: 0;
 }
-pre {
+.cell-output pre {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   overflow: auto;
+  padding: 10px;
+  background: var(--input);
+  border-radius: 6px;
+  color: var(--text);
   font:
-    12px/1.6 ui-monospace,
+    12px/1.5 'JetBrains Mono Variable',
+    ui-monospace,
     monospace;
 }
 small {
   display: block;
-  margin-bottom: 6px;
+  font-size: 12px;
   color: var(--muted);
 }
 button {
@@ -201,8 +174,9 @@ button {
   text-decoration: underline;
   cursor: pointer;
 }
-.cell-output button {
-  padding: 0;
+.cell-output pre:focus-visible {
+  outline: 2px solid var(--primary-text);
+  outline-offset: 3px;
 }
 .empty,
 .truncated {

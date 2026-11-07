@@ -190,7 +190,8 @@ async function startDraft(
 .conversation-delete {
   position: absolute;
   right: 6px;
-  top: 7px;
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   place-items: center;
   width: 26px;

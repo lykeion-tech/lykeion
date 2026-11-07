@@ -105,18 +105,20 @@ it('marks a failed script and shows its recorded stderr', async () => {
   expect(textOf(root)).toContain('✗ exit 1');
   expect(textOf(root)).toContain('NameError: bad');
 });
-it('folds long output and expands the exact recorded lines', async () => {
+it('shows complete recorded output and error in keyboard-scrollable blocks', async () => {
   const output = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+  const error = Array.from({ length: 15 }, (_, i) => `error ${i + 1}`).join('\n');
   const { root } = setup([
-    script('x1', { body: { tool: 'run_script', script: 'print(lines)', output } }),
+    script('x1', { body: { tool: 'run_script', script: 'print(lines)', output, error } }),
   ]);
   await nextTick();
-  const block = () => all(root).find((n) => n.props['aria-label'] === 'Printed output')!;
-  expect(textOf(block()).split('\n')).toHaveLength(12);
-  expect(textOf(block())).not.toContain('line 13');
-  (button(root, 'show all 30 lines').props.onClick as () => void)();
-  await nextTick();
-  expect(textOf(block())).toBe(output);
+  const block = all(root).find((n) => n.props['aria-label'] === 'Printed output')!;
+  const errorBlock = all(root).find((n) => n.props['aria-label'] === 'Standard error')!;
+  expect(textOf(block)).toBe(output);
+  expect(textOf(errorBlock)).toBe(error);
+  expect(block.props.tabindex).toBe('0');
+  expect(errorBlock.props.tabindex).toBe('0');
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).startsWith('show all'))).toBe(false);
 });
 it('groups cells by board order and then try, preserving chronology within each try', async () => {
   const { root } = setup([

@@ -85,8 +85,9 @@ const filtered = computed(() => {
   padding: 5px 7px;
   cursor: pointer;
 }
+.experiment-gallery-tools button:hover,
 .experiment-gallery-tools button[aria-pressed='true'] {
-  background: var(--surface-hover, #ececef);
+  background: var(--hover);
   color: var(--text);
 }
 .experiment-gallery-items {
