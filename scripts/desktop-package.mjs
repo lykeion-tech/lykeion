@@ -3,8 +3,8 @@ import {
   cpSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
-import * as asar from '@electron/asar';
+import { createRequire } from 'node:module';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -64,7 +64,35 @@ export function safeBuildEnvironment(input) {
   ]) {
     if (input[key]) env[key] = input[key];
   }
+  env.GOENV = 'off';
   return env;
+}
+
+export function replaceOutput(source, output) {
+  const parent = path.dirname(output);
+  mkdirSync(parent, { recursive: true });
+  const staging = mkdtempSync(path.join(parent, '.desktop-stage-'));
+  const backup = `${staging}-previous`;
+  let movedOld = false;
+  try {
+    cpSync(source, staging, { recursive: true, verbatimSymlinks: true });
+    try {
+      renameSync(output, backup);
+      movedOld = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    try {
+      renameSync(staging, output);
+    } catch (error) {
+      if (movedOld) renameSync(backup, output);
+      movedOld = false;
+      throw error;
+    }
+    if (movedOld) rmSync(backup, { recursive: true, force: true });
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 export function extractTrackedSnapshot(repo, destination) {
@@ -78,7 +106,7 @@ export function extractTrackedSnapshot(repo, destination) {
   }
 }
 
-export function verifyArchive(archive, expected, hostedOrigin) {
+export function verifyArchive(archive, expected, hostedOrigin, asar) {
   asar.uncache(archive);
   const entries = asar.listPackage(archive);
   for (const file of [
@@ -188,6 +216,7 @@ function main() {
       ],
       { cwd: source, env },
     );
+    const asar = createRequire(path.join(source, 'package.json'))('@electron/asar');
     run('npm', ['run', 'build'], { cwd: source, env: { ...env, LYK_API_URL: hostedOrigin } });
     run('node', ['scripts/desktop-dev.mjs', '--build-only'], {
       cwd: source,
@@ -226,7 +255,7 @@ function main() {
         ? `mac${arch === 'arm64' ? '-arm64' : ''}/Lykeion.app/Contents/Resources`
         : `linux${arch === 'arm64' ? '-arm64' : ''}-unpacked/resources`;
     const resources = path.join(source, 'dist/desktop-release', unpacked);
-    verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin);
+    verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin, asar);
     verifyBundledBinary(path.join(source, 'apps/desktop/out/lyk'), path.join(resources, 'bin/lyk'));
     verifyGoBuild(
       run('go', ['version', '-m', path.join(resources, 'bin/lyk')], { stdio: 'pipe', env }),
@@ -240,22 +269,14 @@ function main() {
         ['node_modules/electron-builder/cli.js', ...target.builder, '--publish', 'never'],
         { cwd: source, env },
       );
-      verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin);
+      verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin, asar);
       verifyBundledBinary(
         path.join(source, 'apps/desktop/out/lyk'),
         path.join(resources, 'bin/lyk'),
       );
     }
     const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
-    mkdirSync(output, { recursive: true });
-    for (const name of readdirSync(path.join(source, 'dist/desktop-release'))) {
-      const destination = path.join(output, name);
-      rmSync(destination, { recursive: true, force: true });
-      cpSync(path.join(source, 'dist/desktop-release', name), destination, {
-        recursive: true,
-        verbatimSymlinks: true,
-      });
-    }
+    replaceOutput(path.join(source, 'dist/desktop-release'), output);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

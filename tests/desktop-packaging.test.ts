@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -13,6 +21,7 @@ import {
   safeBuildEnvironment,
   verifyArchive,
   verifyBundledBinary,
+  replaceOutput,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
@@ -127,6 +136,61 @@ describe('desktop release packaging', () => {
     }
   });
 
+  it('ignores persisted Go overlay configuration when building release input', () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-goenv-test-'));
+    try {
+      const project = path.join(temp, 'project');
+      mkdirSync(project);
+      const source = path.join(realpathSync(project), 'main.go');
+      const replacement = path.join(realpathSync(temp), 'replacement.go');
+      writeFileSync(path.join(project, 'go.mod'), 'module example.com/probe\n\ngo 1.26\n');
+      writeFileSync(source, 'package main\nimport "fmt"\nfunc main(){fmt.Print("clean")}\n');
+      writeFileSync(replacement, 'package main\nimport "fmt"\nfunc main(){fmt.Print("overlay")}\n');
+      const overlay = path.join(temp, 'overlay.json');
+      writeFileSync(overlay, JSON.stringify({ Replace: { [source]: replacement } }));
+      const input = {
+        PATH: process.env.PATH,
+        HOME: temp,
+        GOCACHE: process.env.GOCACHE || '/private/tmp/lykeion-desktop-go-cache',
+      };
+      execFileSync('go', ['env', '-w', `GOFLAGS=-overlay=${overlay}`], { env: input });
+      expect(execFileSync('go', ['run', '.'], { cwd: project, env: input, encoding: 'utf8' })).toBe(
+        'overlay',
+      );
+      expect(
+        execFileSync('go', ['run', '.'], {
+          cwd: project,
+          env: safeBuildEnvironment(input),
+          encoding: 'utf8',
+        }),
+      ).toBe('clean');
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it('replaces the entire target after a verified build and retains prior output on copy failure', () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'desktop-output-test-'));
+    try {
+      const output = path.join(temp, 'target');
+      const full = path.join(temp, 'full');
+      const dir = path.join(temp, 'dir');
+      mkdirSync(full);
+      mkdirSync(dir);
+      writeFileSync(path.join(full, 'installer.dmg'), 'old');
+      writeFileSync(path.join(full, 'origin.txt'), 'https://one.test');
+      replaceOutput(full, output);
+      writeFileSync(path.join(dir, 'origin.txt'), 'https://two.test');
+      replaceOutput(dir, output);
+      expect(existsSync(path.join(output, 'installer.dmg'))).toBe(false);
+      expect(readFileSync(path.join(output, 'origin.txt'), 'utf8')).toBe('https://two.test');
+      expect(() => replaceOutput(path.join(temp, 'missing'), output)).toThrow();
+      expect(readFileSync(path.join(output, 'origin.txt'), 'utf8')).toBe('https://two.test');
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
   it('inspects real asar contents and rejects missing assets or injected files', async () => {
     const temp = mkdtempSync(path.join(tmpdir(), 'desktop-asar-test-'));
     try {
@@ -151,6 +215,7 @@ describe('desktop release packaging', () => {
           archive,
           { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
           'https://lykeion.ia',
+          asar,
         ),
       ).not.toThrow();
       writeFileSync(path.join(root, 'dist/dashboard/private.env'), 'secret');
@@ -160,6 +225,7 @@ describe('desktop release packaging', () => {
           archive,
           { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
           'https://lykeion.ia',
+          asar,
         ),
       ).toThrow();
       rmSync(path.join(root, 'dist/dashboard/private.env'));
@@ -170,6 +236,7 @@ describe('desktop release packaging', () => {
           archive,
           { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
           'https://lykeion.ia',
+          asar,
         ),
       ).toThrow();
       rmSync(path.join(root, 'dist/dashboard/development.js'));
@@ -180,6 +247,7 @@ describe('desktop release packaging', () => {
           archive,
           { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
           'https://lykeion.ia',
+          asar,
         ),
       ).toThrow();
     } finally {
