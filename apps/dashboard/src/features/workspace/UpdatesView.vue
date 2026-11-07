@@ -61,14 +61,14 @@ import { version } from '../../../../../package.json';
 }
 .update-row p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 6px 0 0;
-  line-height: 16px;
+  line-height: 18px;
 }
 .version {
   color: var(--muted);
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: 13px;
 }
 .update-row > button {
   flex-shrink: 0;

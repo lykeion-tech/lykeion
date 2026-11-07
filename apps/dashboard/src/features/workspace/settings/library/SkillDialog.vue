@@ -332,7 +332,7 @@ async function cancelEdit() {
 }
 .formatting-notice {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .skill-modal {
   width: 640px;
@@ -350,7 +350,7 @@ async function cancelEdit() {
   border-bottom: 1px solid var(--border);
 }
 .crumb {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 10px;
 }
@@ -376,7 +376,7 @@ async function cancelEdit() {
   padding: 3px;
 }
 .lede {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
   margin: 9px 0 13px;
@@ -428,7 +428,7 @@ async function cancelEdit() {
   display: grid;
   grid-template-columns: 84px 1fr;
   gap: 11px;
-  font-size: 12px;
+  font-size: 13px;
   margin: 0 0 24px;
 }
 .facts dt {
@@ -479,7 +479,7 @@ async function cancelEdit() {
 }
 .editor-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 10px;
 }
 .skill-editor {
@@ -501,7 +501,7 @@ async function cancelEdit() {
 }
 .detail-footer p,
 .muted {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
   margin: 0;
@@ -528,7 +528,7 @@ async function cancelEdit() {
 }
 .delete-confirm p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .delete-actions {

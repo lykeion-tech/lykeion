@@ -95,11 +95,11 @@ h2 {
 }
 .base-language {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .base-reason {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .env-package + .env-package {

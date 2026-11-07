@@ -150,7 +150,7 @@ function chooseSlice(event: Event) {
 <style scoped>
 .note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 label {
   margin-right: 12px;

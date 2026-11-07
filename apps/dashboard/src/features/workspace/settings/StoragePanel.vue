@@ -136,7 +136,7 @@ h3 {
   margin: 0;
 }
 .status {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -215,7 +215,7 @@ h4 {
   margin-top: 10px;
 }
 .filesystem strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }

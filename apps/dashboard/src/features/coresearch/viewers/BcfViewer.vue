@@ -90,7 +90,7 @@ watch(
 <style scoped>
 p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .scroll {
   overflow: auto;

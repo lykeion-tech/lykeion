@@ -445,7 +445,7 @@ const invite = () =>
 .agent-study small {
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .agent-study span {
   flex: 1;
@@ -457,7 +457,7 @@ const invite = () =>
 .agent-study em {
   flex: none;
   font-style: normal;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .agent-work-toolbar {
@@ -475,7 +475,7 @@ const invite = () =>
   padding: 0 16px;
   border-radius: 8px;
   background: var(--input);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 .agent-group-head[aria-expanded='false'] > .icon {
@@ -509,7 +509,7 @@ const invite = () =>
 .agent-group-empty {
   padding: 22px;
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -524,7 +524,7 @@ const invite = () =>
 .people th {
   color: var(--muted);
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   padding: 10px 16px;
 }
@@ -589,7 +589,7 @@ const invite = () =>
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .colleague-breadcrumb a {
   display: inline-flex;
@@ -639,7 +639,7 @@ const invite = () =>
   display: grid;
   grid-template-columns: 95px minmax(0, 1fr);
   gap: 14px 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .colleague-info dt {
   color: var(--muted);

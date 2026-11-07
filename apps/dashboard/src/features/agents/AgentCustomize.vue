@@ -338,7 +338,7 @@ async function save(kind: 'skills' | 'connectors') {
 }
 .builtin-note {
   margin: 28px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .capability-section {
@@ -385,7 +385,7 @@ async function save(kind: 'skills' | 'connectors') {
   font-weight: 500;
 }
 .capability-empty span {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .capability-rows {
@@ -423,7 +423,7 @@ async function save(kind: 'skills' | 'connectors') {
 }
 .picker-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 .agent-customize input[type='search'],

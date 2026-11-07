@@ -1039,7 +1039,7 @@ function pin() {
   background: var(--input);
 }
 .state-note {
-  font-size: 12px;
+  font-size: 13px;
   padding: 0 0 4px 68px;
   color: var(--muted);
 }
@@ -1259,7 +1259,7 @@ function pin() {
 .study-comment footer > small {
   margin-right: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .study-comment .round-send {
   width: 26px;
@@ -1291,7 +1291,7 @@ function pin() {
   background: var(--error-bg);
   border: 1px solid var(--error-border);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--error-text);
 }
@@ -1454,7 +1454,7 @@ function pin() {
 }
 .inspector-panel > header > small {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .inspector-panel > p {
@@ -1468,7 +1468,7 @@ function pin() {
   background: var(--border);
   padding: 8px 12px 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
 }
 .notebook-environment {
@@ -1487,11 +1487,11 @@ function pin() {
   border: 0;
   color: var(--muted);
   max-width: 110px;
-  font-size: 12px;
+  font-size: 13px;
   height: 24px;
 }
 .notebook-link {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   padding: 0;
   text-align: left;
@@ -1502,7 +1502,7 @@ function pin() {
   color: var(--primary-text);
 }
 .notebook-footer > p {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
 }
 .notebook-footer > div:last-child {
@@ -1530,7 +1530,7 @@ function pin() {
   gap: 6px;
 }
 .compute-stats small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1559,7 +1559,7 @@ function pin() {
 .kernel-section small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
 }
 .kernel-section .notebook-link {
@@ -1692,14 +1692,14 @@ function pin() {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 8px 0;
   flex-wrap: wrap;
 }
 .study-evidence > summary {
   color: var(--muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   padding-top: 6px;
 }
 .flow-block {
@@ -1865,7 +1865,7 @@ function pin() {
 .study-meta > small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 12px;
 }
 .study-meta .v {
@@ -1934,7 +1934,7 @@ function pin() {
   width: 64px;
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .property-row .v {
   margin: 0;
@@ -1945,7 +1945,7 @@ function pin() {
   background: transparent;
   min-width: 0;
   flex: 1;
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 0;
   border-radius: 4px;
 }
@@ -1983,10 +1983,10 @@ function pin() {
 }
 .details-body > small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .details-body .v {
-  font-size: 12px;
+  font-size: 13px;
   margin: 0;
 }
 .details-body .attached-files,
@@ -2000,7 +2000,7 @@ function pin() {
   color: var(--muted);
 }
 .attached-files .text-button {
-  font-size: 12px;
+  font-size: 13px;
   padding: 0;
   text-decoration: underline;
 }

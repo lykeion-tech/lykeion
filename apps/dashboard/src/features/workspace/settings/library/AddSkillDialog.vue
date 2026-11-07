@@ -262,7 +262,7 @@ async function submit() {
   margin: 0;
 }
 .add-head p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 4px 0 0;
 }
@@ -300,14 +300,14 @@ async function submit() {
 }
 .import-option span {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 4px;
 }
 .field {
   display: block;
   margin-bottom: 18px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .field:last-child {
   margin-bottom: 0;
@@ -331,7 +331,7 @@ async function submit() {
 }
 .field small,
 .hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 6px 0 0;
   line-height: 1.5;
@@ -340,7 +340,7 @@ async function submit() {
   display: block;
 }
 .workspace-note {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin: 18px 0 0;
   line-height: 1.5;
@@ -369,7 +369,7 @@ async function submit() {
   border-radius: 7px;
   padding: 12px;
   margin-top: 14px;
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .local-preview strong {

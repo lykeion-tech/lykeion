@@ -42,7 +42,7 @@ const view = ref<PdfView>({ page: 1, pages: 0, zoom: 1, fit: true });
 .document-pdf .pdf-download {
   align-self: flex-end;
   padding: 6px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .document-pdf :deep(.artifact-pdf) {
   display: flex;

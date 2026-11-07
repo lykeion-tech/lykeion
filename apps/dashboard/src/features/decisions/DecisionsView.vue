@@ -148,7 +148,7 @@ watch(
 <style scoped>
 .decision-activity { padding:4px 24px 32px; width:100%; }
 .activity-card { border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); overflow:hidden; }
-.card-time { color:var(--muted); font-size:12px; }
+.card-time { color:var(--muted); font-size: 13px; }
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
 .question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
 .card-body h2 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }

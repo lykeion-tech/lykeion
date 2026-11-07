@@ -109,7 +109,7 @@ function select(event: Event) {
 <style scoped>
 .note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 canvas {
   display: block;

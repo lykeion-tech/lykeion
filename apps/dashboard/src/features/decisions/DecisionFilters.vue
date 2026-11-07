@@ -30,11 +30,11 @@ const dates: { value: DecisionDateFilter; label: string }[] = [
 <style scoped>
 .decision-filters { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 18px; }
 .filter-row, .custom-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-.filter-row button { border: 1px solid var(--border); border-radius: 999px; padding: 5px 13px; color: var(--muted); background: var(--surface); font-size: 12px; font-weight: 500; }
+.filter-row button { border: 1px solid var(--border); border-radius: 999px; padding: 5px 13px; color: var(--muted); background: var(--surface); font-size: 13px; font-weight: 500; }
 .filter-row button:hover { background: var(--hover); color: var(--text); }
 .filter-row button[aria-pressed='true'] { border-color: var(--muted); background: var(--hover); color: var(--text); }
 .count { color: var(--muted); margin-left: 3px; }
-.custom-dates { font-size: 12px; color: var(--muted); }
+.custom-dates { font-size: 13px; color: var(--muted); }
 .custom-dates label { display: flex; align-items: center; gap: 6px; }
 .custom-dates input { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 4px; }
 </style>

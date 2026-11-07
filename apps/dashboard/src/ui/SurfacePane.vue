@@ -335,7 +335,7 @@ function cancelSlide(element: Element) {
 }
 .surface-title {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .surface-spacer {
   flex: 1;

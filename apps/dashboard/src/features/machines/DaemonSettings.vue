@@ -252,7 +252,7 @@ h2 {
 }
 .daemon-intro,
 .daemon-explanation {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 18px;
   margin: 0 0 16px;
@@ -282,14 +282,14 @@ h2 {
 }
 .daemon-preference-row small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--muted);
   margin-top: 4px;
 }
 .daemon-cli {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 h3 {
   font-size: 14px;
@@ -304,7 +304,7 @@ h3 {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
 }
 dt {

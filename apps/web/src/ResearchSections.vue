@@ -582,7 +582,7 @@ const principles = [
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 40px;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.12em;
 }
 .case-top span {
@@ -682,7 +682,7 @@ const principles = [
   margin-top: 80px;
 }
 .section-label {
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.1em;
   color: #ddd8d0;
 }
@@ -785,7 +785,7 @@ const principles = [
 }
 .principle-grid article > span {
   color: #b6a2ed;
-  font-size: 12px;
+  font-size: 13px;
 }
 .principle-grid h3 {
   margin-top: 38px;
@@ -820,7 +820,7 @@ const principles = [
 .stack-grid span {
   display: block;
   color: #999;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.1em;
   margin-top: 15px;
 }
@@ -838,7 +838,7 @@ const principles = [
   padding: 14px;
   border: 1px solid #292929;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.08em;
   color: #aaa;
 }
@@ -946,7 +946,7 @@ const principles = [
 }
 .footer-grid > div > span {
   color: #8d8d8d;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.1em;
   margin-bottom: 8px;
 }
@@ -961,7 +961,7 @@ const principles = [
   gap: 20px;
   padding-top: 80px;
   color: #888;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.08em;
 }
 @media (max-width: 900px) {

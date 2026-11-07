@@ -504,7 +504,7 @@ async function create() {
 }
 .team-editor-heading p {
   margin: 12px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
 }
@@ -544,7 +544,7 @@ async function create() {
 }
 .team-identity-fields label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .team-identity-fields input + label {
   margin-top: 5px;
@@ -552,7 +552,7 @@ async function create() {
 .section-description {
   margin: -3px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 @media (max-width: 600px) {

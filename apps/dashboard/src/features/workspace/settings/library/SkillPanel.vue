@@ -142,7 +142,7 @@ function created(id: string) {
 }
 .skill-row span {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 5px;
   overflow: hidden;

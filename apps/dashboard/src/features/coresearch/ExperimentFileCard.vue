@@ -183,7 +183,7 @@ watch(
 }
 .experiment-file-date {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .experiment-file.is-list .experiment-file-meta {
   flex-direction: row;

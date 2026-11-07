@@ -118,14 +118,14 @@ const plot = computed(() => {
 <style scoped>
 .note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .scatter {
   margin: 12px 0;
 }
 .scatter figcaption {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .scatter svg {
   width: min(100%, 300px);

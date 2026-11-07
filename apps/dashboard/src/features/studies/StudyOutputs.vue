@@ -277,7 +277,7 @@ small {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .files-toolbar input {
   min-width: 0;
@@ -359,7 +359,7 @@ ul.list {
   font-weight: 500;
 }
 .file-details small {
-  font-size: 11px;
+  font-size: 13px;
 }
 .list .file-card {
   flex-direction: row;

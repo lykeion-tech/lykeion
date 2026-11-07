@@ -224,12 +224,12 @@ onUnmounted(() => {
   padding: 3px 8px;
   min-width: 288px;
   max-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
 }
 .timezone-trigger > span {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -300,7 +300,7 @@ onUnmounted(() => {
 }
 .timezone-options button > span {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

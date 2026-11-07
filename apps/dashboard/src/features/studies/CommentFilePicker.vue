@@ -66,7 +66,7 @@ function choose(event: Event) {
   gap: 4px;
 }
 .pending-file {
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .pending-file button {
@@ -74,6 +74,6 @@ function choose(event: Event) {
 }
 p {
   color: var(--error-text);
-  font-size: 12px;
+  font-size: 13px;
 }
 </style>

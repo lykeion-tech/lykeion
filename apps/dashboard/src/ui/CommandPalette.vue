@@ -263,7 +263,7 @@ function key(event: KeyboardEvent) {
 }
 .palette-preview-subtitle {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -272,7 +272,7 @@ function key(event: KeyboardEvent) {
   justify-content: space-between;
   gap: 12px;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .palette-preview-row span:last-child {

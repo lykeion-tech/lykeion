@@ -138,7 +138,7 @@ function triage(clear = false) {
 }
 .private-label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .actions {
   display: flex;
@@ -151,7 +151,7 @@ function triage(clear = false) {
   flex-direction: column;
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .snooze input {
   padding: 6px;

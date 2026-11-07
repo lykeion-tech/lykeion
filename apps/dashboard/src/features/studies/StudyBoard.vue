@@ -808,7 +808,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 14px;
 }
@@ -932,7 +932,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 5px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .card-question {
@@ -943,7 +943,7 @@ onUnmounted(() => {
   overflow: hidden;
   margin-top: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 /* Why the study waits, from the machine's open wait: two lines at most. */
 .card-waiting {
@@ -953,7 +953,7 @@ onUnmounted(() => {
   line-clamp: 2;
   overflow: hidden;
   margin-top: 5px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .card-metadata:empty {
@@ -1021,7 +1021,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   margin: 0 0 18px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .view-fields > label > span,
 .view-filter-row > span {
@@ -1053,7 +1053,7 @@ onUnmounted(() => {
 }
 .view-filter-controls select {
   width: 160px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .view-fields details {
   font-size: 12px;
@@ -1118,14 +1118,14 @@ onUnmounted(() => {
   font-size: 14px;
 }
 .table-actions > small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .export-button {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .table-scroll {
@@ -1154,7 +1154,7 @@ onUnmounted(() => {
 .studies-table th {
   background: var(--table-header);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.3px;
   color: var(--muted);
   overflow: visible;
@@ -1194,7 +1194,7 @@ onUnmounted(() => {
   padding-left: 22px;
 }
 .table-title > small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   min-width: 40px;
 }
@@ -1281,7 +1281,7 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .table-columns-popover > small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   padding: 0 4px;
   display: block;
@@ -1292,7 +1292,7 @@ onUnmounted(() => {
 }
 .hierarchy-help {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 2px;
 }
@@ -1318,7 +1318,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 0 12px;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--lane-bg);
 }
 .swimlane-headings strong {
@@ -1326,7 +1326,7 @@ onUnmounted(() => {
 }
 .swimlane-headings small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .lane-status-grounding {
   background: var(--lane-grounding) !important;

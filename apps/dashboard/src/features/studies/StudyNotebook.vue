@@ -168,15 +168,15 @@ header {
   border-bottom: 1px solid var(--border);
 }
 .cell-agent {
-  font-size: 12px;
+  font-size: 13px;
 }
 .cell-path {
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .cell-failure {
   color: var(--danger-text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .cell-output {
   border-top: 1px solid var(--border);
@@ -209,7 +209,7 @@ button {
   color: var(--muted);
 }
 .truncated {
-  font-size: 12px;
+  font-size: 13px;
   margin: 8px 0 0;
 }
 </style>

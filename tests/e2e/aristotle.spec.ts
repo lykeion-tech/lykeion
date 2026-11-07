@@ -1,6 +1,31 @@
 import { expect, test } from '@playwright/test';
 import { installAristotleFixture } from './aristotle-fixture';
 
+test('opens Coresearch with the conversation unobstructed on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installAristotleFixture(page);
+  await page.goto('/#/coresearch');
+  await expect(page.locator('.application')).toHaveClass(/sidebar-hidden/);
+  const input = page.getByRole('textbox', { name: 'Message the agent' });
+  await expect(input).toBeVisible();
+  await input.click();
+  await expect(input).toBeFocused();
+  await page.getByRole('button', { name: 'Toggle left sidebar' }).click();
+  await expect(page.locator('.application')).not.toHaveClass(/sidebar-hidden/);
+});
+
+test('keeps workspace navigation reachable in a short viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 584, height: 400 });
+  await installAristotleFixture(page);
+  await page.goto('/#/studies');
+  const navigation = page.locator('[aria-label="Workspace navigation"]');
+  const links = navigation.locator('nav');
+  await expect.poll(() => links.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await links.getByRole('link', { name: 'Agents', exact: true }).scrollIntoViewIfNeeded();
+  await expect(links.getByRole('link', { name: 'Agents', exact: true })).toBeInViewport();
+  await expect(navigation.getByRole('link', { name: 'Settings' })).toBeInViewport();
+});
+
 test('returning to a conversation restores whether its experiment pane was open', async ({
   page,
 }) => {

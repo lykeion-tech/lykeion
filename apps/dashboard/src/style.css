@@ -291,6 +291,15 @@ small {
   padding: 12px 16px 8px;
   min-width: 0;
 }
+.sidebar > nav {
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar > .workspace-switch,
+.sidebar > .quick-actions,
+.sidebar > .sidebar-bottom {
+  flex-shrink: 0;
+}
 .nav-item {
   display: flex;
   align-items: center;
@@ -353,8 +362,8 @@ kbd {
   gap: 2px;
 }
 .nav-caption {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 18px;
   padding: 4px 8px 12px;
   margin-top: 0;
 }
@@ -527,7 +536,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: 13px;
   height: 28px;
   margin-bottom: 10px;
   padding: 0 2px;
@@ -549,7 +558,7 @@ kbd {
   text-align: center;
   margin-top: 30px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .task-card {
   display: flex;
@@ -571,16 +580,16 @@ kbd {
 }
 .task-card small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .task-card p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .card-meta {
   display: flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .menu-anchor {
@@ -662,7 +671,7 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 12px 20px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .create-breadcrumb strong {
   font-weight: 500;
@@ -739,7 +748,7 @@ kbd {
 .create-another {
   display: flex;
   align-items: center;
-  font-size: 12px;
+  font-size: 13px;
   gap: 5px;
   white-space: nowrap;
 }
@@ -769,7 +778,7 @@ kbd {
   transform: translateX(10px);
 }
 .draft-note {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .form-error,
@@ -779,7 +788,7 @@ kbd {
   background: var(--error-bg);
   border: 1px solid var(--error-border);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--error-text);
 }
@@ -957,7 +966,7 @@ kbd {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   margin: 14px 0;
   line-height: 20px;
 }
@@ -1019,11 +1028,11 @@ kbd {
   width: var(--properties-width);
   flex: none;
   padding: 20px 20px 20px 22px;
-  font-size: 12px;
+  font-size: 13px;
   overflow: auto;
 }
 .properties-pane h3 {
-  font-size: 12px;
+  font-size: 13px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1045,14 +1054,14 @@ kbd {
 .properties-pane select {
   border: 0;
   background: none;
-  font-size: 12px;
+  font-size: 13px;
   padding: 4px;
 }
 .properties-pane details {
   margin-top: 28px;
 }
 .properties-pane summary {
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   margin-bottom: 14px;
 }
@@ -1140,7 +1149,7 @@ kbd {
 }
 .field-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
 }
 .aristotle-launcher {
@@ -1509,7 +1518,7 @@ kbd {
   padding: 4px 0;
 }
 .running-composer p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   align-self: flex-start;
   padding: 8px 12px;

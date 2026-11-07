@@ -21,14 +21,22 @@
   width: 32px;
   height: 34px;
 }
+.aristotle-header > div {
+  flex: 1;
+  min-width: 0;
+}
 .aristotle-header b {
+  display: block;
   font-size: 14px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .aristotle-header small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 2px;
 }
 .aristotle-scroll {
@@ -74,7 +82,7 @@
   margin: 8px 0;
 }
 .welcome-actions small {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--muted);
 }
@@ -195,7 +203,7 @@
   display: flex;
   gap: 7px;
   align-items: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .welcome-actions > button:hover,

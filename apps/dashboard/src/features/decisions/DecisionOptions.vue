@@ -80,10 +80,10 @@ async function submit() {
 </template>
 <style scoped>
 .decision-options { display:flex; flex-direction:column; gap:12px; }
-.permission-note { color:var(--muted); font-size:12px; line-height:1.5; }
+.permission-note { color:var(--muted); font-size: 13px; line-height:1.5; }
 .decision-buttons { display:flex; flex-direction:column; gap:8px; }
 .choice { display:flex; flex-direction:column; align-items:flex-start; gap:5px; width:100%; padding:13px 16px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); text-align:left; cursor:pointer; }
-.choice small { color:var(--muted); font-size:12px; line-height:1.5; font-weight:400; }
+.choice small { color:var(--muted); font-size: 13px; line-height:1.5; font-weight:400; }
 .choice:hover:not(:disabled) { border-color:var(--primary); }
 .choice.selected { border-color:var(--primary); background:color-mix(in srgb, var(--primary) 14%, var(--surface)); }
 .choice:focus-visible, .decision-submit:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }

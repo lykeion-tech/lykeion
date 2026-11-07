@@ -66,7 +66,7 @@
 .seen,
 .clis small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .status {
   width: 120px;
@@ -99,7 +99,7 @@
 .runs {
   width: 120px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .menu-anchor {
   position: relative;
@@ -181,7 +181,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .machine-health.online .icon {
@@ -201,7 +201,7 @@
   flex-wrap: wrap;
   gap: 8px 16px;
   margin-top: 13px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 18px;
 }
@@ -239,7 +239,7 @@
   margin: 0 0 6px;
 }
 .runtime-heading p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 0;
 }
@@ -257,7 +257,7 @@
 }
 .machine-runtime-table th {
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--muted);
   height: 38px;
@@ -307,7 +307,7 @@
   color: #d78b70;
 }
 .runtime-name small {
-  font-size: 10px;
+  font-size: 13px;
   background: var(--fill-chip);
   color: var(--muted);
   border-radius: 2px;
@@ -334,14 +334,14 @@
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 14px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .remote-limit p {
   margin: 0;
 }
 .remote-limit .button {
-  font-size: 12px;
+  font-size: 13px;
 }
 .daemon-instructions p {
   line-height: 22px;

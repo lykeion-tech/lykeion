@@ -132,7 +132,7 @@ header {
   cursor: pointer;
 }
 .lede {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 10px 0 14px;
@@ -162,7 +162,7 @@ header {
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 14px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   margin: 0;
 }
@@ -180,7 +180,7 @@ a {
   text-decoration: none;
 }
 .hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 6px 0 0;
@@ -190,7 +190,7 @@ a {
 }
 .terms {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 10px;
 }
 footer {

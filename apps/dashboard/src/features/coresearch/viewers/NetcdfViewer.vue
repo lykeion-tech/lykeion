@@ -116,7 +116,7 @@ watch(
 .note,
 dt span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 select {
   margin: 8px;

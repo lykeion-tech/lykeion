@@ -34,7 +34,7 @@ function download(id: string) {
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .comment-files button {

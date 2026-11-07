@@ -268,7 +268,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   gap: 6px;
   margin-bottom: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .team-filter-popover label:last-of-type {
   margin-bottom: 0;
@@ -349,7 +349,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-label small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 .team-icon {
@@ -383,7 +383,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 .team-table td {
   display: flex;
   align-items: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
 }
 </style>

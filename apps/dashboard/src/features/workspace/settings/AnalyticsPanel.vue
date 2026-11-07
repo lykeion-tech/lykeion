@@ -325,7 +325,7 @@ h4 {
 .muted,
 .coverage-note {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .toolbar {
   display: flex;
@@ -354,7 +354,7 @@ select {
 .segments button {
   padding: 4px 9px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 4px;
   white-space: nowrap;
 }
@@ -388,7 +388,7 @@ select {
 }
 .summaries span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .summaries strong {
   font-size: 24px;
@@ -477,7 +477,7 @@ small {
   gap: 16px;
   margin-top: 14px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .chart-panel footer i {
   display: inline-block;
@@ -493,7 +493,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   text-align: right;
-  font-size: 12px;
+  font-size: 13px;
 }
 th,
 td {
@@ -503,7 +503,7 @@ td {
 th {
   font-weight: 400;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 th:first-child,
 td:first-child {

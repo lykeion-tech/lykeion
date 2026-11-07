@@ -82,7 +82,7 @@ function selectStudy(id: string) {
   gap: 5px;
   padding: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 input {
   border: 1px solid var(--border);

@@ -527,7 +527,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 }
 .autoresearch-content > small {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .template-grid {
   display: grid;
@@ -556,9 +556,9 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 .template-grid small,
 .choice small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  line-height: 16px;
+  line-height: 18px;
   margin-top: 3px;
 }
 .research-detail > header {
@@ -589,7 +589,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
   white-space: nowrap;
   padding: 4px 7px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   background: var(--input);
 }

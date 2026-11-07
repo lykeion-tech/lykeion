@@ -239,7 +239,7 @@ async function perform() {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .notebook-console-head label {
   display: flex;
@@ -304,7 +304,7 @@ async function perform() {
   gap: 8px;
   padding: 0 10px 10px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .notebook-console-footer button {
   padding: 5px 12px;

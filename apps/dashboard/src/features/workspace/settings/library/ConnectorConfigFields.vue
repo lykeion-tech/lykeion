@@ -212,7 +212,7 @@ defineProps<{ disabled?: boolean }>();
 <style scoped>
 .field {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 22px;
 }
 .field input {
@@ -222,13 +222,13 @@ defineProps<{ disabled?: boolean }>();
 .field small,
 .hint {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 6px 0 0;
 }
 .label {
-  font-size: 12px;
+  font-size: 13px;
 }
 .transports {
   display: flex;
@@ -259,7 +259,7 @@ defineProps<{ disabled?: boolean }>();
 }
 .transport small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 3px;
 }
@@ -272,7 +272,7 @@ input {
   padding: 8px 10px;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   height: 34px;
 }
 .subhead {
@@ -280,7 +280,7 @@ input {
   justify-content: space-between;
   align-items: center;
   margin: 20px 0 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .subhead b {
   font-weight: 500;
@@ -301,7 +301,7 @@ input {
   background: none;
   color: var(--text);
   padding: 4px 0;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 button:focus-visible,

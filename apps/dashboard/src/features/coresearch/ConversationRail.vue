@@ -156,7 +156,7 @@ async function startDraft(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   height: 32px;
   line-height: 20px;
@@ -223,7 +223,7 @@ async function startDraft(
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 5px;
 }

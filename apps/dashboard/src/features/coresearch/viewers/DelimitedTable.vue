@@ -34,5 +34,5 @@ function toggle(index: number) {
 .data-table th button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0; text-align: left; }
 .data-table th button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .col-type { color: var(--muted); margin-right: 8px; font-size: 11px; }
-.viz-caption { color: var(--muted); padding: 6px 0; font-size: 12px; }
+.viz-caption { color: var(--muted); padding: 6px 0; font-size: 13px; }
 </style>

@@ -273,7 +273,7 @@ function toggleAll() {
 <style scoped>
 .field {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 18px;
 }
 .field select {
@@ -295,7 +295,7 @@ input[type='search'] {
   align-items: flex-start;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .runtime-row input {
   margin-top: 2px;
@@ -315,7 +315,7 @@ input[type='search'] {
   place-items: center;
   color: var(--muted);
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
 }
 .runtime-actions {
   display: flex;
@@ -323,7 +323,7 @@ input[type='search'] {
   justify-content: space-between;
   align-items: center;
   padding-top: 20px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .outcomes {
@@ -337,7 +337,7 @@ input[type='search'] {
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 input:focus-visible,

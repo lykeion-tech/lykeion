@@ -94,7 +94,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
 }
 .formatting-notice {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .autoresearch-run-modal {
   width: 760px;
@@ -126,7 +126,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
 .run-planned {
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .run-body {
   padding: 4px 24px 24px;
@@ -146,7 +146,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   color: var(--error-text);
   padding: 10px 12px;
   margin: 0 0 18px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -165,7 +165,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   font-weight: 500;
 }
 .run-empty p {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   max-width: 380px;
   margin: 0;
@@ -180,7 +180,7 @@ const waiting = computed(() => ['queued', 'running', 'blocked'].includes(run.val
   flex-shrink: 0;
 }
 .run-foot span {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 </style>

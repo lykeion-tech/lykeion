@@ -426,7 +426,7 @@ function pickLead(event: Event) {
   gap: 5px;
   align-items: center;
   min-height: 34px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .project-property-rows select {
@@ -462,7 +462,7 @@ function pickLead(event: Event) {
   gap: 12px;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .project-progress progress {
   flex: 1;
@@ -510,12 +510,12 @@ function pickLead(event: Event) {
   margin: 0;
 }
 .project-empty p {
-  font-size: 12px;
+  font-size: 13px;
   margin: 0;
 }
 @media (max-width: 760px) {
   .project-heading nav {
-    font-size: 12px;
+    font-size: 13px;
   }
 }
 @media (max-width: 600px) {

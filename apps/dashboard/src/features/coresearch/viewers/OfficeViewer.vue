@@ -74,7 +74,7 @@ watch(
 <style scoped>
 .office-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 article {
   margin: 12px 0;

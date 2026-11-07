@@ -192,7 +192,7 @@ svg {
 }
 figcaption {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .heatmap {
   border-collapse: separate;

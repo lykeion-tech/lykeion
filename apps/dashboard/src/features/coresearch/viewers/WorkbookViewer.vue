@@ -123,7 +123,7 @@ function columnName(index: number) {
 <style scoped>
 .note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .table-scroll {
   max-width: 100%;
@@ -149,6 +149,6 @@ th {
 }
 .cached {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 13px;
 }
 </style>

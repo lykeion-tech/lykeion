@@ -782,7 +782,7 @@ function tabKey(event: KeyboardEvent, index: number) {
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .team-work-search:focus-within {
   outline: 2px solid var(--primary);
@@ -819,7 +819,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .canvas-heading span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .canvas-layout {
   display: grid;
@@ -884,11 +884,11 @@ function tabKey(event: KeyboardEvent, index: number) {
   border-radius: 4px;
   background: var(--input);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .card-description {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -912,7 +912,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .inspector-harness {
   padding-top: 16px;
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .inspector-harness span {
@@ -983,7 +983,7 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .team-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .team-settings {
   display: grid;
@@ -1008,7 +1008,7 @@ function tabKey(event: KeyboardEvent, index: number) {
   flex-direction: column;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .team-copy input {
   padding: 8px 10px;

@@ -112,7 +112,7 @@ svg {
   display: block;
 }
 p {
-  font-size: 12px;
+  font-size: 13px;
 }
 select {
   max-width: 75%;

@@ -551,7 +551,7 @@ onUnmounted(() => {
         <ArrowUp :size="17" />
       </button>
     </form>
-    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context' }" ref="menuBox" tabindex="-1" :style="menuStyle">
+    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context', 'chat-menu': menu === 'chats' }" ref="menuBox" tabindex="-1" :style="menuStyle">
       <template v-if="menu === 'options'">
         <button
           @click="
@@ -776,7 +776,7 @@ header {
 .error {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .question {
   align-self: flex-end;
@@ -874,13 +874,16 @@ header {
   right: auto;
   left: 10px;
 }
+.menu.chat-menu {
+  box-shadow: none;
+}
 .menu small,
 .menu a {
   padding: 5px 9px;
 }
 .menu small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .menu :deep(button) {
   display: flex;
@@ -905,7 +908,7 @@ header {
 .chat-delete { opacity: 0; }
 .chat-menu-row:hover .chat-delete, .chat-menu-row:focus-within .chat-delete { opacity: 1; }
 @media (hover: none) { .chat-delete { opacity: 1; } }
-.chat-delete-error { margin: 5px 9px; color: var(--danger-text); font-size: 12px; }
+.chat-delete-error { margin: 5px 9px; color: var(--danger-text); font-size: 13px; }
 .menu button:disabled {
   color: var(--muted);
   cursor: default;

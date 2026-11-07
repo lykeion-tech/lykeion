@@ -90,7 +90,7 @@ h4 {
   overflow-wrap: anywhere;
 }
 .member-backend {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .member-copy p,
@@ -107,7 +107,7 @@ h4 {
   margin-top: 12px;
 }
 .member-capabilities {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 8px 0 0 44px;
   overflow-wrap: anywhere;
@@ -123,7 +123,7 @@ h4 {
   padding: 0;
   border: 0;
   background: none;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .edit-skills:hover {
@@ -135,7 +135,7 @@ h4 {
   background: var(--input);
   color: var(--muted);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
 }
 @media (max-width: 600px) {

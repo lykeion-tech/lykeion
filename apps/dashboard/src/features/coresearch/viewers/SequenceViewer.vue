@@ -58,7 +58,7 @@ h3 {
 }
 .sequence-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 6px 0;
 }
 .sequence-bases {

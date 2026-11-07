@@ -374,7 +374,7 @@ async function upload(event: Event) {
   background: var(--hover);
 }
 .avatar-picker > p {
-  font-size: 12px;
+  font-size: 13px;
   padding: 8px;
 }
 input[hidden] {

@@ -180,7 +180,7 @@ async function submit() {
 }
 .permission-note,
 .choice-instruction {
-  font-size: 12px;
+  font-size: 13px;
 }
 .choice-instruction { margin-top: 8px; }
 .question {
@@ -194,7 +194,7 @@ async function submit() {
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -231,7 +231,7 @@ h2 {
 }
 .choice small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   font-weight: 400;
 }

@@ -439,7 +439,7 @@ async function save() {
 .agent-form-heading p {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .agent-visibility {
   border: 0;
@@ -449,7 +449,7 @@ async function save() {
 .agent-visibility legend,
 .new-agent-model-field > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 6px;
 }
 .agent-visibility-options {
@@ -481,7 +481,7 @@ async function save() {
 }
 .agent-visibility-options small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   margin-top: 2px;
 }
 

@@ -682,14 +682,14 @@ async function logOut() {
   font-weight: 500;
 }
 .onboarding-card p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 4px 0 0;
 }
 .onboarding-card small {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 6px;
 }
@@ -741,7 +741,7 @@ async function logOut() {
     margin: 10px 0 0;
   }
   .steps li {
-    font-size: 11px;
+    font-size: 13px;
     gap: 5px;
     flex: none;
   }

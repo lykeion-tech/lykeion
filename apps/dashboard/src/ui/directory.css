@@ -281,7 +281,7 @@ a.agent-row:hover {
 }
 .agent-create-header p {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .agent-create-start {
   display: flex;
@@ -351,7 +351,7 @@ a.agent-row:hover {
   gap: 4px;
   margin-top: auto;
   font-style: normal;
-  font-size: 12px;
+  font-size: 13px;
 }
 @media (max-width: 700px) {
   .agent-create-options {

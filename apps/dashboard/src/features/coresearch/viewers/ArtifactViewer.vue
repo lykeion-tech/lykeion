@@ -271,7 +271,7 @@ watch(
 .viz-caption {
   color: var(--muted);
   padding: 6px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .viewer-failure {
   padding: 12px;

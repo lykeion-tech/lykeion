@@ -79,14 +79,14 @@ watch(
   background: transparent;
   color: var(--ink-subtle, #555);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 .code-block-pre {
   margin: 0;
   overflow-x: auto;
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 pre.code-block-pre {

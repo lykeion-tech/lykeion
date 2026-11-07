@@ -179,7 +179,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 .decision-text small,
 .decision-side small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .decision-text small {
   margin-top: 5px;
@@ -197,7 +197,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   background: var(--primary);
 }
 .decision-empty {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   padding: 8px;
 }

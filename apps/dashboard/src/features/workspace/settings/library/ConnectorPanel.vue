@@ -215,14 +215,14 @@ h3 {
   margin: 24px 0 6px;
 }
 .section-note {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 0 0 14px;
 }
 .budget {
   flex: none;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
   padding: 2px 8px;
   border-radius: 99px;
@@ -270,7 +270,7 @@ h3 {
 .connector-row p,
 .connector-row small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -278,7 +278,7 @@ h3 {
   margin: 5px 0 0;
 }
 .connector-row small {
-  font-size: 11px;
+  font-size: 13px;
   margin-top: 6px;
 }
 button:focus-visible {

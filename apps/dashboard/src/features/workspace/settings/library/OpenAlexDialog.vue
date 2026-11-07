@@ -152,7 +152,7 @@ h2 {
   margin: 0;
 }
 header p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 4px 0 0;
 }
@@ -191,7 +191,7 @@ header p {
   display: grid;
   grid-template-columns: 100px 1fr;
   gap: 14px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   margin: 0 0 24px;
 }
@@ -239,7 +239,7 @@ header p {
 }
 .notice li span {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .notice li b {
@@ -248,7 +248,7 @@ header p {
 }
 .notice p {
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .notice a {
@@ -256,7 +256,7 @@ header p {
 }
 .field {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin: 20px 0 0;
 }
 .field input {
@@ -270,7 +270,7 @@ header p {
   color: var(--text);
 }
 .hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.5;
   margin: 6px 0 0;
@@ -281,7 +281,7 @@ header p {
   padding: 0;
   margin-top: 8px;
   color: var(--primary-text);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 footer {

@@ -701,7 +701,7 @@ async function save() {
   height: 50px;
   flex: none;
   padding: 12px 20px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .project-workspace {
   min-width: 0;
@@ -793,7 +793,7 @@ async function save() {
   border-radius: 999px;
   background: none;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   white-space: nowrap;
 }
@@ -857,7 +857,7 @@ async function save() {
   border-radius: 4px;
   background: none;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
 }
 .project-picker-menu button[aria-checked='true'] {
@@ -876,7 +876,7 @@ async function save() {
   padding: 7px 8px;
   background: none;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .project-lead-options {
   max-height: 240px;
@@ -885,7 +885,7 @@ async function save() {
 .project-picker-label {
   margin: 6px 8px 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .project-status-dot.in_progress {
   background: var(--stage-experimentation-dot);
@@ -996,7 +996,7 @@ async function save() {
   display: block;
   text-align: left;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   padding: 3px 0;
 }
 .table-progress {
@@ -1004,7 +1004,7 @@ async function save() {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .table-progress progress {
   appearance: none;
@@ -1030,7 +1030,7 @@ async function save() {
   border-radius: 50%;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 13px;
 }
 .table-lead-avatar {
   background: var(--fill-card);

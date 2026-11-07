@@ -672,7 +672,7 @@ onUnmounted(() => {
   padding: 12px 20px;
   height: 50px;
   flex: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 .composer-breadcrumb > span {
   color: var(--muted);
@@ -818,7 +818,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   position: relative;
-  font-size: 12px;
+  font-size: 13px;
   height: 22px;
 }
 .created-by > span {
@@ -829,7 +829,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   padding: 0;
-  font-size: 12px;
+  font-size: 13px;
   max-width: calc(100% - 70px);
 }
 .created-by > button > .icon:last-child {
@@ -955,7 +955,7 @@ onUnmounted(() => {
 }
 .composer-error {
   color: var(--error-text-composer);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   padding: 4px 20px 12px;
 }
@@ -966,7 +966,7 @@ onUnmounted(() => {
   padding: 4px;
 }
 .more-menu > button {
-  font-size: 12px;
+  font-size: 13px;
   min-height: 28px;
   padding: 5px 7px;
   gap: 7px;
@@ -1004,7 +1004,7 @@ onUnmounted(() => {
   margin: 0;
 }
 .study-relation-picker > p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 8px 0 15px;
 }

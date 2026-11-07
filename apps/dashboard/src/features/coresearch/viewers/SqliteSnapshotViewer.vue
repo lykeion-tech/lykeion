@@ -102,7 +102,7 @@ watch(
 </template>
 <style scoped>
 p {
-  font-size: 12px;
+  font-size: 13px;
 }
 .scroll {
   overflow: auto;

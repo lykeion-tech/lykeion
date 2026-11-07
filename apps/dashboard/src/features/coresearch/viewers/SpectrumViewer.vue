@@ -111,6 +111,6 @@ const plotted = computed(() => {
 }
 .spectrum-viewer p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 </style>

@@ -127,10 +127,10 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage));
 .molecule-card span {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 </style>

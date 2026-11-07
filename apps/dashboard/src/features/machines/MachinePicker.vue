@@ -158,7 +158,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   color: var(--text);
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 .machine-trigger span {
   overflow: hidden;
@@ -231,7 +231,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
 .machine-heading small {
   flex: none;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .machine-heading small.online {
   color: var(--success, #278241);
@@ -241,7 +241,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
   gap: 4px 12px;
   padding-left: 20px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .machine-menu .machine-runtime {
   flex: none;

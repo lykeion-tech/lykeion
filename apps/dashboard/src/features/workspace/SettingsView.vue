@@ -891,7 +891,7 @@ async function copySlug() {
 .setting-row small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   margin-top: 4px;
 }
@@ -1035,13 +1035,14 @@ async function copySlug() {
 }
 .theme-card footer small {
   display: block;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   padding-right: 10px;
+}
+.theme-card.chosen footer small {
+  padding-right: 32px;
 }
 .theme-card footer > .icon {
   position: absolute;
@@ -1134,13 +1135,13 @@ async function copySlug() {
   margin: 31px 0 12px;
 }
 .token-note {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--muted);
   margin: 0 2px 20px;
 }
 .token-usage {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 20px;
 }
@@ -1191,7 +1192,7 @@ async function copySlug() {
   margin-left: auto;
 }
 .section-description {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 18px;
   margin: -7px 2px 14px;
@@ -1252,7 +1253,7 @@ async function copySlug() {
   background: transparent;
 }
 .table-toolbar > small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1261,7 +1262,7 @@ async function copySlug() {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .archived-control .setting-switch {
@@ -1288,7 +1289,7 @@ async function copySlug() {
   table-layout: fixed;
 }
 .settings-data-table th {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--muted);
   height: 38px;
@@ -1337,7 +1338,7 @@ async function copySlug() {
   color: var(--muted);
 }
 .table-empty small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: -6px;
 }
@@ -1359,7 +1360,7 @@ async function copySlug() {
 }
 .settings-editor > p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
 }
 .settings-editor label {
@@ -1404,7 +1405,7 @@ async function copySlug() {
 }
 .analytics-status {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   display: flex;
   align-items: center;
@@ -1464,7 +1465,7 @@ async function copySlug() {
   border-left: 1px solid var(--border);
 }
 .usage-metrics small {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .usage-metrics strong {
@@ -1541,7 +1542,7 @@ async function copySlug() {
   display: grid;
   place-items: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .repository-url {
   font-size: 13px;
@@ -1588,7 +1589,7 @@ async function copySlug() {
   color: var(--muted);
 }
 .fields-description {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
   color: var(--muted);
   margin: -5px 2px 14px;
@@ -1607,7 +1608,7 @@ async function copySlug() {
   border-bottom: 1px solid var(--border);
 }
 .field-table thead th {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .field-table th:first-child {
@@ -1807,7 +1808,7 @@ async function copySlug() {
   margin-top: 4px;
 }
 .catalog-storage-note {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-right: auto;
   align-self: center;

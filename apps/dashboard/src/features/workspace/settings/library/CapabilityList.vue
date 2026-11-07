@@ -175,7 +175,7 @@ input::-webkit-search-cancel-button {
 }
 .library-empty {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .library-empty {
   padding: 24px 0;

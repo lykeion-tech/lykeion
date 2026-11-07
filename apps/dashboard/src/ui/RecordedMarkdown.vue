@@ -241,7 +241,7 @@ async function copy(event: MouseEvent) {
   color: var(--muted);
 }
 .copy-notice {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .copy-notice:empty {

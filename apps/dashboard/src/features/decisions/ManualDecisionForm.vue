@@ -103,7 +103,7 @@ label {
 label span,
 .hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 label span {

@@ -195,7 +195,10 @@ const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 watch(
   () => (inboxShell.value ? 'decisions' : aristotleShell.value ? 'coresearch' : ''),
   (shell, previous) => {
-    if (shell && shell !== previous) changeRail('context');
+    if (shell && shell !== previous) {
+      changeRail('context');
+      if (window.matchMedia?.('(max-width: 700px)').matches) collapsed.value = true;
+    }
   },
   { immediate: true, flush: 'post' },
 );
@@ -826,9 +829,9 @@ onUnmounted(() => {
 }
 .workspace-profile small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  line-height: 16px;
+  line-height: 18px;
 }
 .profile-menu-avatar {
   width: 24px;
@@ -847,7 +850,7 @@ onUnmounted(() => {
 }
 .workspace-menu-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
   color: var(--muted);
   padding: 0 6px 2px;
@@ -875,7 +878,7 @@ onUnmounted(() => {
 }
 .shell-version {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
   color: var(--muted);
   padding: 0 5px 1px;
@@ -940,7 +943,7 @@ onUnmounted(() => {
 .reconnecting {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .shared-reconnecting {
   flex: none;
@@ -957,12 +960,12 @@ onUnmounted(() => {
 }
 .workflow-attribution {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .page-header-count {
   margin-left: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .page-header-actions {
   display: flex;
