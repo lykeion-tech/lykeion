@@ -1,5 +1,10 @@
 import { workspaceId } from './session';
-import { authenticationEpoch, authenticationLost } from './auth-loss';
+import {
+  advanceAuthenticationEpoch,
+  authenticationDataGeneration,
+  authenticationEpoch,
+  authenticationLost,
+} from './auth-loss';
 
 // Let the browser stream to its download manager without buffering the file in JS.
 export function downloadFile(path: string, workspace: string) {
@@ -66,9 +71,12 @@ export async function api<T = void>(
   raw?: { data: Blob; type: string },
   options: { workspace?: string; signal?: AbortSignal; response?: 'blob'; maxBytes?: number } = {},
 ): Promise<T> {
+  if (method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path))
+    advanceAuthenticationEpoch();
   const requestEpoch = authenticationEpoch();
+  const requestGeneration = authenticationDataGeneration();
   const requireCurrentAccount = () => {
-    if (requestEpoch !== authenticationEpoch())
+    if (requestGeneration !== authenticationDataGeneration())
       throw new DOMException('The account changed while this request was pending.', 'AbortError');
   };
   const headers: Record<string, string> = {};

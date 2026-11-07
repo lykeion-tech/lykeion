@@ -9,6 +9,7 @@ import { computed, reactive, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { useRouter } from 'vue-router';
 import { api } from '../../api/client';
+import { authenticationDataGeneration } from '../../api/auth-loss';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import {
@@ -151,6 +152,7 @@ const scope = (a: Picked) =>
 async function create() {
   if (invalid.value) return;
   const ws = workspaceId.value;
+  const generation = authenticationDataGeneration();
   busy.value = true;
   error.value = '';
   try {
@@ -172,12 +174,23 @@ async function create() {
       );
       if (made.url) freshWebhooks.value[ap.id] = new URL(made.url, location.origin).href;
     } catch (e) {
+      if (
+        (e instanceof Error && e.name === 'AbortError') ||
+        generation !== authenticationDataGeneration()
+      )
+        return;
       notify(`Autoresearch created, but its trigger was refused: ${(e as Error).message}`);
     }
     editor.value = false;
     await client.invalidateQueries({ queryKey: keys.autoresearches(ws) });
+    if (generation !== authenticationDataGeneration()) return;
     await router.push('/autoresearch/' + ap.id);
   } catch (e) {
+    if (
+      (e instanceof Error && e.name === 'AbortError') ||
+      generation !== authenticationDataGeneration()
+    )
+      return;
     error.value = (e as Error).message;
   } finally {
     busy.value = false;

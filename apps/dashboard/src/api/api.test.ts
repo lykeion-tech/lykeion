@@ -65,6 +65,45 @@ describe('api', () => {
     await expect(outcome).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it('does not deliver a pending mutation after a real logout', async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((path: string) => path === '/auth/logout'
+      ? Promise.resolve(new Response(null, { status: 204 }))
+      : new Promise<Response>((resolve) => { release = resolve; })));
+    const old = api('POST', '/api/autoresearch', {});
+    await api('POST', '/auth/logout');
+    release(Response.json({ id: 'old-account-item' }));
+    await expect(old).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('does not deliver a pending mutation after a real authentication loss', async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((path: string) => path === '/api/check'
+      ? Promise.resolve(new Response(null, { status: 401 }))
+      : new Promise<Response>((resolve) => { release = resolve; })));
+    const old = api('POST', '/api/autoresearch', {});
+    await expect(api('GET', '/api/check')).rejects.toMatchObject({ status: 401 });
+    release(Response.json({ id: 'old-account-item' }));
+    await expect(old).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('fences pending account work before a sign-in response body is read', async () => {
+    let releaseOld!: (response: Response) => void;
+    let releaseBody!: () => void;
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      releaseBody = () => { controller.enqueue(new TextEncoder().encode('{}')); controller.close(); };
+    } });
+    vi.stubGlobal('fetch', vi.fn((path: string) => path === '/auth/verify-code'
+      ? Promise.resolve(new Response(body))
+      : new Promise<Response>((resolve) => { releaseOld = resolve; })));
+    const old = api('POST', '/api/autoresearch', {});
+    const signIn = api('POST', '/auth/verify-code', { code: '123456' });
+    releaseOld(Response.json({ id: 'old-account-item' }));
+    await expect(old).rejects.toMatchObject({ name: 'AbortError' });
+    releaseBody();
+    await expect(signIn).resolves.toEqual({});
+  });
+
   it('reserves and releases desktop authentication and refuses it during shutdown', async () => {
     const reserveAuth = vi.fn<() => string | null>(() => 'reservation');
     const releaseAuth = vi.fn();
