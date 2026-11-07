@@ -79,6 +79,8 @@ let nextId = Date.now() + 1;
 const legacy = readText('lykeion.tabs', 'session');
 let legacyUnowned = !!legacy && legacy !== '[]';
 const prior = readJSON<Record<string, unknown> | null>('lykeion.workspace-tabs', null, 'session');
+// Replacing the legacy value first can free space even when storage is full.
+if (legacyUnowned) writeJSON('lykeion.tabs', { pendingSwitch: true }, 'session');
 if (
   !legacyUnowned ||
   writeJSON(
@@ -115,6 +117,7 @@ function clearAccount() {
   tabs.value = [];
   selected.value = 0;
   writeJSON('lykeion.workspace-tabs', null, 'session');
+  writeJSON('lykeion.tabs', [], 'session');
 }
 
 function setAccount(id: string) {

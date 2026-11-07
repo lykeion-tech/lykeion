@@ -211,6 +211,29 @@ describe('workspace tab defaults', () => {
     expect([...stored.values()].join(' ')).not.toContain('private.tex');
   });
 
+  it('removes legacy private titles while preserving the fence when storage cannot grow', async () => {
+    stored.set(
+      'lykeion.tabs',
+      JSON.stringify([{ path: '/studies/a?file=private.tex', title: 'Private A' }]),
+    );
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (value.length > (stored.get(key)?.length ?? 0)) throw new Error('QuotaExceededError');
+        stored.set(key, value);
+      },
+    });
+    let state = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(state.hasPendingSwitch()).toBe(true);
+    expect([...stored.values()].join(' ')).not.toContain('private.tex');
+    vi.resetModules();
+    state = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(state.hasPendingSwitch()).toBe(true);
+    expect(state.setAccount('account-b')).toBe(true);
+    state.clearAccount();
+    expect([...stored.values()].join(' ')).not.toContain('Private A');
+  });
+
   it('blocks private invitation and onboarding views while identity is unverified', async () => {
     const { accountViewBlocked } = await import('./workspace-tabs');
     expect(accountViewBlocked(false, undefined, true)).toBe(true);

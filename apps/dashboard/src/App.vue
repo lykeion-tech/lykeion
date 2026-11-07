@@ -64,6 +64,7 @@ const accountSwitchBusy = ref(false);
 const accountSwitchError = ref('');
 let lastAccount: string | undefined;
 let accountGeneration = 0;
+let accountSwitchTarget = '/studies';
 const aristotle = useAristotle();
 const aristotleShell = computed(() => !!route.meta.conversationRail);
 const inboxShell = computed(() => route.meta.page === 'decisions');
@@ -301,8 +302,11 @@ async function retryAccountSwitch() {
       },
       async () => (await me.refetch({ throwOnError: true })).data?.id,
       async () => {
-        await router.replace('/studies');
-        return route.path === '/studies' || !!route.meta.bare;
+        const target = accountSwitchTarget;
+        await router.replace(target);
+        return target === '/studies'
+          ? route.path === '/studies' || !!route.meta.bare
+          : route.fullPath === target;
       },
     );
     if (ready) {
@@ -341,6 +345,8 @@ watch(
     clearAccountShell();
     switchingAccount.value = true;
     accountSwitchBusy.value = false;
+    accountSwitchTarget =
+      route.path.startsWith('/invite/') && route.params.token ? route.fullPath : '/studies';
     workspaceId.value = '';
     void retryAccountSwitch();
   },
