@@ -84,6 +84,7 @@ export function verifyArchive(archive, expected, hostedOrigin) {
   for (const file of [
     '/apps/desktop/out/main.js',
     '/apps/desktop/out/preload.cjs',
+    '/apps/desktop/out/desktop-user-data.js',
     '/apps/desktop/out/desktop-build.json',
     '/apps/desktop/out/desktop-hosted-origin.txt',
     '/dist/dashboard/index.html',

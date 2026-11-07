@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as asar from '@electron/asar';
+import { desktopUserData } from '../apps/desktop/src/desktop-user-data';
 import {
   desktopTarget,
   releaseOrigin,
@@ -15,6 +16,17 @@ import {
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('keeps packaged app data per user and separate from preview', () => {
+    expect(desktopUserData('/users/alice/config', true)).toBe(
+      path.join('/users/alice/config', 'Lykeion'),
+    );
+    expect(desktopUserData('/users/bob/config', true)).toBe(
+      path.join('/users/bob/config', 'Lykeion'),
+    );
+    expect(desktopUserData('/users/alice/config', false)).toBe(
+      path.join('/users/alice/config', 'Lykeion Preview'),
+    );
+  });
   it('maps only approved platform and architecture pairs to Go and builder targets', () => {
     expect(desktopTarget('darwin', 'arm64')).toEqual({
       goos: 'darwin',
@@ -121,7 +133,7 @@ describe('desktop release packaging', () => {
       const root = path.join(temp, 'tree');
       mkdirSync(path.join(root, 'apps/desktop/out'), { recursive: true });
       mkdirSync(path.join(root, 'dist/dashboard'), { recursive: true });
-      for (const file of ['main.js', 'preload.cjs'])
+      for (const file of ['main.js', 'preload.cjs', 'desktop-user-data.js'])
         writeFileSync(path.join(root, 'apps/desktop/out', file), 'ok');
       writeFileSync(
         path.join(root, 'apps/desktop/out/desktop-hosted-origin.txt'),

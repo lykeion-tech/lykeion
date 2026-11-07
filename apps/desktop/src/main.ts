@@ -14,6 +14,7 @@ import {
   validExternalURL,
 } from './renderer-origin.js';
 import { openGoogleSignIn } from './google-sign-in.js';
+import { desktopUserData } from './desktop-user-data.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
@@ -21,7 +22,7 @@ if (developmentUrl && !previewOrigins.has(developmentUrl))
   throw new Error('Unsupported development renderer origin');
 const appName = app.isPackaged ? 'Lykeion' : 'Lykeion Preview';
 app.setName(appName);
-app.setPath('userData', path.join(app.getPath('appData'), appName));
+app.setPath('userData', desktopUserData(app.getPath('appData'), app.isPackaged));
 let window: BrowserWindow | null = null;
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.quit();
