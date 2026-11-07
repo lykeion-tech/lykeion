@@ -182,6 +182,15 @@ describe('Daemon settings mounted section', () => {
     );
     expect(t.bridge.restart).not.toHaveBeenCalled();
   });
+  it('warns that quitting can stop runs before suggesting it as path recovery', async () => {
+    const t = await mount();
+    await vi.waitFor(() => expect(t.text()).toContain('quit the desktop app'));
+    const guidance = t.text();
+    expect(guidance).toContain('Quitting can stop the daemon');
+    expect(guidance.indexOf('wait for active runs to finish before quitting')).toBeLessThan(
+      guidance.indexOf('quit the desktop app'),
+    );
+  });
   it('does not offer local installation instructions for another machine or account', async () => {
     const t = await mount({ own: false });
     expect(t.text()).not.toContain('Set up an agent tool');

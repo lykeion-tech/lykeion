@@ -216,8 +216,9 @@ defineExpose({
         Restarting interrupts active runs.
       </p>
       <p>
-        If a tool is still missing, quit the desktop app and launch its executable from a terminal
-        where the tool works, then restart the daemon after active runs finish.
+        If a tool is still missing, wait for active runs to finish before quitting. Quitting can
+        stop the daemon if auto-stop is enabled. Then quit the desktop app and launch its executable
+        from a terminal where the tool works, and restart the daemon to detect it.
       </p>
     </section>
     <div class="daemon-preferences">
