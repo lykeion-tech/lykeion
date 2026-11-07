@@ -264,9 +264,7 @@ describe('Daemon settings mounted section', () => {
         daemonID: null,
       }),
     });
-    expect(t.text()).toContain(
-      'Daemon controls require the macOS or Linux desktop development preview.',
-    );
+    expect(t.text()).toContain('Local daemon controls are not available on this platform.');
     expect(t.text()).not.toContain('This machine is remote');
     expect(t.bridge.getPreferences).not.toHaveBeenCalled();
   });
@@ -417,7 +415,12 @@ describe('Daemon settings mounted section', () => {
     expect(t.button('Auto-start on launch').props.disabled).toBe(false);
   });
   it('shows development CLI build guidance and disables controls when CLI is missing', async () => {
-    const t = await mount({ snapshot: snapshot({ cliAvailable: false }) });
+    const t = await mount({
+      snapshot: snapshot({
+        cliAvailable: false,
+        error: 'Development lyk is missing. Run npm run desktop:dev to build it.',
+      }),
+    });
     expect(t.text()).toContain('npm run desktop:dev');
     expect(t.text()).toContain('Missing');
     expect(t.text()).not.toContain('remote or managed outside');

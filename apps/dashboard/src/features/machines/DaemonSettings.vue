@@ -40,11 +40,11 @@ const stopped = computed(() => matches.value && snapshot.value?.status === 'stop
 const explanation = computed(() => {
   if (!bridge) return '';
   if (snapshot.value?.availability === 'unavailable')
-    return 'Daemon controls require the macOS or Linux desktop development preview.';
+    return 'Local daemon controls are not available on this platform.';
   if (!matches.value)
     return 'This machine is remote or managed outside this desktop app. Use Daemon instructions on that computer.';
   if (!snapshot.value?.cliAvailable)
-    return 'Development lyk is missing. Run npm run desktop:dev to build it.';
+    return snapshot.value?.error || 'The Lykeion runtime is missing or invalid.';
   return '';
 });
 

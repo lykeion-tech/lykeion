@@ -5,7 +5,11 @@ import os from 'node:os';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { DaemonManager, requestDaemonAPI } from '../apps/desktop/src/daemon-manager.js';
+import {
+  DaemonManager,
+  requestDaemonAPI,
+  desktopDaemonOptions,
+} from '../apps/desktop/src/daemon-manager.js';
 import {
   installDaemonIPC,
   validateDaemonRequest,
@@ -89,6 +93,84 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
+  it('selects only the bundled executable on packaged macOS and Linux', () => {
+    expect(
+      desktopDaemonOptions('darwin', true, true, '/preview/out', '/app/resources', 'http://evil'),
+    ).toEqual({ supported: true, cliPath: '/app/resources/bin/lyk' });
+    expect(desktopDaemonOptions('linux', true, true, '/preview/out', '/app/resources')).toEqual({
+      supported: true,
+      cliPath: '/app/resources/bin/lyk',
+    });
+    expect(desktopDaemonOptions('win32', true, true, '/preview/out', '/app/resources')).toEqual({
+      supported: false,
+      cliPath: '/app/resources/bin/lyk',
+    });
+    expect(
+      desktopDaemonOptions(
+        'darwin',
+        false,
+        false,
+        '/preview/out',
+        '/app/resources',
+        'http://127.0.0.1:1430',
+      ),
+    ).toEqual({ supported: false, cliPath: '/preview/out/lyk' });
+    expect(
+      desktopDaemonOptions(
+        'linux',
+        true,
+        false,
+        '/preview/out',
+        '/app/resources',
+        'http://127.0.0.1:1430',
+      ),
+    ).toEqual({ supported: true, cliPath: '/preview/out/lyk' });
+  });
+  it('refuses a symlink or directory as the bundled executable', async () => {
+    const f = await fixture();
+    const target = path.join(f.root, 'target');
+    const link = path.join(f.root, 'lyk');
+    await writeFile(target, '#!/bin/sh\n', { mode: 0o700 });
+    await symlink(target, link);
+    const options = { ...f.options, cliPath: link, cliAvailable: undefined };
+    expect((await new DaemonManager(options).getSnapshot()).cliAvailable).toBe(false);
+    await rm(link);
+    await mkdir(link);
+    expect((await new DaemonManager(options).getSnapshot()).cliAvailable).toBe(false);
+    await rm(link, { recursive: true });
+    await writeFile(link, '#!/bin/sh\n', { mode: 0o700 });
+    expect((await new DaemonManager(options).getSnapshot()).cliAvailable).toBe(true);
+  });
+  it('reports an actionable packaged-runtime error without development instructions', async () => {
+    const f = await fixture();
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      cliAvailable: async () => false,
+    });
+    expect((await manager.getSnapshot()).error).toBe(
+      'The bundled Lykeion runtime is missing or invalid. Reinstall the app.',
+    );
+    await expect(manager.configureSession(session)).rejects.toThrow('Reinstall the app');
+  });
+  it('keeps profiles and tokens distinct across ports of the same server hostname', async () => {
+    const f = await fixture();
+    await f.manager.setPreferences({ autoStart: false, autoStop: false });
+    const first = await f.manager.configureSession(session);
+    const secondOrigin = 'http://127.0.0.1:9090';
+    const other = new DaemonManager({ ...f.options, apiOrigin: secondOrigin });
+    const second = await other.configureSession({ ...session, apiOrigin: secondOrigin });
+    expect(first.profile).not.toBe(second.profile);
+    expect(
+      await readFile(path.join(f.root, 'profiles', first.profile!, 'config.json'), 'utf8'),
+    ).toContain(origin);
+    expect(
+      await readFile(path.join(f.root, 'profiles', second.profile!, 'config.json'), 'utf8'),
+    ).toContain(secondOrigin);
+    expect(
+      f.request.mock.calls.every(([url]) => url.startsWith(origin) || url.startsWith(secondOrigin)),
+    ).toBe(true);
+  });
   it('persists private default preferences and preserves the last saved value on failure', async () => {
     const { root, manager, options, calls } = await fixture();
     expect(await manager.getPreferences()).toEqual({ autoStart: true, autoStop: false });
@@ -533,7 +615,9 @@ describe('desktop daemon manager', () => {
     expect(await unsupported.getSnapshot()).toMatchObject({ availability: 'unavailable' });
     await expect(unsupported.start()).rejects.toThrow();
     f.request.mockClear();
-    await expect(unsupported.configureSession(session)).rejects.toThrow('Daemon controls require');
+    await expect(unsupported.configureSession(session)).rejects.toThrow(
+      'not available on this platform',
+    );
     expect(f.request).not.toHaveBeenCalled();
   });
 });
@@ -582,6 +666,13 @@ describe('registered daemon IPC and status events', () => {
       origin,
     );
     const configure = handlers.get('lykeion:daemon:configureSession')!;
+    expect(await handlers.get('lykeion:daemon:getPreferences')!(event)).toEqual({
+      autoStart: true,
+      autoStop: false,
+    });
+    expect(() => configure({ sender, senderFrame: { ...frame } }, session)).toThrow(
+      'Invalid sender',
+    );
     await expect(
       configure(event, { ...session, apiOrigin: 'https://other.example' }),
     ).rejects.toThrow('Invalid desktop session target');
@@ -590,6 +681,11 @@ describe('registered daemon IPC and status events', () => {
     expect(() => configure(event, session)).toThrow('Invalid sender');
     frame.url = `${origin}/api/me`;
     expect(() => configure(event, session)).toThrow('Invalid sender');
+    frame.url = `${origin}/__lykeion_desktop__/#/studies`;
+    expect(await configure(event, session)).toMatchObject({
+      status: 'running',
+      authenticatedUserID: 'alice',
+    });
   });
   it('enforces sender and payload validation before dispatch, allowing only packaged reads', async () => {
     const f = await fixture();

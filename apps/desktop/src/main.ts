@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
-import { DaemonManager } from './daemon-manager.js';
+import { DaemonManager, desktopDaemonOptions } from './daemon-manager.js';
 import { installDaemonIPC, previewOrigins, validDaemonSender } from './daemon-ipc.js';
 import path from 'node:path';
 import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
@@ -16,7 +16,7 @@ import {
 import { openGoogleSignIn } from './google-sign-in.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const developmentUrl = process.env.LYKEION_RENDERER_URL;
+const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
 if (developmentUrl && !previewOrigins.has(developmentUrl))
   throw new Error('Unsupported development renderer origin');
 app.setName('Lykeion Preview');
@@ -112,12 +112,15 @@ void app.whenReady().then(async () => {
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
     apiOrigin,
-    cliPath: path.join(directory, 'lyk'),
-    supported:
-      ownsInstance &&
-      !app.isPackaged &&
-      !!developmentUrl &&
-      ['darwin', 'linux'].includes(process.platform),
+    packaged: app.isPackaged,
+    ...desktopDaemonOptions(
+      process.platform,
+      ownsInstance,
+      app.isPackaged,
+      directory,
+      process.resourcesPath,
+      developmentUrl,
+    ),
   });
   installDaemonIPC(
     ipcMain,

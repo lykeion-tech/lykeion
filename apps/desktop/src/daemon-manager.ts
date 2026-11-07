@@ -23,11 +23,26 @@ export interface DaemonManagerOptions {
   apiOrigin: string;
   cliPath: string;
   supported: boolean;
+  packaged?: boolean;
   execute?: (file: string, args: string[], options: CommandOptions) => Promise<string>;
   request?: (url: string, options: RequestOptions) => Promise<unknown>;
   cliAvailable?: () => Promise<boolean>;
 }
 const defaults: DaemonPreferences = { autoStart: true, autoStop: false };
+export function desktopDaemonOptions(
+  platform: string,
+  ownsInstance: boolean,
+  packaged: boolean,
+  directory: string,
+  resourcesPath: string,
+  developmentUrl?: string,
+): { supported: boolean; cliPath: string } {
+  return {
+    supported:
+      ownsInstance && ['darwin', 'linux'].includes(platform) && (packaged || !!developmentUrl),
+    cliPath: packaged ? path.join(resourcesPath, 'bin', 'lyk') : path.join(directory, 'lyk'),
+  };
+}
 function origin(value: string): string {
   const url = new URL(value);
   if (
@@ -165,6 +180,8 @@ export class DaemonManager {
     if (!this.options.supported) return false;
     try {
       if (this.options.cliAvailable) return await this.options.cliAvailable();
+      const info = await lstat(this.options.cliPath);
+      if (!info.isFile() || info.isSymbolicLink()) return false;
       await access(this.options.cliPath, constants.X_OK);
       return true;
     } catch {
@@ -173,9 +190,13 @@ export class DaemonManager {
   }
   private async requireCLI(): Promise<void> {
     if (!this.options.supported)
-      throw new Error('Daemon controls require the macOS or Linux development preview');
-    if (!(await this.available()))
-      throw new Error('Development lyk is missing. Run npm run desktop:dev to build it.');
+      throw new Error('Local daemon controls are not available on this platform');
+    if (!(await this.available())) throw new Error(this.missingCLIMessage());
+  }
+  private missingCLIMessage(): string {
+    return this.options.packaged
+      ? 'The bundled Lykeion runtime is missing or invalid. Reinstall the app.'
+      : 'Development lyk is missing. Run npm run desktop:dev to build it.';
   }
   private async command(action: 'status' | 'start' | 'stop'): Promise<string> {
     await this.prepare();
@@ -257,7 +278,7 @@ export class DaemonManager {
     if (!this.options.supported)
       return this.emit({
         ...snapshot,
-        error: 'Daemon controls require the macOS or Linux development preview',
+        error: 'Local daemon controls are not available on this platform',
       });
     try {
       await this.prepare();
@@ -272,7 +293,7 @@ export class DaemonManager {
       if (!cliAvailable)
         return this.emit({
           ...snapshot,
-          error: 'Development lyk is missing. Run npm run desktop:dev to build it.',
+          error: this.missingCLIMessage(),
         });
       const status = object(JSON.parse(await this.command('status')));
       if (status.profile !== this.profile) throw new Error('Daemon profile does not match desktop');
@@ -345,9 +366,7 @@ export class DaemonManager {
     if (!validSession(input) || input.apiOrigin !== this.apiOrigin)
       return Promise.reject(new Error('Invalid desktop session target'));
     if (!this.options.supported)
-      return Promise.reject(
-        new Error('Daemon controls require the macOS or Linux development preview'),
-      );
+      return Promise.reject(new Error('Local daemon controls are not available on this platform'));
     const value = { ...input };
     const version = ++this.generation;
     this.session = null;
