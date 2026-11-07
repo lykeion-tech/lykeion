@@ -561,6 +561,36 @@ describe('desktop IPC boundary', () => {
 });
 
 describe('registered daemon IPC and status events', () => {
+  it('accepts only the selected bundled entry and rejects a session for another deployment', async () => {
+    const f = await fixture();
+    const handlers = new Map<
+      string,
+      (event: { sender: unknown; senderFrame: unknown }, value?: unknown) => unknown
+    >();
+    const frame = { url: `${origin}/__lykeion_desktop__/#/studies` };
+    const sender = { mainFrame: frame };
+    const event = { sender, senderFrame: frame };
+    installDaemonIPC(
+      {
+        handle: (name, handler) => {
+          handlers.set(name, handler);
+        },
+      },
+      () => sender,
+      f.manager,
+      'file:///bundle/index.html',
+      origin,
+    );
+    const configure = handlers.get('lykeion:daemon:configureSession')!;
+    await expect(
+      configure(event, { ...session, apiOrigin: 'https://other.example' }),
+    ).rejects.toThrow('Invalid desktop session target');
+    expect(f.request).not.toHaveBeenCalled();
+    frame.url = 'https://other.example/__lykeion_desktop__/';
+    expect(() => configure(event, session)).toThrow('Invalid sender');
+    frame.url = `${origin}/api/me`;
+    expect(() => configure(event, session)).toThrow('Invalid sender');
+  });
   it('enforces sender and payload validation before dispatch, allowing only packaged reads', async () => {
     const f = await fixture();
     const handlers = new Map<

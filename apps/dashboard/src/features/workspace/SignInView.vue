@@ -80,6 +80,12 @@ async function verify() {
 }
 
 function google() {
+  if (window.lykeionDesktop) {
+    void window.lykeionDesktop.openGoogleSignIn().catch(() => {
+      error.value = 'Could not open Google sign-in. Try again.';
+    });
+    return;
+  }
   window.location.href = '/auth/google';
 }
 </script>

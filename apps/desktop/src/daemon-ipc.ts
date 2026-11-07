@@ -1,4 +1,5 @@
 import type { DaemonPreferences, DaemonSession } from './daemon-types.js';
+import { trustedDesktopFrame } from './renderer-origin.js';
 export const daemonMethods = [
   'getSnapshot',
   'getPreferences',
@@ -78,6 +79,7 @@ export function installDaemonIPC(
   current: () => Sender | null,
   manager: DaemonManager,
   bundledURL: string,
+  desktopOrigin?: string,
 ): void {
   for (const method of daemonMethods) {
     ipc.handle(`lykeion:daemon:${method}`, (event, value) => {
@@ -89,7 +91,9 @@ export function installDaemonIPC(
         event.sender === sender &&
         event.senderFrame === sender.mainFrame &&
         sender.mainFrame.url === bundledURL;
-      if (!validDaemonSender(event, sender) && !bundledRead) throw new Error('Invalid sender');
+      const desktop = desktopOrigin && trustedDesktopFrame(event, sender, desktopOrigin);
+      if (!(desktopOrigin ? desktop : validDaemonSender(event, sender) || bundledRead))
+        throw new Error('Invalid sender');
       validateDaemonRequest(method, value);
       if (method === 'configureSession') return manager.configureSession(value as DaemonSession);
       if (method === 'setPreferences') return manager.setPreferences(value as DaemonPreferences);

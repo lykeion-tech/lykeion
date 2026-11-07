@@ -1,11 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import { DaemonManager } from './daemon-manager.js';
-import { installDaemonIPC, previewOrigins } from './daemon-ipc.js';
+import { installDaemonIPC, previewOrigins, validDaemonSender } from './daemon-ipc.js';
 import path from 'node:path';
 import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
+import { desktopEntryURL, installDesktopRenderer, trustedDesktopFrame } from './renderer-origin.js';
+import { openGoogleSignIn } from './google-sign-in.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = process.env.LYKEION_RENDERER_URL;
@@ -26,6 +28,7 @@ const configBase =
     ? process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
     : app.getPath('appData');
 let daemon: DaemonManager | null = null;
+let selectedOrigin = '';
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -67,7 +70,7 @@ function createWindow() {
     callback(false),
   );
   if (developmentUrl) void window.loadURL(developmentUrl);
-  else void window.loadFile(bundledPath);
+  else void window.loadURL(desktopEntryURL(selectedOrigin));
   window.on('closed', () => {
     window = null;
   });
@@ -93,6 +96,10 @@ void app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  selectedOrigin = apiOrigin;
+  if (!developmentUrl) {
+    installDesktopRenderer(session.defaultSession, apiOrigin, path.dirname(bundledPath));
+  }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
     apiOrigin,
@@ -108,15 +115,31 @@ void app.whenReady().then(async () => {
     () => window?.webContents ?? null,
     daemon,
     pathToFileURL(bundledPath).href,
+    developmentUrl ? undefined : apiOrigin,
   );
   daemon.onStatusChange((snapshot) => {
     if (window && !window.isDestroyed()) window.webContents.send('lykeion:daemon:status', snapshot);
   });
   daemon.startPolling();
   ipcMain.handle('lykeion:open-documentation', async (event) => {
-    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame)
+    if (
+      !window ||
+      !(developmentUrl
+        ? validDaemonSender(event, window.webContents)
+        : trustedDesktopFrame(event, window.webContents, apiOrigin))
+    )
       throw new Error('Invalid sender');
     await shell.openExternal('https://github.com/lykeion-ia/lykeion');
+  });
+  ipcMain.handle('lykeion:google-sign-in', (event) => {
+    if (
+      !window ||
+      !(developmentUrl
+        ? validDaemonSender(event, window.webContents)
+        : trustedDesktopFrame(event, window.webContents, apiOrigin))
+    )
+      throw new Error('Invalid sender');
+    openGoogleSignIn(window, apiOrigin);
   });
   createWindow();
   app.on('activate', () => {

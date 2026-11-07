@@ -1,0 +1,81 @@
+// @vitest-environment node
+import { describe, expect, it, vi } from 'vitest';
+import {
+  desktopEntryURL,
+  desktopAssetPath,
+  trustedDesktopFrame,
+  installDesktopRenderer,
+} from '../apps/desktop/src/renderer-origin';
+
+describe('desktop renderer origin', () => {
+  it.each(['https://lykeion.ia', 'https://lab.example:8443', 'http://127.0.0.1:8080'])(
+    'serves the dashboard on the chosen origin %s',
+    (origin) => {
+      const entry = desktopEntryURL(origin);
+      expect(new URL(entry).origin).toBe(origin);
+      expect(desktopAssetPath(entry, origin, '/bundle')).toBe('/bundle/index.html');
+      expect(desktopAssetPath(`${entry}assets/app.js`, origin, '/bundle')).toBe(
+        '/bundle/assets/app.js',
+      );
+      expect(desktopAssetPath(`${origin}/api/me`, origin, '/bundle')).toBeNull();
+      expect(
+        desktopAssetPath('https://other.example/__lykeion_desktop__/', origin, '/bundle'),
+      ).toBeNull();
+    },
+  );
+  it('blocks escape and remote HTML within its reserved asset prefix', () => {
+    const origin = 'https://lab.example';
+    expect(
+      desktopAssetPath(`${origin}/__lykeion_desktop__/%2e%2e%2fsecret`, origin, '/bundle'),
+    ).toBe(false);
+    expect(
+      desktopAssetPath(`${origin}/__lykeion_desktop__/assets/evil.html`, origin, '/bundle'),
+    ).toBe(false);
+    expect(desktopAssetPath(`${origin}/__lykeion_desktop__/missing.js`, origin, '/bundle')).toBe(
+      '/bundle/missing.js',
+    );
+  });
+  it('trusts only the main frame of the exact local entry, not remote paths', () => {
+    const frame = { url: 'https://lab.example/__lykeion_desktop__/#/studies' };
+    const sender = { mainFrame: frame };
+    expect(trustedDesktopFrame({ sender, senderFrame: frame }, sender, 'https://lab.example')).toBe(
+      true,
+    );
+    expect(trustedDesktopFrame({ sender, senderFrame: {} }, sender, 'https://lab.example')).toBe(
+      false,
+    );
+    frame.url = 'https://lab.example/api/me';
+    expect(trustedDesktopFrame({ sender, senderFrame: frame }, sender, 'https://lab.example')).toBe(
+      false,
+    );
+    frame.url = 'https://evil.example/__lykeion_desktop__/';
+    expect(trustedDesktopFrame({ sender, senderFrame: frame }, sender, 'https://lab.example')).toBe(
+      false,
+    );
+  });
+  it('blocks remote executable resources and all requests to a different server', () => {
+    let before: (
+      details: { url: string; resourceType: string },
+      done: (value: { cancel: boolean }) => void,
+    ) => void = () => {};
+    const fake = {
+      webRequest: {
+        onBeforeRequest: (_filter: unknown, callback: typeof before) => {
+          before = callback;
+        },
+      },
+      protocol: { handle: vi.fn() },
+    };
+    installDesktopRenderer(fake as never, 'https://lab.example', '/bundle');
+    const decision = (url: string, resourceType: string) => {
+      const done = vi.fn();
+      before({ url, resourceType }, done);
+      return done.mock.calls[0]![0].cancel;
+    };
+    expect(decision('https://lab.example/__lykeion_desktop__/assets/app.js', 'script')).toBe(false);
+    expect(decision('https://lab.example/api/hostile.js', 'script')).toBe(true);
+    expect(decision('https://lab.example/api/file', 'xhr')).toBe(false);
+    expect(decision('https://other.example/api/file', 'xhr')).toBe(true);
+    expect(decision('https://lab.example/api/me', 'mainFrame')).toBe(true);
+  });
+});

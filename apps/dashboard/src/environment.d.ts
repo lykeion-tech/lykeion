@@ -4,6 +4,7 @@ interface Window {
   lykeionDesktop?: {
     platform: string;
     openDocumentation(): Promise<void>;
+    openGoogleSignIn(): Promise<void>;
     daemon?: import('../../desktop/src/daemon-types.js').DesktopDaemonBridge;
   };
 }

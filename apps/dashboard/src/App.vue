@@ -87,7 +87,7 @@ const unauthorized = computed(() =>
 const desktopSession = createDaemonSession({
   bridge: window.lykeionDesktop?.daemon,
   // eslint-disable-next-line no-undef -- injected by the dashboard Vite configuration
-  apiOrigin: __LYK_PUBLIC_API_ORIGIN__,
+  apiOrigin: import.meta.env.DEV ? __LYK_PUBLIC_API_ORIGIN__ : window.location.origin,
   token: () => api<{ token: string }>('POST', '/api/cli-token'),
   reportError: notify,
   onConfigured: () => {
