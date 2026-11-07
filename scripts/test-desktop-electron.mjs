@@ -9,6 +9,7 @@ const fixtures = [
   'desktop-electron-fixture.mjs',
   'desktop-links-fixture.mjs',
   'desktop-auth-shutdown-electron-fixture.mjs',
+  'desktop-logout-crash-fixture.mjs',
   'desktop-tls-fixture.mjs',
   'desktop-lifetime-fixture.mjs',
 ];

@@ -16,7 +16,8 @@ import {
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
-import { clearAbandonedLogout } from './desktop-auth-logout.js';
+import { clearAbandonedLogout, recoverLogoutIntent } from './desktop-auth-logout.js';
+import { LogoutIntent } from './desktop-logout-intent.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
@@ -41,7 +42,11 @@ let daemon: DaemonManager | null = null;
 let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
-const authGate = new DesktopAuthGate();
+let logoutIntent: LogoutIntent | null = null;
+const authGate = new DesktopAuthGate(() => {
+  if (!logoutIntent) throw new Error('Logout recovery unavailable');
+  logoutIntent.mark();
+});
 function abandonDocumentAuthentication() {
   authGate.abandonUnclaimed();
   if (authGate.acknowledgeInterruptedVerification())
@@ -91,6 +96,7 @@ app.on('before-quit', (event) => {
         console.error('Desktop daemon could not be stopped before quit');
       try {
         await desktopSession?.cookies.flushStore();
+        logoutIntent?.clear();
       } catch {
         quitPending = false;
         dialog.showErrorBox(
@@ -169,6 +175,17 @@ void app.whenReady().then(async () => {
   selectedOrigin = apiOrigin;
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
+    logoutIntent = new LogoutIntent(app.getPath('userData'), apiOrigin);
+    try {
+      await recoverLogoutIntent(logoutIntent, desktopSession, apiOrigin);
+    } catch {
+      dialog.showErrorBox(
+        'Lykeion could not start',
+        'An interrupted sign-out could not be recovered. Check access to your Lykeion profile and try again.',
+      );
+      app.exit(1);
+      return;
+    }
     desktopCancellation = installDesktopRenderer(
       desktopSession,
       apiOrigin,
@@ -240,12 +257,16 @@ void app.whenReady().then(async () => {
         : null;
   });
   ipcMain.on('lykeion:reserve-auth', (event, path: unknown) => {
-    event.returnValue =
-      window &&
-      typeof path === 'string' &&
-      trustedDesktopFrame(event, window.webContents, apiOrigin)
-        ? authGate.reserve(path)
-        : null;
+    try {
+      event.returnValue =
+        window &&
+        typeof path === 'string' &&
+        trustedDesktopFrame(event, window.webContents, apiOrigin)
+          ? authGate.reserve(path)
+          : null;
+    } catch {
+      event.returnValue = null;
+    }
   });
   ipcMain.on('lykeion:release-auth', (event, token: unknown) => {
     if (

@@ -2,6 +2,14 @@
 import { expect, it } from 'vitest';
 import { DesktopAuthGate } from '../apps/desktop/src/desktop-auth-gate';
 
+it('persists logout before issuing its reservation and rejects storage failure', () => {
+  const gate = new DesktopAuthGate(() => {
+    throw new Error('storage failure');
+  });
+  expect(() => gate.reserve('/auth/logout')).toThrow('storage failure');
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
 it('transfers only an admitted, path-bound request across shutdown', async () => {
   const gate = new DesktopAuthGate();
   const token = gate.reserve('/auth/logout')!;

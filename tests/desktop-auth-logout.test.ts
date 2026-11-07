@@ -1,7 +1,13 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { LogoutIntent } from '../apps/desktop/src/desktop-logout-intent';
 import type { Session } from 'electron';
-import { clearAbandonedLogout } from '../apps/desktop/src/desktop-auth-logout';
+import { clearAbandonedLogout, recoverLogoutIntent } from '../apps/desktop/src/desktop-auth-logout';
 
 it('refuses ambiguous same-name cookies without removing them', async () => {
   const remove = vi.fn();
@@ -41,4 +47,102 @@ it.each([
   } as unknown as Session;
   await expect(clearAbandonedLogout(session, 'https://lykeion.ia')).rejects.toThrow();
   expect(remove).not.toHaveBeenCalled();
+});
+
+it('persists a per-origin logout intent until explicitly cleared', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-intent-'));
+  try {
+    const first = new LogoutIntent(directory, 'https://lab.example');
+    const other = new LogoutIntent(directory, 'https://other.example');
+    expect(first.exists()).toBe(false);
+    first.mark();
+    expect(first.exists()).toBe(true);
+    expect(other.exists()).toBe(false);
+    expect(readFileSync(first.path, 'utf8')).not.toContain('lab.example');
+    expect(new LogoutIntent(directory, 'https://lab.example').exists()).toBe(true);
+    first.clear();
+    expect(first.exists()).toBe(false);
+    first.clear();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('rejects a symlinked marker without touching its target', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-intent-'));
+  try {
+    const intent = new LogoutIntent(directory, 'https://lab.example');
+    intent.mark();
+    rmSync(intent.path);
+    const target = join(directory, 'unrelated');
+    writeFileSync(target, 'preserve');
+    symlinkSync(target, intent.path);
+    expect(() => intent.exists()).toThrow();
+    expect(() => intent.mark()).toThrow();
+    expect(() => intent.clear()).toThrow();
+    expect(readFileSync(target, 'utf8')).toBe('preserve');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(process.platform === 'win32')(
+  'retains logout intent when its process is killed after admission',
+  () => {
+    const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-crash-'));
+    try {
+      const moduleURL = pathToFileURL(
+        join(process.cwd(), 'apps/desktop/src/desktop-logout-intent.ts'),
+      );
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--experimental-strip-types',
+          '--input-type=module',
+          '-e',
+          `import { LogoutIntent } from ${JSON.stringify(moduleURL.href)}; new LogoutIntent(process.argv[1], 'https://lab.example').mark(); process.kill(process.pid, 'SIGKILL');`,
+          directory,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect(child.signal).toBe('SIGKILL');
+      expect(new LogoutIntent(directory, 'https://lab.example').exists()).toBe(true);
+      expect(new LogoutIntent(directory, 'https://other.example').exists()).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it('keeps the intent until its selected cookie is cleared, verified and flushed', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lyk-logout-recovery-'));
+  try {
+    const intent = new LogoutIntent(directory, 'https://lab.example');
+    intent.mark();
+    let present = true;
+    const flush = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('flush failed'))
+      .mockResolvedValue(undefined);
+    const session = {
+      cookies: {
+        get: vi.fn(async () =>
+          present ? [{ hostOnly: true, path: '/', domain: 'lab.example' }] : [],
+        ),
+        remove: vi.fn(async () => {
+          present = false;
+        }),
+        flushStore: flush,
+      },
+    } as unknown as Session;
+    await expect(recoverLogoutIntent(intent, session, 'https://lab.example')).rejects.toThrow(
+      'flush failed',
+    );
+    expect(intent.exists()).toBe(true);
+    await recoverLogoutIntent(intent, session, 'https://lab.example');
+    expect(intent.exists()).toBe(false);
+    expect(flush).toHaveBeenCalledTimes(2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

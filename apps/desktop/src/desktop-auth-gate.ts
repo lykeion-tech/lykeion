@@ -13,6 +13,8 @@ export class DesktopAuthGate {
   private abandonedVerification = false;
   private recovery: Promise<void> | null = null;
 
+  constructor(private readonly persistLogout: () => void = () => {}) {}
+
   reserve(path: string): string | null {
     if (
       this.shuttingDown ||
@@ -21,6 +23,7 @@ export class DesktopAuthGate {
       !['/auth/verify-code', '/auth/logout'].includes(path)
     )
       return null;
+    if (path === '/auth/logout') this.persistLogout();
     const id = ++this.nextID;
     const token = randomUUID();
     this.mutations.add(id);
