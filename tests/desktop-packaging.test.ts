@@ -23,9 +23,37 @@ import {
   verifyArchive,
   verifyBundledBinary,
   replaceOutput,
+  debianMaintainer,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('requires a public Debian maintainer only for Linux installer builds', () => {
+    expect(debianMaintainer('darwin', [], undefined)).toBeUndefined();
+    expect(debianMaintainer('linux', ['--dir'], undefined)).toBeUndefined();
+    expect(debianMaintainer('linux', [], 'Lykeion Team <team@example.org>')).toBe(
+      'Lykeion Team <team@example.org>',
+    );
+    for (const value of [
+      undefined,
+      '',
+      'secret',
+      'Person <bad>',
+      '  <team@example.org>',
+      'Person <x@example.org>\nInjected: yes',
+    ]) {
+      expect(() => debianMaintainer('linux', [], value)).toThrow(
+        'Set LYK_DEB_MAINTAINER to a public name and email',
+      );
+    }
+    let failure: unknown;
+    try {
+      debianMaintainer('linux', [], 'private-token');
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).not.toContain('private-token');
+  });
   it('keeps packaged app data per user and separate from preview', () => {
     expect(desktopUserData('/users/alice/config', true)).toBe(
       path.join('/users/alice/config', 'Lykeion'),

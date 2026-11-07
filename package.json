@@ -67,6 +67,7 @@
     "vue-tsc": "^3.2.0"
   },
   "main": "apps/desktop/out/main.js",
+  "homepage": "https://lykeion.ia",
   "build": {
     "appId": "ia.lykeion.desktop",
     "productName": "Lykeion",

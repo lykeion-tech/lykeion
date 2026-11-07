@@ -50,6 +50,17 @@ export function releaseOrigin(value = 'https://lykeion.ia') {
   return url.origin;
 }
 
+export function debianMaintainer(platform, args, value) {
+  if (platform !== 'linux' || args.includes('--dir')) return undefined;
+  if (
+    typeof value !== 'string' ||
+    value.length > 254 ||
+    !/^[^<>\r\n]*[^<>\s]\s<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>$/.test(value)
+  )
+    throw new Error('Set LYK_DEB_MAINTAINER to a public name and email');
+  return value;
+}
+
 export function safeBuildEnvironment(input) {
   const env = {};
   for (const key of [
@@ -202,6 +213,7 @@ function main() {
   if (args.some((arg) => arg !== '--dir')) throw new Error('Unsupported packaging option');
   const target = desktopTarget(platform, arch);
   const hostedOrigin = releaseOrigin(process.env.LYK_HOSTED_API_URL);
+  const maintainer = debianMaintainer(platform, args, process.env.LYK_DEB_MAINTAINER);
   const commit = revision();
   const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
   const env = safeBuildEnvironment(process.env);
@@ -222,7 +234,13 @@ function main() {
         arch,
         ...args,
       ],
-      { env: { ...env, LYK_HOSTED_API_URL: hostedOrigin } },
+      {
+        env: {
+          ...env,
+          LYK_HOSTED_API_URL: hostedOrigin,
+          ...(maintainer ? { LYK_DEB_MAINTAINER: maintainer } : {}),
+        },
+      },
     );
     return;
   }
@@ -305,7 +323,13 @@ function main() {
     if (!args.includes('--dir')) {
       run(
         'node',
-        ['node_modules/electron-builder/cli.js', ...target.builder, '--publish', 'never'],
+        [
+          'node_modules/electron-builder/cli.js',
+          ...target.builder,
+          ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
+          '--publish',
+          'never',
+        ],
         { cwd: source, env },
       );
       verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin, asar);
