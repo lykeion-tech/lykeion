@@ -21,6 +21,17 @@ function validToken(value: unknown): value is string {
     Buffer.from(value, 'base64url').toString('base64url') === value
   );
 }
+export function bindGoogleDocumentLifetime(
+  contents: Pick<Electron.WebContents, 'on'>,
+  isOwner: () => boolean,
+  cancel: () => void,
+): void {
+  const stop = () => {
+    if (isOwner()) cancel();
+  };
+  contents.on('render-process-gone', stop);
+  contents.on('destroyed', stop);
+}
 function equal(a: string, b: string): boolean {
   const left = Buffer.from(a),
     right = Buffer.from(b);
@@ -52,6 +63,7 @@ export class DesktopGoogleLogin {
     private readonly origin: string,
     private readonly gate: DesktopAuthGate,
     private readonly transport: Transport,
+    private readonly timeoutMs = 5 * 60 * 1000,
   ) {}
   cancel(): void {
     this.gate.cancel();
@@ -168,7 +180,9 @@ export class DesktopGoogleLogin {
         finish(new Error('Sign-in canceled'));
         await result;
       }
-      const timer = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+      const timer = setTimeout(() => {
+        if (this.current === controller) this.cancel();
+      }, this.timeoutMs);
       timer.unref();
       try {
         await this.transport.open(url.href);

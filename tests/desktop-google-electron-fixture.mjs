@@ -11,14 +11,18 @@ app
   .whenReady()
   .then(async () => {
     const { DesktopAuthGate } = await import('../apps/desktop/out/desktop-auth-gate.js');
-    const { DesktopGoogleLogin } = await import('../apps/desktop/out/desktop-google-login.js');
+    const { DesktopGoogleLogin, bindGoogleDocumentLifetime } =
+      await import('../apps/desktop/out/desktop-google-login.js');
     const { prepareGoogleExchange } =
       await import('../apps/desktop/out/desktop-google-transport.js');
     const { installDesktopRenderer, desktopEntryURL } =
       await import('../apps/desktop/out/renderer-origin.js');
     let challenge,
       code,
-      exchanges = 0;
+      exchanges = 0,
+      slowLogout = false,
+      logoutEntered = false,
+      releaseLogout;
     const server = createServer(async (req, res) => {
       const u = new URL(req.url, 'http://localhost');
       if (u.pathname === '/auth/google') {
@@ -30,6 +34,8 @@ app
         });
         res.end();
       } else if (u.pathname === '/auth/desktop/exchange') {
+        assert.equal(req.headers.origin, undefined);
+        assert.notEqual(req.headers['sec-fetch-mode'], 'navigate');
         let body = '';
         for await (const chunk of req) body += chunk;
         const input = JSON.parse(body);
@@ -49,6 +55,12 @@ app
         });
         res.end();
       } else if (u.pathname === '/auth/logout') {
+        if (slowLogout) {
+          logoutEntered = true;
+          await new Promise((resolve) => {
+            releaseLogout = resolve;
+          });
+        }
         res.writeHead(204);
         res.end();
       } else {
@@ -60,7 +72,8 @@ app
     const origin = `http://127.0.0.1:${server.address().port}`;
     const target = session.fromPartition('google-target');
     const other = session.fromPartition('google-other');
-    const login = new DesktopGoogleLogin(origin, new DesktopAuthGate(), {
+    const gate = new DesktopAuthGate();
+    const login = new DesktopGoogleLogin(origin, gate, {
       open: async (url) => {
         const auth = await fetch(url, { redirect: 'manual' });
         const callback = new URL(auth.headers.get('location'));
@@ -89,11 +102,14 @@ app
         finishes = 0;
       writeFileSync(join(profile, 'index.html'), '<!doctype html><title>fixture</title>');
       installDesktopRenderer(target, origin, profile, {
-        start: async () => {
+        start: async (id) => {
           starts++;
+          login.cancel();
+          await gate.mutation(id);
         },
-        finish: () => {
+        finish: (id) => {
           finishes++;
+          gate.finishMutation(id);
         },
       });
       const window = new BrowserWindow({
@@ -109,8 +125,61 @@ app
           204,
         );
         await new Promise((resolve) => setTimeout(resolve, 100));
-        assert.equal(starts, 1);
+        assert.equal(starts, 2);
         assert.ok(finishes >= 1);
+        slowLogout = true;
+        await window.webContents.executeJavaScript(
+          "void fetch('/auth/logout', {method:'POST'}).catch(() => {}); true",
+        );
+        for (let i = 0; i < 100 && !logoutEntered; i++)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(logoutEntered, true);
+        await window.loadURL(desktopEntryURL(origin));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.throws(() => gate.begin());
+        releaseLogout();
+        for (let i = 0; i < 100; i++) {
+          try {
+            gate.begin();
+            break;
+          } catch {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        }
+        assert.doesNotThrow(() => gate.begin());
+        let callbackURL = '';
+        const crashingLogin = new DesktopGoogleLogin(origin, gate, {
+          open: async (url) => {
+            const u = new URL(url);
+            callbackURL = `http://127.0.0.1:${u.searchParams.get('desktop_port')}/callback`;
+          },
+          exchange: async () => {
+            throw new Error('crashed renderer must not exchange');
+          },
+        });
+        bindGoogleDocumentLifetime(
+          window.webContents,
+          () => true,
+          () => crashingLogin.cancel(),
+        );
+        const pending = crashingLogin.start().then(
+          () => false,
+          () => true,
+        );
+        for (let i = 0; i < 100 && !callbackURL; i++)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.notEqual(callbackURL, '');
+        const crashed = new Promise((resolve) =>
+          window.webContents.once('render-process-gone', resolve),
+        );
+        window.webContents.forcefullyCrashRenderer();
+        await crashed;
+        assert.equal(await pending, true);
+        await assert.rejects(fetch(callbackURL));
+        assert.equal(
+          (await target.cookies.get({ url: origin, name: 'lyk_session' }))[0].value,
+          'fixture-session',
+        );
       } finally {
         window.destroy();
       }

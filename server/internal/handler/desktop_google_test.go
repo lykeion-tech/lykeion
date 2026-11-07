@@ -14,6 +14,9 @@ import (
 
 func desktopCode(t *testing.T, s *server, verifier string) string {
 	t.Helper()
+	if s.H.PublicURL == "" {
+		s.H.PublicURL = s.URL
+	}
 	digest := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
 	nonce := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32))
@@ -82,5 +85,58 @@ func TestDesktopGoogleProofBoundSingleUse(t *testing.T) {
 	}
 	if ok != 1 {
 		t.Fatalf("successful redemptions=%d", ok)
+	}
+}
+
+func TestDesktopExchangeRejectsCrossSiteFormsWithoutConsumingProof(t *testing.T) {
+	s := googleServer(t, true, "desktop-csrf-subject")
+	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))
+	for _, tc := range []struct{ name, contentType, origin, site, mode string }{
+		{"simple form", "text/plain", "https://attacker.example", "cross-site", "navigate"},
+		{"foreign JSON", "application/json", "https://attacker.example", "cross-site", "cors"},
+		{"navigation without origin", "application/json", "", "none", "navigate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := desktopCode(t, s, verifier)
+			payload := `{"code":"=","code":"` + code + `","verifier":"` + verifier + `"}` + "\r\n"
+			req, err := http.NewRequest("POST", s.URL+"/auth/desktop/exchange", strings.NewReader(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", tc.contentType)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			req.Header.Set("Sec-Fetch-Site", tc.site)
+			req.Header.Set("Sec-Fetch-Mode", tc.mode)
+			resp, err := noRedirect.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusNoContent || len(resp.Cookies()) != 0 {
+				t.Fatalf("accepted cross-site request: %d", resp.StatusCode)
+			}
+			if valid := redeemDesktop(t, s, code, verifier, ""); valid.StatusCode != http.StatusNoContent {
+				t.Fatalf("proof consumed by rejected request: %d", valid.StatusCode)
+			}
+		})
+	}
+}
+
+func TestDesktopExchangeIsBoundToConfiguredDeployment(t *testing.T) {
+	s := googleServer(t, true, "desktop-deployment-subject")
+	s.H.PublicURL = s.URL
+	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32))
+	code := desktopCode(t, s, verifier)
+	for _, other := range []string{"https://other.example", "http://127.0.0.1:9999", "https://127.0.0.1:9999"} {
+		s.H.PublicURL = other
+		if got := redeemDesktop(t, s, code, verifier, ""); got.StatusCode == http.StatusNoContent {
+			t.Fatalf("redeemed in %s", other)
+		}
+	}
+	s.H.PublicURL = s.URL
+	if got := redeemDesktop(t, s, code, verifier, ""); got.StatusCode != http.StatusNoContent {
+		t.Fatalf("proof consumed: %d", got.StatusCode)
 	}
 }

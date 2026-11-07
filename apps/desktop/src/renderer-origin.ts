@@ -124,6 +124,7 @@ export function installDesktopRenderer(
   auth?: { start(id: number): Promise<void>; finish(id: number): void },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
+  let nativeAuthID = -1;
   session.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
     (request, done) => {
@@ -153,12 +154,18 @@ export function installDesktopRenderer(
     session.webRequest.onCompleted((request) => auth.finish(request.id));
     session.webRequest.onErrorOccurred((request) => auth.finish(request.id));
   }
-  session.protocol.handle(new URL(origin).protocol.slice(0, -1), (request) => {
+  session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))
       return new Response('Not found', { status: 404 });
     if (asset) return session.fetch(pathToFileURL(asset).href);
     if (new URL(request.url).origin !== origin) return new Response('Forbidden', { status: 403 });
+    const path = new URL(request.url).pathname;
+    if (auth && request.method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path)) {
+      const id = nativeAuthID--;
+      await auth.start(id);
+      return forward(session, request, cancellation, () => auth.finish(id));
+    }
     return forward(session, request, cancellation);
   });
   return cancellation;
@@ -168,9 +175,13 @@ export function forward(
   session: Session,
   incoming: Request,
   cancellation: RequestCancellation,
+  finishAuth?: () => void,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
-    if (incoming.signal.aborted) return reject(new DOMException('Request aborted', 'AbortError'));
+    if (incoming.signal.aborted) {
+      finishAuth?.();
+      return reject(new DOMException('Request aborted', 'AbortError'));
+    }
     const request = net.request({
       url: incoming.url,
       method: incoming.method,
@@ -196,6 +207,8 @@ export function forward(
     const id = incoming.headers.get(requestHeader);
     const release = () => {
       if (id) cancellation.release(id, abort);
+      finishAuth?.();
+      finishAuth = undefined;
     };
     const abort = () => {
       release();
@@ -204,6 +217,7 @@ export function forward(
       reject(new DOMException('Request aborted', 'AbortError'));
     };
     if (id && !cancellation.register(id, abort)) {
+      release();
       request.abort();
       return reject(new DOMException('Request aborted', 'AbortError'));
     }

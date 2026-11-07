@@ -10,6 +10,9 @@ export class DesktopAuthGate {
   cancel(): void {
     ++this.generation;
   }
+  async settle(): Promise<void> {
+    await this.installing?.catch(() => {});
+  }
   mutation(id = 0): Promise<void> {
     this.cancel();
     this.mutations.add(id);

@@ -5,6 +5,48 @@ import { DesktopAuthGate } from '../apps/desktop/src/desktop-auth-gate';
 import { DesktopGoogleLogin } from '../apps/desktop/src/desktop-google-login';
 
 describe('desktop system-browser Google handoff', () => {
+  it('rolls back an installation still running when the attempt times out', async () => {
+    const gate = new DesktopAuthGate();
+    let state = '',
+      listener = '',
+      release!: () => void;
+    const entered = vi.fn();
+    const rollback = vi.fn(async () => {});
+    const login = new DesktopGoogleLogin(
+      'https://lab.example',
+      gate,
+      {
+        open: async (url) => {
+          const u = new URL(url);
+          state = u.searchParams.get('desktop_state')!;
+          listener = `http://127.0.0.1:${u.searchParams.get('desktop_port')}/callback`;
+        },
+        exchange: async () => ({
+          apply: async () => {
+            entered();
+            await new Promise<void>((r) => {
+              release = r;
+            });
+          },
+          rollback,
+        }),
+      },
+      150,
+    );
+    const attempt = login.start().catch(() => {});
+    await vi.waitFor(() => expect(listener).not.toBe(''), { interval: 5 });
+    const callback = fetch(listener, {
+      method: 'POST',
+      headers: { origin: new URL(listener).origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ state, code: Buffer.alloc(32, 1).toString('base64url') }),
+    }).catch(() => null);
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce(), { interval: 5 });
+    await attempt;
+    release();
+    await gate.settle();
+    await callback;
+    expect(rollback).toHaveBeenCalledOnce();
+  });
   it('checks callback origin/state and exchanges a proof-bound code once', async () => {
     const gate = new DesktopAuthGate();
     const apply = vi.fn(async () => {});

@@ -9,6 +9,31 @@ function deferred() {
   return { promise, resolve };
 }
 describe('desktop authentication gate', () => {
+  it('waits for an invalidated installation and rollback before shutdown', async () => {
+    const gate = new DesktopAuthGate();
+    const attempt = gate.begin();
+    const wait = deferred();
+    const rollback = vi.fn();
+    const commit = gate.commit(
+      attempt,
+      async () => {
+        await wait.promise;
+      },
+      rollback,
+    );
+    await Promise.resolve();
+    gate.cancel();
+    let settled = false;
+    const shutdown = gate.settle().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    wait.resolve();
+    expect(await commit).toBe(false);
+    await shutdown;
+    expect(rollback).toHaveBeenCalledOnce();
+  });
   it('prevents an old OAuth completion after an email login or logout begins', async () => {
     const gate = new DesktopAuthGate();
     const attempt = gate.begin();

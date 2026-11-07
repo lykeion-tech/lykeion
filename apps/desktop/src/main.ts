@@ -16,7 +16,7 @@ import {
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
-import { DesktopGoogleLogin } from './desktop-google-login.js';
+import { DesktopGoogleLogin, bindGoogleDocumentLifetime } from './desktop-google-login.js';
 import { prepareGoogleExchange } from './desktop-google-transport.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -48,12 +48,11 @@ let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
   googleLogin?.cancel();
-  if (quitAllowed || !ownsInstance || !daemon) return;
+  if (quitAllowed || !ownsInstance) return;
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
-  void daemon
-    .beforeQuit()
+  void Promise.all([authGate.settle(), daemon?.beforeQuit()])
     .catch(() => {
       console.error('Desktop daemon could not be stopped before quit');
     })
@@ -80,6 +79,11 @@ function createWindow() {
     },
   });
   const owner = window;
+  bindGoogleDocumentLifetime(
+    owner.webContents,
+    () => window === owner,
+    () => googleLogin?.cancel(),
+  );
   const drain = desktopCancellation
     ? bindDesktopRequestLifetime(owner.webContents, desktopCancellation, () => window === owner)
     : () => {};
