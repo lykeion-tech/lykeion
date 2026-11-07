@@ -248,7 +248,7 @@ function position(run: AgentRun) {
   gap: 16px;
   border-top: 1px solid var(--border);
   padding: 10px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .timeline-row time {
   width: 60px;
@@ -294,7 +294,7 @@ function position(run: AgentRun) {
   }
   .timeline-row {
     gap: 6px;
-    font-size: 11px;
+    font-size: 13px;
     flex-wrap: wrap;
   }
   .timeline-row > span:not(.timeline-role) {

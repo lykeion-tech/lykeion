@@ -234,6 +234,6 @@ function entries(value: unknown, prefix = ''): [string, string][] {
   display: block;
   padding: 8px;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
 }
 </style>

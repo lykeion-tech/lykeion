@@ -229,7 +229,7 @@ const ending = computed(() => {
   padding: 3px 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .assignment-actions :deep(.quiet-action:hover) {
   color: var(--text);
@@ -245,7 +245,7 @@ const ending = computed(() => {
   overflow-wrap: anywhere;
 }
 .formatting-notice {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 8px;
 }

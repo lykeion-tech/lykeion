@@ -463,7 +463,7 @@ const lastActive = computed(
 }
 .run-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .run-result {
   margin: 12px 0 0 34px;
@@ -500,7 +500,7 @@ const lastActive = computed(
 .machine-notice {
   margin-top: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .run-replies {
   margin: 14px -16px 0;
@@ -524,7 +524,7 @@ const lastActive = computed(
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 3px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .reply-heading time {
   color: var(--muted);
@@ -536,7 +536,7 @@ const lastActive = computed(
 .run-reply small,
 .reply-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .reply-composer {
   display: flex;
@@ -587,7 +587,7 @@ const lastActive = computed(
 }
 .reply-error {
   color: var(--error-text);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 16px;
 }
 .reply-note {

@@ -162,7 +162,7 @@ const fallback = computed(() => {
 }
 .step-detail-label {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .step-intent {

@@ -85,7 +85,7 @@ const working = computed(() => props.active && steps.value.some((s) => s.running
 .activity-error {
   margin-left: auto;
   color: var(--error-text);
-  font-size: 12px;
+  font-size: 13px;
 }
 .activity-steps {
   list-style: none;
