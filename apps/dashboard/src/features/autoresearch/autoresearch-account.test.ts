@@ -5,6 +5,8 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import {
   authenticationLost,
+  verification,
+  credentialsCommitted,
   authenticationRestored,
   finishAuthenticationRecovery,
 } from '../../api/auth-loss';
@@ -64,6 +66,7 @@ vi.mock('../../ui/AssignPicker.vue', () => ({
   }),
 }));
 afterEach(() => {
+  verification.value = undefined;
   vi.unstubAllGlobals();
   notice.value = '';
   finishAuthenticationRecovery();
@@ -148,7 +151,6 @@ it.each(['loss', 'logout', 'switch'])(
     vi.stubGlobal('Document', class Document {});
     vi.stubGlobal('ShadowRoot', class ShadowRoot {});
     vi.stubGlobal('location', { origin: 'https://app.example' });
-    let verifySucceeds = false;
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => {
@@ -157,9 +159,7 @@ it.each(['loss', 'logout', 'switch'])(
           return Promise.resolve(Response.json({ url: 'https://hooks.example/secret-a' }));
         if (url === '/auth/verify-code')
           return Promise.resolve(
-            verifySucceeds
-              ? Response.json({})
-              : Response.json({ error: 'Invalid code' }, { status: 401 }),
+            Response.json({ error: 'Invalid code' }, { status: 401 }),
           );
         if (url === '/auth/logout') return Promise.resolve(new Response(null, { status: 204 }));
         return Promise.resolve(Response.json([]));
@@ -219,12 +219,11 @@ it.each(['loss', 'logout', 'switch'])(
     await expect(api('POST', '/auth/verify-code', {})).rejects.toThrow();
     await nextTick();
     expect(secret()?.props.value).toBe('https://hooks.example/secret-a');
+    // This isolated view consumes the App's verified account decision.
+    verification.value = undefined;
     if (transition === 'loss') authenticationLost();
     if (transition === 'logout') await api('POST', '/auth/logout');
-    if (transition === 'switch') {
-      verifySucceeds = true;
-      await api('POST', '/auth/verify-code', {});
-    }
+    if (transition === 'switch') credentialsCommitted();
     await nextTick();
     expect(secret()).toBeUndefined();
     detailApp.unmount();

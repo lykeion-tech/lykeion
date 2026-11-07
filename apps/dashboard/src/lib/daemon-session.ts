@@ -1,5 +1,5 @@
-import type { InjectionKey } from 'vue';
-import { onAuthenticationLost, onAuthenticationRestored } from '../api/auth-loss';
+import { watch, type InjectionKey } from 'vue';
+import { onAuthenticationLost, onAuthenticationRestored, verifying } from '../api/auth-loss';
 import type { DesktopDaemonBridge } from '../../../desktop/src/daemon-types';
 
 export const daemonSessionKey: InjectionKey<ReturnType<typeof createDaemonSession>> =
@@ -25,6 +25,17 @@ export function createDaemonSession(options: {
   let authenticationBlocked = false;
   let clearing: Promise<void> = Promise.resolve();
   const { bridge } = options;
+
+  const stopVerification = watch(
+    verifying,
+    (checking) => {
+      if (checking && pending) {
+        generation++;
+        pending = false;
+      }
+    },
+    { flush: 'sync' },
+  );
 
   function clearSession(blockAuthentication: boolean): Promise<void> {
     if (blockAuthentication) authenticationBlocked = true;
@@ -54,7 +65,12 @@ export function createDaemonSession(options: {
       return;
     }
     // No user during initial loading or a transient network failure is not a logout.
-    if (authenticationBlocked || !userID || (userID === identity && (configured || pending)))
+    if (
+      verifying.value ||
+      authenticationBlocked ||
+      !userID ||
+      (userID === identity && (configured || pending))
+    )
       return;
     if (identity !== null && userID !== identity) void clearSession(false).catch(() => {});
     identity = userID;
@@ -87,9 +103,11 @@ export function createDaemonSession(options: {
   return {
     update,
     clear,
+    clearForIdentityChange: () => clearSession(false),
     dispose: () => {
       unsubscribe();
       unsubscribeRestored();
+      stopVerification();
       disposed = true;
       generation++;
     },

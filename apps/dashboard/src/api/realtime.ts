@@ -1,5 +1,6 @@
 import { onScopeDispose, ref, watch, type Ref } from 'vue';
 import type { QueryClient, QueryKey } from '@tanstack/vue-query';
+import { verifying } from './auth-loss';
 import { api } from './client';
 import { keys } from './keys';
 import type { LykEvent, Workspace } from './types';
@@ -275,16 +276,16 @@ export function useRealtimeSync(
   }
 
   watch(
-    workspace,
-    (ws, old) => {
+    [workspace, verifying],
+    ([ws, paused], [old]) => {
       stop();
-      if (old) client.removeQueries({ queryKey: keys.ws(old) });
+      if (old && old !== ws) client.removeQueries({ queryKey: keys.ws(old) });
       cursor = 0;
       opened = false;
       attempts = 0;
       connected.value = reconnecting.value = lost.value = false;
       const current = ++generation;
-      if (!ws) return;
+      if (!ws || paused) return;
       // A workspace the server will not read falls back to 0; its socket is
       // then refused and reported as lost.
       void startCursor(ws)

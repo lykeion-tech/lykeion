@@ -6,10 +6,13 @@ import {
   authenticationLost,
   credentialsCommitted,
   invalidateAuthenticationData,
+  verification,
+  verifying,
 } from './auth-loss';
 
 // Let the browser stream to its download manager without buffering the file in JS.
 export function downloadFile(path: string, workspace: string) {
+  if (verifying.value) return;
   const query = new URLSearchParams({ download: '1', workspace });
   const anchor = document.createElement('a');
   anchor.href = `${path}?${query}`;
@@ -77,13 +80,23 @@ export async function api<T = void>(
 ): Promise<T> {
   const credentialChange =
     method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path);
-  if (!credentialChange) return request<T>(method, path, body, raw, options);
-  if (credentialChangeInProgress) throw new Error('Application authentication is busy');
+  if (!credentialChange) {
+    if (verifying.value) throw new DOMException('Verifying your account.', 'AbortError');
+    return request<T>(method, path, body, raw, options);
+  }
+  if (credentialChangeInProgress || verifying.value)
+    throw new Error('Application authentication is busy');
   credentialChangeInProgress = true;
+  advanceAuthenticationEpoch();
+  const epoch = authenticationEpoch();
+  if (path === '/auth/verify-code')
+    verification.value = { epoch, stage: 'submitting', accepted: false };
   try {
     return await request<T>(method, path, body, raw, options);
   } finally {
     credentialChangeInProgress = false;
+    if (verification.value?.epoch === epoch)
+      verification.value = { ...verification.value, stage: 'checking' };
   }
 }
 
@@ -96,7 +109,6 @@ async function request<T = void>(
 ): Promise<T> {
   const credentialChange =
     method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path);
-  if (credentialChange) advanceAuthenticationEpoch();
   const requestEpoch = authenticationEpoch();
   const requestGeneration = authenticationDataGeneration();
   const requireCurrentAccount = () => {
@@ -137,6 +149,7 @@ async function request<T = void>(
       requireCurrentAccount();
       invalidateAuthenticationData();
       credentialsCommitted();
+      authenticationLost(requestEpoch);
       return { localOnly: true } as T;
     }
     throw new Error('Application is shutting down or authentication is busy');
@@ -157,7 +170,12 @@ async function request<T = void>(
     if (res.ok) requireCurrentAccount();
     if (res.ok && credentialChange) {
       invalidateAuthenticationData();
-      credentialsCommitted();
+      if (path === '/auth/logout') {
+        credentialsCommitted();
+        if (res.headers.get('X-Lykeion-Local-Logout') === '1') authenticationLost(requestEpoch);
+      } else if (verification.value?.epoch === requestEpoch) {
+        verification.value = { ...verification.value, accepted: true };
+      }
     }
     if (res.status === 401 && path !== '/auth/verify-code') authenticationLost(requestEpoch);
     if (res.status === 204)

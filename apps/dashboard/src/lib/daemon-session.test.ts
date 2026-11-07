@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { advanceAuthenticationEpoch, authenticationRestored } from '../api/auth-loss';
+import {
+  advanceAuthenticationEpoch,
+  authenticationEpoch,
+  authenticationRestored,
+  verification,
+} from '../api/auth-loss';
 import { createDashboardQueryClient } from '../api/query-client';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { api, ApiError } from '../api/client';
@@ -94,6 +99,48 @@ describe('desktop daemon authenticated session', () => {
         expect.objectContaining({ userID: 'bob' }),
       );
     }
+  });
+  it('resumes a pending same-owner handoff without waiting for its stale token', async () => {
+    const t = setup();
+    const old = deferred<{ token: string }>();
+    t.token.mockReturnValueOnce(old.promise);
+    const update = t.session.update('a');
+    await vi.waitFor(() => expect(t.token).toHaveBeenCalledOnce());
+    verification.value = { epoch: authenticationEpoch(), stage: 'checking', accepted: false };
+    verification.value = undefined;
+    await t.session.update('a');
+    old.resolve({ token: 'old' });
+    await update;
+    expect(t.bridge.configureSession).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userID: 'a', sessionToken: 'ephemeral' }),
+    );
+    expect(t.bridge.clearSession).not.toHaveBeenCalled();
+  });
+  it('fences the previous pending token and waits for the native clear before configuring B', async () => {
+    const t = setup();
+    const jwt = deferred<{ token: string }>();
+    const clear = deferred<Awaited<ReturnType<DesktopDaemonBridge['clearSession']>>>();
+    t.token.mockReturnValueOnce(jwt.promise);
+    vi.mocked(t.bridge.clearSession).mockReturnValueOnce(clear.promise);
+    const updateA = t.session.update('a');
+    await vi.waitFor(() => expect(t.token).toHaveBeenCalledTimes(1));
+    verification.value = { epoch: authenticationEpoch(), stage: 'checking', accepted: true };
+    try {
+      const fence = t.session.clearForIdentityChange();
+      jwt.resolve({ token: 'stale' });
+      await updateA;
+      await t.session.update('b');
+      expect(t.bridge.configureSession).not.toHaveBeenCalled();
+      expect(t.token).toHaveBeenCalledTimes(1);
+      clear.resolve({} as never);
+      await fence;
+    } finally {
+      verification.value = undefined;
+    }
+    await t.session.update('b');
+    expect(t.bridge.configureSession).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userID: 'b' }),
+    );
   });
   it('preserves a restored identity across pending/transient auth refreshes', async () => {
     const t = setup();

@@ -15,6 +15,12 @@ import { api, ApiError } from './api/client';
 import {
   advanceAuthenticationEpoch,
   authenticationEpoch,
+  authenticationLost,
+  authenticationRestored,
+  finishAuthenticationRecovery,
+  checkVerifiedIdentity,
+  verification,
+  verifying,
   authenticationIsLost,
   credentialsCommitted,
   onAuthenticationLost,
@@ -117,8 +123,9 @@ const desktopSession = createDaemonSession({
 });
 provide(daemonSessionKey, desktopSession);
 watch(
-  [() => me.data.value?.id, unauthorized, me.dataUpdatedAt],
-  ([id, signedOut]) => {
+  [() => me.data.value?.id, unauthorized, me.dataUpdatedAt, verifying],
+  ([id, signedOut, , checking]) => {
+    if (checking || authLost.value) return;
     void desktopSession.update(id, signedOut);
   },
   { immediate: true, flush: 'sync' },
@@ -129,7 +136,7 @@ onUnmounted(desktopSession.dispose);
 watch(
   [() => route.fullPath, unauthorized, authLost],
   ([, signedOut, lost]) => {
-    if ((!signedOut && !lost) || route.meta.public) return;
+    if (verifying.value || (!signedOut && !lost) || route.meta.public) return;
     if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
     void router.replace('/signin');
   },
@@ -275,6 +282,10 @@ const stopAuthLoss = onAuthenticationLost(() => {
   clearAccountShell();
 });
 const stopAuthRestore = onAuthenticationRestored(() => {
+  if (verifying.value) {
+    authLost.value = false;
+    return;
+  }
   accountGeneration++;
   lastAccount = undefined;
   switchingAccount.value = false;
@@ -287,6 +298,127 @@ onUnmounted(() => {
   stopAuthLoss();
   stopAuthRestore();
 });
+// Keep observers attached when discarding their previous owner's results.
+function dropAccountData() {
+  const cache = client.getQueryCache();
+  for (const query of cache.getAll()) {
+    if (query.getObserversCount()) query.reset();
+    else cache.remove(query);
+  }
+  client.getMutationCache().clear();
+}
+let clearingVerification = -1;
+let clearedVerification = -1;
+const verificationDialog = ref<HTMLDialogElement>();
+watch(verificationDialog, (dialog) => dialog?.showModal(), { flush: 'post' });
+watch(
+  verification,
+  async (state, _, onCleanup) => {
+    if (!state) return;
+    if (state.stage === 'submitting') {
+      accountGeneration++;
+      return;
+    }
+    if (state.stage !== 'checking') return;
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    const current = () =>
+      active && verification.value === state && authenticationEpoch() === state.epoch;
+    try {
+      const user = await checkVerifiedIdentity(state);
+      if (!current()) return;
+      const signedOut = authenticationIsLost() || !lastAccount;
+      if (!user || (signedOut && !state.accepted)) {
+        if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+        authenticationLost(state.epoch);
+        await client.cancelQueries();
+        if (!current()) return;
+        workspaceId.value = '';
+        dropAccountData();
+        await router.replace('/signin');
+        if (!current()) return;
+        if (route.path !== '/signin') throw new Error('Sign-out navigation was blocked');
+        verification.value = undefined;
+        return;
+      }
+      if (
+        !signedOut &&
+        !switchingAccount.value &&
+        lastAccount === user.id &&
+        clearedVerification !== state.epoch
+      ) {
+        if (clearingVerification === state.epoch) {
+          await desktopSession.clearForIdentityChange();
+          if (!current()) return;
+        }
+        client.setQueryData(keys.me, user);
+        if (state.accepted && route.path === '/signin') {
+          const invite = readText('lykeion.invite', 'session');
+          const target = invite ? '/invite/' + encodeURIComponent(invite) : '/studies';
+          switchingAccount.value = true;
+          await router.replace(target);
+          if (!current()) return;
+          if (route.path !== target) throw new Error('Account navigation was blocked');
+          if (invite) writeText('lykeion.invite', '', 'session');
+          switchingAccount.value = false;
+        }
+        verification.value = undefined;
+        void client.refetchQueries({
+          type: 'active',
+          predicate: (q) => q.state.status === 'error' || q.state.data === undefined,
+        });
+        return;
+      }
+      if (clearedVerification !== state.epoch) {
+        clearingVerification = state.epoch;
+        await desktopSession.clearForIdentityChange();
+        if (!current()) return;
+        clearedVerification = state.epoch;
+        credentialsCommitted();
+      }
+      await client.cancelQueries();
+      if (!current()) return;
+      switchingAccount.value = true;
+      clearAccountShell();
+      workspaceId.value = '';
+      workspaceTabs.clearAccount();
+      dropAccountData();
+      if (signedOut) authenticationRestored(state.epoch);
+      workspaceTabs.setAccount(user.id);
+      client.setQueryData(keys.me, user);
+      await nextTick();
+      if (!current()) return;
+      const invite =
+        route.params.token || (route.path === '/signin' && readText('lykeion.invite', 'session'));
+      const target = invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies';
+      await router.replace(target);
+      if (!current()) return;
+      if (route.path !== target) throw new Error('Account navigation was blocked');
+      if (invite) writeText('lykeion.invite', '', 'session');
+      lastAccount = user.id;
+      workspaceTabs.confirmAccountSwitch();
+      switchingAccount.value = false;
+      accountSwitchBusy.value = false;
+      accountSwitchError.value = '';
+      verification.value = undefined;
+      await client.refetchQueries({
+        type: 'active',
+        predicate: (q) => q.queryKey[0] !== keys.me[0],
+      });
+      finishAuthenticationRecovery();
+    } catch {
+      if (current()) verification.value = { ...state, stage: 'retry' };
+    }
+  },
+  { immediate: true, flush: 'sync' },
+);
+function retryVerification() {
+  const state = verification.value;
+  if (state?.stage === 'retry') verification.value = { ...state, stage: 'checking' };
+}
+
 async function retryAccountSwitch() {
   const id = lastAccount;
   if (!id || accountSwitchBusy.value) return;
@@ -328,6 +460,7 @@ async function retryAccountIdentity() {
 watch(
   [() => me.data.value?.id, unauthorized],
   ([id, signedOut]) => {
+    if (verifying.value || authLost.value) return;
     if (signedOut) {
       accountGeneration++;
       lastAccount = undefined;
@@ -357,9 +490,9 @@ watch(
 
 // The shown workspace must be one the person belongs to; otherwise the first.
 watch(
-  () => workspaces.data.value,
-  (list) => {
-    if (list && !list.some((w) => w.id === workspaceId.value))
+  [() => workspaces.data.value, verifying, authLost],
+  ([list, checking, lost]) => {
+    if (!checking && !lost && list && !list.some((w) => w.id === workspaceId.value))
       void selectWorkspace(list[0]?.id ?? '');
   },
   { immediate: true },
@@ -383,9 +516,9 @@ const onboardingTarget = computed(() => {
   return list.length ? '' : '/onboarding?step=workspace';
 });
 watch(
-  [onboardingTarget, () => route.meta.bare, unauthorized],
-  ([target, bare, signedOut]) => {
-    if (target && !bare && !signedOut) void router.replace(target);
+  [onboardingTarget, () => route.meta.bare, unauthorized, verifying, authLost],
+  ([target, bare, signedOut, checking, lost]) => {
+    if (target && !bare && !signedOut && !checking && !lost) void router.replace(target);
   },
   { immediate: true },
 );
@@ -482,6 +615,7 @@ function popupKey(
   }
 }
 function outsidePopup(event: PointerEvent) {
+  if (verifying.value) return;
   if (!(event.target as HTMLElement).closest('.shell-popup,[data-shell-menu-trigger]')) {
     workspaceMenu.value = false;
     help.value = false;
@@ -510,7 +644,7 @@ function go(id: string) {
   help.value = false;
 }
 function key(event: KeyboardEvent) {
-  if (event.defaultPrevented || route.meta.bare) return;
+  if (verifying.value || event.defaultPrevented || route.meta.bare) return;
   if (labWindow.value && !document.querySelector('dialog[open]')) {
     const shortcut = event.key.toLowerCase();
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && shortcut === 'j') {
@@ -576,6 +710,22 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <dialog
+    v-if="verification"
+    ref="verificationDialog"
+    class="verification-dialog"
+    aria-label="Verify your account"
+    @cancel.prevent
+    @keydown.stop
+  >
+    <div class="center-empty" role="status">
+      <template v-if="verification.stage === 'retry'">
+        <p>Could not verify your account. Try again.</p>
+        <button type="button" class="button" @click="retryVerification">Try again</button>
+      </template>
+      <p v-else>Verifying your account…</p>
+    </div>
+  </dialog>
   <DiscardDraftDialog />
   <div
     v-if="accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)"
@@ -914,6 +1064,21 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.verification-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+.verification-dialog::backdrop {
+  background: var(--canvas);
+}
 .shell-popup {
   position: fixed;
   z-index: 70;

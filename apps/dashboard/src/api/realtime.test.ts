@@ -1,3 +1,4 @@
+import { authenticationEpoch, verification } from './auth-loss';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { effectScope, ref, type EffectScope } from 'vue';
 import { QueryClient, QueryObserver } from '@tanstack/vue-query';
@@ -313,6 +314,25 @@ describe('useRealtimeSync', () => {
     expect(keysInvalidated()).toContainEqual(keys.workspaces);
   });
 
+  it('closes the socket during verification while preserving the workspace and cache', async () => {
+    client.setQueryData(keys.cards('w1'), ['kept']);
+    const old = sockets[0]!;
+    old.onopen!({});
+    await settle();
+    verification.value = { epoch: authenticationEpoch(), stage: 'checking', accepted: false };
+    try {
+      expect(old.closed).toBe(true);
+      old.onclose!({});
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(sockets).toHaveLength(1);
+      expect(workspace.value).toBe('w1');
+      expect(client.getQueryData(keys.cards('w1'))).toEqual(['kept']);
+    } finally {
+      verification.value = undefined;
+    }
+    await settle();
+    expect(sockets).toHaveLength(2);
+  });
   it('a workspace switch closes the old socket and drops the old cache', async () => {
     client.setQueryData(keys.cards('w1'), []);
     sockets[0]!.onopen!({});

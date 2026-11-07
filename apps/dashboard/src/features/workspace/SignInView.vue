@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
-import { authenticationRestored, finishAuthenticationRecovery } from '../../api/auth-loss';
-import { workspaceId } from '../../api/session';
-import { readText, writeText } from '../../storage';
 import { notice } from '../../state/notice';
 
-const router = useRouter();
-const client = useQueryClient();
 const email = ref('');
 const step = ref<'email' | 'code'>('email');
 const digits = ref<string[]>(Array(6).fill(''));
@@ -57,18 +50,6 @@ async function verify() {
   error.value = '';
   try {
     await api('POST', '/auth/verify-code', { email: email.value.trim(), code });
-    // Reset mounted observers so this session loads its own identity and workspaces.
-    await client.cancelQueries();
-    workspaceId.value = '';
-    await nextTick();
-    authenticationRestored();
-    await client.resetQueries();
-    const invite = readText('lykeion.invite', 'session');
-    if (invite) {
-      writeText('lykeion.invite', '', 'session');
-      await router.replace('/invite/' + invite);
-    } else await router.replace('/');
-    finishAuthenticationRecovery();
   } catch (e) {
     error.value =
       e instanceof ApiError && e.status === 401

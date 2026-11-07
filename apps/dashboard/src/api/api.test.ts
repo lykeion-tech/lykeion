@@ -12,8 +12,8 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { useRunMessages, useDecisions, useDecisionCount, useAutoresearchRun } from './queries';
 import { keys } from './keys';
 import type { AgentRun, RunMessage } from './types';
-import { api, ApiError } from './client';
-import { advanceAuthenticationEpoch, authenticationRestored, finishAuthenticationRecovery } from './auth-loss';
+import { api, ApiError, downloadFile } from './client';
+import { advanceAuthenticationEpoch, authenticationRestored, finishAuthenticationRecovery, verification } from './auth-loss';
 import { workspaceId } from './session';
 
 function respond(status: number, body?: string, statusText = '') {
@@ -38,6 +38,7 @@ function queryHarness() {
 }
 
 afterEach(() => {
+  verification.value = undefined;
   vi.unstubAllGlobals();
   workspaceId.value = '';
 });
@@ -104,9 +105,8 @@ describe('api', () => {
     await expect(signIn).resolves.toEqual({});
   });
 
-  it.each(['/auth/logout', '/auth/verify-code'])(
-    'fences private work started during %s when its response headers arrive',
-    async (path) => {
+  it('fences private work started during logout when its response headers arrive', async () => {
+      const path = '/auth/logout';
       let finishAuth!: (response: Response) => void;
       let finishPrivate!: (response: Response) => void;
       vi.stubGlobal('fetch', vi.fn((url: string) => new Promise<Response>((resolve) => {
@@ -119,10 +119,9 @@ describe('api', () => {
       await auth;
       finishPrivate(Response.json({ id: 'old' }));
       await expect(privateWork).rejects.toMatchObject({ name: 'AbortError' });
-    },
-  );
+    });
 
-  it('accepts successful verification after a concurrent private read reports 401', async () => {
+  it('blocks private reads, writes, and downloads through verification settlement', async () => {
     authenticationRestored();
     finishAuthenticationRecovery();
     let finishAuth!: (response: Response) => void;
@@ -130,16 +129,24 @@ describe('api', () => {
       ? new Promise<Response>((resolve) => { finishAuth = resolve; })
       : Promise.resolve(new Response(null, { status: 401 }))));
     const auth = api('POST', '/auth/verify-code', {});
-    await expect(api('GET', '/api/me')).rejects.toMatchObject({ status: 401 });
+    const anchor = vi.fn();
+    vi.stubGlobal('document', { createElement: anchor });
+    await expect(api('GET', '/api/me')).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(api('POST', '/api/cli-token')).rejects.toMatchObject({ name: 'AbortError' });
+    downloadFile('/api/files/old', 'a');
+    expect(anchor).not.toHaveBeenCalled();
     finishAuth(new Response(null, { status: 204 }));
     await expect(auth).resolves.toBeUndefined();
+    expect(verification.value?.stage).toBe('checking');
+    await expect(api('GET', '/api/workspaces')).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('rejects overlapping credential changes and admits retries after completion or failure', async () => {
     let finish!: (response: Response) => void;
     const fetch = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
     vi.stubGlobal('fetch', fetch);
-    const first = api('POST', '/auth/verify-code', {});
+    const first = api('POST', '/auth/logout', {});
     await expect(api('POST', '/auth/verify-code', {})).rejects.toThrow('authentication is busy');
     expect(fetch).toHaveBeenCalledTimes(1);
     finish(new Response(null, { status: 204 }));
