@@ -578,6 +578,7 @@ describe('Daemon settings mounted section', () => {
       let finishClear!: () => void;
       const native = {
         configureSession: vi.fn(),
+        getSnapshot: vi.fn().mockResolvedValue({ availability: 'available' }),
         clearSession: failure
           ? vi.fn().mockRejectedValue(new Error('private-detail'))
           : vi.fn(() => new Promise<void>((resolve) => (finishClear = resolve))),
@@ -589,7 +590,7 @@ describe('Daemon settings mounted section', () => {
         reportError: () => {},
       });
       const handoff = session.update('alice');
-      await Promise.resolve();
+      await vi.waitFor(() => expect(finishJWT).toBeDefined());
       const client = new QueryClient({
         defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
       });
@@ -612,7 +613,7 @@ describe('Daemon settings mounted section', () => {
       });
       const logout = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Log out')!;
       const click = (logout.props.onClick as () => Promise<void>)();
-      expect(native.clearSession).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(native.clearSession).toHaveBeenCalledTimes(1));
       expect(fetch.mock.calls).toHaveLength(0);
       finishJWT({ token: 'stale-alice-token' });
       await handoff;

@@ -655,6 +655,29 @@ describe('desktop daemon manager', () => {
   });
 });
 
+describe('unsupported desktop daemon', () => {
+  it('does not touch an existing preview profile, even on logout and quit', async () => {
+    const f = await fixture();
+    const previous = await f.manager.configureSession(session);
+    const config = path.join(f.root, 'profiles', previous.profile!, 'config.json');
+    const data = await readFile(config, 'utf8');
+    const prefs = path.join(f.root, 'desktop-preferences.json');
+    await writeFile(prefs, JSON.stringify({ autoStart: false, autoStop: true }), { mode: 0o600 });
+    const oldPrefs = await readFile(prefs, 'utf8');
+    const unsupported = new DaemonManager({ ...f.options, supported: false, packaged: true });
+    f.execute.mockClear();
+    expect(await unsupported.getPreferences()).toEqual({ autoStart: true, autoStop: false });
+    await expect(
+      unsupported.setPreferences({ autoStart: false, autoStop: false }),
+    ).rejects.toThrow();
+    await unsupported.clearSession();
+    await unsupported.beforeQuit();
+    expect(await readFile(config, 'utf8')).toBe(data);
+    expect(await readFile(prefs, 'utf8')).toBe(oldPrefs);
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+});
+
 describe('desktop IPC boundary', () => {
   it('accepts only the current preview window main frame with a trusted origin', () => {
     const frame = { url: 'http://127.0.0.1:1431/settings' };

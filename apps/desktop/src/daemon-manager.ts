@@ -244,9 +244,11 @@ export class DaemonManager {
     return { ...this.preferences };
   }
   getPreferences(): Promise<DaemonPreferences> {
+    if (!this.options.supported) return Promise.resolve({ ...defaults });
     return this.enqueue(() => this.loadPreferences());
   }
   setPreferences(preferences: DaemonPreferences): Promise<DaemonPreferences> {
+    if (!this.options.supported) return Promise.reject(new Error(this.unavailableMessage()));
     if (!validPreferences(preferences))
       return Promise.reject(new Error('Invalid daemon preferences'));
     const next = { ...preferences };
@@ -474,6 +476,7 @@ export class DaemonManager {
   clearSession(): Promise<DaemonSnapshot> {
     ++this.generation;
     this.session = null;
+    if (!this.options.supported) return this.getSnapshot();
     return this.enqueue(async () => {
       const configured = await readJSON(this.config);
       if (configured || this.session) await this.stopManaged();
@@ -540,6 +543,7 @@ export class DaemonManager {
       clearInterval(this.polling);
       this.polling = null;
     }
+    if (!this.options.supported) return;
     await this.enqueue(async () => {
       if ((await this.loadPreferences()).autoStop) await this.stopManaged();
     });

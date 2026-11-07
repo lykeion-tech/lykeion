@@ -19,6 +19,7 @@ function setup(bridgeEnabled = true) {
   const bridge = {
     configureSession: vi.fn().mockResolvedValue({}),
     clearSession: vi.fn().mockResolvedValue({}),
+    getSnapshot: vi.fn().mockResolvedValue({ availability: 'available' }),
   } as unknown as DesktopDaemonBridge;
   const token = vi.fn().mockResolvedValue({ token: 'ephemeral' });
   const reportError = vi.fn();
@@ -40,6 +41,15 @@ function setup(bridgeEnabled = true) {
   };
 }
 describe('desktop daemon authenticated session', () => {
+  it('does not mint or clear daemon credentials when capability is unavailable', async () => {
+    const t = setup();
+    vi.mocked(t.bridge.getSnapshot).mockResolvedValue({ availability: 'unavailable' } as never);
+    await t.session.update('alice');
+    await t.session.clear();
+    expect(t.token).not.toHaveBeenCalled();
+    expect(t.bridge.configureSession).not.toHaveBeenCalled();
+    expect(t.bridge.clearSession).not.toHaveBeenCalled();
+  });
   it('hands off an ephemeral token once per authenticated identity', async () => {
     const t = setup();
     await t.session.update('alice');
@@ -68,7 +78,7 @@ describe('desktop daemon authenticated session', () => {
     const jwt = deferred<{ token: string }>();
     t.token.mockReturnValueOnce(jwt.promise);
     const old = t.session.update('alice');
-    await Promise.resolve();
+    await vi.waitFor(() => expect(t.token).toHaveBeenCalledTimes(1));
     if (action === 'logout') await t.session.clear();
     else if (action === '401') await t.session.update('alice', true);
     else if (action === 'switch') await t.session.update('bob');

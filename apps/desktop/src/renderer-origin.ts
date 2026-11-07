@@ -124,12 +124,30 @@ function forward(session: Session, incoming: Request): Promise<Response> {
           : (Readable.toWeb(response as unknown as Readable) as ReadableStream<Uint8Array>);
       resolve(new Response(body, { status, headers }));
     });
-    request.on('error', reject);
-    incoming.signal.addEventListener('abort', () => request.abort(), { once: true });
     if (incoming.body) {
+      request.chunkedEncoding = true;
       const stream = Readable.fromWeb(incoming.body as import('node:stream/web').ReadableStream);
-      stream.on('error', reject);
+      request.on('error', (error) => {
+        stream.destroy();
+        reject(error);
+      });
+      incoming.signal.addEventListener(
+        'abort',
+        () => {
+          stream.destroy();
+          request.abort();
+        },
+        { once: true },
+      );
+      stream.on('error', (error) => {
+        request.abort();
+        reject(error);
+      });
       stream.pipe(request as unknown as NodeJS.WritableStream);
-    } else request.end();
+    } else {
+      request.on('error', reject);
+      incoming.signal.addEventListener('abort', () => request.abort(), { once: true });
+      request.end();
+    }
   });
 }

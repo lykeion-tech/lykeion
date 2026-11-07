@@ -13,7 +13,6 @@ import {
   trustedDesktopFrame,
   validExternalURL,
 } from './renderer-origin.js';
-import { openGoogleSignIn } from './google-sign-in.js';
 import { desktopUserData } from './desktop-user-data.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -144,16 +143,6 @@ void app.whenReady().then(async () => {
     )
       throw new Error('Invalid sender');
     await shell.openExternal('https://github.com/lykeion-ia/lykeion');
-  });
-  ipcMain.handle('lykeion:google-sign-in', (event) => {
-    if (
-      !window ||
-      !(developmentUrl
-        ? validDaemonSender(event, window.webContents)
-        : trustedDesktopFrame(event, window.webContents, apiOrigin))
-    )
-      throw new Error('Invalid sender');
-    openGoogleSignIn(window, apiOrigin);
   });
   ipcMain.on('lykeion:open-external', (event, url: unknown) => {
     if (

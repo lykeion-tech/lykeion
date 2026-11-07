@@ -49,7 +49,6 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     platform: process.platform,
     openDocumentation: () => ipcRenderer.invoke('lykeion:open-documentation') as Promise<void>,
-    openGoogleSignIn: () => ipcRenderer.invoke('lykeion:google-sign-in') as Promise<void>,
     daemon,
   }),
 );

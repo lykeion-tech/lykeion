@@ -13,6 +13,8 @@ app.whenReady().then(async () => {
   let wsOrigin = '';
   let apiOrigin = '';
   let foreignRequests = 0;
+  let uploadFirstChunk = false;
+  let uploadAborted = false;
   const server = http.createServer((q, s) => {
     apiOrigin = q.headers.origin || apiOrigin;
     if (q.url === '/api/gzip') {
@@ -24,6 +26,16 @@ app.whenReady().then(async () => {
     } else if (q.url === '/api/collect') {
       foreignRequests++;
       s.end('unexpected');
+    } else if (q.url === '/api/abort-upload') {
+      q.on('data', () => {});
+      q.on('aborted', () => {
+        uploadAborted = true;
+      });
+    } else if (q.url === '/api/stream-upload') {
+      q.on('data', () => {
+        uploadFirstChunk = true;
+      });
+      q.on('end', () => s.end('done'));
     } else if (q.url === '/api/upload') {
       let n = 0;
       q.on('data', (x) => (n += x.length));
@@ -84,7 +96,7 @@ app.whenReady().then(async () => {
     route.installDesktopRenderer(currentSession, origin, root + '/dist/dashboard');
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyk-download-'));
     const downloaded = new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), 2000);
+      const timer = setTimeout(() => resolve(false), 10000);
       currentSession.once('will-download', (_event, item) => {
         item.setSavePath(path.join(temp, 'fixture.bin'));
         item.once('done', (_done, state) => {
@@ -108,6 +120,16 @@ app.whenReady().then(async () => {
     w.webContents.on('will-navigate', (event) => event.preventDefault());
     try {
       await w.loadURL(route.desktopEntryURL(origin));
+      await w.webContents.executeJavaScript(
+        `window.uploadController=null; window.uploadResult=fetch('/api/stream-upload',{method:'POST',duplex:'half',body:new ReadableStream({start(c){window.uploadController=c;c.enqueue(new Uint8Array(8192))}})}).then(r=>r.text()); true`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const streamedBeforeEnd = uploadFirstChunk;
+      await w.webContents.executeJavaScript('window.uploadController.close(); window.uploadResult');
+      await w.webContents.executeJavaScript(
+        `fetch('/api/abort-upload',{method:'POST',duplex:'half',body:new ReadableStream({start(c){c.enqueue(new Uint8Array(8192));setTimeout(()=>c.error(new Error('fixture failure')),300)}})}).catch(()=>{}); true`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 700));
       let r = await w.webContents.executeJavaScript(
         `(async()=>{await fetch('/auth/login',{method:'POST',credentials:'same-origin'});let file=await (await fetch('/auth/redirect',{credentials:'same-origin'})).text();let compressed=await (await fetch('/api/gzip')).text();let uploaded=await (await fetch('/api/upload',{method:'POST',body:new Uint8Array(1048576)})).text();let redirected=await fetch('/api/redirect-out',{method:'POST',body:'private'}).then(()=> 'allowed',()=> 'blocked');await new Promise(resolve=>{let x=document.createElement('script');x.src='/api/script.js';x.onload=x.onerror=resolve;document.head.appendChild(x)});let sw=await navigator.serviceWorker.register('/api/script.js').then(()=> 'registered',()=> 'blocked');let worker=await new Promise(resolve=>{let w=new Worker('/api/script.js');w.onmessage=()=>resolve('executed');w.onerror=()=>resolve('blocked');setTimeout(()=>resolve('timeout'),1000)});let ws=await new Promise(resolve=>{let s=new WebSocket('ws://127.0.0.1:${server.address().port}/ws');s.onopen=()=>{s.close();resolve('open')};s.onerror=()=>resolve('error');setTimeout(()=>resolve('timeout'),2500)});return {title:document.title,origin:location.origin,file,compressed,uploaded,redirected,ws,sw,worker,pwned:!!window.pwned,body:document.body.textContent.slice(0,150)} })()`,
       );
@@ -134,6 +156,8 @@ app.whenReady().then(async () => {
           foreignWebSockets,
           sameHostCookieLeak,
           relatedDomainCookieLeak,
+          streamedBeforeEnd,
+          uploadAborted,
         }),
       );
       if (
@@ -143,6 +167,8 @@ app.whenReady().then(async () => {
         r.worker !== 'blocked' ||
         r.redirected !== 'blocked' ||
         foreignRequests !== 0 ||
+        !streamedBeforeEnd ||
+        !uploadAborted ||
         !download ||
         foreignWs !== 'blocked' ||
         foreignWebSockets !== 0 ||

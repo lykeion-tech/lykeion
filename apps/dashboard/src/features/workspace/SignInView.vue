@@ -15,6 +15,7 @@ const digits = ref<string[]>(Array(6).fill(''));
 const boxes = ref<HTMLInputElement[]>([]);
 const busy = ref(false);
 const error = ref('');
+const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
 
 async function send() {
   if (busy.value || !email.value.includes('@')) return;
@@ -80,12 +81,6 @@ async function verify() {
 }
 
 function google() {
-  if (window.lykeionDesktop) {
-    void window.lykeionDesktop.openGoogleSignIn().catch(() => {
-      error.value = 'Could not open Google sign-in. Try again.';
-    });
-    return;
-  }
   window.location.href = '/auth/google';
 }
 </script>
@@ -105,8 +100,10 @@ function google() {
         autofocus
       />
       <button class="button primary" :disabled="busy">Continue with email</button>
-      <div class="or">or</div>
-      <button type="button" class="button" @click="google">Continue with Google</button>
+      <div v-if="!desktop" class="or">or</div>
+      <button v-if="!desktop" type="button" class="button" @click="google">
+        Continue with Google
+      </button>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     </form>
     <form v-else class="signin-card" @submit.prevent="verify">
