@@ -551,7 +551,7 @@ onUnmounted(() => {
         <ArrowUp :size="17" />
       </button>
     </form>
-    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context', 'chat-menu': menu === 'chats' }" ref="menuBox" tabindex="-1" :style="menuStyle">
+    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context', 'chat-menu': menu === 'chats', 'empty-model-menu': menu === 'model' && !clis.length }" ref="menuBox" tabindex="-1" :style="menuStyle">
       <template v-if="menu === 'options'">
         <button
           @click="
@@ -606,7 +606,7 @@ onUnmounted(() => {
         <button v-for="m in models" :key="m.value" @click="chooseModel(m.value)">
           {{ m.label || m.value }} {{ m.value === model ? '✓' : '' }}
         </button>
-        <RouterLink v-if="!clis.length" to="/machines">Connect a machine</RouterLink>
+        <RouterLink v-if="!clis.length" to="/machines">Connect machine</RouterLink>
       </template>
       <LabContextPicker v-else @pick="pick" />
     </div>
@@ -872,6 +872,10 @@ header {
 .menu.context-menu {
   right: auto;
   left: 10px;
+}
+.menu.empty-model-menu {
+  width: max-content;
+  max-width: min(270px, calc(100% - 20px));
 }
 .menu.chat-menu {
   right: auto;
