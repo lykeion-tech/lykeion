@@ -190,6 +190,32 @@ describe('desktop daemon manager', () => {
     expect(f.request.mock.calls.filter((c) => c[1].method === 'POST')).toHaveLength(1);
     expect(f.request.mock.calls.filter((c) => c[1].token === 'lyk_alice')).toHaveLength(1);
   });
+  it('reconnects to the same owned daemon after quit without another start', async () => {
+    const f = await fixture();
+    const first = await f.manager.configureSession(session);
+    await f.manager.beforeQuit();
+    const reopened = await new DaemonManager(f.options).configureSession(session);
+    expect(reopened).toMatchObject({ status: 'running', daemonID: first.daemonID, pid: first.pid });
+    expect(f.calls.filter((call) => call === 'daemon start')).toHaveLength(1);
+    expect(f.calls).not.toContain('daemon stop');
+  });
+  it('does not adopt or stop a daemon reporting the default profile', async () => {
+    const f = await fixture();
+    const execute = f.execute.getMockImplementation()!;
+    f.execute.mockImplementation(async (file, args, options) => {
+      if (args[1] === 'status')
+        return JSON.stringify({ status: 'running', profile: '', server_url: origin, pid: 123 });
+      return execute(file, args, options);
+    });
+    await expect(f.manager.configureSession(session)).rejects.toThrow(
+      'Cannot start an unverified daemon',
+    );
+    const status = await f.manager.getSnapshot();
+    expect(status.status).toBe('unknown');
+    expect(status.pid).toBeNull();
+    expect(f.calls).not.toContain('daemon start');
+    expect(f.calls).not.toContain('daemon stop');
+  });
   it('rejects arbitrary API origins before sending credentials and rejects wrong session identities', async () => {
     const f = await fixture();
     await expect(
