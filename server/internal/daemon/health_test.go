@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"lykeion/server/internal/apiclient"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,6 +114,95 @@ func TestHealthReportsLiveDiagnosticsAndRefusesMismatches(t *testing.T) {
 	closeHealth()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("record remained: %v", err)
+	}
+}
+
+func TestDesktopShutdownRequiresPrivateKeyAndVerifiedIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.health.json")
+	var calls atomic.Int32
+	d := &daemon{cfg: Config{Server: "https://lab.example", Profile: "desktop-ada", HealthPath: path}, id: uuid.NewString(), stopControl: func() { calls.Add(1) }}
+	closeHealth, err := d.startHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeHealth()
+	record, err := readHealthRecord(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ShutdownKey == "" || record.ShutdownKey == record.Nonce {
+		t.Fatal("missing private shutdown key")
+	}
+	res, err := http.Get(healthURL(record.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if strings.Contains(string(body), record.ShutdownKey) {
+		t.Fatal("health disclosed shutdown key")
+	}
+	for _, auth := range []string{"", "wrong"} {
+		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
+		req.Header.Set("Authorization", auth)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Fatalf("unauthenticated shutdown: %d", res.StatusCode)
+		}
+	}
+	if err := RequestDesktopShutdown(context.Background(), path, "desktop-other", d.cfg.Server, record.PID); err == nil {
+		t.Fatal("wrong profile accepted")
+	}
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, "https://other.example", record.PID); err == nil {
+		t.Fatal("wrong server accepted")
+	}
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID+1); err == nil {
+		t.Fatal("wrong process accepted")
+	}
+	for name, mutate := range map[string]func(*HealthRecord){
+		"missing key":  func(r *HealthRecord) { r.ShutdownKey = "" },
+		"forged key":   func(r *HealthRecord) { r.ShutdownKey = strings.Repeat("a", 64) },
+		"reused pid":   func(r *HealthRecord) { r.Started = "another-birth" },
+		"wrong daemon": func(r *HealthRecord) { r.DaemonID = uuid.NewString() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			altered := record
+			mutate(&altered)
+			if err := writeHealthRecord(path, altered); err != nil {
+				t.Fatal(err)
+			}
+			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err == nil {
+				t.Fatal("accepted invalid shutdown record")
+			}
+			if err := writeHealthRecord(path, record); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	if calls.Load() != 0 {
+		t.Fatal("unverified shutdown invoked")
+	}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err != nil {
+				t.Errorf("concurrent shutdown: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	deadline := time.Now().Add(time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("verified shutdown not invoked")
 	}
 }
 

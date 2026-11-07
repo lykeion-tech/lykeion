@@ -9,13 +9,88 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
+
+func TestDesktopStopRequestsAuthenticatedSelfShutdown(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("LYK_CONFIG", config)
+	t.Setenv("LYK_DAEMON_PROFILE", "desktop-test")
+	t.Setenv("LYK_DESKTOP_SAFE_STOP", "1")
+	if err := SaveConfig(config, Config{Server: "https://lab.example", Token: "lyk_private"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(filepath.Dir(config), "daemon"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command("/bin/sh", "-c", "exec sleep 30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan error, 1)
+	go func() { ended <- child.Wait() }()
+	t.Cleanup(func() { _ = child.Process.Kill(); <-ended })
+	started, err := processStart(child.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeOwner(filepath.Join(filepath.Dir(config), "daemon.pid"), daemonOwner{PID: child.Process.Pid, Started: started, Nonce: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	key := strings.Repeat("a", 64)
+	var shutdown atomic.Int32
+	live := map[string]any{"status": "running", "pid": child.Process.Pid, "started": started, "nonce": "health", "daemon_id": "daemon-a", "profile": "desktop-test", "server_url": "https://lab.example"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			if r.Header.Get("Authorization") != "" {
+				t.Error("credential sent to health")
+			}
+			_ = json.NewEncoder(w).Encode(live)
+		case "/shutdown":
+			if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+key {
+				t.Error("shutdown lacked private control key")
+				w.WriteHeader(403)
+				return
+			}
+			shutdown.Add(1)
+			_ = child.Process.Kill()
+			w.WriteHeader(204)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	_, portString, err := net.SplitHostPort(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := map[string]any{"port": port, "pid": child.Process.Pid, "started": started, "nonce": "health", "daemon_id": "daemon-a", "profile": "desktop-test", "server_url": "https://lab.example", "shutdown_key": key}
+	b, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(config), "daemon.health.json"), b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commandResult("daemon", "stop"); err != nil {
+		t.Fatal(err)
+	}
+	if shutdown.Load() != 1 {
+		t.Fatal("daemon did not receive one authenticated shutdown")
+	}
+}
 
 func TestDaemonJSONStatusNeverTrustsPIDAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")

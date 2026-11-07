@@ -144,6 +144,7 @@ type daemon struct {
 	serviceCommand    func(sandbox.Policy, context.Context, string, ...string) (*exec.Cmd, error)
 	serviceReadyLimit time.Duration
 	serviceStopLimit  time.Duration
+	stopControl       context.CancelFunc
 	namingSlots       chan struct{}
 	cfg               Config
 	versions          map[string]string // harness → its CLI version, read once at start
@@ -234,7 +235,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	d := &daemon{cfg: cfg, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), rechecks: make(chan string, 4), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
+	d := &daemon{cfg: cfg, stopControl: cancel, api: &apiclient.Client{Server: cfg.Server, Token: cfg.Token, HTTP: &http.Client{Timeout: 30 * time.Second}}, wake: make(chan struct{}, 1), rechecks: make(chan string, 4), failures: make(chan error, 1), active: map[string]bool{}, id: id, knownWorkspaces: map[uuid.UUID]bool{}, activeRefs: map[string]runtimeRef{}, activeCancels: map[string]context.CancelFunc{}, scopes: map[string]bool{}, bases: cfg.Bases}
 	d.messages = &Outbox{Dir: filepath.Join(cfg.StateDir, "messages"), Send: d.sendMessages}
 	d.out = &Outbox{Dir: filepath.Join(cfg.StateDir, "outbox"), Send: d.send}
 	if err = d.recoverCoresearch(); err != nil {

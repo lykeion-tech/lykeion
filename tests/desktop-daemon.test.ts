@@ -93,12 +93,12 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
-  it('selects only the bundled executable on packaged macOS and Linux', () => {
+  it('keeps packaged daemons disabled until their executable is verified', () => {
     expect(
       desktopDaemonOptions('darwin', true, true, '/preview/out', '/app/resources', 'http://evil'),
-    ).toEqual({ supported: true, cliPath: '/app/resources/bin/lyk' });
+    ).toEqual({ supported: false, cliPath: '/app/resources/bin/lyk' });
     expect(desktopDaemonOptions('linux', true, true, '/preview/out', '/app/resources')).toEqual({
-      supported: true,
+      supported: false,
       cliPath: '/app/resources/bin/lyk',
     });
     expect(desktopDaemonOptions('win32', true, true, '/preview/out', '/app/resources')).toEqual({
@@ -169,6 +169,18 @@ describe('desktop daemon manager', () => {
     ).toContain(secondOrigin);
     expect(
       f.request.mock.calls.every(([url]) => url.startsWith(origin) || url.startsWith(secondOrigin)),
+    ).toBe(true);
+  });
+  it('requires the CLI desktop-safe shutdown path for desktop stop', async () => {
+    const f = await fixture();
+    await f.manager.configureSession(session);
+    await f.manager.stop();
+    const stop = f.execute.mock.calls.find((call) => call[1][1] === 'stop');
+    expect(stop?.[2].env.LYK_DESKTOP_SAFE_STOP).toBe('1');
+    expect(
+      f.execute.mock.calls
+        .filter((call) => call[1][1] !== 'stop')
+        .every((call) => call[2].env.LYK_DESKTOP_SAFE_STOP === ''),
     ).toBe(true);
   });
   it('persists private default preferences and preserves the last saved value on failure', async () => {

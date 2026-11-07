@@ -39,7 +39,7 @@ export function desktopDaemonOptions(
 ): { supported: boolean; cliPath: string } {
   return {
     supported:
-      ownsInstance && ['darwin', 'linux'].includes(platform) && (packaged || !!developmentUrl),
+      ownsInstance && ['darwin', 'linux'].includes(platform) && !packaged && !!developmentUrl,
     cliPath: packaged ? path.join(resourcesPath, 'bin', 'lyk') : path.join(directory, 'lyk'),
   };
 }
@@ -189,9 +189,13 @@ export class DaemonManager {
     }
   }
   private async requireCLI(): Promise<void> {
-    if (!this.options.supported)
-      throw new Error('Local daemon controls are not available on this platform');
+    if (!this.options.supported) throw new Error(this.unavailableMessage());
     if (!(await this.available())) throw new Error(this.missingCLIMessage());
+  }
+  private unavailableMessage(): string {
+    return this.options.packaged
+      ? 'The packaged Lykeion runtime is not yet available.'
+      : 'Local daemon controls are not available on this platform';
   }
   private missingCLIMessage(): string {
     return this.options.packaged
@@ -205,7 +209,12 @@ export class DaemonManager {
       this.options.cliPath,
       ['daemon', action, ...(action === 'status' ? ['--json'] : [])],
       {
-        env: { ...process.env, LYK_CONFIG: this.config, LYK_DAEMON_PROFILE: this.profile },
+        env: {
+          ...process.env,
+          LYK_CONFIG: this.config,
+          LYK_DAEMON_PROFILE: this.profile,
+          LYK_DESKTOP_SAFE_STOP: action === 'stop' ? '1' : '',
+        },
         timeout: action === 'start' ? 60000 : action === 'stop' ? 15000 : 5000,
       },
     );
@@ -278,7 +287,7 @@ export class DaemonManager {
     if (!this.options.supported)
       return this.emit({
         ...snapshot,
-        error: 'Local daemon controls are not available on this platform',
+        error: this.unavailableMessage(),
       });
     try {
       await this.prepare();
@@ -365,8 +374,7 @@ export class DaemonManager {
   configureSession(input: DaemonSession): Promise<DaemonSnapshot> {
     if (!validSession(input) || input.apiOrigin !== this.apiOrigin)
       return Promise.reject(new Error('Invalid desktop session target'));
-    if (!this.options.supported)
-      return Promise.reject(new Error('Local daemon controls are not available on this platform'));
+    if (!this.options.supported) return Promise.reject(new Error(this.unavailableMessage()));
     const value = { ...input };
     const version = ++this.generation;
     this.session = null;

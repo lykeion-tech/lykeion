@@ -255,6 +255,33 @@ func TestDaemonStopWaitsForOwnedChild(t *testing.T) {
 	}
 }
 
+func TestDesktopStopRefusesCopiedOwnershipRecord(t *testing.T) {
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("LYK_DAEMON_PROFILE", "desktop-victim-test")
+	t.Setenv("LYK_DESKTOP_SAFE_STOP", "1")
+	child := exec.Command("/bin/sh", "-c", "exec sleep 30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan error, 1)
+	go func() { ended <- child.Wait() }()
+	t.Cleanup(func() { _ = child.Process.Kill(); <-ended })
+	started, err := processStart(child.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := daemonOwner{PID: child.Process.Pid, Started: started, Nonce: "copied-owner"}
+	if err := writeOwner(filepath.Join(filepath.Dir(os.Getenv("LYK_CONFIG")), "daemon.pid"), owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commandResult("daemon", "stop"); err == nil {
+		t.Fatal("desktop stop accepted an ownership record for an unrelated process")
+	}
+	if !ownerAlive(owner) {
+		t.Fatal("desktop stop signalled an unrelated process")
+	}
+}
+
 func TestDaemonOwnerCleanupDoesNotRemoveSuccessor(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "daemon.pid")
 	old := daemonOwner{PID: 12, Started: "one", Nonce: "old"}

@@ -40,7 +40,7 @@ const stopped = computed(() => matches.value && snapshot.value?.status === 'stop
 const explanation = computed(() => {
   if (!bridge) return '';
   if (snapshot.value?.availability === 'unavailable')
-    return 'Local daemon controls are not available on this platform.';
+    return snapshot.value.error || 'Local daemon controls are not available on this platform.';
   if (!matches.value)
     return 'This machine is remote or managed outside this desktop app. Use Daemon instructions on that computer.';
   if (!snapshot.value?.cliAvailable)

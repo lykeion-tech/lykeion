@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,13 +36,14 @@ type Diagnostics struct {
 
 // HealthRecord identifies the process serving this private loopback port.
 type HealthRecord struct {
-	Port      int    `json:"port"`
-	PID       int    `json:"pid"`
-	Started   string `json:"started"`
-	Nonce     string `json:"nonce"`
-	Profile   string `json:"profile"`
-	ServerURL string `json:"server_url"`
-	DaemonID  string `json:"daemon_id"`
+	Port        int    `json:"port"`
+	PID         int    `json:"pid"`
+	Started     string `json:"started"`
+	Nonce       string `json:"nonce"`
+	Profile     string `json:"profile"`
+	ServerURL   string `json:"server_url"`
+	DaemonID    string `json:"daemon_id"`
+	ShutdownKey string `json:"shutdown_key,omitempty"`
 }
 
 type healthResponse struct {
@@ -166,6 +168,45 @@ func ProbeHealth(ctx context.Context, path, profile, server string) (Diagnostics
 	return live.Diagnostics, nil
 }
 
+// RequestDesktopShutdown requests the verified daemon to stop itself; it never signals a PID.
+func RequestDesktopShutdown(ctx context.Context, path, profile, server string, pid int) error {
+	record, err := readHealthRecord(path)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(profile, "desktop-") || record.Profile != profile || record.ServerURL != strings.TrimRight(server, "/") || record.PID != pid || len(record.ShutdownKey) != 64 {
+		return errors.New("desktop shutdown identity cannot be verified")
+	}
+	if _, err := ProbeHealth(ctx, path, profile, server); err != nil {
+		return err
+	}
+	current, err := readHealthRecord(path)
+	if err != nil || current != record {
+		return errors.New("desktop health record changed")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+record.ShutdownKey)
+	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: time.Second}).DialContext, DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("desktop shutdown redirects are refused")
+	}}
+	res, err := client.Do(req)
+	if err != nil {
+		return errors.New("desktop shutdown request failed")
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		return errors.New("desktop shutdown refused")
+	}
+	return nil
+}
+
 func (d *daemon) startHealth() (func(), error) {
 	started, err := processidentity.Start(os.Getpid())
 	if err != nil {
@@ -180,6 +221,14 @@ func (d *daemon) startHealth() (func(), error) {
 		return nil, err
 	}
 	record := HealthRecord{Port: listener.Addr().(*net.TCPAddr).Port, PID: os.Getpid(), Started: started, Nonce: hex.EncodeToString(nonce), Profile: d.cfg.Profile, ServerURL: strings.TrimRight(d.cfg.Server, "/"), DaemonID: d.id}
+	if d.stopControl != nil && strings.HasPrefix(d.cfg.Profile, "desktop-") {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			listener.Close()
+			return nil, err
+		}
+		record.ShutdownKey = hex.EncodeToString(key)
+	}
 	began := time.Now()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +248,20 @@ func (d *daemon) startHealth() (func(), error) {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(live)
 	})
+	if record.ShutdownKey != "" {
+		var shutdownOnce sync.Once
+		mux.HandleFunc("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+record.ShutdownKey)) != 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			shutdownOnce.Do(d.stopControl)
+		})
+	}
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, IdleTimeout: 2 * time.Second, MaxHeaderBytes: 4096}
 	if err := writeHealthRecord(d.cfg.HealthPath, record); err != nil {
 		listener.Close()
