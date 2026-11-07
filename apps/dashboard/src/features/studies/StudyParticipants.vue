@@ -31,6 +31,12 @@ const active = computed(() =>
   participants.value.find((run) => participantKey(run) === selected.value),
 );
 const agent = computed(() => props.agents.find((item) => item.id === active.value?.agent_id));
+const ownedAgents = computed(() =>
+  props.agents.filter((item) => item.owner_id === props.owner?.user_id),
+);
+const activeRuntime = computed(() =>
+  props.runtimes.find((item) => item.id === active.value?.runtime_id),
+);
 const capabilities = useQuery({
   queryKey: computed(() => ['ws', workspaceId.value, 'agent-capabilities', selected.value]),
   queryFn: () =>
@@ -97,27 +103,79 @@ function runtime(run: AgentRun) {
       class="participant-details"
       :aria-label="`${owner.name || owner.email} details`"
     >
-      <strong>{{ owner.name || owner.email }}</strong>
-      <dl>
-        <div>
-          <dt>Email</dt>
-          <dd>{{ owner.email }}</dd>
+      <div class="participant-profile">
+        <span class="profile-avatar avatar"
+          ><AvatarDisplay
+            v-if="owner.avatar_url"
+            :value="
+              owner.avatar_url.startsWith('emoji:') ? owner.avatar_url.slice(6) : owner.avatar_url
+            "
+            :size="30"
+          /><template v-else>{{ (owner.name || owner.email)[0] }}</template></span
+        >
+        <div class="profile-identity">
+          <strong>{{ owner.name || owner.email }}</strong>
+          <span class="role-badge">{{ owner.role }}</span>
+          <div class="muted">{{ owner.email }}</div>
         </div>
-        <div>
-          <dt>Role</dt>
-          <dd>{{ owner.role }}</dd>
-        </div>
-      </dl>
+        <RouterLink class="details-link" :to="`/colleagues/${owner.user_id}`">Details →</RouterLink>
+      </div>
+      <div class="owned-agents" v-if="ownedAgents.length">
+        <div class="muted">Agents ({{ ownedAgents.length }})</div>
+        <RouterLink
+          v-for="item in ownedAgents"
+          :key="item.id"
+          :to="`/agents/${item.id}`"
+          class="owned-agent"
+        >
+          <span class="owned-avatar avatar"
+            ><AvatarDisplay
+              v-if="item.avatar_url"
+              :value="
+                item.avatar_url.startsWith('emoji:') ? item.avatar_url.slice(6) : item.avatar_url
+              "
+              :size="18"
+            /><template v-else>{{ agentDisplayName(item.name)[0] }}</template></span
+          >
+          <span
+            ><strong>{{ agentDisplayName(item.name) }}</strong
+            ><small v-if="item.description">{{ item.description }}</small></span
+          >
+        </RouterLink>
+      </div>
     </section>
     <section
       v-else-if="active"
       class="participant-details"
       :aria-label="`${label(active)} details`"
     >
-      <RouterLink v-if="agent" :to="`/agents/${active.agent_id}`" class="participant-name">{{
-        label(active)
-      }}</RouterLink>
-      <strong v-else>{{ label(active) }}</strong>
+      <div class="participant-profile">
+        <span class="profile-avatar avatar"
+          ><AvatarDisplay
+            v-if="agent?.avatar_url"
+            :value="
+              agent.avatar_url.startsWith('emoji:') ? agent.avatar_url.slice(6) : agent.avatar_url
+            "
+            :size="30"
+          /><template v-else>{{ label(active)[0] }}</template></span
+        >
+        <div class="profile-identity">
+          <strong>{{ label(active) }}</strong>
+          <div class="muted">
+            {{
+              activeRuntime?.status === 'online'
+                ? '● Online'
+                : activeRuntime
+                  ? '● Offline'
+                  : 'Status unavailable'
+            }}
+          </div>
+        </div>
+        <RouterLink v-if="agent" :to="`/agents/${active.agent_id}`" class="details-link"
+          >Details →</RouterLink
+        >
+      </div>
+      <p v-if="agent?.description" class="participant-description">{{ agent.description }}</p>
       <dl>
         <div>
           <dt>Runtime</dt>
@@ -126,6 +184,10 @@ function runtime(run: AgentRun) {
         <div>
           <dt>Model</dt>
           <dd>{{ active.model || 'Default' }}</dd>
+        </div>
+        <div v-if="owner && agent?.owner_id === owner.user_id">
+          <dt>Owner</dt>
+          <dd>{{ owner.name || owner.email }}</dd>
         </div>
         <div>
           <dt>Skills (current)</dt>
@@ -142,6 +204,9 @@ function runtime(run: AgentRun) {
           </dd>
         </div>
       </dl>
+      <div v-if="agent" class="participant-actions">
+        <RouterLink :to="`/agents/${active.agent_id}`">Settings</RouterLink>
+      </div>
     </section>
   </div>
 </template>
@@ -170,6 +235,9 @@ function runtime(run: AgentRun) {
   right: 0;
   top: calc(100% + 6px);
   width: min(320px, calc(100vw - 32px));
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+  box-sizing: border-box;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -177,9 +245,75 @@ function runtime(run: AgentRun) {
   box-shadow: 0 8px 24px #0002;
   font-size: 13px;
 }
-.participant-name {
-  font-weight: 600;
-  color: var(--text);
+.participant-profile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.profile-avatar {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  font-size: 16px;
+}
+.profile-identity {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.muted {
+  color: var(--muted);
+}
+.role-badge {
+  background: var(--fill-control);
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.details-link {
+  color: var(--primary-text);
+  white-space: nowrap;
+}
+.participant-description {
+  color: var(--muted);
+  margin: 14px 0 0;
+}
+.owned-agents {
+  margin-top: 14px;
+}
+.owned-agent {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.owned-agent > span:last-child {
+  min-width: 0;
+}
+.owned-agent small {
+  display: block;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owned-avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.participant-actions {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.participant-actions a {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--fill-control);
 }
 dl {
   margin: 10px 0 0;

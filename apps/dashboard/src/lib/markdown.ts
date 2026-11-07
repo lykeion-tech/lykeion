@@ -34,11 +34,72 @@ const transcriptMarkdown = new MarkdownIt({
   linkify: true,
   typographer: false,
 });
+for (const parser of [markdown, transcriptMarkdown]) {
+  parser.core.ruler.after('linkify', 'doi_links', (state) => {
+    for (const token of state.tokens) {
+      if (!token.children) continue;
+      let linkDepth = 0;
+      token.children = token.children.flatMap((child) => {
+        if (child.type === 'link_open') {
+          linkDepth++;
+          return [child];
+        }
+        if (child.type === 'link_close') {
+          linkDepth--;
+          return [child];
+        }
+        if (child.type !== 'text' || linkDepth) return [child];
+        const out = [];
+        const pattern = /\b(?:doi:\s*)?(10\.\d{4,9}\/[-._;()/:a-z0-9]+)/gi;
+        let offset = 0;
+        for (const match of child.content.matchAll(pattern)) {
+          let doi = match[1]!.replace(/[.,;:]+$/, '');
+          while (
+            doi.endsWith(')') &&
+            (doi.match(/\)/g)?.length ?? 0) > (doi.match(/\(/g)?.length ?? 0)
+          )
+            doi = doi.slice(0, -1);
+          const start = match.index!;
+          const length = match[0].length - (match[1]!.length - doi.length);
+          if (start > offset) {
+            const text = new state.Token('text', '', 0);
+            text.content = child.content.slice(offset, start);
+            out.push(text);
+          }
+          const open = new state.Token('link_open', 'a', 1);
+          open.attrs = [['href', `https://doi.org/${doi}`]];
+          const text = new state.Token('text', '', 0);
+          text.content = child.content.slice(start, start + length);
+          const close = new state.Token('link_close', 'a', -1);
+          out.push(open, text, close);
+          offset = start + length;
+        }
+        if (!out.length) return [child];
+        if (offset < child.content.length) {
+          const text = new state.Token('text', '', 0);
+          text.content = child.content.slice(offset);
+          out.push(text);
+        }
+        return out;
+      });
+    }
+  });
+}
 transcriptMarkdown.renderer.rules = markdown.renderer.rules;
 const localPath = (url: string) =>
-  ['/private/', '/tmp/', '/var/', '/Users/', '/home/', '/workspace/', '/mnt/', '/opt/', '/data/', '/srv/', '/Volumes/'].some((root) =>
-    url.startsWith(root),
-  );
+  [
+    '/private/',
+    '/tmp/',
+    '/var/',
+    '/Users/',
+    '/home/',
+    '/workspace/',
+    '/mnt/',
+    '/opt/',
+    '/data/',
+    '/srv/',
+    '/Volumes/',
+  ].some((root) => url.startsWith(root));
 transcriptMarkdown.validateLink = (url) => markdown.validateLink(url) || localPath(url);
 
 export function renderMarkdown(content: string, breaks = true, localFiles = false) {
@@ -84,7 +145,13 @@ export function parseMarkdownBlocks(content: string, redactLocalPaths = false) {
     for (const token of blocks) {
       for (const child of token.children ?? []) {
         if (child.type === 'text') child.content = cleanAssistantProse(child.content);
-        else if (child.type === 'code_inline' && /^(?:file:\/\/)?\/(?:private|tmp|var|Users|home|workspace|mnt|opt|data|srv|Volumes)\/|^[A-Za-z]:\\/.test(child.content)) child.content = '[local file]';
+        else if (
+          child.type === 'code_inline' &&
+          /^(?:file:\/\/)?\/(?:private|tmp|var|Users|home|workspace|mnt|opt|data|srv|Volumes)\/|^[A-Za-z]:\\/.test(
+            child.content,
+          )
+        )
+          child.content = '[local file]';
       }
     }
   }

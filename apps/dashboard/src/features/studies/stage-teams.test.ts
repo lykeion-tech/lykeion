@@ -2293,7 +2293,15 @@ it('shows each study agent once and opens its recorded runtime and current team 
     StudyParticipants,
     () => ({
       runs: [run, { ...run }, { ...run, agent_id: null, agent_name: 'Former agent' }],
-      agents: [{ id: 'a1', name: 'Solo agent', avatar_url: '' }],
+      agents: [
+        {
+          id: 'a1',
+          name: 'Solo agent',
+          avatar_url: '',
+          owner_id: 'u1',
+          description: 'Research assistant',
+        },
+      ],
       owner: { user_id: 'u1', name: 'Diego', email: 'test@example.com', avatar_url: '' },
       runtimes: [{ id: 'r1', custom_name: 'Lab Mac', device_name: 'Mac' }],
       teams: { grounding: { pack_id: 'team-1' } },
@@ -2317,11 +2325,15 @@ it('shows each study agent once and opens its recorded runtime and current team 
   (owner!.props.onClick as () => void)();
   await nextTick();
   expect(t.text()).toContain('test@example.com');
+  expect(t.text()).toContain('Agents (1)');
+  expect(t.nodes().some((n) => n.tag === 'a' && n.props.href === '/colleagues/u1')).toBe(true);
   (avatars[0]!.props.onClick as () => void)();
   await nextTick();
   expect(t.text()).toContain('codex · Lab Mac');
   expect(t.text()).toContain('model-one');
   expect(t.text()).toContain('statistics');
+  expect(t.text()).toContain('Research assistant');
+  expect(t.text()).toContain('Settings');
   expect(t.text()).not.toContain('wrong');
   expect(t.nodes().some((n) => n.tag === 'a' && n.props.href === '/agents/a1')).toBe(true);
   t.unmount();

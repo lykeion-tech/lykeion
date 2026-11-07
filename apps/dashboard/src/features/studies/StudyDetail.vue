@@ -700,44 +700,46 @@ function pin() {
           </section>
         </div>
       </div>
-      <div v-if="c && !c.ending" class="pinned-composer">
-        <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
-        <p v-if="composerHint" id="study-composer-hint" class="type-caption" role="status">
-          {{ composerHint }}
-        </p>
-        <form class="study-comment" @submit.prevent="send">
-          <textarea
-            v-model="comment"
-            placeholder="Leave a comment…"
-            aria-label="Comment"
-            :aria-describedby="composerHint ? 'study-composer-hint' : undefined"
-            @keydown.meta.enter.prevent="send"
-            @keydown.ctrl.enter.prevent="send"
-          />
-          <footer>
-            <CommentFilePicker
-              :items="commentFiles.items.value"
-              :error="commentFiles.error.value"
-              :disabled="busy"
-              @pick="commentFiles.add"
-              @remove="commentFiles.remove"
+      <div v-if="c && !c.ending" class="composer-scroll-alignment">
+        <div class="pinned-composer">
+          <p v-if="blocked.length" class="block-bar">{{ blockedBar }}</p>
+          <p v-if="composerHint" id="study-composer-hint" class="type-caption" role="status">
+            {{ composerHint }}
+          </p>
+          <form class="study-comment" @submit.prevent="send">
+            <textarea
+              v-model="comment"
+              placeholder="Leave a comment…"
+              aria-label="Comment"
+              :aria-describedby="composerHint ? 'study-composer-hint' : undefined"
+              @keydown.meta.enter.prevent="send"
+              @keydown.ctrl.enter.prevent="send"
             />
-            <button
-              class="round-send"
-              type="submit"
-              :disabled="
-                busy ||
-                commentFiles.uploading.value ||
-                commentFiles.failed.value ||
-                (!comment.trim() && !commentFiles.ids.value.length)
-              "
-              aria-label="Send"
-              title="Send comment"
-            >
-              <Icon name="up" :size="18" />
-            </button>
-          </footer>
-        </form>
+            <footer>
+              <CommentFilePicker
+                :items="commentFiles.items.value"
+                :error="commentFiles.error.value"
+                :disabled="busy"
+                @pick="commentFiles.add"
+                @remove="commentFiles.remove"
+              />
+              <button
+                class="round-send"
+                type="submit"
+                :disabled="
+                  busy ||
+                  commentFiles.uploading.value ||
+                  commentFiles.failed.value ||
+                  (!comment.trim() && !commentFiles.ids.value.length)
+                "
+                aria-label="Send"
+                title="Send comment"
+              >
+                <Icon name="up" :size="18" />
+              </button>
+            </footer>
+          </form>
+        </div>
       </div>
       <p v-if="card.isPending.value" class="detail-loading" role="status">Loading study…</p>
       <p v-else-if="card.isError.value" class="inline-error" role="alert">
@@ -1267,6 +1269,11 @@ function pin() {
 .study-comment .round-send.stop-control {
   background: var(--primary-text);
   color: #000;
+}
+.composer-scroll-alignment {
+  flex: none;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .pinned-composer {
   width: 100%;
