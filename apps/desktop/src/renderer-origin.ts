@@ -13,9 +13,15 @@ export function desktopPartition(origin: string): string {
 }
 
 export function validExternalURL(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
+  if (
+    typeof value !== 'string' ||
+    [...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) ||
+    /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value)
+  )
+    return false;
   try {
     const url = new URL(value);
+    if (url.protocol === 'mailto:') return Boolean(url.pathname);
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
   } catch {
     return false;

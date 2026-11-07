@@ -21,6 +21,9 @@ describe('desktop renderer origin', () => {
   });
   it('allows only ordinary credential-free external web addresses', () => {
     expect(validExternalURL('https://example.org/paper')).toBe(true);
+    expect(validExternalURL('mailto:researcher@example.org')).toBe(true);
+    expect(validExternalURL('mailto:researcher@example.org?subject=Study')).toBe(true);
+    expect(validExternalURL('mailto:researcher@example.org%0abcc:other@example.org')).toBe(false);
     for (const value of [
       'file:///etc/passwd',
       'javascript:alert(1)',

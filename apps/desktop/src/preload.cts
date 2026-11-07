@@ -13,7 +13,11 @@ window.addEventListener(
     const anchor = event.composedPath().find((item) => item instanceof HTMLAnchorElement);
     if (!(anchor instanceof HTMLAnchorElement) || !anchor.href) return;
     const target = new URL(anchor.href);
-    if (target.origin === window.location.origin) return;
+    if (
+      target.origin === window.location.origin &&
+      (anchor.hasAttribute('download') || target.pathname === window.location.pathname)
+    )
+      return;
     event.preventDefault();
     ipcRenderer.send('lykeion:open-external', target.href);
   },

@@ -105,6 +105,7 @@ app.whenReady().then(async () => {
         nodeIntegration: false,
       },
     });
+    w.webContents.on('will-navigate', (event) => event.preventDefault());
     try {
       await w.loadURL(route.desktopEntryURL(origin));
       let r = await w.webContents.executeJavaScript(
