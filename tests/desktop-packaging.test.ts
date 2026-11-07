@@ -151,6 +151,16 @@ describe('desktop release packaging', () => {
         ),
       ).toThrow();
       rmSync(path.join(root, 'dist/dashboard/private.env'));
+      writeFileSync(path.join(root, 'dist/dashboard/development.js'), 'http://127.0.0.1:8080');
+      await asar.createPackage(root, archive);
+      expect(() =>
+        verifyArchive(
+          archive,
+          { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
+          'https://lykeion.ia',
+        ),
+      ).toThrow();
+      rmSync(path.join(root, 'dist/dashboard/development.js'));
       rmSync(path.join(root, 'apps/desktop/out/preload.cjs'));
       await asar.createPackage(root, archive);
       expect(() =>

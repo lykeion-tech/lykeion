@@ -79,6 +79,7 @@ export function extractTrackedSnapshot(repo, destination) {
 }
 
 export function verifyArchive(archive, expected, hostedOrigin) {
+  asar.uncache(archive);
   const entries = asar.listPackage(archive);
   for (const file of [
     '/apps/desktop/out/main.js',
@@ -107,6 +108,17 @@ export function verifyArchive(archive, expected, hostedOrigin) {
     hostedOrigin
   )
     throw new Error('Packaged server origin mismatch');
+  for (const entry of entries.filter(
+    (item) => item.startsWith('/dist/dashboard/') && item.endsWith('.js'),
+  )) {
+    const content = asar.extractFile(archive, entry.slice(1)).toString('utf8');
+    if (
+      ['http://127.0.0.1:8080', 'http://127.0.0.1:1430', 'http://localhost:1430'].some((value) =>
+        content.includes(value),
+      )
+    )
+      throw new Error('Development endpoint in packaged dashboard');
+  }
 }
 
 export function verifyGoBuild(info, commit, goos, goarch) {
@@ -221,13 +233,19 @@ function main() {
       target.goos,
       target.goarch,
     );
-    if (!args.includes('--dir'))
+    if (!args.includes('--dir')) {
       run(
         'node',
         ['node_modules/electron-builder/cli.js', ...target.builder, '--publish', 'never'],
         { cwd: source, env },
       );
-    const output = path.join(root, 'dist/desktop-release');
+      verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin);
+      verifyBundledBinary(
+        path.join(source, 'apps/desktop/out/lyk'),
+        path.join(resources, 'bin/lyk'),
+      );
+    }
+    const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
     mkdirSync(output, { recursive: true });
     for (const name of readdirSync(path.join(source, 'dist/desktop-release'))) {
       const destination = path.join(output, name);
