@@ -5,6 +5,7 @@ interface Window {
     platform: string;
     openDocumentation(): Promise<void>;
     cancelRequest?(id: string): void;
+    requestDocument?: string;
     daemon?: import('../../desktop/src/daemon-types.js').DesktopDaemonBridge;
   };
 }

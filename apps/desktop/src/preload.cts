@@ -6,6 +6,11 @@ import type {
   DesktopDaemonBridge,
 } from './daemon-types.js';
 
+const documentID =
+  window.location.pathname === '/__lykeion_desktop__/'
+    ? (ipcRenderer.sendSync('lykeion:document-start') as string | null)
+    : null;
+
 window.addEventListener(
   'click',
   (event) => {
@@ -49,8 +54,11 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     platform: process.platform,
     openDocumentation: () => ipcRenderer.invoke('lykeion:open-documentation') as Promise<void>,
-    ...(window.location.pathname === '/__lykeion_desktop__/'
-      ? { cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id) }
+    ...(documentID
+      ? {
+          requestDocument: documentID,
+          cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
+        }
       : {}),
     daemon,
   }),

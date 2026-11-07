@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
         () => false,
         (error) => error.name === 'AbortError',
       );
-    const earlyID = crypto.randomUUID();
+    const earlyID = `${cancellation.beginDocument()}.${crypto.randomUUID()}`;
     cancellation.cancel(earlyID);
     const earlyCanceled = await route
       .forward(
@@ -168,6 +168,11 @@ app.whenReady().then(async () => {
         nodeIntegration: false,
       },
     });
+    ipcMain.on('lykeion:document-start', (event) => {
+      event.returnValue = route.trustedDesktopFrame(event, w.webContents, origin)
+        ? cancellation.beginDocument()
+        : null;
+    });
     ipcMain.on('lykeion:cancel-request', (event, id) => {
       if (route.trustedDesktopFrame(event, w.webContents, origin)) cancellation.cancel(id);
     });
@@ -178,14 +183,14 @@ app.whenReady().then(async () => {
         `Promise.race([fetch('/api/empty-upload',{method:'POST',duplex:'half',body:new ReadableStream({start(c){c.close()}})}).then(r=>r.text(),()=> 'error'),new Promise(r=>setTimeout(()=>r('timeout'),1000))])`,
       );
       await w.webContents.executeJavaScript(
-        `window.cancelController=new AbortController(); const id=crypto.randomUUID(); window.cancelController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(id));window.cancelResult=fetch('/api/cancel',{headers:{'X-Lykeion-Desktop-Request':id},signal:window.cancelController.signal}).then(()=> 'response',()=> 'aborted'); true`,
+        `window.cancelController=new AbortController(); const id=window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID(); window.cancelController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(id));window.cancelResult=fetch('/api/cancel',{headers:{'X-Lykeion-Desktop-Request':id},signal:window.cancelController.signal}).then(()=> 'response',()=> 'aborted'); true`,
       );
       await new Promise((resolve) => setTimeout(resolve, 250));
       await w.webContents.executeJavaScript('window.cancelController.abort(); window.cancelResult');
       await new Promise((resolve) => setTimeout(resolve, 250));
       await Promise.race([
         w.webContents.executeJavaScript(
-          `(async()=>{window.responseController=new AbortController();const rid=crypto.randomUUID();window.responseController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(rid));window.responseStream=(await fetch('/api/slow-response',{headers:{'X-Lykeion-Desktop-Request':rid},signal:window.responseController.signal})).body.getReader();await window.responseStream.read();return true})()`,
+          `(async()=>{window.responseController=new AbortController();const rid=window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID();window.responseController.signal.addEventListener('abort',()=>window.lykeionDesktop.cancelRequest(rid));window.responseStream=(await fetch('/api/slow-response',{headers:{'X-Lykeion-Desktop-Request':rid},signal:window.responseController.signal})).body.getReader();await window.responseStream.read();return true})()`,
         ),
         new Promise((_resolve, reject) =>
           setTimeout(() => reject(new Error('streamed response timed out')), 3000),

@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
   <a id="internal" href="#/studies" style="position:absolute;left:10px;top:160px;width:200px;height:40px">Internal</a>
   </body>`,
   );
-  route.installDesktopRenderer(session.defaultSession, origin, temp);
+  const cancellation = route.installDesktopRenderer(session.defaultSession, origin, temp);
   const messages = [];
   ipcMain.on('lykeion:open-external', (_e, url) => messages.push(url));
   const w = new BrowserWindow({
@@ -30,6 +30,11 @@ app.whenReady().then(async () => {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+  ipcMain.on('lykeion:document-start', (event) => {
+    event.returnValue = route.trustedDesktopFrame(event, w.webContents, origin)
+      ? cancellation.beginDocument()
+      : null;
   });
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (event) => event.preventDefault());

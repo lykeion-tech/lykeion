@@ -1,21 +1,28 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { net } from 'electron';
 import type { Session, WebContents } from 'electron';
 
 const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
 const requestHeader = 'x-lykeion-desktop-request';
-const requestID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const requestID = new RegExp(`^(${uuid})\\.${uuid}$`);
 
 export function createRequestCancellation() {
   const active = new Map<string, () => void>();
   const early = new Map<string, number>();
+  let document: string | null = null;
   return {
+    beginDocument() {
+      this.cancelAll();
+      document = randomUUID();
+      return document;
+    },
     cancel(id: unknown) {
-      if (typeof id !== 'string' || !requestID.test(id)) return;
+      if (typeof id !== 'string' || requestID.exec(id)?.[1] !== document) return;
       const abort = active.get(id);
       if (abort) return abort();
       const now = Date.now();
@@ -24,7 +31,7 @@ export function createRequestCancellation() {
       early.set(id, now + 30_000);
     },
     register(id: string, abort: () => void): boolean {
-      if (!requestID.test(id) || active.has(id)) return false;
+      if (requestID.exec(id)?.[1] !== document || active.has(id)) return false;
       const expires = early.get(id);
       early.delete(id);
       if (expires && expires > Date.now()) return false;
@@ -35,9 +42,9 @@ export function createRequestCancellation() {
       if (active.get(id) === abort) active.delete(id);
     },
     cancelAll() {
+      document = null;
       const callbacks = [...active.values()];
       active.clear();
-      early.clear();
       for (const callback of callbacks) callback();
     },
   };
@@ -52,9 +59,6 @@ export function bindDesktopRequestLifetime(
   const drain = () => {
     if (isCurrent()) cancellation.cancelAll();
   };
-  contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
-    if (mainFrame && !inPlace) drain();
-  });
   contents.on('render-process-gone', drain);
   contents.on('destroyed', drain);
   return drain;

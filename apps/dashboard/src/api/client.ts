@@ -80,7 +80,10 @@ export async function api<T = void>(
     headers['Content-Type'] = 'application/json';
   }
   const cancel = typeof window !== 'undefined' ? window.lykeionDesktop?.cancelRequest : undefined;
-  const requestID = cancel && options.signal ? crypto.randomUUID() : undefined;
+  const documentID =
+    typeof window !== 'undefined' ? window.lykeionDesktop?.requestDocument : undefined;
+  const requestID =
+    cancel && documentID && options.signal ? `${documentID}.${crypto.randomUUID()}` : undefined;
   if (requestID) headers['X-Lykeion-Desktop-Request'] = requestID;
   const abort = () => {
     if (requestID) cancel?.(requestID);

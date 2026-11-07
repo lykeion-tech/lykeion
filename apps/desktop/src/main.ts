@@ -170,6 +170,12 @@ void app.whenReady().then(async () => {
     if (window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin))
       desktopCancellation.cancel(id);
   });
+  ipcMain.on('lykeion:document-start', (event) => {
+    event.returnValue =
+      window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin)
+        ? desktopCancellation.beginDocument()
+        : null;
+  });
   createWindow();
   app.on('activate', () => {
     if (!window) createWindow();

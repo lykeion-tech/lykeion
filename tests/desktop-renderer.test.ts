@@ -14,8 +14,9 @@ import {
 
 describe('desktop renderer origin', () => {
   it('does not let an earlier redirect release the current request registration', () => {
-    const id = '11111111-1111-4111-8111-111111111111';
     const registry = createRequestCancellation();
+    const doc = registry.beginDocument();
+    const id = `${doc}.11111111-1111-4111-8111-111111111111`;
     const oldHop = vi.fn();
     const newHop = vi.fn();
     expect(registry.register(id, oldHop)).toBe(true);
@@ -26,18 +27,25 @@ describe('desktop renderer origin', () => {
     expect(newHop).toHaveBeenCalledOnce();
   });
   it('drains active requests when a document departs without affecting new registrations', () => {
-    const first = '11111111-1111-4111-8111-111111111111';
-    const second = '22222222-2222-4222-8222-222222222222';
     const registry = createRequestCancellation();
+    const doc = registry.beginDocument();
+    const first = `${doc}.11111111-1111-4111-8111-111111111111`;
+    const early = `${doc}.33333333-3333-4333-8333-333333333333`;
     const old = vi.fn();
     const next = vi.fn();
     registry.register(first, old);
+    registry.cancel(early);
     registry.cancelAll();
     expect(old).toHaveBeenCalledOnce();
+    expect(registry.register(early, vi.fn())).toBe(false);
+    const nextDoc = registry.beginDocument();
+    const second = `${nextDoc}.22222222-2222-4222-8222-222222222222`;
+    expect(registry.register(first, vi.fn())).toBe(false);
     expect(registry.register(second, next)).toBe(true);
+    registry.cancel(first);
     expect(next).not.toHaveBeenCalled();
   });
-  it('drains only the current main document on replacement, crash and destruction', () => {
+  it('ignores attempted navigations and drains only current crashes and destruction', () => {
     const contents = new EventEmitter();
     const cancellation = { cancelAll: vi.fn() };
     let current = true;
@@ -50,18 +58,20 @@ describe('desktop renderer origin', () => {
     contents.emit('did-start-navigation', {}, 'https://lab.example/', false, false);
     expect(cancellation.cancelAll).not.toHaveBeenCalled();
     contents.emit('did-start-navigation', {}, 'https://lab.example/', false, true);
+    expect(cancellation.cancelAll).not.toHaveBeenCalled();
     contents.emit('render-process-gone');
-    expect(cancellation.cancelAll).toHaveBeenCalledTimes(2);
+    expect(cancellation.cancelAll).toHaveBeenCalledTimes(1);
     current = false;
     contents.emit('destroyed');
     closed();
-    expect(cancellation.cancelAll).toHaveBeenCalledTimes(2);
+    expect(cancellation.cancelAll).toHaveBeenCalledTimes(1);
   });
   it('cancels only the matching active request and fences early or duplicate IDs', () => {
-    const first = '11111111-1111-4111-8111-111111111111';
-    const second = '22222222-2222-4222-8222-222222222222';
-    const third = '33333333-3333-4333-8333-333333333333';
     const registry = createRequestCancellation();
+    const doc = registry.beginDocument();
+    const first = `${doc}.11111111-1111-4111-8111-111111111111`;
+    const second = `${doc}.22222222-2222-4222-8222-222222222222`;
+    const third = `${doc}.33333333-3333-4333-8333-333333333333`;
     const abortFirst = vi.fn();
     const abortSecond = vi.fn();
     expect(registry.register(first, abortFirst)).toBe(true);

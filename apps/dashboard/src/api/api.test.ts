@@ -44,7 +44,7 @@ afterEach(() => {
 describe('api', () => {
   it('cancels only its own packaged desktop request when the signal aborts', async () => {
     const cancelRequest = vi.fn();
-    vi.stubGlobal('window', { lykeionDesktop: { cancelRequest } });
+    vi.stubGlobal('window', { lykeionDesktop: { cancelRequest, requestDocument: '11111111-1111-4111-8111-111111111111' } });
     const fetch = vi.fn(
       (_path: string, init: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
@@ -61,7 +61,7 @@ describe('api', () => {
     ];
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
-    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(id).toMatch(/^11111111-1111-4111-8111-111111111111\.[0-9a-f-]{36}$/);
     expect(cancelRequest).toHaveBeenCalledExactlyOnceWith(id);
   });
   it('names the current workspace on /api routes only', async () => {

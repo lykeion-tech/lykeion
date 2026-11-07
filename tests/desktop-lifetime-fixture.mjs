@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -49,13 +49,24 @@ app.whenReady().then(async () => {
   server.listen(0, '127.0.0.1', async () => {
     const origin = 'http://127.0.0.1:' + server.address().port;
     const desktop = session.fromPartition(route.desktopPartition(origin));
-    const cancellation = route.installDesktopRenderer(desktop, origin, root + '/dist/dashboard');
+    fs.writeFileSync(
+      path.join(temp, 'index.html'),
+      `<script>if(sessionStorage.getItem('startAfterReload'))fetch('/api/after',{headers:{'X-Lykeion-Desktop-Request':window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID()}}).catch(()=>{});</script>`,
+    );
+    const cancellation = route.installDesktopRenderer(desktop, origin, temp);
     let current = null;
+    ipcMain.on('lykeion:document-start', (event) => {
+      event.returnValue =
+        current && route.trustedDesktopFrame(event, current.webContents, origin)
+          ? cancellation.beginDocument()
+          : null;
+    });
     const make = () => {
       const w = new BrowserWindow({
         show: false,
         webPreferences: {
           session: desktop,
+          preload: path.join(root, 'apps/desktop/out/preload.cjs'),
           sandbox: true,
           contextIsolation: true,
           nodeIntegration: false,
@@ -71,40 +82,44 @@ app.whenReady().then(async () => {
         drain();
         if (current === w) current = null;
       });
+      w.webContents.on('will-navigate', (event) => event.preventDefault());
       return { w, drain };
     };
     try {
       const old = make();
       await old.w.loadURL(route.desktopEntryURL(origin));
       await old.w.webContents.executeJavaScript(
-        `fetch('/api/old',{headers:{'X-Lykeion-Desktop-Request':crypto.randomUUID()}}).catch(()=>{});true`,
+        `fetch('/api/old',{headers:{'X-Lykeion-Desktop-Request':window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID()}}).catch(()=>{});true`,
       );
       await until(() => state.oldStarted);
+      await old.w.webContents.executeJavaScript("location.href='/blocked';true");
+      await new Promise((r) => setTimeout(r, 250));
+      const refusedPreserved = !state.oldClosed;
       old.w.close();
       await until(() => state.oldClosed);
       const next = make();
       await next.w.loadURL(route.desktopEntryURL(origin));
       await next.w.webContents.executeJavaScript(
-        `fetch('/api/new',{headers:{'X-Lykeion-Desktop-Request':crypto.randomUUID()}}).catch(()=>{});true`,
+        `fetch('/api/new',{headers:{'X-Lykeion-Desktop-Request':window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID()}}).catch(()=>{});true`,
       );
       await until(() => state.newStarted);
+      await next.w.webContents.executeJavaScript(
+        "sessionStorage.setItem('startAfterReload', '1'); true",
+      );
       const loaded = once(next.w.webContents, 'did-finish-load');
       next.w.webContents.reload();
       await loaded;
       await until(() => state.newClosed);
-      await next.w.webContents.executeJavaScript(
-        `fetch('/api/after',{headers:{'X-Lykeion-Desktop-Request':crypto.randomUUID()}}).catch(()=>{});true`,
-      );
       await until(() => state.afterStarted);
       old.drain();
       await new Promise((r) => setTimeout(r, 250));
       const survived = !state.afterClosed;
       next.w.close();
       await until(() => state.afterClosed);
-      console.log(JSON.stringify({ ...state, survived }));
+      console.log(JSON.stringify({ ...state, survived, refusedPreserved }));
       server.close();
       fs.rmSync(temp, { recursive: true, force: true });
-      app.exit(survived ? 0 : 1);
+      app.exit(survived && refusedPreserved ? 0 : 1);
     } catch (error) {
       console.error(error);
       if (current) current.destroy();
