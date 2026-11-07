@@ -277,6 +277,7 @@ app
       const epochGate = new DesktopAuthGate();
       let armed = false,
         readyCalls = 0,
+        holdAt = 3,
         captured = false,
         releaseHeaders,
         capturedCookie = false;
@@ -290,7 +291,7 @@ app
         finish: (id) => epochGate.finishMutation(id),
         continue: (id, token, path) => epochGate.continueMutation(id, token, path),
         networkReady: () => {
-          if (armed && ++readyCalls === 3) {
+          if (armed && ++readyCalls === holdAt) {
             captured = true;
             return new Promise((resolve) => {
               releaseHeaders = resolve;
@@ -317,6 +318,27 @@ app
         await new Promise((resolve) => setTimeout(resolve, 10));
       assert.equal(captured, true);
       assert.equal(capturedCookie, true);
+      epochGate.reserve('/auth/logout');
+      epochGate.abandonUnclaimed();
+      await epochGate.recoverAbandonedLogout(() => clearAbandonedLogout(epochSession, origin));
+      releaseHeaders();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(staleReceived, false);
+      await epochSession.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'old',
+        httpOnly: true,
+      });
+      readyCalls = 0;
+      captured = false;
+      holdAt = 2;
+      await epochWindow.webContents.executeJavaScript(
+        "void fetch('/api/stale').catch(()=>{}); true",
+      );
+      for (let i = 0; i < 100 && !captured; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(captured, true);
       epochGate.reserve('/auth/logout');
       epochGate.abandonUnclaimed();
       await epochGate.recoverAbandonedLogout(() => clearAbandonedLogout(epochSession, origin));

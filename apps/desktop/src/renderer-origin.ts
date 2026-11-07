@@ -133,6 +133,7 @@ export function installDesktopRenderer(
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
   const nativeAuth = new Map<string, string>();
+  const admittedEpochs = new Map<number, number>();
   let nativeAuthID = -1;
   session.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
@@ -146,6 +147,7 @@ export function installDesktopRenderer(
         target.origin !== selected.origin ||
         (executableRequests.has(request.resourceType) && !asset);
       if (denied || !auth) return done({ cancel: denied });
+      admittedEpochs.set(request.id, auth.networkEpoch());
       if (
         request.resourceType === 'other' &&
         request.method === 'POST' &&
@@ -158,13 +160,18 @@ export function installDesktopRenderer(
             if (auth.networkBlocked()) ready();
             else done({ cancel: false });
           },
-          () => done({ cancel: true }),
+          () => {
+            admittedEpochs.delete(request.id);
+            done({ cancel: true });
+          },
         );
       };
       ready();
     },
   );
-  if (auth)
+  if (auth) {
+    session.webRequest.onCompleted((request) => admittedEpochs.delete(request.id));
+    session.webRequest.onErrorOccurred((request) => admittedEpochs.delete(request.id));
     session.webRequest.onBeforeSendHeaders((request, done) => {
       const headers = { ...request.requestHeaders };
       const markerKey = Object.keys(headers).find((key) => key.toLowerCase() === nativeAuthHeader);
@@ -175,20 +182,24 @@ export function installDesktopRenderer(
         done({ requestHeaders: headers });
         return;
       }
+      const cancel = () => {
+        admittedEpochs.delete(request.id);
+        done({ cancel: true });
+      };
+      const admittedEpoch = admittedEpochs.get(request.id);
       const epoch = auth.networkEpoch(
         Object.entries(headers).some(
           ([key, value]) => key.toLowerCase() === 'cookie' && /(?:^|;\s*)lyk_session=/.test(value),
         ),
       );
-      if (auth.networkBlocked()) return done({ cancel: true });
-      void auth.networkReady().then(
-        () => {
-          if (auth.networkBlocked() || auth.networkEpoch() !== epoch) done({ cancel: true });
-          else done({ requestHeaders: headers });
-        },
-        () => done({ cancel: true }),
-      );
+      if (admittedEpoch === undefined || admittedEpoch !== epoch || auth.networkBlocked())
+        return cancel();
+      void auth.networkReady().then(() => {
+        if (auth.networkBlocked() || auth.networkEpoch() !== epoch) cancel();
+        else done({ requestHeaders: headers });
+      }, cancel);
     });
+  }
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))
