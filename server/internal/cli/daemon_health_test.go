@@ -3,6 +3,9 @@
 package cli
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -45,6 +48,11 @@ func TestDesktopStopRequestsAuthenticatedSelfShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := strings.Repeat("a", 64)
+	proof := func(role, challenge string) string {
+		mac := hmac.New(sha256.New, []byte(key))
+		_, _ = fmt.Fprint(mac, role+"\x00"+challenge+"\x00health")
+		return hex.EncodeToString(mac.Sum(nil))
+	}
 	var shutdown atomic.Int32
 	live := map[string]any{"status": "running", "pid": child.Process.Pid, "started": started, "nonce": "health", "daemon_id": "daemon-a", "profile": "desktop-test", "server_url": "https://lab.example"}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,8 +62,17 @@ func TestDesktopStopRequestsAuthenticatedSelfShutdown(t *testing.T) {
 				t.Error("credential sent to health")
 			}
 			_ = json.NewEncoder(w).Encode(live)
+		case "/shutdown-challenge":
+			challenge := r.URL.Query().Get("nonce")
+			if r.Header.Get("Authorization") != "Bearer "+proof("request", challenge) {
+				t.Error("challenge authentication missing")
+				w.WriteHeader(403)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"proof": proof("server", challenge)})
 		case "/shutdown":
-			if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+key {
+			challenge := r.Header.Get("X-Lykeion-Challenge")
+			if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer "+proof("client", challenge) {
 				t.Error("shutdown lacked private control key")
 				w.WriteHeader(403)
 				return

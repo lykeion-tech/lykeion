@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"lykeion/server/internal/apiclient"
+	"lykeion/server/internal/processidentity"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +23,56 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestDesktopShutdownDoesNotDiscloseKeyToReplayedHealthEndpoint(t *testing.T) {
+	started, err := processidentity.Start(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := strings.Repeat("a", 64)
+	var leaked atomic.Bool
+	var shutdownAttempt atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Authorization"), key) {
+			leaked.Store(true)
+		}
+		if r.URL.Path == "/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "running", "pid": os.Getpid(), "started": started, "nonce": "public", "profile": "desktop-x", "server_url": "https://lab.example", "daemon_id": "x"})
+			return
+		}
+		if r.URL.Path == "/shutdown-challenge" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"proof": shutdownProof(key, "server", strings.Repeat("b", 64), "public")})
+			return
+		}
+		if r.URL.Path == "/shutdown" {
+			shutdownAttempt.Store(true)
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	_, rawPort, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "daemon.health.json")
+	record := HealthRecord{Port: port, PID: os.Getpid(), Started: started, Nonce: "public", Profile: "desktop-x", ServerURL: "https://lab.example", DaemonID: "x", ShutdownKey: key}
+	if err := writeHealthRecord(path, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err == nil {
+		t.Fatal("accepted replayed health endpoint")
+	}
+	if leaked.Load() {
+		t.Fatal("private shutdown key was disclosed to a replayed endpoint")
+	}
+	if shutdownAttempt.Load() {
+		t.Fatal("sent shutdown proof to an endpoint replaying an old server proof")
+	}
+}
 
 func TestHealthReportsLiveDiagnosticsAndRefusesMismatches(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
@@ -203,6 +256,58 @@ func TestDesktopShutdownRequiresPrivateKeyAndVerifiedIdentity(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatal("verified shutdown not invoked")
+	}
+}
+
+func TestDesktopShutdownRejectsChallengeReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.health.json")
+	var calls atomic.Int32
+	d := &daemon{cfg: Config{Server: "https://lab.example", Profile: "desktop-test", HealthPath: path}, id: uuid.NewString(), stopControl: func() { calls.Add(1) }}
+	closeHealth, err := d.startHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeHealth()
+	record, err := readHealthRecord(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := strings.Repeat("a", 64)
+	issue := func() int {
+		req, _ := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d/shutdown-challenge?nonce=%s", record.Port, challenge), nil)
+		req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "request", challenge, record.Nonce))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+	stop := func() int {
+		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
+		req.Header.Set("X-Lykeion-Challenge", challenge)
+		req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge, record.Nonce))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+	if issue() != http.StatusOK {
+		t.Fatal("challenge refused")
+	}
+	if stop() != http.StatusNoContent {
+		t.Fatal("valid stop refused")
+	}
+	if stop() != http.StatusForbidden {
+		t.Fatal("replayed stop accepted")
+	}
+	if issue() != http.StatusForbidden {
+		t.Fatal("consumed challenge reissued")
+	}
+	if calls.Load() != 1 {
+		t.Fatal("incorrect shutdown count")
 	}
 }
 

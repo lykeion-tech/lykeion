@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -53,6 +55,12 @@ type healthResponse struct {
 }
 
 func healthURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/health", port) }
+
+func shutdownProof(key, role, challenge, nonce string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	_, _ = io.WriteString(mac, role+"\x00"+challenge+"\x00"+nonce)
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 func readHealthRecord(path string) (HealthRecord, error) {
 	var record HealthRecord
@@ -186,17 +194,44 @@ func RequestDesktopShutdown(ctx context.Context, path, profile, server string, p
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+record.ShutdownKey)
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: time.Second}).DialContext, DisableKeepAlives: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("desktop shutdown redirects are refused")
 	}}
+	challengeBytes := make([]byte, 32)
+	if _, err := rand.Read(challengeBytes); err != nil {
+		return err
+	}
+	challenge := hex.EncodeToString(challengeBytes)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/shutdown-challenge?nonce=%s", record.Port, challenge), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "request", challenge, record.Nonce))
 	res, err := client.Do(req)
+	if err != nil {
+		return errors.New("desktop shutdown challenge failed")
+	}
+	var answer struct {
+		Proof string `json:"proof"`
+	}
+	decodeErr := json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&answer)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || decodeErr != nil || subtle.ConstantTimeCompare([]byte(answer.Proof), []byte(shutdownProof(record.ShutdownKey, "server", challenge, record.Nonce))) != 1 {
+		return errors.New("desktop shutdown server cannot be authenticated")
+	}
+	current, err = readHealthRecord(path)
+	if err != nil || current != record {
+		return errors.New("desktop health record changed")
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/shutdown", record.Port), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Lykeion-Challenge", challenge)
+	req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge, record.Nonce))
+	res, err = client.Do(req)
 	if err != nil {
 		return errors.New("desktop shutdown request failed")
 	}
@@ -250,8 +285,45 @@ func (d *daemon) startHealth() (func(), error) {
 	})
 	if record.ShutdownKey != "" {
 		var shutdownOnce sync.Once
+		var challengesMu sync.Mutex
+		type challengeState struct {
+			expires time.Time
+			used    bool
+		}
+		challenges := make(map[string]challengeState)
+		mux.HandleFunc("/shutdown-challenge", func(w http.ResponseWriter, r *http.Request) {
+			challenge := r.URL.Query().Get("nonce")
+			decoded, err := hex.DecodeString(challenge)
+			if r.Method != http.MethodGet || err != nil || len(decoded) != 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+shutdownProof(record.ShutdownKey, "request", challenge, record.Nonce))) != 1 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			challengesMu.Lock()
+			now := time.Now()
+			if len(challenges) >= 1024 {
+				challengesMu.Unlock()
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			if _, exists := challenges[challenge]; exists {
+				challengesMu.Unlock()
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			challenges[challenge] = challengeState{expires: now.Add(10 * time.Second)}
+			challengesMu.Unlock()
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(map[string]string{"proof": shutdownProof(record.ShutdownKey, "server", challenge, record.Nonce)})
+		})
 		mux.HandleFunc("/shutdown", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+record.ShutdownKey)) != 1 {
+			challenge := r.Header.Get("X-Lykeion-Challenge")
+			challengesMu.Lock()
+			state, exists := challenges[challenge]
+			if exists {
+				challenges[challenge] = challengeState{expires: state.expires, used: true}
+			}
+			challengesMu.Unlock()
+			if r.Method != http.MethodPost || !exists || state.used || time.Now().After(state.expires) || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+shutdownProof(record.ShutdownKey, "client", challenge, record.Nonce))) != 1 {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
