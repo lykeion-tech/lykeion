@@ -121,6 +121,7 @@ export function installDesktopRenderer(
   session: Session,
   origin: string,
   root: string,
+  auth?: { start(id: number): Promise<void>; finish(id: number): void },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
   session.webRequest.onBeforeRequest(
@@ -131,13 +132,27 @@ export function installDesktopRenderer(
       const selected = new URL(origin);
       if (target.protocol === 'ws:' || target.protocol === 'wss:')
         target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
-      done({
-        cancel:
-          target.origin !== selected.origin ||
-          (executableRequests.has(request.resourceType) && !asset),
-      });
+      const denied =
+        target.origin !== selected.origin ||
+        (executableRequests.has(request.resourceType) && !asset);
+      if (
+        !denied &&
+        auth &&
+        request.resourceType === 'xhr' &&
+        request.method === 'POST' &&
+        ['/auth/verify-code', '/auth/logout'].includes(target.pathname)
+      ) {
+        void auth.start(request.id).then(
+          () => done({ cancel: false }),
+          () => done({ cancel: true }),
+        );
+      } else done({ cancel: denied });
     },
   );
+  if (auth) {
+    session.webRequest.onCompleted((request) => auth.finish(request.id));
+    session.webRequest.onErrorOccurred((request) => auth.finish(request.id));
+  }
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))

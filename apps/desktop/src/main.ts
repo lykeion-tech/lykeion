@@ -15,6 +15,9 @@ import {
   validExternalURL,
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
+import { DesktopAuthGate } from './desktop-auth-gate.js';
+import { DesktopGoogleLogin } from './desktop-google-login.js';
+import { prepareGoogleExchange } from './desktop-google-transport.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
@@ -39,9 +42,12 @@ let daemon: DaemonManager | null = null;
 let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
+const authGate = new DesktopAuthGate();
+let googleLogin: DesktopGoogleLogin | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
+  googleLogin?.cancel();
   if (quitAllowed || !ownsInstance || !daemon) return;
   event.preventDefault();
   if (quitPending) return;
@@ -87,6 +93,7 @@ function createWindow() {
   if (developmentUrl) void window.loadURL(developmentUrl);
   else void window.loadURL(desktopEntryURL(selectedOrigin));
   window.on('closed', () => {
+    if (window === owner) googleLogin?.cancel();
     drain();
     if (window === owner) window = null;
   });
@@ -115,10 +122,23 @@ void app.whenReady().then(async () => {
   selectedOrigin = apiOrigin;
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
+    const selectedSession = desktopSession;
+    googleLogin = new DesktopGoogleLogin(apiOrigin, authGate, {
+      open: (url) => shell.openExternal(url),
+      exchange: (code, verifier, signal) =>
+        prepareGoogleExchange(apiOrigin, selectedSession, code, verifier, signal),
+    });
     desktopCancellation = installDesktopRenderer(
       desktopSession,
       apiOrigin,
       path.dirname(bundledPath),
+      {
+        start: (id) => {
+          googleLogin?.cancel();
+          return authGate.mutation(id);
+        },
+        finish: (id) => authGate.finishMutation(id),
+      },
     );
   }
   daemon = new DaemonManager({
@@ -171,10 +191,24 @@ void app.whenReady().then(async () => {
       desktopCancellation.cancel(id);
   });
   ipcMain.on('lykeion:document-start', (event) => {
+    if (window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin))
+      googleLogin?.cancel();
     event.returnValue =
       window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin)
         ? desktopCancellation.beginDocument()
         : null;
+  });
+  ipcMain.handle('lykeion:google-sign-in', async (event) => {
+    if (!window || !googleLogin || !trustedDesktopFrame(event, window.webContents, apiOrigin))
+      throw new Error('Invalid sender');
+    const owner = window;
+    await googleLogin.start();
+    if (window === owner && !owner.isDestroyed()) owner.webContents.reload();
+  });
+  ipcMain.handle('lykeion:google-cancel', (event) => {
+    if (!window || !googleLogin || !trustedDesktopFrame(event, window.webContents, apiOrigin))
+      throw new Error('Invalid sender');
+    googleLogin.cancel();
   });
   createWindow();
   app.on('activate', () => {

@@ -7,10 +7,11 @@ import SignInView from './SignInView.vue';
 
 afterEach(() => vi.unstubAllGlobals());
 it.each([
-  ['desktop', true],
-  ['browser', false],
-])('shows usable sign-in on %s', async (_name, desktop) => {
-  vi.stubGlobal('window', desktop ? { lykeionDesktop: {} } : {});
+  ['desktop without Google support', {}, false],
+  ['desktop with Google support', { googleSignIn: () => Promise.resolve() }, true],
+  ['browser', undefined, true],
+])('shows usable sign-in on %s', async (_name, desktop, google) => {
+  vi.stubGlobal('window', desktop ? { lykeionDesktop: desktop } : {});
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: SignInView }],
@@ -20,5 +21,5 @@ it.each([
   app.use(VueQueryPlugin, { queryClient: new QueryClient() });
   const html = await renderToString(app);
   expect(html).toContain('Continue with email');
-  expect(html.includes('Continue with Google')).toBe(!desktop);
+  expect(html.includes('Continue with Google')).toBe(google);
 });
