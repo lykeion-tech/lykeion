@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'apps/desktop/out');
 mkdirSync(output, { recursive: true });
@@ -19,6 +19,10 @@ build(process.execPath, [
   '-p',
   'apps/desktop/tsconfig.json',
 ]);
+writeFileSync(
+  path.join(output, 'desktop-hosted-origin.txt'),
+  process.env.LYK_HOSTED_API_URL ?? 'https://lykeion.ia',
+);
 if (!process.argv.includes('--build-only')) {
   const child = spawn(
     process.execPath,

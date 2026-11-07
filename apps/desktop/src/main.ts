@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import { DaemonManager } from './daemon-manager.js';
 import { installDaemonIPC, previewOrigins } from './daemon-ipc.js';
 import path from 'node:path';
+import { loadDesktopConfig } from './runtime-config.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = process.env.LYKEION_RENDERER_URL;
@@ -23,20 +25,11 @@ const configBase =
   process.platform === 'linux'
     ? process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
     : app.getPath('appData');
-const daemon = new DaemonManager({
-  configRoot: path.join(configBase, 'lyk'),
-  apiOrigin: process.env.LYK_API_URL ?? 'http://127.0.0.1:8080',
-  cliPath: path.join(directory, 'lyk'),
-  supported:
-    ownsInstance &&
-    !app.isPackaged &&
-    !!developmentUrl &&
-    ['darwin', 'linux'].includes(process.platform),
-});
+let daemon: DaemonManager | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
-  if (quitAllowed || !ownsInstance) return;
+  if (quitAllowed || !ownsInstance || !daemon) return;
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
@@ -79,8 +72,40 @@ function createWindow() {
     window = null;
   });
 }
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (!ownsInstance) return;
+  let apiOrigin: string;
+  try {
+    if (developmentUrl && !app.isPackaged) {
+      apiOrigin = process.env.LYK_API_URL ?? 'http://127.0.0.1:8080';
+    } else {
+      apiOrigin = await loadDesktopConfig(path.join(os.homedir(), '.lyk', 'desktop.json'), () =>
+        readFile(path.join(directory, 'desktop-hosted-origin.txt'), 'utf8').catch(
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') return undefined;
+            throw error;
+          },
+        ),
+      );
+    }
+  } catch {
+    dialog.showErrorBox(
+      'Lykeion configuration error',
+      'Check your desktop server configuration and try again.',
+    );
+    app.quit();
+    return;
+  }
+  daemon = new DaemonManager({
+    configRoot: path.join(configBase, 'lyk'),
+    apiOrigin,
+    cliPath: path.join(directory, 'lyk'),
+    supported:
+      ownsInstance &&
+      !app.isPackaged &&
+      !!developmentUrl &&
+      ['darwin', 'linux'].includes(process.platform),
+  });
   installDaemonIPC(
     ipcMain,
     () => window?.webContents ?? null,
