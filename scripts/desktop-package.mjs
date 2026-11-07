@@ -55,6 +55,7 @@ export function debianMaintainer(platform, args, value) {
   if (
     typeof value !== 'string' ||
     value.length > 254 ||
+    [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
     !/^[^<>\r\n]*[^<>\s]\s<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>$/.test(value)
   )
     throw new Error('Set LYK_DEB_MAINTAINER to a public name and email');

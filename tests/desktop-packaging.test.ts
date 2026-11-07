@@ -39,6 +39,8 @@ describe('desktop release packaging', () => {
       'secret',
       'Person <bad>',
       '  <team@example.org>',
+      'A\0B <team@example.org>',
+      'A\x7fB <team@example.org>',
       'Person <x@example.org>\nInjected: yes',
     ]) {
       expect(() => debianMaintainer('linux', [], value)).toThrow(
