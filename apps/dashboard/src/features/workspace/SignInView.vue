@@ -16,8 +16,6 @@ const boxes = ref<HTMLInputElement[]>([]);
 const busy = ref(false);
 const error = ref('');
 const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
-const googleAvailable = !desktop || Boolean(window.lykeionDesktop?.googleSignIn);
-const googlePending = ref(false);
 
 async function send() {
   if (busy.value || !email.value.includes('@')) return;
@@ -82,24 +80,8 @@ async function verify() {
   }
 }
 
-async function google() {
-  if (!desktop) {
-    window.location.href = '/auth/google';
-    return;
-  }
-  if (!window.lykeionDesktop?.googleSignIn || googlePending.value) return;
-  googlePending.value = true;
-  error.value = '';
-  try {
-    await window.lykeionDesktop.googleSignIn();
-  } catch {
-    error.value = 'Google sign-in did not complete. Please try again.';
-  } finally {
-    googlePending.value = false;
-  }
-}
-function cancelGoogle() {
-  window.lykeionDesktop?.cancelGoogleSignIn?.();
+function google() {
+  window.location.href = '/auth/google';
 }
 </script>
 <template>
@@ -118,18 +100,9 @@ function cancelGoogle() {
         autofocus
       />
       <button class="button primary" :disabled="busy">Continue with email</button>
-      <div v-if="googleAvailable" class="or">or</div>
-      <button
-        v-if="googleAvailable"
-        type="button"
-        class="button"
-        :disabled="googlePending"
-        @click="google"
-      >
+      <div v-if="!desktop" class="or">or</div>
+      <button v-if="!desktop" type="button" class="button" @click="google">
         Continue with Google
-      </button>
-      <button v-if="googlePending" type="button" class="text-button" @click="cancelGoogle">
-        Cancel Google sign-in
       </button>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     </form>

@@ -1,74 +1,27 @@
+// Keep an admitted email verification or logout alive through app shutdown,
+// including the native request that forwards a renderer request.
 export class DesktopAuthGate {
-  private generation = 0;
   private shuttingDown = false;
-  private installing: Promise<boolean> | null = null;
-  private recovery: (() => Promise<void>) | null = null;
   private readonly mutations = new Set<number>();
+  private readonly drainWaiters = new Set<() => void>();
 
-  begin(): number {
-    if (this.shuttingDown || this.mutations.size || this.installing || this.recovery)
-      throw new Error('Another sign-in is in progress');
-    return ++this.generation;
+  mutation(id: number): Promise<void> {
+    if (this.shuttingDown) return Promise.reject(new Error('Application is shutting down'));
+    this.mutations.add(id);
+    return Promise.resolve();
   }
-  cancel(): void {
-    ++this.generation;
-  }
-  async settle(): Promise<void> {
-    await this.installing?.catch(() => {});
-    if (this.recovery) {
-      await this.recovery();
-      this.recovery = null;
+  finishMutation(id: number): void {
+    this.mutations.delete(id);
+    if (!this.mutations.size) {
+      for (const resolve of this.drainWaiters) resolve();
+      this.drainWaiters.clear();
     }
   }
   async shutdown(stopDaemon: () => Promise<void>): Promise<PromiseSettledResult<void>[]> {
     this.shuttingDown = true;
-    this.cancel();
-    return Promise.allSettled([this.settle(), Promise.resolve().then(stopDaemon)]);
-  }
-  mutation(id = 0): Promise<void> {
-    this.cancel();
-    this.mutations.add(id);
-    return (this.installing?.catch(() => {}) ?? Promise.resolve()).then(() => {
-      if (this.recovery) throw new Error('Authentication recovery required');
-    });
-  }
-  finishMutation(id: number): void {
-    this.mutations.delete(id);
-  }
-  async commit(
-    generation: number,
-    install: () => Promise<void>,
-    rollback: () => Promise<void> = async () => {},
-  ): Promise<boolean> {
-    if (this.installing) await this.installing.catch(() => {});
-    if (this.recovery) throw new Error('Authentication recovery required');
-    if (generation !== this.generation) return false;
-    const pending = (async () => {
-      try {
-        await install();
-      } catch (error) {
-        try {
-          await rollback();
-        } catch (failure) {
-          this.recovery = rollback;
-          throw failure;
-        }
-        throw error;
-      }
-      if (generation === this.generation) return true;
-      try {
-        await rollback();
-      } catch (failure) {
-        this.recovery = rollback;
-        throw failure;
-      }
-      return false;
-    })();
-    this.installing = pending;
-    try {
-      return await pending;
-    } finally {
-      if (this.installing === pending) this.installing = null;
-    }
+    const drain = this.mutations.size
+      ? new Promise<void>((resolve) => this.drainWaiters.add(resolve))
+      : Promise.resolve();
+    return Promise.allSettled([drain, Promise.resolve().then(stopDaemon)]);
   }
 }

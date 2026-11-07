@@ -58,8 +58,6 @@ contextBridge.exposeInMainWorld(
       ? {
           requestDocument: documentID,
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
-          googleSignIn: () => ipcRenderer.invoke('lykeion:google-sign-in') as Promise<void>,
-          cancelGoogleSignIn: () => ipcRenderer.invoke('lykeion:google-cancel') as Promise<void>,
         }
       : {}),
     daemon,

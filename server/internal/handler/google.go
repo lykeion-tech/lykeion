@@ -43,11 +43,9 @@ func oauthSignature(key []byte, state, port string, cliState ...string) []byte {
 	_, _ = mac.Write([]byte(state))
 	_, _ = mac.Write([]byte{0})
 	_, _ = mac.Write([]byte(port))
-	for _, value := range cliState {
-		if value != "" {
-			_, _ = mac.Write([]byte{0})
-			_, _ = mac.Write([]byte(value))
-		}
+	if len(cliState) > 0 && cliState[0] != "" {
+		_, _ = mac.Write([]byte{0})
+		_, _ = mac.Write([]byte(cliState[0]))
 	}
 	return mac.Sum(nil)
 }
@@ -66,21 +64,6 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cliState := r.URL.Query().Get("cli_state")
-	desktop := r.URL.Query().Get("desktop_port") != "" || r.URL.Query().Get("desktop_state") != "" || r.URL.Query().Get("desktop_challenge") != ""
-	desktopState, desktopChallenge := "", ""
-	if desktop {
-		q := r.URL.Query()
-		if len(q["desktop_port"]) != 1 || len(q["desktop_state"]) != 1 || len(q["desktop_challenge"]) != 1 || len(q["cli_port"]) != 0 || len(q["cli_state"]) != 0 {
-			writeErr(w, http.StatusBadRequest, "invalid desktop sign-in")
-			return
-		}
-		port, ok = validCLIPort(q.Get("desktop_port"))
-		desktopState, desktopChallenge = q.Get("desktop_state"), q.Get("desktop_challenge")
-		if !ok || port == "" || !validCLIState(desktopState, port) || !validCLIState(desktopChallenge, port) || desktopState == "" || desktopChallenge == "" {
-			writeErr(w, http.StatusBadRequest, "invalid desktop sign-in")
-			return
-		}
-	}
 	if !validCLIState(cliState, port) {
 		writeErr(w, http.StatusBadRequest, "invalid CLI callback state")
 		return
@@ -101,10 +84,6 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 	if cliState != "" {
 		cookieValue = state + "|" + port + "|" + cliState + "|" + signature
 	}
-	if desktop {
-		signature = base64.RawURLEncoding.EncodeToString(oauthSignature(h.JWT.Secret, state, port, desktopState, desktopChallenge, "desktop"))
-		cookieValue = state + "|" + port + "|" + desktopState + "|" + desktopChallenge + "|" + signature
-	}
 	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: cookieValue, Path: "/auth/google",
 		HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 600})
 	http.Redirect(w, r, h.Google.AuthCodeURL(state), http.StatusFound)
@@ -120,20 +99,12 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(c.Value, "|")
-	if (len(parts) != 3 && len(parts) != 4 && len(parts) != 5) || parts[0] == "" || parts[len(parts)-1] == "" {
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] == "" || parts[len(parts)-1] == "" {
 		writeErr(w, http.StatusBadRequest, "sign-in expired; start again")
 		return
 	}
 	state, port := parts[0], parts[1]
 	cliState := ""
-	desktopState, desktopChallenge := "", ""
-	if len(parts) == 5 {
-		desktopState, desktopChallenge = parts[2], parts[3]
-		if desktopState == "" || desktopChallenge == "" || !validCLIState(desktopState, port) || !validCLIState(desktopChallenge, port) {
-			writeErr(w, http.StatusBadRequest, "invalid desktop sign-in")
-			return
-		}
-	}
 	if len(parts) == 4 {
 		cliState = parts[2]
 		if cliState == "" {
@@ -147,9 +118,6 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	providedSignature, err := base64.RawURLEncoding.DecodeString(parts[len(parts)-1])
 	expectedSignature := oauthSignature(h.JWT.Secret, state, port, cliState)
-	if len(parts) == 5 {
-		expectedSignature = oauthSignature(h.JWT.Secret, state, port, desktopState, desktopChallenge, "desktop")
-	}
 	if err != nil || subtle.ConstantTimeCompare(providedSignature, expectedSignature) != 1 {
 		writeErr(w, http.StatusBadRequest, "state mismatch")
 		return
@@ -182,18 +150,6 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	u, err := h.Store.Global().UpsertUserByGoogle(r.Context(), db.UpsertUserByGoogleParams{Email: gu.Email, Name: gu.Name, GoogleSub: &gu.Sub})
 	if err != nil {
 		fail(w, r, err)
-		return
-	}
-	if desktopState != "" {
-		code, err := h.createDesktopExchange(r.Context(), desktopChallenge, r.Host, u.ID.String(), u.Email)
-		if err != nil {
-			writeErr(w, http.StatusServiceUnavailable, "desktop sign-in unavailable")
-			return
-		}
-		fragment := url.Values{"code": {code}, "state": {desktopState}}
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		http.Redirect(w, r, "http://127.0.0.1:"+port+"/callback#"+fragment.Encode(), http.StatusFound)
 		return
 	}
 	tok, err := h.JWT.Issue(u.ID, u.Email)

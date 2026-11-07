@@ -49,6 +49,18 @@ func googleServer(t *testing.T, verified bool, sub string) *server {
 
 var noRedirect = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
+func TestDesktopExchangeIsNotExposed(t *testing.T) {
+	s := googleServer(t, true, "disabled-desktop")
+	resp, err := http.Post(s.URL+"/auth/desktop/exchange", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("desktop exchange exposed: %d", resp.StatusCode)
+	}
+}
+
 func start(t *testing.T, s *server, query string) (string, *http.Cookie) {
 	t.Helper()
 	resp, err := noRedirect.Get(s.URL + "/auth/google" + query)

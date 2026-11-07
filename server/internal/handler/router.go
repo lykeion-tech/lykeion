@@ -51,7 +51,6 @@ func NewRouter(h *H) http.Handler {
 	r.Post("/auth/logout", h.logout)
 	r.Get("/auth/google", h.googleStart)
 	r.Get("/auth/google/callback", h.googleCallback)
-	r.Post("/auth/desktop/exchange", h.desktopExchange)
 
 	if h.Lab != nil {
 		// Run admission checks the selected harness. The shared lab endpoint

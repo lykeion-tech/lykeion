@@ -6,8 +6,6 @@ interface Window {
     openDocumentation(): Promise<void>;
     cancelRequest?(id: string): void;
     requestDocument?: string;
-    googleSignIn?(): Promise<void>;
-    cancelGoogleSignIn?(): Promise<void>;
     daemon?: import('../../desktop/src/daemon-types.js').DesktopDaemonBridge;
   };
 }

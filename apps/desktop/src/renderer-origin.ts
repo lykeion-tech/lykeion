@@ -121,7 +121,10 @@ export function installDesktopRenderer(
   session: Session,
   origin: string,
   root: string,
-  auth?: { start(id: number): Promise<void>; finish(id: number): void },
+  auth?: {
+    start(id: number): Promise<void>;
+    finish(id: number): void;
+  },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
   let nativeAuthID = -1;
