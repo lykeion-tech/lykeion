@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lyk-tls-'));
+app.setPath('userData', path.join(directory, 'profile'));
 const key = path.join(directory, 'key.pem');
 const cert = path.join(directory, 'cert.pem');
 const made = spawnSync(

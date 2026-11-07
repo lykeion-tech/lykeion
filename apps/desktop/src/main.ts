@@ -6,7 +6,13 @@ import { DaemonManager } from './daemon-manager.js';
 import { installDaemonIPC, previewOrigins, validDaemonSender } from './daemon-ipc.js';
 import path from 'node:path';
 import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
-import { desktopEntryURL, installDesktopRenderer, trustedDesktopFrame } from './renderer-origin.js';
+import {
+  desktopEntryURL,
+  desktopPartition,
+  installDesktopRenderer,
+  trustedDesktopFrame,
+  validExternalURL,
+} from './renderer-origin.js';
 import { openGoogleSignIn } from './google-sign-in.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +35,7 @@ const configBase =
     : app.getPath('appData');
 let daemon: DaemonManager | null = null;
 let selectedOrigin = '';
+let desktopSession: Electron.Session | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -56,6 +63,7 @@ function createWindow() {
     backgroundColor: '#ffffff',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
+      ...(desktopSession ? { session: desktopSession } : {}),
       preload: path.join(directory, 'preload.cjs'),
       sandbox: true,
       contextIsolation: true,
@@ -98,7 +106,8 @@ void app.whenReady().then(async () => {
   }
   selectedOrigin = apiOrigin;
   if (!developmentUrl) {
-    installDesktopRenderer(session.defaultSession, apiOrigin, path.dirname(bundledPath));
+    desktopSession = session.fromPartition(desktopPartition(apiOrigin));
+    installDesktopRenderer(desktopSession, apiOrigin, path.dirname(bundledPath));
   }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
@@ -140,6 +149,17 @@ void app.whenReady().then(async () => {
     )
       throw new Error('Invalid sender');
     openGoogleSignIn(window, apiOrigin);
+  });
+  ipcMain.on('lykeion:open-external', (event, url: unknown) => {
+    if (
+      !window ||
+      !(developmentUrl
+        ? validDaemonSender(event, window.webContents)
+        : trustedDesktopFrame(event, window.webContents, apiOrigin)) ||
+      !validExternalURL(url)
+    )
+      return;
+    void shell.openExternal(url);
   });
   createWindow();
   app.on('activate', () => {

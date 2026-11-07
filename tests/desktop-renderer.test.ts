@@ -5,9 +5,29 @@ import {
   desktopAssetPath,
   trustedDesktopFrame,
   installDesktopRenderer,
+  desktopPartition,
+  validExternalURL,
 } from '../apps/desktop/src/renderer-origin';
 
 describe('desktop renderer origin', () => {
+  it('separates complete origins, including ports and related domains', () => {
+    expect(desktopPartition('http://127.0.0.1:8080')).not.toBe(
+      desktopPartition('http://127.0.0.1:9090'),
+    );
+    expect(desktopPartition('https://lab.example')).not.toBe(
+      desktopPartition('https://dev.lab.example'),
+    );
+    expect(desktopPartition('https://lab.example')).toBe(desktopPartition('https://lab.example'));
+  });
+  it('allows only ordinary credential-free external web addresses', () => {
+    expect(validExternalURL('https://example.org/paper')).toBe(true);
+    for (const value of [
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'https://user:pass@example.org/',
+    ])
+      expect(validExternalURL(value)).toBe(false);
+  });
   it.each(['https://lykeion.ia', 'https://lab.example:8443', 'http://127.0.0.1:8080'])(
     'serves the dashboard on the chosen origin %s',
     (origin) => {
@@ -77,5 +97,8 @@ describe('desktop renderer origin', () => {
     expect(decision('https://lab.example/api/file', 'xhr')).toBe(false);
     expect(decision('https://other.example/api/file', 'xhr')).toBe(true);
     expect(decision('https://lab.example/api/me', 'mainFrame')).toBe(true);
+    expect(decision('wss://lab.example/ws', 'webSocket')).toBe(false);
+    expect(decision('wss://other.example/ws', 'webSocket')).toBe(true);
+    expect(decision('ws://lab.example/ws', 'webSocket')).toBe(true);
   });
 });

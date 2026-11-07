@@ -1,11 +1,26 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Readable } from 'node:stream';
+import { createHash } from 'node:crypto';
 import { net } from 'electron';
 import type { Session } from 'electron';
 
 const prefix = '/__lykeion_desktop__/';
 const executableRequests = new Set(['mainFrame', 'subFrame', 'script', 'stylesheet', 'object']);
+
+export function desktopPartition(origin: string): string {
+  return `persist:lykeion-${createHash('sha256').update(origin).digest('hex')}`;
+}
+
+export function validExternalURL(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
 
 export function desktopEntryURL(origin: string): string {
   return `${origin}${prefix}`;
@@ -41,14 +56,21 @@ export function trustedDesktopFrame(
 }
 
 export function installDesktopRenderer(session: Session, origin: string, root: string): void {
-  session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (request, done) => {
-    const asset = desktopAssetPath(request.url, origin, root);
-    done({
-      cancel:
-        new URL(request.url).origin !== origin ||
-        (executableRequests.has(request.resourceType) && !asset),
-    });
-  });
+  session.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
+    (request, done) => {
+      const asset = desktopAssetPath(request.url, origin, root);
+      const target = new URL(request.url);
+      const selected = new URL(origin);
+      if (target.protocol === 'ws:' || target.protocol === 'wss:')
+        target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
+      done({
+        cancel:
+          target.origin !== selected.origin ||
+          (executableRequests.has(request.resourceType) && !asset),
+      });
+    },
+  );
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
     if (asset === false || (asset && request.method !== 'GET' && request.method !== 'HEAD'))

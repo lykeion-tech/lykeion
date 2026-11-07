@@ -5,6 +5,20 @@ import type {
   DaemonSnapshot,
   DesktopDaemonBridge,
 } from './daemon-types.js';
+
+window.addEventListener(
+  'click',
+  (event) => {
+    if (!event.isTrusted || event.button !== 0 || event.defaultPrevented) return;
+    const anchor = event.composedPath().find((item) => item instanceof HTMLAnchorElement);
+    if (!(anchor instanceof HTMLAnchorElement) || !anchor.href) return;
+    const target = new URL(anchor.href);
+    if (target.origin === window.location.origin) return;
+    event.preventDefault();
+    ipcRenderer.send('lykeion:open-external', target.href);
+  },
+  true,
+);
 const daemon: DesktopDaemonBridge = Object.freeze({
   getSnapshot: () => ipcRenderer.invoke('lykeion:daemon:getSnapshot') as Promise<DaemonSnapshot>,
   getPreferences: () =>

@@ -62,7 +62,7 @@ export function openGoogleSignIn(parent: BrowserWindow, origin: string): void {
             (new URL(origin).protocol !== 'https:' || c.secure),
         );
         if (!cookie) throw new Error('Missing session cookie');
-        await session.defaultSession.cookies.set({
+        await parent.webContents.session.cookies.set({
           url: origin,
           name: cookie.name,
           value: cookie.value,
