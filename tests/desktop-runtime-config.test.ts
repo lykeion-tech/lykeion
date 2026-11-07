@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadDesktopConfig } from '../apps/desktop/src/runtime-config';
+import { desktopConfigGuidance, loadDesktopConfig } from '../apps/desktop/src/runtime-config';
 
 const dirs: string[] = [];
 async function configPath() {
@@ -62,6 +62,9 @@ describe('desktop deployment selection', () => {
     JSON.stringify({ schemaVersion: 2, apiUrl: 'https://lab.example' }),
     JSON.stringify({ schemaVersion: 1, apiUrl: 'https://user:secret@lab.example' }),
     JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/path' }),
+    JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/a/..' }),
+    JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/?' }),
+    JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/#' }),
     JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/#fragment' }),
     JSON.stringify({ schemaVersion: 1, apiUrl: 'https://lab.example/?token=secret' }),
     JSON.stringify({ schemaVersion: 1, apiUrl: 'file:///tmp/test' }),
@@ -79,5 +82,37 @@ describe('desktop deployment selection', () => {
   it('rejects an unreadable config path instead of falling back to hosted', async () => {
     const file = await configPath();
     await expect(loadDesktopConfig(path.dirname(file), 'https://hosted.example')).rejects.toThrow();
+  });
+  it('rejects a dangling self-hosted config symlink rather than falling back', async () => {
+    const file = await configPath();
+    await symlink('missing-target', file);
+    await expect(loadDesktopConfig(file, 'https://hosted.example')).rejects.toThrow();
+  });
+  it('rejects a dangling config directory symlink rather than falling back', async () => {
+    const file = await configPath();
+    const dir = path.join(path.dirname(file), 'linked-dir');
+    await symlink('missing-target', dir);
+    await expect(
+      loadDesktopConfig(path.join(dir, 'desktop.json'), 'https://hosted.example'),
+    ).rejects.toThrow();
+  });
+  it('gives safe, distinct correction guidance for invalid, unreadable and missing release configuration', async () => {
+    const file = await configPath();
+    await writeFile(file, '{secret');
+    const invalid = desktopConfigGuidance(
+      await loadDesktopConfig(file, undefined).catch((err) => err),
+    );
+    const unreadable = desktopConfigGuidance(
+      await loadDesktopConfig(path.dirname(file), undefined).catch((err) => err),
+    );
+    await rm(file);
+    const missing = desktopConfigGuidance(
+      await loadDesktopConfig(file, undefined).catch((err) => err),
+    );
+    expect(new Set([invalid, unreadable, missing]).size).toBe(3);
+    expect(invalid).toContain('~/.lyk/desktop.json');
+    expect(unreadable).toContain('~/.lyk/desktop.json');
+    expect(missing).toMatch(/release|reinstall/i);
+    expect([invalid, unreadable, missing].join(' ')).not.toContain('secret');
   });
 });

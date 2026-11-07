@@ -5,7 +5,7 @@ import os from 'node:os';
 import { DaemonManager } from './daemon-manager.js';
 import { installDaemonIPC, previewOrigins } from './daemon-ipc.js';
 import path from 'node:path';
-import { loadDesktopConfig } from './runtime-config.js';
+import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = process.env.LYKEION_RENDERER_URL;
@@ -88,11 +88,8 @@ void app.whenReady().then(async () => {
         ),
       );
     }
-  } catch {
-    dialog.showErrorBox(
-      'Lykeion configuration error',
-      'Check your desktop server configuration and try again.',
-    );
+  } catch (error) {
+    dialog.showErrorBox('Lykeion configuration error', desktopConfigGuidance(error));
     app.quit();
     return;
   }

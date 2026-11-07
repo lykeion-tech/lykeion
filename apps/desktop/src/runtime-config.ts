@@ -1,12 +1,56 @@
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+type ConfigError = 'invalid' | 'unreadable' | 'release';
+class DesktopConfigError extends Error {
+  constructor(readonly kind: ConfigError) {
+    super('Desktop configuration error');
+  }
+}
+
+export function desktopConfigGuidance(error: unknown): string {
+  if (error instanceof DesktopConfigError) {
+    if (error.kind === 'invalid')
+      return 'Correct or remove ~/.lyk/desktop.json and restart Lykeion.';
+    if (error.kind === 'unreadable')
+      return 'Check that ~/.lyk/desktop.json and its directory can be read, then restart Lykeion.';
+    return 'The hosted server address is missing or invalid in this release. Reinstall Lykeion or configure ~/.lyk/desktop.json.';
+  }
+  return 'Unable to load the desktop server configuration. Restart Lykeion or reinstall the app.';
+}
+
+async function configIsAbsent(file: string): Promise<boolean> {
+  let current = file;
+  for (;;) {
+    try {
+      const info = await lstat(current);
+      if (current === file) return false;
+      if (info.isSymbolicLink()) {
+        try {
+          await stat(current);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      }
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      current = parent;
+    }
+  }
+}
 
 function origin(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Invalid desktop API origin');
+  if (typeof value !== 'string' || !/^https?:\/\/[^/?#\\]+\/?$/i.test(value))
+    throw new DesktopConfigError('invalid');
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error('Invalid desktop API origin');
+    throw new DesktopConfigError('invalid');
   }
   if (
     (url.protocol !== 'https:' &&
@@ -20,7 +64,7 @@ function origin(value: unknown): string {
     url.search ||
     url.hash
   )
-    throw new Error('Invalid desktop API origin');
+    throw new DesktopConfigError('invalid');
   return url.origin;
 }
 
@@ -32,19 +76,32 @@ export async function loadDesktopConfig(
   try {
     raw = await readFile(file, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return origin(typeof hostedOrigin === 'function' ? await hostedOrigin() : hostedOrigin);
-    throw new Error('Cannot read desktop configuration');
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      let absent: boolean;
+      try {
+        absent = await configIsAbsent(file);
+      } catch {
+        throw new DesktopConfigError('unreadable');
+      }
+      if (absent) {
+        try {
+          return origin(typeof hostedOrigin === 'function' ? await hostedOrigin() : hostedOrigin);
+        } catch {
+          throw new DesktopConfigError('release');
+        }
+      }
+    }
+    throw new DesktopConfigError('unreadable');
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error('Invalid desktop configuration');
+    throw new DesktopConfigError('invalid');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-    throw new Error('Invalid desktop configuration');
+    throw new DesktopConfigError('invalid');
   const config = parsed as Record<string, unknown>;
-  if (config.schemaVersion !== 1) throw new Error('Unsupported desktop configuration version');
+  if (config.schemaVersion !== 1) throw new DesktopConfigError('invalid');
   return origin(config.apiUrl);
 }
