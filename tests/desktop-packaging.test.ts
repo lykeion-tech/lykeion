@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { desktopTarget, releaseOrigin } from '../scripts/desktop-package.mjs';
+import { desktopTarget, releaseOrigin, verifyGoBuild } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
   it('maps only approved platform and architecture pairs to Go and builder targets', () => {
@@ -16,6 +16,17 @@ describe('desktop release packaging', () => {
     });
     expect(() => desktopTarget('win32', 'x64')).toThrow();
     expect(() => desktopTarget('linux', 'ia32')).toThrow();
+  });
+
+  it('rejects a binary from a different revision or platform', () => {
+    const info =
+      'build\tGOOS=darwin\nbuild\tGOARCH=arm64\nbuild\tvcs.revision=abc123\nbuild\tvcs.modified=false';
+    expect(() => verifyGoBuild(info, 'abc123', 'darwin', 'arm64')).not.toThrow();
+    expect(() => verifyGoBuild(info, 'different', 'darwin', 'arm64')).toThrow();
+    expect(() => verifyGoBuild(info, 'abc123', 'linux', 'arm64')).toThrow();
+    expect(() =>
+      verifyGoBuild(info.replace('modified=false', 'modified=true'), 'abc123', 'darwin', 'arm64'),
+    ).toThrow();
   });
 
   it('rejects development and malformed hosted release origins', () => {

@@ -39,6 +39,19 @@ export function releaseOrigin(value = 'https://lykeion.ia') {
   return url.origin;
 }
 
+export function verifyGoBuild(info, commit, goos, goarch) {
+  const lines = new Set(info.split(/\r?\n/).map((line) => line.trim()));
+  for (const expected of [
+    `build\tGOOS=${goos}`,
+    `build\tGOARCH=${goarch}`,
+    `build\tvcs.revision=${commit}`,
+    'build\tvcs.modified=false',
+  ]) {
+    if (!lines.has(expected))
+      throw new Error('Built daemon does not match release source and target');
+  }
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options });
   if (result.error) throw result.error;
@@ -58,6 +71,7 @@ function main() {
   const target = desktopTarget(platform, arch);
   const hostedOrigin = releaseOrigin(process.env.LYK_HOSTED_API_URL);
   const commit = revision();
+  const gitDir = run('git', ['rev-parse', '--absolute-git-dir'], { stdio: 'pipe' });
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version))
     throw new Error('Desktop package requires an explicit version');
@@ -70,8 +84,16 @@ function main() {
       GOOS: target.goos,
       GOARCH: target.goarch,
       CGO_ENABLED: '0',
+      GIT_DIR: gitDir,
+      GIT_WORK_TREE: root,
     },
   });
+  verifyGoBuild(
+    run('go', ['version', '-m', path.join(root, 'apps/desktop/out/lyk')], { stdio: 'pipe' }),
+    commit,
+    target.goos,
+    target.goarch,
+  );
   if (revision() !== commit) throw new Error('Source changed while building desktop package');
   writeFileSync(
     path.join(root, 'apps/desktop/out/desktop-build.json'),
