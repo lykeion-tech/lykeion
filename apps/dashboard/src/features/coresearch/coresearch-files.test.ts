@@ -394,10 +394,7 @@ describe('Coresearch files', () => {
       ),
     ).toBe(true);
     expect(textOf(root)).toContain('analysis.py v1');
-    (button(root, 'Environment')!.props.onClick as () => void)();
-    await settle();
-    expect(textOf(root)).toContain('abcdef0123456789');
-    expect(textOf(root)).toContain('3.12.8');
+    expect(button(root, 'Environment')).toBeUndefined();
   });
   it('clean reads follow remote head while explicit selected versions stay pinned', async () => {
     for (const selectedN of [undefined, 1]) {

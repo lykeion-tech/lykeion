@@ -113,11 +113,7 @@ async function startDraft(
             :fallback-aristotle="!c.shared && c.agent_id === state.agent.data.value?.id"
           />
           <span
-            >{{ c.title
-            }}<small class="conversation-mode">{{
-              c.mode === 'cowrite' ? 'Cowrite' : 'Experiment'
-            }}</small
-            ><small v-if="c.shared">Shared</small
+            >{{ c.title }}<small v-if="c.shared">Shared</small
             ><small>{{
               c.preview || (c.is_welcome ? 'Your research companion' : 'New conversation')
             }}</small></span
@@ -230,13 +226,6 @@ async function startDraft(
   font-size: 11px;
   color: var(--muted);
   margin-top: 5px;
-}
-.conversation-link .conversation-mode {
-  display: table;
-  padding: 1px 5px;
-  background: var(--fill-chip);
-  border: 1px solid var(--border);
-  border-radius: 4px;
 }
 .conversation-link:hover,
 .conversation-link.selected {

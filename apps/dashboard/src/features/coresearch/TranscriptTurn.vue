@@ -164,11 +164,8 @@ const copy = computed(() =>
   --step-line: color-mix(in srgb, var(--text) 20%, var(--surface));
   --step-quiet: color-mix(in srgb, var(--text) 40%, var(--surface));
   --step-muted: color-mix(in srgb, var(--text) 55%, var(--surface));
-  --step-surface: #edeef3;
+  --step-surface: var(--input);
   --step-hover: color-mix(in srgb, var(--step-surface) 92%, var(--text));
   --step-done: #27a644;
-}
-:global(:root[data-theme='dark']) .coresearch-run-timeline {
-  --step-surface: color-mix(in srgb, var(--surface) 92%, var(--text));
 }
 </style>

@@ -52,7 +52,6 @@ const tabs = [
   { id: 'code', label: 'Code' },
   { id: 'log', label: 'Execution Log' },
   { id: 'transcript', label: 'Transcript' },
-  { id: 'environment', label: 'Environment' },
 ];
 const chain = computed(() => [...(versions.data.value ?? [])].sort((a, b) => a.n - b.n));
 const head = computed(() =>

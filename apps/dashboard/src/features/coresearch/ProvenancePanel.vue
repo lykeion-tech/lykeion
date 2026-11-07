@@ -94,13 +94,5 @@ const turn = useProducingTurn(
         }}</pre>
       </div></template
     >
-    <template v-else-if="tab === 'environment'"
-      ><dl class="prov-environment">
-        <dt>Environment</dt>
-        <dd class="font-mono">{{ run.data.value.env_sha || 'Unavailable' }}</dd>
-        <dt>Python</dt>
-        <dd>{{ project.python_version || 'Unavailable' }}</dd>
-      </dl></template
-    >
   </section>
 </template>
