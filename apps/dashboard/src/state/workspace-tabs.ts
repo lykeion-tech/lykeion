@@ -15,6 +15,9 @@ export type Tab = {
 export const validPath = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
 
+export const accountViewBlocked = (isPublic: boolean, id: string | undefined, switching: boolean) =>
+  !isPublic && (switching || !id);
+
 export async function verifyAccountSwitch(
   id: string,
   current: () => boolean,
@@ -75,8 +78,25 @@ let pendingSwitch = false;
 let nextId = Date.now() + 1;
 const legacy = readText('lykeion.tabs', 'session');
 let legacyUnowned = !!legacy && legacy !== '[]';
-writeJSON('lykeion.tabs', [], 'session');
-writeText('lykeion.active-tab', '0', 'session');
+const prior = readJSON<Record<string, unknown> | null>('lykeion.workspace-tabs', null, 'session');
+if (
+  !legacyUnowned ||
+  writeJSON(
+    'lykeion.workspace-tabs',
+    { ...(prior && typeof prior === 'object' ? prior : {}), pendingSwitch: true },
+    'session',
+  )
+) {
+  writeJSON('lykeion.tabs', [], 'session');
+  writeText('lykeion.active-tab', '0', 'session');
+}
+function hasPendingSwitch() {
+  return (
+    legacyUnowned ||
+    readJSON<{ pendingSwitch?: unknown }>('lykeion.workspace-tabs', {}, 'session').pendingSwitch ===
+      true
+  );
+}
 function persist() {
   if (account && !restoring)
     writeJSON(
@@ -91,6 +111,7 @@ watch(tabs, persist, { deep: true, flush: 'sync' });
 function clearAccount() {
   account = null;
   pendingSwitch = false;
+  legacyUnowned = false;
   tabs.value = [];
   selected.value = 0;
   writeJSON('lykeion.workspace-tabs', null, 'session');
@@ -148,5 +169,14 @@ function ensureTab(path: string, title: string, icon: string) {
 
 // The tab strip and Coresearch share one account-bound session.
 export function useWorkspaceTabs() {
-  return { tabs, selected, openTab, ensureTab, setAccount, clearAccount, confirmAccountSwitch };
+  return {
+    tabs,
+    selected,
+    openTab,
+    ensureTab,
+    setAccount,
+    clearAccount,
+    confirmAccountSwitch,
+    hasPendingSwitch,
+  };
 }

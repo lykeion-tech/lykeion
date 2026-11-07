@@ -28,7 +28,7 @@ import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
-import { useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
+import { accountViewBlocked, useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
 import { createDaemonSession, daemonSessionKey } from './lib/daemon-session';
 import { keys } from './api/keys';
 import { useCoresearchFiles, useCoresearchProject } from './features/coresearch/api';
@@ -58,7 +58,7 @@ const cowriteShell = computed(
 const client = useQueryClient();
 const me = useMe();
 const workspaceTabs = useWorkspaceTabs();
-const switchingAccount = ref(false);
+const switchingAccount = ref(workspaceTabs.hasPendingSwitch());
 const authLost = ref(authenticationIsLost());
 const accountSwitchBusy = ref(false);
 const accountSwitchError = ref('');
@@ -264,10 +264,20 @@ function clearAccountShell() {
   closeComposer();
 }
 const stopAuthLoss = onAuthenticationLost(() => {
+  accountGeneration++;
+  lastAccount = undefined;
+  switchingAccount.value = false;
+  accountSwitchBusy.value = false;
+  accountSwitchError.value = '';
   authLost.value = true;
   clearAccountShell();
 });
 const stopAuthRestore = onAuthenticationRestored(() => {
+  accountGeneration++;
+  lastAccount = undefined;
+  switchingAccount.value = false;
+  accountSwitchBusy.value = false;
+  accountSwitchError.value = '';
   authLost.value = false;
   clearAccountShell();
 });
@@ -305,6 +315,10 @@ async function retryAccountSwitch() {
   } finally {
     if (generation === accountGeneration) accountSwitchBusy.value = false;
   }
+}
+async function retryAccountIdentity() {
+  if (switchingAccount.value && lastAccount) await retryAccountSwitch();
+  else await me.refetch();
 }
 watch(
   [() => me.data.value?.id, unauthorized],
@@ -555,14 +569,20 @@ onUnmounted(() => {
 </script>
 <template>
   <DiscardDraftDialog />
-  <div v-if="switchingAccount" class="center-empty" role="status">
-    <p v-if="accountSwitchError" role="alert">{{ accountSwitchError }}</p>
+  <div
+    v-if="accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)"
+    class="center-empty"
+    role="status"
+  >
+    <p v-if="accountSwitchError || me.isError.value" role="alert">
+      {{ accountSwitchError || 'Could not verify your account. Try again.' }}
+    </p>
     <p v-else>Verifying your account…</p>
     <button
-      v-if="accountSwitchError"
+      v-if="accountSwitchError || me.isError.value"
       class="button"
       :disabled="accountSwitchBusy"
-      @click="retryAccountSwitch"
+      @click="retryAccountIdentity"
     >
       Try again
     </button>

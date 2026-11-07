@@ -192,6 +192,33 @@ describe('workspace tab defaults', () => {
     expect(completed.setAccount('account-b')).toBe(false);
   });
 
+  it('retains a migration fence across reloads before identity is known', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    stored.set(
+      'lykeion.tabs',
+      JSON.stringify([{ path: '/coresearch/a?file=private.tex', title: 'Private A' }]),
+    );
+    let state = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(state.hasPendingSwitch()).toBe(true);
+    vi.resetModules();
+    state = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(state.hasPendingSwitch()).toBe(true);
+    vi.resetModules();
+    state = (await import('./workspace-tabs')).useWorkspaceTabs();
+    expect(state.hasPendingSwitch()).toBe(true);
+    expect(state.setAccount('account-b')).toBe(true);
+    expect(state.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('private.tex');
+  });
+
+  it('blocks private invitation and onboarding views while identity is unverified', async () => {
+    const { accountViewBlocked } = await import('./workspace-tabs');
+    expect(accountViewBlocked(false, undefined, true)).toBe(true);
+    expect(accountViewBlocked(false, 'account-b', true)).toBe(true);
+    expect(accountViewBlocked(false, 'account-b', false)).toBe(false);
+    expect(accountViewBlocked(true, undefined, true)).toBe(false);
+  });
+
   it('keeps the account switch fenced after a failed identity refresh until a successful retry', async () => {
     const { verifyAccountSwitch } = await import('./workspace-tabs');
     const reset = vi.fn().mockResolvedValue(undefined);
@@ -249,6 +276,20 @@ describe('workspace tab defaults', () => {
     authenticationRestored();
     expect(state.tabs.value).toEqual([]);
     state.setAccount('account-b');
+    expect(state.tabs.value).toEqual([]);
+    expect([...stored.values()].join(' ')).not.toContain('Private A');
+  });
+
+  it('allows a verified new sign-in to resume its invitation after auth loss', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const { useWorkspaceTabs } = await import('./workspace-tabs');
+    const { authenticationLost, authenticationRestored } = await import('../api/auth-loss');
+    const state = useWorkspaceTabs();
+    state.setAccount('account-a');
+    state.openTab('/studies/private', 'Private A', 'tasks');
+    authenticationLost();
+    authenticationRestored();
+    expect(state.setAccount('account-b')).toBe(false);
     expect(state.tabs.value).toEqual([]);
     expect([...stored.values()].join(' ')).not.toContain('Private A');
   });
