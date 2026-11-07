@@ -182,7 +182,7 @@ function chooseModel(id: string, cli: 'claude' | 'codex' = harness.value) {
   composer.value?.focus();
 }
 const menuBox = ref<HTMLElement>();
-const menuStyle = ref<{ top?: string; bottom?: string; maxHeight?: string }>({});
+const menuStyle = ref<{ top?: string; bottom?: string; maxHeight?: string; right?: string }>({});
 let menuOpener: HTMLElement | null = null;
 function placeMenu() {
   const host = panel.value;
@@ -201,6 +201,10 @@ function placeMenu() {
           maxHeight: Math.max(0, Math.min(300, above)) + 'px',
         }
       : { top: a.bottom - p.top + gap + 'px', maxHeight: Math.max(0, Math.min(300, below)) + 'px' };
+  if (menu.value === 'model' && !clis.value.length && menuBox.value) {
+    const width = menuBox.value.getBoundingClientRect().width;
+    menuStyle.value.right = Math.max(margin, Math.min(p.width - width - margin, p.right - a.left - a.width / 2 - width / 2)) + 'px';
+  }
 }
 function closeMenu(restore = false) {
   menu.value = '';
