@@ -15,12 +15,19 @@ app
       await import('../apps/desktop/out/renderer-origin.js');
     let entered = false,
       release,
-      meCookie = 'not-called';
+      meCookie = 'not-called',
+      staleReceived = false;
     const server = createServer(async (req, res) => {
       if (req.url === '/api/me') {
         meCookie = req.headers.cookie || '';
         res.writeHead(200);
         res.end('ok');
+        return;
+      }
+      if (req.url === '/api/stale') {
+        staleReceived = true;
+        res.writeHead(200);
+        res.end('unexpected');
         return;
       }
       if (req.url !== '/auth/logout') {
@@ -56,6 +63,7 @@ app
       continue: (id, token, path) => gate.continueMutation(id, token, path),
       networkReady: () => gate.networkReady(),
       networkBlocked: () => gate.networkBlocked(),
+      networkEpoch: () => gate.networkEpoch(),
     });
     const window = new BrowserWindow({
       show: false,
@@ -109,6 +117,7 @@ app
         continue: (id, token, path) => abandonedGate.continueMutation(id, token, path),
         networkReady: () => abandonedGate.networkReady(),
         networkBlocked: () => abandonedGate.networkBlocked(),
+        networkEpoch: () => abandonedGate.networkEpoch(),
       });
       ipcMain.removeAllListeners('lykeion:reserve-auth');
       ipcMain.on('lykeion:reserve-auth', (event, path) => {
@@ -243,6 +252,7 @@ app
         },
         networkReady: () => interleavedGate.networkReady(),
         networkBlocked: () => interleavedGate.networkBlocked(),
+        networkEpoch: () => interleavedGate.networkEpoch(),
       });
       const interleavedWindow = new BrowserWindow({
         show: false,
@@ -263,6 +273,58 @@ app
       assert.equal((await interleavedSession.cookies.get({ name: 'lyk_session' })).length, 0);
       interleavedWindow.destroy();
       await interleavedSession.clearStorageData();
+      const epochSession = session.fromPartition('epoch-auth');
+      const epochGate = new DesktopAuthGate();
+      let armed = false,
+        readyCalls = 0,
+        captured = false,
+        releaseHeaders,
+        capturedCookie = false;
+      await epochSession.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'old',
+        httpOnly: true,
+      });
+      installDesktopRenderer(epochSession, origin, profile, {
+        finish: (id) => epochGate.finishMutation(id),
+        continue: (id, token, path) => epochGate.continueMutation(id, token, path),
+        networkReady: () => {
+          if (armed && ++readyCalls === 3) {
+            captured = true;
+            return new Promise((resolve) => {
+              releaseHeaders = resolve;
+            });
+          }
+          return epochGate.networkReady();
+        },
+        networkBlocked: () => epochGate.networkBlocked(),
+        networkEpoch: (hasSessionCookie) => {
+          if (armed && hasSessionCookie) capturedCookie = true;
+          return epochGate.networkEpoch();
+        },
+      });
+      const epochWindow = new BrowserWindow({
+        show: false,
+        webPreferences: { session: epochSession, sandbox: true },
+      });
+      await epochWindow.loadURL(desktopEntryURL(origin));
+      armed = true;
+      await epochWindow.webContents.executeJavaScript(
+        "void fetch('/api/stale').catch(()=>{}); true",
+      );
+      for (let i = 0; i < 100 && !captured; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(captured, true);
+      assert.equal(capturedCookie, true);
+      epochGate.reserve('/auth/logout');
+      epochGate.abandonUnclaimed();
+      await epochGate.recoverAbandonedLogout(() => clearAbandonedLogout(epochSession, origin));
+      releaseHeaders();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(staleReceived, false);
+      epochWindow.destroy();
+      await epochSession.clearStorageData();
       const variants = session.fromPartition('auth-cookie-variants');
       await variants.cookies.set({
         url: 'http://lykeion.test/api',

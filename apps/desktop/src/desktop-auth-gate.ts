@@ -9,6 +9,7 @@ export class DesktopAuthGate {
   private readonly reservations = new Map<string, { id: number; path: string }>();
   private readonly drainWaiters = new Set<() => void>();
   private abandonedLogout = false;
+  private recoveryEpoch = 0;
   private abandonedVerification = false;
   private recovery: Promise<void> | null = null;
 
@@ -34,8 +35,10 @@ export class DesktopAuthGate {
   }
   abandonUnclaimed(): void {
     for (const [token, entry] of this.reservations) {
-      if (entry.path === '/auth/logout') this.abandonedLogout = true;
-      else this.abandonedVerification = true;
+      if (entry.path === '/auth/logout') {
+        this.abandonedLogout = true;
+        this.recoveryEpoch++;
+      } else this.abandonedVerification = true;
       this.release(token);
     }
   }
@@ -61,6 +64,9 @@ export class DesktopAuthGate {
   }
   networkBlocked(): boolean {
     return this.abandonedLogout;
+  }
+  networkEpoch(): number {
+    return this.recoveryEpoch;
   }
   async networkReady(): Promise<void> {
     if (this.recovery) await this.withTimeout(this.recovery, 15000).catch(() => {});

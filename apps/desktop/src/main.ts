@@ -177,6 +177,7 @@ void app.whenReady().then(async () => {
         continue: (id, token, path) => authGate.continueMutation(id, token, path),
         networkReady: () => authGate.networkReady(),
         networkBlocked: () => authGate.networkBlocked(),
+        networkEpoch: () => authGate.networkEpoch(),
         finish: (id) => authGate.finishMutation(id),
       },
     );

@@ -128,6 +128,7 @@ export function installDesktopRenderer(
     continue(id: number, token: string, path: string): boolean;
     networkReady(): Promise<void>;
     networkBlocked(): boolean;
+    networkEpoch(hasSessionCookie?: boolean): number;
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
@@ -174,16 +175,19 @@ export function installDesktopRenderer(
         done({ requestHeaders: headers });
         return;
       }
-      const ready = () => {
-        void auth.networkReady().then(
-          () => {
-            if (auth.networkBlocked()) ready();
-            else done({ requestHeaders: headers });
-          },
-          () => done({ cancel: true }),
-        );
-      };
-      ready();
+      const epoch = auth.networkEpoch(
+        Object.entries(headers).some(
+          ([key, value]) => key.toLowerCase() === 'cookie' && /(?:^|;\s*)lyk_session=/.test(value),
+        ),
+      );
+      if (auth.networkBlocked()) return done({ cancel: true });
+      void auth.networkReady().then(
+        () => {
+          if (auth.networkBlocked() || auth.networkEpoch() !== epoch) done({ cancel: true });
+          else done({ requestHeaders: headers });
+        },
+        () => done({ cancel: true }),
+      );
     });
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {
     const asset = desktopAssetPath(request.url, origin, root);
