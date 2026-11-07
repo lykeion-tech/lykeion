@@ -47,10 +47,28 @@ export async function waitForLogoutRecovery(
   }
 }
 
+const pendingFlushes = new WeakMap<Session, Promise<void>>();
+
 export async function finalizeLogoutShutdown(
   startupRecovery: Promise<void>,
   session: Session | null,
+  timeoutMs = 15000,
 ): Promise<void> {
   await startupRecovery;
-  await session?.cookies.flushStore();
+  if (!session) return;
+  let pending = pendingFlushes.get(session);
+  if (!pending) {
+    pending = session.cookies.flushStore();
+    pendingFlushes.set(session, pending);
+    const active = pending;
+    void active.then(
+      () => {
+        if (pendingFlushes.get(session) === active) pendingFlushes.delete(session);
+      },
+      () => {
+        if (pendingFlushes.get(session) === active) pendingFlushes.delete(session);
+      },
+    );
+  }
+  await waitForLogoutRecovery(pending, timeoutMs);
 }

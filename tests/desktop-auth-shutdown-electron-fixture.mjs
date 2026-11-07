@@ -397,7 +397,14 @@ app
       await assert.rejects(clearAbandonedLogout(variants, 'http://lykeion.test'));
       await variants.clearStorageData();
       const verifiedSession = session.fromPartition('verified-logout');
-      const verifiedGate = new DesktopAuthGate();
+      let recoveryMarker = false;
+      const verifiedGate = new DesktopAuthGate(() => {
+        recoveryMarker = true;
+      });
+      const verifyLogoutCleanup = async () => {
+        await clearAbandonedLogout(verifiedSession, origin);
+        recoveryMarker = false;
+      };
       installDesktopRenderer(verifiedSession, origin, profile, {
         finish: (id) => verifiedGate.finishMutation(id),
         continue: (id, token, path) => verifiedGate.continueMutation(id, token, path),
@@ -407,9 +414,7 @@ app
         waitForLogoutTurn: (id) => verifiedGate.waitForLogoutTurn(id),
         completeLogout: async () => {
           verifiedGate.beginLogoutRecovery();
-          await verifiedGate.recoverAbandonedLogout(() =>
-            clearAbandonedLogout(verifiedSession, origin),
-          );
+          await verifiedGate.recoverAbandonedLogout(verifyLogoutCleanup);
         },
         logoutTimeoutMs: 500,
       });
@@ -418,7 +423,7 @@ app
         webPreferences: { session: verifiedSession, sandbox: true },
       });
       await verifiedWindow.loadURL(desktopEntryURL(origin));
-      const runVerifiedLogout = async (status, cookiePath) => {
+      const runVerifiedLogout = async (status, cookiePath, quitDuring = false) => {
         await verifiedSession.clearStorageData();
         await verifiedSession.cookies.set({
           url: `${origin}${cookiePath}`,
@@ -436,11 +441,17 @@ app
         for (let i = 0; i < 100 && !entered; i++)
           await new Promise((resolve) => setTimeout(resolve, 10));
         assert.equal(entered, true);
+        const shutdown = quitDuring
+          ? verifiedGate.shutdown(async () => {}, 1000, verifyLogoutCleanup)
+          : null;
         release();
-        return verifiedWindow.webContents.executeJavaScript('window.logoutResult');
+        const result = await verifiedWindow.webContents.executeJavaScript('window.logoutResult');
+        if (shutdown) assert.equal((await shutdown)[0].status, 'rejected');
+        return result;
       };
       assert.deepEqual(await runVerifiedLogout(204, '/'), { status: 204, local: null });
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      assert.equal(recoveryMarker, false);
       assert.deepEqual(await runVerifiedLogout(500, '/'), { status: 204, local: '1' });
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
       holdVerification = true;
@@ -488,8 +499,9 @@ app
       assert.equal(stalledClosed, true);
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
       stallLogout = false;
-      assert.equal(await runVerifiedLogout(204, '/api'), null);
+      assert.equal(await runVerifiedLogout(204, '/api', true), null);
       assert.equal(verifiedGate.networkBlocked(), true);
+      assert.equal(recoveryMarker, true);
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 1);
       verifiedWindow.destroy();
       await verifiedSession.clearStorageData();

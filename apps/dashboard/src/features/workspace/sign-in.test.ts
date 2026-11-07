@@ -19,6 +19,18 @@ it('shows a local-only logout notice on the sign-in screen', async () => {
   expect(await renderToString(app)).toContain(notice.value);
   notice.value = '';
 });
+it('does not show a prior workspace error on the sign-in screen', async () => {
+  notice.value = 'Private study A could not be opened';
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: SignInView }],
+  });
+  const app = createSSRApp(SignInView);
+  app.use(router);
+  app.use(VueQueryPlugin, { queryClient: new QueryClient() });
+  expect(await renderToString(app)).not.toContain('Private study A');
+  notice.value = '';
+});
 it.each([
   ['desktop', true],
   ['browser', false],

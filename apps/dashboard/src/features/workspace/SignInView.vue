@@ -17,6 +17,7 @@ const boxes = ref<HTMLInputElement[]>([]);
 const busy = ref(false);
 const error = ref('');
 const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
+const localLogoutNotice = 'Signed out on this computer. The server did not confirm sign-out.';
 
 async function send() {
   if (busy.value || !email.value.includes('@')) return;
@@ -90,7 +91,7 @@ function google() {
     <form v-if="step === 'email'" class="signin-card" @submit.prevent="send">
       <span class="brand"><b>Λ</b> Lykeion</span>
       <h1>Sign in</h1>
-      <p v-if="notice" role="status">{{ notice }}</p>
+      <p v-if="notice === localLogoutNotice" role="status">{{ localLogoutNotice }}</p>
       <p class="sub">Use your work email; we'll send a 6-digit code.</p>
       <input
         v-model="email"

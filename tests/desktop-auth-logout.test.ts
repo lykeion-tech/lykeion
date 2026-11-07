@@ -189,3 +189,26 @@ it('times out startup recovery without clearing its marker', async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('bounds a stalled quit flush and retries the same pending operation', async () => {
+  let finish!: () => void;
+  const flush = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValue(undefined);
+  const session = { cookies: { flushStore: flush } } as unknown as Session;
+  await expect(finalizeLogoutShutdown(Promise.resolve(), session, 10)).rejects.toThrow(
+    'did not finish',
+  );
+  await expect(finalizeLogoutShutdown(Promise.resolve(), session, 10)).rejects.toThrow(
+    'did not finish',
+  );
+  expect(flush).toHaveBeenCalledOnce();
+  finish();
+  await expect(finalizeLogoutShutdown(Promise.resolve(), session, 100)).resolves.toBeUndefined();
+});
