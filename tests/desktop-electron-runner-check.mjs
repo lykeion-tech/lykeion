@@ -7,6 +7,35 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { runFixture } from '../scripts/test-desktop-electron.mjs';
 
+function stopped(pid) {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error.code === 'ESRCH') return true;
+    throw error;
+  }
+  if (process.platform === 'linux') {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ');
+    } catch (error) {
+      if (error.code === 'ENOENT') return true;
+      throw error;
+    }
+  }
+  return false;
+}
+
+async function expectStopped(pid) {
+  for (let i = 0; i < 100; i++) {
+    if (stopped(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`fixture process ${pid} survived termination`);
+}
+
+assert.equal(stopped(process.pid), false, 'a live process must not be treated as stopped');
+
 const directory = mkdtempSync(path.join(tmpdir(), 'lyk-runner-check-'));
 try {
   const marker = path.join(directory, 'pids.json');
@@ -27,19 +56,7 @@ try {
   assert.equal(result.timedOut, true);
   assert.ok(existsSync(marker), 'hung Electron fixture must actually start');
   const pids = JSON.parse(readFileSync(marker, 'utf8'));
-  for (const pid of pids) {
-    let alive = true;
-    for (let i = 0; i < 50 && alive; i++) {
-      try {
-        process.kill(pid, 0);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      } catch (error) {
-        if (error.code !== 'ESRCH') throw error;
-        alive = false;
-      }
-    }
-    assert.equal(alive, false, `fixture process ${pid} survived timeout`);
-  }
+  for (const pid of pids) await expectStopped(pid);
   console.log('hung Electron fixture and child terminated');
 } finally {
   rmSync(directory, { recursive: true, force: true });
@@ -63,9 +80,7 @@ for (const signal of process.platform === 'win32' ? [] : ['SIGINT', 'SIGTERM']) 
     const [code] = await exited;
     assert.equal(code, signal === 'SIGINT' ? 130 : 143);
     assert.equal(existsSync(path.join(root, 'fixture-profile')), false);
-    for (const pid of pids) {
-      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
-    }
+    for (const pid of pids) await expectStopped(pid);
     console.log('interrupted Electron fixture and child terminated; temporary profile removed');
   } finally {
     if (runner.exitCode === null) runner.kill('SIGKILL');
