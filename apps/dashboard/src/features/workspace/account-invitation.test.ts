@@ -93,3 +93,60 @@ it('waits for the new account before accepting a fresh invitation after legacy m
   app.unmount();
   client.clear();
 });
+
+it('announces a confirmed account replacement observed by the mounted App', async () => {
+  const data = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+    removeItem: (key: string) => void data.delete(key),
+  };
+  vi.stubGlobal('sessionStorage', storage);
+  vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('window', {
+    lykeionDesktop: undefined,
+    location: { origin: 'https://app.example' },
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  vi.stubGlobal('document', {
+    title: '',
+    baseURI: 'https://app.example/',
+    querySelector: () => null,
+    documentElement: { dataset: {}, style: { setProperty() {} } },
+  });
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  let identity = 'a';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/me' ? Response.json({ id: identity, onboarded_at: 'yes' }) : Response.json([]),
+    ),
+  );
+  const [{ default: App }, { onCredentialsCommitted }] = await Promise.all([
+    import('../../App.vue'),
+    import('../../api/auth-loss'),
+  ]);
+  const notified = vi.fn();
+  const stop = onCredentialsCommitted(notified);
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null }, meta: { bare: true } }],
+  });
+  await router.push('/studies');
+  await router.isReady();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const app = createTreeApp({ render: () => h(App) });
+  app.use(router);
+  app.use(VueQueryPlugin, { queryClient: client });
+  app.mount(node('root'));
+  await vi.waitFor(() => expect(client.getQueryData<{ id: string }>(['me'])?.id).toBe('a'));
+  expect(notified).not.toHaveBeenCalled();
+  identity = 'b';
+  await client.refetchQueries({ queryKey: ['me'] });
+  await vi.waitFor(() => expect(notified).toHaveBeenCalledTimes(1));
+  stop();
+  app.unmount();
+  client.clear();
+});

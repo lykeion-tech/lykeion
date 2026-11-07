@@ -66,7 +66,28 @@ async function boundedBlob(res: Response, limit: number): Promise<Blob> {
 
 // One request to the Go server on the dashboard's own origin, so the session
 // cookie rides along. JSON or form data in, JSON or bytes out; 204 gives undefined.
+let credentialChangeInProgress = false;
+
 export async function api<T = void>(
+  method: string,
+  path: string,
+  body?: unknown,
+  raw?: { data: Blob; type: string },
+  options: { workspace?: string; signal?: AbortSignal; response?: 'blob'; maxBytes?: number } = {},
+): Promise<T> {
+  const credentialChange =
+    method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path);
+  if (!credentialChange) return request<T>(method, path, body, raw, options);
+  if (credentialChangeInProgress) throw new Error('Application authentication is busy');
+  credentialChangeInProgress = true;
+  try {
+    return await request<T>(method, path, body, raw, options);
+  } finally {
+    credentialChangeInProgress = false;
+  }
+}
+
+async function request<T = void>(
   method: string,
   path: string,
   body?: unknown,

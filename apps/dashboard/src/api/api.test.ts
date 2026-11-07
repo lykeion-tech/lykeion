@@ -135,6 +135,25 @@ describe('api', () => {
     await expect(auth).resolves.toBeUndefined();
   });
 
+  it('rejects overlapping credential changes and admits retries after completion or failure', async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal('fetch', fetch);
+    const first = api('POST', '/auth/verify-code', {});
+    await expect(api('POST', '/auth/verify-code', {})).rejects.toThrow('authentication is busy');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    finish(new Response(null, { status: 204 }));
+    await first;
+    const retry = api('POST', '/auth/logout');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    finish(new Response(null, { status: 500 }));
+    await expect(retry).rejects.toThrow();
+    const afterError = api('POST', '/auth/logout');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    finish(new Response(null, { status: 204 }));
+    await afterError;
+  });
+
   it('reserves and releases desktop authentication and refuses it during shutdown', async () => {
     const reserveAuth = vi.fn<() => string | null>(() => 'reservation');
     const releaseAuth = vi.fn();

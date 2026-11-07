@@ -16,6 +16,7 @@ import {
   advanceAuthenticationEpoch,
   authenticationEpoch,
   authenticationIsLost,
+  credentialsCommitted,
   onAuthenticationLost,
   onAuthenticationRestored,
 } from './api/auth-loss';
@@ -341,6 +342,7 @@ watch(
     lastAccount = id;
     if (!changed) return;
     advanceAuthenticationEpoch();
+    credentialsCommitted();
     accountGeneration++;
     clearAccountShell();
     switchingAccount.value = true;
