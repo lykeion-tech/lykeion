@@ -963,7 +963,7 @@ function pin() {
   width: 100%;
   height: 34px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 5px;
   padding: 0 8px;
 }
@@ -1183,7 +1183,7 @@ function pin() {
   font-weight: 600;
 }
 .transcript-heading > span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .transcript-entry {
@@ -1211,7 +1211,7 @@ function pin() {
   font-weight: 500;
 }
 .transcript-entry time {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1220,7 +1220,7 @@ function pin() {
   overflow-wrap: anywhere;
 }
 .creation-entry {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   align-items: center;
 }
