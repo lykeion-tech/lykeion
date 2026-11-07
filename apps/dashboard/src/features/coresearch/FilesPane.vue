@@ -469,14 +469,17 @@ async function step(n: number | undefined) {
   position: relative;
   flex-wrap: wrap;
 }
+.artifact-pane .art-title {
+  font: 700 13px/normal 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
 .artifact-pane .art-download,
 .artifact-pane .art-download:hover:not(:disabled) {
   margin-left: auto;
-  color: var(--primary);
+  color: var(--file-download-accent);
 }
 .artifact-pane .art-download {
-  font-size: 13px;
-  padding: 6px 4px;
+  font: 14px/normal 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 1px 6px;
 }
 .art-compare-list {
   position: absolute;
