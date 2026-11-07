@@ -10,11 +10,19 @@ app
   .whenReady()
   .then(async () => {
     const { DesktopAuthGate } = await import('../apps/desktop/out/desktop-auth-gate.js');
+    const { clearAbandonedLogout } = await import('../apps/desktop/out/desktop-auth-logout.js');
     const { installDesktopRenderer, desktopEntryURL } =
       await import('../apps/desktop/out/renderer-origin.js');
     let entered = false,
-      release;
+      release,
+      meCookie = 'not-called';
     const server = createServer(async (req, res) => {
+      if (req.url === '/api/me') {
+        meCookie = req.headers.cookie || '';
+        res.writeHead(200);
+        res.end('ok');
+        return;
+      }
       if (req.url !== '/auth/logout') {
         res.writeHead(404);
         res.end();
@@ -45,6 +53,8 @@ app
     installDesktopRenderer(target, origin, profile, {
       finish: (id) => gate.finishMutation(id),
       continue: (id, token, path) => gate.continueMutation(id, token, path),
+      networkReady: () => gate.networkReady(),
+      networkBlocked: () => gate.networkBlocked(),
     });
     const window = new BrowserWindow({
       show: false,
@@ -92,12 +102,98 @@ app
       await target.cookies.flushStore();
       assert.equal((await target.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
       const abandonedGate = new DesktopAuthGate();
+      const abandonedSession = session.fromPartition('abandoned-auth');
+      installDesktopRenderer(abandonedSession, origin, profile, {
+        finish: (id) => abandonedGate.finishMutation(id),
+        continue: (id, token, path) => abandonedGate.continueMutation(id, token, path),
+        networkReady: () => abandonedGate.networkReady(),
+        networkBlocked: () => abandonedGate.networkBlocked(),
+      });
       ipcMain.removeAllListeners('lykeion:reserve-auth');
       ipcMain.on('lykeion:reserve-auth', (event, path) => {
         event.returnValue = abandonedGate.reserve(path);
       });
-      await target.cookies.set({ url: origin, name: 'lyk_session', value: 'old', httpOnly: true });
+      await abandonedSession.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'old',
+        httpOnly: true,
+      });
       const abandonedWindow = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          session: abandonedSession,
+          sandbox: true,
+          preload: join(process.cwd(), 'apps/desktop/out/preload.cjs'),
+        },
+      });
+      let releaseCleanup;
+      abandonedWindow.webContents.on('destroyed', () => {
+        abandonedGate.abandonUnclaimed();
+        void abandonedGate.recoverAbandonedLogout(async () => {
+          await new Promise((resolve) => {
+            releaseCleanup = resolve;
+          });
+          await clearAbandonedLogout(abandonedSession, origin);
+        });
+      });
+      await abandonedWindow.loadURL(desktopEntryURL(origin));
+      const stale = await abandonedWindow.webContents.executeJavaScript(
+        "window.lykeionDesktop.reserveAuth('/auth/logout')",
+      );
+      assert.ok(stale);
+      const destroyed = new Promise((resolve) =>
+        abandonedWindow.webContents.once('destroyed', resolve),
+      );
+      abandonedWindow.destroy();
+      await destroyed;
+      assert.equal(abandonedGate.continueMutation(-1, stale, '/auth/logout'), false);
+      const reopened = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          session: abandonedSession,
+          sandbox: true,
+          preload: join(process.cwd(), 'apps/desktop/out/preload.cjs'),
+        },
+      });
+      let opened = false;
+      const opening = reopened.loadURL(desktopEntryURL(origin)).then(() => {
+        opened = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(opened, false);
+      assert.equal(meCookie, 'not-called');
+      releaseCleanup();
+      await opening;
+      assert.equal(
+        await reopened.webContents.executeJavaScript("fetch('/api/me').then(r => r.status)"),
+        200,
+      );
+      assert.equal(meCookie, '');
+      const abandoned = await abandonedGate.shutdown(
+        async () => {},
+        50,
+        () => clearAbandonedLogout(abandonedSession, origin),
+      );
+      assert.equal(abandoned[0].status, 'fulfilled');
+      assert.equal(
+        (await abandonedSession.cookies.get({ url: origin, name: 'lyk_session' })).length,
+        0,
+      );
+      reopened.destroy();
+      await abandonedSession.clearStorageData();
+      const reloadGate = new DesktopAuthGate();
+      ipcMain.removeAllListeners('lykeion:reserve-auth');
+      ipcMain.on('lykeion:reserve-auth', (event, path) => {
+        event.returnValue = reloadGate.reserve(path);
+      });
+      ipcMain.removeAllListeners('lykeion:document-start');
+      ipcMain.on('lykeion:document-start', (event) => {
+        reloadGate.abandonUnclaimed();
+        event.returnValue = 'new-document';
+      });
+      await target.cookies.set({ url: origin, name: 'lyk_session', value: 'old', httpOnly: true });
+      const reloadWindow = new BrowserWindow({
         show: false,
         webPreferences: {
           session: target,
@@ -105,19 +201,24 @@ app
           preload: join(process.cwd(), 'apps/desktop/out/preload.cjs'),
         },
       });
-      await abandonedWindow.loadURL(desktopEntryURL(origin));
-      assert.ok(
-        await abandonedWindow.webContents.executeJavaScript(
-          "window.lykeionDesktop.reserveAuth('/auth/logout')",
-        ),
+      await reloadWindow.loadURL(desktopEntryURL(origin));
+      const reloadedToken = await reloadWindow.webContents.executeJavaScript(
+        "window.lykeionDesktop.reserveAuth('/auth/logout')",
       );
-      abandonedWindow.destroy();
-      const abandoned = await abandonedGate.shutdown(async () => {}, 50);
-      assert.equal(abandoned[0].status, 'rejected');
+      await reloadWindow.loadURL(desktopEntryURL(origin));
+      assert.equal(reloadGate.continueMutation(-1, reloadedToken, '/auth/logout'), false);
       assert.equal(
-        (await target.cookies.get({ url: origin, name: 'lyk_session' }))[0].value,
-        'old',
+        (
+          await reloadGate.shutdown(
+            async () => {},
+            50,
+            () => clearAbandonedLogout(target, origin),
+          )
+        )[0].status,
+        'fulfilled',
       );
+      assert.equal((await target.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
+      reloadWindow.destroy();
       console.log('desktop authentication shutdown fixture passed');
     } finally {
       window.destroy();

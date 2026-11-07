@@ -8,9 +8,18 @@ export class DesktopAuthGate {
   private readonly mutations = new Set<number>();
   private readonly reservations = new Map<string, { id: number; path: string }>();
   private readonly drainWaiters = new Set<() => void>();
+  private abandonedLogout = false;
+  private abandonedVerification = false;
+  private recovery: Promise<void> | null = null;
 
   reserve(path: string): string | null {
-    if (this.shuttingDown || !['/auth/verify-code', '/auth/logout'].includes(path)) return null;
+    if (
+      this.shuttingDown ||
+      this.abandonedLogout ||
+      this.abandonedVerification ||
+      !['/auth/verify-code', '/auth/logout'].includes(path)
+    )
+      return null;
     const id = ++this.nextID;
     const token = randomUUID();
     this.mutations.add(id);
@@ -22,6 +31,18 @@ export class DesktopAuthGate {
     if (!entry) return;
     this.reservations.delete(token);
     this.finishMutation(entry.id);
+  }
+  abandonUnclaimed(): void {
+    for (const [token, entry] of this.reservations) {
+      if (entry.path === '/auth/logout') this.abandonedLogout = true;
+      else this.abandonedVerification = true;
+      this.release(token);
+    }
+  }
+  acknowledgeInterruptedVerification(): boolean {
+    if (!this.abandonedVerification) return false;
+    this.abandonedVerification = false;
+    return true;
   }
   continueMutation(id: number, token: string, path: string): boolean {
     const entry = this.reservations.get(token);
@@ -38,12 +59,15 @@ export class DesktopAuthGate {
       this.drainWaiters.clear();
     }
   }
-  async shutdown(
-    stopDaemon: () => Promise<void>,
-    timeoutMs = 15000,
-  ): Promise<PromiseSettledResult<void>[]> {
-    this.shuttingDown = true;
-    const drain = this.mutations.size
+  networkBlocked(): boolean {
+    return this.abandonedLogout;
+  }
+  async networkReady(): Promise<void> {
+    await this.recovery?.catch(() => {});
+    if (this.abandonedLogout) throw new Error('Logout recovery required');
+  }
+  private waitForDrain(timeoutMs: number): Promise<void> {
+    return this.mutations.size
       ? new Promise<void>((resolve, reject) => {
           const done = () => {
             clearTimeout(timer);
@@ -57,6 +81,39 @@ export class DesktopAuthGate {
           this.drainWaiters.add(done);
         })
       : Promise.resolve();
-    return Promise.allSettled([drain, Promise.resolve().then(stopDaemon)]);
+  }
+  async recoverAbandonedLogout(clear: () => Promise<void>, timeoutMs = 15000): Promise<void> {
+    if (!this.abandonedLogout) return;
+    if (!this.recovery) {
+      this.recovery = this.waitForDrain(timeoutMs)
+        .then(clear)
+        .then(() => {
+          this.abandonedLogout = false;
+        });
+    }
+    const pending = this.recovery;
+    try {
+      await pending;
+    } finally {
+      if (this.recovery === pending) this.recovery = null;
+    }
+  }
+  async shutdown(
+    stopDaemon: () => Promise<void>,
+    timeoutMs = 15000,
+    clearAbandonedLogout: () => Promise<void> = async () => {
+      throw new Error('Logout recovery unavailable');
+    },
+  ): Promise<PromiseSettledResult<void>[]> {
+    this.shuttingDown = true;
+    const drain = this.waitForDrain(timeoutMs);
+    const finalize = drain.then(async () => {
+      await this.recoverAbandonedLogout(clearAbandonedLogout, timeoutMs);
+      if (this.abandonedVerification) {
+        this.abandonedVerification = false;
+        throw new Error('Sign-in was interrupted before it was sent');
+      }
+    });
+    return Promise.allSettled([finalize, Promise.resolve().then(stopDaemon)]);
   }
 }

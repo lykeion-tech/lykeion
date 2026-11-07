@@ -125,6 +125,8 @@ export function installDesktopRenderer(
   auth?: {
     finish(id: number): void;
     continue(id: number, token: string, path: string): boolean;
+    networkReady(): Promise<void>;
+    networkBlocked(): boolean;
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
@@ -140,7 +142,17 @@ export function installDesktopRenderer(
       const denied =
         target.origin !== selected.origin ||
         (executableRequests.has(request.resourceType) && !asset);
-      done({ cancel: denied });
+      if (denied || !auth) return done({ cancel: denied });
+      const ready = () => {
+        void auth.networkReady().then(
+          () => {
+            if (auth.networkBlocked()) ready();
+            else done({ cancel: false });
+          },
+          () => done({ cancel: true }),
+        );
+      };
+      ready();
     },
   );
   session.protocol.handle(new URL(origin).protocol.slice(0, -1), async (request) => {

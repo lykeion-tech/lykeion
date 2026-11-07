@@ -16,6 +16,7 @@ import {
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
+import { clearAbandonedLogout } from './desktop-auth-logout.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
@@ -41,6 +42,21 @@ let selectedOrigin = '';
 let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 const authGate = new DesktopAuthGate();
+function abandonDocumentAuthentication() {
+  authGate.abandonUnclaimed();
+  if (authGate.acknowledgeInterruptedVerification())
+    dialog.showErrorBox(
+      'Sign-in interrupted',
+      'Sign-in was interrupted before it was sent. Please try again.',
+    );
+  if (desktopSession && selectedOrigin) {
+    void authGate
+      .recoverAbandonedLogout(() => clearAbandonedLogout(desktopSession!, selectedOrigin))
+      .catch(() => {
+        console.error('Interrupted logout could not be recovered');
+      });
+  }
+}
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -49,15 +65,25 @@ app.on('before-quit', (event) => {
   if (quitPending) return;
   quitPending = true;
   void authGate
-    .shutdown(async () => {
-      await daemon?.beforeQuit();
-    })
+    .shutdown(
+      async () => {
+        await daemon?.beforeQuit();
+      },
+      15000,
+      async () => {
+        if (!desktopSession || !selectedOrigin) throw new Error('Logout recovery unavailable');
+        await clearAbandonedLogout(desktopSession, selectedOrigin);
+      },
+    )
     .then(async (results) => {
       if (results[0]?.status === 'rejected') {
         quitPending = false;
         dialog.showErrorBox(
           'Lykeion could not close',
-          'An authentication request did not finish. Sign-in or sign-out may not have completed. Try closing Lykeion again after the request finishes.',
+          results[0].reason instanceof Error &&
+            results[0].reason.message === 'Sign-in was interrupted before it was sent'
+            ? 'Sign-in was interrupted before it was sent. You can try signing in again after reopening Lykeion.'
+            : 'An authentication request did not finish. Sign-in or sign-out may not have completed. Try closing Lykeion again after the request finishes.',
         );
         return;
       }
@@ -95,6 +121,12 @@ function createWindow() {
     },
   });
   const owner = window;
+  owner.webContents.on('render-process-gone', () => {
+    if (window === owner) abandonDocumentAuthentication();
+  });
+  owner.webContents.on('destroyed', () => {
+    if (window === owner) abandonDocumentAuthentication();
+  });
   const drain = desktopCancellation
     ? bindDesktopRequestLifetime(owner.webContents, desktopCancellation, () => window === owner)
     : () => {};
@@ -108,6 +140,7 @@ function createWindow() {
   if (developmentUrl) void window.loadURL(developmentUrl);
   else void window.loadURL(desktopEntryURL(selectedOrigin));
   window.on('closed', () => {
+    if (window === owner) abandonDocumentAuthentication();
     drain();
     if (window === owner) window = null;
   });
@@ -142,6 +175,8 @@ void app.whenReady().then(async () => {
       path.dirname(bundledPath),
       {
         continue: (id, token, path) => authGate.continueMutation(id, token, path),
+        networkReady: () => authGate.networkReady(),
+        networkBlocked: () => authGate.networkBlocked(),
         finish: (id) => authGate.finishMutation(id),
       },
     );
@@ -196,6 +231,8 @@ void app.whenReady().then(async () => {
       desktopCancellation.cancel(id);
   });
   ipcMain.on('lykeion:document-start', (event) => {
+    if (window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin))
+      abandonDocumentAuthentication();
     event.returnValue =
       window && desktopCancellation && trustedDesktopFrame(event, window.webContents, apiOrigin)
         ? desktopCancellation.beginDocument()
