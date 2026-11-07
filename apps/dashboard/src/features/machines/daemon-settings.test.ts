@@ -168,6 +168,36 @@ async function mount(
   };
 }
 describe('Daemon settings mounted section', () => {
+  it('guides the local owner to install and sign in to supported tools before restarting detection', async () => {
+    const t = await mount();
+    await vi.waitFor(() => expect(t.text()).toContain('Set up an agent tool'));
+    expect(t.text()).toContain('Install and sign in');
+    expect(t.text()).toContain('wait for active runs to finish');
+    const links = all(t.root).filter((n) => n.tag === 'a');
+    expect(links.find((n) => textOf(n).includes('Claude Code'))?.props.href).toBe(
+      'https://code.claude.com/docs/en/setup',
+    );
+    expect(links.find((n) => textOf(n).includes('Codex'))?.props.href).toBe(
+      'https://developers.openai.com/codex/cli/',
+    );
+    expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
+  it('does not offer local installation instructions for another machine or account', async () => {
+    const t = await mount({ own: false });
+    expect(t.text()).not.toContain('Set up an agent tool');
+    expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
+  it('does not start a stopped daemon automatically', async () => {
+    const t = await mount({ snapshot: snapshot({ status: 'stopped', pid: null }) });
+    await vi.waitFor(() => expect(t.text()).toContain('Set up an agent tool'));
+    expect(t.bridge.start).not.toHaveBeenCalled();
+    expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
+  it('does not offer tool setup for an unavailable desktop runtime', async () => {
+    const t = await mount({ snapshot: snapshot({ availability: 'unavailable' }) });
+    expect(t.text()).not.toContain('Set up an agent tool');
+    expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
   it('keeps a verified unregistered desktop profile reachable through Start and registration', async () => {
     const stopped = snapshot({
       status: 'stopped',

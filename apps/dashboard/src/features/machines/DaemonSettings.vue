@@ -192,6 +192,26 @@ defineExpose({
     <p v-if="error || (matches && snapshot?.error)" class="inline-error" role="alert">
       {{ error || snapshot?.error }}
     </p>
+    <section v-if="available" class="tool-setup" aria-labelledby="tool-setup-heading">
+      <h3 id="tool-setup-heading">Set up an agent tool</h3>
+      <p>
+        Install and sign in to at least one tool on this computer using its official guide:
+        <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener noreferrer"
+          >Claude Code</a
+        >
+        or
+        <a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noopener noreferrer"
+          >Codex</a
+        >.
+      </p>
+      <p v-if="localProfile && snapshot?.status === 'stopped'">
+        After setup, select Start above to detect your tools.
+      </p>
+      <p v-else>
+        After setup, wait for active runs to finish, then select Restart above to detect your tools.
+        Restarting interrupts active runs.
+      </p>
+    </section>
     <div class="daemon-preferences">
       <div
         v-for="setting in [
@@ -242,6 +262,12 @@ defineExpose({
   </section>
 </template>
 <style scoped>
+.tool-setup {
+  margin: 16px 0;
+}
+.tool-setup p {
+  margin: 8px 0;
+}
 .daemon-settings {
   margin-top: 24px;
 }
