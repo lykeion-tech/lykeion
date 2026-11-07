@@ -15,6 +15,7 @@ app
       await import('../apps/desktop/out/desktop-google-login.js');
     const { prepareGoogleExchange } =
       await import('../apps/desktop/out/desktop-google-transport.js');
+    const { DesktopAuthRecovery } = await import('../apps/desktop/out/desktop-auth-recovery.js');
     const { installDesktopRenderer, desktopEntryURL } =
       await import('../apps/desktop/out/renderer-origin.js');
     let challenge,
@@ -36,6 +37,9 @@ app
       } else if (u.pathname === '/auth/desktop/exchange') {
         assert.equal(req.headers.origin, undefined);
         assert.notEqual(req.headers['sec-fetch-mode'], 'navigate');
+        assert.ok(!req.headers['sec-fetch-site'] || req.headers['sec-fetch-site'] === 'none');
+        assert.notEqual(req.headers['sec-fetch-dest'], 'document');
+        assert.equal(req.headers['content-type'], 'application/json');
         let body = '';
         for await (const chunk of req) body += chunk;
         const input = JSON.parse(body);
@@ -51,7 +55,7 @@ app
         code = null;
         exchanges++;
         res.writeHead(204, {
-          'Set-Cookie': 'lyk_session=fixture-session; Path=/; HttpOnly; SameSite=Lax',
+          'Set-Cookie': `lyk_session=fixture-session-${exchanges}; Path=/; HttpOnly; SameSite=Lax`,
         });
         res.end();
       } else if (u.pathname === '/auth/logout') {
@@ -61,7 +65,9 @@ app
             releaseLogout = resolve;
           });
         }
-        res.writeHead(204);
+        res.writeHead(204, {
+          'Set-Cookie': 'lyk_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax',
+        });
         res.end();
       } else {
         res.writeHead(404);
@@ -73,6 +79,7 @@ app
     const target = session.fromPartition('google-target');
     const other = session.fromPartition('google-other');
     const gate = new DesktopAuthGate();
+    const recovery = new DesktopAuthRecovery(profile, origin);
     const login = new DesktopGoogleLogin(origin, gate, {
       open: async (url) => {
         const auth = await fetch(url, { redirect: 'manual' });
@@ -88,14 +95,14 @@ app
         assert.equal(result.status, 200);
       },
       exchange: (code, verifier, signal) =>
-        prepareGoogleExchange(origin, target, code, verifier, signal),
+        prepareGoogleExchange(origin, target, code, verifier, signal, () => recovery.mark()),
     });
     try {
       await login.start();
       assert.equal(exchanges, 1);
       const cookies = await target.cookies.get({ url: origin, name: 'lyk_session' });
       assert.equal(cookies.length, 1);
-      assert.equal(cookies[0].value, 'fixture-session');
+      assert.equal(cookies[0].value, 'fixture-session-1');
       assert.equal(cookies[0].httpOnly, true);
       assert.equal((await other.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
       let starts = 0,
@@ -127,6 +134,11 @@ app
         await new Promise((resolve) => setTimeout(resolve, 100));
         assert.equal(starts, 2);
         assert.ok(finishes >= 1);
+        await login.start();
+        assert.equal(
+          (await target.cookies.get({ url: origin, name: 'lyk_session' }))[0].value,
+          'fixture-session-2',
+        );
         slowLogout = true;
         await window.webContents.executeJavaScript(
           "void fetch('/auth/logout', {method:'POST'}).catch(() => {}); true",
@@ -147,6 +159,12 @@ app
           }
         }
         assert.doesNotThrow(() => gate.begin());
+        assert.equal((await target.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
+        await login.start();
+        assert.equal(
+          (await target.cookies.get({ url: origin, name: 'lyk_session' }))[0].value,
+          'fixture-session-3',
+        );
         let callbackURL = '';
         const crashingLogin = new DesktopGoogleLogin(origin, gate, {
           open: async (url) => {
@@ -178,8 +196,17 @@ app
         await assert.rejects(fetch(callbackURL));
         assert.equal(
           (await target.cookies.get({ url: origin, name: 'lyk_session' }))[0].value,
-          'fixture-session',
+          'fixture-session-3',
         );
+        const restarted = new DesktopAuthRecovery(profile, origin);
+        await restarted.recover(
+          async () => {
+            await target.clearStorageData({ storages: ['cookies'] });
+            await target.cookies.flushStore();
+          },
+          async () => (await target.cookies.get({ name: 'lyk_session' })).length === 0,
+        );
+        assert.equal((await target.cookies.get({ url: origin, name: 'lyk_session' })).length, 0);
       } finally {
         window.destroy();
       }

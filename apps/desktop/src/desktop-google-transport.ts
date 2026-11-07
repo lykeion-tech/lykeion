@@ -19,6 +19,7 @@ export async function prepareGoogleExchange(
   code: string,
   verifier: string,
   signal: AbortSignal,
+  markRecovery: () => Promise<void>,
 ) {
   const temporary = session.fromPartition(`desktop-google-${randomUUID()}`);
   try {
@@ -49,6 +50,8 @@ export async function prepareGoogleExchange(
           throw new Error('Ambiguous desktop session');
         previous = current[0];
         if (signal.aborted) throw new Error('Sign-in canceled');
+        await markRecovery();
+        if (signal.aborted) throw new Error('Sign-in canceled');
         attempted = true;
         await target.cookies.set(details(origin, value));
       },
@@ -56,6 +59,16 @@ export async function prepareGoogleExchange(
         if (!attempted) return;
         if (previous) await target.cookies.set(details(origin, previous));
         else await target.cookies.remove(origin, 'lyk_session');
+        const restored = await target.cookies.get({ url: origin, name: 'lyk_session' });
+        if (
+          previous
+            ? restored.length !== 1 ||
+              restored[0]?.value !== previous.value ||
+              !restored[0].hostOnly ||
+              restored[0].path !== '/'
+            : restored.length !== 0
+        )
+          throw new Error('Authentication session restore could not be verified');
       },
     };
   } finally {

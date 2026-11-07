@@ -18,6 +18,7 @@ import { desktopUserData } from './desktop-user-data.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
 import { DesktopGoogleLogin, bindGoogleDocumentLifetime } from './desktop-google-login.js';
 import { prepareGoogleExchange } from './desktop-google-transport.js';
+import { DesktopAuthRecovery } from './desktop-auth-recovery.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const developmentUrl = app.isPackaged ? undefined : process.env.LYKEION_RENDERER_URL;
@@ -44,6 +45,7 @@ let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 const authGate = new DesktopAuthGate();
 let googleLogin: DesktopGoogleLogin | null = null;
+let authRecovery: DesktopAuthRecovery | null = null;
 let quitAllowed = false;
 let quitPending = false;
 app.on('before-quit', (event) => {
@@ -52,11 +54,32 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
-  void Promise.all([authGate.settle(), daemon?.beforeQuit()])
-    .catch(() => {
-      console.error('Desktop daemon could not be stopped before quit');
+  void authGate
+    .shutdown(async () => {
+      await daemon?.beforeQuit();
     })
-    .finally(() => {
+    .then(async (results) => {
+      if (results[0]?.status === 'rejected') {
+        quitPending = false;
+        dialog.showErrorBox(
+          'Lykeion could not close',
+          'The sign-in session could not be safely restored. Try closing Lykeion again.',
+        );
+        return;
+      }
+      if (results[1]?.status === 'rejected')
+        console.error('Desktop daemon could not be stopped before quit');
+      try {
+        await desktopSession?.cookies.flushStore();
+        await authRecovery?.cleanShutdown();
+      } catch {
+        quitPending = false;
+        dialog.showErrorBox(
+          'Lykeion could not close',
+          'The sign-in session could not be safely saved. Try closing Lykeion again.',
+        );
+        return;
+      }
       quitAllowed = true;
       app.quit();
     });
@@ -127,10 +150,29 @@ void app.whenReady().then(async () => {
   if (!developmentUrl) {
     desktopSession = session.fromPartition(desktopPartition(apiOrigin));
     const selectedSession = desktopSession;
+    authRecovery = new DesktopAuthRecovery(app.getPath('userData'), apiOrigin);
+    try {
+      await authRecovery.recover(
+        async () => {
+          await selectedSession.clearStorageData({ storages: ['cookies'] });
+          await selectedSession.cookies.flushStore();
+        },
+        async () => (await selectedSession.cookies.get({ name: 'lyk_session' })).length === 0,
+      );
+    } catch {
+      dialog.showErrorBox(
+        'Lykeion sign-in recovery failed',
+        'The previous sign-in session could not be safely cleared. Lykeion cannot open until recovery succeeds.',
+      );
+      app.quit();
+      return;
+    }
     googleLogin = new DesktopGoogleLogin(apiOrigin, authGate, {
       open: (url) => shell.openExternal(url),
       exchange: (code, verifier, signal) =>
-        prepareGoogleExchange(apiOrigin, selectedSession, code, verifier, signal),
+        prepareGoogleExchange(apiOrigin, selectedSession, code, verifier, signal, () =>
+          authRecovery!.mark(),
+        ),
     });
     desktopCancellation = installDesktopRenderer(
       desktopSession,
@@ -203,7 +245,12 @@ void app.whenReady().then(async () => {
         : null;
   });
   ipcMain.handle('lykeion:google-sign-in', async (event) => {
-    if (!window || !googleLogin || !trustedDesktopFrame(event, window.webContents, apiOrigin))
+    if (
+      quitPending ||
+      !window ||
+      !googleLogin ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin)
+    )
       throw new Error('Invalid sender');
     const owner = window;
     await googleLogin.start();

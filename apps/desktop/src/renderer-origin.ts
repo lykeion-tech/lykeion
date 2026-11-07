@@ -145,7 +145,10 @@ export function installDesktopRenderer(
       ) {
         void auth.start(request.id).then(
           () => done({ cancel: false }),
-          () => done({ cancel: true }),
+          () => {
+            auth.finish(request.id);
+            done({ cancel: true });
+          },
         );
       } else done({ cancel: denied });
     },
@@ -163,7 +166,12 @@ export function installDesktopRenderer(
     const path = new URL(request.url).pathname;
     if (auth && request.method === 'POST' && ['/auth/verify-code', '/auth/logout'].includes(path)) {
       const id = nativeAuthID--;
-      await auth.start(id);
+      try {
+        await auth.start(id);
+      } catch {
+        auth.finish(id);
+        return new Response('Authentication recovery required', { status: 503 });
+      }
       return forward(session, request, cancellation, () => auth.finish(id));
     }
     return forward(session, request, cancellation);
