@@ -600,7 +600,6 @@ onUnmounted(() => {
         </button>
       </template>
       <template v-else-if="menu === 'model'">
-        <small>Your machines · Select model</small>
         <button v-for="cli in clis" :key="cli" @click="chooseModel('', cli)">
           {{ cli === 'claude' ? 'Claude Code' : 'Codex' }} · Default {{ harness === cli && !model ? '✓' : '' }}
         </button>
@@ -868,7 +867,7 @@ header {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 5px 20px color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 5px 20px rgb(0 0 0 / 16%);
 }
 .menu.context-menu {
   right: auto;

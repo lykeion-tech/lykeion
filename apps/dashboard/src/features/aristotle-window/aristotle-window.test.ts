@@ -278,6 +278,7 @@ it('uses the owner Codex runtime without exposing other members models', async (
   await t.click('Ask Aristotle');
   await t.click('Select model');
   expect(textOf(t.root)).toContain('Codex · Default');
+  expect(textOf(t.root)).not.toContain('Your machines · Select model');
   expect(textOf(t.root)).not.toContain('Private model');
   await t.click('Select model');
   (t.composer().props.onFocus as Function)();
