@@ -33,7 +33,7 @@
 .research-studies small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 4px;
 }
 .directory-empty {
@@ -65,7 +65,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .directory-form input,
@@ -76,7 +76,7 @@
   background: var(--input);
   border-radius: 7px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   width: 100%;
 }
 .directory-form textarea {
@@ -185,7 +185,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .agent-row > :last-child {
   text-align: right;

@@ -168,11 +168,11 @@
 }
 .agent-table-head {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   height: 26px;
 }
 .agent-table-row {
-  font-size: 12px;
+  font-size: 13px;
   padding: 20px 0;
 }
 .agent-table-row > span:first-child {
@@ -234,7 +234,7 @@
   font-weight: 500;
 }
 .library-section > p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 6px;
   line-height: 18px;
@@ -276,9 +276,9 @@
 .updates-card small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 6px;
-  line-height: 16px;
+  line-height: 18px;
 }
 .updates-card > div:first-child small {
   font-family: monospace;
@@ -589,7 +589,7 @@
   font-weight: 600;
 }
 .conversation-list > p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 4px 0 20px;
 }

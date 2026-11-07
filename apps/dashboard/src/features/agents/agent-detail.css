@@ -47,7 +47,7 @@
   overflow-wrap: anywhere;
 }
 .agent-status {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: #2f7d3b;
   white-space: nowrap;
@@ -73,7 +73,7 @@
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 14px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .agent-meta span,
@@ -96,7 +96,7 @@
   gap: 10px;
   min-width: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .detail-breadcrumb a {
   display: inline-flex;
@@ -442,7 +442,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .coresearch.agent-model-picker {
   height: auto;
@@ -454,7 +454,7 @@
   --ink-tertiary: var(--muted);
   --hairline-strong: var(--border);
   --type-body: 14px;
-  --type-small: 12px;
+  --type-small: 13px;
   --type-meta: 12px;
 }
 .agent-model-picker .cli-switcher,

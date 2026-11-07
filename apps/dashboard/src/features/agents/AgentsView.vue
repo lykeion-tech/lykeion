@@ -384,7 +384,7 @@ async function save() {
   --ink-tertiary: var(--muted);
   --hairline-strong: var(--border);
   --type-body: 14px;
-  --type-small: 12px;
+  --type-small: 13px;
   --type-meta: 12px;
 }
 .new-agent-model-picker :deep(.cli-switcher),
