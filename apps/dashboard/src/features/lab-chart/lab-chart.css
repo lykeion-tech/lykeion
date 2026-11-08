@@ -1,0 +1,190 @@
+.lab-chart {
+  position: relative;
+  overflow: hidden;
+  background: #f6f6f4;
+  font-family: Barlow, system-ui, sans-serif;
+  color: #e9e9e6;
+}
+.lab-chart-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.lab-chart-hint {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  font:
+    400 11px Barlow,
+    system-ui,
+    sans-serif;
+  color: #8a8a86;
+  z-index: 2;
+}
+.lab-chart-pill {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(17, 18, 19, 0.9);
+  border: 1px solid #2e2f32;
+  color: #eee;
+  font:
+    500 11px Barlow,
+    system-ui,
+    sans-serif;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.lab-chart-pill.ask {
+  background: #c9383d;
+  border-color: #e5484d;
+  color: #fff;
+}
+.lab-chart-pill.human {
+  background: #fff;
+  color: #1b1c1e;
+  border-color: #cfcfcb;
+}
+.lab-chart-pill b {
+  font-weight: 600;
+}
+.lab-chart-pill-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+.lab-chart-tick {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  background: rgba(17, 18, 19, 0.88);
+  border: 1px solid #2e2f32;
+  border-radius: 4px;
+  padding: 7px 12px;
+  font:
+    400 12px 'JetBrains Mono Variable',
+    'JetBrains Mono',
+    monospace;
+  z-index: 2;
+}
+.lab-chart-tick-time {
+  color: #f5c518;
+  margin-right: 10px;
+}
+.lab-chart-panel {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 250px;
+  background: rgba(17, 18, 19, 0.94);
+  border: 1px solid #2e2f32;
+  border-radius: 6px;
+  padding: 14px;
+  z-index: 3;
+}
+.lab-chart-panel-name {
+  margin: 0;
+  font:
+    700 18px 'Barlow Condensed',
+    Barlow,
+    sans-serif;
+  letter-spacing: 0.02em;
+}
+.lab-chart-panel-role {
+  font:
+    500 10px Barlow,
+    sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8d8d89;
+  margin: 2px 0 10px;
+}
+.lab-chart-panel-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #242527;
+  padding: 7px 0;
+  font-size: 12.5px;
+}
+.lab-chart-panel-row span:first-child {
+  color: #8d8d89;
+}
+.lab-chart-panel-row span:last-child {
+  text-align: right;
+}
+.lab-chart-panel-row .ask {
+  color: #e5484d;
+}
+.lab-chart-panel-row .work {
+  color: #f5a524;
+}
+.lab-chart-panel-link,
+.lab-chart-panel-close {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.lab-chart-panel-link {
+  display: block;
+  margin-top: 10px;
+  color: #f5c518;
+  font:
+    600 12px Barlow,
+    sans-serif;
+}
+.lab-chart-panel-close {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  color: #8d8d89;
+  font: inherit;
+}
+.lab-chart-list {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 16px 18px;
+  background: #f6f6f4;
+  color: #1b1c1e;
+  font:
+    400 13px Barlow,
+    system-ui,
+    sans-serif;
+  z-index: 4;
+}
+.lab-chart-list h3 {
+  margin: 12px 0 4px;
+  font:
+    600 14px Barlow,
+    system-ui,
+    sans-serif;
+}
+.lab-chart-list ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.lab-chart-list button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lab-chart-list.is-hidden:not(:focus-within) {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
