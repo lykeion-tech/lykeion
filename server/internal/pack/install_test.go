@@ -234,7 +234,7 @@ func TestInstallShippedRefreshesAnOlderShippedTeam(t *testing.T) {
 				return err
 			}
 			agents[member] = a.ID
-			if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: ws, PackID: row.ID, UserID: user, Member: member, AgentID: a.ID}); err != nil {
+			if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: ws, PackID: row.ID, UserID: &user, Member: member, AgentID: a.ID}); err != nil {
 				return err
 			}
 		}

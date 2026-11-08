@@ -219,7 +219,7 @@ func Add(ctx context.Context, tx *store.Tx, p db.FieldPack, m pack.Manifest, use
 		if err != nil {
 			return nil, err
 		}
-		if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: tx.WS, PackID: p.ID, UserID: user,
+		if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: tx.WS, PackID: p.ID, UserID: &user,
 			Member: mem.Name, AgentID: a.ID}); err != nil {
 			return nil, err
 		}

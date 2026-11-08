@@ -30,6 +30,8 @@ type Agent struct {
 	AvatarUrl            string          `json:"avatar_url"`
 	TeamDeletedAt        *time.Time      `json:"team_deleted_at"`
 	DeletedAt            *time.Time      `json:"deleted_at"`
+	Stage                string          `json:"stage"`
+	Laboratory           string          `json:"laboratory"`
 }
 
 type AgentCapability struct {
@@ -984,11 +986,11 @@ type StudyReaction struct {
 }
 
 type TeamAgent struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	PackID      uuid.UUID `json:"pack_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	Member      string    `json:"member"`
-	AgentID     uuid.UUID `json:"agent_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	PackID      uuid.UUID  `json:"pack_id"`
+	UserID      *uuid.UUID `json:"user_id"`
+	Member      string     `json:"member"`
+	AgentID     uuid.UUID  `json:"agent_id"`
 }
 
 type TeamRating struct {
@@ -1048,6 +1050,7 @@ type Workspace struct {
 	ResearchContext string          `json:"research_context"`
 	CardPrefix      string          `json:"card_prefix"`
 	LogoBlob        string          `json:"logo_blob"`
+	Laboratory      string          `json:"laboratory"`
 }
 
 type WorkspaceAvailability struct {
