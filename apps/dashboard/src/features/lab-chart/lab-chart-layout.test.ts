@@ -50,19 +50,38 @@ describe('placeRooms', () => {
 })
 
 describe('layoutConference', () => {
-  it('uses the base table for a few people', () => {
+  const noSeatOverlap = (seats: { x: number; z: number }[]) => {
+    const rects = seats.map((s) => ({ ...s, w: 0.8, d: 0.8 }))
+    for (let i = 0; i < rects.length; i++)
+      for (let j = i + 1; j < rects.length; j++) expect(overlap(rects[i], rects[j])).toBe(false)
+  }
+
+  it('matches the mockup table for a few people', () => {
     const c = layoutConference(3)
     expect(c.depth).toBe(15)
     expect(c.seats).toHaveLength(10)
+    expect(c.seats[0].x).toBeCloseTo(5.1)
+    expect(c.seats[0].z).toBeCloseTo(6)
+    expect(c.tables).toHaveLength(1)
+    expect(c.tables[0].length).toBeCloseTo(11)
   })
 
-  it('lengthens the table for a crowd without overlapping seats', () => {
+  it('lengthens the one table up to seven a side', () => {
     const c = layoutConference(14)
-    expect(c.seats.length).toBeGreaterThanOrEqual(14)
-    expect(c.depth).toBeGreaterThan(15)
-    const rects = c.seats.map((s) => ({ ...s, w: 0.8, d: 0.8 }))
-    for (let i = 0; i < rects.length; i++)
-      for (let j = i + 1; j < rects.length; j++) expect(overlap(rects[i], rects[j])).toBe(false)
+    expect(c.depth).toBe(15)
+    expect(c.seats).toHaveLength(14)
+    expect(c.tables).toHaveLength(1)
+    expect(c.tables[0].length).toBeCloseTo(15.4)
+    for (const s of c.seats) expect(s.x - 0.4).toBeGreaterThan(0)
+    noSeatOverlap(c.seats)
+  })
+
+  it('adds a second table row and depth beyond fourteen', () => {
+    const c = layoutConference(20)
+    expect(c.depth).toBeCloseTo(20.5)
+    expect(c.seats.length).toBeGreaterThanOrEqual(20)
+    expect(c.tables).toHaveLength(2)
+    noSeatOverlap(c.seats)
   })
 })
 

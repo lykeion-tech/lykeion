@@ -39,16 +39,32 @@ export function placeRooms(count: number) {
 }
 
 const CONFERENCE_SPACING = 2.2
+const TABLE_ROW_GAP = 5.5
+const MAX_PER_SIDE = 7
 
-// The table runs along z; each extra pair of people adds one seat to each side and
-// lengthens the room by one seat spacing.
-export function layoutConference(people: number): { depth: number; seats: { x: number; z: number }[] } {
-  const perSide = Math.max(5, Math.ceil(people / 2))
-  const depth = ROOM_MIN_DEPTH + (perSide - 5) * CONFERENCE_SPACING
+// Tables run along x, five seats a side at minimum. Each extra pair of people lengthens a
+// table by one seat spacing, up to seven a side; beyond that another table row is added
+// below and the room deepens by one row gap.
+export function layoutConference(people: number): {
+  depth: number
+  seats: { x: number; z: number }[]
+  tables: { x: number; z: number; length: number }[]
+} {
+  const tableCount = Math.max(1, Math.ceil(people / (MAX_PER_SIDE * 2)))
   const seats: { x: number; z: number }[] = []
-  for (let i = 0; i < perSide; i++) {
-    const z = depth / 2 + (i - (perSide - 1) / 2) * CONFERENCE_SPACING
-    seats.push({ x: ROOM_WIDTH / 2 - 2.5, z }, { x: ROOM_WIDTH / 2 + 2.5, z })
+  const tables: { x: number; z: number; length: number }[] = []
+  let left = people
+  for (let t = 0; t < tableCount; t++) {
+    const here = Math.min(left, MAX_PER_SIDE * 2)
+    left -= here
+    const perSide = Math.max(5, Math.ceil(here / 2))
+    const zOff = t * TABLE_ROW_GAP
+    tables.push({ x: ROOM_WIDTH / 2, z: 8.5 + zOff, length: 11 + (perSide - 5) * CONFERENCE_SPACING })
+    const x0 = ROOM_WIDTH / 2 - ((perSide - 1) / 2) * CONFERENCE_SPACING
+    for (let i = 0; i < perSide; i++) {
+      const x = x0 + i * CONFERENCE_SPACING
+      seats.push({ x, z: 6 + zOff }, { x, z: 11 + zOff })
+    }
   }
-  return { depth, seats }
+  return { depth: ROOM_MIN_DEPTH + (tableCount - 1) * TABLE_ROW_GAP, seats, tables }
 }
