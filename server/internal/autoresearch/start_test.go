@@ -34,7 +34,9 @@ func (f *fix) stageRuns(t *testing.T, card uuid.UUID, column string) map[string]
 	return out
 }
 
-func (f *fix) agent(t *testing.T, name string) uuid.UUID { return f.stagedAgent(t, name, "experimentation") }
+func (f *fix) agent(t *testing.T, name string) uuid.UUID {
+	return f.stagedAgent(t, name, "experimentation")
+}
 
 func (f *fix) stagedAgent(t *testing.T, name, stage string) uuid.UUID {
 	t.Helper()
