@@ -52,6 +52,7 @@ func TestTeamCopySoloStudyBlocksTeamDeletion(t *testing.T) {
 	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT agent_id FROM team_agent WHERE pack_id = $1 LIMIT 1`, id).Scan(&agent); err != nil {
 		t.Fatal(err)
 	}
+	s.mustUpdate(t, `UPDATE agent SET stage = $2 WHERE id = $1`, agent, "grounding")
 	s.startStudy(t, a, w.ID, agent, "solo question")
 	if code := s.call(t, "DELETE", "/api/teams/"+id, a, w.ID, nil, nil); code != 409 {
 		t.Fatalf("delete Team with copy working solo: %d", code)

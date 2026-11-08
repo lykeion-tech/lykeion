@@ -58,7 +58,7 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
 			return err
 		}
-		if err := checkStudyAgent(r, tx, ws, user, in.AgentID); err != nil {
+		if err := checkStudyAgent(r, tx, ws, user, in.AgentID, "", ""); err != nil {
 			return err
 		}
 		agent, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: in.AgentID})

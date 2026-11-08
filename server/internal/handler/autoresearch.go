@@ -177,6 +177,9 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		if err := checkAssigneeRefs(r, tx, ws, user, in.Assignee); err != nil {
 			return err
 		}
+		if err := checkAutoresearchStage(r, tx, ws, in.Assignee, from, to); err != nil {
+			return err
+		}
 		p := db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: ap.Title, Description: ap.Description,
 			ExecutionMode: in.ExecutionMode, TitleTemplate: ap.TitleTemplate, AssigneeType: &in.Assignee.Type, AssigneeID: in.Assignee.ID,
 			ScopeFrom: from, ScopeTo: to}

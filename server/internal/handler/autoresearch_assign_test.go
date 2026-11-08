@@ -78,9 +78,9 @@ func TestATeamSetAutoresearchCreatesEndToEndStudies(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	g, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "r", "validation")
+	g, h, r := s.addedTeam(t, a, w.ID, "g", "grounding"), s.addedTeam(t, a, w.ID, "h", "hypotheses"), s.addedTeam(t, a, w.ID, "r", "validation")
 	agent := s.newAgent(t, a, w.ID, "filler", "claude")
-	teams := map[string]string{"grounding": g, "validation": r}
+	teams := map[string]string{"grounding": g, "hypotheses": h, "validation": r}
 	bad := map[string]any{"title": "Weekly", "execution_mode": "create_card", "assignee": teamAssignee(teams)}
 	if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, bad, nil); code != 400 {
 		t.Fatalf("gaps without an agent: %d", code)
@@ -93,7 +93,7 @@ func TestATeamSetAutoresearchCreatesEndToEndStudies(t *testing.T) {
 	if code := s.call(t, "GET", "/api/cards/"+*run.CardID, a, w.ID, nil, &c); code != 200 {
 		t.Fatalf("card: %d", code)
 	}
-	if c.ScopeFrom != "grounding" || c.ScopeTo != "validation" || c.BoardColumn != "grounding" || len(c.Teams) != 2 {
+	if c.ScopeFrom != "grounding" || c.ScopeTo != "validation" || c.BoardColumn != "grounding" || len(c.Teams) != 3 {
 		t.Fatalf("%+v", c)
 	}
 }
