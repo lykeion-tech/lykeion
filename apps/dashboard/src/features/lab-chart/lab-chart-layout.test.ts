@@ -78,9 +78,12 @@ describe('layoutConference', () => {
 
   it('adds a second table row and depth beyond fourteen', () => {
     const c = layoutConference(20)
-    expect(c.depth).toBeCloseTo(20.5)
+    expect(c.depth).toBeCloseTo(22.5)
     expect(c.seats.length).toBeGreaterThanOrEqual(20)
     expect(c.tables).toHaveLength(2)
+    expect(c.tables[1].z - c.tables[0].z).toBeCloseTo(7.5)
+    const xs = (zs: number[]) => c.seats.filter((q) => zs.some((z) => Math.abs(q.z - z) < 0.01)).map((q) => q.x)
+    expect(xs([13.5, 18.5]).every((x) => xs([6, 11]).some((y) => Math.abs(x - y) < 0.01))).toBe(true)
     noSeatOverlap(c.seats)
   })
 })

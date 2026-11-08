@@ -39,7 +39,7 @@ export function placeRooms(count: number) {
 }
 
 const CONFERENCE_SPACING = 2.2
-const TABLE_ROW_GAP = 5.5
+const TABLE_ROW_GAP = 7.5
 const MAX_PER_SIDE = 7
 
 // Tables run along x, five seats a side at minimum. Each extra pair of people lengthens a
@@ -60,9 +60,7 @@ export function layoutConference(people: number): {
     const perSide = Math.max(5, Math.ceil(here / 2))
     const zOff = t * TABLE_ROW_GAP
     tables.push({ x: ROOM_WIDTH / 2, z: 8.5 + zOff, length: 11 + (perSide - 5) * CONFERENCE_SPACING })
-    // Odd rows shift half a seat so their back seats clear the previous row's front seats.
-    const stagger = t % 2 ? CONFERENCE_SPACING / 2 : 0
-    const x0 = ROOM_WIDTH / 2 - ((perSide - 1) / 2) * CONFERENCE_SPACING + stagger
+    const x0 = ROOM_WIDTH / 2 - ((perSide - 1) / 2) * CONFERENCE_SPACING
     for (let i = 0; i < perSide; i++) {
       const x = x0 + i * CONFERENCE_SPACING
       seats.push({ x, z: 6 + zOff }, { x, z: 11 + zOff })
