@@ -11,7 +11,9 @@ export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
   if (e.workspace_id !== ws) return [];
   const keysFor = queriesFor(ws, e);
   // The Lab Chart shows runs, agents, decisions and people.
-  return /^(agent_run|agent|laboratory|decision|inbox|member)\./.test(e.type)
+  return /^(agent_run|agent|laboratory|decision|inbox|member)\./.test(e.type) &&
+    e.type !== 'agent_run.usage_updated' &&
+    e.type !== 'agent_run.settled'
     ? [...keysFor, keys.labChart(ws)]
     : keysFor;
 }

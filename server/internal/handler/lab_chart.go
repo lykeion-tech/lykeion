@@ -121,7 +121,7 @@ func (h *H) labChart(w http.ResponseWriter, r *http.Request) {
 		}
 		last := map[uuid.UUID]time.Time{}
 		for _, x := range finished {
-			last[*x.AgentID] = x.At
+			last[x.AgentID] = x.At
 		}
 
 		byStage := map[string][]chartAgent{}

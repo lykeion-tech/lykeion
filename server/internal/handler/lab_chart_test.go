@@ -184,3 +184,34 @@ func TestLabChartTicker(t *testing.T) {
 		t.Fatalf("%+v", tk)
 	}
 }
+
+func TestLabChartDecisionWithoutRunDoesNotFail(t *testing.T) {
+	s := newServer(t)
+	a, w := s.labWorkspace(t)
+	c := s.idleCard(t, a, w.ID, "no run")
+	s.mustUpdate(t, `INSERT INTO inbox_item(workspace_id,card_id,user_id,kind,text,options,question_set,raised_by,decision_kind,expires_at)
+		VALUES($1,$2,$3,'agent_decision','Scope','[]','{"questions":[{"id":"q","prompt":"P","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false}]}','agent','scope',now()+interval '1 day')`, w.ID, c.ID, s.userID(t, a))
+	got := s.chart(t, a, w.ID)
+	for _, r := range got.Rooms {
+		for _, x := range r.Agents {
+			if x.Status != "idle" {
+				t.Fatalf("%s is %s", x.Name, x.Status)
+			}
+		}
+	}
+	if got.Ticker != nil {
+		t.Fatalf("%+v", got.Ticker)
+	}
+}
+
+func TestLabChartIgnoresOptionlessDecisions(t *testing.T) {
+	s := newServer(t)
+	a, w := s.labWorkspace(t)
+	id, _ := s.labAgent(t, w.ID, "validation", "auditor")
+	c := s.idleCard(t, a, w.ID, "bare")
+	s.roleRun(t, w.ID, c.ID, a, id, "validation", "running")
+	s.mustUpdate(t, `INSERT INTO inbox_item(workspace_id,card_id,user_id,kind,text,options,raised_by,decision_kind) VALUES($1,$2,$3,'agent_decision','x','[]','agent','scope')`, w.ID, c.ID, s.userID(t, a))
+	if _, x, _ := s.chart(t, a, w.ID).find(id); x.Status != "working" {
+		t.Fatalf("%s", x.Status)
+	}
+}

@@ -22,6 +22,8 @@ describe('event to query map', () => {
   it('refreshes the Lab Chart on run, agent, decision and member events', () => {
     for (const type of ['agent_run.queued', 'agent.updated', 'laboratory.installed', 'decision.opened', 'member.joined'])
       has(type, keys.labChart('w1'));
+    for (const type of ['agent_run.usage_updated', 'agent_run.settled'])
+      expect(invalidationsFor('w1', ev(type))).not.toContainEqual(keys.labChart('w1'));
     expect(invalidationsFor('w1', ev('card.moved'))).not.toContainEqual(keys.labChart('w1'));
   });
 

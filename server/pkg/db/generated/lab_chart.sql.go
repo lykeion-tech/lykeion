@@ -60,7 +60,7 @@ const labChartDecisions = `-- name: LabChartDecisions :many
 SELECT i.card_id, i.created_at, c.title,
   (SELECT r.agent_id FROM agent_run r WHERE r.workspace_id = i.workspace_id AND r.card_id = i.card_id AND r.kind = 'role' AND r.agent_id IS NOT NULL
     ORDER BY r.created_at DESC, r.id DESC LIMIT 1)::uuid AS agent_id,
-  ($1::bool OR c.owner_id = $2::uuid)::bool AS may_answer
+  ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL) AND ($1::bool OR c.owner_id = $2::uuid))::bool AS may_answer
 FROM inbox_item i JOIN card c ON c.workspace_id = i.workspace_id AND c.id = i.card_id
 WHERE i.workspace_id = $3 AND i.kind = 'agent_decision' AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
 `
@@ -108,17 +108,18 @@ func (q *Queries) LabChartDecisions(ctx context.Context, arg LabChartDecisionsPa
 }
 
 const labChartLastFinished = `-- name: LabChartLastFinished :many
-SELECT agent_id, max(completed_at)::timestamptz AS at FROM agent_run
-WHERE workspace_id = $1 AND kind = 'role' AND agent_id IS NOT NULL AND status = 'completed' AND completed_at IS NOT NULL
-GROUP BY agent_id
+SELECT a.id AS agent_id, l.completed_at::timestamptz AS at FROM agent a
+JOIN LATERAL (SELECT r.completed_at FROM agent_run r WHERE r.workspace_id = a.workspace_id AND r.agent_id = a.id
+  AND r.kind = 'role' AND r.status = 'completed' AND r.completed_at IS NOT NULL ORDER BY r.completed_at DESC LIMIT 1) l ON true
+WHERE a.workspace_id = $1 AND a.stage <> '' AND a.deleted_at IS NULL AND a.archived_at IS NULL
 `
 
 type LabChartLastFinishedRow struct {
-	AgentID *uuid.UUID `json:"agent_id"`
-	At      time.Time  `json:"at"`
+	AgentID uuid.UUID `json:"agent_id"`
+	At      time.Time `json:"at"`
 }
 
-// Each agent's last finished run.
+// Each agent's last finished run, one index probe per agent.
 func (q *Queries) LabChartLastFinished(ctx context.Context, workspaceID uuid.UUID) ([]LabChartLastFinishedRow, error) {
 	rows, err := q.db.Query(ctx, labChartLastFinished, workspaceID)
 	if err != nil {
@@ -244,26 +245,29 @@ func (q *Queries) LabChartRuntimes(ctx context.Context, workspaceID uuid.UUID) (
 
 const labChartTicker = `-- name: LabChartTicker :one
 SELECT at, event, agent_name, stage, title FROM (
-  SELECT r.started_at AS at, 'started' AS event, a.name AS agent_name, r.board_column AS stage, c.title
+  (SELECT r.started_at AS at, 'started' AS event, a.name AS agent_name, r.board_column AS stage, c.title
   FROM agent_run r JOIN agent a ON a.workspace_id = r.workspace_id AND a.id = r.agent_id
     JOIN card c ON c.workspace_id = r.workspace_id AND c.id = r.card_id
   WHERE r.workspace_id = $1 AND r.kind = 'role' AND r.started_at IS NOT NULL
     AND (a.visibility = 'workspace' OR a.owner_id = $2::uuid OR $3::bool)
+  ORDER BY r.started_at DESC LIMIT 1)
   UNION ALL
-  SELECT r.completed_at, 'finished', a.name, r.board_column, c.title
+  (SELECT r.completed_at, 'finished', a.name, r.board_column, c.title
   FROM agent_run r JOIN agent a ON a.workspace_id = r.workspace_id AND a.id = r.agent_id
     JOIN card c ON c.workspace_id = r.workspace_id AND c.id = r.card_id
   WHERE r.workspace_id = $1 AND r.kind = 'role' AND r.status = 'completed' AND r.completed_at IS NOT NULL
     AND (a.visibility = 'workspace' OR a.owner_id = $2::uuid OR $3::bool)
+  ORDER BY r.completed_at DESC LIMIT 1)
   UNION ALL
-  SELECT i.created_at, 'waiting', a.name, c.board_column, c.title
+  (SELECT i.created_at, 'waiting', a.name, c.board_column, c.title
   FROM inbox_item i JOIN card c ON c.workspace_id = i.workspace_id AND c.id = i.card_id
     JOIN LATERAL (SELECT r.agent_id, r.board_column FROM agent_run r WHERE r.workspace_id = i.workspace_id AND r.card_id = i.card_id
       AND r.kind = 'role' AND r.agent_id IS NOT NULL ORDER BY r.created_at DESC, r.id DESC LIMIT 1) lr ON true
     JOIN agent a ON a.workspace_id = i.workspace_id AND a.id = lr.agent_id
   WHERE i.workspace_id = $1 AND i.kind = 'agent_decision' AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
-    AND ($3::bool OR c.owner_id = $2::uuid)
+    AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL) AND ($3::bool OR c.owner_id = $2::uuid)
     AND (a.visibility = 'workspace' OR a.owner_id = $2::uuid OR $3::bool)
+  ORDER BY i.created_at DESC LIMIT 1)
 ) e ORDER BY at DESC LIMIT 1
 `
 
