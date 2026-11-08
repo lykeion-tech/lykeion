@@ -372,6 +372,19 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, arg GetAgentForUpdatePa
 	return i, err
 }
 
+const laboratoryMerge = `-- name: LaboratoryMerge :one
+SELECT laboratory_merge($1::uuid)::uuid[] AS dropped
+`
+
+// Merges the private copies of a laboratory member into its shared agent and
+// names the agents whose own customisation rows were dropped.
+func (q *Queries) LaboratoryMerge(ctx context.Context, keep uuid.UUID) ([]uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, laboratoryMerge, keep)
+	var dropped []uuid.UUID
+	err := row.Scan(&dropped)
+	return dropped, err
+}
+
 const listAgents = `-- name: ListAgents :many
 SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
   CASE WHEN a.built_in_key <> '' OR EXISTS (

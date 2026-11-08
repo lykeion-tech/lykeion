@@ -246,7 +246,6 @@ func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
 	if err := tx.Q.LockWorkspaceEvents(ctx, tx.WS); err != nil {
 		return err
 	}
-	var refs []store.AgentRef
 	var owner uuid.UUID
 	installed, reset := false, []string{}
 	for _, stage := range board.Stages {
@@ -269,21 +268,16 @@ func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
 			if slices.ContainsFunc(shared, func(r db.TeamAgent) bool { return r.Member == mem.Name }) {
 				continue
 			}
-			if refs == nil {
-				if refs, err = tx.AgentRefs(ctx); err != nil {
-					return err
-				}
+			if owner == uuid.Nil {
 				if owner, err = tx.Q.OldestOwner(ctx, tx.WS); err != nil {
 					return fmt.Errorf("team: laboratory owner: %w", err)
 				}
 			}
-			customised, err := installMember(ctx, tx, refs, owner, p, m, mem)
+			names, err := installMember(ctx, tx, owner, p, m, mem)
 			if err != nil {
 				return err
 			}
-			if customised {
-				reset = append(reset, mem.Name+" · "+m.Name)
-			}
+			reset = append(reset, names...)
 			installed = true
 		}
 	}
@@ -293,9 +287,10 @@ func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
 	return tx.Emit(ctx, "laboratory.installed", nil, store.System, map[string]any{"reset": reset})
 }
 
-// installMember makes the shared agent for one Team member and reports whether
-// the copy it kept had customisations the reset dropped.
-func installMember(ctx context.Context, tx *store.Tx, refs []store.AgentRef, owner uuid.UUID, p db.FieldPack, m pack.Manifest, mem pack.Member) (bool, error) {
+// installMember makes the shared agent for one Team member and returns the
+// names, as their owners knew them, of the merged copies whose customisations
+// the reset dropped.
+func installMember(ctx context.Context, tx *store.Tx, owner uuid.UUID, p db.FieldPack, m pack.Manifest, mem pack.Member) ([]string, error) {
 	harness, model := mem.Agent.Harness, mem.Agent.Model
 	if len(mem.Agent.Models) > 0 {
 		harness = slices.Sorted(maps.Keys(mem.Agent.Models))[0]
@@ -304,7 +299,7 @@ func installMember(ctx context.Context, tx *store.Tx, refs []store.AgentRef, own
 	base := mem.Name + " · " + m.Name
 	copies, err := tx.Q.TeamMemberCopies(ctx, db.TeamMemberCopiesParams{WorkspaceID: tx.WS, PackID: p.ID, Member: mem.Name})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	var keep db.Agent
 	if i := slices.IndexFunc(copies, func(a db.Agent) bool { return a.DeletedAt == nil && a.TeamDeletedAt == nil }); i >= 0 {
@@ -312,54 +307,64 @@ func installMember(ctx context.Context, tx *store.Tx, refs []store.AgentRef, own
 	} else {
 		name, err := freeName(ctx, tx, base)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if keep, err = tx.Q.CreateAgent(ctx, db.CreateAgentParams{WorkspaceID: tx.WS, Name: name, Description: mem.Role,
 			Instructions: mem.Agent.Instructions, Harness: harness, Model: model, Visibility: "workspace", OwnerID: owner}); err != nil {
-			return false, err
+			return nil, err
 		}
 	}
-	var drop []uuid.UUID
+	apply := func(name string) error {
+		_, err := tx.Q.MakeLaboratoryAgent(ctx, db.MakeLaboratoryAgentParams{WorkspaceID: tx.WS, ID: keep.ID, Name: name,
+			Description: mem.Role, Instructions: mem.Agent.Instructions, Harness: harness, Model: model, OwnerID: owner, Stage: p.Stage})
+		return err
+	}
+	if err := apply(keep.Name); err != nil {
+		return nil, err
+	}
+	if err := tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: tx.WS, PackID: p.ID, Member: mem.Name, AgentID: keep.ID}); err != nil {
+		return nil, err
+	}
+	dropped, err := tx.Q.LaboratoryMerge(ctx, keep.ID)
+	if err != nil {
+		return nil, err
+	}
+	var reset []string
 	for _, a := range copies {
+		if a.DeletedAt != nil || a.TeamDeletedAt != nil {
+			continue // its customisations were gone before the merge
+		}
+		if customised(a, mem.Agent) || slices.Contains(dropped, a.ID) {
+			reset = append(reset, a.Name)
+		}
 		if a.ID != keep.ID {
-			drop = append(drop, a.ID)
-		}
-	}
-	customised := keep.Instructions != mem.Agent.Instructions || keep.Model != model || keep.AvatarUrl != "" ||
-		len(keep.ConversationStarters) > 0 && string(keep.ConversationStarters) != "[]"
-	for _, ref := range refs {
-		if len(drop) > 0 {
-			if _, err := tx.MoveAgentRefs(ctx, ref, drop, keep.ID); err != nil {
-				return false, err
+			if err := tx.Q.DeleteAgent(ctx, db.DeleteAgentParams{WorkspaceID: tx.WS, ID: a.ID}); err != nil {
+				return nil, err
 			}
-		}
-		// The kept agent's own rows are its private Team membership and any
-		// customisation of its skills and connectors.
-		if ref.Owned {
-			n, err := tx.MoveAgentRefs(ctx, ref, []uuid.UUID{keep.ID}, keep.ID)
-			if err != nil {
-				return false, err
-			}
-			customised = customised || n > 0 && ref.Table != "team_agent"
-		}
-	}
-	for _, id := range drop {
-		if err := tx.Q.DeleteAgent(ctx, db.DeleteAgentParams{WorkspaceID: tx.WS, ID: id}); err != nil {
-			return false, err
 		}
 	}
 	// Retiring the other copies frees the plain name for the kept one.
-	name := keep.Name
-	if !strings.EqualFold(name, base) {
-		if name, err = freeName(ctx, tx, base); err != nil {
-			return false, err
+	if !strings.EqualFold(keep.Name, base) {
+		name, err := freeName(ctx, tx, base)
+		if err != nil {
+			return nil, err
+		}
+		if err := apply(name); err != nil {
+			return nil, err
 		}
 	}
-	if _, err := tx.Q.MakeLaboratoryAgent(ctx, db.MakeLaboratoryAgentParams{WorkspaceID: tx.WS, ID: keep.ID, Name: name,
-		Description: mem.Role, Instructions: mem.Agent.Instructions, Harness: harness, Model: model, OwnerID: owner, Stage: p.Stage}); err != nil {
-		return false, err
+	return reset, nil
+}
+
+// customised: a copy's instructions, model or icon differ from what the
+// manifest gives its harness.
+func customised(a db.Agent, def pack.AgentDef) bool {
+	model := def.Model
+	if len(def.Models) > 0 {
+		model = def.Models[a.Harness]
 	}
-	return customised, tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: tx.WS, PackID: p.ID, Member: mem.Name, AgentID: keep.ID})
+	return a.Instructions != def.Instructions || a.Model != model || a.AvatarUrl != "" ||
+		len(a.ConversationStarters) > 0 && string(a.ConversationStarters) != "[]"
 }
 
 // freeName is base, or base with " 2", " 3" … until no live agent holds it.

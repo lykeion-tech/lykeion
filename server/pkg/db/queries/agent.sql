@@ -75,3 +75,8 @@ UPDATE agent SET name = @name, description = @description, instructions = @instr
   visibility = 'workspace', owner_id = @owner_id, laboratory = 'built-in', stage = @stage, avatar_url = '', conversation_starters = '[]'::jsonb,
   archived_at = NULL, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
+
+-- Merges the private copies of a laboratory member into its shared agent and
+-- names the agents whose own customisation rows were dropped.
+-- name: LaboratoryMerge :one
+SELECT laboratory_merge(@keep::uuid)::uuid[] AS dropped;

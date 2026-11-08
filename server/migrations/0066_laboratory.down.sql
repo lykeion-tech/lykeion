@@ -1,3 +1,4 @@
+DROP FUNCTION laboratory_merge(uuid);
 DELETE FROM team_agent WHERE user_id IS NULL;
 DROP INDEX team_agent_shared;
 DROP INDEX team_agent_personal;

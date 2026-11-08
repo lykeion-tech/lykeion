@@ -261,7 +261,29 @@ func TestInstallLaboratoryMergesPrivateCopies(t *testing.T) {
 		t.Fatalf("leader copies: %+v %+v", oldest, newer)
 	}
 	// The owner customised their copy; each person has a study and a run on theirs.
-	if _, err := l.env.Owner.Exec(context.Background(), `UPDATE agent SET instructions = 'my own way', name = 'My leader' WHERE id = $1`, oldest.ID); err != nil {
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := l.env.Owner.Exec(context.Background(), sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE agent SET instructions = 'my own way', name = 'My leader' WHERE id = $1`, oldest.ID)
+	// Ben customised his too, and holds a private Coresearch conversation and
+	// leads a project with it.
+	exec(`UPDATE agent SET instructions = 'ben''s way' WHERE id = $1`, newer.ID)
+	var project, chat, conversation, research uuid.UUID
+	if err := l.env.Owner.QueryRow(context.Background(), `INSERT INTO coresearch_project (workspace_id, name, created_by) VALUES ($1, 'p', $2) RETURNING id`, l.ws, ben).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.env.Owner.QueryRow(context.Background(), `INSERT INTO coresearch_chat (workspace_id, project_id, owner_id, mode, cli) VALUES ($1, $2, $3, 'experiment', 'claude') RETURNING id`, l.ws, project, ben).Scan(&chat); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.env.Owner.QueryRow(context.Background(), `INSERT INTO coresearch_conversation (workspace_id, owner_id, agent_id, project_id, chat_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		l.ws, ben, newer.ID, project, chat).Scan(&conversation); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.env.Owner.QueryRow(context.Background(), `INSERT INTO research (workspace_id, name, created_by, lead_type, lead_id) VALUES ($1, 'r', $2, 'agent', $3) RETURNING id`,
+		l.ws, ben, newer.ID).Scan(&research); err != nil {
 		t.Fatal(err)
 	}
 	runs := map[uuid.UUID]uuid.UUID{}
@@ -299,7 +321,13 @@ func TestInstallLaboratoryMergesPrivateCopies(t *testing.T) {
 			t.Errorf("copy %q was not retired", c.Name)
 		}
 	}
-	// Nothing references a retired copy.
+	// Nothing references a retired copy. The list is kept by hand so that a
+	// column the merge misses fails here; a new foreign key must join it.
+	cols := map[[2]string]bool{
+		{"agent_run", "agent_id"}: true, {"coresearch_conversation", "agent_id"}: true, {"team_agent", "agent_id"}: true,
+		{"agent_capabilities", "agent_id"}: true, {"card", "assignee_id"}: true, {"autoresearch", "assignee_id"}: true,
+		{"research", "lead_id"}: true,
+	}
 	refs, err := l.env.Owner.Query(context.Background(), `SELECT c.conrelid::regclass::text, a.attname
 FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey, c.confkey) k(col, ref)
 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.col
@@ -308,23 +336,37 @@ WHERE c.contype = 'f' AND c.confrelid = 'agent'::regclass AND r.attname = 'id'`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cols [][2]string
 	for refs.Next() {
 		var tbl, col string
 		if err := refs.Scan(&tbl, &col); err != nil {
 			t.Fatal(err)
 		}
-		cols = append(cols, [2]string{tbl, col})
+		if !cols[[2]string{tbl, col}] {
+			t.Errorf("%s.%s references agent and is missing from this test's list", tbl, col)
+		}
 	}
 	refs.Close()
-	if len(cols) == 0 {
-		t.Fatal("found no foreign keys to agent")
-	}
-	cols = append(cols, [2]string{"card", "assignee_id"}, [2]string{"autoresearch", "assignee_id"})
-	for _, c := range cols {
+	for c := range cols {
 		if n := l.count(t, `SELECT count(*) FROM `+c[0]+` x JOIN agent a ON a.id = x.`+c[1]+` WHERE a.workspace_id = $1 AND a.deleted_at IS NOT NULL`, l.ws); n != 0 {
 			t.Errorf("%s.%s: %d rows reference a retired copy", c[0], c[1], n)
 		}
+	}
+	// Ben, through the app role and its per-owner policy, finds his
+	// conversation on the shared agent.
+	var seen uuid.UUID
+	appTx, err := l.env.App.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appTx.Rollback(context.Background())
+	if _, err := appTx.Exec(context.Background(), `SELECT set_config('app.workspace_id', $1, true), set_config('app.user_id', $2, true)`, l.ws.String(), ben.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := appTx.QueryRow(context.Background(), `SELECT agent_id FROM coresearch_conversation WHERE id = $1`, conversation).Scan(&seen); err != nil || seen != kept.ID {
+		t.Errorf("Ben's conversation is on %v (%v), want the shared %v", seen, err, kept.ID)
+	}
+	if n := l.count(t, `SELECT count(*) FROM research WHERE id = $1 AND lead_type = 'agent' AND lead_id = $2`, research, kept.ID); n != 1 {
+		t.Error("the project's lead was not moved onto the shared agent")
 	}
 	for run, owner := range runs {
 		if n := l.count(t, `SELECT count(*) FROM agent_run WHERE id = $1 AND agent_id = $2 AND responsible_user_id = $3`, run, kept.ID, owner); n != 1 {
@@ -338,8 +380,9 @@ WHERE c.contype = 'f' AND c.confrelid = 'agent'::regclass AND r.attname = 'id'`)
 	if err := l.env.Owner.QueryRow(context.Background(), `SELECT payload->'reset' FROM event WHERE workspace_id = $1 AND type = 'laboratory.installed'`, l.ws).Scan(&reset); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(reset, leaderName) || len(reset) != 1 {
-		t.Fatalf("reset %v, want only %q", reset, leaderName)
+	sort.Strings(reset)
+	if want := []string{"My leader", leaderName + " 2"}; !slices.Equal(reset, want) {
+		t.Fatalf("reset %v, want %v", reset, want)
 	}
 }
 
