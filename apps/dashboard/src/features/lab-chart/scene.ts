@@ -60,14 +60,26 @@ function add(
   return o;
 }
 
-// A plane carrying one line of text, sized by fitFontSize to stay inside its surface. The
-// texture is drawn now and again once the web font has loaded.
+// A plane carrying text, sized by fitFontSize to stay inside its surface. With `split`, the
+// last word goes on a second line and both lines share the size that fits the wider one.
+// The texture is drawn now and again once the web font has loaded.
 export function textPlane(
   text: string,
   w: number,
   h: number,
-  o: { weight: number; family: string; color: string; bg?: string; fill: number; margin?: number },
+  o: {
+    weight: number;
+    family: string;
+    color: string;
+    bg?: string;
+    fill: number;
+    margin?: number;
+    split?: boolean;
+  },
 ) {
+  const words = text.split(' ');
+  const lines =
+    o.split && words.length > 1 ? [words.slice(0, -1).join(' '), words[words.length - 1]] : [text];
   const cv = document.createElement('canvas');
   cv.width = 2048;
   cv.height = Math.round((2048 * h) / w);
@@ -79,15 +91,20 @@ export function textPlane(
       g.fillStyle = o.bg;
       g.fillRect(0, 0, cv.width, cv.height);
     }
-    const measure = (size: number) => {
+    const width = (line: string, size: number) => {
       g.font = `${o.weight} ${size}px ${o.family}`;
-      return g.measureText(text).width;
+      return g.measureText(line).width;
     };
-    g.font = `${o.weight} ${fitFontSize(text, measure, cv.width, cv.height, o.fill, o.margin)}px ${o.family}`;
+    const wide = lines.reduce((a, b) => (width(b, 100) > width(a, 100) ? b : a));
+    const lineHeight = cv.height / lines.length;
+    const size = fitFontSize(wide, (sz) => width(wide, sz), cv.width, lineHeight, o.fill, o.margin);
+    g.font = `${o.weight} ${size}px ${o.family}`;
     g.fillStyle = o.color;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(text, cv.width / 2, cv.height / 2);
+    lines.forEach((line, i) =>
+      g.fillText(line, cv.width / 2, cv.height / 2 + (i - (lines.length - 1) / 2) * size),
+    );
     tex.needsUpdate = true;
   };
   draw();
@@ -101,6 +118,7 @@ export function textPlane(
     new THREE.MeshBasicMaterial({ map: tex, transparent: !o.bg }),
   );
   mesh.userData.text = text;
+  mesh.userData.lines = lines;
   return mesh;
 }
 
@@ -175,11 +193,27 @@ export function addSurroundings(scene: THREE.Scene) {
   add(scene, new THREE.BoxGeometry(7, 0.3, 4.5), mat(GLASS), 3, 5.6, 3, false);
 }
 
+const TV = {
+  weight: 600,
+  family: 'Barlow, sans-serif',
+  color: '#ffffff',
+  bg: '#2c4f6b',
+  fill: 0.95,
+  margin: 0.94,
+  split: true,
+};
+
 export type Labelled = { key: string; anchor: THREE.Vector3 };
 export type Rooms = { group: THREE.Group; pickables: THREE.Mesh[]; labelled: Labelled[] };
 
 // The five rooms pulled out of the building: one per stage, then the Conference room.
-export function buildRooms(rooms: LabChartRoom[], people: LabChartPerson[]): Rooms {
+// `text` returns the plane for a label, so a caller can keep planes across rebuilds; the
+// planes it hands out are not disposed with the rooms.
+export function buildRooms(
+  rooms: LabChartRoom[],
+  people: LabChartPerson[],
+  text: (key: string, make: () => THREE.Mesh) => THREE.Mesh,
+): Rooms {
   const group = new THREE.Group();
   const pickables: THREE.Mesh[] = [];
   const labelled: Labelled[] = [];
@@ -332,13 +366,16 @@ export function buildRooms(rooms: LabChartRoom[], people: LabChartPerson[]): Roo
     group.add(board);
     add(board, new THREE.BoxGeometry(9.3, 2.3, 0.1), mat(0x8a6a48), 0, 0.6 + 2.1, 0, true);
     add(board, new THREE.BoxGeometry(9, 2.05, 0.12), mat(0x2f4a3c), 0, 0.6 + 2.1, 0, false);
-    const chalk = textPlane(STAGE_LABEL[room.stage], 9, 2.05, {
-      weight: 600,
-      family: 'Caveat, cursive',
-      color: '#eef2ec',
-      fill: 0.95,
-      margin: 0.94,
-    });
+    const label = STAGE_LABEL[room.stage];
+    const chalk = text(`chalk:${label}`, () =>
+      textPlane(label, 9, 2.05, {
+        weight: 600,
+        family: 'Caveat, cursive',
+        color: '#eef2ec',
+        fill: 0.95,
+        margin: 0.94,
+      }),
+    );
     chalk.position.set(0, 0.6 + 2.1, 0.07);
     board.add(chalk);
     add(
@@ -349,13 +386,7 @@ export function buildRooms(rooms: LabChartRoom[], people: LabChartPerson[]): Roo
       0.6 + 2.75,
       r.z1 + 0.38,
     );
-    const tv = textPlane(room.team, 5.3, 1.4, {
-      weight: 600,
-      family: 'Barlow, sans-serif',
-      color: '#ffffff',
-      bg: '#2c4f6b',
-      fill: 0.7,
-    });
+    const tv = text(`tv:${room.team}`, () => textPlane(room.team, 5.3, 1.4, TV));
     tv.position.set(spot.x - 1.5, 0.6 + 2.75, r.z1 + 0.46);
     group.add(tv);
     bookshelf(r.x1 + 3.2, r.z1 + 0.55, 3.4);
@@ -370,13 +401,7 @@ export function buildRooms(rooms: LabChartRoom[], people: LabChartPerson[]): Roo
   const r = shell(spot.x, spot.z, ROOM_WIDTH, conf.depth, 0xdfe4ea);
   leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
   add(group, new THREE.BoxGeometry(6.2, 1.9, 0.14), mat(0x1b1c1e), spot.x, 0.6 + 2.6, r.z1 + 0.38);
-  const tv = textPlane('Conference room', 5.9, 1.65, {
-    weight: 600,
-    family: 'Barlow, sans-serif',
-    color: '#ffffff',
-    bg: '#2c4f6b',
-    fill: 0.6,
-  });
+  const tv = text('tv:Conference room', () => textPlane('Conference room', 5.9, 1.65, TV));
   tv.position.set(spot.x, 0.6 + 2.6, r.z1 + 0.46);
   group.add(tv);
   for (const t of conf.tables) {

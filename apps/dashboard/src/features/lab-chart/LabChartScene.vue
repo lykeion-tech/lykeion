@@ -21,7 +21,13 @@ const props = withDefaults(
 const emit = defineEmits<{ 'open-agent': [id: string]; 'open-person': [userId: string] }>();
 
 type Entity =
-  | { key: string; kind: 'agent'; agent: LabChartAgent; stage: LabChartRoom['stage'] }
+  | {
+      key: string;
+      kind: 'agent';
+      agent: LabChartAgent;
+      stage: LabChartRoom['stage'];
+      name: string;
+    }
   | { key: string; kind: 'person'; person: LabChartPerson };
 
 // The preview's Conference room seats only the person looking at it.
@@ -32,11 +38,25 @@ const shown = computed<LabChart>(() => ({
       ? props.chart.people.filter((p) => p.user_id === props.me)
       : props.chart.people,
 }));
+// Laboratory agents are named "<member> · <Team>"; inside their Team's room the member name
+// is enough.
+function shortName(a: LabChartAgent, team: string) {
+  const suffix = ` · ${team}`;
+  return a.source === 'laboratory' && a.name.endsWith(suffix)
+    ? a.name.slice(0, -suffix.length)
+    : a.name;
+}
 const entities = computed(() => {
   const out = new Map<string, Entity>();
   for (const room of shown.value.rooms)
     for (const agent of room.agents)
-      out.set(`a:${agent.id}`, { key: `a:${agent.id}`, kind: 'agent', agent, stage: room.stage });
+      out.set(`a:${agent.id}`, {
+        key: `a:${agent.id}`,
+        kind: 'agent',
+        agent,
+        stage: room.stage,
+        name: shortName(agent, room.team),
+      });
   for (const person of shown.value.people)
     out.set(`p:${person.user_id}`, { key: `p:${person.user_id}`, kind: 'person', person });
   return out;
@@ -59,14 +79,14 @@ const pills = computed(() => {
     const a = e.agent;
     if (a.status === 'idle' && hovered.value !== e.key) return [];
     if (a.status === 'needs_you')
-      return [{ key: e.key, cls: 'ask', name: a.name, dot: '', tail: ' · needs your answer' }];
+      return [{ key: e.key, cls: 'ask', name: e.name, dot: '', tail: ' · needs your answer' }];
     const dot = hex(a.role === 'auditor' ? AUDITOR : COL[e.stage]);
     const work = a.studies.length > 1 ? `${a.studies.length} studies` : a.studies[0]?.title;
     return [
       {
         key: e.key,
         cls: '',
-        name: a.name,
+        name: e.name,
         dot,
         tail: a.status === 'working' && work ? ` · ${work}` : '',
       },
@@ -137,7 +157,7 @@ const panel = computed(() => {
     );
   }
   return {
-    name: a.name,
+    name: e.name,
     role: a.role,
     rows,
     link: props.preview ? null : { text: 'Open agent →', go: () => emit('open-agent', a.id) },
@@ -184,13 +204,23 @@ function placeCam() {
   camera.updateProjectionMatrix();
 }
 
+// Text planes are drawn once per label and reused by every rebuild; the scene's disposal
+// on unmount releases them.
+const texts = new Map<string, THREE.Mesh>();
+function cachedText(key: string, make: () => THREE.Mesh) {
+  let m = texts.get(key);
+  if (!m) texts.set(key, (m = make()));
+  return m;
+}
+
 function rebuild() {
   if (!renderer) return;
   if (rooms.value) {
+    for (const m of texts.values()) m.removeFromParent();
     scene.remove(rooms.value.group);
     disposeObject(rooms.value.group);
   }
-  rooms.value = buildRooms(shown.value.rooms, shown.value.people);
+  rooms.value = buildRooms(shown.value.rooms, shown.value.people, cachedText);
   scene.add(rooms.value.group);
   if (selected.value && !entities.value.has(selected.value)) selected.value = null;
 }

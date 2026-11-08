@@ -102,9 +102,12 @@ function fixture(): LabChart {
         team: 'Grounding Team',
         agents: [
           agent('Grounding leader', 'leader'),
-          agent('searcher', 'member', working(['Sleep and memory consolidation'])),
+          agent('searcher · Grounding Team', 'member', working(['Sleep and memory consolidation'])),
           agent('verifier', 'member'),
-          agent('lit-notes', 'member', { source: 'researcher' }),
+          agent('lit-notes · Grounding Team', 'member', {
+            ...working(['Sleep and memory consolidation']),
+            source: 'researcher',
+          }),
           agent('Grounding auditor', 'auditor'),
         ],
       },
@@ -114,7 +117,7 @@ function fixture(): LabChart {
         team: 'Experimentation Team',
         agents: [
           agent(
-            'leader',
+            'leader · Experimentation Team',
             'leader',
             working(['Sleep and memory consolidation', 'Gut microbiome and mood']),
           ),
@@ -124,7 +127,7 @@ function fixture(): LabChart {
         stage: 'validation',
         team: 'Validation Team',
         agents: [
-          agent('checker', 'member', {
+          agent('checker · Validation Team', 'member', {
             status: 'needs_you',
             since: new Date().toISOString(),
             studies: [{ id: 's9', title: 'Caffeine and reaction time' }],
@@ -213,6 +216,17 @@ it('writes exactly the stage, Team and Conference room names, on upright surface
       'Conference room',
     ].sort(),
   );
+  const tvs = texts.filter((m) => m.userData.text.includes(' '));
+  expect(tvs.map((m) => m.userData.lines.join(' ')).sort()).toEqual(
+    [
+      'Grounding Team',
+      'Hypotheses Team',
+      'Experimentation Team',
+      'Validation Team',
+      'Conference room',
+    ].sort(),
+  );
+  for (const m of tvs) expect(m.userData.lines).toHaveLength(2);
   for (const m of texts) {
     const normal = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld);
     expect(Math.abs(normal.y), m.userData.text).toBeLessThan(1e-9);
@@ -228,6 +242,7 @@ it('shows a pill only for working agents and agents that need an answer', () => 
       'checker · needs your answer',
       'leader · 2 studies',
       'searcher · Sleep and memory consolidation',
+      'lit-notes · Grounding Team · Sleep and memory consolidation',
     ].sort(),
   );
   const ask = pills.find((p) => textOf(p).includes('checker'))!;
@@ -338,4 +353,19 @@ it('rebuilds the rooms when the chart changes and disposes everything on unmount
   v.app.unmount();
   expect(gl.disposed).toBe(1);
   expect(textureDispose).toHaveBeenCalled();
+});
+
+it('draws each text texture once, however often the chart changes', async () => {
+  const chart = shallowRef(fixture());
+  const v = mount(() => chart.value);
+  const made = vi.spyOn(THREE, 'CanvasTexture');
+  const next = fixture();
+  next.rooms[0].agents[2].status = 'working';
+  chart.value = next;
+  await nextTick();
+  flush();
+  expect(made).not.toHaveBeenCalled();
+  v.scene().updateMatrixWorld(true);
+  expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(9);
+  v.app.unmount();
 });
