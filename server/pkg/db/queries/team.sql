@@ -35,7 +35,7 @@ SELECT EXISTS (SELECT 1 FROM agent WHERE workspace_id = @workspace_id AND archiv
 -- The store: shipped, workspace-shared, and the user's own Teams.
 -- name: StoreTeams :many
 SELECT DISTINCT ON (p.name) p.*, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
-  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = @user_id::uuid))::bool AS added
+  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND (t.user_id = @user_id::uuid OR t.user_id IS NULL)))::bool AS added
 FROM field_pack p
 WHERE p.workspace_id = @workspace_id AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = @user_id OR p.visibility = 'workspace')
   AND (@domain::text = '' OR p.domain = @domain) AND (@stage::text = '' OR p.stage = @stage)

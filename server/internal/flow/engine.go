@@ -159,7 +159,8 @@ func columnTeam(ctx context.Context, tx *store.Tx, card uuid.UUID, column string
 	return packID, &m, nil
 }
 
-// teamAgent is the study owner's own agent for one member of a Team.
+// teamAgent is the study owner's agent for one member of a Team: their own
+// copy, or the workspace's shared laboratory agent.
 func teamAgent(ctx context.Context, tx *store.Tx, packID, owner uuid.UUID, member string) (db.Agent, error) {
 	a, err := tx.Q.GetTeamAgent(ctx, db.GetTeamAgentParams{WorkspaceID: tx.WS, PackID: packID, UserID: owner, Member: member})
 	if errors.Is(err, pgx.ErrNoRows) {

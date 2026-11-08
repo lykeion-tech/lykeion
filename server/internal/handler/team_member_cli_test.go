@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
+func TestBuiltInTeamReturnsSharedMemberAgents(t *testing.T) {
 	s := newServer(t)
 	s.builtIns(t)
 	s.H.Engine = nil
@@ -34,10 +34,17 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 	}
 	other := s.member(t, auth, ws.ID, "other-cli@lab.org", "member")
 	var otherDetail struct {
-		MyAgents map[string]any `json:"my_agents"`
+		MyAgents map[string]struct {
+			ID string `json:"id"`
+		} `json:"my_agents"`
 	}
-	if code := s.call(t, "GET", "/api/teams/"+id, other, ws.ID, nil, &otherDetail); code != 200 || len(otherDetail.MyAgents) != 0 {
+	if code := s.call(t, "GET", "/api/teams/"+id, other, ws.ID, nil, &otherDetail); code != 200 || len(otherDetail.MyAgents) != len(detail.MyAgents) {
 		t.Fatalf("other user's agents: status %d, agents %v", code, otherDetail.MyAgents)
+	}
+	for name, a := range detail.MyAgents {
+		if otherDetail.MyAgents[name].ID != a.ID {
+			t.Fatalf("%s: the other member sees agent %s, want the shared %s", name, otherDetail.MyAgents[name].ID, a.ID)
+		}
 	}
 	for name, member := range detail.MyAgents {
 		if name != detail.Manifest.Leader.Name {
@@ -75,10 +82,10 @@ func TestBuiltInTeamReturnsOwnMemberAgents(t *testing.T) {
 		t.Fatalf("other teams %d", code)
 	}
 	for _, team := range teams {
-		if team.ID == id && len(team.AgentCLIs) != 0 {
+		if team.ID == id && !slices.Contains(team.AgentCLIs, "codex") {
 			t.Fatalf("other user's CLIs: %v", team.AgentCLIs)
 		}
-		if team.ID == id && team.LeaderCLI != "" {
+		if team.ID == id && team.LeaderCLI != "codex" {
 			t.Fatalf("other user's leader CLI: %q", team.LeaderCLI)
 		}
 	}

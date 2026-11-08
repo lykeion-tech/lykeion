@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -151,8 +152,8 @@ func ColumnTeams(ctx context.Context, tx *store.Tx, from, to string, chosen map[
 // ErrNotAdded: an uploaded Team the user has no agents for.
 var ErrNotAdded = errors.New("add this Team to your workspace first")
 
-// Ensure readies a Team for user: a shipped Team gives them their agents on
-// the spot, an uploaded one must already be added.
+// Ensure readies a Team for user: a shipped Team works with the workspace's
+// shared laboratory agents, an uploaded one must already be added.
 func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
 	p, err := tx.Q.GetFieldPack(ctx, db.GetFieldPackParams{WorkspaceID: tx.WS, ID: packID})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -165,12 +166,12 @@ func Ensure(ctx context.Context, tx *store.Tx, user, packID uuid.UUID) error {
 		return ErrNotAdded
 	}
 	if p.Source == "shipped" {
-		var m pack.Manifest
-		if err := json.Unmarshal(p.Manifest, &m); err != nil {
+		// No user id matches uuid.Nil, so only the shared rows come back.
+		shared, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: packID, UserID: uuid.Nil})
+		if err != nil || len(shared) > 0 {
 			return err
 		}
-		_, err := Add(ctx, tx, p, m, user)
-		return err
+		return InstallLaboratory(ctx, tx)
 	}
 	have, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: packID, UserID: user})
 	if err == nil && len(have) == 0 {
@@ -230,9 +231,24 @@ func Add(ctx context.Context, tx *store.Tx, p db.FieldPack, m pack.Manifest, use
 	return tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: p.ID, UserID: user})
 }
 
-// AddBuiltIn gives user their agents for each built-in stage Team that one of
-// their harnesses can run, so the agents are listed before any study uses them.
-func AddBuiltIn(ctx context.Context, tx *store.Tx, user uuid.UUID) error {
+// ErrLaboratoryReadOnly: laboratory agents change only with the Teams Lykeion
+// ships.
+var ErrLaboratoryReadOnly = errors.New("laboratory agents can't be changed")
+
+// InstallLaboratory gives the transaction's workspace one shared agent, owned
+// by its oldest owner, for each member of every built-in stage Team. A
+// person's private copy of a member is turned into it: the oldest live copy is
+// kept and reset to the shipped manifest, and every other copy's runs,
+// studies and history move onto it before the copy is retired. Members that
+// already have their shared agent are left as they are.
+func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
+	// Serialises with other installs and creators of live names.
+	if err := tx.Q.LockWorkspaceEvents(ctx, tx.WS); err != nil {
+		return err
+	}
+	var refs []store.AgentRef
+	var owner uuid.UUID
+	installed, reset := false, []string{}
 	for _, stage := range board.Stages {
 		p, err := tx.Q.BuiltInStageTeam(ctx, db.BuiltInStageTeamParams{WorkspaceID: tx.WS, Stage: stage})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -245,11 +261,105 @@ func AddBuiltIn(ctx context.Context, tx *store.Tx, user uuid.UUID) error {
 		if err := json.Unmarshal(p.Manifest, &m); err != nil {
 			return err
 		}
-		if _, err := Add(ctx, tx, p, m, user); err != nil && !errors.Is(err, ErrNoHarness) {
+		shared, err := tx.Q.TeamAgentsFor(ctx, db.TeamAgentsForParams{WorkspaceID: tx.WS, PackID: p.ID, UserID: uuid.Nil})
+		if err != nil {
 			return err
 		}
+		for _, mem := range slices.Concat([]pack.Member{m.Leader, m.Auditor}, m.Members) {
+			if slices.ContainsFunc(shared, func(r db.TeamAgent) bool { return r.Member == mem.Name }) {
+				continue
+			}
+			if refs == nil {
+				if refs, err = tx.AgentRefs(ctx); err != nil {
+					return err
+				}
+				if owner, err = tx.Q.OldestOwner(ctx, tx.WS); err != nil {
+					return fmt.Errorf("team: laboratory owner: %w", err)
+				}
+			}
+			customised, err := installMember(ctx, tx, refs, owner, p, m, mem)
+			if err != nil {
+				return err
+			}
+			if customised {
+				reset = append(reset, mem.Name+" · "+m.Name)
+			}
+			installed = true
+		}
 	}
-	return nil
+	if !installed {
+		return nil
+	}
+	return tx.Emit(ctx, "laboratory.installed", nil, store.System, map[string]any{"reset": reset})
+}
+
+// installMember makes the shared agent for one Team member and reports whether
+// the copy it kept had customisations the reset dropped.
+func installMember(ctx context.Context, tx *store.Tx, refs []store.AgentRef, owner uuid.UUID, p db.FieldPack, m pack.Manifest, mem pack.Member) (bool, error) {
+	harness, model := mem.Agent.Harness, mem.Agent.Model
+	if len(mem.Agent.Models) > 0 {
+		harness = slices.Sorted(maps.Keys(mem.Agent.Models))[0]
+		model = mem.Agent.Models[harness]
+	}
+	base := mem.Name + " · " + m.Name
+	copies, err := tx.Q.TeamMemberCopies(ctx, db.TeamMemberCopiesParams{WorkspaceID: tx.WS, PackID: p.ID, Member: mem.Name})
+	if err != nil {
+		return false, err
+	}
+	var keep db.Agent
+	if i := slices.IndexFunc(copies, func(a db.Agent) bool { return a.DeletedAt == nil && a.TeamDeletedAt == nil }); i >= 0 {
+		keep = copies[i]
+	} else {
+		name, err := freeName(ctx, tx, base)
+		if err != nil {
+			return false, err
+		}
+		if keep, err = tx.Q.CreateAgent(ctx, db.CreateAgentParams{WorkspaceID: tx.WS, Name: name, Description: mem.Role,
+			Instructions: mem.Agent.Instructions, Harness: harness, Model: model, Visibility: "workspace", OwnerID: owner}); err != nil {
+			return false, err
+		}
+	}
+	var drop []uuid.UUID
+	for _, a := range copies {
+		if a.ID != keep.ID {
+			drop = append(drop, a.ID)
+		}
+	}
+	customised := keep.Instructions != mem.Agent.Instructions || keep.Model != model || keep.AvatarUrl != "" ||
+		len(keep.ConversationStarters) > 0 && string(keep.ConversationStarters) != "[]"
+	for _, ref := range refs {
+		if len(drop) > 0 {
+			if _, err := tx.MoveAgentRefs(ctx, ref, drop, keep.ID); err != nil {
+				return false, err
+			}
+		}
+		// The kept agent's own rows are its private Team membership and any
+		// customisation of its skills and connectors.
+		if ref.Owned {
+			n, err := tx.MoveAgentRefs(ctx, ref, []uuid.UUID{keep.ID}, keep.ID)
+			if err != nil {
+				return false, err
+			}
+			customised = customised || n > 0 && ref.Table != "team_agent"
+		}
+	}
+	for _, id := range drop {
+		if err := tx.Q.DeleteAgent(ctx, db.DeleteAgentParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+			return false, err
+		}
+	}
+	// Retiring the other copies frees the plain name for the kept one.
+	name := keep.Name
+	if !strings.EqualFold(name, base) {
+		if name, err = freeName(ctx, tx, base); err != nil {
+			return false, err
+		}
+	}
+	if _, err := tx.Q.MakeLaboratoryAgent(ctx, db.MakeLaboratoryAgentParams{WorkspaceID: tx.WS, ID: keep.ID, Name: name,
+		Description: mem.Role, Instructions: mem.Agent.Instructions, Harness: harness, Model: model, OwnerID: owner, Stage: p.Stage}); err != nil {
+		return false, err
+	}
+	return customised, tx.Q.InsertTeamAgent(ctx, db.InsertTeamAgentParams{WorkspaceID: tx.WS, PackID: p.ID, Member: mem.Name, AgentID: keep.ID})
 }
 
 // freeName is base, or base with " 2", " 3" … until no live agent holds it.

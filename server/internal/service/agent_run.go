@@ -31,7 +31,6 @@ import (
 	"lykeion/server/internal/skill"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
-	"lykeion/server/internal/team"
 	"lykeion/server/internal/toolroute"
 	"lykeion/server/internal/workflow"
 	"lykeion/server/pkg/agent"
@@ -503,9 +502,6 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 				return err
 			}
 			out = append(out, r)
-		}
-		if err := team.AddBuiltIn(ctx, tx, user); err != nil {
-			return err
 		}
 		return tx.Emit(ctx, "runtime.online", nil, store.User(user), map[string]any{"daemon_id": daemonID, "harnesses": harnesses})
 	})

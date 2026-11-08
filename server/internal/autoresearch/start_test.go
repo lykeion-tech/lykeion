@@ -118,8 +118,11 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 		if r.CardID == nil {
 			t.Fatalf("run: %s", reason(r))
 		}
-		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id = $1 AND pack_id = $2`, collab, hyp); n == 0 {
-			t.Fatal("the actor has no agents for the chosen built-in Team")
+		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE pack_id = $1 AND user_id IS NULL`, hyp); n == 0 {
+			t.Fatal("the chosen built-in Team has no shared agents")
+		}
+		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id = $1`, collab); n != 0 {
+			t.Fatalf("the actor got %d private copies", n)
 		}
 	})
 	t.Run("no assignee", func(t *testing.T) {
@@ -141,8 +144,11 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 				t.Fatalf("teams: %v", got)
 			}
 		}
-		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id = $1`, collab); n == 0 {
-			t.Fatal("the actor has no agents for the built-in Teams")
+		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id IS NULL`); n == 0 {
+			t.Fatal("the built-in Teams have no shared agents")
+		}
+		if n := f.count(t, `SELECT count(*) FROM team_agent WHERE user_id = $1`, collab); n != 0 {
+			t.Fatalf("the actor got %d private copies", n)
 		}
 		if got := f.stageRuns(t, c.ID, "grounding"); got["leader"] != 1 || len(got) != 1 {
 			t.Fatalf("runs: %v", got)

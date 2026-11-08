@@ -144,7 +144,7 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (Age
 
 const archiveOwnedAgents = `-- name: ArchiveOwnedAgents :many
 UPDATE agent SET archived_at = now(), updated_at = now()
-WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory
+WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' AND laboratory = '' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory
 `
 
 type ArchiveOwnedAgentsParams struct {
@@ -444,6 +444,126 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 			&i.Laboratory,
 			&i.TeamMember,
 			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const makeLaboratoryAgent = `-- name: MakeLaboratoryAgent :one
+UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5,
+  visibility = 'workspace', owner_id = $6, laboratory = 'built-in', stage = $7, avatar_url = '', conversation_starters = '[]'::jsonb,
+  archived_at = NULL, updated_at = now()
+WHERE workspace_id = $8 AND id = $9 RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory
+`
+
+type MakeLaboratoryAgentParams struct {
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Instructions string    `json:"instructions"`
+	Harness      string    `json:"harness"`
+	Model        string    `json:"model"`
+	OwnerID      uuid.UUID `json:"owner_id"`
+	Stage        string    `json:"stage"`
+	WorkspaceID  uuid.UUID `json:"workspace_id"`
+	ID           uuid.UUID `json:"id"`
+}
+
+func (q *Queries) MakeLaboratoryAgent(ctx context.Context, arg MakeLaboratoryAgentParams) (Agent, error) {
+	row := q.db.QueryRow(ctx, makeLaboratoryAgent,
+		arg.Name,
+		arg.Description,
+		arg.Instructions,
+		arg.Harness,
+		arg.Model,
+		arg.OwnerID,
+		arg.Stage,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.Instructions,
+		&i.Harness,
+		&i.Model,
+		&i.Visibility,
+		&i.OwnerID,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.BuiltInKey,
+		&i.ConversationStarters,
+		&i.AvatarUrl,
+		&i.TeamDeletedAt,
+		&i.DeletedAt,
+		&i.Stage,
+		&i.Laboratory,
+	)
+	return i, err
+}
+
+const oldestOwner = `-- name: OldestOwner :one
+SELECT user_id FROM member WHERE workspace_id = $1 AND role = 'owner' ORDER BY created_at, user_id LIMIT 1
+`
+
+func (q *Queries) OldestOwner(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, oldestOwner, workspaceID)
+	var user_id uuid.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const teamMemberCopies = `-- name: TeamMemberCopies :many
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+WHERE t.workspace_id = $1 AND t.pack_id = $2 AND t.member = $3 AND t.user_id IS NOT NULL
+ORDER BY a.created_at, a.id
+`
+
+type TeamMemberCopiesParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	PackID      uuid.UUID `json:"pack_id"`
+	Member      string    `json:"member"`
+}
+
+// Every person's private copy of one Team member, oldest first.
+func (q *Queries) TeamMemberCopies(ctx context.Context, arg TeamMemberCopiesParams) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, teamMemberCopies, arg.WorkspaceID, arg.PackID, arg.Member)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Agent
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.Instructions,
+			&i.Harness,
+			&i.Model,
+			&i.Visibility,
+			&i.OwnerID,
+			&i.ArchivedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BuiltInKey,
+			&i.ConversationStarters,
+			&i.AvatarUrl,
+			&i.TeamDeletedAt,
+			&i.DeletedAt,
+			&i.Stage,
+			&i.Laboratory,
 		); err != nil {
 			return nil, err
 		}

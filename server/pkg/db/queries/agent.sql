@@ -59,4 +59,19 @@ SELECT kind::text AS kind, label::text AS label, owner::text AS owner FROM (
 
 -- name: ArchiveOwnedAgents :many
 UPDATE agent SET archived_at = now(), updated_at = now()
-WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND archived_at IS NULL AND built_in_key='' RETURNING *;
+WHERE workspace_id = @workspace_id AND owner_id = @owner_id AND archived_at IS NULL AND built_in_key='' AND laboratory = '' RETURNING *;
+
+-- name: OldestOwner :one
+SELECT user_id FROM member WHERE workspace_id = @workspace_id AND role = 'owner' ORDER BY created_at, user_id LIMIT 1;
+
+-- Every person's private copy of one Team member, oldest first.
+-- name: TeamMemberCopies :many
+SELECT a.* FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+WHERE t.workspace_id = @workspace_id AND t.pack_id = @pack_id AND t.member = @member AND t.user_id IS NOT NULL
+ORDER BY a.created_at, a.id;
+
+-- name: MakeLaboratoryAgent :one
+UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model,
+  visibility = 'workspace', owner_id = @owner_id, laboratory = 'built-in', stage = @stage, avatar_url = '', conversation_starters = '[]'::jsonb,
+  archived_at = NULL, updated_at = now()
+WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
