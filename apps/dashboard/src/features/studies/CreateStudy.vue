@@ -94,6 +94,8 @@ const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : nul
 function initialRange(): Range {
   const a = props.assignee;
   const columns = a?.type === 'team' ? Object.keys(a.teams) : [];
+  const own = a?.type === 'agent' ? agents.data.value?.find((x) => x.id === a.id)?.stage : '';
+  if (own) return { from: own, to: own };
   return columns.length === 1 && a?.type === 'team' && !a.agent_id
     ? { from: columns[0]!, to: columns[0]! }
     : { from: 'grounding', to: 'validation' };

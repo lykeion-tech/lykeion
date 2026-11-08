@@ -52,12 +52,25 @@ const addedTeams = computed(() =>
 const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
 // is offered only to its owner.
+// An agent works one stage, so a one-agent study offers the agents of the
+// stage chosen; an agent with no stage is never offered.
 const assignableAgents = computed(() =>
   props.agents || props.oneAgent
     ? (agentList.data.value ?? []).filter(
-        (a) => !a.archived_at && (a.visibility === 'workspace' || a.owner_id === me.data.value?.id),
+        (a) =>
+          !a.archived_at &&
+          !!a.stage &&
+          (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
+          (!props.oneAgent ||
+            assignee.value?.type === 'agent' ||
+            range.value.from !== range.value.to ||
+            a.stage === range.value.from),
       )
     : [],
+);
+// The agent for an Autoresearch's uncovered stages must work one of them.
+const fillerAgents = computed(() =>
+  assignableAgents.value.filter((a) => !setSlots.value[a.stage]),
 );
 const teamColumns = computed(() =>
   assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
@@ -168,10 +181,14 @@ function assign(value: Picked | null, last = false, isSet = false) {
   setPick.value = isSet ? value : null;
   // One Team keeps its own stage; a set and any other assignee run end to end.
   const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
+  // One agent works only its own stage.
+  const own = value?.type === 'agent' && props.oneAgent ? agentList.data.value?.find((a) => a.id === value.id)?.stage : '';
   range.value =
-    !isSet && cols.length === 1
-      ? { from: cols[0]!, to: cols[0]! }
-      : { from: 'grounding', to: 'validation' };
+    own
+      ? { from: own, to: own }
+      : !isSet && cols.length === 1
+        ? { from: cols[0]!, to: cols[0]! }
+        : { from: 'grounding', to: 'validation' };
   emit('picked', last);
   closeMenu();
 }
@@ -414,7 +431,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             :width="240"
             :options="[
               { value: '', label: 'Choose an agent' },
-              ...assignableAgents.map((agent) => ({ value: agent.id, label: agent.name })),
+              ...fillerAgents.map((agent) => ({ value: agent.id, label: agent.name })),
             ]"
           />
         </label>
@@ -432,7 +449,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             ? 'Stages: choose a stage'
             : `Stages: ${stageName(range.from)}${range.from === range.to ? '' : ' → ' + stageName(range.to)}`
         "
-        :disabled="agentOnly || (assignee?.type === 'team' && !unstaged)"
+        :disabled="agentOnly || (oneAgent && assignee?.type === 'agent') || (assignee?.type === 'team' && !unstaged)"
         @click="openMenu('stages')"
       >
         <span

@@ -76,6 +76,7 @@ function client() {
       name: 'Solo agent',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'hypotheses',
       archived_at: null,
     },
     {
@@ -83,6 +84,7 @@ function client() {
       name: 'Aristotle',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: null,
       built_in_key: 'aristotle',
     },
@@ -91,6 +93,7 @@ function client() {
       name: 'Team copy',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: null,
       team_member: true,
     },
@@ -99,6 +102,7 @@ function client() {
       name: 'Colleague private',
       visibility: 'private',
       owner_id: 'u2',
+      stage: 'grounding',
       archived_at: null,
     },
     {
@@ -106,6 +110,7 @@ function client() {
       name: 'Retired agent',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: '2026-10-20T10:00:00Z',
     },
   ]);
@@ -352,6 +357,7 @@ describe('AssignPicker', () => {
             avatar_url: 'emoji:🧬',
             visibility: 'workspace',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
           },
         ]);
@@ -417,6 +423,7 @@ describe('AssignPicker', () => {
             harness: 'claude',
             visibility: 'workspace',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
           },
         ]);
@@ -497,8 +504,8 @@ describe('AssignPicker', () => {
       expect(menu).not.toContain('Manage agents');
       await p.click(/^SSolo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
-      expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
-      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'hypotheses' });
+      expect(p.button(/^Hypotheses$/)?.props.disabled).toBe(true);
     } finally {
       p.unmount();
     }
@@ -567,6 +574,7 @@ describe('new agent model picker', () => {
             name: 'Claude agent',
             harness: 'claude',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
             updated_at: '2026-01-01',
             description: '',
@@ -576,6 +584,7 @@ describe('new agent model picker', () => {
             name: 'Codex agent',
             harness: 'codex',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
             updated_at: '2026-01-01',
             description: '',
@@ -1446,7 +1455,7 @@ describe('the one-row New study window', () => {
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
-      expect(body.scope).toEqual({ from: 'grounding', to: 'validation' });
+      expect(body.scope).toEqual({ from: 'hypotheses', to: 'hypotheses' });
     } finally {
       t.unmount();
     }

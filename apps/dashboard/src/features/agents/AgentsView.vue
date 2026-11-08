@@ -15,7 +15,7 @@ import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import '../coresearch/l2.css';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
-import { timeAgo } from '../../lib/studies';
+import { columnName, stages, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 import { agentAvailable as isAgentAvailable } from './availability';
 const props = defineProps<{ create?: boolean }>();
@@ -43,6 +43,7 @@ const empty = () => ({
   instructions: '',
   harness: 'claude',
   model: '',
+  stage: 'grounding' as string,
   visibility: 'workspace' as 'workspace' | 'private',
 });
 const draft = ref(empty());
@@ -258,6 +259,7 @@ async function save() {
         <div class="agent-row agent-head" role="row">
           <span role="columnheader">Name</span><span role="columnheader">Owner</span><span role="columnheader">Source</span
           ><span role="columnheader">Harness</span
+          ><span role="columnheader">Stage</span
           ><span role="columnheader" aria-sort="descending"
             ><span class="directory-last-value">Last updated</span></span
           >
@@ -306,13 +308,27 @@ async function save() {
               >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
             ></span
           ><span role="cell">{{
-            a.source === 'built_in' || a.built_in_key
+            a.laboratory
+              ? 'Laboratory'
+              : a.source === 'built_in' || a.built_in_key
               ? 'Built-in'
               : a.source === 'custom'
                 ? 'Custom'
                 : '—'
           }}</span
           ><span role="cell">{{ backendLabel(a.harness) }}</span
+          ><span role="cell"
+            ><template v-if="a.stage">{{ columnName(a.stage) }}</template
+            ><template v-else
+              >No stage<button
+                v-if="!a.laboratory"
+                type="button"
+                class="text-button agent-choose-stage"
+                @click.prevent.stop="router.push({ path: '/agents/' + a.id, query: { tab: 'settings', field: 'stage' } })"
+              >
+                Choose a stage
+              </button></template
+            ></span
           ><span role="cell"
             ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
           ></RouterLink
@@ -345,6 +361,7 @@ async function save() {
             <label :class="{ selected: draft.visibility === 'private' }"><input v-model="draft.visibility" type="radio" value="private" /><span><b>Private</b><small>Only you can assign</small></span></label>
           </div>
         </fieldset>
+        <label>Stage<select v-model="draft.stage" required aria-label="Agent stage"><option v-for="s in stages" :key="s" :value="s">{{ columnName(s) }}</option></select></label>
         <div class="new-agent-model-field">
           <span>Harness</span>
           <div class="coresearch new-agent-model-picker">
@@ -360,7 +377,7 @@ async function save() {
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <footer>
           <button type="button" class="button" :disabled="busy" @click="closeEditor">Cancel</button>
-          <button class="button primary" :disabled="busy || !draft.name.trim()">Create</button>
+          <button class="button primary" :disabled="busy || !draft.name.trim() || !draft.stage">Create</button>
         </footer>
       </form>
     </Modal>
@@ -408,7 +425,7 @@ async function save() {
   text-align: center;
 }
 .agent-directory {
-  --directory-columns: minmax(240px, 1fr) repeat(3, 122px) 128px;
+  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 128px;
 }
 .agent-directory .agent-row > :last-child {
   text-align: right;

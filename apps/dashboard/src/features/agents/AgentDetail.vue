@@ -2,7 +2,7 @@
 import { useRoute, useRouter } from 'vue-router';
 import Aristotle from '../coresearch/Aristotle.vue';
 import { defaultStarters, type Starter } from '../coresearch/aristotle';
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
 import {
@@ -17,7 +17,7 @@ import {
 } from '../../api/queries';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import type { AgentDefinition, Card } from '../../api/types';
+import type { AgentDefinition, Card, Runtime } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
 import Modal from '../../ui/Modal.vue';
@@ -27,6 +27,8 @@ import { matchesQuery } from '../../lib/search';
 import {
   boardColumnOf,
   boardColumns,
+  columnName,
+  stages,
   studyDisplayTitle,
   studyNumber,
   timeAgo,
@@ -80,7 +82,7 @@ const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   collapsed = ref<string[]>([]),
   busy = ref(false),
   error = ref('');
-const general = ref({ name: '', description: '', harness: 'claude', model: '' }),
+const general = ref({ name: '', description: '', harness: 'claude', model: '', stage: '' as string }),
   visibility = ref<'workspace' | 'private'>('workspace'),
   instructions = ref('');
 const copyName = ref<string | null>(null),
@@ -132,9 +134,52 @@ const modelLabel = computed(() => {
   return labels.size === 1 ? [...labels][0]! : current.model;
 });
 const mine = computed(() => agent.value?.owner_id === me.data.value?.id);
+const lab = computed(() => agent.value?.laboratory === 'built-in');
+const workspaceOwner = computed(
+  () => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role === 'owner',
+);
+// The server decides which machines a laboratory agent may bind to; this only
+// narrows the list to machines on the agent's CLI that the viewer can see.
+const machineChoices = computed(() =>
+  (runtimes.data.value ?? []).filter(
+    (r: Runtime) =>
+      r.harness === agent.value?.harness &&
+      (r.owner_id === me.data.value?.id ||
+        r.visibility === 'workspace' ||
+        r.shared_with?.includes(me.data.value?.id ?? '')),
+  ),
+);
+const machineName = (r: Runtime) => r.custom_name || r.device_name;
+const boundMachine = computed(() =>
+  (runtimes.data.value ?? []).find((r) => r.id === agent.value?.runtime_id),
+);
+async function bindMachine(runtimeId: string) {
+  if (!runtimeId || busy.value) return;
+  const ws = workspaceId.value,
+    id = props.id;
+  busy.value = true;
+  error.value = '';
+  try {
+    const saved = await api<AgentDefinition>(
+      'PUT',
+      `/api/agents/${id}/runtime`,
+      { runtime_id: runtimeId },
+      undefined,
+      { workspace: ws },
+    );
+    client.setQueryData(keys.agent(ws, id), saved);
+    await client.invalidateQueries({ queryKey: keys.agents(ws) });
+    notify('Machine saved.');
+  } catch (e) {
+    error.value = (e as Error).message;
+  } finally {
+    busy.value = false;
+  }
+}
 const mayDelete = computed(
   () =>
     !!agent.value &&
+    !lab.value &&
     !builtin.value &&
     agents.data.value?.find((item) => item.id === props.id)?.source === 'custom' &&
     (mine.value ||
@@ -145,6 +190,7 @@ const mayDelete = computed(
 const editable = computed(
   () =>
     !!agent.value &&
+    !lab.value &&
     !agent.value.archived_at &&
     (mine.value ||
       ['owner', 'admin'].includes(
@@ -187,6 +233,7 @@ watch(
       description: a.description,
       harness: a.harness,
       model: a.model,
+      stage: a.stage,
     };
     visibility.value = a.visibility;
     instructions.value = a.instructions;
@@ -212,6 +259,18 @@ watch(
   { flush: 'sync' },
 );
 
+// "Choose a stage" on the Agents page lands on the stage field.
+watch(
+  [() => route.query.field, agent],
+  async ([field, a]) => {
+    if (field !== 'stage' || !a) return;
+    tab.value = 'settings';
+    section.value = 'general';
+    await nextTick();
+    document.getElementById('agent-stage')?.focus();
+  },
+  { immediate: true },
+);
 watch(
   () => route.query.tab,
   () => {
@@ -379,6 +438,28 @@ function toggle(id: string) {
                 <dd>{{ harnessName(agent.harness) }}</dd>
                 <dt>Model</dt>
                 <dd>{{ modelLabel }}</dd>
+                <dt>Stage</dt>
+                <dd>{{ agent.stage ? columnName(agent.stage) : 'No stage' }}</dd>
+                <template v-if="lab">
+                  <dt>Machine</dt>
+                  <dd>
+                    <select
+                      v-if="workspaceOwner"
+                      aria-label="Machine"
+                      :value="agent.runtime_id ?? ''"
+                      :disabled="busy"
+                      @change="bindMachine(($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="" disabled>Not bound to a machine</option>
+                      <option v-for="r in machineChoices" :key="r.id" :value="r.id">
+                        {{ machineName(r) }}
+                      </option>
+                    </select>
+                    <template v-else>{{
+                      boundMachine ? machineName(boundMachine) : 'Not bound to a machine'
+                    }}</template>
+                  </dd>
+                </template>
               </dl>
               <h3>
                 Studies
@@ -535,6 +616,7 @@ function toggle(id: string) {
                 validStarters &&
                 patch({
                   ...general,
+                  stage: general.stage || undefined,
                   name:
                     general.name === agentNameWithoutCli(agent.name, agent.harness)
                       ? agent.name
@@ -564,6 +646,21 @@ function toggle(id: string) {
                       :readonly="!editable"
                     /><small>{{ general.description.length }} / 1000</small></span
                   ></label
+                >
+              </div>
+              <h3>Stage</h3>
+              <div class="agent-card agent-execution">
+                <label class="agent-model-field"
+                  ><span>Stage</span
+                  ><select
+                    id="agent-stage"
+                    v-model="general.stage"
+                    aria-label="Agent stage"
+                    :disabled="!editable"
+                  >
+                    <option v-if="!general.stage" value="" disabled>No stage</option>
+                    <option v-for="s in stages" :key="s" :value="s">{{ columnName(s) }}</option>
+                  </select></label
                 >
               </div>
               <h3>Execution</h3>
