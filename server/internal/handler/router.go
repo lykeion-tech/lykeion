@@ -379,6 +379,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
+			r.Get("/api/lab-chart", h.labChart)
 			r.Get("/api/decisions", h.listDecisions)
 			r.Get("/api/decisions/count", h.countDecisions)
 			r.Post("/api/decisions/manual", h.createManualDecision)

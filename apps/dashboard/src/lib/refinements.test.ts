@@ -126,6 +126,7 @@ describe('new event cache fences', () => {
     expect(invalidationsFor('w', ev('agent.updated', { agent_id: 'a' }))).toEqual([
       keys.agents('w'),
       keys.agent('w', 'a'),
+      keys.labChart('w'),
     ]);
   });
 });

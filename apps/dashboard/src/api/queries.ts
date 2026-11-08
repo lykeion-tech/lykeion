@@ -5,6 +5,8 @@ import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
   AgentDefinition,
+  LabChart,
+  Laboratory,
   StorageReport,
   AnalyticsReport,
   Autoresearch,
@@ -281,6 +283,14 @@ export const useAutoresearch = (id: MaybeRefOrGetter<string>) =>
   ofCard<AutoresearchDetail>(id, keys.autoresearch, (a) => `/api/autoresearch/${a}`);
 export const useAutoresearchRuns = (id: MaybeRefOrGetter<string>) =>
   ofCard<AutoresearchRun[]>(id, keys.autoresearchRuns, (a) => `/api/autoresearch/${a}/runs`);
+export const useLabChart = () =>
+  useQuery({
+    queryKey: computed(() => keys.labChart(ws.value)),
+    queryFn: ({ signal }) => api<LabChart>('GET', '/api/lab-chart', undefined, undefined, { signal }),
+    enabled: inWorkspace,
+  });
+export const useLaboratories = () =>
+  useQuery({ queryKey: keys.laboratories, queryFn: () => api<Laboratory[]>('GET', '/api/laboratories') });
 export const useAgents = () => list<AgentDefinition>(keys.agents, '/api/agents');
 export function useAgent(id: MaybeRefOrGetter<string>) {
   const client = useQueryClient();

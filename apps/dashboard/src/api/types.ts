@@ -766,3 +766,40 @@ export interface LabMessage {
   evidence: LabRef[];
   created_at: string;
 }
+
+export interface LabChartAgent {
+  id: string;
+  name: string;
+  emoji: string;
+  role: 'leader' | 'member' | 'auditor';
+  source: 'laboratory' | 'researcher';
+  status: 'idle' | 'working' | 'needs_you';
+  /** When the current status began. */
+  since: string | null;
+  studies: { id: string; title: string }[];
+  machine: string | null;
+  cli: 'claude' | 'codex' | null;
+  /** "the researchers", "<Stage> leader", or "nobody: checks <Stage> independently". */
+  reports_to: string;
+}
+export interface LabChartRoom {
+  stage: 'grounding' | 'hypotheses' | 'experimentation' | 'validation';
+  team: string;
+  agents: LabChartAgent[];
+}
+export interface LabChartPerson {
+  user_id: string;
+  name: string;
+  role: string;
+  open_decisions: number;
+}
+export interface LabChart {
+  rooms: LabChartRoom[];
+  people: LabChartPerson[];
+  ticker: { at: string; text: string } | null;
+}
+export interface Laboratory {
+  id: string;
+  name: string;
+  rooms: { stage: LabChartRoom['stage']; team: string; agents: { name: string; role: 'leader' | 'member' | 'auditor' }[] }[];
+}
