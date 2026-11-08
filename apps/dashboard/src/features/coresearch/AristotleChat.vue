@@ -135,6 +135,9 @@ const agent = computed(() => {
     workspace_id: workspaceId.value,
     instructions: '',
     archived_at: null,
+    stage: '',
+    laboratory: '',
+    runtime_id: null,
     created_at: '',
     updated_at: '',
   } satisfies AgentDefinition;

@@ -24,7 +24,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", "/api/researches", a, wa.ID, map[string]string{"name": "Isolation research"}, &research); code != http.StatusCreated || research.ID == "" {
 		t.Fatalf("research fixture: %d %+v", code, research)
 	}
-	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]string{"name": "Isolation agent", "harness": "codex"}, &agent); code != http.StatusCreated || agent.ID == "" {
+	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]string{"stage": "experimentation", "name": "Isolation agent", "harness": "codex"}, &agent); code != http.StatusCreated || agent.ID == "" {
 		t.Fatalf("agent fixture: %d %+v", code, agent)
 	}
 	var mcp mcpView

@@ -21,7 +21,7 @@ func TestQuestionAnswersEndpoint(t *testing.T) {
 	var agent struct {
 		ID string `json:"id"`
 	}
-	if code := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"name": "Ada", "harness": "codex"}, &agent); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"stage": "experimentation", "name": "Ada", "harness": "codex"}, &agent); code != 201 {
 		t.Fatalf("agent %d", code)
 	}
 	agentID := uuid.MustParse(agent.ID)

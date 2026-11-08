@@ -627,7 +627,7 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 		t.Fatalf("archive: %d", code)
 	}
 	var private struct{ ID string }
-	if code := s.call(t, "POST", "/api/agents", b, w.ID, map[string]string{"name": "mine", "harness": "claude", "visibility": "private"}, &private); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", b, w.ID, map[string]string{"stage": "experimentation", "name": "mine", "harness": "claude", "visibility": "private"}, &private); code != 201 {
 		t.Fatalf("private agent: %d", code)
 	}
 	aristotle := s.newAgent(t, a, w.ID, "ari", "claude")

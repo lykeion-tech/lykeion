@@ -234,8 +234,8 @@ func (q *Queries) BindAgentRuntime(ctx context.Context, arg BindAgentRuntimePara
 }
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, conversation_starters)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, coalesce($9::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
 `
 
 type CreateAgentParams struct {
@@ -247,6 +247,7 @@ type CreateAgentParams struct {
 	Model                string    `json:"model"`
 	Visibility           string    `json:"visibility"`
 	OwnerID              uuid.UUID `json:"owner_id"`
+	Stage                string    `json:"stage"`
 	ConversationStarters []byte    `json:"conversation_starters"`
 }
 
@@ -260,6 +261,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		arg.Model,
 		arg.Visibility,
 		arg.OwnerID,
+		arg.Stage,
 		arg.ConversationStarters,
 	)
 	var i Agent
@@ -731,8 +733,8 @@ func (q *Queries) UnboundLaboratoryAgents(ctx context.Context, workspaceID uuid.
 }
 
 const updateAgent = `-- name: UpdateAgent :one
-UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5, visibility = $6, conversation_starters = $7, avatar_url = $8, updated_at = now()
-WHERE workspace_id = $9 AND id = $10 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5, visibility = $6, conversation_starters = $7, avatar_url = $8, stage = $9, updated_at = now()
+WHERE workspace_id = $10 AND id = $11 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
 `
 
 type UpdateAgentParams struct {
@@ -744,6 +746,7 @@ type UpdateAgentParams struct {
 	Visibility           string          `json:"visibility"`
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
 	AvatarUrl            string          `json:"avatar_url"`
+	Stage                string          `json:"stage"`
 	WorkspaceID          uuid.UUID       `json:"workspace_id"`
 	ID                   uuid.UUID       `json:"id"`
 }
@@ -758,6 +761,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		arg.Visibility,
 		arg.ConversationStarters,
 		arg.AvatarUrl,
+		arg.Stage,
 		arg.WorkspaceID,
 		arg.ID,
 	)

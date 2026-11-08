@@ -132,12 +132,12 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 				return conflict("The Team changed. Reload and try again.")
 			}
 		}
-		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: input.Name, Description: current.Description, Instructions: current.Instructions, Harness: current.Harness, Model: current.Model, Visibility: "private", ConversationStarters: current.ConversationStarters})
+		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: input.Name, Description: current.Description, Instructions: current.Instructions, Harness: current.Harness, Model: current.Model, Visibility: "private", Stage: current.Stage, ConversationStarters: current.ConversationStarters})
 		if err != nil {
 			return err
 		}
 		if current.AvatarUrl != "" {
-			out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: out.ID, Name: out.Name, Description: out.Description, Instructions: out.Instructions, Harness: out.Harness, Model: out.Model, Visibility: out.Visibility, ConversationStarters: out.ConversationStarters, AvatarUrl: current.AvatarUrl})
+			out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: out.ID, Name: out.Name, Description: out.Description, Instructions: out.Instructions, Harness: out.Harness, Model: out.Model, Visibility: out.Visibility, ConversationStarters: out.ConversationStarters, AvatarUrl: current.AvatarUrl, Stage: out.Stage})
 			if err != nil {
 				return err
 			}

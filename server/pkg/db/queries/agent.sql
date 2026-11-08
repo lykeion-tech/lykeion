@@ -1,6 +1,6 @@
 -- name: CreateAgent :one
-INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, conversation_starters)
-VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @visibility, @owner_id, coalesce(sqlc.narg(conversation_starters)::jsonb, '[]'::jsonb)) RETURNING *;
+INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters)
+VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @visibility, @owner_id, @stage, coalesce(sqlc.narg(conversation_starters)::jsonb, '[]'::jsonb)) RETURNING *;
 
 -- name: ListAgents :many
 SELECT a.*, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
@@ -30,7 +30,7 @@ SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND team_del
 SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND team_deleted_at IS NULL AND deleted_at IS NULL FOR SHARE;
 
 -- name: UpdateAgent :one
-UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, avatar_url = @avatar_url, updated_at = now()
+UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, avatar_url = @avatar_url, stage = @stage, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
 
 -- name: ArchiveAgent :one

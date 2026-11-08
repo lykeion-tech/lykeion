@@ -72,7 +72,7 @@ func TestAgentAndTeamEmojiIcons(t *testing.T) {
 	w := s.workspace(t, owner, "icons")
 	colleague := s.member(t, owner, w.ID, "colleague@lab.org", "member")
 	var a map[string]any
-	if c := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"name": "Icon agent", "harness": "claude", "visibility": "workspace"}, &a); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"stage": "experimentation", "name": "Icon agent", "harness": "claude", "visibility": "workspace"}, &a); c != 201 {
 		t.Fatalf("create agent: %d", c)
 	}
 	path := "/api/agents/" + a["id"].(string)

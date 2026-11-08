@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -50,43 +49,9 @@ func TestBuiltInTeamReturnsSharedMemberAgents(t *testing.T) {
 		if name != detail.Manifest.Leader.Name {
 			continue
 		}
-		var updated struct {
-			Harness string `json:"harness"`
-		}
-		if code := s.call(t, "PATCH", "/api/agents/"+member.ID, auth, ws.ID, map[string]string{"harness": "codex", "model": ""}, &updated); code != 200 {
-			t.Fatalf("update %d", code)
-		}
-		if updated.Harness != "codex" {
-			t.Fatalf("harness %q", updated.Harness)
+		if code := s.call(t, "PATCH", "/api/agents/"+member.ID, auth, ws.ID, map[string]string{"harness": "codex", "model": ""}, nil); code != 403 {
+			t.Fatalf("laboratory agent update %d, want 403", code)
 		}
 		break
-	}
-	var teams []struct {
-		ID        string   `json:"id"`
-		AgentCLIs []string `json:"agent_clis"`
-		LeaderCLI string   `json:"leader_cli"`
-	}
-	if code := s.call(t, "GET", "/api/teams", auth, ws.ID, nil, &teams); code != 200 {
-		t.Fatalf("teams %d", code)
-	}
-	for _, team := range teams {
-		if team.ID == id && !slices.Contains(team.AgentCLIs, "codex") {
-			t.Fatalf("own CLIs %v", team.AgentCLIs)
-		}
-		if team.ID == id && team.LeaderCLI != "codex" {
-			t.Fatalf("leader CLI %q", team.LeaderCLI)
-		}
-	}
-	teams = nil
-	if code := s.call(t, "GET", "/api/teams", other, ws.ID, nil, &teams); code != 200 {
-		t.Fatalf("other teams %d", code)
-	}
-	for _, team := range teams {
-		if team.ID == id && !slices.Contains(team.AgentCLIs, "codex") {
-			t.Fatalf("other user's CLIs: %v", team.AgentCLIs)
-		}
-		if team.ID == id && team.LeaderCLI != "codex" {
-			t.Fatalf("other user's leader CLI: %q", team.LeaderCLI)
-		}
 	}
 }

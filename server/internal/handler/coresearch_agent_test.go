@@ -11,7 +11,7 @@ func TestCoresearchSelectedAgent(t *testing.T) {
 	s, a, b, _, ws, _ := csFixture(t)
 	runtime := csRegister(t, s, a, ws, "selected-agent", "claude")
 	var selected db.Agent
-	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]string{"name": "Selected", "harness": "claude", "model": "selected-model", "instructions": "Selected instructions", "visibility": "private"}, &selected); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]string{"stage": "experimentation", "name": "Selected", "harness": "claude", "model": "selected-model", "instructions": "Selected instructions", "visibility": "private"}, &selected); code != 201 {
 		t.Fatalf("agent %d", code)
 	}
 	in := map[string]string{"body": "Hello", "request_id": uuid.NewString(), "agent_id": selected.ID.String()}
@@ -51,7 +51,7 @@ func TestCoresearchSelectedAgentSharingAndReceipt(t *testing.T) {
 	s, a, b, _, ws, _ := csFixture(t)
 	csRegister(t, s, b, ws, "shared-recipient", "claude")
 	var shared db.Agent
-	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]string{"name": "Shared agent", "harness": "claude", "instructions": "shared instructions", "visibility": "workspace"}, &shared); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]string{"stage": "experimentation", "name": "Shared agent", "harness": "claude", "instructions": "shared instructions", "visibility": "workspace"}, &shared); code != 201 {
 		t.Fatal(code)
 	}
 	input := map[string]string{"body": "Research", "request_id": uuid.NewString(), "agent_id": shared.ID.String()}
@@ -70,7 +70,7 @@ func TestCoresearchSelectedAgentSharingAndReceipt(t *testing.T) {
 		t.Fatalf("changed agent in retry: %d", code)
 	}
 	var archived db.Agent
-	if code := s.call(t, "POST", "/api/agents", b, ws, map[string]string{"name": "Archived agent", "harness": "claude"}, &archived); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", b, ws, map[string]string{"stage": "experimentation", "name": "Archived agent", "harness": "claude"}, &archived); code != 201 {
 		t.Fatal(code)
 	}
 	if code := s.call(t, "POST", "/api/agents/"+archived.ID.String()+"/archive", b, ws, nil, nil); code != 200 {

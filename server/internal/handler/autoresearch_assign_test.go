@@ -107,7 +107,7 @@ func TestRunOnlyRunsTheAssignedAgent(t *testing.T) {
 		t.Fatalf("register: %d", code)
 	}
 	var ag struct{ ID string }
-	if c := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "coder", "harness": "codex", "model": "gpt-x", "instructions": "Be terse."}, &ag); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": "coder", "harness": "codex", "model": "gpt-x", "instructions": "Be terse."}, &ag); c != 201 {
 		t.Fatalf("agent: %d", c)
 	}
 	run := s.assignedRun(t, a, w.ID, map[string]any{"title": "Digest", "execution_mode": "run_only", "assignee": map[string]any{"type": "agent", "id": ag.ID}})

@@ -442,6 +442,9 @@ export interface AgentDefinition {
   instructions: string;
   harness: 'claude' | 'codex';
   model: string;
+  stage: '' | 'grounding' | 'hypotheses' | 'experimentation' | 'validation';
+  laboratory: '' | 'built-in';
+  runtime_id: string | null;
   visibility: 'workspace' | 'private';
   owner_id: string;
   archived_at: string | null;

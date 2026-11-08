@@ -383,7 +383,7 @@ func newAgentLabOn(t *testing.T, column string) *teamLab {
 	l := &teamLab{s: s, jwt: s.signIn(t, "pi@lab.org")}
 	l.ws = s.workspace(t, l.jwt, "lab").ID
 	var a struct{ ID string }
-	if c := s.call(t, "POST", "/api/agents", l.jwt, l.ws, map[string]any{"name": "Curie", "harness": "claude", "visibility": "private"}, &a); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", l.jwt, l.ws, map[string]any{"stage": "experimentation", "name": "Curie", "harness": "claude", "visibility": "private"}, &a); c != 201 {
 		t.Fatalf("agent: %d", c)
 	}
 	l.personal = s.personalToken(t, l.jwt)

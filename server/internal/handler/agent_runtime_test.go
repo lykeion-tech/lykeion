@@ -60,7 +60,7 @@ func TestBindRuntimeRules(t *testing.T) {
 	bind(b, leader, shared, 403, "only the workspace owner can choose a laboratory agent's machine")
 
 	var own map[string]any
-	if got := s.call(t, "POST", "/api/agents", a, ws, map[string]any{"name": "mine", "harness": "claude", "visibility": "private"}, &own); got != 201 {
+	if got := s.call(t, "POST", "/api/agents", a, ws, map[string]any{"stage": "experimentation", "name": "mine", "harness": "claude", "visibility": "private"}, &own); got != 201 {
 		t.Fatalf("create agent: %d %v", got, own)
 	}
 	bind(a, own["id"].(string), shared, 400, "only laboratory agents are bound to a machine")

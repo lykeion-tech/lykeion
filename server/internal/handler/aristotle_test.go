@@ -38,7 +38,7 @@ func TestAristotleBootstrap(t *testing.T) {
 func TestAristotleSettingsAndPrivacy(t *testing.T) {
 	s, a, b, c, ws, _ := csFixture(t)
 	// Ordinary Aristotle remains ordinary and does not consume the builtin identity.
-	ordinary := map[string]any{"name": "Aristotle", "harness": "claude"}
+	ordinary := map[string]any{"stage": "experimentation", "name": "Aristotle", "harness": "claude"}
 	if code := s.call(t, "POST", "/api/agents", a, ws, ordinary, nil); code != 201 {
 		t.Fatal(code)
 	}
@@ -108,7 +108,7 @@ func TestAristotleSettingsAndPrivacy(t *testing.T) {
 			t.Fatalf("invalid settings: %d", code)
 		}
 	}
-	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]any{"name": "forged", "harness": "claude", "built_in_key": "aristotle"}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/agents", a, ws, map[string]any{"stage": "experimentation", "name": "forged", "harness": "claude", "built_in_key": "aristotle"}, nil); code != 400 {
 		t.Fatalf("forged builtin: %d", code)
 	}
 	if code := s.call(t, "PATCH", path, a, ws, map[string]any{"conversation_starters": []ConversationStarter{}}, &edited); code != 200 || string(edited.ConversationStarters) != "[]" {
@@ -171,7 +171,7 @@ func TestAristotleMemberRemoval(t *testing.T) {
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", b, ws, nil, &boot); code != 200 {
 		t.Fatal(code)
 	}
-	if code := s.call(t, "POST", "/api/agents", b, ws, map[string]string{"name": "Aristotle", "harness": "claude"}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", b, ws, map[string]string{"stage": "experimentation", "name": "Aristotle", "harness": "claude"}, nil); code != 201 {
 		t.Fatalf("ordinary after builtin: %d", code)
 	}
 	if code := s.call(t, "DELETE", "/api/workspaces/"+ws+"/members/"+s.userID(t, b), a, "", nil, nil); code != 204 {
