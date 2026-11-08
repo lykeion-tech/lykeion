@@ -88,6 +88,7 @@ func TestMigrationBackfillsCopyStages(t *testing.T) {
 		}
 		exec(string(b))
 	}
+	migration("0067_laboratory_runtime.down.sql")
 	migration("0066_laboratory.down.sql")
 	var pack, copied, loose uuid.UUID
 	if err := env.Owner.QueryRow(t.Context(), `INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source, stage)
@@ -108,5 +109,37 @@ func TestMigrationBackfillsCopyStages(t *testing.T) {
 		if err := env.Owner.QueryRow(t.Context(), `SELECT stage FROM agent WHERE id = $1`, id).Scan(&got); err != nil || got != want {
 			t.Errorf("agent stage %q, want %q (%v)", got, want, err)
 		}
+	}
+}
+
+func TestRuntimeDeletionUnbinds(t *testing.T) {
+	env := testutil.Setup(t)
+	u, ws, _ := seedWorkspace(t, env)
+	ctx := t.Context()
+	var rt, lab, own uuid.UUID
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness) VALUES ($1, $2, 'd', 'claude') RETURNING id`, ws, u).Scan(&rt); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO agent (workspace_id, name, harness, owner_id, stage, visibility, laboratory, runtime_id)
+		VALUES ($1, 'lab', 'claude', $2, 'grounding', 'workspace', 'built-in', $3) RETURNING id`, ws, u, rt).Scan(&lab); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.Owner.Exec(ctx, `INSERT INTO agent (workspace_id, name, harness, owner_id, runtime_id) VALUES ($1, 'own', 'claude', $2, $3)`, ws, u, rt)
+	wantCode(t, err, "23514", "a researcher's agent bound to a runtime")
+	if err := env.Owner.QueryRow(ctx, `INSERT INTO agent (workspace_id, name, harness, owner_id) VALUES ($1, 'own', 'claude', $2) RETURNING id`, ws, u).Scan(&own); err != nil {
+		t.Fatal(err)
+	}
+	_, err = env.Owner.Exec(ctx, `UPDATE agent SET runtime_id = $2 WHERE id = $1`, lab, uuid.New())
+	wantCode(t, err, "23503", "an unknown runtime")
+	if _, err := env.Owner.Exec(ctx, `DELETE FROM runtime WHERE id = $1`, rt); err != nil {
+		t.Fatal(err)
+	}
+	var bound *uuid.UUID
+	var harness string
+	if err := env.Owner.QueryRow(ctx, `SELECT runtime_id, harness FROM agent WHERE id = $1`, lab).Scan(&bound, &harness); err != nil {
+		t.Fatal(err)
+	}
+	if bound != nil || harness != "claude" {
+		t.Fatalf("after deletion: runtime %v harness %q", bound, harness)
 	}
 }

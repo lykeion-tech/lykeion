@@ -31,6 +31,7 @@ import (
 	"lykeion/server/internal/skill"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	"lykeion/server/internal/toolroute"
 	"lykeion/server/internal/workflow"
 	"lykeion/server/pkg/agent"
@@ -452,6 +453,17 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 	if err := s.NotifyQueued(ctx, tx, t); err != nil {
 		return t, err
 	}
+	if n.Agent != nil {
+		a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: tx.WS, ID: *n.Agent})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return t, err
+		}
+		if err == nil && a.Laboratory != "" && a.RuntimeID == nil {
+			if err := waitForLaboratoryMachine(ctx, tx, a); err != nil {
+				return t, err
+			}
+		}
+	}
 	if t.Harness == "cursor" || t.Harness == "antigravity" {
 		return failRemovedHarness(ctx, tx, t)
 	}
@@ -486,7 +498,8 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
 			return err
 		}
-		if _, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: ws, UserID: user}); err != nil {
+		member, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: ws, UserID: user})
+		if err != nil {
 			return ErrNotYours
 		}
 		for _, h := range harnesses {
@@ -503,9 +516,95 @@ func (s *AgentRuns) Register(ctx context.Context, user, ws uuid.UUID, daemonID, 
 			}
 			out = append(out, r)
 		}
+		if member.Role == "owner" {
+			if err := bindUnbound(ctx, tx, out); err != nil {
+				return err
+			}
+		}
 		return tx.Emit(ctx, "runtime.online", nil, store.User(user), map[string]any{"daemon_id": daemonID, "harnesses": harnesses})
 	})
 	return out, err
+}
+
+var (
+	ErrNotLaboratory      = errors.New("only laboratory agents are bound to a machine")
+	ErrRuntimeNotAllowed  = errors.New("this machine isn't shared with the workspace owner")
+	ErrHarnessUnsupported = errors.New("this agent can't run on that CLI")
+)
+
+// BindLaboratoryRuntime sends every run of a laboratory agent to rt, a
+// runtime that allows the agent's owner and whose CLI the agent's Team member
+// runs on. Its queued runs move to that CLI, and its waiting notice is
+// answered.
+func BindLaboratoryRuntime(ctx context.Context, tx *store.Tx, a db.Agent, rt db.Runtime) error {
+	if a.Laboratory == "" {
+		return ErrNotLaboratory
+	}
+	if rt.WorkspaceID != tx.WS || a.WorkspaceID != tx.WS {
+		return pgx.ErrNoRows
+	}
+	allowed, err := RuntimeAllowsUser(ctx, tx, rt, a.OwnerID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRuntimeNotAllowed
+	}
+	def, err := team.LaboratoryDef(ctx, tx, a.ID)
+	if err != nil {
+		return err
+	}
+	model, ok := team.ModelFor(def, rt.Harness)
+	if !ok {
+		return ErrHarnessUnsupported
+	}
+	// Claims read the binding and the queued runs' CLI under this lock.
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return err
+	}
+	if _, err := tx.Q.BindAgentRuntime(ctx, db.BindAgentRuntimeParams{WorkspaceID: tx.WS, ID: a.ID, RuntimeID: &rt.ID}); err != nil {
+		return err
+	}
+	if err := tx.Q.RetargetLaboratoryRuns(ctx, db.RetargetLaboratoryRunsParams{WorkspaceID: tx.WS, AgentID: &a.ID, Harness: rt.Harness, RequestedModel: model}); err != nil {
+		return err
+	}
+	if err := tx.Q.ResolveLaboratoryWait(ctx, db.ResolveLaboratoryWaitParams{WorkspaceID: tx.WS, Cause: unboundCause(a.ID)}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "agent.updated", nil, store.System, map[string]any{"agent_id": a.ID})
+}
+
+// bindUnbound binds each unbound laboratory agent to the first of a workspace
+// owner's new runtimes, Claude Code before Codex, that it can be bound to.
+func bindUnbound(ctx context.Context, tx *store.Tx, runtimes []db.Runtime) error {
+	runtimes = slices.Clone(runtimes)
+	slices.SortFunc(runtimes, func(a, b db.Runtime) int { return strings.Compare(a.Harness, b.Harness) })
+	agents, err := tx.Q.UnboundLaboratoryAgents(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	for _, a := range agents {
+		for _, rt := range runtimes {
+			err := BindLaboratoryRuntime(ctx, tx, a, rt)
+			if errors.Is(err, ErrRuntimeNotAllowed) || errors.Is(err, ErrHarnessUnsupported) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
+func unboundCause(agent uuid.UUID) string { return "unbound:" + agent.String() }
+
+// waitForLaboratoryMachine tells the laboratory agent's owner, once while it
+// stays unbound, that the studies it works wait for a machine.
+func waitForLaboratoryMachine(ctx context.Context, tx *store.Tx, a db.Agent) error {
+	return tx.Q.UpsertLaboratoryWait(ctx, db.UpsertLaboratoryWaitParams{WorkspaceID: tx.WS, UserID: a.OwnerID, Cause: unboundCause(a.ID),
+		Text: fmt.Sprintf("%s isn't bound to a machine, so the studies it works are waiting. Choose its machine in Agents.", a.Name)})
 }
 
 // Runtime batches commit atomically: a later invalid reference cannot hide an
@@ -845,7 +944,15 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							return tx.Q.UndoClaimAttempt(ctx, db.UndoClaimAttemptParams{WorkspaceID: ref.WorkspaceID, ID: t.ID})
 						}
 						denied = denied || t.ResponsibleUserID != card.OwnerID
-						if card.Machine != nil {
+						if claim.LaboratoryOwner != uuid.Nil {
+							// A laboratory agent's bound machine serves whichever
+							// study it works, while it allows the agent's owner.
+							allowed, err := RuntimeAllowsUser(ctx, tx, current, claim.LaboratoryOwner)
+							if err != nil {
+								return err
+							}
+							denied = denied || !allowed
+						} else if card.Machine != nil {
 							allowed, err := RuntimeAllowsUser(ctx, tx, current, card.OwnerID)
 							if err != nil {
 								return err

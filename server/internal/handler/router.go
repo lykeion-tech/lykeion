@@ -339,6 +339,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/agents/{id}/customize", h.getAgentCapabilities)
 			r.Put("/api/agents/{id}/customize", h.saveAgentCapabilities)
 			r.Patch("/api/agents/{id}", h.updateAgent)
+			r.Put("/api/agents/{id}/runtime", h.bindAgentRuntime)
 			r.Delete("/api/agents/{id}", h.deleteAgent)
 			r.Post("/api/agents/{id}/archive", h.archiveAgent)
 			r.Patch("/api/cards/{id}/properties", h.updateCardProperties)

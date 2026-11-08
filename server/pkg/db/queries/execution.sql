@@ -55,6 +55,7 @@ WHERE id = (
   LEFT JOIN card c ON c.id = t.card_id
   LEFT JOIN coresearch_chat cc ON cc.id=t.coresearch_chat_id AND cc.workspace_id=t.workspace_id
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
+  LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) la ON true
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
  AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle')))
     -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
@@ -69,12 +70,19 @@ WHERE id = (
     AND (t.responsible_user_id = r.owner_id OR (@guest_isolation::boolean AND r.os = 'linux'))
     AND (
       -- role runs and reruns use the study's chosen machine with consent, or
-      -- the card owner's runtimes
+      -- the card owner's runtimes; a laboratory agent's go to its bound
+      -- runtime alone (a rerun to any of that machine's runtimes), while
+      -- that runtime allows the agent's owner
       (t.kind IN ('role','rerun') AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
        AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id) AND (
+       (la.id IS NOT NULL AND (r.id = la.runtime_id
+           OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id)))
+         AND (r.owner_id = la.owner_id OR (r.os = 'linux' AND (r.visibility = 'workspace'
+           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = la.owner_id)))))
+       OR (la.id IS NULL AND (
        (c.machine IS NULL AND c.owner_id = r.owner_id)
        OR (c.machine = r.daemon_id AND (r.owner_id = c.owner_id OR (@guest_isolation::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
-           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))
+           OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
       OR (t.kind='aristotle' AND r.last_seen_at>now()-interval '60 seconds' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
@@ -93,7 +101,10 @@ WHERE id = (
   FOR UPDATE OF t SKIP LOCKED
   LIMIT 1
 )
-RETURNING *, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine;
+RETURNING *, (SELECT machine FROM card WHERE id = agent_run.card_id) AS claimed_machine,
+  -- the laboratory agent's owner, or the zero id for any other run
+  COALESCE((SELECT la.owner_id FROM agent_run_laboratory(agent_run.workspace_id, agent_run.id) AS la(id, owner_id, runtime_id, name)),
+    '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS laboratory_owner;
 
 -- name: InsertAgentRunToken :exec
 INSERT INTO agent_run_token (token_hash, workspace_id, agent_run_id, card_id, role, attempt, scopes, expires_at)

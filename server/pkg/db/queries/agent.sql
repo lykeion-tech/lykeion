@@ -80,3 +80,22 @@ WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
 -- names the agents whose own customisation rows were dropped.
 -- name: LaboratoryMerge :one
 SELECT laboratory_merge(@keep::uuid)::uuid[] AS dropped;
+
+-- name: BindAgentRuntime :one
+UPDATE agent SET runtime_id = @runtime_id, updated_at = now()
+WHERE workspace_id = @workspace_id AND id = @id AND laboratory <> '' RETURNING *;
+
+-- The laboratory agents with no runtime yet, oldest first.
+-- name: UnboundLaboratoryAgents :many
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND laboratory <> '' AND runtime_id IS NULL
+  AND deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, id FOR UPDATE;
+
+-- The Team member a laboratory agent is, with its Team's manifest.
+-- name: LaboratoryMember :one
+SELECT t.member, p.manifest FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
+WHERE t.workspace_id = @workspace_id AND t.agent_id = @agent_id AND t.user_id IS NULL LIMIT 1;
+
+-- A laboratory agent's queued runs follow it to a runtime with another CLI.
+-- name: RetargetLaboratoryRuns :exec
+UPDATE agent_run SET harness = @harness, requested_model = @requested_model
+WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND kind = 'role' AND status = 'queued' AND harness <> @harness;

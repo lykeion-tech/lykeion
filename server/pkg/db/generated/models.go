@@ -32,6 +32,7 @@ type Agent struct {
 	DeletedAt            *time.Time      `json:"deleted_at"`
 	Stage                string          `json:"stage"`
 	Laboratory           string          `json:"laboratory"`
+	RuntimeID            *uuid.UUID      `json:"runtime_id"`
 }
 
 type AgentCapability struct {

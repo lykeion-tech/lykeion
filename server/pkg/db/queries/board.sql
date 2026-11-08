@@ -199,3 +199,15 @@ JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
   AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
 WHERE r.workspace_id = @workspace_id AND r.status = 'offline'
 GROUP BY r.id;
+
+-- One open notice per unbound laboratory agent (cause names it), for the
+-- workspace owner who binds it.
+-- name: UpsertLaboratoryWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, cause)
+SELECT @workspace_id, @user_id, 'waiting_for_machine', @text, @cause::text
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine'
+  AND runtime_id IS NULL AND cause = @cause::text AND resolved_at IS NULL);
+
+-- name: ResolveLaboratoryWait :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
+WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause = @cause::text AND resolved_at IS NULL;

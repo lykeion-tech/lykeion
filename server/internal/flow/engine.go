@@ -21,6 +21,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -288,6 +289,23 @@ func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, 
 			}
 		}
 		harness, model = studyCLI(role, *c.StudyCli, *c.AuditorCli, member.Agent)
+	}
+	// A laboratory agent runs on its bound runtime's CLI, whatever the study
+	// chose; unbound, it keeps its own CLI and its run waits.
+	if a.Laboratory != "" {
+		harness, model = a.Harness, a.Model
+		if a.RuntimeID != nil {
+			rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *a.RuntimeID})
+			if err != nil {
+				return db.AgentRun{}, err
+			}
+			def, err := team.LaboratoryDef(ctx, tx, a.ID)
+			if err != nil {
+				return db.AgentRun{}, err
+			}
+			harness = rt.Harness
+			model, _ = team.ModelFor(def, rt.Harness)
+		}
 	}
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: harness, Model: model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,

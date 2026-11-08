@@ -290,6 +290,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]string{"name": "outsider agent", "harness": "codex"}
 		case route == "/api/teams/{id}" && method == http.MethodPatch:
 			body = map[string]string{"avatar_url": ""}
+		case route == "/api/agents/{id}/runtime":
+			body = map[string]string{"runtime_id": uuid.NewString()}
 		case route == "/api/cards/{id}/pack":
 			body = map[string]string{"pack_id": c.ID}
 		case route == "/api/me/pack":

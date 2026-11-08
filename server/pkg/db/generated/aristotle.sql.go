@@ -209,7 +209,7 @@ func (q *Queries) DeleteOwnedCoresearchProject(ctx context.Context, id uuid.UUID
 const ensureAristotle = `-- name: EnsureAristotle :one
 INSERT INTO agent(workspace_id,owner_id,name,description,instructions,harness,model,visibility,built_in_key)
 VALUES(app_workspace(),app_user(),'Aristotle','Your personal research partner.','Help the researcher ground questions in evidence, design reproducible experiments, and review findings. Ask clarifying questions, distinguish evidence from uncertainty, and do not start background work.','claude','','private','aristotle')
-ON CONFLICT(workspace_id,owner_id,built_in_key) WHERE built_in_key<>'' DO UPDATE SET built_in_key=excluded.built_in_key RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory
+ON CONFLICT(workspace_id,owner_id,built_in_key) WHERE built_in_key<>'' DO UPDATE SET built_in_key=excluded.built_in_key RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
 `
 
 func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
@@ -235,6 +235,7 @@ func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
 		&i.DeletedAt,
 		&i.Stage,
 		&i.Laboratory,
+		&i.RuntimeID,
 	)
 	return i, err
 }

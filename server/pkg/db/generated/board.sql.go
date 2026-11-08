@@ -630,6 +630,21 @@ func (q *Queries) RedoCardStops(ctx context.Context, arg RedoCardStopsParams) ([
 	return items, nil
 }
 
+const resolveLaboratoryWait = `-- name: ResolveLaboratoryWait :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
+WHERE workspace_id = $1 AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause = $2::text AND resolved_at IS NULL
+`
+
+type ResolveLaboratoryWaitParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Cause       string    `json:"cause"`
+}
+
+func (q *Queries) ResolveLaboratoryWait(ctx context.Context, arg ResolveLaboratoryWaitParams) error {
+	_, err := q.db.Exec(ctx, resolveLaboratoryWait, arg.WorkspaceID, arg.Cause)
+	return err
+}
+
 const resolveMachineOffline = `-- name: ResolveMachineOffline :exec
 UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = $1 AND runtime_id = $2 AND kind = 'machine_offline' AND resolved_at IS NULL
@@ -1042,6 +1057,32 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	var ok bool
 	err := row.Scan(&ok)
 	return ok, err
+}
+
+const upsertLaboratoryWait = `-- name: UpsertLaboratoryWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, cause)
+SELECT $1, $2, 'waiting_for_machine', $3, $4::text
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND kind = 'waiting_for_machine'
+  AND runtime_id IS NULL AND cause = $4::text AND resolved_at IS NULL)
+`
+
+type UpsertLaboratoryWaitParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Text        string    `json:"text"`
+	Cause       string    `json:"cause"`
+}
+
+// One open notice per unbound laboratory agent (cause names it), for the
+// workspace owner who binds it.
+func (q *Queries) UpsertLaboratoryWait(ctx context.Context, arg UpsertLaboratoryWaitParams) error {
+	_, err := q.db.Exec(ctx, upsertLaboratoryWait,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Text,
+		arg.Cause,
+	)
+	return err
 }
 
 const upsertMachineWait = `-- name: UpsertMachineWait :exec

@@ -409,3 +409,32 @@ func SkillFolders(m pack.Manifest, files map[string]map[string][]byte) map[strin
 	}
 	return out
 }
+
+// LaboratoryDef is the shipped definition of the Team member a laboratory
+// agent is.
+func LaboratoryDef(ctx context.Context, tx *store.Tx, agent uuid.UUID) (pack.AgentDef, error) {
+	row, err := tx.Q.LaboratoryMember(ctx, db.LaboratoryMemberParams{WorkspaceID: tx.WS, AgentID: agent})
+	if err != nil {
+		return pack.AgentDef{}, err
+	}
+	var m pack.Manifest
+	if err := json.Unmarshal(row.Manifest, &m); err != nil {
+		return pack.AgentDef{}, err
+	}
+	for _, mem := range slices.Concat([]pack.Member{m.Leader, m.Auditor}, m.Members) {
+		if mem.Name == row.Member {
+			return mem.Agent, nil
+		}
+	}
+	return pack.AgentDef{}, pgx.ErrNoRows
+}
+
+// ModelFor is the model def runs with on harness, and whether it runs on
+// that harness at all.
+func ModelFor(def pack.AgentDef, harness string) (string, bool) {
+	if len(def.Models) > 0 {
+		model, ok := def.Models[harness]
+		return model, ok
+	}
+	return def.Model, def.Harness == harness
+}
