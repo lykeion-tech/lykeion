@@ -216,6 +216,7 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/tokens", h.createToken)
 		r.Delete("/api/tokens/{id}", h.revokeToken)
 
+		r.Get("/api/laboratories", h.listLaboratories)
 		r.Get("/api/workspaces", h.listWorkspaces)
 		r.Post("/api/workspaces", h.createWorkspace)
 		r.Post("/api/invitations/{token}/accept", h.acceptInvitation)
