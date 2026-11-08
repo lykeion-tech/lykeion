@@ -160,7 +160,7 @@ const groups = [
   {
     name: 'IT Department',
     items: [
-      { id: 'teams', name: 'Teams', icon: 'network' },
+      { id: 'teams', name: 'Teams', icon: 'team' },
       { id: 'workflows', name: 'Workflows', icon: 'flask' },
       { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
@@ -169,6 +169,7 @@ const groups = [
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
+  { id: 'lab-chart', name: 'Lab Chart', icon: 'network' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
 const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');

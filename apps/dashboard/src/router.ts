@@ -20,6 +20,7 @@ import StudyDetail from './features/studies/StudyDetail.vue';
 import DecisionsView from './features/decisions/DecisionsView.vue';
 import ManualDecisionCreate from './features/decisions/ManualDecisionCreate.vue';
 import ColleaguesView from './features/workspace/ColleaguesView.vue';
+import LabChartView from './features/lab-chart/LabChartView.vue';
 import TeamsView from './features/teams/TeamsView.vue';
 import TeamDetail from './features/teams/TeamDetail.vue';
 import TeamForm from './features/teams/TeamForm.vue';
@@ -185,6 +186,11 @@ const routes: RouteRecordRaw[] = [
     component: WorkflowDetail,
     props: true,
     meta: { page: 'workflows', title: 'Workflows', ownHeader: true },
+  },
+  {
+    path: '/lab-chart',
+    component: LabChartView,
+    meta: { page: 'lab-chart', title: 'Lab Chart', ownHeader: true },
   },
   {
     path: '/colleagues',

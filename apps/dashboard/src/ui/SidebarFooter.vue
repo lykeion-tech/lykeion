@@ -11,6 +11,9 @@ defineExpose({ focusHelp: () => helpTrigger.value?.focus() });
 </script>
 <template>
   <div class="sidebar-bottom">
+    <RouterLink to="/lab-chart" class="nav-item" active-class="selected"
+      ><Icon name="network" />Lab Chart</RouterLink
+    >
     <div class="settings-line">
       <RouterLink to="/settings" class="nav-item" :class="{ selected }"
         ><Icon name="settings" />Settings</RouterLink
