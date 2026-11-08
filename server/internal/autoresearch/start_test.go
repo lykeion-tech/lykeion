@@ -34,11 +34,13 @@ func (f *fix) stageRuns(t *testing.T, card uuid.UUID, column string) map[string]
 	return out
 }
 
-func (f *fix) agent(t *testing.T, name string) uuid.UUID {
+func (f *fix) agent(t *testing.T, name string) uuid.UUID { return f.stagedAgent(t, name, "experimentation") }
+
+func (f *fix) stagedAgent(t *testing.T, name, stage string) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
-	if err := f.env.Owner.QueryRow(context.Background(), `INSERT INTO agent (workspace_id, name, harness, owner_id) VALUES ($1, $2, 'claude', $3) RETURNING id`,
-		f.ws, name, f.owner).Scan(&id); err != nil {
+	if err := f.env.Owner.QueryRow(context.Background(), `INSERT INTO agent (workspace_id, name, harness, owner_id, stage) VALUES ($1, $2, 'claude', $3, $4) RETURNING id`,
+		f.ws, name, f.owner, stage).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -68,9 +70,9 @@ func TestAutoresearchCardStartsAtOnce(t *testing.T) {
 	t.Run("an agent", func(t *testing.T) {
 		f := setup(t)
 		f.s.Engine = &flow.Engine{Store: f.s.Store, AgentRuns: f.s.AgentRuns}
-		a := f.agent(t, "digest")
+		a := f.stagedAgent(t, "digest", "hypotheses")
 		ap := f.autoresearch(t, "create_card", "Weekly", "What is new?", "")
-		f.exec(t, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = $1, scope_from = 'hypotheses' WHERE id = $2`, a, ap)
+		f.exec(t, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = $1, scope_from = 'hypotheses', scope_to = 'hypotheses' WHERE id = $2`, a, ap)
 		r := f.fire(t, ap, Admission{})
 		if r.CardID == nil {
 			t.Fatalf("run: %s", reason(r))
@@ -174,7 +176,7 @@ func TestRunOnlyOpenedStudyRunsItsAgent(t *testing.T) {
 	f.online(t, f.owner, "claude")
 	a := f.agent(t, "scout")
 	ap := f.autoresearch(t, "run_only", "Scout", "Find new datasets.", "")
-	f.exec(t, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = $1, scope_from = 'experimentation' WHERE id = $2`, a, ap)
+	f.exec(t, `UPDATE autoresearch SET assignee_type = 'agent', assignee_id = $1, scope_from = 'experimentation', scope_to = 'experimentation' WHERE id = $2`, a, ap)
 	r := f.fire(t, ap, Admission{})
 	if r.AgentRunID == nil {
 		t.Fatalf("run: %s", reason(r))
@@ -204,7 +206,7 @@ func TestStudyDraftCreatesOnlyOneStudyWithProperties(t *testing.T) {
 	ap := f.autoresearch(t, "run_only", "Study draft", "Draft a study", "")
 	project := uuid.New()
 	f.exec(t, `INSERT INTO research (id,workspace_id,name,created_by) VALUES ($1,$2,'Project',$3)`, project, f.ws, f.owner)
-	f.exec(t, `UPDATE autoresearch SET assignee_type='agent', assignee_id=$1 WHERE id=$2`, agent, ap)
+	f.exec(t, `UPDATE autoresearch SET assignee_type='agent', assignee_id=$1, scope_from='experimentation', scope_to='experimentation' WHERE id=$2`, agent, ap)
 	f.exec(t, `INSERT INTO study_draft_request (workspace_id,autoresearch_id,research_id,start_date,deadline,priority) VALUES ($1,$2,$3,'2026-11-03','2026-11-05T23:59:59Z','high')`, f.ws, ap, project)
 	r := f.fire(t, ap, Admission{})
 	if r.AgentRunID == nil {

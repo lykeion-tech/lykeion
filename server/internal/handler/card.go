@@ -159,11 +159,8 @@ func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID, f
 
 // checkAgentStage refuses an agent with no stage, or a scope beyond its stage.
 func checkAgentStage(a db.Agent, from, to string) error {
-	if a.Stage == "" {
-		return cardInputError("this agent has no stage")
-	}
-	if from != a.Stage || to != a.Stage {
-		return cardInputError("this agent works only on " + strings.ToUpper(a.Stage[:1]) + a.Stage[1:])
+	if err := board.CheckAgentStage(a.Stage, from, to); err != nil {
+		return cardInputError(err.Error())
 	}
 	return nil
 }

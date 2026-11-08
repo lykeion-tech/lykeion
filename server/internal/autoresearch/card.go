@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
@@ -120,6 +121,20 @@ func (s *Service) openCard(ctx context.Context, tx *store.Tx, ap db.Autoresearch
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return db.Card{}, err
+		}
+	}
+	if agent != nil {
+		a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: tx.WS, ID: *agent})
+		if err != nil {
+			return db.Card{}, err
+		}
+		for _, col := range board.Stages[board.StageIndex(ap.ScopeFrom) : board.StageIndex(ap.ScopeTo)+1] {
+			if _, covered := chosen[col]; covered {
+				continue
+			}
+			if err := board.CheckAgentStage(a.Stage, col, col); err != nil {
+				return db.Card{}, fmt.Errorf("%w: %w", ErrStartFailed, err)
+			}
 		}
 	}
 	teams := chosen
