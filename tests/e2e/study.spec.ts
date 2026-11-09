@@ -23,13 +23,13 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await expect(main.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
   await expect(main.getByRole('region', { name: 'Study description' })).toHaveText(question);
 
-  // The lab's leader arrives live as its Team agent, showing its latest text.
+  // The lab's leader arrives live as its Team agent, showing how its run ended.
   const card = main.locator('.agent-card').first();
   await expect(card.locator('.agent-name')).toHaveText('Pi · ui-demo', { timeout: 30_000 });
   await expect(card.locator('.run-header')).toHaveAttribute('aria-label', /, Run 1$/);
-  await expect(card.locator('.run-result')).toContainText(
-    'Read the card; the lab script stops here.',
-  );
+  // The scripted leader stops without a hand-in, so its card says the run failed
+  // and leaves the text to the full log.
+  await expect(card.locator('.run-result')).toContainText('Run failed', { timeout: 30_000 });
   expect(messageReads).toEqual([]);
   const transcript = await openAgentTranscript(page);
   await expect(transcript.getByRole('heading', { name: 'Full log', level: 2 })).toBeVisible();
@@ -597,9 +597,7 @@ test('expanded run preserves every ordered recorded message and full tool conten
     path: 'test-results/l2-transcript/expanded-run.png',
     fullPage: true,
   });
-  expect(
-    await page.locator('.run-panel').evaluate((el) => el.scrollWidth - el.clientWidth),
-  ).toBeLessThanOrEqual(0);
+  expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 });
 
 test('transcript and run message refusals show retries and keep already loaded data', async ({

@@ -47,9 +47,12 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
   const label = await page.locator('.details-body > small:text-is("Attached files")').boundingBox();
   expect(Math.abs(file!.x - label!.x - 40)).toBeLessThan(1);
   expect(file!.y).toBeGreaterThan(label!.y + label!.height - 1);
+  // Opening the file previews it in the Files surface, which downloads it.
+  await list.getByRole('button', { name: 'expression.csv' }).click();
+  const pane = page.getByRole('complementary', { name: 'Right pane' });
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    list.getByRole('button', { name: 'expression.csv' }).click(),
+    pane.getByRole('button', { name: 'Download', exact: true }).click(),
   ]);
   expect(download.suggestedFilename()).toBe('expression.csv');
   expect(readFileSync((await download.path())!).equals(csv)).toBe(true);
