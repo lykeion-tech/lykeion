@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import ManualDecisionControls from './ManualDecisionControls.vue';
 import DecisionOptions from './DecisionOptions.vue';
@@ -16,6 +17,7 @@ import { useCards, useDecisions, useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
 import { agentDecisionParts, decisionKindOf, inboxTitle, isMachineWait, timeAgo } from '../../lib/studies';
 
+const RecordedMarkdown = lazyRecordedMarkdown();
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
 const open = useDecisions(false);
@@ -121,8 +123,8 @@ watch(
               </div>
             </div>
             <h2>{{ question.title }}</h2>
-            <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
-            <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
+            <div v-if="question.body && !isMachineWait(display)" class="question-body"><RecordedMarkdown :content="question.body" /></div>
+            <div v-if="study?.question && study.question !== question.body" class="study-context"><RecordedMarkdown :content="study.question" /></div>
             <ManualDecisionControls v-if="display.kind === 'manual_decision'" :key="display.id" :item="display" />
             <DecisionOptions v-else-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
@@ -152,7 +154,7 @@ watch(
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
 .question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
 .card-body h2 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
-.question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
+.question-body, .study-context { font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
 .study-context { color:var(--muted); }
 .status-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .status-actions { display:flex; align-items:center; gap:16px; margin-left:auto; }

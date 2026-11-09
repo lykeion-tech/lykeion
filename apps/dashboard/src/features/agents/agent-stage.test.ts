@@ -403,6 +403,16 @@ describe('agent stage', () => {
     expect(t.button(/^Stages:/)?.props.disabled).toBe(true);
   });
 
+  it('starts an Autoresearch agent on its own stage and follows a different agent', async () => {
+    const t = await mount(AssignPicker, { agents: true }, roster);
+    await t.click(/Unassigned/);
+    await t.click(/Hypo Agent$/);
+    expect(t.range.value).toEqual({ from: 'hypotheses', to: 'hypotheses' });
+    await t.click(/Hypo Agent/);
+    await t.click(/Ground Agent$/);
+    expect(t.range.value).toEqual({ from: 'grounding', to: 'grounding' });
+  });
+
   it('offers an Autoresearch filler only when one stage is uncovered and it is the agent stage', async () => {
     const t = await mount(AssignPicker, { agents: true }, roster);
     await t.click(/Unassigned/);

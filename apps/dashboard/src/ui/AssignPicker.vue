@@ -190,7 +190,7 @@ function assign(value: Picked | null, last = false, isSet = false) {
   // One Team keeps its own stage; a set and any other assignee run end to end.
   const cols = value?.type === 'team' ? Object.keys(value.teams) : [];
   // One agent works only its own stage.
-  const own = value?.type === 'agent' && props.oneAgent ? agentList.data.value?.find((a) => a.id === value.id)?.stage : '';
+  const own = value?.type === 'agent' ? agentList.data.value?.find((a) => a.id === value.id)?.stage : '';
   range.value =
     own
       ? { from: own, to: own }

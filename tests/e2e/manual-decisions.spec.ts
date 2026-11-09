@@ -13,6 +13,26 @@ async function fixture(page: Page) {
   let marker: string | null = null;
   let messages: unknown[] = [];
   const writes: { path: string; method: string; body: any }[] = [];
+  // The builder starts only on the person's own online machine.
+  await page.route(/\/api\/runtimes(\?|$)/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      json: [
+        {
+          id: 'machine1',
+          workspace_id: 'lab',
+          owner_id: 'me',
+          daemon_id: 'd1',
+          harness: 'claude',
+          device_name: 'Lab laptop',
+          custom_name: null,
+          status: 'online',
+          unhealthy_reason: null,
+          models: [],
+        },
+      ],
+    });
+  });
   await page.route('**/api/**', async (route) => {
     const request = route.request(),
       url = new URL(request.url()),
@@ -36,6 +56,7 @@ async function fixture(page: Page) {
       data = {
         chat_id: 'd1',
         purpose: 'manual_decision_draft',
+        runtime_id: 'machine1',
         draft,
         applied_message_id: marker,
         archived_at: archived ? '2026-11-04T00:00:00Z' : null,
@@ -161,31 +182,32 @@ test('blank creation is keyboard accessible, survives reload and archives only a
   expect(writes.some((w) => w.method === 'DELETE')).toBe(false);
 });
 
-test('AI draft uses the existing window, keeps offline edits and remains usable on a narrow screen', async ({
+test('AI draft keeps offline edits beside the conversation and remains usable on a narrow screen', async ({
   page,
 }) => {
   const writes = await fixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/decisions/new');
-  await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
   await expect(page.getByRole('button', { name: /Create with AI/ })).toBeVisible();
   await page.screenshot({ path: '/private/tmp/manual-decisions-start-mobile.png', fullPage: true });
   await page.getByRole('button', { name: /Create with AI/ }).click();
-  await expect(page.getByRole('textbox', { name: 'Question', exact: true })).toBeFocused();
   await page
-    .getByRole('textbox', { name: 'Question', exact: true })
-    .fill('Help me plan a replication note');
-  await page.getByRole('button', { name: 'Ask', exact: true }).click();
+    .getByRole('dialog', { name: 'Choose a machine' })
+    .getByRole('button', { name: 'Start conversation' })
+    .click();
+  const ask = page.getByRole('textbox', { name: 'Describe your decision', exact: true });
+  await expect(ask).toBeVisible();
+  await ask.fill('Help me plan a replication note');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(
-    page.getByRole('alert').filter({ hasText: 'Your machine is offline' }),
+    page.getByRole('alert').filter({ hasText: 'Your selected machine is offline' }),
   ).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Question', exact: true })).toHaveValue(
-    'Help me plan a replication note',
-  );
+  await expect(ask).toHaveValue('Help me plan a replication note');
   expect(writes.some((w) => w.path === '/api/decisions/manual')).toBe(false);
   await page.screenshot({ path: '/private/tmp/manual-decisions-ai-mobile.png', fullPage: true });
-  await page.getByRole('button', { name: 'Minimize', exact: true }).click();
+  // The note form sits beside the conversation, so its edits need no window to open.
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('My note');
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('My note');
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
@@ -199,8 +221,8 @@ test('recovers an away completion once and preserves a saved human reversion aft
   await page.goto('/#/decisions/new?draft=d1');
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Original title');
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
-  await page.getByRole('link', { name: 'Back to decisions', exact: true }).click();
-  await expect(page).toHaveURL(/#\/decisions$/);
+  await page.getByRole('link', { name: 'Back to starting options', exact: true }).click();
+  await expect(page).toHaveURL(/#\/decisions\/new$/);
   writes.completeWhileAway();
   await page.goto('/#/decisions/new?draft=d1&mode=ai');
   await expect(page.getByRole('textbox', { name: 'Context', exact: true })).toHaveValue(
@@ -215,7 +237,6 @@ test('recovers an away completion once and preserves a saved human reversion aft
         w.body.applied_message_id === '22222222-2222-2222-2222-222222222222',
     ),
   ).toBe(true);
-  await page.getByRole('button', { name: 'Minimize', exact: true }).click();
   await page.getByRole('textbox', { name: 'Context', exact: true }).fill('');
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible();
   await page.reload();
