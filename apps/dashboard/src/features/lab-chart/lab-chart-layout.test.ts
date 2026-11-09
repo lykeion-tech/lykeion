@@ -122,7 +122,7 @@ describe('toPreviewChart', () => {
   const sizes = { grounding: 4, hypotheses: 4, experimentation: 5, validation: 5 } as const
   const lab: Laboratory = {
     id: 'built-in',
-    name: 'Built-in laboratory',
+    name: 'Built-in Lykeion',
     rooms: (Object.keys(sizes) as (keyof typeof sizes)[]).map((stage) => ({
       stage,
       team: stage,

@@ -47,5 +47,5 @@ func (h *H) listLaboratories(w http.ResponseWriter, r *http.Request) {
 			rooms = append(rooms, room)
 		}
 	}
-	writeJSON(w, 200, []laboratoryView{{ID: "built-in", Name: "Built-in laboratory", Rooms: rooms}})
+	writeJSON(w, 200, []laboratoryView{{ID: "built-in", Name: "Built-in Lykeion", Rooms: rooms}})
 }

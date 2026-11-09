@@ -27,7 +27,7 @@ vi.mock('../lab-chart/LabChartScene.vue', () => ({
 
 const lab = {
   id: 'built-in',
-  name: 'Built-in laboratory',
+  name: 'Built-in Lykeion',
   rooms: [{ stage: 'grounding', team: 'Grounding', agents: [{ name: 'leader', role: 'leader' }] }],
 };
 const cleanups: (() => void)[] = [];
@@ -102,9 +102,9 @@ describe('onboarding Laboratory step', () => {
     const nodes = all(root);
     const radio = nodes.findIndex((n) => n.tag === 'input' && n.props.name === 'laboratory');
     expect(radio).toBeGreaterThan(-1);
-    expect(nodes[radio]!.props['aria-label']).toBe('Built-in laboratory');
+    expect(nodes[radio]!.props['aria-label']).toBe('Built-in Lykeion');
     expect((nodes[radio] as unknown as { checked: boolean }).checked).toBe(true);
-    expect(textOf(root)).toContain('Built-in laboratory');
+    expect(textOf(root)).toContain('Built-in Lykeion');
     expect(radio).toBeLessThan(nodes.findIndex((n) => n.tag === 'lab-scene'));
   });
 
