@@ -49,6 +49,21 @@ describe('placeRooms', () => {
     const building = { x: 2.5, z: -4, w: 35, d: 28 }
     for (const f of fp) expect(overlap(f, building)).toBe(false)
   })
+
+  it('ends every connector on a roof, inside a block footprint and at its roof height', () => {
+    const blocks = [
+      { x: 0, z: 0, w: 30, d: 20, h: 5 },
+      { x: -4, z: -14, w: 18, d: 8, h: 4.2 },
+      { x: 16, z: -4, w: 8, d: 14, h: 6 },
+    ]
+    for (const r of placeRooms(5)) {
+      const b = blocks.find(
+        (k) => Math.abs(r.roofX - k.x) < k.w / 2 && Math.abs(r.roofZ - k.z) < k.d / 2,
+      )
+      expect(b, JSON.stringify(r)).toBeDefined()
+      expect(r.roofY).toBeCloseTo(b!.h + 0.4, 6)
+    }
+  })
 })
 
 describe('layoutConference', () => {

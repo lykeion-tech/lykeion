@@ -31,7 +31,7 @@ const SPOTS: [number, number, number, number, number][] = [
   [2.1, -35.5, 0, 4.6, -16],
   [33.6, -23.5, 16, 6.4, -8],
   [33.6, 18.5, 10, 5.4, 6],
-  [-30.9, 17, -15, 5.4, 6],
+  [-30.9, 17, -8, 5.4, 3],
 ]
 
 export function placeRooms(count: number) {
