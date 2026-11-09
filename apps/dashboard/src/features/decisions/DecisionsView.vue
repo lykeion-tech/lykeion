@@ -152,7 +152,7 @@ watch(
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
 .question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
 .card-body h2 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
-.question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
+.question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; }
 .study-context { color:var(--muted); }
 .status-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .status-actions { display:flex; align-items:center; gap:16px; margin-left:auto; }
