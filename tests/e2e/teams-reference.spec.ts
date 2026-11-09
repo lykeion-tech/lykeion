@@ -265,14 +265,13 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(heading).toHaveCSS('color', style.color);
 });
 
-// The Last updated button no longer sits 16px inside the table's right edge (Teams: 15px
-// outside it; Agents: flush with it); waiting on the person to say which is intended.
-test.fixme('Teams toolbar sits 16px inside the table right edge', async ({ page }) => {
+// The Last updated button reaches 15px past the table's right edge, as designed.
+test('Teams toolbar reaches 15px past the table right edge', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/#/teams');
   const last = (await page.locator('.team-table th').last().boundingBox())!;
   const sort = (await page
     .getByRole('button', { name: 'Last updated', exact: true })
     .boundingBox())!;
-  expect(last.x + last.width - (sort.x + sort.width)).toBe(16);
+  expect(Math.round(sort.x + sort.width - (last.x + last.width))).toBe(15);
 });

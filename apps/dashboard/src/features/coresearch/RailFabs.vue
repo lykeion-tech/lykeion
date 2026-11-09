@@ -29,7 +29,7 @@ const emit = defineEmits<{ change: ['nav' | 'context'] }>();
 .rail-fabs {
   position: fixed;
   left: 16px;
-  bottom: 68px;
+  bottom: 100px;
   z-index: 30;
   display: flex;
   gap: 8px;
