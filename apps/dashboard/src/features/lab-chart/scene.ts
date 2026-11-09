@@ -255,7 +255,15 @@ export function fitView(
 }
 
 export type Labelled = { key: string; anchor: THREE.Vector3 };
-export type Rooms = { group: THREE.Group; pickables: THREE.Mesh[]; labelled: Labelled[] };
+// A room's hover area is its floor and walls; `outline` is the glow shown while it is hovered.
+export type RoomArea = { key: string; title: string; line: string; outline: THREE.Object3D };
+export type Rooms = {
+  group: THREE.Group;
+  pickables: THREE.Mesh[];
+  labelled: Labelled[];
+  areas: THREE.Mesh[];
+  rooms: Map<string, RoomArea>;
+};
 
 // The five rooms pulled out of the building: one per stage, then the Conference room.
 // `text` returns the plane for a label, so a caller can keep planes across rebuilds; the
@@ -268,6 +276,8 @@ export function buildRooms(
   const group = new THREE.Group();
   const pickables: THREE.Mesh[] = [];
   const labelled: Labelled[] = [];
+  const areas: THREE.Mesh[] = [];
+  const areaRooms = new Map<string, RoomArea>();
   const spots = placeRooms(5);
 
   const leader = (fx: number, fz: number, tx: number, ty: number, tz: number) => {
@@ -339,14 +349,48 @@ export function buildRooms(
   };
   // A cutaway room: a floor slab with a visible edge, back and left walls, the front open.
   // Its back wall stays where a minimum-depth room's would be; a deeper room grows forward.
-  const shell = (cx: number, spotZ: number, w: number, d: number, floorC: number) => {
+  const shell = (
+    cx: number,
+    spotZ: number,
+    w: number,
+    d: number,
+    floorC: number,
+    room: Omit<RoomArea, 'outline'>,
+  ) => {
     const x1 = cx - w / 2,
       z1 = spotZ - ROOM_MIN_DEPTH / 2,
       cz = z1 + d / 2;
-    add(group, new THREE.BoxGeometry(w, 0.6, d), mat(0xd8d4cc), cx, 0.3, cz);
-    add(group, new THREE.BoxGeometry(w, 0.04, d), mat(floorC), cx, 0.62, cz, false);
-    add(group, new THREE.BoxGeometry(w, WH, 0.3), mat(WALL), cx, 0.6 + WH / 2, z1 + 0.15);
-    add(group, new THREE.BoxGeometry(0.3, WH, d), mat(WALL), x1 + 0.15, 0.6 + WH / 2, cz);
+    const parts = [
+      add(group, new THREE.BoxGeometry(w, 0.6, d), mat(0xd8d4cc), cx, 0.3, cz),
+      add(group, new THREE.BoxGeometry(w, 0.04, d), mat(floorC), cx, 0.62, cz, false),
+      add(group, new THREE.BoxGeometry(w, WH, 0.3), mat(WALL), cx, 0.6 + WH / 2, z1 + 0.15),
+      add(group, new THREE.BoxGeometry(0.3, WH, d), mat(WALL), x1 + 0.15, 0.6 + WH / 2, cz),
+    ];
+    for (const m of parts) m.userData.room = room.key;
+    parts[1].userData.floor = true;
+    areas.push(...parts);
+    // A soft glow in the room's colour around the floor's edge: a bright band with a faint
+    // wider one around it.
+    const outline = new THREE.Group();
+    const color = room.key === 'r:conference' ? 0x7f95b5 : COL[room.key.slice(2) as Stage];
+    for (const [band, opacity] of [
+      [0.9, 0.25],
+      [0.3, 0.9],
+    ]) {
+      const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
+      for (const [bw, bd, bx, bz] of [
+        [w + band, band, cx, z1],
+        [w + band, band, cx, z1 + d],
+        [band, d + band, x1, cz],
+        [band, d + band, x1 + w, cz],
+      ])
+        add(outline, new THREE.BoxGeometry(bw, 0.05, bd), m, bx, 0.64, bz, false);
+    }
+    outline.visible = false;
+    outline.userData.outline = room.key;
+    group.add(outline);
+    areaRooms.set(room.key, { ...room, outline });
+    labelled.push({ key: room.key, anchor: new THREE.Vector3(cx, 0.6 + WH + 1.6, z1 + 0.15) });
     add(group, new THREE.BoxGeometry(w, 0.12, 0.34), mat(0x8a6a48), cx, 0.6 + WH, z1 + 0.15, false);
     add(group, new THREE.BoxGeometry(0.34, 0.12, d), mat(0x8a6a48), x1 + 0.15, 0.6 + WH, cz, false);
     for (let i = 0; i < 3; i++)
@@ -416,7 +460,11 @@ export function buildRooms(
     const spot = spots[STAGES.indexOf(room.stage)];
     if (!spot) continue;
     const layout = layoutRoom(room);
-    const r = shell(spot.x, spot.z, layout.width, layout.depth, FLOOR[room.stage]);
+    const r = shell(spot.x, spot.z, layout.width, layout.depth, FLOOR[room.stage], {
+      key: `r:${room.stage}`,
+      title: room.team,
+      line: `The room of the ${room.team}'s agents`,
+    });
     leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
     const board = new THREE.Group();
     board.position.set(r.x1 + 0.32, 0, r.z1 + ROOM_MIN_DEPTH / 2 + 1);
@@ -437,7 +485,11 @@ export function buildRooms(
 
   const spot = spots[4];
   const conf = layoutConference(people.length);
-  const r = shell(spot.x, spot.z, ROOM_WIDTH, conf.depth, 0xdfe4ea);
+  const r = shell(spot.x, spot.z, ROOM_WIDTH, conf.depth, 0xdfe4ea, {
+    key: 'r:conference',
+    title: 'Conference room',
+    line: "Where the lab's researchers meet",
+  });
   leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
   tvOnWall(spot.x - 0.25, r.z1, 7.9, 'tv:Conference room', 'Conference room');
   for (const t of conf.tables) {
@@ -485,7 +537,7 @@ export function buildRooms(
     hitbox(x, 0.62 + 0.3, z, `p:${p.user_id}`, top);
   });
 
-  return { group, pickables, labelled };
+  return { group, pickables, labelled, areas, rooms: areaRooms };
 }
 
 export function disposeObject(root: THREE.Object3D) {

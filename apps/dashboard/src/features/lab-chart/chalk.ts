@@ -59,7 +59,11 @@ const SKETCHES = {
   tree: (p: Pen, b: Box) => {
     const root = at(b, 0.5, 0.14);
     const kids = [at(b, 0.25, 0.52), at(b, 0.75, 0.52)];
-    for (const k of kids) p.line([[root[0], root[1] + b.h * 0.08], [k[0], k[1] - b.h * 0.1]]);
+    for (const k of kids)
+      p.line([
+        [root[0], root[1] + b.h * 0.08],
+        [k[0], k[1] - b.h * 0.1],
+      ]);
     for (const [i, k] of kids.entries())
       for (const fx of [-0.12, 0.12]) {
         const leaf = at(b, (i ? 0.75 : 0.25) + fx, 0.88);

@@ -64,6 +64,7 @@ const entities = computed(() => {
 const canvas = ref<HTMLCanvasElement>();
 const failed = ref(false);
 const hovered = ref<string | null>(null);
+const hoveredRoom = ref<string | null>(null);
 const selected = ref<string | null>(null);
 const zoomedIn = ref(false);
 const pos = reactive<Record<string, { x: number; y: number }>>({});
@@ -90,6 +91,16 @@ const pills = computed(() => {
     ];
   });
 });
+
+// The room under the pointer, named in a popup unless an agent or a person is hovered.
+const roomPopup = computed(() => {
+  const r = hoveredRoom.value && !hovered.value ? rooms.value?.rooms.get(hoveredRoom.value) : null;
+  return props.preview || !r ? null : r;
+});
+function light() {
+  for (const [key, r] of rooms.value?.rooms ?? [])
+    r.outline.visible = key === hoveredRoom.value && !props.preview;
+}
 
 const HINT = 'drag to look around · wheel to zoom · click an agent or a person for details';
 const CLI = { claude: 'Claude Code', codex: 'Codex' };
@@ -231,6 +242,7 @@ function rebuild() {
   rooms.value = buildRooms(shown.value.rooms, shown.value.people, cachedText);
   scene.add(rooms.value.group);
   refit();
+  light();
   if (selected.value && !entities.value.has(selected.value)) selected.value = null;
 }
 
@@ -255,11 +267,13 @@ function tick() {
   placeCam();
   zoomedIn.value = zoom > 0.7;
   const anchors = rooms.value?.labelled ?? [];
-  for (const p of pills.value) {
-    const l = anchors.find((a) => a.key === p.key);
+  const shownKeys = pills.value.map((p) => p.key);
+  if (roomPopup.value) shownKeys.push(roomPopup.value.key);
+  for (const key of shownKeys) {
+    const l = anchors.find((a) => a.key === key);
     if (!l) continue;
     v.copy(l.anchor).project(camera);
-    const at = (pos[p.key] ??= { x: 0, y: 0 });
+    const at = (pos[key] ??= { x: 0, y: 0 });
     at.x = Math.round(((v.x + 1) / 2) * w);
     at.y = Math.round(((1 - v.y) / 2) * h);
   }
@@ -268,12 +282,17 @@ function tick() {
 
 const ray = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-function hit(e: PointerEvent): string | null {
+// Agents and people take priority over the room they stand in.
+function hit(e: PointerEvent): { key: string | null; room: string | null } {
   const r = canvas.value!.getBoundingClientRect();
   mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(mouse, camera);
   const found = ray.intersectObjects(rooms.value?.pickables ?? [])[0];
-  return (found?.object.userData.key as string) ?? null;
+  const area = ray.intersectObjects(rooms.value?.areas ?? [])[0];
+  return {
+    key: (found?.object.userData.key as string) ?? null,
+    room: (area?.object.userData.room as string) ?? null,
+  };
 }
 function down(e: PointerEvent) {
   drag = { x: e.clientX, y: e.clientY, moved: false };
@@ -289,11 +308,17 @@ function move(e: PointerEvent) {
     drag.x = e.clientX;
     drag.y = e.clientY;
   }
-  hovered.value = hit(e);
+  const h = hit(e);
+  hovered.value = h.key;
+  hoveredRoom.value = h.room;
+}
+function leave() {
+  hovered.value = null;
+  hoveredRoom.value = null;
 }
 function up(e: PointerEvent) {
   if (drag && !drag.moved) {
-    const key = hit(e);
+    const key = hit(e).key;
     if (key) selected.value = key;
   }
   drag = null;
@@ -319,6 +344,7 @@ onMounted(() => {
   easeIn = setTimeout(() => (goal = 1), 600);
 });
 watch(shown, rebuild);
+watch(hoveredRoom, light);
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf);
   clearTimeout(easeIn);
@@ -339,7 +365,7 @@ onBeforeUnmount(() => {
       @pointerdown="down"
       @pointermove="move"
       @pointerup="up"
-      @pointerleave="hovered = null"
+      @pointerleave="leave"
       @wheel.prevent="wheel"
     />
     <div class="lab-chart-hint">{{ HINT }}</div>
@@ -358,6 +384,18 @@ onBeforeUnmount(() => {
         >{{ p.tail }}
       </div>
     </template>
+    <div
+      v-if="roomPopup"
+      class="lab-chart-popup lab-chart-card"
+      :style="
+        pos[roomPopup.key]
+          ? { left: `${pos[roomPopup.key].x}px`, top: `${pos[roomPopup.key].y}px` }
+          : { display: 'none' }
+      "
+    >
+      <b>{{ roomPopup.title }}</b
+      ><span>{{ roomPopup.line }}</span>
+    </div>
     <div v-if="ticker" class="lab-chart-tick lab-chart-card">
       <span class="lab-chart-tick-time">{{ ticker.time }}</span
       >{{ ticker.text }}
@@ -381,7 +419,12 @@ onBeforeUnmount(() => {
           ></span
         >
       </div>
-      <button v-if="panel.link" type="button" class="lab-chart-panel-link button compact" @click="panel.link.go">
+      <button
+        v-if="panel.link"
+        type="button"
+        class="lab-chart-panel-link button compact"
+        @click="panel.link.go"
+      >
         {{ panel.link.text }}
       </button>
     </div>

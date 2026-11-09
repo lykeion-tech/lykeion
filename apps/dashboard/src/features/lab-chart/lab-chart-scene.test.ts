@@ -269,7 +269,9 @@ it('writes only the Team and Conference room names, on upright surfaces only', (
   const v = mount(fixture());
   v.scene().updateMatrixWorld(true);
   const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
-  expect(texts.map((m) => m.userData.text).sort()).toEqual([...TEAM_NAMES, 'Conference room'].sort());
+  expect(texts.map((m) => m.userData.text).sort()).toEqual(
+    [...TEAM_NAMES, 'Conference room'].sort(),
+  );
   for (const m of texts) expect(STAGE_NAMES).not.toContain(m.userData.text);
   for (const m of texts) expect(m.userData.lines).toHaveLength(2);
   for (const m of [...texts, ...v.meshes().filter((m) => m.userData.board)]) {
@@ -282,9 +284,12 @@ it('writes only the Team and Conference room names, on upright surfaces only', (
 it('covers each chalkboard in its own scientific writing, with no stage or Team name', () => {
   const v = mount(fixture());
   const boards = v.meshes().filter((m) => m.userData.board);
-  expect(boards.map((m) => m.userData.board).sort()).toEqual(
-    ['experimentation', 'grounding', 'hypotheses', 'validation'],
-  );
+  expect(boards.map((m) => m.userData.board).sort()).toEqual([
+    'experimentation',
+    'grounding',
+    'hypotheses',
+    'validation',
+  ]);
   const writing = boards.map((m) => (m.userData.writing as string[]).join('\n'));
   expect(new Set(writing).size).toBe(4);
   for (const w of writing) {
@@ -550,7 +555,8 @@ it('hangs every TV between its bookshelf and the windows, clear of both', () => 
 it('styles the panel, pills and ticker with the dashboard surface, tokens and controls', async () => {
   const css = readFileSync('apps/dashboard/src/features/lab-chart/lab-chart.css', 'utf8');
   expect(css).not.toMatch(/#111213|#f5c518|rgba\(17, 18, 19|uppercase|Barlow Condensed/i);
-  const rule = (sel: string) => css.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
+  const rule = (sel: string) =>
+    css.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
   for (const sel of ['.lab-chart-card', '.lab-chart-pill'])
     for (const token of ['var(--surface)', 'var(--border)', 'var(--text)'])
       expect(rule(sel), `${sel} ${token}`).toContain(token);
@@ -561,8 +567,64 @@ it('styles the panel, pills and ticker with the dashboard surface, tokens and co
   const panel = v.byClass('lab-chart-panel')[0];
   expect(hasClass(panel, 'lab-chart-card')).toBe(true);
   const buttons = all(panel).filter((x) => x.tag === 'button');
-  expect(hasClass(buttons.find((b) => b.props['aria-label'] === 'Close')!, 'icon-button')).toBe(true);
+  expect(
+    hasClass(
+      buttons.find((b) => b.props['aria-label'] === 'Close')!,
+      'icon-button',
+    ),
+  ).toBe(true);
   const link = buttons.find((b) => textOf(b) === 'Open agent →')!;
   expect(hasClass(link, 'button') && hasClass(link, 'compact')).toBe(true);
+  v.app.unmount();
+});
+
+it('lights a hovered room and names it in a popup, and clears both on leaving', async () => {
+  const chart = fixture();
+  const v = mount(chart);
+  v.scene().updateMatrixWorld(true);
+  const floor = (room: string) =>
+    v.meshes().find((m) => m.userData.room === room && m.userData.floor)!;
+  const lit = (room: string) => {
+    let on = false;
+    v.scene().traverse((o) => o.userData.outline === room && (on = o.visible));
+    return on;
+  };
+  const at = (p: THREE.Vector3) => {
+    const q = p.clone().project(v.camera());
+    return { clientX: ((q.x + 1) / 2) * 1000, clientY: ((1 - q.y) / 2) * 600, pointerId: 1 };
+  };
+  const overFloor = (room: string) => {
+    const box = new THREE.Box3().setFromObject(floor(room));
+    return at(new THREE.Vector3(box.max.x - 0.4, box.max.y, box.max.z - 0.4));
+  };
+  const move = (e: unknown) => (v.canvas!.props.onPointermove as (e: unknown) => void)(e);
+  const popup = () => v.byClass('lab-chart-popup').map((p) => textOf(p).trim());
+
+  expect(popup()).toEqual([]);
+  move(overFloor('r:experimentation'));
+  await nextTick();
+  expect(popup()).toEqual(["Experimentation TeamThe room of the Experimentation Team's agents"]);
+  expect(hasClass(v.byClass('lab-chart-popup')[0], 'lab-chart-card')).toBe(true);
+  expect(lit('r:experimentation')).toBe(true);
+  expect(lit('r:grounding')).toBe(false);
+
+  move(overFloor('r:conference'));
+  await nextTick();
+  expect(popup()).toEqual(["Conference roomWhere the lab's researchers meet"]);
+  expect(lit('r:experimentation')).toBe(false);
+  expect(lit('r:conference')).toBe(true);
+
+  const searcher = chart.rooms[0].agents[1];
+  const box = v.meshes().find((m) => m.userData.key === `a:${searcher.id}`)!;
+  move(at(box.getWorldPosition(new THREE.Vector3())));
+  await nextTick();
+  expect(popup()).toEqual([]);
+  expect(lit('r:grounding')).toBe(true);
+  expect(v.byClass('lab-chart-pill').some((p) => textOf(p).startsWith('searcher'))).toBe(true);
+
+  (v.canvas!.props.onPointerleave as () => void)();
+  await nextTick();
+  expect(popup()).toEqual([]);
+  expect(lit('r:grounding')).toBe(false);
   v.app.unmount();
 });

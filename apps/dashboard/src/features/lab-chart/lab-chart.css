@@ -133,7 +133,7 @@
   position: absolute;
   transform: translate(-50%, -100%);
   padding: 8px 12px;
-  max-width: 260px;
+  white-space: nowrap;
   pointer-events: none;
   z-index: 2;
 }
