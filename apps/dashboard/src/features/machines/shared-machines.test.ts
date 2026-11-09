@@ -591,7 +591,6 @@ describe('Shared machines', () => {
       studyId: 'c',
     }));
     try {
-      await t.click(/Run 1/);
       expect(t.text()).not.toContain(`Bench (${label})`);
       expect(t.text()).not.toContain('Runs on: Bench');
       expect(t.text()).toContain(
@@ -816,7 +815,6 @@ describe('Shared machines', () => {
       studyId: 'c',
     }));
     try {
-      await t.click(/Run 1/);
       expect(t.text()).not.toContain('Old bench (Ada)');
     } finally {
       t.unmount();

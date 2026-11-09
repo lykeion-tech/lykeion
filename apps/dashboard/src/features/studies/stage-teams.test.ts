@@ -1735,8 +1735,9 @@ describe('study right-pane surfaces', () => {
   it('opens the chooser and shows properties, execution and files one at a time', async () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {
+      const toggle = () => t.nodes().find((n) => n.props['aria-label'] === 'Toggle details');
       expect(t.text()).toContain('Open a surface');
-      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
+      expect(toggle()?.props['aria-pressed']).toBe(true);
       expect(t.text()).not.toContain('Grounding criteria');
       expect(t.text()).not.toContain('Details');
       for (const label of ['Properties', 'Timeline', 'Files']) {
@@ -1762,10 +1763,10 @@ describe('study right-pane surfaces', () => {
         await nextTick();
         expect(t.text()).toContain('Open a surface');
       }
-      const close = t.nodes().find((n) => n.props['aria-label'] === 'Close pane')!;
-      (close.props.onClick as () => void)();
+      (toggle()!.props.onClick as () => void)();
       await nextTick();
-      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(true);
+      expect(toggle()?.props['aria-pressed']).toBe(false);
+      expect(t.text()).not.toContain('Open a surface');
     } finally {
       t.unmount();
     }
@@ -1834,6 +1835,8 @@ it('shows generated files at the end of activity and opens the exact output', as
             created_at: '2026-01-01',
             board_column: 'experimentation',
             round: 1,
+            role: 'agent',
+            agent_run_id: null,
           },
         ],
       );
@@ -2000,6 +2003,26 @@ it('lists each saved study output separately with its stage and run provenance',
           },
         ],
       );
+      client.setQueryData(
+        keys.runs('w', 'c'),
+        ['a', 'b'].map((id) => ({
+          id: `run-${id}`,
+          card_id: 'c',
+          board_column: id === 'a' ? 'grounding' : 'validation',
+          round: id === 'a' ? 1 : 2,
+          role: 'leader',
+          status: 'done',
+          harness: 'claude',
+          agent_name: id === 'a' ? 'Ada' : 'Babbage',
+          assignment: '',
+          answer: '',
+          latest_text: '',
+          error: '',
+          created_at: `2026-10-30T0${id === 'a' ? 9 : 10}:00:00Z`,
+        })),
+      );
+      for (const id of ['a', 'b'])
+        client.setQueryData(['ws', 'w', 'run-reactions', 'c', `run-${id}`], []);
     },
   );
   try {
@@ -2014,8 +2037,9 @@ it('lists each saved study output separately with its stage and run provenance',
     ).toHaveLength(2);
     expect(t.text()).toContain('Grounding');
     expect(t.text()).toContain('Validation');
-    expect(t.text()).toContain('run-a');
-    expect(t.text()).toContain('run-b');
+    const cards = t.nodes().filter((n) => n.tag === 'button' && n.props.class === 'file-card');
+    expect(textOf(cards[0]!)).toContain('Ada');
+    expect(textOf(cards[1]!)).toContain('Babbage');
   } finally {
     t.unmount();
   }
