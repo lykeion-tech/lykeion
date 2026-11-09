@@ -139,9 +139,7 @@ test('an Autoresearch needs an assignee', async ({ page }) => {
   await expect(menu.getByText('Members')).toHaveCount(0);
   await page.screenshot({ path: `${shots}/autoresearch-picker.png`, fullPage: true });
   await menu.getByRole('menuitem', { name: 'Watcher' }).click();
-  await expect(
-    dialog.getByRole('button', { name: /Stages: Grounding → Validation/ }),
-  ).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Stages: Experimentation' })).toBeVisible();
   await expect(create).toBeEnabled();
 });
 
