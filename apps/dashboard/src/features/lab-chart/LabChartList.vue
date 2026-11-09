@@ -14,7 +14,7 @@ const STATUS: Record<LabChartAgent['status'], string> = {
 </script>
 
 <template>
-  <section :class="['lab-chart-list', { 'is-hidden': hidden }]" aria-label="Lab Chart rooms">
+  <section :class="['lab-chart-list', { 'is-hidden': hidden }]" aria-label="Lykeion rooms">
     <div v-for="room in chart.rooms" :key="room.stage" class="lab-chart-list-room">
       <h3>{{ STAGE_LABEL[room.stage] }}</h3>
       <ul>

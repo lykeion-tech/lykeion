@@ -219,10 +219,10 @@ describe('the dashboard source layout', () => {
 
 describe('the rail icons', () => {
   const app = readFileSync(join(src, 'App.vue'), 'utf8');
-  it('gives Teams the team glyph and Lab Chart the network icon before Settings', () => {
+  it('gives Teams the team glyph and Lykeion the network icon before Settings', () => {
     expect(app).toContain("{ id: 'teams', name: 'Teams', icon: 'team' }");
     expect(app).toMatch(
-      /\{ id: 'lab-chart', name: 'Lab Chart', icon: 'network' \},\s*\{ id: 'settings'/,
+      /\{ id: 'lab-chart', name: 'Lykeion', icon: 'network' \},\s*\{ id: 'settings'/,
     );
   });
   it('draws the team glyph as one rect and two filled circles', async () => {

@@ -15,7 +15,7 @@ const me = useMe();
       <button :disabled="chart.isFetching.value" @click="chart.refetch()">Retry</button>
     </p>
     <p v-else-if="chart.isPending.value" class="muted lab-chart-state" role="status">
-      Loading the Lab Chart…
+      Loading Lykeion…
     </p>
     <LabChartScene
       v-else-if="chart.data.value"

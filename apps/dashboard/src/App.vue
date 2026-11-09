@@ -169,7 +169,7 @@ const groups = [
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
-  { id: 'lab-chart', name: 'Lab Chart', icon: 'network' },
+  { id: 'lab-chart', name: 'Lykeion', icon: 'network' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
 const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');

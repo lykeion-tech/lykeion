@@ -62,7 +62,7 @@ it('shows loading, then the server error with a retry, then the chart', async ()
   );
   const root = await mount();
   await nextTick();
-  expect(textOf(root)).toContain('Loading the Lab Chart…');
+  expect(textOf(root)).toContain('Loading Lykeion…');
   fail(new Error('the lab chart is unavailable'));
   await settle();
   expect(textOf(root)).toContain('the lab chart is unavailable');
@@ -76,11 +76,11 @@ it('shows loading, then the server error with a retry, then the chart', async ()
   expect(textOf(root)).not.toContain('unavailable');
 });
 
-it('takes the shell page header, as Agents does, titled Lab Chart', async () => {
+it('takes the shell page header, as Agents does, titled Lykeion', async () => {
   const { router } = await import('../../router');
   const lab = router.resolve('/lab-chart').meta;
   const agents = router.resolve('/agents').meta;
-  expect(lab).toEqual({ page: 'lab-chart', title: 'Lab Chart' });
+  expect(lab).toEqual({ page: 'lab-chart', title: 'Lykeion' });
   expect(Object.keys(lab).sort()).toEqual(Object.keys(agents).sort());
   // The shell draws its header for every page whose route does not bring its own.
   const app = readFileSync('apps/dashboard/src/App.vue', 'utf8');

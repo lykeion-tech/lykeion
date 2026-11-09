@@ -190,7 +190,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/lab-chart',
     component: LabChartView,
-    meta: { page: 'lab-chart', title: 'Lab Chart' },
+    meta: { page: 'lab-chart', title: 'Lykeion' },
   },
   {
     path: '/colleagues',

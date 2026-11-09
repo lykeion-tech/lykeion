@@ -6,11 +6,11 @@ test('the Lab Chart page sits above Settings and draws the lab', async ({ page }
   const settings = nav.getByRole('link', { name: 'Settings', exact: true });
   await expect(settings).toBeVisible();
   const above = settings.locator('xpath=preceding::*[self::a or self::button][1]');
-  await expect(above).toHaveText('Lab Chart');
+  await expect(above).toHaveText('Lykeion');
   await above.click();
   await expect(page).toHaveURL(/#\/lab-chart$/);
   await expect(page.locator('canvas')).toBeVisible();
-  const list = page.getByRole('region', { name: 'Lab Chart rooms' });
+  const list = page.getByRole('region', { name: 'Lykeion rooms' });
   await expect(
     list.locator('.lab-chart-list-room').filter({ has: page.locator('li') }),
   ).not.toHaveCount(0);
