@@ -91,6 +91,17 @@ SELECT * FROM agent WHERE workspace_id = @workspace_id AND laboratory <> '' AND 
   AND deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, id FOR UPDATE;
 
 -- The Team member a laboratory agent is, with its Team's manifest.
+-- Hands every laboratory agent whose owner is no longer a workspace owner to
+-- @owner_id.
+-- name: ReassignLaboratoryAgents :many
+UPDATE agent SET owner_id = @owner_id, updated_at = now()
+WHERE agent.workspace_id = @workspace_id AND agent.laboratory <> '' AND NOT EXISTS (SELECT 1 FROM member m
+  WHERE m.workspace_id = agent.workspace_id AND m.user_id = agent.owner_id AND m.role = 'owner')
+RETURNING *;
+
+-- name: BoundLaboratoryAgents :many
+SELECT * FROM agent WHERE workspace_id = @workspace_id AND laboratory <> '' AND runtime_id IS NOT NULL ORDER BY created_at, id FOR UPDATE;
+
 -- name: LaboratoryMember :one
 SELECT t.member, p.manifest FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
 WHERE t.workspace_id = @workspace_id AND t.agent_id = @agent_id AND t.user_id IS NULL LIMIT 1;

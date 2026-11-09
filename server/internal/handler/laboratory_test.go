@@ -23,8 +23,9 @@ func TestCreateWorkspaceRefusesUnknownLaboratory(t *testing.T) {
 	s := newServer(t)
 	s.H.Shipped = pack.Shipped()
 	a := s.signIn(t, "a@lab.org")
-	if c := s.call(t, "POST", "/api/workspaces", a, "", map[string]string{"name": "x", "slug": "acme-lab", "laboratory": "acme/lab"}, nil); c != 400 {
-		t.Fatalf("unknown laboratory: %d", c)
+	var out map[string]any
+	if c := s.call(t, "POST", "/api/workspaces", a, "", map[string]string{"name": "x", "slug": "acme-lab", "laboratory": "acme/lab"}, &out); c != 400 || out["error"] != "unknown laboratory" {
+		t.Fatalf("unknown laboratory: %d %v", c, out)
 	}
 	if n := s.count(t, `SELECT count(*) FROM workspace WHERE slug='acme-lab'`); n != 0 {
 		t.Fatalf("%d workspaces created", n)

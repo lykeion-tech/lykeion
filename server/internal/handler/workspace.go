@@ -15,6 +15,7 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
@@ -316,6 +317,9 @@ func (h *H) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		if n == 0 {
 			return pgx.ErrNoRows
 		}
+		if err := service.KeepLaboratoryOwned(r.Context(), tx); err != nil {
+			return err
+		}
 		return tx.Emit(r.Context(), "member.role_changed", nil, store.User(user), map[string]string{"user_id": target.String(), "role": in.Role})
 	})
 	if err != nil {
@@ -382,6 +386,9 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 			if err := tx.Emit(r.Context(), "research.updated", nil, store.User(user), map[string]any{"research_id": p.ID}); err != nil {
 				return err
 			}
+		}
+		if err := service.KeepLaboratoryOwned(r.Context(), tx); err != nil {
+			return err
 		}
 		agents, err := tx.Q.ArchiveOwnedAgents(r.Context(), db.ArchiveOwnedAgentsParams{WorkspaceID: ws, OwnerID: target})
 		if err != nil {

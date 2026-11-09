@@ -216,3 +216,8 @@ WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AN
 -- name: ResolveLaboratoryWait :exec
 UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
 WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause = @cause::text AND resolved_at IS NULL;
+
+-- name: MoveLaboratoryWaits :exec
+UPDATE inbox_item SET user_id = @user_id, touched_at = now()
+WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause LIKE 'unbound:%'
+  AND resolved_at IS NULL AND user_id <> @user_id;

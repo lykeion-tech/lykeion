@@ -233,6 +233,51 @@ func (q *Queries) BindAgentRuntime(ctx context.Context, arg BindAgentRuntimePara
 	return i, err
 }
 
+const boundLaboratoryAgents = `-- name: BoundLaboratoryAgents :many
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND runtime_id IS NOT NULL ORDER BY created_at, id FOR UPDATE
+`
+
+func (q *Queries) BoundLaboratoryAgents(ctx context.Context, workspaceID uuid.UUID) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, boundLaboratoryAgents, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Agent
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.Instructions,
+			&i.Harness,
+			&i.Model,
+			&i.Visibility,
+			&i.OwnerID,
+			&i.ArchivedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BuiltInKey,
+			&i.ConversationStarters,
+			&i.AvatarUrl,
+			&i.TeamDeletedAt,
+			&i.DeletedAt,
+			&i.Stage,
+			&i.Laboratory,
+			&i.RuntimeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createAgent = `-- name: CreateAgent :one
 INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
@@ -434,7 +479,6 @@ type LaboratoryMemberRow struct {
 	Manifest json.RawMessage `json:"manifest"`
 }
 
-// The Team member a laboratory agent is, with its Team's manifest.
 func (q *Queries) LaboratoryMember(ctx context.Context, arg LaboratoryMemberParams) (LaboratoryMemberRow, error) {
 	row := q.db.QueryRow(ctx, laboratoryMember, arg.WorkspaceID, arg.AgentID)
 	var i LaboratoryMemberRow
@@ -606,6 +650,62 @@ func (q *Queries) OldestOwner(ctx context.Context, workspaceID uuid.UUID) (uuid.
 	var user_id uuid.UUID
 	err := row.Scan(&user_id)
 	return user_id, err
+}
+
+const reassignLaboratoryAgents = `-- name: ReassignLaboratoryAgents :many
+UPDATE agent SET owner_id = $1, updated_at = now()
+WHERE agent.workspace_id = $2 AND agent.laboratory <> '' AND NOT EXISTS (SELECT 1 FROM member m
+  WHERE m.workspace_id = agent.workspace_id AND m.user_id = agent.owner_id AND m.role = 'owner')
+RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+`
+
+type ReassignLaboratoryAgentsParams struct {
+	OwnerID     uuid.UUID `json:"owner_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// The Team member a laboratory agent is, with its Team's manifest.
+// Hands every laboratory agent whose owner is no longer a workspace owner to
+// @owner_id.
+func (q *Queries) ReassignLaboratoryAgents(ctx context.Context, arg ReassignLaboratoryAgentsParams) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, reassignLaboratoryAgents, arg.OwnerID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Agent
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.Instructions,
+			&i.Harness,
+			&i.Model,
+			&i.Visibility,
+			&i.OwnerID,
+			&i.ArchivedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BuiltInKey,
+			&i.ConversationStarters,
+			&i.AvatarUrl,
+			&i.TeamDeletedAt,
+			&i.DeletedAt,
+			&i.Stage,
+			&i.Laboratory,
+			&i.RuntimeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const retargetLaboratoryRuns = `-- name: RetargetLaboratoryRuns :exec

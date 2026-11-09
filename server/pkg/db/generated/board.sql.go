@@ -543,6 +543,22 @@ func (q *Queries) MarkQueueOffline(ctx context.Context) error {
 	return err
 }
 
+const moveLaboratoryWaits = `-- name: MoveLaboratoryWaits :exec
+UPDATE inbox_item SET user_id = $1, touched_at = now()
+WHERE workspace_id = $2 AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause LIKE 'unbound:%'
+  AND resolved_at IS NULL AND user_id <> $1
+`
+
+type MoveLaboratoryWaitsParams struct {
+	UserID      uuid.UUID `json:"user_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) MoveLaboratoryWaits(ctx context.Context, arg MoveLaboratoryWaitsParams) error {
+	_, err := q.db.Exec(ctx, moveLaboratoryWaits, arg.UserID, arg.WorkspaceID)
+	return err
+}
+
 const offlineRuntimesWithQueuedRuns = `-- name: OfflineRuntimesWithQueuedRuns :many
 SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
 FROM runtime r

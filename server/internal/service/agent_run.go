@@ -574,6 +574,58 @@ func BindLaboratoryRuntime(ctx context.Context, tx *store.Tx, a db.Agent, rt db.
 	return tx.Emit(ctx, "agent.updated", nil, store.System, map[string]any{"agent_id": a.ID})
 }
 
+// KeepLaboratoryOwned hands the laboratory agents of a departed or demoted
+// owner to the oldest remaining owner, with their open machine notices, and
+// unbinds every laboratory agent whose machine no longer allows its owner.
+func KeepLaboratoryOwned(ctx context.Context, tx *store.Tx) error {
+	// Claims read the binding under this lock.
+	if _, err := tx.Q.LockWorkspaceExecution(ctx, tx.WS); err != nil {
+		return err
+	}
+	owner, err := tx.Q.OldestOwner(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	moved, err := tx.Q.ReassignLaboratoryAgents(ctx, db.ReassignLaboratoryAgentsParams{WorkspaceID: tx.WS, OwnerID: owner})
+	if err != nil {
+		return err
+	}
+	if err := tx.Q.MoveLaboratoryWaits(ctx, db.MoveLaboratoryWaitsParams{WorkspaceID: tx.WS, UserID: owner}); err != nil {
+		return err
+	}
+	changed := map[uuid.UUID]bool{}
+	for _, a := range moved {
+		changed[a.ID] = true
+	}
+	bound, err := tx.Q.BoundLaboratoryAgents(ctx, tx.WS)
+	if err != nil {
+		return err
+	}
+	for _, a := range bound {
+		rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *a.RuntimeID})
+		if err != nil {
+			return err
+		}
+		allowed, err := RuntimeAllowsUser(ctx, tx, rt, a.OwnerID)
+		if err != nil {
+			return err
+		}
+		if allowed {
+			continue
+		}
+		if _, err := tx.Q.BindAgentRuntime(ctx, db.BindAgentRuntimeParams{WorkspaceID: tx.WS, ID: a.ID}); err != nil {
+			return err
+		}
+		changed[a.ID] = true
+	}
+	for id := range changed {
+		if err := tx.Emit(ctx, "agent.updated", nil, store.System, map[string]any{"agent_id": id}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // bindUnbound binds each unbound laboratory agent to the first of a workspace
 // owner's new runtimes, Claude Code before Codex, that it can be bound to.
 func bindUnbound(ctx context.Context, tx *store.Tx, runtimes []db.Runtime) error {
