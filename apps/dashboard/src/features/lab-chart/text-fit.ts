@@ -1,4 +1,5 @@
-// Largest font size not above height*fill whose measured text width fits within width*margin.
+// Largest font size not above height*fill whose measured text width fits within width*0.92
+// (pass 0.94 for chalkboards via `margin`).
 export function fitFontSize(
   _text: string,
   measure: (size: number) => number,
