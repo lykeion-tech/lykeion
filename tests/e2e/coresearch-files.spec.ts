@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { installFilesFixture, openSavedFile, texts } from './coresearch-files-fixture';
+import {
+  installFilesFixture,
+  openFilePage,
+  openSavedFile,
+  texts,
+} from './coresearch-files-fixture';
 test('active chat turns display the ring spinner beside Working', async ({ page }) => {
   await installFilesFixture(page);
   await page.route('**/api/coresearch/projects/p/chats/selected/messages', async (route) => {
@@ -89,8 +94,7 @@ test('typing before remote head update preserves draft and base through stale an
   page,
 }) => {
   const fixture = await installFilesFixture(page, { head: 1 });
-  await page.goto('/#/coresearch/p/selected');
-  await openSavedFile(page, 'residuals.csv');
+  await openFilePage(page, 'f');
   const pane = page.getByTestId('artifact-pane');
   await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
   const draft = 'time,residual\n1,7.125\n\n';
@@ -172,8 +176,7 @@ for (const destination of ['global route', 'workspace']) {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const fixture = await installFilesFixture(page, { head: 1 });
-    await page.goto('/#/coresearch/p/selected');
-    await openSavedFile(page, 'residuals.csv');
+    await openFilePage(page, 'f');
     const pane = page.getByTestId('artifact-pane'),
       draft = `exact ${destination} draft\n\n`;
     await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
@@ -182,11 +185,8 @@ for (const destination of ['global route', 'workspace']) {
     await expect(pane).toContainText('v1 (old)');
     const exit = async () => {
       if (destination === 'global route') {
-        await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
         await page.getByRole('link', { name: 'Coresearch', exact: true }).click();
       } else {
-        if (!(await page.locator('.workspace-switch').isVisible()))
-          await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
         if (!(await page.getByRole('menu', { name: 'Workspace', exact: true }).isVisible()))
           await page.locator('.workspace-switch').click();
         await page.getByRole('menuitem', { name: /Second lab/ }).click();
@@ -196,7 +196,7 @@ for (const destination of ['global route', 'workspace']) {
     const dialog = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Keep editing', exact: true }).click();
-    await expect(page).toHaveURL(/#\/coresearch\/p\/selected$/);
+    await expect(page).toHaveURL(/#\/coresearch\/artifacts\/p\/f$/);
     expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe('lab');
     await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveValue(draft);
     await expect(pane).toContainText('v1 (old)');
@@ -218,37 +218,3 @@ for (const destination of ['global route', 'workspace']) {
     expect(errors).toEqual([]);
   });
 }
-
-test('local pane exits share the application discard dialog without native or repeated prompts', async ({
-  page,
-}) => {
-  await installFilesFixture(page, { head: 1 });
-  let nativePrompts = 0;
-  page.on('dialog', async (dialog) => {
-    nativePrompts++;
-    await dialog.dismiss();
-  });
-  await page.goto('/#/coresearch/p/selected');
-  await openSavedFile(page, 'residuals.csv');
-  const pane = page.getByTestId('artifact-pane'),
-    draft = 'local pane draft\n';
-  await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
-  await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
-  const back = page.getByRole('button', { name: 'Back to surfaces', exact: true }),
-    discard = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
-  await back.click();
-  await expect(discard).toHaveCount(1);
-  await discard.getByRole('button', { name: 'Keep editing', exact: true }).click();
-  await expect(pane.getByRole('textbox')).toHaveValue(draft);
-  await back.click();
-  await expect(discard).toHaveCount(1);
-  await discard.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Open a surface' })).toBeVisible();
-  await expect(discard).toHaveCount(0);
-  await openSavedFile(page, 'residuals.csv');
-  await expect(pane.getByRole('button', { name: 'Edit content', exact: true })).toBeVisible();
-  await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close pane', exact: true }).click();
-  await expect(discard).toHaveCount(0);
-  expect(nativePrompts).toBe(0);
-});
