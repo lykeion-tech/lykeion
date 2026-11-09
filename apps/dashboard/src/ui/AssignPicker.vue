@@ -53,7 +53,8 @@ const stageName = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : '');
 // The owner of the study or Autoresearch is the researcher, so a private agent
 // is offered only to its owner.
 // An agent works one stage, so a one-agent study offers the agents of the
-// stage chosen; an agent with no stage is never offered.
+// stage chosen, and a Workflow those of its fixed stage; an agent with no
+// stage is never offered.
 const assignableAgents = computed(() =>
   props.agents || props.oneAgent
     ? (agentList.data.value ?? []).filter(
@@ -61,16 +62,21 @@ const assignableAgents = computed(() =>
           !a.archived_at &&
           !!a.stage &&
           (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
-          (!props.oneAgent ||
-            assignee.value?.type === 'agent' ||
-            range.value.from !== range.value.to ||
-            a.stage === range.value.from),
+          (props.agentOnly
+            ? a.stage === range.value.from
+            : !props.oneAgent ||
+              assignee.value?.type === 'agent' ||
+              range.value.from !== range.value.to ||
+              a.stage === range.value.from),
       )
     : [],
 );
-// The agent for an Autoresearch's uncovered stages must work one of them.
+// The agent for an Autoresearch's uncovered stages works every one of them,
+// and an agent works one stage, so it is offered only when one stage is
+// uncovered and it is that agent's.
+const uncovered = computed(() => stages.filter((s) => !setSlots.value[s]));
 const fillerAgents = computed(() =>
-  assignableAgents.value.filter((a) => !setSlots.value[a.stage]),
+  uncovered.value.length === 1 ? assignableAgents.value.filter((a) => a.stage === uncovered.value[0]) : [],
 );
 const teamColumns = computed(() =>
   assignee.value?.type === 'team' ? Object.keys(assignee.value.teams) : [],
@@ -161,7 +167,9 @@ const showSets = computed(
 // Autoresearch's get an agent.
 const gaps = computed(() => !!props.agents && stages.some((s) => !setSlots.value[s]));
 const setReady = computed(
-  () => stages.some((s) => setSlots.value[s]) && (!gaps.value || !!setAgent.value),
+  () =>
+    stages.some((s) => setSlots.value[s]) &&
+    (!gaps.value || fillerAgents.value.some((a) => a.id === setAgent.value)),
 );
 
 async function openMenu(which: string) {

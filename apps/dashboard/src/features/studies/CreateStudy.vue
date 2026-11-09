@@ -114,6 +114,16 @@ watch(range, (r) => {
 });
 // The Workflow needs one agent, so a Team picked before it is dropped.
 if (workflowSlug.value && assignee.value?.type !== 'agent') assignee.value = null;
+// A Workflow runs on Experimentation, so an agent of another stage is dropped.
+watch(
+  [assignee, () => agents.data.value],
+  ([a, list]) => {
+    if (!workflowSlug.value || a?.type !== 'agent') return;
+    const stage = list?.find((x) => x.id === a.id)?.stage;
+    if (stage !== undefined && stage !== workflowRange.from) assignee.value = null;
+  },
+  { immediate: true },
+);
 function dropWorkflow() {
   workflowSlug.value = '';
   range.value = initialRange();

@@ -387,7 +387,7 @@ describe('agent stage', () => {
     expect(t.button(/^Stages:/)?.props.disabled).toBe(true);
   });
 
-  it('offers an Autoresearch filler only agents of an uncovered stage', async () => {
+  it('offers an Autoresearch filler only when one stage is uncovered and it is the agent stage', async () => {
     const t = await mount(AssignPicker, { agents: true }, roster);
     await t.click(/Unassigned/);
     await t.click(/New set/);
@@ -396,10 +396,18 @@ describe('agent stage', () => {
         .options()
         .filter((o) => !['No Team', 'Grounders'].includes(o))
         .join(',');
-    expect(filler()).toBe('Choose an agent,Hypo Agent,Ground Agent');
-    const grounders = [...all(t.root), ...all(body)].filter((n) => n.props.role === 'option' && textOf(n) === 'Grounders');
-    (grounders[0]!.props.onClick as () => void)();
-    await nextTick();
+    expect(filler()).toBe('Choose an agent');
+    const pick = async (stage: string) => {
+      const grounders = [...all(t.root), ...all(body)].filter(
+        (n) => n.props.role === 'option' && n.props['aria-label'] === `${stage} Team` && textOf(n) === 'Grounders',
+      );
+      (grounders[0]!.props.onClick as () => void)();
+      await nextTick();
+    };
+    await pick('Grounding');
+    await pick('Experimentation');
+    expect(filler()).toBe('Choose an agent');
+    await pick('Validation');
     expect(filler()).toBe('Choose an agent,Hypo Agent');
   });
 });
