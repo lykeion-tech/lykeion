@@ -625,6 +625,18 @@ func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...st
 	if _, err = tx.Exec(t.Context(), "SET LOCAL lock_timeout = '5s'"); err != nil {
 		t.Fatal(err)
 	}
+	// Comment attachments build on the reservation migration, so they come
+	// off first and go back on after it.
+	attachments := func(direction string) {
+		q, err := fs.ReadFile(migrations.FS, "0065_comment_attachments."+direction+".sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(t.Context(), string(q)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attachments("down")
 	if _, err = tx.Exec(t.Context(), string(down)); err != nil {
 		t.Fatal(err)
 	}
@@ -636,6 +648,7 @@ func (l *teamLab) migrateLegacyCommentPrompt(t *testing.T, run string, ids ...st
 	if _, err = tx.Exec(t.Context(), string(up)); err != nil {
 		t.Fatal(err)
 	}
+	attachments("up")
 	if err = tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
