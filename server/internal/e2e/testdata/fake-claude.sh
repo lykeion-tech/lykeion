@@ -24,7 +24,14 @@ role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ (role|on Lykeio
 # runs in.
 if [ -n "$LYK_TEST_CAPTURE" ]; then
   cp CLAUDE.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
-  cp .lyk-mcp.json "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
+  # The MCP config reaches the CLI only as the --mcp-config argument.
+  mcp=""
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--mcp-config" ] && mcp=$a
+    prev=$a
+  done
+  [ -n "$mcp" ] && cp "$mcp" "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
   printf '%s\n' "$@" > "$LYK_TEST_CAPTURE/$role.args"
 fi
 exec 3>&1

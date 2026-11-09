@@ -57,11 +57,11 @@ func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
 	})
 	var ap struct{ ID string }
 	var agent struct{ ID string }
-	if code := l.api(t, "POST", "/api/agents", map[string]any{"name": "digester", "harness": "claude"}, &agent); code != 201 {
+	if code := l.api(t, "POST", "/api/agents", map[string]any{"stage": "grounding", "name": "digester", "harness": "claude"}, &agent); code != 201 {
 		t.Fatalf("agent: %d", code)
 	}
 	if code := l.api(t, "POST", "/api/autoresearch", map[string]any{"title": "Weekly digest", "description": "Summarise what changed.", "execution_mode": "run_only",
-		"assignee": map[string]any{"type": "agent", "id": agent.ID}}, &ap); code != 201 || ap.ID == "" {
+		"assignee": map[string]any{"type": "agent", "id": agent.ID}, "scope": map[string]string{"from": "grounding", "to": "grounding"}}, &ap); code != 201 || ap.ID == "" {
 		t.Fatalf("create: %d %+v", code, ap)
 	}
 	var run struct{ ID, Status string }
