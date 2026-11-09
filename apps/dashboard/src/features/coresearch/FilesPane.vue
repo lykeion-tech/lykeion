@@ -1,16 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useQueryClient } from '@tanstack/vue-query';
-import { api, ApiError, downloadFile, PreviewTooLargeError } from '../../api/client';
+import { downloadFile, PreviewTooLargeError } from '../../api/client';
 import { workspaceId } from '../../api/session';
-import {
-  keys,
-  filePath,
-  useCoresearchVersions,
-  useCoresearchContent,
-  useCoresearchFiles,
-} from './api';
-import type { FileRow, FileVersion, ProjectRow } from './types';
+import { filePath, useCoresearchVersions, useCoresearchContent, useCoresearchFiles } from './api';
+import type { FileRow, ProjectRow } from './types';
 import { boundedUnifiedDiff, DIFF_MAX_BYTES } from './diff';
 import { readFormatText } from './format-text';
 import ArtifactViewer from './viewers/ArtifactViewer.vue';
@@ -23,15 +16,12 @@ const props = defineProps<{
   inWorkspaceTab?: boolean;
 }>();
 const emit = defineEmits<{ 'update:selectedN': [number | undefined] }>();
-const client = useQueryClient(),
-  files = useCoresearchFiles(() => props.project.id);
+const files = useCoresearchFiles(() => props.project.id);
 const versions = useCoresearchVersions(
   () => props.project.id,
   () => props.file?.id ?? '',
 );
-const pin = ref<number | undefined>(props.selectedN),
-  busy = ref(false),
-  error = ref('');
+const pin = ref<number | undefined>(props.selectedN);
 const tab = ref('preview'),
   diffing = ref(false),
   comparePin = ref<number>(),
@@ -136,42 +126,6 @@ const diff = computed(() => {
   const result = boundedUnifiedDiff(oldText.value, previewText.value);
   return result.kind === 'diff' ? { text: result.text } : { message: 'Too large to compare.' };
 });
-function refresh(ws: string, id: string) {
-  void client.invalidateQueries({ queryKey: keys.coresearchFiles(ws, id) });
-  void client.invalidateQueries({
-    queryKey: keys.coresearchVersions(ws, id, props.file?.id ?? ''),
-  });
-}
-async function restore() {
-  if (!props.file || busy.value) return;
-  const ws = workspaceId.value,
-    id = props.project.id;
-  busy.value = true;
-  error.value = '';
-  try {
-    const saved = await api<FileVersion>(
-      'POST',
-      `${filePath(id, props.file.id)}/restore`,
-      { n: shownN.value, base: head.value },
-      undefined,
-      { workspace: ws },
-    );
-    client.setQueryData<FileVersion[]>(keys.coresearchVersions(ws, id, props.file.id), (old) => [
-      saved,
-      ...(old ?? []),
-    ]);
-    pin.value = undefined;
-    if (props.inWorkspaceTab) emit('update:selectedN', undefined);
-    refresh(ws, id);
-  } catch (e) {
-    error.value =
-      e instanceof ApiError && e.body.error === 'stale_base'
-        ? `version ${e.body.base} is not the latest (${e.body.current} is)`
-        : String(e);
-  } finally {
-    busy.value = false;
-  }
-}
 function step(n: number | undefined) {
   pin.value = n;
   if (props.inWorkspaceTab) emit('update:selectedN', n);
@@ -287,17 +241,6 @@ function step(n: number | undefined) {
                 {{ t.label }}
               </button>
             </div>
-            <div class="viz-actions">
-              <button
-                v-if="shownN < head && !project.archived_at"
-                type="button"
-                class="quiet-action"
-                :disabled="busy"
-                @click="restore"
-              >
-                Restore this version
-              </button>
-            </div>
           </div>
           <div class="viz-body">
             <template v-if="tab === 'preview'"
@@ -326,11 +269,9 @@ function step(n: number | undefined) {
               :version="version"
               :tab="tab"
             />
-            <p v-if="error" role="alert" class="nbp-repl-error">{{ error }}</p>
           </div>
-        </div>
-      </div></template
-    >
+        </div></div
+    ></template>
   </section>
 </template>
 <style scoped>

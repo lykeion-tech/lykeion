@@ -100,14 +100,12 @@ func TestForceNamesOverriddenVersion(t *testing.T) {
 		t.Fatalf("%d %+v", c, v)
 	}
 }
-func TestRestoreMakesANewVersion(t *testing.T) {
+func TestPeopleCannotRestoreSavedFiles(t *testing.T) {
 	s, a, _, _, ws, p := csFixture(t)
 	_, v1 := csUpload(t, s, a, ws, p.ID, "a.txt", 0, false, []byte("1"))
 	csUpload(t, s, a, ws, p.ID, "a.txt", 1, false, []byte("2"))
-	var v db.CoresearchFileVersion
-	c := s.call(t, "POST", csProjects+"/"+p.ID+"/files/"+v1.FileID.String()+"/restore", a, ws, map[string]int{"n": 1, "base": 2}, &v)
-	if c != 201 || v.N != 3 || v.Sha256 != v1.Sha256 || v.RestoredFrom == nil || *v.RestoredFrom != 1 {
-		t.Fatalf("%d %+v", c, v)
+	if c := s.call(t, "POST", csProjects+"/"+p.ID+"/files/"+v1.FileID.String()+"/restore", a, ws, map[string]int{"n": 1, "base": 2}, nil); c != 404 && c != 405 {
+		t.Fatalf("restore answered %d", c)
 	}
 }
 func TestConcurrentSavesOneWins(t *testing.T) {
@@ -350,19 +348,6 @@ func waitCoresearchLock(t *testing.T, s *server, except int, query string) int {
 		case <-ctx.Done():
 			t.Fatalf("no blocked transaction matching %q: %v", query, ctx.Err())
 		case <-ticker.C:
-		}
-	}
-}
-
-func TestRestoreRefusesOldProtectedPaths(t *testing.T) {
-	s, a, _, _, ws, p := csFixture(t)
-	for _, path := range []string{".CLAUDE/settings.json", "a/.Git/config"} {
-		_, v := csUpload(t, s, a, ws, p.ID, "safe.txt", 0, false, []byte("x"))
-		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_file SET path=$1 WHERE id=$2", path, v.FileID); err != nil {
-			t.Fatal(err)
-		}
-		if code := s.call(t, "POST", csProjects+"/"+p.ID+"/files/"+v.FileID.String()+"/restore", a, ws, map[string]int{"n": 1, "base": 1}, nil); code != 400 {
-			t.Fatalf("restored %s: %d", path, code)
 		}
 	}
 }

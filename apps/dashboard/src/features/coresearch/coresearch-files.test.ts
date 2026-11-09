@@ -277,34 +277,6 @@ describe('Coresearch files', () => {
     await vi.waitFor(() => expect(textOf(root)).toContain('too large to preview'));
     expect(button(root, 'Download')).toBeTruthy();
   });
-  it('restore creates new version using latest head base', async () => {
-    const fetch = vi
-      .fn()
-      .mockImplementation((url: string, options: RequestInit) =>
-        Promise.resolve(
-          reply(
-            options.method === 'GET'
-              ? url.endsWith('/versions')
-                ? [version(4, { restored_from: 1 }), version(3), version(1)]
-                : url.endsWith('/files')
-                  ? [{ ...file, head: version(4) }]
-                  : 'restored'
-              : version(4, { restored_from: 1 }),
-          ),
-        ),
-      );
-    vi.stubGlobal('fetch', fetch);
-    const { root, settle } = await mount(FilesPane, { selectedN: 1 }, (c) =>
-      c.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [
-        version(3),
-        version(2),
-        version(1),
-      ]),
-    );
-    (button(root, 'Restore this version')!.props.onClick as () => void)();
-    await settle();
-    expect(JSON.parse(fetch.mock.calls[0]![1].body)).toEqual({ n: 1, base: 3 });
-  });
   it('svg preview is an img from controlled blob and revoked', async () => {
     const { root } = await mount(FilesPane, { file: { ...file, path: 'figure.svg' } }, (c) =>
       c.setQueryData(

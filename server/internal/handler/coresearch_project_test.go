@@ -87,14 +87,14 @@ func TestLastOwnerStays(t *testing.T) {
 func TestArchivedProjectRefusesWrites(t *testing.T) {
 	s, a, b, _, ws, p := csFixture(t)
 	base := csProjects + "/" + p.ID
-	_, v := csUpload(t, s, a, ws, p.ID, "x.txt", 0, false, []byte("x"))
+	csUpload(t, s, a, ws, p.ID, "x.txt", 0, false, []byte("x"))
 	if code := s.call(t, "POST", base+"/archive", a, ws, nil, nil); code != 200 {
 		t.Fatal(code)
 	}
 	for _, r := range []struct {
 		method, path string
 		body         any
-	}{{"PATCH", base, map[string]string{"name": "changed"}}, {"POST", base + "/archive", nil}, {"POST", base + "/members", map[string]string{"user_id": s.userID(t, b), "role": "member"}}, {"DELETE", base + "/members/" + s.userID(t, a), nil}, {"POST", base + "/files/" + v.FileID.String() + "/restore", map[string]int{"n": 1, "base": 1}}} {
+	}{{"PATCH", base, map[string]string{"name": "changed"}}, {"POST", base + "/archive", nil}, {"POST", base + "/members", map[string]string{"user_id": s.userID(t, b), "role": "member"}}, {"DELETE", base + "/members/" + s.userID(t, a), nil}} {
 		if code := s.call(t, r.method, r.path, a, ws, r.body, nil); code != 409 {
 			t.Fatalf("%s: %d", r.path, code)
 		}

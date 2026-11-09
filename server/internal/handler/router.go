@@ -284,7 +284,6 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/coresearch/projects/{project}/docs/{file}/steps", h.coresearchDocSteps)
 			r.Post("/api/coresearch/projects/{project}/docs/{file}/steps", h.coresearchDocSteps)
 			r.Get("/api/coresearch/projects/{project}/files/{file}/versions", h.coresearchVersions)
-			r.Post("/api/coresearch/projects/{project}/files/{file}/restore", h.restoreCoresearchFile)
 			r.Post("/api/coresearch/projects/{project}/chats/{chat}/cells", h.coresearchCells)
 			r.Get("/api/coresearch/projects/{project}/chats/{chat}/cells", h.coresearchCells)
 			r.Get("/api/coresearch/projects/{project}/compute", h.coresearchCompute)
