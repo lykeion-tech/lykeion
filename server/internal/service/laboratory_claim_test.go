@@ -349,3 +349,37 @@ func TestLabRerunGoesToTheLeadersMachine(t *testing.T) {
 		t.Fatalf("the bound machine's other runtime claims %+v", got)
 	}
 }
+
+// An offline bound runtime is the machine named in the offline notice, not
+// the study owner's own machines.
+func TestOfflineNoticeNamesTheBoundMachine(t *testing.T) {
+	l := newLabFixture(t)
+	own := l.register(t, l.member, "member-own", "claude", "linux")
+	bound := l.register(t, l.Owner, "owner-bound", "claude", "linux")
+	l.bind(t, bound)
+	l.run(t, l.leader.ID, "claude")
+	staleRuntime(t, l.fixture, own.RuntimeID)
+	staleRuntime(t, l.fixture, bound.RuntimeID)
+	if err := l.T.Sweep(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := l.Env.Owner.Query(t.Context(), `SELECT user_id, runtime_id FROM inbox_item WHERE workspace_id = $1 AND kind = 'machine_offline' AND resolved_at IS NULL`, l.WS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []uuid.UUID
+	for rows.Next() {
+		var user, rt uuid.UUID
+		if err := rows.Scan(&user, &rt); err != nil {
+			t.Fatal(err)
+		}
+		if user != l.Owner {
+			t.Fatalf("notice went to %v, not the bound machine's owner", user)
+		}
+		got = append(got, rt)
+	}
+	if len(got) != 1 || got[0] != bound.RuntimeID {
+		t.Fatalf("offline notices for %v, want only the bound runtime %v", got, bound.RuntimeID)
+	}
+}

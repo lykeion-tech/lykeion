@@ -549,8 +549,11 @@ FROM runtime r
 JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
   AND (t.harness = r.harness OR t.kind = 'rerun')
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
-  AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
+LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) AS la(id, owner_id, runtime_id, name) ON true
 WHERE r.workspace_id = $1 AND r.status = 'offline'
+  AND ((la.id IS NOT NULL AND (r.id = la.runtime_id
+      OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id))))
+    OR (la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))
 GROUP BY r.id
 `
 
@@ -563,6 +566,8 @@ type OfflineRuntimesWithQueuedRunsRow struct {
 
 // The workspace's offline machines with queued runs that only they can take,
 // and the number of those runs.
+// a laboratory agent's runs wait for its bound runtime (a rerun for that
+// runtime's machine), as the claim sends them there
 func (q *Queries) OfflineRuntimesWithQueuedRuns(ctx context.Context, workspaceID uuid.UUID) ([]OfflineRuntimesWithQueuedRunsRow, error) {
 	rows, err := q.db.Query(ctx, offlineRuntimesWithQueuedRuns, workspaceID)
 	if err != nil {
