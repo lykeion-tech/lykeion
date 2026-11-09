@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { h, nextTick, shallowRef } from 'vue';
 import * as THREE from 'three';
@@ -543,5 +544,25 @@ it('hangs every TV between its bookshelf and the windows, clear of both', () => 
     expect(tv.max.y).toBeLessThanOrEqual(4.8);
     for (const b of blocked) expect(tv.intersectsBox(b), JSON.stringify([tv, b])).toBe(false);
   }
+  v.app.unmount();
+});
+
+it('styles the panel, pills and ticker with the dashboard surface, tokens and controls', async () => {
+  const css = readFileSync('apps/dashboard/src/features/lab-chart/lab-chart.css', 'utf8');
+  expect(css).not.toMatch(/#111213|#f5c518|rgba\(17, 18, 19|uppercase|Barlow Condensed/i);
+  const rule = (sel: string) => css.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
+  for (const sel of ['.lab-chart-card', '.lab-chart-pill'])
+    for (const token of ['var(--surface)', 'var(--border)', 'var(--text)'])
+      expect(rule(sel), `${sel} ${token}`).toContain(token);
+  const chart = fixture();
+  const v = mount(chart);
+  v.click(`a:${chart.rooms[0].agents[1].id}`);
+  await nextTick();
+  const panel = v.byClass('lab-chart-panel')[0];
+  expect(hasClass(panel, 'lab-chart-card')).toBe(true);
+  const buttons = all(panel).filter((x) => x.tag === 'button');
+  expect(hasClass(buttons.find((b) => b.props['aria-label'] === 'Close')!, 'icon-button')).toBe(true);
+  const link = buttons.find((b) => textOf(b) === 'Open agent →')!;
+  expect(hasClass(link, 'button') && hasClass(link, 'compact')).toBe(true);
   v.app.unmount();
 });

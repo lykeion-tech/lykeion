@@ -2,15 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import * as THREE from 'three';
 import type { LabChart, LabChartAgent, LabChartPerson, LabChartRoom } from '../../api/types';
+import Icon from '../../ui/Icon.vue';
 import LabChartList from './LabChartList.vue';
 import {
   addSurroundings,
-  AUDITOR,
   buildRooms,
-  COL,
   disposeObject,
   fitView,
-  hex,
   STAGE_LABEL,
   type Rooms,
 } from './scene';
@@ -75,20 +73,18 @@ const pills = computed(() => {
   return [...entities.value.values()].flatMap((e) => {
     if (e.kind === 'person') {
       const show = (e.person.user_id === props.me && zoomedIn.value) || hovered.value === e.key;
-      return show ? [{ key: e.key, cls: 'human', name: e.person.name, dot: '', tail: '' }] : [];
+      return show ? [{ key: e.key, cls: 'human', name: e.person.name, tail: '' }] : [];
     }
     const a = e.agent;
     if (a.status === 'idle' && hovered.value !== e.key) return [];
     if (a.status === 'needs_you')
-      return [{ key: e.key, cls: 'ask', name: e.name, dot: '', tail: ' · needs your answer' }];
-    const dot = hex(a.role === 'auditor' ? AUDITOR : COL[e.stage]);
+      return [{ key: e.key, cls: 'ask', name: e.name, tail: ' · needs your answer' }];
     const work = a.studies.length > 1 ? `${a.studies.length} studies` : a.studies[0]?.title;
     return [
       {
         key: e.key,
-        cls: '',
+        cls: a.status === 'working' ? 'work' : '',
         name: e.name,
-        dot,
         tail: a.status === 'working' && work ? ` · ${work}` : '',
       },
     ];
@@ -356,24 +352,24 @@ onBeforeUnmount(() => {
           pos[p.key] ? { left: `${pos[p.key].x}px`, top: `${pos[p.key].y}px` } : { display: 'none' }
         "
       >
-        <span v-if="p.dot" class="lab-chart-pill-dot" :style="{ background: p.dot }" /><b>{{
+        <span v-if="p.cls === 'work' || p.cls === 'ask'" class="lab-chart-pill-dot" /><b>{{
           p.name
         }}</b
         >{{ p.tail }}
       </div>
     </template>
-    <div v-if="ticker" class="lab-chart-tick">
+    <div v-if="ticker" class="lab-chart-tick lab-chart-card">
       <span class="lab-chart-tick-time">{{ ticker.time }}</span
       >{{ ticker.text }}
     </div>
-    <div v-if="panel" class="lab-chart-panel">
+    <div v-if="panel" class="lab-chart-panel lab-chart-card">
       <button
         type="button"
-        class="lab-chart-panel-close"
+        class="lab-chart-panel-close icon-button"
         aria-label="Close"
         @click="selected = null"
       >
-        ✕
+        <Icon name="close" :size="15" />
       </button>
       <h4 class="lab-chart-panel-name">{{ panel.name }}</h4>
       <div class="lab-chart-panel-role">{{ panel.role }}</div>
@@ -385,7 +381,7 @@ onBeforeUnmount(() => {
           ></span
         >
       </div>
-      <button v-if="panel.link" type="button" class="lab-chart-panel-link" @click="panel.link.go">
+      <button v-if="panel.link" type="button" class="lab-chart-panel-link button compact" @click="panel.link.go">
         {{ panel.link.text }}
       </button>
     </div>
