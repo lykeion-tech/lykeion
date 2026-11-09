@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { LabChartAgent, LabChartPerson, LabChartRoom } from '../../api/types';
 import { layoutConference, layoutRoom, placeRooms, ROOM_MIN_DEPTH, ROOM_WIDTH } from './layout';
 import { fitFontSize } from './text-fit';
-import { chalkPlane } from './chalk';
 
 type Stage = LabChartRoom['stage'];
 
@@ -466,15 +465,6 @@ export function buildRooms(
       line: `The room of the ${room.team}'s agents`,
     });
     leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
-    const board = new THREE.Group();
-    board.position.set(r.x1 + 0.32, 0, r.z1 + ROOM_MIN_DEPTH / 2 + 1);
-    board.rotation.y = Math.PI / 2;
-    group.add(board);
-    add(board, new THREE.BoxGeometry(10.7, 2.3, 0.1), mat(0x8a6a48), 0, 0.6 + 2.1, 0, true);
-    add(board, new THREE.BoxGeometry(10.4, 2.05, 0.12), mat(0x2f4a3c), 0, 0.6 + 2.1, 0, false);
-    const chalk = text(`chalk:${room.stage}`, () => chalkPlane(room.stage, 10.4, 2.05));
-    chalk.position.set(0, 0.6 + 2.1, 0.07);
-    board.add(chalk);
     tvOnWall(spot.x - 0.4, r.z1, 8.2, `tv:${room.team}`, room.team);
     bookshelf(r.x1 + 3.2, r.z1 + 0.55, 3.4);
     plant(r.x2 - 1.2, 0.62, r.z2 - 1.2);

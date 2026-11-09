@@ -274,28 +274,23 @@ it('writes only the Team and Conference room names, on upright surfaces only', (
   );
   for (const m of texts) expect(STAGE_NAMES).not.toContain(m.userData.text);
   for (const m of texts) expect(m.userData.lines).toHaveLength(2);
-  for (const m of [...texts, ...v.meshes().filter((m) => m.userData.board)]) {
+  for (const m of texts) {
     const normal = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld);
-    expect(Math.abs(normal.y), String(m.userData.text ?? m.userData.board)).toBeLessThan(1e-9);
+    expect(Math.abs(normal.y), String(m.userData.text)).toBeLessThan(1e-9);
   }
   v.app.unmount();
 });
 
-it('covers each chalkboard in its own scientific writing, with no stage or Team name', () => {
+it('has no chalkboard in any stage room: no board mesh, frame or chalk texture', () => {
   const v = mount(fixture());
-  const boards = v.meshes().filter((m) => m.userData.board);
-  expect(boards.map((m) => m.userData.board).sort()).toEqual([
-    'experimentation',
-    'grounding',
-    'hypotheses',
-    'validation',
-  ]);
-  const writing = boards.map((m) => (m.userData.writing as string[]).join('\n'));
-  expect(new Set(writing).size).toBe(4);
-  for (const w of writing) {
-    expect(w.length).toBeGreaterThan(20);
-    for (const name of [...STAGE_NAMES, ...TEAM_NAMES]) expect(w).not.toContain(name);
-  }
+  expect(v.meshes().filter((m) => m.userData.board)).toHaveLength(0);
+  expect(
+    v.meshes().filter((m) => {
+      const g = m.geometry as THREE.BoxGeometry;
+      return g.parameters?.width === 10.7 || g.parameters?.width === 10.4;
+    }),
+  ).toHaveLength(0);
+  expect(canvases.filter((c) => c.drawn.some((d) => d.font.includes('Caveat')))).toHaveLength(0);
   v.app.unmount();
 });
 
@@ -463,7 +458,6 @@ it('draws each text texture once, however often the chart changes', async () => 
   expect(made).not.toHaveBeenCalled();
   v.scene().updateMatrixWorld(true);
   expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(5);
-  expect(v.meshes().filter((m) => m.userData.board)).toHaveLength(4);
   v.app.unmount();
 });
 
@@ -520,7 +514,7 @@ it('fits the whole plan inside the canvas once settled, in the page and the onbo
       y1 = -Infinity;
     for (const m of v
       .meshes()
-      .filter((m) => m.userData.key || m.userData.board || typeof m.userData.text === 'string')) {
+      .filter((m) => m.userData.key || typeof m.userData.text === 'string')) {
       box.setFromObject(m);
       for (const c of [box.min, box.max]) {
         const p = toScreen(c, cam, size);
