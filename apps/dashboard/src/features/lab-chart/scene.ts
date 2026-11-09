@@ -405,12 +405,16 @@ export function buildRooms(
       );
     return { x1, z1, x2: cx + w / 2, z2: z1 + d };
   };
-  // A TV on the back wall, in the clear span between the bookshelf and the windows.
-  const tvOnWall = (x: number, z1: number, w: number, key: string, label: string) => {
-    add(group, new THREE.BoxGeometry(w, 3, 0.14), mat(0x1b1c1e), x, 0.6 + 2.6, z1 + 0.38);
-    const tv = text(key, () => textPlane(label, w - 0.1, 2.8, TV));
-    tv.position.set(x, 0.6 + 2.6, z1 + 0.46);
+  // A TV on the left wall, centred along it and facing into the room.
+  const tvOnLeftWall = (x1: number, cz: number, w: number, key: string, label: string) => {
+    const tv = new THREE.Group();
+    tv.position.set(x1 + 0.32, 0, cz);
+    tv.rotation.y = Math.PI / 2;
     group.add(tv);
+    add(tv, new THREE.BoxGeometry(w, 3, 0.14), mat(0x1b1c1e), 0, 0.6 + 2.6, 0.08);
+    const screen = text(key, () => textPlane(label, w - 0.1, 2.8, TV));
+    screen.position.set(0, 0.6 + 2.6, 0.16);
+    tv.add(screen);
   };
   const desk = (x: number, z: number, a: LabChartAgent, stage: Stage, faceBack: boolean) => {
     const y = 0.62;
@@ -490,7 +494,7 @@ export function buildRooms(
     line: "Where the lab's researchers meet",
   });
   leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
-  tvOnWall(spot.x - 0.25, r.z1, 7.9, 'tv:Conference room', 'Conference room');
+  tvOnLeftWall(r.x1, r.z1 + conf.depth / 2, 7.9, 'tv:Conference room', 'Conference room');
   for (const t of conf.tables) {
     add(
       group,

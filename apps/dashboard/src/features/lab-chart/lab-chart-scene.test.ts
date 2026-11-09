@@ -552,7 +552,7 @@ it('fits the whole plan inside the canvas once settled, in the page and the onbo
   }
 });
 
-it('hangs the TV between its bookshelf and the windows, clear of both', () => {
+it('hangs the Conference TV on the left wall, facing in, clear of the glass and bookshelf', () => {
   const v = mount(builtIn());
   v.scene().updateMatrixWorld(true);
   const rooms = v.scene().children.find((o) => o instanceof THREE.Group)!;
@@ -570,10 +570,14 @@ it('hangs the TV between its bookshelf and the windows, clear of both', () => {
   expect(tvs).toHaveLength(1);
   expect(blocked.length).toBeGreaterThan(5 * 3);
   for (const tv of tvs) {
-    expect(tv.max.x - tv.min.x).toBeLessThanOrEqual(8.2 + 1e-9);
+    expect(tv.max.z - tv.min.z).toBeLessThanOrEqual(8.2 + 1e-9);
+    expect(tv.max.x - tv.min.x).toBeLessThan(0.5);
     expect(tv.max.y).toBeLessThanOrEqual(4.8);
     for (const b of blocked) expect(tv.intersectsBox(b), JSON.stringify([tv, b])).toBe(false);
   }
+  const label = v.meshes().find((m) => m.userData.text === 'Conference room')!;
+  const normal = new THREE.Vector3(0, 0, 1).transformDirection(label.matrixWorld);
+  expect(normal.x).toBeCloseTo(1, 6);
   v.app.unmount();
 });
 
