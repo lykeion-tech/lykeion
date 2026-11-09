@@ -658,3 +658,13 @@ it('lights a hovered room and names it in a popup, and clears both on leaving', 
   expect(lit('r:grounding')).toBe(false);
   v.app.unmount();
 });
+
+it('names people only on hover, even the viewer when zoomed in', async () => {
+  const v = mount(fixture());
+  const wheel = v.canvas!.props.onWheel as (e: unknown) => void;
+  for (let i = 0; i < 6; i++) wheel({ deltaY: -400, preventDefault() {} });
+  flush(120);
+  await nextTick();
+  expect(v.byClass('lab-chart-pill').some((p) => textOf(p).trim() === 'you')).toBe(false);
+  v.app.unmount();
+});

@@ -4,13 +4,7 @@ import * as THREE from 'three';
 import type { LabChart, LabChartAgent, LabChartPerson, LabChartRoom } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import LabChartList from './LabChartList.vue';
-import {
-  addSurroundings,
-  buildRooms,
-  disposeObject,
-  fitView,
-  type Rooms,
-} from './scene';
+import { addSurroundings, buildRooms, disposeObject, fitView, type Rooms } from './scene';
 
 const props = withDefaults(
   defineProps<{ chart: LabChart; preview?: boolean; height?: string; me?: string }>(),
@@ -65,15 +59,16 @@ const failed = ref(false);
 const hovered = ref<string | null>(null);
 const hoveredRoom = ref<string | null>(null);
 const selected = ref<string | null>(null);
-const zoomedIn = ref(false);
 const pos = reactive<Record<string, { x: number; y: number }>>({});
 
 const pills = computed(() => {
   if (props.preview) return [];
   return [...entities.value.values()].flatMap((e) => {
     if (e.kind === 'person') {
-      const show = (e.person.user_id === props.me && zoomedIn.value) || hovered.value === e.key;
-      return show ? [{ key: e.key, cls: 'human', name: e.person.name, tail: '' }] : [];
+      // People are named only on hover, like idle agents.
+      return hovered.value === e.key
+        ? [{ key: e.key, cls: 'human', name: e.person.name, tail: '' }]
+        : [];
     }
     const a = e.agent;
     if (a.status === 'idle' && hovered.value !== e.key) return [];
@@ -263,7 +258,6 @@ function tick() {
   }
   zoom += (goal - zoom) * 0.08;
   placeCam();
-  zoomedIn.value = zoom > 0.7;
   const anchors = rooms.value?.labelled ?? [];
   const shownKeys = pills.value.map((p) => p.key);
   if (roomPopup.value) shownKeys.push(roomPopup.value.key);
