@@ -275,8 +275,11 @@ func TestServerCancellationClosesWebSocket(t *testing.T) {
 		Type  string
 		Event struct{ Type string }
 	}
-	if err := conn.ReadJSON(&message); err != nil || message.Event.Type != "workspace.created" {
-		t.Fatalf("active subscription: %+v %v", message, err)
+	// Creating a workspace installs its laboratory before announcing the workspace.
+	for message.Event.Type != "workspace.created" {
+		if err := conn.ReadJSON(&message); err != nil {
+			t.Fatalf("active subscription: %+v %v", message, err)
+		}
 	}
 	cancel()
 	stopped(t, done)
@@ -362,9 +365,13 @@ func TestServerCancellationDuringSMTPReleasesPoolAndRollsBack(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("HTTP request retained")
 	}
-	for _, table := range []string{"workspace_invitation", "event"} {
+	// Server start installs the laboratory in every workspace and records that event.
+	for table, query := range map[string]string{
+		"workspace_invitation": "SELECT count(*) FROM workspace_invitation WHERE workspace_id=$1",
+		"event":                "SELECT count(*) FROM event WHERE workspace_id=$1 AND type <> 'laboratory.installed'",
+	} {
 		var n int
-		if err := env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", ws).Scan(&n); err != nil {
+		if err := env.Owner.QueryRow(t.Context(), query, ws).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 0 {
