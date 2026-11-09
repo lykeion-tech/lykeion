@@ -861,7 +861,9 @@ func TestCoresearchHeartbeatKeepsOwnerAndTokenBoundary(t *testing.T) {
 	if code := s.call(t, "POST", strings.Replace(url, cell.ClaimToken.String(), "", 1), s.personalToken(t, a), ws, nil, nil); code != 409 {
 		t.Fatalf("missing token heartbeat %d", code)
 	}
-	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=now()+interval '1 second' WHERE id=$1", cell.ID); e != nil {
+	// A short but live lease: long enough to outlast a slow request, far
+	// shorter than the minute a heartbeat grants.
+	if _, e := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=now()+interval '10 seconds' WHERE id=$1", cell.ID); e != nil {
 		t.Fatal(e)
 	}
 	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, nil, nil); code != 200 {
