@@ -60,16 +60,16 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(dialog.getByRole('button', { name: 'Assignees' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Assignees' }).click();
   const menu = dialog.getByRole('menu');
-  await expect(
-    menu.getByRole('menuitem', { name: 'Hypotheses Team Built for Hypotheses' }),
-  ).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Hypotheses Team/ })).toBeVisible();
   await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: 'Picker lab agent' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /Picker lab agent/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Assignees' }).click();
   await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
-  await chooseCompact(page, 'From stage', 'Hypotheses');
-  await chooseCompact(page, 'To stage', 'Hypotheses');
+  const stages = dialog.getByRole('menu', { name: 'Study stages' });
+  await stages.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
+  await stages.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
+  await stages.getByRole('menuitemcheckbox', { name: 'Experimentation' }).click();
   const saved = page.waitForResponse(
     (r) => r.url().endsWith('/api/cards') && r.request().method() === 'POST',
   );
@@ -124,7 +124,7 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
   });
   expect(refused.status()).toBe(403);
 
-  await page.getByRole('button', { name: 'Duplicate this Team', exact: true }).click();
+  await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Duplicate this Team' });
   const name = dialog.getByRole('textbox', { name: 'Name of the duplicate' });
   await expect(name).toHaveValue('Grounding Team (duplicate)');
@@ -132,7 +132,7 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
   await dialog.getByRole('button', { name: 'Duplicate', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'My grounding Team', exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(new RegExp(builtIn.id));
-  await expect(page.getByRole('button', { name: 'Duplicate this Team' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Duplicate', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Skills for pi', exact: true });
   await picker.getByRole('checkbox', { name: 'aeon', exact: true }).check();
