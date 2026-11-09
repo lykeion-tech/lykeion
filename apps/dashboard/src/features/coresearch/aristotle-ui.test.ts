@@ -458,7 +458,8 @@ describe('Aristotle UI', () => {
     const retry = all(root).find((n) => n.tag === 'button' && textOf(n) === 'Retry')!;
     await (retry.props.onClick as () => Promise<void>)();
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    const historyCalls = fetch.mock.calls.filter((c) => String(c[0]).endsWith('/messages'));
+    expect(historyCalls).toHaveLength(2);
     expect(all(root).some((n) => n.props.innerHTML === 'Existing research history')).toBe(true);
     expect(textOf(root)).not.toContain('History unavailable');
     expect(textOf(root)).not.toContain('Welcome to Coresearch');
@@ -479,6 +480,7 @@ describe('Aristotle UI', () => {
       '/coresearch',
       '/coresearch/new',
       '/coresearch/conversations/welcome',
+      '/lab-chart',
       '/settings',
     ]);
     expect(byLabel(root, 'New conversation').props.href).toBe('/coresearch/new');

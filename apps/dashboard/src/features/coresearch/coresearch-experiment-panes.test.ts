@@ -156,13 +156,13 @@ it('opens an Experiment inspector beside the conversation rail with Notebook Fil
   expect(textOf(root)).toContain('No files yet');
   expect(all(root).some((n) => n.props.class === 'experiment-empty')).toBe(true);
 });
-it('links shared Cowrite rows to their project chat and labels session modes', async () => {
+it('links shared Cowrite rows to their project chat and marks them shared', async () => {
   const { root } = await mount();
   const link = all(root).find((n) => n.tag === 'a' && n.props.href === '/coresearch/paper/co');
   expect(link).toBeTruthy();
-  expect(textOf(link!)).toContain('Cowrite');
-  expect(textOf(root)).toContain('Experiment');
-  expect(textOf(link!)).toContain('Shared');
+  expect(textOf(link!)).toContain('Shared paper');
+  expect(all(link!).some((n) => n.tag === 'small' && textOf(n) === 'Shared')).toBe(true);
+  expect(textOf(link!)).not.toContain('Cowrite');
 });
 
 it('returns Files to its existing list from a preview', async () => {
@@ -212,8 +212,11 @@ it('opens the Experiment chooser with one surface at a time', async () => {
     await settle();
     expect(textOf(root)).toContain('Open a surface');
   }
-  (all(root).find((n) => n.props['aria-label'] === 'Close pane')!.props.onClick as () => void)();
+  const close = all(root).find((n) => n.props['aria-label'] === 'Close experiment surfaces');
+  expect(close?.props['aria-pressed']).toBe(true);
+  (close!.props.onClick as () => void)();
   await settle();
+  expect(textOf(root)).not.toContain('Open a surface');
   expect(all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces')).toBeTruthy();
 });
 
