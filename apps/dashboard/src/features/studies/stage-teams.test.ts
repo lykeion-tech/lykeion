@@ -2055,6 +2055,11 @@ describe('a Workflow study', () => {
         (client) => {
           seedStudy(client);
           client.setQueryData(keys.workflows, { release: 'test', workflows: [] });
+          // A Workflow is worked by an Experimentation agent.
+          if (workflow)
+            client.setQueryData(keys.agents('w'), (list: { id: string }[] | undefined) =>
+              list?.map((a) => (a.id === 'a1' ? { ...a, stage: 'experimentation' } : a)),
+            );
         },
       );
       try {
