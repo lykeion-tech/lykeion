@@ -112,7 +112,7 @@ const routes: RouteRecordRaw[] = [
     path: '/agents/new',
     component: AgentsView,
     props: { create: true },
-    meta: { page: 'agents', title: 'Create an agent', tabTitle: 'Agents', ownHeader: true },
+    meta: { page: 'agents', title: 'Create an agent', tabTitle: 'Agents' },
   },
   { path: '/agents', component: AgentsView, meta: { page: 'agents', title: 'Agents' } },
   {
