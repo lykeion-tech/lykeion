@@ -138,17 +138,18 @@ const lab = computed(() => agent.value?.laboratory === 'built-in');
 const workspaceOwner = computed(
   () => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role === 'owner',
 );
-// The server decides which machines a laboratory agent may bind to; this only
-// narrows the list to machines on the agent's CLI that the viewer can see.
-const machineChoices = computed(() =>
-  (runtimes.data.value ?? []).filter(
+// The server decides which machines a laboratory agent may bind to and on
+// which CLI it can run; this offers the machines of any CLI that allow the
+// agent's owner, and keeps the bound one listed.
+const machineChoices = computed(() => {
+  const owner = agent.value?.owner_id ?? '';
+  return (runtimes.data.value ?? []).filter(
     (r: Runtime) =>
-      r.harness === agent.value?.harness &&
-      (r.owner_id === me.data.value?.id ||
-        r.visibility === 'workspace' ||
-        r.shared_with?.includes(me.data.value?.id ?? '')),
-  ),
-);
+      r.id === agent.value?.runtime_id ||
+      r.owner_id === owner ||
+      (r.os === 'linux' && (r.visibility === 'workspace' || r.shared_with?.includes(owner))),
+  );
+});
 const machineName = (r: Runtime) => r.custom_name || r.device_name;
 const boundMachine = computed(() =>
   (runtimes.data.value ?? []).find((r) => r.id === agent.value?.runtime_id),
@@ -435,7 +436,7 @@ function toggle(id: string) {
                   }}
                 </dd>
                 <dt>Harness</dt>
-                <dd>{{ harnessName(agent.harness) }}</dd>
+                <dd>{{ harnessName(lab && boundMachine ? boundMachine.harness : agent.harness) }}</dd>
                 <dt>Model</dt>
                 <dd>{{ modelLabel }}</dd>
                 <dt>Stage</dt>
@@ -458,6 +459,10 @@ function toggle(id: string) {
                     <template v-else>{{
                       boundMachine ? machineName(boundMachine) : 'Not bound to a machine'
                     }}</template>
+                    <p v-if="boundMachine && boundMachine.os !== 'linux'" class="agent-hint">
+                      {{ machineName(boundMachine) }} runs only its owner's studies. Bind this agent to a shared Linux
+                      machine to run colleagues' studies.
+                    </p>
                   </dd>
                 </template>
               </dl>

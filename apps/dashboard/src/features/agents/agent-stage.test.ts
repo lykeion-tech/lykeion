@@ -120,7 +120,7 @@ const agent = (extra: Partial<AgentDefinition>): AgentDefinition =>
     runtime_id: null,
     ...extra,
   }) as unknown as AgentDefinition;
-const runtime = (id: string, name: string) => ({
+const runtime = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id,
   owner_id: 'u1',
   harness: 'claude',
@@ -130,7 +130,10 @@ const runtime = (id: string, name: string) => ({
   visibility: 'private',
   shared_with: [],
   models: [],
+  os: 'linux',
+  ...extra,
 });
+let runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Bay')];
 
 const apps: { unmount(): void }[] = [];
 afterEach(() => {
@@ -139,6 +142,7 @@ afterEach(() => {
   body.children = [];
   vi.unstubAllGlobals();
   request.mockReset();
+  runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Bay')];
 });
 
 async function mount(
@@ -177,7 +181,7 @@ async function mount(
   client.setQueryData(keys.workspaces, [{ id: 'w', name: 'Lab', role }]);
   client.setQueryData(keys.agents('w'), agents);
   for (const a of agents) client.setQueryData(keys.agent('w', a.id), a);
-  client.setQueryData(keys.runtimes('w'), [runtime('r1', 'Bench'), runtime('r2', 'Bay')]);
+  client.setQueryData(keys.runtimes('w'), runtimeRows);
   client.setQueryData(keys.members('w'), [{ user_id: 'u1', name: 'Owner', email: 'o@lab.test' }]);
   client.setQueryData(keys.workspace('w'), { name: 'Lab', display_prefix: 'L' });
   client.setQueryData(keys.cards('w'), []);
@@ -312,6 +316,46 @@ describe('agent stage', () => {
     );
     expect(member.find('select', (n) => n.props['aria-label'] === 'Machine')).toBeUndefined();
     expect(member.text()).toContain('Bench');
+  });
+
+  it('offers the owner machines of any CLI that allow the agent owner', async () => {
+    runtimeRows = [
+      runtime('r1', 'Bench'),
+      runtime('r2', 'Codex box', { harness: 'codex' }),
+      runtime('r3', 'Colleague private', { owner_id: 'u2' }),
+      runtime('r4', 'Colleague shared', { owner_id: 'u2', visibility: 'workspace' }),
+      runtime('r5', 'Colleague mac', { owner_id: 'u2', visibility: 'workspace', os: 'darwin' }),
+    ];
+    const lab = agent({ id: 'l', laboratory: 'built-in', harness: 'claude', runtime_id: 'r2' });
+    const t = await mount(AgentDetail, { id: 'l' }, [lab], 'owner');
+    const select = t.find('select', (n) => n.props['aria-label'] === 'Machine')!;
+    expect(select.props.value).toBe('r2');
+    expect(select.children.filter((n) => n.tag === 'option').map((n) => textOf(n).trim())).toEqual([
+      'Not bound to a machine',
+      'Bench',
+      'Codex box',
+      'Colleague shared',
+    ]);
+    expect(t.text()).toContain('Codex');
+    expect(t.text()).not.toContain('Claude Code');
+  });
+
+  it('names the bound machine and its CLI for a member', async () => {
+    runtimeRows = [runtime('r9', 'Lab mac', { owner_id: 'u2', harness: 'codex', os: 'darwin' })];
+    const lab = agent({ id: 'l', laboratory: 'built-in', owner_id: 'u2', harness: 'claude', runtime_id: 'r9' });
+    const t = await mount(AgentDetail, { id: 'l' }, [lab], 'member');
+    expect(t.text()).toContain('Lab mac');
+    expect(t.text()).toContain('Codex');
+  });
+
+  it("explains that a machine other than Linux runs only its owner's studies", async () => {
+    runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Desk mac', { os: 'darwin' })];
+    const note =
+      "Desk mac runs only its owner's studies. Bind this agent to a shared Linux machine to run colleagues' studies.";
+    const onMac = await mount(AgentDetail, { id: 'l' }, [agent({ id: 'l', laboratory: 'built-in', runtime_id: 'r2' })]);
+    expect(onMac.text().replace(/\s+/g, ' ')).toContain(note);
+    const onLinux = await mount(AgentDetail, { id: 'm' }, [agent({ id: 'm', laboratory: 'built-in', runtime_id: 'r1' })]);
+    expect(onLinux.text()).not.toContain('runs only its owner');
   });
 
   it('shows the server refusal for a machine verbatim', async () => {
