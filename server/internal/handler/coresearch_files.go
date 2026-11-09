@@ -86,38 +86,6 @@ func (h *H) coresearchVersions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, out)
 	}
 }
-func (h *H) restoreCoresearchFile(w http.ResponseWriter, r *http.Request) {
-	var out db.CoresearchFileVersion
-	err := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
-		p, err := coresearchProject(r, tx, ws, who, true, false)
-		if err != nil {
-			return err
-		}
-		f, err := coresearchFile(r, tx, ws, p.ID)
-		if err != nil {
-			return err
-		}
-		var in struct {
-			N    int32 `json:"n"`
-			Base *int  `json:"base"`
-		}
-		if err = readJSON(r, &in); err != nil || in.N <= 0 || in.Base == nil || *in.Base < 0 {
-			return cardInputError("a version and nonnegative base are required")
-		}
-		v, err := tx.Q.CoresearchFileVersion(r.Context(), db.CoresearchFileVersionParams{WorkspaceID: ws, FileID: f.ID, N: in.N})
-		if err != nil {
-			return err
-		}
-		if _, e := coresearch.CleanPath(f.Path); e != nil {
-			return cardInputError(e.Error())
-		}
-		out, err = coresearch.SaveVersion(r.Context(), tx, coresearch.SaveIn{Workspace: ws, Project: p.ID, Path: f.Path, Sha256: v.Sha256, Size: v.Size, Base: *in.Base, Author: &who, RestoredFrom: &in.N})
-		return err
-	})
-	if coresearchAnswer(w, r, err) {
-		writeJSON(w, 201, out)
-	}
-}
 
 // coresearchSaveTx follows Scope's workspace -> member -> project -> file lock
 // order without requiring a workspace admin. Only the final database save runs

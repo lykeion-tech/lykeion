@@ -311,11 +311,16 @@ export async function openSavedFile(page: Page, name: string) {
   const open = page.getByRole('button', { name: 'Open experiment surfaces', exact: true });
   const back = page.getByRole('button', { name: 'Back to surfaces', exact: true });
   const files = page.getByRole('button', { name: 'Files', exact: true });
-  const close = page.getByRole('button', { name: 'Close pane', exact: true });
+  const close = page.getByRole('button', { name: 'Close experiment surfaces', exact: true });
   await expect(open.or(close).first()).toBeVisible();
   if (!(await close.isVisible())) await open.click();
   await expect(back.or(files).first()).toBeVisible();
   if (await back.isVisible()) await back.click();
   await files.click();
-  await page.getByRole('button', { name, exact: true }).click();
+  await page.getByRole('button', { name: `Open ${name}`, exact: true }).click();
+}
+// Saved files are edited on their own file page; the Experiment pane only previews them.
+export async function openFilePage(page: Page, id: string) {
+  await page.goto(`/#/coresearch/artifacts/p/${id}`);
+  await expect(page.getByTestId('artifact-pane')).toBeVisible();
 }

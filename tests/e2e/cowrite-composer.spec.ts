@@ -53,7 +53,7 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
   await page.getByRole('button', { name: 'Cowrite', exact: true }).click();
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default (recommended)',
+      name: 'CLI and model: Claude Code · Default',
       exact: true,
     })
     .click();
@@ -74,7 +74,7 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
   await page.getByRole('menuitem', { name: 'Skills', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Manage skills', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings\?tab=skills$/);
-  await expect(page.getByRole('switch', { name: 'Enable Research', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /^Research/ })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole('textbox', { name: 'Message the agent' })).toHaveValue(
     'Retain this paper description',
@@ -119,7 +119,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
     await page
       .getByRole('button', {
-        name: 'CLI and model: Claude Code · Default (recommended)',
+        name: 'CLI and model: Claude Code · Default',
         exact: true,
       })
       .click();
@@ -200,7 +200,7 @@ test('draft composer uploads before Cowrite acceptance and routes the selected m
   await page.getByRole('menuitemradio', { name: 'NeurIPS', exact: true }).click();
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default (recommended)',
+      name: 'CLI and model: Claude Code · Default',
       exact: true,
     })
     .click();
@@ -228,7 +228,7 @@ test('draft composer uploads before Cowrite acceptance and routes the selected m
     attachments: [{ upload_id: 'uploaded-figure', name: 'figure.svg' }],
   });
 });
-test('member sees disabled switches and an empty runtime catalogue shows plain Default', async ({
+test('member picks skills and connectors per message and an empty runtime catalogue shows plain Default', async ({
   page,
 }) => {
   await installAristotleFixture(page, true);
@@ -260,11 +260,13 @@ test('member sees disabled switches and an empty runtime catalogue shows plain D
   await page.getByRole('textbox', { name: 'Message the agent' }).fill('/');
   await expect(page.getByRole('option', { name: 'Research Find evidence' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Message the agent' }).press('Enter');
-  await expect(page.getByRole('textbox', { name: 'Message the agent' })).toHaveValue('/Research ');
+  // Choosing a skill turns the slash text into a chip on the message.
+  await expect(page.getByRole('textbox', { name: 'Message the agent' })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Remove Research', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Skills', exact: true }).click();
-  await expect(page.getByRole('switch', { name: 'Research', exact: true })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: /^Research/ })).toBeEnabled();
   await page.getByRole('menuitem', { name: 'Connectors', exact: true }).click();
-  await expect(page.getByRole('switch', { name: 'openalex', exact: true })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: /^openalex/ })).toBeEnabled();
   await expect(page.getByText('Delegation', { exact: true })).toHaveCount(0);
 });

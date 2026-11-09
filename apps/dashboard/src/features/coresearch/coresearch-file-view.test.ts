@@ -43,12 +43,15 @@ it('opens a selected historical file in a tab with version and provenance contro
       await nextTick();
       expect(textOf(root)).toContain('v1 (old)');
     });
-    for (const label of ['Preview', 'Code', 'Execution Log', 'Transcript', 'Environment']) {
+    for (const label of ['Preview', 'Code', 'Execution Log', 'Transcript']) {
       expect(all(root).some((n) => n.props.role === 'tab' && textOf(n).trim() === label)).toBe(
         true,
       );
     }
     expect(all(root).some((n) => n.props['aria-label'] === 'Open file in tab')).toBe(false);
+    for (const action of ['Edit content', 'Restore this version'])
+      expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === action)).toBe(false);
+    expect(all(root).some((n) => n.tag === 'textarea')).toBe(false);
     expect(all(root).some((n) => String(n.props.class).split(/\s+/).includes('coresearch'))).toBe(
       true,
     );

@@ -339,7 +339,7 @@ for (const person of ['me', 'member'])
         .every((w) => w.person === 'me'),
     ).toBe(true);
   });
-test('Compute shows only the caller kernel when another member owns the selected chat', async ({
+test('Experiment Compute shows only the caller kernel when another member owns the selected chat', async ({
   page,
 }) => {
   await cowriteFixture(page, false);
@@ -395,7 +395,20 @@ test('Compute shows only the caller kernel when another member owns the selected
       },
     }),
   );
+  await page.route('**/api/coresearch/projects/p', (r) =>
+    r.fulfill({
+      json: {
+        id: 'p',
+        workspace_id: 'lab',
+        name: 'Paper',
+        mode: 'experiment',
+        role: 'member',
+        archived_at: null,
+      },
+    }),
+  );
   await page.goto('/#/coresearch/p/chat');
+  await page.getByRole('button', { name: 'Open experiment surfaces', exact: true }).click();
   await page.getByRole('button', { name: 'Compute', exact: true }).click();
   const pane = page.getByRole('tabpanel', { name: 'Compute', exact: true });
   await expect(pane).toContainText('CALLER-MACHINE');

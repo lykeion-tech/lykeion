@@ -180,6 +180,9 @@ for (const owner of [true, false]) {
     if (!owner) {
       const rail = page.getByRole('complementary', { name: 'Chat', exact: true });
       const toggle = page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first();
+      // A narrow screen opens with the rail tucked away.
+      await expect(rail).toBeHidden();
+      await toggle.click();
       await expect(rail).toBeVisible();
       await toggle.click();
       await expect(rail).toBeHidden();
@@ -229,14 +232,11 @@ for (const owner of [true, false]) {
       await notebook
         .getByRole('textbox', { name: 'Setup Python version', exact: true })
         .fill('3.13');
-      await notebook
-        .getByRole('textbox', { name: 'Conda packages', exact: true })
-        .fill('numpy\nscipy>=1.10');
       await notebook.getByRole('button', { name: 'Set up', exact: true }).click();
       await expect.poll(() => writes.length).toBe(2);
       expect(writes.map((w) => w.body)).toEqual([
         { kernel: 'custom-kernel', source: 'print(2)' },
-        { chat_id: 'c', python: '3.13', conda: ['numpy', 'scipy>=1.10'] },
+        { chat_id: 'c', python: '3.13', conda: [] },
       ]);
       expect(writes.every((w) => w.workspace === 'lab')).toBe(true);
     } else {
