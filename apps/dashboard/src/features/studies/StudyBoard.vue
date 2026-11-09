@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, type Directive } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+  type Directive,
+} from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -42,16 +51,23 @@ import {
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
 import { useStudyComposer } from '../../state/study-composer';
-const metadataObservers = new WeakMap<HTMLElement, { resize?: ResizeObserver; mutation?: MutationObserver }>();
+const metadataObservers = new WeakMap<
+  HTMLElement,
+  { resize?: ResizeObserver; mutation?: MutationObserver }
+>();
 const vMetadataRows: Directive<HTMLElement> = {
   mounted(el) {
     const update = () => {
       const assignee = el.querySelector<HTMLElement>('.card-assignee');
       const owner = el.querySelector<HTMLElement>('.card-owner-separated');
-      owner?.classList.toggle('same-row', !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2);
+      owner?.classList.toggle(
+        'same-row',
+        !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2,
+      );
     };
     const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
-    const mutation = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(update);
+    const mutation =
+      typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(update);
     resize?.observe(el);
     mutation?.observe(el, { childList: true, subtree: true, characterData: true });
     metadataObservers.set(el, { resize, mutation });
@@ -60,7 +76,10 @@ const vMetadataRows: Directive<HTMLElement> = {
   updated(el) {
     const assignee = el.querySelector<HTMLElement>('.card-assignee');
     const owner = el.querySelector<HTMLElement>('.card-owner-separated');
-    owner?.classList.toggle('same-row', !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2);
+    owner?.classList.toggle(
+      'same-row',
+      !!assignee && Math.abs(assignee.offsetTop - owner.offsetTop) < 2,
+    );
   },
   unmounted(el) {
     const observers = metadataObservers.get(el);
@@ -201,7 +220,8 @@ function finalStage(card: Card) {
     card.board_column === 'validation' &&
     card.scope_from === 'grounding' &&
     card.scope_to === 'validation'
-  ) return 'Full study';
+  )
+    return 'Full study';
   return boardColumnOf(card) === 'done' && stages.includes(card.board_column)
     ? columnName(card.board_column)
     : '';
@@ -296,7 +316,7 @@ function menuKeys(e: KeyboardEvent) {
     const scope = target.closest('[role=menu]') ?? menuRoot.value;
     const buttons = [
       ...(scope?.querySelectorAll<HTMLButtonElement>(
-        ':scope > button:not([disabled]), :scope > .category > button:not([disabled]), :scope > .property-chips > button:not([disabled])',
+        ':scope > button:not([disabled]), :scope > .category > button:not([disabled]), :scope > .property-options > button:not([disabled])',
       ) ?? []),
     ];
     const index = buttons.indexOf(target as HTMLButtonElement);

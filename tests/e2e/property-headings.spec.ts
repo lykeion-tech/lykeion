@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { LAB, labFixture } from './lab';
 
-test('Execution shows Runs directly and Details keeps its disclosure', async ({ page }) => {
+test('Execution shows Runs directly and Properties shows the details directly', async ({
+  page,
+}) => {
   const fixture = await labFixture(page.request);
   await page.addInitScript(
     (id) => localStorage.setItem('lykeion.workspace', id),
@@ -21,17 +23,10 @@ test('Execution shows Runs directly and Details keeps its disclosure', async ({ 
   await expect(meta.getByRole('heading', { name: 'Execution log', exact: true })).toBeVisible();
   await expect(meta.locator('.run-metrics')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Runs', exact: true })).toHaveCount(0);
-  await choose('Details');
-  const heading = meta.getByRole('heading', { name: 'Details', level: 3, exact: true });
-  const button = heading.getByRole('button', { name: 'Details', exact: true });
-  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  // Properties carries the study's details directly, with no disclosure.
+  await choose('Properties');
   await expect(meta.locator('.details-body')).toBeVisible();
-  await button.click();
-  await expect(button).toHaveAttribute('aria-expanded', 'false');
-  await expect(meta.locator('.details-body')).toHaveCount(0);
-  await button.focus();
-  await page.keyboard.press('Enter');
-  await expect(meta.locator('.details-body')).toBeVisible();
+  await expect(meta.getByRole('button', { name: 'Details', exact: true })).toHaveCount(0);
 });
 
 test('a truncated workspace tab keeps its close icon centered beside its title and still closes', async ({

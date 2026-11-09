@@ -38,7 +38,7 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
   await page.getByText(question).first().click();
   await page
     .getByRole('complementary', { name: 'Right pane' })
-    .getByRole('button', { name: 'Details', exact: true })
+    .getByRole('button', { name: 'Properties', exact: true })
     .click();
   const list = page.getByRole('list', { name: 'Attached files' });
   await expect(list).toContainText('expression.csv');

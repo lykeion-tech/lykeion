@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { labWorkspace, newStudy } from './lab';
 
-async function choose(page: Page, ...path: string[]) {
-  await page.getByRole('button', { name: 'Action', exact: true }).click();
-  for (const item of path) await page.getByRole('menuitem', { name: item }).click();
+// The dashboard has no Stop control, so the ending is made through the API.
+async function stop(page: Page, cardId: string, reason: string) {
+  const headers = { 'X-Workspace-ID': await labWorkspace(page.request) };
+  const response = await page.request.post(`/api/cards/${cardId}/stop`, {
+    headers,
+    data: { reason },
+  });
+  expect(response.status()).toBeLessThan(300);
 }
 // The scripted leader stops twice, which files an escalation in the Inbox.
 async function escalated(page: Page, cardId: string) {
@@ -22,14 +27,11 @@ async function escalated(page: Page, cardId: string) {
     .toBe(true);
 }
 
-test('Stop ends the study after confirmation and removes the composer', async ({ page }) => {
+test('a stopped study shows its reason and loses the composer', async ({ page }) => {
   const study = await newStudy(page.request, `GLP-1 agonists and alcohol intake ${Date.now()}?`);
   await page.goto(`/#/studies/${study.id}`);
   await escalated(page, study.id);
-  await choose(page, 'Stop');
-  await page.getByRole('textbox', { name: 'Comment' }).fill('no usable data in human cohorts');
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Send' }).click();
+  await stop(page, study.id, 'no usable data in human cohorts');
   const pane = page.getByRole('complementary', { name: 'Right pane' });
   await pane.getByRole('button', { name: 'Properties', exact: true }).click();
   await expect(pane.getByText('Stopped · no usable data in human cohorts')).toBeVisible();
@@ -42,10 +44,7 @@ test('a stopped study keeps its full long reason inside the metadata pane', asyn
   await page.goto(`/#/studies/${study.id}`);
   await escalated(page, study.id);
   const reason = `No usable primary-source evidence after checking mouse liver cohorts. ${'unbroken'.repeat(40)}`;
-  await choose(page, 'Stop');
-  await page.getByRole('textbox', { name: 'Comment' }).fill(reason);
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Send' }).click();
+  await stop(page, study.id, reason);
   const meta = page.getByRole('complementary', { name: 'Right pane' });
   await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   const ending = meta.getByText(`Stopped · ${reason}`, { exact: true });
@@ -75,58 +74,4 @@ test('a stopped study keeps its full long reason inside the metadata pane', asyn
     textInsideChip: true,
     noHiddenText: true,
   });
-});
-
-import { labFixture } from './lab';
-
-const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-17-artifacts';
-
-async function recordedStudy(page: Page) {
-  const f = await labFixture(page.request);
-  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
-  await page.goto(`/#/studies/${f.card_id}`);
-  await expect(page.getByRole('heading', { name: 'Transcript fixture' })).toBeVisible();
-  return f;
-}
-async function actualCard(page: Page, ws: string, id: string) {
-  const response = await page.request.get(`/api/cards/${id}`, {
-    headers: { 'X-Workspace-ID': ws },
-  });
-  expect(response.status()).toBe(200);
-  return response.json();
-}
-test('Stop cancellation retains text and sends nothing until confirmation', async ({ page }) => {
-  const f = await recordedStudy(page);
-  let stops = 0;
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && r.url().endsWith(`/api/cards/${f.card_id}/stop`)) stops++;
-  });
-  await choose(page, 'Stop');
-  await page.getByRole('textbox', { name: 'Comment' }).fill('The recorded data cannot answer it.');
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Ended studies are never reopened.');
-    await dialog.dismiss();
-  });
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveValue(
-    'The recorded data cannot answer it.',
-  );
-  expect(stops).toBe(0);
-  expect((await actualCard(page, f.workspace_id, f.card_id)).ending).toBe('');
-  await page.screenshot({ path: `${artifacts}/stop-confirmation-retained.png`, fullPage: true });
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByRole('textbox', { name: 'Comment' })).toHaveCount(0);
-  expect(await actualCard(page, f.workspace_id, f.card_id)).toMatchObject({
-    ending: 'stopped',
-    end_reason: 'The recorded data cannot answer it.',
-  });
-});
-
-test('the action picker offers no Resume', async ({ page }) => {
-  await recordedStudy(page);
-  await page.getByRole('button', { name: 'Action', exact: true }).click();
-  const menu = page.getByRole('menu', { name: 'Actions' });
-  await expect(menu.getByRole('menuitem', { name: /Stop/ })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: /Resume/ })).toHaveCount(0);
 });

@@ -55,10 +55,9 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/timeline.png',
   });
-  await openSurface(page, 'Details');
-  await inspector.getByRole('button', { name: 'Details', exact: true }).click();
+  await openSurface(page, 'Properties');
+  await expect(inspector.locator('.details-body')).toBeVisible();
   await expect(inspector.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0);
-  await inspector.getByRole('button', { name: 'Details', exact: true }).click();
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/inspector.png',
   });
@@ -103,7 +102,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await expect(pane).toHaveCSS('width', '240px');
 });
 
-test('Execution log and Details independently disclose; Runs keeps recorded costs and attempt timing honest', async ({
+test('Execution log and Properties details show directly; Runs keeps recorded costs and attempt timing honest', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -111,10 +110,8 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   await page.goto(`/#/studies/${f.card_id}`);
   const meta = await openSurface(page, 'Timeline');
   await expect(meta.locator('.execution-log .run-metrics')).toBeVisible();
-  await openSurface(page, 'Details');
+  await openSurface(page, 'Properties');
   await expect(meta.locator('.details-body')).toBeVisible();
-  await meta.getByRole('button', { name: 'Details', exact: true }).click();
-  await expect(meta.locator('.details-body')).toHaveCount(0);
   await openSurface(page, 'Timeline');
   const dialog = meta.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
