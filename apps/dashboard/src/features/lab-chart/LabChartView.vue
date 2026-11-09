@@ -10,8 +10,15 @@ const me = useMe();
 
 <template>
   <div class="lab-chart-page">
+    <p v-if="chart.error.value" class="inline-error lab-chart-state" role="alert">
+      {{ chart.error.value.message }}
+      <button :disabled="chart.isFetching.value" @click="chart.refetch()">Retry</button>
+    </p>
+    <p v-else-if="chart.isPending.value" class="muted lab-chart-state" role="status">
+      Loading the Lab Chart…
+    </p>
     <LabChartScene
-      v-if="chart.data.value"
+      v-else-if="chart.data.value"
       :chart="chart.data.value"
       :me="me.data.value?.id"
       @open-agent="(id) => router.push(`/agents/${id}`)"
@@ -25,5 +32,8 @@ const me = useMe();
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+.lab-chart-state {
+  margin: 16px;
 }
 </style>
