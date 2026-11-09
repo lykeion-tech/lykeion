@@ -376,7 +376,7 @@ test('every new workspace tab is named Studies, including when Studies is alread
     await expect(tabs.getByRole('tab')).toHaveCount(before + 1);
     await expect(tabs.getByRole('tab', { selected: true })).toHaveAccessibleName('Studies');
     const title = tabs.getByRole('tab', { selected: true }).locator('span');
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await expect(tabs.getByRole('tab', { name: 'Tasks', exact: true })).toHaveCount(0);
   }
 });
@@ -385,20 +385,27 @@ test('short workspace tab titles remain readable', async ({ page }) => {
   const tabs = page.getByRole('tablist', { name: 'Workspace tabs' });
   await page.goto('/#/studies');
   await page.getByRole('button', { name: 'New tab', exact: true }).click();
-  for (const [path, name] of [['studies', 'Studies'], ['coresearch', 'Coresearch'], ['workflows', 'Workflows']]) {
+  for (const [path, name] of [
+    ['studies', 'Studies'],
+    ['coresearch', 'Coresearch'],
+    ['workflows', 'Workflows'],
+  ]) {
     await page.goto(`/#/${path}`);
     const tab = tabs.getByRole('tab', { selected: true });
     await expect(tab).toHaveAccessibleName(name);
     const title = tab.locator('span');
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     const container = tab.locator('..');
     await container.hover();
     const close = container.getByRole('button', { name: 'Close tab' });
     await expect(close).toBeVisible();
-    await expect.poll(async () => {
-      const labelRect = await title.boundingBox(), closeRect = await close.boundingBox();
-      return !!labelRect && !!closeRect && labelRect.x + labelRect.width <= closeRect.x;
-    }).toBe(true);
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect
+      .poll(async () => {
+        const labelRect = await title.boundingBox(),
+          closeRect = await close.boundingBox();
+        return !!labelRect && !!closeRect && labelRect.x + labelRect.width <= closeRect.x;
+      })
+      .toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   }
 });

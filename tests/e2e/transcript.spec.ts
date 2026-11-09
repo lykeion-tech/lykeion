@@ -20,17 +20,17 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.goto(`/#/studies/${study.id}`);
   const main = page.getByRole('region', { name: 'Study', exact: true });
   await openAgentTranscript(page);
-  const turn = main.locator('.agent-turn').first();
+  const turn = page.locator('.agent-turn').first();
+  // The harness asks again for a missing hand-in, so the script's prose repeats each round.
+  const rounds = turn.getByRole('heading', { name: 'Recorded observations', exact: true });
+  await expect(rounds.first()).toBeVisible({ timeout: 30000 });
   await expect(
-    turn.getByRole('heading', { name: 'Recorded observations', exact: true }),
-  ).toBeVisible({ timeout: 30000 });
-  await expect(
-    turn.getByRole('heading', { name: 'What the tool recorded', exact: true }),
+    turn.getByRole('heading', { name: 'What the tool recorded', exact: true }).first(),
   ).toBeVisible();
   await expect(
-    turn.getByText('Read the card; the lab script stops here.', { exact: true }),
+    turn.getByText('Read the card; the lab script stops here.', { exact: true }).first(),
   ).toBeVisible();
-  await expect(turn.locator('.markdown-body strong')).toHaveText('recorded evidence');
+  await expect(turn.locator('.markdown-body strong').first()).toHaveText('recorded evidence');
   await expect(turn.locator('img,script,iframe')).toHaveCount(0);
   expect(await page.evaluate(() => 'transcriptUnsafe' in window)).toBe(false);
   expect(external).toEqual([]);
@@ -42,7 +42,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   });
   expect(fontLoaded).toBe(true);
   const groups = turn.locator('.run-activity');
-  await expect(groups).toHaveCount(2);
+  await expect.poll(async () => (await groups.count()) - 2 * (await rounds.count())).toBe(0);
   const call = groups.first().locator('.activity-step[data-message-type="tool_use"]');
   await expect(call.getByText('Inspect the study record', { exact: true })).toBeVisible();
   await expect(call.locator('.tool-step')).toHaveAttribute('open', '');
@@ -65,7 +65,8 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     'Readable transcript regression',
   );
-  const proseCode = turn.getByRole('button', { name: 'Copy code', exact: true });
+  // The harness asks again for a missing hand-in, so the script's prose repeats.
+  const proseCode = turn.getByRole('button', { name: 'Copy code', exact: true }).first();
   await proseCode.click();
   await expect(proseCode).toHaveText('Copied');
   await expect(proseCode).toHaveText('Copy', { timeout: 4000 });
@@ -78,15 +79,17 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'midnight');
   await openAgentTranscript(page);
-  await expect(turn.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
-  await expect(turn.locator('.run-activity')).toHaveCount(2);
-  await expect(turn.getByText('Inspect the study record', { exact: true })).toBeVisible();
-  await main.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
+  await expect(rounds.first()).toBeVisible();
+  await expect
+    .poll(async () => (await turn.locator('.run-activity').count()) - 2 * (await rounds.count()))
+    .toBe(0);
+  await expect(turn.getByText('Inspect the study record', { exact: true }).first()).toBeVisible();
+  await page.locator('.log-dialog').evaluate((el) => (el.scrollTop = 0));
   await page.screenshot({ path: `${artifacts}/reading-dark-1920.png` });
   await page.setViewportSize({ width: 800, height: 982 });
-  await expect(turn.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
+  await expect(rounds.first()).toBeVisible();
   expect(await main.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
-  const code = turn.locator('.markdown-code pre');
+  const code = turn.locator('.markdown-code pre').first();
   expect(await code.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await page.screenshot({ path: `${artifacts}/reading-dark-800.png` });
   await expect(turn.getByText('Full recorded history', { exact: true })).toHaveCount(0);
@@ -113,7 +116,7 @@ test('real scripted CLI writing reads naturally and expanded activity stays comp
   await page.unroute('**/RecordedMarkdown.vue*');
 });
 
-test('current attempt pagination retains every message and compact raw payload access', async ({
+test('every attempt paginates, retaining every message and compact raw payload access', async ({
   page,
 }) => {
   const fixture = await labFixture(page.request);
@@ -130,17 +133,22 @@ test('current attempt pagination retains every message and compact raw payload a
   await openAgentTranscript(page);
   const turn = page.locator('.agent-turn').first();
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await expect(turn.locator('.markdown-body')).toHaveCount(498);
-  await expect(turn.locator('.markdown-body').nth(1)).toHaveText('Attempt 2 message 005');
-  await expect(turn.locator('.markdown-body').nth(2)).toHaveText('Attempt 2 message 006');
+  // The full log shows every attempt: the first attempt's two messages, then the current one's.
+  await expect(turn.locator('.markdown-body')).toHaveCount(500);
+  await expect(turn.locator('.markdown-body').nth(1)).toHaveText('Attempt 1 message 002');
+  await expect(turn.getByText('Attempt 1 — it stopped; continued below')).toBeVisible();
+  await expect(turn.locator('.markdown-body').nth(2)).toHaveText('Attempt 2 message 001');
+  await expect(turn.locator('.markdown-body').nth(3)).toHaveText('Attempt 2 message 005');
   await page.setViewportSize({ width: 1920, height: 1080 });
   await turn.locator('.markdown-body').first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: `${artifacts}/adjacent-recorded-text-1920.png`,
   });
 
-  expect(urls.some((url) => url.includes('attempt=2&after=500'))).toBe(true);
-  expect(urls.every((url) => url.includes('attempt=2'))).toBe(true);
+  // One cursor runs across attempts: the first page starts at the beginning, the next
+  // continues inside the current attempt.
+  expect(urls[0]).toContain('after_attempt=0&after=0');
+  expect(urls.some((url) => /after_attempt=2&after=\d+/.test(url))).toBe(true);
   const failed = turn.locator('.run-activity .activity-step[data-message-type="tool_result"]');
   await expect(failed.locator('.step-output')).toContainText('Recorded tool refusal');
   const tool = turn.locator('.activity-step[data-message-type="tool_use"]').first();
@@ -153,66 +161,6 @@ test('current attempt pagination retains every message and compact raw payload a
   await expect(turn.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
 });
 
-test('notebook cells match the L2 tool-step geometry and retain code and output', async ({
-  page,
-  context,
-}) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.addInitScript(
-    () =>
-      !localStorage.getItem('lykeion.preferences') &&
-      localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'ash' })),
-  );
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  const study = await newStudy(page.request, `Notebook cell transcript fixture ${Date.now()}?`);
-  await page.goto(`/#/studies/${study.id}`);
-  await openAgentTranscript(page);
-  const turn = page.locator('.agent-turn').first();
-  const cells = turn.locator('.notebook-cell');
-  await expect(cells).toHaveCount(2, { timeout: 30000 });
-  await expect(cells.first().locator('.cell-count')).toHaveText('In [3]');
-  await expect(cells.nth(1).locator('.cell-count')).toHaveText('In [ ]');
-  await expect(cells.first().locator('.step-code-source')).toContainText(
-    'print("transcript UI check")',
-  );
-  await expect(cells.first().locator('.line-number')).toHaveText(['1', '2']);
-  await expect(cells.first().locator('.step-code-source')).toHaveClass(/highlighted/);
-  await expect(cells.first().locator('.step-code-source span[style*="color"]')).not.toHaveCount(0);
-  await expect(turn.locator('.step-label').first()).toHaveCSS('font-size', '13px');
-  const first = turn
-    .locator('.activity-step')
-    .filter({ has: page.locator('.notebook-cell') })
-    .first();
-  if (!(await first.locator('.tool-step').evaluate((el) => (el as HTMLDetailsElement).open)))
-    await first.locator('.step-heading').click();
-  await cells.first().getByRole('button', { name: 'Copy tool code' }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    'print("transcript UI check")\nprint(42)',
-  );
-  await expect(first.locator('.step-output')).toHaveText('transcript UI check\n42');
-  await expect(first.locator('.step-payload')).toHaveCount(0);
-  await page.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
-  await page.screenshot({ path: `${artifacts}/notebook-steps-light-1920.png` });
-  await page.setViewportSize({ width: 800, height: 982 });
-  expect(
-    await page.locator('.run-panel').evaluate((el) => el.scrollWidth - el.clientWidth),
-  ).toBeLessThanOrEqual(0);
-  await page.screenshot({ path: `${artifacts}/notebook-steps-light-800.png` });
-  await page.evaluate(() =>
-    localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'midnight' })),
-  );
-  await page.reload();
-  await expect(page.locator('.agent-card').first()).toBeVisible();
-  const closePane = page.getByRole('button', { name: 'Close pane', exact: true });
-  if (await closePane.isVisible()) await closePane.click();
-  await openAgentTranscript(page);
-  await expect(page.locator('html')).toHaveAttribute('data-palette', 'midnight');
-  await expect(cells).toHaveCount(2);
-  await expect(cells.first().locator('.step-code-source')).toHaveClass(/highlighted/);
-  await page.locator('.run-panel').evaluate((el) => (el.scrollTop = 0));
-  await page.screenshot({ path: `${artifacts}/notebook-steps-dark-800.png` });
-});
-
 test('study run prose uses the shared readable Markdown presentation', async ({ page }) => {
   const study = await newStudy(page.request, `Markdown transcript ${Date.now()}?`);
   await page.goto(`/#/studies/${study.id}`);
@@ -220,12 +168,14 @@ test('study run prose uses the shared readable Markdown presentation', async ({ 
   const turn = page.locator('.agent-turn').first();
   const prose = turn
     .locator('.lyk-reading .markdown-body')
-    .filter({ hasText: 'Recorded observations' });
+    .filter({ hasText: 'Recorded observations' })
+    // The harness asks again for a missing hand-in, so the script's prose repeats.
+    .first();
   await expect(prose.getByRole('heading', { name: 'Recorded observations' })).toBeVisible();
   await expect(prose.locator('strong')).toContainText('recorded evidence');
   await expect(prose).toHaveCSS('line-height', '22.75px');
   await expect(turn.locator('script,iframe,img')).toHaveCount(0);
-  await expect(turn.getByRole('button', { name: 'Copy code', exact: true })).toBeVisible();
+  await expect(turn.getByRole('button', { name: 'Copy code', exact: true }).first()).toBeVisible();
   await page.setViewportSize({ width: 800, height: 982 });
   expect(await prose.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });

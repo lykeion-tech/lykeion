@@ -153,7 +153,13 @@ async function formAgents(page: Page) {
       await (
         await page.request.post('/api/agents', {
           headers,
-          data: { name: `${name} ${Date.now()}`, stage: 'experimentation', harness, model, instructions: `${name} works` },
+          data: {
+            name: `${name} ${Date.now()}`,
+            stage: 'experimentation',
+            harness,
+            model,
+            instructions: `${name} works`,
+          },
         })
       ).json()
     ).name as string;
