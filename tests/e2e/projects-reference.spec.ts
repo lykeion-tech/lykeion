@@ -24,7 +24,6 @@ test('Projects has the reference table and scopes its board and saved Properties
       title: 'Linked research study',
       question: 'Which sources establish this project board fixture?',
       research_id: project.id,
-
     },
   });
   expect(card.status()).toBe(201);
@@ -33,7 +32,6 @@ test('Projects has the reference table and scopes its board and saved Properties
     data: {
       title: 'Outside this project',
       question: 'An unrelated question outside the project.',
-
     },
   });
   expect(unrelated.status()).toBe(201);
@@ -54,6 +52,7 @@ test('Projects has the reference table and scopes its board and saved Properties
     'Progress',
     'Lead',
     'Created',
+    '',
   ]);
   const row = table.getByRole('row').filter({ hasText: project.name });
   await expect(row).toContainText('High');

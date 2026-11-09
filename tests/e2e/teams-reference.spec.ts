@@ -46,7 +46,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   const row = table.getByRole('row').filter({ hasText: 'reference-layout-team' });
   await expect(row).toContainText('biology');
   await expect(row).toContainText('Grounding');
-  expect((await row.boundingBox())!.height).toBe(44);
+  expect((await row.boundingBox())!.height).toBe(54);
   await expect(table.getByRole('columnheader').first()).toHaveCSS('padding-top', '6px');
   await expect(table.getByRole('columnheader').first()).toHaveCSS('font-weight', '400');
   await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);

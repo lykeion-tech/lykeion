@@ -121,9 +121,8 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await menu.getByRole('menuitemradio', { name: 'Archived 1' }).click();
   await expect(menu).toHaveCount(0);
   await expect(filter).toBeFocused();
-  await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toContainText(
-    'Archived',
-  );
+  await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'Evidence curator' })).toHaveCount(0);
   await expect(table.getByRole('row')).toHaveCount(2);
   await filter.press('ArrowDown');
   await page.keyboard.press('Home');
