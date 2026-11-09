@@ -302,6 +302,10 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			body = map[string]any{"question": "outsider card"}
 		case route == "/api/decisions/manual" || route == "/api/decisions/{id}/manual":
 			body = map[string]string{"title": "outsider note"}
+		case route == "/api/cards/{id}/attachments" && method == http.MethodPost:
+			body = map[string]any{"attachment_ids": []string{uuid.NewString()}}
+		case route == "/api/decisions/{id}/answers":
+			body = map[string]any{"answers": []any{}}
 		case route == "/api/study-drafts":
 			body = map[string]string{"agent_id": uuid.NewString(), "prompt": "outsider draft"}
 		case route == "/api/cards/{id}/teams":

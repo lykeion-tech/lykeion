@@ -103,6 +103,14 @@ func (h *H) attachStudyFiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "attachment ids required")
 		return
 	}
+	// A study the caller can't see is not found, whatever files they name.
+	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
+		_, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})
+		return err
+	})
+	if !answer(w, r, err) {
+		return
+	}
 	files, err := h.studyFiles(r, in.AttachmentIDs)
 	if !answer(w, r, err) {
 		return
