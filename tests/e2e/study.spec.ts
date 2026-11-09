@@ -25,7 +25,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
 
   // The lab's leader arrives live as its Team agent, showing its latest text.
   const card = main.locator('.agent-card').first();
-  await expect(card.locator('.agent-name')).toHaveText('pi · ui-demo', { timeout: 30_000 });
+  await expect(card.locator('.agent-name')).toHaveText('Pi · ui-demo', { timeout: 30_000 });
   await expect(card.locator('.run-header')).toHaveAttribute('aria-label', /, Run 1$/);
   await expect(card.locator('.run-result')).toContainText(
     'Read the card; the lab script stops here.',
@@ -96,14 +96,14 @@ test('long text and many records never scroll the study page sideways', async ({
   const study = await newStudy(page.request, question, { title });
   await page.goto(`/#/studies/${study.id}`);
   await expect(
-    page.locator('.agent-card .agent-name', { hasText: 'pi · ui-demo' }).first(),
+    page.locator('.agent-card .agent-name', { hasText: 'Pi · ui-demo' }).first(),
   ).toBeVisible({
     timeout: 30_000,
   });
   await labRecords(page.request, study.id, 40);
   await page.reload();
   await expect(
-    page.locator('.agent-card .agent-name', { hasText: 'pi · ui-demo' }).first(),
+    page.locator('.agent-card .agent-name', { hasText: 'Pi · ui-demo' }).first(),
   ).toBeVisible();
   const overflow = await page.evaluate(() => ({
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -123,7 +123,7 @@ test('long text and many records never scroll the study page sideways', async ({
 
 import { LAB, labFixture } from './lab';
 
-test('the current attempt loads beyond 500 messages', async ({ page }) => {
+test('the full log loads beyond 500 messages across attempts', async ({ page }) => {
   const fixture = await labFixture(page.request);
   await page.addInitScript(
     (ws) => localStorage.setItem('lykeion.workspace', ws),
@@ -138,9 +138,10 @@ test('the current attempt loads beyond 500 messages', async ({ page }) => {
   const main = page.getByRole('region', { name: 'Study', exact: true });
   await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
-  expect(messageRequests.some((u) => u.includes('attempt=2&after=500'))).toBe(true);
-  expect(messageRequests.every((u) => u.includes('attempt=2'))).toBe(true);
+  // The full log reads every attempt with one cursor, paging past 500.
+  await expect(main.getByText(/Attempt 1 message/).first()).toBeVisible();
+  expect(messageRequests.some((u) => /after_attempt=\d+&after=[1-9]\d*/.test(u))).toBe(true);
+  expect(messageRequests.every((u) => u.includes('after_attempt='))).toBe(true);
   const overflow = await main.evaluate((e) => e.scrollWidth - e.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await main.locator('.markdown-body').last().scrollIntoViewIfNeeded();
@@ -243,7 +244,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   await expect(page).toHaveURL(/#\/studies$/);
   await expect(page.getByRole('region', { name: 'Study' })).toHaveCount(0);
   await page
-    .getByRole('region', { name: 'Grounding' })
+    .getByRole('region', { name: 'Done' })
     .getByRole('button', { name: /Separate workspace study/ })
     .click();
   await expect(main.getByRole('heading', { name: 'Separate workspace study' })).toBeVisible();
@@ -308,10 +309,24 @@ async function linkedStudies(page: import('@playwright/test').Page) {
   return { ws, a, b };
 }
 
-async function studyHash(page: import('@playwright/test').Page, id: string, title: string) {
+// Leaving a study with an unsent comment asks before discarding it.
+async function studyHash(
+  page: import('@playwright/test').Page,
+  id: string,
+  title: string,
+  discards = false,
+) {
   await page.evaluate((card) => {
     location.hash = `/studies/${card}`;
   }, id);
+  const discard = page.getByRole('button', { name: 'Discard changes', exact: true });
+  if (discards) {
+    await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+    await discard.click();
+  } else {
+    // A comment still pending from the earlier visit counts as an unsent draft.
+    await discard.click({ timeout: 1500 }).catch(() => {});
+  }
   await expect(
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
@@ -393,7 +408,7 @@ test('study navigation resets the comment draft', async ({ page }) => {
   const { a, b } = await linkedStudies(page);
   const main = page.getByRole('region', { name: 'Study' });
   await main.getByRole('textbox', { name: 'Comment' }).fill('Draft for A');
-  await studyHash(page, b, 'Lifecycle B');
+  await studyHash(page, b, 'Lifecycle B', true);
   await expect(main.getByRole('heading', { name: 'Lifecycle B' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
   await studyHash(page, a, 'Lifecycle A');
@@ -515,7 +530,7 @@ for (const operation of ['comment', 'delete'] as const) {
       if (operation === 'delete') {
         await expect(main).toHaveCount(0);
         await page
-          .getByRole('region', { name: 'Grounding' })
+          .getByRole('region', { name: 'Done' })
           .getByRole('button', { name: /Lifecycle B/ })
           .click();
       } else await studyHash(page, b, 'Lifecycle B');
@@ -566,12 +581,12 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const dialog = await openAgentTranscript(page);
   const markdown = dialog.locator('.markdown-body');
   await expect(markdown.last()).toContainText('Attempt 2 message 501');
-  await expect(markdown.first()).toContainText('Attempt 2 message 001');
+  await expect(markdown.first()).toContainText('Attempt 1 message 001');
   await expect(dialog.getByText('Full recorded history', { exact: true })).toHaveCount(0);
   // The status message is not shown, so the tool call and its result are the two steps.
   const messages = dialog.locator('.activity-step');
   await expect(messages).toHaveCount(2);
-  await expect(markdown).toHaveCount(498);
+  await expect(markdown).toHaveCount(500);
   const tool = messages.nth(0);
   if (!(await tool.locator('.tool-step').evaluate((el) => (el as HTMLDetailsElement).open)))
     await tool.locator('.step-heading').click();
@@ -734,7 +749,7 @@ test('a Team study shows its Team as the assignee', async ({ page }) => {
   await expect(row).not.toContainText('Unassigned');
 });
 
-test('a finished single-stage study stays in its column, done', async ({ page }) => {
+test('a finished single-stage study moves to Done, naming its stage', async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {
     column: 'grounding',
@@ -747,11 +762,12 @@ test('a finished single-stage study stays in its column, done', async ({ page })
     ],
   });
   await page.goto('/#/studies');
-  const card = page.getByRole('region', { name: 'Grounding' }).locator(`[data-card="${study.id}"]`);
+  const card = page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`);
   await expect(card).toBeVisible();
-  await expect(card.locator('.chip-done')).toHaveText('Done');
+  // a finished study names the stage it was scoped to
+  await expect(card.locator('.card-id .chip')).toHaveText('Grounding');
   await expect(
-    page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`),
+    page.getByRole('region', { name: 'Grounding' }).locator(`[data-card="${study.id}"]`),
   ).toHaveCount(0);
   await page.screenshot({ path: `${shots}/done-on-board.png`, fullPage: true });
 });
@@ -802,8 +818,9 @@ test('Properties stays the same width on the right and resizes inward', async ({
   const content = (await area.locator('.task-main').boundingBox())!;
   const container = (await area.boundingBox())!;
   expect(pane.x).toBeGreaterThan(content.x);
-  expect(pane.x + pane.width).toBeCloseTo(container.x + container.width, 0);
-  expect(pane.x - content.x - content.width).toBeCloseTo(0, 0);
+  // the pane floats over the study, inset 8px from its right edge
+  expect(pane.x + pane.width).toBeCloseTo(container.x + container.width - 8, 0);
+  expect(pane.x).toBeLessThan(content.x + content.width);
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
   await expect(properties).toHaveCSS('width', '250px');
@@ -832,8 +849,9 @@ test('study content and composer share a wider measure and only the log button o
   const composer = await main.locator('.study-comment').boundingBox();
   expect(bounds).toBeTruthy();
   expect(composer).toBeTruthy();
-  expect(composer!.x).toBeCloseTo(bounds!.x, 0);
-  expect(composer!.width).toBeCloseTo(bounds!.width, 0);
+  // both columns inset their text by the same 20px
+  expect(composer!.x).toBeCloseTo(bounds!.x + 20, 0);
+  expect(composer!.width).toBeCloseTo(bounds!.width - 40, 0);
   await cards.first().locator('.run-result').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await cards.first().getByRole('button', { name: 'Open full log' }).click();
@@ -843,8 +861,8 @@ test('study content and composer share a wider measure and only the log button o
   await page.setViewportSize({ width: 800, height: 982 });
   const narrowCards = await main.locator('.study-content').boundingBox();
   const narrowComposer = await main.locator('.study-comment').boundingBox();
-  expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x, 0);
-  expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
+  expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x + 20, 0);
+  expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width - 40, 0);
 });
 
 test('a study one agent works names the agent without an auditor chip', async ({ page }) => {

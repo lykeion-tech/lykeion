@@ -42,10 +42,11 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
     .click();
   const list = page.getByRole('list', { name: 'Attached files' });
   await expect(list).toContainText('expression.csv');
-  // the file names start where the other details' values do
+  // the file list spans the details grid, indented 40px under its label
   const file = await list.getByRole('button', { name: 'expression.csv' }).boundingBox();
-  const created = await page.locator('.details-body > small:text-is("Created") + .v').boundingBox();
-  expect(Math.abs(file!.x - created!.x)).toBeLessThan(1);
+  const label = await page.locator('.details-body > small:text-is("Attached files")').boundingBox();
+  expect(Math.abs(file!.x - label!.x - 40)).toBeLessThan(1);
+  expect(file!.y).toBeGreaterThan(label!.y + label!.height - 1);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     list.getByRole('button', { name: 'expression.csv' }).click(),
