@@ -19,8 +19,10 @@ const has = (type: string, key: readonly unknown[], card: string | null = 'c1') 
   expect(invalidationsFor('w1', ev(type, card))).toContainEqual(key);
 
 describe('event to query map', () => {
-  it('refreshes the Lab Chart on run, agent, decision and member events', () => {
+  it('refreshes the Lab Chart on run, agent, runtime, decision and member events', () => {
     for (const type of ['agent_run.queued', 'agent.updated', 'laboratory.installed', 'decision.opened', 'member.joined'])
+      has(type, keys.labChart('w1'));
+    for (const type of ['runtime.updated', 'runtime.online', 'runtime.deleted'])
       has(type, keys.labChart('w1'));
     for (const type of ['agent_run.usage_updated', 'agent_run.settled'])
       expect(invalidationsFor('w1', ev(type))).not.toContainEqual(keys.labChart('w1'));
