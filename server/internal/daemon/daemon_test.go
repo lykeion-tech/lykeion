@@ -1354,6 +1354,10 @@ func (f *daemonFixture) attach(t *testing.T, diskName, data string) {
 		_, err := tx.Q.LinkAttachment(ctx, db.LinkAttachmentParams{ID: id, CardID: &f.card, DiskName: diskName, RecordKey: "c1"})
 		return err
 	}))
+	// A run sees the files its study had when the run was made; the fixture's
+	// first run stands for one made after this file was attached.
+	_, err := f.env.Owner.Exec(ctx, "UPDATE agent_run SET attachment_snapshot=array_append(attachment_snapshot, $1) WHERE id=$2", id, f.id)
+	must(t, err)
 }
 
 func zipAttachment(t *testing.T, name, body string) string {

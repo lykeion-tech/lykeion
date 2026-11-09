@@ -116,6 +116,13 @@ func (f *daemonFixture) settled(t *testing.T, n int) func() bool {
 // shell starts, carry none of the study's interpreters or folders, which the
 // study's code may have planted. The study's folder is there for the door.
 func TestTheCLIDoesNotGetTheStudyEnvironment(t *testing.T) {
+	keys := []string{"VIRTUAL_ENV", "R_LIBS_USER", "R_PROFILE_USER", "JULIA_PROJECT", "JULIA_DEPOT_PATH", "JULIA_LOAD_PATH", "JUPYTER_PATH"}
+	// Only the daemon may set these here: a variable the test's own shell
+	// carries, such as an activated virtualenv, is the person's, not the study's.
+	for _, k := range keys {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
 	f := fixture(t)
 	f.cfg.Bases = readyPython(t)
 	f.cfg.EnvDir = f.cfg.Bases.Dir
@@ -131,7 +138,7 @@ func TestTheCLIDoesNotGetTheStudyEnvironment(t *testing.T) {
 	{
 		o := l.opts
 		for _, env := range [][]string{l.env, agent.ChildEnv(o)} {
-			for _, k := range []string{"VIRTUAL_ENV", "R_LIBS_USER", "R_PROFILE_USER", "JULIA_PROJECT", "JULIA_DEPOT_PATH", "JULIA_LOAD_PATH", "JUPYTER_PATH"} {
+			for _, k := range keys {
 				if v, ok := lookup(env, k); ok {
 					t.Errorf("%s=%q", k, v)
 				}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"lykeion/server/pkg/agent"
@@ -118,7 +119,7 @@ func newMemberServer(t *testing.T) *memberServer {
 			}
 			comments := []any{}
 			if m.comment != "" && m.polls >= 3 {
-				comments = append(comments, map[string]any{"id": "c1", "author": "u1", "body": m.comment})
+				comments = append(comments, map[string]any{"id": uuid.NewString(), "author": uuid.NewString(), "body": m.comment})
 				m.comment = ""
 			}
 			json.NewEncoder(w).Encode(map[string]any{"status": "working", "elapsed_seconds": 7, "hand_in": nil, "reason": "", "comments": comments})
