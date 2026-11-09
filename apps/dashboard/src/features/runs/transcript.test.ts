@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createSSRApp, h } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import StudyEnvironment from '../studies/StudyEnvironment.vue';
 import AgentRunCard from './AgentRunCard.vue';
 import RunTurn from './RunTurn.vue';
 import { workspaceId } from '../../api/session';
@@ -856,37 +855,6 @@ describe('coordinator report variants', () => {
     expect(html).not.toContain('RAW-REPORT');
     expect(html).not.toContain('lyk records');
     expect(html).toContain('Review the recorded work');
-  });
-});
-
-describe('single-mode study environment', () => {
-  it('renders language bases without a Sandbox chip', async () => {
-    workspaceId.value = 'w';
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
-    });
-    client.setQueryData(keys.runtimes('w'), [
-      {
-        id: 'machine',
-        daemon_id: 'daemon',
-        device_name: 'Bench computer',
-        bases: { python: 'ready', sandbox: 'ready' },
-      },
-    ]);
-    client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'run'], []);
-    const app = createSSRApp({
-      render: () => h(StudyEnvironment, { id: 'c', runs: [{ ...run, runtime_id: 'machine' }] }),
-    });
-    app.use(VueQueryPlugin, { queryClient: client });
-    try {
-      const html = await renderToString(app);
-      expect(html).toContain('Bench computer');
-      expect(html).toContain('Python');
-      expect(html).toContain('Ready');
-      expect(html).not.toContain('Sandbox');
-    } finally {
-      client.clear();
-    }
   });
 });
 

@@ -143,7 +143,6 @@ describe('the dashboard source layout', () => {
       ['views/CreateTask.vue', 'features/studies/CreateStudy.vue'],
       ['components/ColumnRating.vue', 'features/studies/ColumnRating.vue'],
       ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
-      ['components/StudyEnvironment.vue', 'features/studies/StudyEnvironment.vue'],
       ['components/ComposerCalendar.vue', 'features/studies/ComposerCalendar.vue'],
       ['lib/environment.ts', 'features/studies/environment.ts'],
       ['lib/dates.ts', 'features/studies/dates.ts'],
