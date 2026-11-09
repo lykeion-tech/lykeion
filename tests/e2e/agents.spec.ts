@@ -45,10 +45,12 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
 }) => {
   const { headers } = await inFixture(page);
   const post = async (data: object) =>
-    (await page.request.post('/api/agents', {
+    (
+      await page.request.post('/api/agents', {
         headers,
         data: { stage: 'experimentation', ...data },
-      })).json();
+      })
+    ).json();
   await post({
     name: 'Evidence curator',
     harness: 'claude',
@@ -134,23 +136,21 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(menu).toHaveCount(0);
 });
 
-test('New agent opens the starting-point page, and Start blank opens the form', async ({
+test('New agent opens the Create Agent form, and /agents/new opens it directly', async ({
   page,
 }) => {
   await inFixture(page);
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
-  await expect(page).toHaveURL(/#\/agents\/new$/);
-  await expect(page.getByRole('heading', { name: 'Create an agent' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'How would you like to start?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Build with AI/ })).toBeDisabled();
+  const dialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
+  await expect(dialog.getByRole('textbox', { name: 'Agent name', exact: true })).toBeVisible();
   await page.screenshot({ path: `${artifacts}/agent-create.png` });
-  await page.getByRole('button', { name: /Start blank/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'New agent', exact: true });
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/agents\/new$/);
-  await page.getByRole('link', { name: 'Back to agents' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await page.goto('/#/agents/new');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
@@ -226,7 +226,12 @@ test('the agent page shows its studies and edits instructions, profile and acces
   const agent = await (
     await page.request.post('/api/agents', {
       headers,
-      data: { name: 'Methods reviewer', stage: 'experimentation', harness: 'claude', description: 'Reviews methods' },
+      data: {
+        name: 'Methods reviewer',
+        stage: 'experimentation',
+        harness: 'claude',
+        description: 'Reviews methods',
+      },
     })
   ).json();
   const studyId = await assignNewStudy(page, headers, agent.id);
@@ -297,15 +302,14 @@ test('supported backend selectors persist provider labels', async ({ page }) => 
     ['codex', 'Codex'],
   ]) {
     await page.goto('/#/agents/new');
-    await page.getByRole('button', { name: /Start blank/ }).click();
-    const form = page.getByRole('dialog', { name: 'New agent', exact: true });
+    const form = page.getByRole('dialog', { name: 'Create Agent', exact: true });
     await form.getByRole('button', { name: /^Harness:/ }).click();
     await expect(
       form.getByRole('listbox', { name: 'Harness options' }).getByRole('option'),
     ).toHaveCount(2);
     await form.getByRole('option', { name: label!, exact: true }).click();
     await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
-    await form.getByRole('button', { name: 'Create agent', exact: true }).click();
+    await form.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.locator('.agent-identity')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('button', { name: /^Harness:/ })).toHaveText(label!);

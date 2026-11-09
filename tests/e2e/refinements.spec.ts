@@ -159,13 +159,9 @@ test('Project creation/edit and agent profiles use canonical writes and old/curr
   ).json();
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
-  await page.getByRole('button', { name: /Start blank/ }).click();
-  const agentDialog = page.getByRole('dialog', { name: 'New agent', exact: true });
+  const agentDialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
   await agentDialog.getByRole('textbox', { name: 'Agent name' }).fill('Evidence curator');
-  await agentDialog
-    .getByRole('textbox', { name: 'Agent instructions' })
-    .fill('Keep recorded sources traceable.');
-  await agentDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
+  await agentDialog.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Evidence curator', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#\/agents\/[0-9a-f-]+$/);
   await page.getByRole('tab', { name: 'Settings' }).click();
@@ -276,13 +272,20 @@ for (const kind of ['researches', 'agents'] as const) {
     });
     const label = kind === 'researches' ? 'Project' : 'agent';
     await page.getByRole('button', { name: 'New ' + label, exact: true }).click();
-    if (kind === 'agents') await page.getByRole('button', { name: /Start blank/ }).click();
-    const dialog = page.getByRole('dialog', { name: 'New ' + label, exact: true });
+    const dialog = page.getByRole('dialog', {
+      name: kind === 'researches' ? 'New Project' : 'Create Agent',
+      exact: true,
+    });
     const name = 'Held ' + kind + ' creation';
     await dialog
       .getByRole('textbox', { name: kind === 'researches' ? 'Project name' : 'Agent name' })
       .fill(name);
-    await dialog.getByRole('button', { name: 'Create ' + label, exact: true }).click();
+    await dialog
+      .getByRole('button', {
+        name: kind === 'researches' ? 'Create Project' : 'Create',
+        exact: true,
+      })
+      .click();
     await held;
     const canonical = await (await page.request.get('/api/' + kind, { headers })).json();
     expect(canonical.some((item: { name: string }) => item.name === name)).toBe(true);

@@ -89,7 +89,9 @@ test('AI builder machine and model selectors stay compact', async ({ page }) => 
   for (const name of ['Machine and CLI', 'Builder model']) {
     const select = setup.getByRole('combobox', { name });
     await expect(select).toBeVisible();
-    await expect.poll(async () => (await select.boundingBox())?.width ?? 0).toBeLessThanOrEqual(145);
+    await expect
+      .poll(async () => (await select.boundingBox())?.width ?? 0)
+      .toBeLessThanOrEqual(145);
     await select.click();
     const menu = page.getByRole('listbox', { name });
     await expect(menu).toBeVisible();
@@ -117,7 +119,8 @@ test('AI builder machine and model selectors stay compact', async ({ page }) => 
   await expect(machine).toHaveAttribute('aria-activedescendant', /.+/);
   await page.keyboard.press('Tab');
   await expect(cancel).toBeFocused();
-  for (const control of [machine, model, cancel]) await control.evaluate((el) => el.removeAttribute('tabindex'));
+  for (const control of [machine, model, cancel])
+    await control.evaluate((el) => el.removeAttribute('tabindex'));
   await page.setViewportSize({ width: 900, height: 240 });
   await model.click();
   const popup = page.getByRole('listbox', { name: 'Builder model' });
@@ -187,20 +190,6 @@ test('AI draft uses the existing window, keeps offline edits and remains usable 
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(overflow).toBe(false);
-});
-
-test('Agent starting screen keeps its original choices and disabled AI behavior', async ({
-  page,
-}) => {
-  await fixture(page);
-  await page.goto('/#/agents/new');
-  await expect(page.getByRole('heading', { name: 'Create an agent' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Start blank/ })).toBeEnabled();
-  await expect(page.getByRole('button', { name: /Build with AI/ })).toBeDisabled();
-  await page.screenshot({
-    path: '/private/tmp/manual-decisions-agent-unchanged.png',
-    fullPage: true,
-  });
 });
 
 test('recovers an away completion once and preserves a saved human reversion after reload', async ({
