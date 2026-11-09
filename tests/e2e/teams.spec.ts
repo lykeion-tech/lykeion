@@ -40,9 +40,10 @@ test('the sidebar shows the final IT Department order', async ({ page }) => {
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
   await expect(page.getByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg')).toHaveClass(
-    /lucide-network/,
-  );
+  // The team glyph: a back square and a front square with two eyes.
+  const glyph = nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg');
+  await expect(glyph.locator('circle')).toHaveCount(2);
+  await expect(glyph).not.toHaveClass(/lucide-network/);
   await expect(page.locator('#page-header-count')).toBeEmpty();
   await expect(page.locator('.page-header')).toHaveCSS('height', '58px');
   await expect(page.locator('.page-header h1')).toHaveCSS('font-size', '20px');

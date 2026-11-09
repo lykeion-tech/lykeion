@@ -7,7 +7,10 @@ test('the Lab Chart page sits above Settings and draws the lab', async ({ page }
   await expect(settings).toBeVisible();
   const above = settings.locator('xpath=preceding::*[self::a or self::button][1]');
   await expect(above).toHaveText('Lykeion');
+  const chart = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/lab-chart');
   await above.click();
+  const rooms: { agents: { source: string }[] }[] = (await (await chart).json()).rooms;
+  const agents = rooms.flatMap((r) => r.agents);
   await expect(page).toHaveURL(/#\/lab-chart$/);
   await expect(page.locator('canvas')).toBeVisible();
   const list = page.getByRole('region', { name: 'Lykeion rooms' });
@@ -16,7 +19,9 @@ test('the Lab Chart page sits above Settings and draws the lab', async ({ page }
   ).not.toHaveCount(0);
   await expect(list.locator('.lab-chart-list-room')).toHaveCount(5);
   // The e2e lab installs a trimmed shipped pack (4 agents per Team); the full 18 is covered server-side.
-  await expect(list.locator('.lab-chart-list-room:not(:last-child) li')).toHaveCount(16);
+  // Agents other specs create with a stage join their rooms too.
+  expect(agents.filter((a) => a.source !== 'researcher')).toHaveLength(16);
+  await expect(list.locator('.lab-chart-list-room:not(:last-child) li')).toHaveCount(agents.length);
   await expect(page.getByText('Orbit')).toHaveCount(0);
   await expect(page.getByText('Night')).toHaveCount(0);
 });

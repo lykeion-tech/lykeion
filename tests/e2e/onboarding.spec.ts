@@ -2,7 +2,7 @@ import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'];
+const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'];
 const shots = 'test-results/ui2-task16';
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
@@ -39,7 +39,7 @@ test('five steps, Back and skips create a real workspace without a profile save'
   const [ws] = await (await page.request.get('/api/workspaces')).json();
   expect(ws).toMatchObject({ display_prefix: 'ZFISH', research_context: '' });
 });
-test('failed workspace creation stays on Workspace and retries once', async ({ page }) => {
+test('failed workspace creation stays on Laboratory and retries once', async ({ page }) => {
   await newcomer(page, 'retry');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Retry lab');
@@ -52,7 +52,7 @@ test('failed workspace creation stays on Workspace and retries once', async ({ p
   });
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
   expect(await (await page.request.get('/api/workspaces')).json()).toEqual([]);
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
@@ -94,7 +94,7 @@ test('existing-member resume preserves saved career and context and Settings sti
       (await page.request.patch('/api/me', { data: { career_stage: 'postdoc' } })).status(),
     ).toBe(200);
     await page.goto('/#/onboarding?step=workspace');
-    await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+    await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
     const writes: string[] = [];
     page.on('request', (r) => {
       if (r.method() === 'PATCH') writes.push(r.url());
@@ -121,11 +121,11 @@ test('existing-member resume preserves saved career and context and Settings sti
     await owner.close();
   }
 });
-test('bypass without a workspace resumes at the new Workspace step', async ({ page }) => {
+test('bypass without a workspace resumes at the new Laboratory step', async ({ page }) => {
   await newcomer(page, 'bypass');
   await page.getByRole('button', { name: "I've done this before" }).click();
   await expect(page).toHaveURL(/#\/onboarding\?step=workspace$/);
-  await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
 });
 test('library pages read real shared data with four palettes and reachable responsive actions', async ({
   page,
