@@ -3,7 +3,7 @@ import { h, nextTick, shallowRef } from 'vue';
 import * as THREE from 'three';
 import LabChartScene from './LabChartScene.vue';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
-import type { LabChart, LabChartAgent } from '../../api/types';
+import type { LabChart, LabChartAgent, LabChartRoom } from '../../api/types';
 
 const gl = vi.hoisted(() => ({
   fail: false,
@@ -151,7 +151,37 @@ const hasClass = (x: { props: Record<string, unknown> }, c: string) =>
     .split(/\s+/)
     .includes(c);
 
-function mount(chart: LabChart | (() => LabChart), props: Record<string, unknown> = {}) {
+// The built-in laboratory: four Teams of 18 agents, two people.
+function builtIn(): LabChart {
+  const teams: [LabChartRoom['stage'], string, string[]][] = [
+    ['grounding', 'Grounding Team', ['searcher', 'verifier']],
+    ['hypotheses', 'Hypotheses Team', ['scout', 'theorist']],
+    ['experimentation', 'Experimentation Team', ['analyst', 'data-scout', 'planner']],
+    ['validation', 'Validation Team', ['checker', 'literature-checker', 'reproducer']],
+  ];
+  return {
+    rooms: teams.map(([stage, team, members]) => ({
+      stage,
+      team,
+      agents: [
+        agent(`leader · ${team}`, 'leader'),
+        ...members.map((m) => agent(`${m} · ${team}`, 'member')),
+        agent(`auditor · ${team}`, 'auditor'),
+      ],
+    })),
+    people: [
+      { user_id: 'u1', name: 'you', role: 'owner', open_decisions: 0 },
+      { user_id: 'u2', name: 'colleague', role: 'member', open_decisions: 0 },
+    ],
+    ticker: null,
+  };
+}
+
+function mount(
+  chart: LabChart | (() => LabChart),
+  props: Record<string, unknown> = {},
+  size = { w: 1000, h: 600 },
+) {
   const root = node('root');
   const events: [string, string][] = [];
   const app = createTreeApp({
@@ -168,10 +198,10 @@ function mount(chart: LabChart | (() => LabChart), props: Record<string, unknown
   const canvas = all(root).find((x) => x.tag === 'canvas');
   if (canvas)
     Object.assign(canvas, {
-      clientWidth: 1000,
-      clientHeight: 600,
+      clientWidth: size.w,
+      clientHeight: size.h,
       setPointerCapture() {},
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 600 }),
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: size.w, height: size.h }),
     });
   flush();
   const scene = () => gl.last!.scene as THREE.Scene;
@@ -196,7 +226,7 @@ function mount(chart: LabChart | (() => LabChart), props: Record<string, unknown
     (canvas!.props.onPointerup as (e: unknown) => void)(e);
   };
   const byClass = (c: string) => all(root).filter((x) => hasClass(x, c));
-  return { root, app, events, scene, meshes, click, byClass, canvas };
+  return { root, app, events, scene, camera, meshes, click, byClass, canvas };
 }
 
 it('writes exactly the stage, Team and Conference room names, on upright surfaces only', () => {
@@ -368,4 +398,78 @@ it('draws each text texture once, however often the chart changes', async () => 
   v.scene().updateMatrixWorld(true);
   expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(9);
   v.app.unmount();
+});
+
+// Mounts the chart on a canvas of the given size and lets the opening ease settle.
+function settled(
+  chart: LabChart,
+  size: { w: number; h: number },
+  props: Record<string, unknown> = {},
+) {
+  vi.useFakeTimers({ toFake: ['setTimeout'] });
+  frames = [];
+  try {
+    const v = mount(chart, props, size);
+    vi.advanceTimersByTime(600);
+    flush(300);
+    v.scene().updateMatrixWorld(true);
+    return v;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+const toScreen = (p: THREE.Vector3, cam: THREE.Camera, size: { w: number; h: number }) => {
+  const q = p.clone().project(cam);
+  return new THREE.Vector2(((q.x + 1) / 2) * size.w, ((1 - q.y) / 2) * size.h);
+};
+
+it('settles with every chalkboard and TV line at least 12px tall on a 1200×830 canvas', () => {
+  const size = { w: 1200, h: 830 };
+  const v = settled(builtIn(), size);
+  const cam = v.camera();
+  const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
+  expect(texts).toHaveLength(9);
+  for (const m of texts) {
+    const centre = m.localToWorld(new THREE.Vector3(0, 0, 0));
+    const top = m.localToWorld(new THREE.Vector3(0, m.userData.fontSize as number, 0));
+    const line = toScreen(centre, cam, size).distanceTo(toScreen(top, cam, size));
+    expect(line, m.userData.text).toBeGreaterThanOrEqual(12);
+  }
+  v.app.unmount();
+});
+
+it('fits the whole plan inside the canvas once settled, in the page and the onboarding preview', () => {
+  for (const [size, props] of [
+    [{ w: 1200, h: 830 }, {}],
+    [{ w: 1000, h: 600 }, {}],
+    [{ w: 560, h: 420 }, { preview: true }],
+  ] as const) {
+    const v = settled(builtIn(), size, props);
+    const cam = v.camera();
+    const box = new THREE.Box3();
+    let x0 = Infinity,
+      x1 = -Infinity,
+      y0 = Infinity,
+      y1 = -Infinity;
+    for (const m of v
+      .meshes()
+      .filter((m) => m.userData.key || typeof m.userData.text === 'string')) {
+      box.setFromObject(m);
+      for (const c of [box.min, box.max]) {
+        const p = toScreen(c, cam, size);
+        x0 = Math.min(x0, p.x);
+        x1 = Math.max(x1, p.x);
+        y0 = Math.min(y0, p.y);
+        y1 = Math.max(y1, p.y);
+      }
+    }
+    const where = `${size.w}×${size.h}: x ${x0.toFixed(0)}–${x1.toFixed(0)}, y ${y0.toFixed(0)}–${y1.toFixed(0)}`;
+    expect(x0, where).toBeGreaterThanOrEqual(0);
+    expect(y0, where).toBeGreaterThanOrEqual(0);
+    expect(x1, where).toBeLessThanOrEqual(size.w);
+    expect(y1, where).toBeLessThanOrEqual(size.h);
+    // The plan fills the canvas: it spans most of one dimension.
+    expect(Math.max((x1 - x0) / size.w, (y1 - y0) / size.h), where).toBeGreaterThan(0.75);
+    v.app.unmount();
+  }
 });

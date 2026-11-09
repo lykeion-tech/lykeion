@@ -9,6 +9,7 @@ import {
   buildRooms,
   COL,
   disposeObject,
+  fitView,
   hex,
   STAGE_LABEL,
   type Rooms,
@@ -174,15 +175,19 @@ const ticker = computed(() => {
   };
 });
 
-// Orthographic camera on an isometric orbit: it opens zoomed out, eases in, then moves
-// only when dragged or zoomed.
+// Orthographic camera on an isometric orbit: it opens zoomed out, eases in until the plan
+// fills the canvas, then moves only when dragged or zoomed. zoom and goal are multiples of
+// `fit`, the zoom at which the whole plan fits.
 const VIEW = 150;
+const THETA = Math.PI / 4,
+  PHI = 0.96;
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -500, 1000);
 const target = new THREE.Vector3(0, 0, -4);
-let theta = Math.PI / 4,
-  phi = 0.96,
+let theta = THETA,
+  phi = PHI,
   zoom = 0.45,
-  goal = 0.45;
+  goal = 0.45,
+  fit = 1;
 let drag: { x: number; y: number; moved: boolean } | null = null;
 let renderer: THREE.WebGLRenderer | null = null;
 const scene = new THREE.Scene();
@@ -200,8 +205,15 @@ function placeCam() {
     target.z + R * Math.sin(phi) * Math.cos(theta),
   );
   camera.lookAt(target);
-  camera.zoom = zoom;
+  camera.zoom = zoom * fit;
   camera.updateProjectionMatrix();
+}
+
+function refit() {
+  if (!rooms.value || !w || !h) return;
+  const f = fitView(rooms.value.group, THETA, PHI, VIEW, w / h);
+  fit = f.zoom;
+  target.copy(f.target);
 }
 
 // Text planes are drawn once per label and reused by every rebuild; the scene's disposal
@@ -222,6 +234,7 @@ function rebuild() {
   }
   rooms.value = buildRooms(shown.value.rooms, shown.value.people, cachedText);
   scene.add(rooms.value.group);
+  refit();
   if (selected.value && !entities.value.has(selected.value)) selected.value = null;
 }
 
@@ -240,6 +253,7 @@ function tick() {
       top: VIEW / 2,
       bottom: -VIEW / 2,
     });
+    refit();
   }
   zoom += (goal - zoom) * 0.08;
   placeCam();

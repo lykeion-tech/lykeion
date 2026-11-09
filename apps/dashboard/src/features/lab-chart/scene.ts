@@ -98,6 +98,7 @@ export function textPlane(
     const wide = lines.reduce((a, b) => (width(b, 100) > width(a, 100) ? b : a));
     const lineHeight = cv.height / lines.length;
     const size = fitFontSize(wide, (sz) => width(wide, sz), cv.width, lineHeight, o.fill, o.margin);
+    mesh.userData.fontSize = (size * h) / cv.height;
     g.font = `${o.weight} ${size}px ${o.family}`;
     g.fillStyle = o.color;
     g.textAlign = 'center';
@@ -107,16 +108,16 @@ export function textPlane(
     );
     tex.needsUpdate = true;
   };
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: !o.bg }),
+  );
   draw();
   const fonts = document.fonts;
   if (fonts) {
     fonts.load(`${o.weight} 40px ${o.family}`).then(draw, () => {});
     fonts.ready.then(draw);
   }
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: !o.bg }),
-  );
   mesh.userData.text = text;
   mesh.userData.lines = lines;
   return mesh;
@@ -202,6 +203,54 @@ const TV = {
   margin: 0.94,
   split: true,
 };
+
+// The camera zoom at which every mesh of `group` fits a view `view` units high (at zoom 1)
+// with `margin` to spare, seen from the orbit angles theta and phi, and the point the
+// camera must look at to centre them.
+export function fitView(
+  group: THREE.Object3D,
+  theta: number,
+  phi: number,
+  view: number,
+  aspect: number,
+  margin = 1.05,
+) {
+  const cam = new THREE.OrthographicCamera();
+  cam.position.set(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta));
+  cam.lookAt(0, 0, 0);
+  cam.updateMatrixWorld();
+  const toView = cam.matrixWorldInverse;
+  const box = new THREE.Box3();
+  const p = new THREE.Vector3();
+  let x0 = Infinity,
+    x1 = -Infinity,
+    y0 = Infinity,
+    y1 = -Infinity;
+  group.updateMatrixWorld(true);
+  group.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    box.setFromObject(o);
+    for (let i = 0; i < 8; i++) {
+      p.set(
+        i & 1 ? box.max.x : box.min.x,
+        i & 2 ? box.max.y : box.min.y,
+        i & 4 ? box.max.z : box.min.z,
+      );
+      p.applyMatrix4(toView);
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y);
+      y1 = Math.max(y1, p.y);
+    }
+  });
+  if (x0 > x1) return { zoom: 1, target: new THREE.Vector3() };
+  const target = new THREE.Vector3()
+    .setFromMatrixColumn(cam.matrixWorld, 0)
+    .multiplyScalar((x0 + x1) / 2)
+    .add(new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1).multiplyScalar((y0 + y1) / 2));
+  const zoom = Math.min((view * aspect) / ((x1 - x0) * margin), view / ((y1 - y0) * margin));
+  return { zoom, target };
+}
 
 export type Labelled = { key: string; anchor: THREE.Vector3 };
 export type Rooms = { group: THREE.Group; pickables: THREE.Mesh[]; labelled: Labelled[] };
@@ -364,11 +413,11 @@ export function buildRooms(
     board.position.set(r.x1 + 0.32, 0, r.z1 + ROOM_MIN_DEPTH / 2 + 1);
     board.rotation.y = Math.PI / 2;
     group.add(board);
-    add(board, new THREE.BoxGeometry(9.3, 2.3, 0.1), mat(0x8a6a48), 0, 0.6 + 2.1, 0, true);
-    add(board, new THREE.BoxGeometry(9, 2.05, 0.12), mat(0x2f4a3c), 0, 0.6 + 2.1, 0, false);
+    add(board, new THREE.BoxGeometry(10.7, 2.3, 0.1), mat(0x8a6a48), 0, 0.6 + 2.1, 0, true);
+    add(board, new THREE.BoxGeometry(10.4, 2.05, 0.12), mat(0x2f4a3c), 0, 0.6 + 2.1, 0, false);
     const label = STAGE_LABEL[room.stage];
     const chalk = text(`chalk:${label}`, () =>
-      textPlane(label, 9, 2.05, {
+      textPlane(label, 10.4, 2.05, {
         weight: 600,
         family: 'Caveat, cursive',
         color: '#eef2ec',
@@ -380,14 +429,14 @@ export function buildRooms(
     board.add(chalk);
     add(
       group,
-      new THREE.BoxGeometry(5.6, 1.6, 0.14),
+      new THREE.BoxGeometry(10.8, 3, 0.14),
       mat(0x1b1c1e),
-      spot.x - 1.5,
-      0.6 + 2.75,
+      spot.x + 1.5,
+      0.6 + 2.6,
       r.z1 + 0.38,
     );
-    const tv = text(`tv:${room.team}`, () => textPlane(room.team, 5.3, 1.4, TV));
-    tv.position.set(spot.x - 1.5, 0.6 + 2.75, r.z1 + 0.46);
+    const tv = text(`tv:${room.team}`, () => textPlane(room.team, 10.5, 2.8, TV));
+    tv.position.set(spot.x + 1.5, 0.6 + 2.6, r.z1 + 0.46);
     group.add(tv);
     bookshelf(r.x1 + 3.2, r.z1 + 0.55, 3.4);
     plant(r.x2 - 1.2, 0.62, r.z2 - 1.2);
@@ -400,8 +449,8 @@ export function buildRooms(
   const conf = layoutConference(people.length);
   const r = shell(spot.x, spot.z, ROOM_WIDTH, conf.depth, 0xdfe4ea);
   leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
-  add(group, new THREE.BoxGeometry(6.2, 1.9, 0.14), mat(0x1b1c1e), spot.x, 0.6 + 2.6, r.z1 + 0.38);
-  const tv = text('tv:Conference room', () => textPlane('Conference room', 5.9, 1.65, TV));
+  add(group, new THREE.BoxGeometry(7.9, 3, 0.14), mat(0x1b1c1e), spot.x, 0.6 + 2.6, r.z1 + 0.38);
+  const tv = text('tv:Conference room', () => textPlane('Conference room', 7.6, 2.8, TV));
   tv.position.set(spot.x, 0.6 + 2.6, r.z1 + 0.46);
   group.add(tv);
   for (const t of conf.tables) {

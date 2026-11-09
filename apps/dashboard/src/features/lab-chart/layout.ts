@@ -27,11 +27,11 @@ export function layoutRoom(room: { agents: { id: string; role: 'leader' | 'membe
 // Room centres on the exploded plan (four stages, then the Conference room), with the
 // point on the building roof each room's connector line meets.
 const SPOTS: [number, number, number, number, number][] = [
-  [-40, -34, -10, 4.6, -12],
-  [2, -46, 0, 4.6, -16],
-  [44, -30, 16, 6.4, -8],
-  [44, 26, 10, 5.4, 6],
-  [-42, 24, -15, 5.4, 6],
+  [-29.4, -26.5, -10, 4.6, -12],
+  [2.1, -35.5, 0, 4.6, -16],
+  [33.6, -23.5, 16, 6.4, -8],
+  [33.6, 18.5, 10, 5.4, 6],
+  [-30.9, 17, -15, 5.4, 6],
 ]
 
 export function placeRooms(count: number) {
