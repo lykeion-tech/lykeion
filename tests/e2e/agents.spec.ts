@@ -20,26 +20,6 @@ async function inFixture(page: Page) {
   return { f, headers: { 'X-Workspace-ID': f.workspace_id } };
 }
 
-test('the Agent list shows each Agent source', async ({ page }) => {
-  const { headers } = await inFixture(page);
-  expect((await page.request.post('/api/coresearch/bootstrap', { headers })).status()).toBe(200);
-  expect(
-    (
-      await page.request.post('/api/agents', {
-        headers,
-        data: { name: 'Custom source agent', stage: 'experimentation', harness: 'claude' },
-      })
-    ).status(),
-  ).toBe(201);
-  await page.goto('/#/agents');
-  const table = page.getByRole('table', { name: 'Agents' });
-  await expect(table.getByRole('columnheader', { name: 'Source' })).toBeVisible();
-  await expect(table.getByRole('row').filter({ hasText: 'Aristotle' })).toContainText('Built-in');
-  await expect(table.getByRole('row').filter({ hasText: 'Custom source agent' })).toContainText(
-    'Custom',
-  );
-});
-
 test('the Agents list filters Mine, All and Archived through one compact Filter button', async ({
   page,
 }) => {
@@ -94,20 +74,17 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   const table = page.getByRole('table', { name: 'Agents' });
   const curatorRow = table.getByRole('row').filter({ hasText: 'Evidence curator' });
   await expect(curatorRow).toContainText('Keeps sources traceable');
-  await expect(curatorRow).toContainText('Custom');
   await expect(curatorRow).toContainText('Claude Code');
   await expect(curatorRow).toContainText('You');
-  await expect(curatorRow.getByRole('cell')).toHaveCount(6);
+  await expect(curatorRow.getByRole('cell')).toHaveCount(5);
   const privateRow = table.getByRole('row').filter({ hasText: 'Private reviewer' });
-  await expect(privateRow).toContainText('Custom');
   await expect(privateRow).toContainText('Codex');
-  await expect(privateRow.getByRole('cell')).toHaveCount(6);
+  await expect(privateRow.getByRole('cell')).toHaveCount(5);
   await expect(table.getByRole('columnheader')).toHaveText([
     'Name',
-    'Owner',
-    'Source',
-    'Harness',
     'Stage',
+    'Owner',
+    'Harness',
     'Last updated',
   ]);
   await expect(table.getByRole('columnheader', { name: 'Studies', exact: true })).toHaveCount(0);

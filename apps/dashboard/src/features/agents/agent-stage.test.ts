@@ -291,10 +291,19 @@ describe('agent stage', () => {
     expect(detail.text()).toContain('No stage');
   });
 
+  it('lists agents with Stage second and no Source column', async () => {
+    const t = await mount(AgentsView, {}, [agent({ id: 'a', name: 'Reader', stage: 'grounding' })]);
+    const heads = all(t.root)
+      .filter((n) => n.props.role === 'columnheader')
+      .map((n) => textOf(n).trim());
+    expect(heads).toEqual(['Name', 'Stage', 'Owner', 'Harness', 'Last updated']);
+  });
+
   it('shows no edit controls for a laboratory agent', async () => {
     const lab = agent({ id: 'l', name: 'Lab agent', laboratory: 'built-in', owner_id: 'u1' });
     const list = await mount(AgentsView, {}, [lab]);
-    expect(list.text()).toContain('Laboratory');
+    expect(list.text()).toContain('Lab agent');
+    expect(list.text()).not.toContain('Laboratory');
     expect(list.text()).not.toContain('Choose a stage');
     const detail = await mount(AgentDetail, { id: 'l' }, [lab], 'owner', '/x?tab=settings');
     expect(detail.button(/Delete agent/)).toBeUndefined();

@@ -257,9 +257,8 @@ async function save() {
       </div>
       <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
         <div class="agent-row agent-head" role="row">
-          <span role="columnheader">Name</span><span role="columnheader">Owner</span><span role="columnheader">Source</span
-          ><span role="columnheader">Harness</span
-          ><span role="columnheader">Stage</span
+          <span role="columnheader">Name</span><span role="columnheader">Stage</span
+          ><span role="columnheader">Owner</span><span role="columnheader">Harness</span
           ><span role="columnheader" aria-sort="descending"
             ><span class="directory-last-value">Last updated</span></span
           >
@@ -298,25 +297,6 @@ async function save() {
                 ></b
               ><small>{{ a.description }}</small></span
             ></span
-          ><span role="cell" class="agent-owner"
-            ><span class="avatar small">{{
-              (owner(a.owner_id)?.name || owner(a.owner_id)?.email || '?')[0]
-            }}</span
-            ><span
-              class="agent-owner-name"
-              :title="owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member'"
-              >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
-            ></span
-          ><span role="cell">{{
-            a.laboratory
-              ? 'Laboratory'
-              : a.source === 'built_in' || a.built_in_key
-              ? 'Built-in'
-              : a.source === 'custom'
-                ? 'Custom'
-                : '—'
-          }}</span
-          ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell"
             ><template v-if="a.stage">{{ columnName(a.stage) }}</template
             ><template v-else
@@ -329,6 +309,16 @@ async function save() {
                 Choose a stage
               </button></template
             ></span
+          ><span role="cell" class="agent-owner"
+            ><span class="avatar small">{{
+              (owner(a.owner_id)?.name || owner(a.owner_id)?.email || '?')[0]
+            }}</span
+            ><span
+              class="agent-owner-name"
+              :title="owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member'"
+              >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
+            ></span
+          ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell"
             ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
           ></RouterLink
@@ -425,7 +415,7 @@ async function save() {
   text-align: center;
 }
 .agent-directory {
-  --directory-columns: minmax(240px, 1fr) repeat(4, 122px) 128px;
+  --directory-columns: minmax(240px, 1fr) repeat(3, 122px) 128px;
 }
 .agent-directory .agent-row > :last-child {
   text-align: right;
