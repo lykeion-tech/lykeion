@@ -291,12 +291,12 @@ describe('agent stage', () => {
     expect(detail.text()).toContain('No stage');
   });
 
-  it('lists agents with Stage second and no Source column', async () => {
+  it('lists agents with Stage after Owner and no Source column', async () => {
     const t = await mount(AgentsView, {}, [agent({ id: 'a', name: 'Reader', stage: 'grounding' })]);
     const heads = all(t.root)
       .filter((n) => n.props.role === 'columnheader')
       .map((n) => textOf(n).trim());
-    expect(heads).toEqual(['Name', 'Stage', 'Owner', 'Harness', 'Last updated']);
+    expect(heads).toEqual(['Name', 'Owner', 'Stage', 'Harness', 'Last updated']);
   });
 
   it('shows no edit controls for a laboratory agent', async () => {

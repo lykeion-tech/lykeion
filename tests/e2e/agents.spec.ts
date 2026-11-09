@@ -82,8 +82,8 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(privateRow.getByRole('cell')).toHaveCount(5);
   await expect(table.getByRole('columnheader')).toHaveText([
     'Name',
-    'Stage',
     'Owner',
+    'Stage',
     'Harness',
     'Last updated',
   ]);
