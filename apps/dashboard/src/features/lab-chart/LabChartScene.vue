@@ -158,7 +158,7 @@ const panel = computed(() => {
       },
       {
         label: 'Made by',
-        value: [a.source === 'researcher' ? 'a researcher' : 'built-in laboratory'],
+        value: [a.source === 'researcher' ? 'a researcher' : 'Built-in Lykeion'],
       },
     );
   }

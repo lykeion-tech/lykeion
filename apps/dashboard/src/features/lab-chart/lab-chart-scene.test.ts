@@ -355,6 +355,7 @@ it('opens the agent panel from its hitbox and links to the agent', async () => {
   expect(rows).toEqual(['Reports to', 'Status', 'Studies', 'Machine', 'Made by']);
   expect(textOf(v.byClass('lab-chart-panel-row')[1].children[1])).toBe('Working · 4 min');
   expect(textOf(v.byClass('lab-chart-panel-row')[3].children[1])).toBe('Lab Mac · Claude Code');
+  expect(textOf(v.byClass('lab-chart-panel-row')[4].children[1])).toBe('Built-in Lykeion');
   const link = all(v.root).find((x) => x.tag === 'button' && textOf(x) === 'Open agent →')!;
   (link.props.onClick as () => void)();
   expect(v.events).toEqual([['agent', searcher.id]]);
