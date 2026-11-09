@@ -42,8 +42,11 @@ const flush = (n = 3) => {
 
 const ctx = {
   font: '',
+  // Average advance per character as Chromium measures these faces: about 0.5 em for Barlow
+  // and Caveat, 0.41 em for Barlow Condensed.
   measureText(t: string) {
-    return { width: t.length * parseFloat(this.font.split(' ')[1]) * 0.5 };
+    const em = this.font.includes('Condensed') ? 0.41 : 0.5;
+    return { width: t.length * parseFloat(this.font.split(' ')[1]) * em };
   },
   clearRect() {},
   fillRect() {},
@@ -516,4 +519,29 @@ it('fits the whole plan inside the canvas once settled, in the page and the onbo
     expect(Math.max((x1 - x0) / size.w, (y1 - y0) / size.h), where).toBeGreaterThan(0.75);
     v.app.unmount();
   }
+});
+
+it('hangs every TV between its bookshelf and the windows, clear of both', () => {
+  const v = mount(builtIn());
+  v.scene().updateMatrixWorld(true);
+  const rooms = v.scene().children.find((o) => o instanceof THREE.Group)!;
+  const parts = (hex: number) => {
+    const out: THREE.Box3[] = [];
+    rooms.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && (m.material as THREE.MeshLambertMaterial).color?.getHex() === hex)
+        out.push(new THREE.Box3().setFromObject(m));
+    });
+    return out;
+  };
+  const tvs = parts(0x1b1c1e);
+  const blocked = [...parts(0x8fb8d8), ...parts(0x6b4f35)];
+  expect(tvs).toHaveLength(5);
+  expect(blocked.length).toBeGreaterThan(5 * 3);
+  for (const tv of tvs) {
+    expect(tv.max.x - tv.min.x).toBeLessThanOrEqual(8.2 + 1e-9);
+    expect(tv.max.y).toBeLessThanOrEqual(4.8);
+    for (const b of blocked) expect(tv.intersectsBox(b), JSON.stringify([tv, b])).toBe(false);
+  }
+  v.app.unmount();
 });

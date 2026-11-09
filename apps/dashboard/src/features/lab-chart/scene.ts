@@ -195,13 +195,14 @@ export function addSurroundings(scene: THREE.Scene) {
   add(scene, new THREE.BoxGeometry(7, 0.3, 4.5), mat(GLASS), 3, 5.6, 3, false);
 }
 
+// The condensed face keeps the longest Team name readable on a TV that fits the wall.
 const TV = {
-  weight: 600,
-  family: 'Barlow, sans-serif',
+  weight: 700,
+  family: "'Barlow Condensed', Barlow, sans-serif",
   color: '#ffffff',
   bg: '#2c4f6b',
   fill: 0.95,
-  margin: 0.94,
+  margin: 0.98,
   split: true,
 };
 
@@ -360,6 +361,13 @@ export function buildRooms(
       );
     return { x1, z1, x2: cx + w / 2, z2: z1 + d };
   };
+  // A TV on the back wall, in the clear span between the bookshelf and the windows.
+  const tvOnWall = (x: number, z1: number, w: number, key: string, label: string) => {
+    add(group, new THREE.BoxGeometry(w, 3, 0.14), mat(0x1b1c1e), x, 0.6 + 2.6, z1 + 0.38);
+    const tv = text(key, () => textPlane(label, w - 0.1, 2.8, TV));
+    tv.position.set(x, 0.6 + 2.6, z1 + 0.46);
+    group.add(tv);
+  };
   const desk = (x: number, z: number, a: LabChartAgent, stage: Stage, faceBack: boolean) => {
     const y = 0.62;
     add(group, new THREE.BoxGeometry(2.6, 0.14, 1.2), mat(0xc9a173), x, y + 1.0, z);
@@ -419,17 +427,7 @@ export function buildRooms(
     const chalk = text(`chalk:${room.stage}`, () => chalkPlane(room.stage, 10.4, 2.05));
     chalk.position.set(0, 0.6 + 2.1, 0.07);
     board.add(chalk);
-    add(
-      group,
-      new THREE.BoxGeometry(10.8, 3, 0.14),
-      mat(0x1b1c1e),
-      spot.x + 1.5,
-      0.6 + 2.6,
-      r.z1 + 0.38,
-    );
-    const tv = text(`tv:${room.team}`, () => textPlane(room.team, 10.5, 2.8, TV));
-    tv.position.set(spot.x + 1.5, 0.6 + 2.6, r.z1 + 0.46);
-    group.add(tv);
+    tvOnWall(spot.x - 0.4, r.z1, 8.2, `tv:${room.team}`, room.team);
     bookshelf(r.x1 + 3.2, r.z1 + 0.55, 3.4);
     plant(r.x2 - 1.2, 0.62, r.z2 - 1.2);
     const byId = new Map(room.agents.map((a) => [a.id, a]));
@@ -441,10 +439,7 @@ export function buildRooms(
   const conf = layoutConference(people.length);
   const r = shell(spot.x, spot.z, ROOM_WIDTH, conf.depth, 0xdfe4ea);
   leader(spot.x, spot.z, spot.roofX, spot.roofY, spot.roofZ);
-  add(group, new THREE.BoxGeometry(7.9, 3, 0.14), mat(0x1b1c1e), spot.x, 0.6 + 2.6, r.z1 + 0.38);
-  const tv = text('tv:Conference room', () => textPlane('Conference room', 7.6, 2.8, TV));
-  tv.position.set(spot.x, 0.6 + 2.6, r.z1 + 0.46);
-  group.add(tv);
+  tvOnWall(spot.x - 0.25, r.z1, 7.9, 'tv:Conference room', 'Conference room');
   for (const t of conf.tables) {
     add(
       group,
