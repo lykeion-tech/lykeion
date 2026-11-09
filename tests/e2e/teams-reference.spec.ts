@@ -19,7 +19,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   const table = page.getByRole('table', { name: 'Teams', exact: true });
   await expect(table.getByRole('columnheader', { name: 'Name', exact: true })).toHaveCSS(
     'font-size',
-    '12px',
+    '13px',
   );
   const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Source'];
   for (const [i, name] of columns.entries())
@@ -145,7 +145,7 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(rows.first()).toContainText('sort-earlier-team');
   await sort.click();
   await expect(rows.first()).toContainText('sort-later-team');
-  await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '14px');
+  await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '6px');
   const teamLast = (await page.locator('.team-table th').last().boundingBox())!;
   const teamSort = (await sort.boundingBox())!;
   const teamNew = (await page.locator('#page-header-actions > *').first().boundingBox())!;
