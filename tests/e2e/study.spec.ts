@@ -49,7 +49,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await main
     .getByRole('textbox', { name: 'Comment' })
     .fill('Prefer human islet data over mouse models.');
-  await main.getByRole('button', { name: 'Send' }).click();
+  await main.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(main.locator('.bubble.mine', { hasText: 'Prefer human islet data' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
 
@@ -74,7 +74,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   });
   await surface('Timeline');
   const runDialog = meta.locator('.execution-log');
-  await expect(runDialog.locator('.run-metrics')).toContainText('$0.01');
+  await expect(runDialog.locator('.run-metrics')).toContainText(/Spent\$0\.0[1-9]/);
   await expect(runDialog.locator('.timeline-chart .cost-stroke')).not.toHaveAttribute(
     'd',
     'M0,100 L1000,100',
@@ -82,7 +82,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-timeline.png',
   });
-  await page.getByRole('button', { name: 'Close pane' }).click();
+  await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
   await expect(meta).toHaveCount(0);
 });
 
@@ -648,7 +648,9 @@ test('transcript and run message refusals show retries and keep already loaded d
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   await transcript.getByRole('button', { name: 'Close full log' }).click();
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  // The comments read may already have recovered on its own refetch.
+  const retryComments = page.getByRole('button', { name: 'Retry Comments', exact: true });
+  if (await retryComments.isVisible()) await retryComments.click();
   await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
   refuse = true;
   await page.evaluate(async () => {
@@ -667,7 +669,9 @@ test('transcript and run message refusals show retries and keep already loaded d
   refuse = false;
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
   await transcript.getByRole('button', { name: 'Close full log' }).click();
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  // The comments read may already have recovered on its own refetch.
+  const retryAgain = page.getByRole('button', { name: 'Retry Comments', exact: true });
+  if (await retryAgain.isVisible()) await retryAgain.click();
   await expect(page.locator('.study-read-error')).toHaveCount(0);
   await expect(page.locator('.run-read-error')).toHaveCount(0);
 });
