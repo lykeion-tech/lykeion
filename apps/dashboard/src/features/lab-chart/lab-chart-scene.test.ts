@@ -51,16 +51,45 @@ const ctx = {
   beginPath() {},
   arc() {},
   fill() {},
-  fillText() {},
+  fillText(this: { canvas: Canvas; font: string }, text: string, x: number, y: number) {
+    this.canvas.drawn.push({ text, x, y, font: this.font, align: (this as never)['textAlign'] });
+  },
+  moveTo() {},
+  lineTo() {},
+  quadraticCurveTo() {},
+  bezierCurveTo() {},
+  closePath() {},
+  stroke() {},
+  ellipse() {},
+  save() {},
+  restore() {},
+  translate() {},
+  rotate() {},
+  setLineDash() {},
 };
+type Canvas = {
+  width: number;
+  height: number;
+  drawn: { text: string; x: number; y: number; font: string; align: string }[];
+  getContext(): unknown;
+};
+let canvases: Canvas[] = [];
 
 beforeEach(() => {
   gl.fail = false;
   gl.disposed = 0;
   gl.last = null;
   frames = [];
+  canvases = [];
   Object.assign(globalThis, {
-    document: { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) },
+    document: {
+      createElement: () => {
+        const cv: Canvas = { width: 0, height: 0, drawn: [], getContext: () => g };
+        const g = Object.assign(Object.create(ctx), { canvas: cv });
+        canvases.push(cv);
+        return cv;
+      },
+    },
     requestAnimationFrame: (cb: FrameRequestCallback) => frames.push(cb),
     cancelAnimationFrame: () => {},
   });
@@ -229,38 +258,52 @@ function mount(
   return { root, app, events, scene, camera, meshes, click, byClass, canvas };
 }
 
-it('writes exactly the stage, Team and Conference room names, on upright surfaces only', () => {
+const STAGE_NAMES = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation'];
+const TEAM_NAMES = STAGE_NAMES.map((n) => `${n} Team`);
+
+it('writes only the Team and Conference room names, on upright surfaces only', () => {
   const v = mount(fixture());
   v.scene().updateMatrixWorld(true);
   const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
-  expect(texts.map((m) => m.userData.text).sort()).toEqual(
-    [
-      'Grounding',
-      'Hypotheses',
-      'Experimentation',
-      'Validation',
-      'Grounding Team',
-      'Hypotheses Team',
-      'Experimentation Team',
-      'Validation Team',
-      'Conference room',
-    ].sort(),
-  );
-  const tvs = texts.filter((m) => m.userData.text.includes(' '));
-  expect(tvs.map((m) => m.userData.lines.join(' ')).sort()).toEqual(
-    [
-      'Grounding Team',
-      'Hypotheses Team',
-      'Experimentation Team',
-      'Validation Team',
-      'Conference room',
-    ].sort(),
-  );
-  for (const m of tvs) expect(m.userData.lines).toHaveLength(2);
-  for (const m of texts) {
+  expect(texts.map((m) => m.userData.text).sort()).toEqual([...TEAM_NAMES, 'Conference room'].sort());
+  for (const m of texts) expect(STAGE_NAMES).not.toContain(m.userData.text);
+  for (const m of texts) expect(m.userData.lines).toHaveLength(2);
+  for (const m of [...texts, ...v.meshes().filter((m) => m.userData.board)]) {
     const normal = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld);
-    expect(Math.abs(normal.y), m.userData.text).toBeLessThan(1e-9);
+    expect(Math.abs(normal.y), String(m.userData.text ?? m.userData.board)).toBeLessThan(1e-9);
   }
+  v.app.unmount();
+});
+
+it('covers each chalkboard in its own scientific writing, with no stage or Team name', () => {
+  const v = mount(fixture());
+  const boards = v.meshes().filter((m) => m.userData.board);
+  expect(boards.map((m) => m.userData.board).sort()).toEqual(
+    ['experimentation', 'grounding', 'hypotheses', 'validation'],
+  );
+  const writing = boards.map((m) => (m.userData.writing as string[]).join('\n'));
+  expect(new Set(writing).size).toBe(4);
+  for (const w of writing) {
+    expect(w.length).toBeGreaterThan(20);
+    for (const name of [...STAGE_NAMES, ...TEAM_NAMES]) expect(w).not.toContain(name);
+  }
+  v.app.unmount();
+});
+
+it('keeps every chalk letter inside its board', () => {
+  const v = mount(fixture());
+  const boards = canvases.filter((c) => c.drawn.some((d) => d.font.includes('Caveat')));
+  expect(boards).toHaveLength(4);
+  for (const cv of boards)
+    for (const d of cv.drawn) {
+      const size = parseFloat(d.font.split(' ')[1]);
+      const w = d.text.length * size * 0.5;
+      const x0 = d.align === 'center' ? d.x - w / 2 : d.x;
+      expect(x0, d.text).toBeGreaterThanOrEqual(0);
+      expect(x0 + w, d.text).toBeLessThanOrEqual(cv.width);
+      expect(d.y - size / 2, d.text).toBeGreaterThanOrEqual(0);
+      expect(d.y + size / 2, d.text).toBeLessThanOrEqual(cv.height);
+    }
   v.app.unmount();
 });
 
@@ -396,7 +439,8 @@ it('draws each text texture once, however often the chart changes', async () => 
   flush();
   expect(made).not.toHaveBeenCalled();
   v.scene().updateMatrixWorld(true);
-  expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(9);
+  expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(5);
+  expect(v.meshes().filter((m) => m.userData.board)).toHaveLength(4);
   v.app.unmount();
 });
 
@@ -423,12 +467,12 @@ const toScreen = (p: THREE.Vector3, cam: THREE.Camera, size: { w: number; h: num
   return new THREE.Vector2(((q.x + 1) / 2) * size.w, ((1 - q.y) / 2) * size.h);
 };
 
-it('settles with every chalkboard and TV line at least 12px tall on a 1200×830 canvas', () => {
+it('settles with every TV line at least 12px tall on a 1200×830 canvas', () => {
   const size = { w: 1200, h: 830 };
   const v = settled(builtIn(), size);
   const cam = v.camera();
   const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
-  expect(texts).toHaveLength(9);
+  expect(texts).toHaveLength(5);
   for (const m of texts) {
     const centre = m.localToWorld(new THREE.Vector3(0, 0, 0));
     const top = m.localToWorld(new THREE.Vector3(0, m.userData.fontSize as number, 0));
@@ -453,7 +497,7 @@ it('fits the whole plan inside the canvas once settled, in the page and the onbo
       y1 = -Infinity;
     for (const m of v
       .meshes()
-      .filter((m) => m.userData.key || typeof m.userData.text === 'string')) {
+      .filter((m) => m.userData.key || m.userData.board || typeof m.userData.text === 'string')) {
       box.setFromObject(m);
       for (const c of [box.min, box.max]) {
         const p = toScreen(c, cam, size);

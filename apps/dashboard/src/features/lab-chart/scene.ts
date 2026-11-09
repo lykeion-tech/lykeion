@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { LabChartAgent, LabChartPerson, LabChartRoom } from '../../api/types';
 import { layoutConference, layoutRoom, placeRooms, ROOM_MIN_DEPTH, ROOM_WIDTH } from './layout';
 import { fitFontSize } from './text-fit';
+import { chalkPlane } from './chalk';
 
 type Stage = LabChartRoom['stage'];
 
@@ -415,16 +416,7 @@ export function buildRooms(
     group.add(board);
     add(board, new THREE.BoxGeometry(10.7, 2.3, 0.1), mat(0x8a6a48), 0, 0.6 + 2.1, 0, true);
     add(board, new THREE.BoxGeometry(10.4, 2.05, 0.12), mat(0x2f4a3c), 0, 0.6 + 2.1, 0, false);
-    const label = STAGE_LABEL[room.stage];
-    const chalk = text(`chalk:${label}`, () =>
-      textPlane(label, 10.4, 2.05, {
-        weight: 600,
-        family: 'Caveat, cursive',
-        color: '#eef2ec',
-        fill: 0.95,
-        margin: 0.94,
-      }),
-    );
+    const chalk = text(`chalk:${room.stage}`, () => chalkPlane(room.stage, 10.4, 2.05));
     chalk.position.set(0, 0.6 + 2.1, 0.07);
     board.add(chalk);
     add(
