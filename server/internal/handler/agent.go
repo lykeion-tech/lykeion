@@ -290,6 +290,9 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 			a.AvatarUrl = *in.AvatarURL
 		}
 		if in.Stage != nil {
+			if a.BuiltInKey == "aristotle" {
+				return cardInputError("Aristotle has no stage")
+			}
 			if board.StageIndex(*in.Stage) < 0 {
 				return cardInputError("choose a stage for this agent")
 			}

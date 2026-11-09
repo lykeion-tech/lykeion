@@ -10,6 +10,7 @@ import { keys } from '../../api/keys';
 import type { AgentDefinition } from '../../api/types';
 
 const request = vi.hoisted(() => vi.fn());
+vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
 vi.mock('../../api/client', () => ({
   api: request,
   ApiError: class extends Error {},
@@ -278,6 +279,16 @@ describe('agent stage', () => {
     expect(t.text()).toContain('No stage');
     expect(t.text()).toContain('Choose a stage');
     expect(t.text()).toContain('Grounding');
+  });
+
+  it("shows Aristotle as No stage with no way to pick one", async () => {
+    const ari = agent({ id: 'x', name: 'Aristotle', stage: '', built_in_key: 'aristotle' });
+    const list = await mount(AgentsView, {}, [ari]);
+    expect(list.text()).toContain('No stage');
+    expect(list.text()).not.toContain('Choose a stage');
+    const detail = await mount(AgentDetail, { id: 'x' }, [ari], 'owner', '/x?tab=settings');
+    expect(detail.find('select', (n) => n.props['aria-label'] === 'Agent stage')).toBeUndefined();
+    expect(detail.text()).toContain('No stage');
   });
 
   it('shows no edit controls for a laboratory agent', async () => {

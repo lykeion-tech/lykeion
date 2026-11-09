@@ -321,7 +321,7 @@ async function save() {
             ><template v-if="a.stage">{{ columnName(a.stage) }}</template
             ><template v-else
               >No stage<button
-                v-if="!a.laboratory"
+                v-if="!a.laboratory && a.built_in_key !== 'aristotle'"
                 type="button"
                 class="text-button agent-choose-stage"
                 @click.prevent.stop="router.push({ path: '/agents/' + a.id, query: { tab: 'settings', field: 'stage' } })"

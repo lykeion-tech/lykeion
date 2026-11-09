@@ -657,7 +657,9 @@ function toggle(id: string) {
               <div class="agent-card agent-execution">
                 <label class="agent-model-field"
                   ><span>Stage</span
+                  ><span v-if="builtin" class="agent-stage-none">No stage</span
                   ><select
+                    v-else
                     id="agent-stage"
                     v-model="general.stage"
                     aria-label="Agent stage"

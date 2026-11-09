@@ -49,6 +49,23 @@ func TestPatchAgentSetsStage(t *testing.T) {
 	}
 }
 
+func TestAristotleHasNoStage(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "stage-aristotle@lab.org")
+	w := s.workspace(t, a, "lab")
+	id := s.newAgent(t, a, w.ID, "Aristotle", "claude")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent SET stage = '', visibility = 'private', built_in_key = 'aristotle' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"stage": "grounding"}, &out); code != 400 || out["error"] != "Aristotle has no stage" {
+		t.Fatalf("patch: %d %v", code, out)
+	}
+	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"description": "Lab memory"}, nil); code != 200 {
+		t.Fatalf("other fields: %d", code)
+	}
+}
+
 // laboratoryAgent installs the laboratory and returns one shared agent's id.
 func laboratoryAgent(t *testing.T, s *server, auth, ws string) string {
 	t.Helper()
