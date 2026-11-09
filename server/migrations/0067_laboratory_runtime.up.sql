@@ -53,12 +53,19 @@ RETURNS text LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     (SELECT 'Waiting for ' || name || ': ' || COALESCE(wait, 'it is offline.')
      FROM why WHERE wait IS NOT NULL OR offline ORDER BY wait IS NULL, created_at LIMIT 1),
-    (SELECT 'Waiting for a machine: ' || la.name || CASE WHEN la.runtime_id IS NULL THEN ' is not bound to one yet.'
-       ELSE ' is bound to a machine the workspace owner may no longer use.' END || ' The workspace owner chooses its machine in Agents.'
-     FROM t, agent_run_laboratory(t.workspace_id, t.id) la WHERE t.kind = 'role' AND NOT EXISTS (SELECT 1 FROM machines)),
+    (SELECT 'Waiting for a machine: ' || CASE WHEN la.runtime_id IS NULL THEN la.name || ' is not bound to one yet.'
+       WHEN b.os <> 'linux' AND b.owner_id <> t.responsible_user_id THEN COALESCE(b.custom_name, b.device_name)
+         || ' runs only its owner''s studies. Bind ' || la.name || ' to a shared Linux machine to run colleagues'' studies.'
+       ELSE la.name || ' is bound to a machine the workspace owner may no longer use.' END || ' The workspace owner chooses its machine in Agents.'
+     FROM t CROSS JOIN agent_run_laboratory(t.workspace_id, t.id) la
+     LEFT JOIN runtime b ON b.workspace_id = t.workspace_id AND b.id = la.runtime_id
+     WHERE t.kind = 'role' AND NOT EXISTS (SELECT 1 FROM machines)),
     (SELECT 'Waiting for ' || CASE t.harness WHEN 'claude' THEN 'Claude Code' ELSE 'Codex' END || ': connect this CLI on the selected machine.'
      FROM t JOIN card c ON c.workspace_id = t.workspace_id AND c.id = t.card_id
      WHERE c.study_cli IS NOT NULL AND c.auditor_cli IS NOT NULL AND NOT EXISTS (SELECT 1 FROM machines)
        AND NOT EXISTS (SELECT 1 FROM agent_run_laboratory(t.workspace_id, t.id)))
   )
 $$;
+
+-- The latest finished run of each agent, read by the Lab Chart.
+CREATE INDEX agent_run_agent_completed ON agent_run (workspace_id, agent_id, completed_at);

@@ -383,3 +383,21 @@ func TestOfflineNoticeNamesTheBoundMachine(t *testing.T) {
 		t.Fatalf("offline notices for %v, want only the bound runtime %v", got, bound.RuntimeID)
 	}
 }
+
+// A laboratory agent bound to its owner's Mac never runs a colleague's
+// study, and the study's wait says so.
+func TestBoundToOwnersMacWaitNamesTheMachine(t *testing.T) {
+	l := newLabFixture(t)
+	mac := l.register(t, l.Owner, "owner-mac", "claude", "darwin")
+	l.bind(t, mac)
+	run := l.run(t, l.leader.ID, "claude")
+	var waiting *string
+	if err := l.Env.Owner.QueryRow(t.Context(), `SELECT agent_run_waiting(workspace_id, id) FROM agent_run WHERE id = $1`, run.ID).Scan(&waiting); err != nil {
+		t.Fatal(err)
+	}
+	want := "Waiting for a machine: owner-mac runs only its owner's studies. Bind " + l.leader.Name +
+		" to a shared Linux machine to run colleagues' studies. The workspace owner chooses its machine in Agents."
+	if waiting == nil || *waiting != want {
+		t.Fatalf("study's wait: %v, want %q", waiting, want)
+	}
+}

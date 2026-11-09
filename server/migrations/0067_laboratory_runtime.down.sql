@@ -1,3 +1,4 @@
+DROP INDEX agent_run_agent_completed;
 CREATE OR REPLACE FUNCTION agent_run_waiting(ws uuid, run uuid)
 RETURNS text LANGUAGE sql STABLE AS $$
   WITH t AS (
