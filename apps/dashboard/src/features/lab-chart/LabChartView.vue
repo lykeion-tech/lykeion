@@ -31,7 +31,6 @@ const me = useMe();
 .lab-chart-page {
   flex: 1;
   min-height: 0;
-  height: 100%;
 }
 .lab-chart-state {
   margin: 16px;

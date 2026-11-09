@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -9,6 +10,13 @@ import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tr
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ api: request, ApiError: class extends Error {} }));
+vi.mock('vue-router', async (importOriginal) => {
+  const original = await importOriginal<typeof import('vue-router')>();
+  return { ...original, createWebHashHistory: original.createMemoryHistory };
+});
+vi.mock('lottie-web/build/player/lottie_light', () => ({
+  default: { loadAnimation: () => ({ destroy() {} }) },
+}));
 vi.mock('./LabChartScene.vue', async () => {
   const { h } = await import('vue');
   return { default: { props: ['chart', 'me'], setup: () => () => h('div', 'scene') } };
@@ -66,4 +74,18 @@ it('shows loading, then the server error with a retry, then the chart', async ()
   expect(request.mock.calls.filter((c) => c[1] === '/api/lab-chart')).toHaveLength(2);
   expect(textOf(root)).toContain('scene');
   expect(textOf(root)).not.toContain('unavailable');
+});
+
+it('takes the shell page header, as Agents does, titled Lab Chart', async () => {
+  const { router } = await import('../../router');
+  const lab = router.resolve('/lab-chart').meta;
+  const agents = router.resolve('/agents').meta;
+  expect(lab).toEqual({ page: 'lab-chart', title: 'Lab Chart' });
+  expect(Object.keys(lab).sort()).toEqual(Object.keys(agents).sort());
+  // The shell draws its header for every page whose route does not bring its own.
+  const app = readFileSync('apps/dashboard/src/App.vue', 'utf8');
+  expect(app).toMatch(
+    /<header\s+v-if="current !== 'settings' && !route\.meta\.ownHeader"\s+class="page-header"/,
+  );
+  expect(app).toContain("(route.meta.title ?? 'Studies')");
 });
