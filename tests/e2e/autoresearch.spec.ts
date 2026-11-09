@@ -22,13 +22,10 @@ async function inFixture(page: Page) {
 }
 
 const shots = 'test-results/teams-scoring';
-// An agent works one stage, so the range starts whole and is narrowed to the Watcher's.
 const assign = async (dialog: ReturnType<Page['getByRole']>, page: Page, name: string) => {
   await dialog.getByRole('button', { name: 'Unassigned' }).click();
   await page.getByRole('menuitem', { name }).click();
-  await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Experimentation' }).click();
-  await page.keyboard.press('Escape');
+  // The range starts on the agent's own stage.
   await expect(dialog.getByRole('button', { name: 'Stages: Experimentation' })).toBeVisible();
 };
 

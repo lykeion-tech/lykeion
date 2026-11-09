@@ -332,7 +332,7 @@ test('Inbox report context survives archive refresh and a closed run stays close
   }
 });
 
-test('study descriptions render safe, readable Markdown in Studies and stay inert text in Decisions', async ({
+test('study descriptions render safe, readable Markdown in Studies and in Decisions', async ({
   page,
   context,
 }) => {
@@ -387,11 +387,15 @@ test('study descriptions render safe, readable Markdown in Studies and stay iner
   }
   await page.setViewportSize({ width: 1512, height: 982 });
 
-  // A decision shows the study's question as recorded text: nothing in it runs or links out.
+  // A decision renders the study's question as the same safe Markdown.
   await page.goto(`/#/decisions/${item.id}`);
   const studyContext = page.getByRole('article').locator('.study-context');
-  await expect(studyContext).toContainText('## Study approach');
-  await expect(studyContext).toContainText('<script>window.badMarkdown = true</script>');
+  await expect(studyContext.getByRole('heading', { name: 'Study approach' })).toBeVisible();
+  await expect(studyContext.locator('strong')).toHaveText('focused');
+  await expect(studyContext.locator('ul ul li')).toHaveText('Nested item');
+  await expect(studyContext.locator('blockquote')).toContainText('A quoted observation.');
+  await expect(studyContext.getByRole('table')).toContainText('Mean');
+  await expect(studyContext.locator('pre code')).toContainText('print(42)');
   await expect(page.getByRole('article').locator('script,img,a[href^="javascript:"]')).toHaveCount(
     0,
   );
