@@ -104,10 +104,10 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(privateRow.getByRole('cell')).toHaveCount(6);
   await expect(table.getByRole('columnheader')).toHaveText([
     'Name',
-    'Status',
     'Owner',
     'Source',
     'Harness',
+    'Stage',
     'Last updated',
   ]);
   await expect(table.getByRole('columnheader', { name: 'Studies', exact: true })).toHaveCount(0);
@@ -241,9 +241,9 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await page.goto('/#/agents/' + agent.id);
   await expect(page.getByRole('heading', { name: 'Methods reviewer', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
-  await expect(page.locator('.agent-meta')).toContainText('Harness default');
-  await expect(page.locator('.agent-meta')).toContainText('Claude Code');
-  await expect(page.locator('.agent-meta')).toContainText('Workspace');
+  await expect(page.locator('.agent-inspector')).toContainText('Harness default');
+  await expect(page.locator('.agent-inspector')).toContainText('Claude Code');
+  await expect(page.locator('.agent-inspector')).toContainText('Workspace');
   await expect(page.locator('.agent-activity')).toContainText(card.title || card.question);
   await page.screenshot({ path: `${artifacts}/agent-overview.png` });
 
@@ -286,7 +286,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await page.getByRole('radio', { name: /Only me/ }).check();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect.poll(async () => (await read()).visibility).toBe('private');
-  await expect(page.locator('.agent-meta')).toContainText('Personal');
+  await expect(page.locator('.agent-inspector')).toContainText('Personal');
 
   expect((await page.request.delete(`/api/cards/${studyId}`, { headers })).ok()).toBeTruthy();
   page.once('dialog', (d) => d.accept());
@@ -310,7 +310,7 @@ test('supported backend selectors persist provider labels', async ({ page }) => 
     await form.getByRole('option', { name: label!, exact: true }).click();
     await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
     await form.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.locator('.agent-identity')).toContainText(label!);
+    await expect(page.locator('.agent-inspector')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('button', { name: /^Harness:/ })).toHaveText(label!);
     const id = new URL(page.url().replace('#', '')).pathname.split('/').pop();
