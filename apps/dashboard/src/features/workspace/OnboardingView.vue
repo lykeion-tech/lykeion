@@ -26,8 +26,11 @@ const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
 const laboratories = useLaboratories();
 const me = useMe();
+// The laboratory a new workspace starts with; the built-in one until another
+// is chosen.
+const laboratory = ref('built-in');
 const previewChart = computed(() => {
-  const lab = laboratories.data.value?.find((l) => l.id === 'built-in');
+  const lab = laboratories.data.value?.find((l) => l.id === laboratory.value);
   return lab && me.data.value
     ? toPreviewChart(lab, { user_id: me.data.value.id, name: me.data.value.name })
     : null;
@@ -110,7 +113,7 @@ const saveWorkspace = () =>
       const ws = await api<Workspace>('POST', '/api/workspaces', {
         name: name.value.trim(),
         slug: slug.value,
-        laboratory: 'built-in',
+        laboratory: laboratory.value,
       });
       if (!current()) return;
       id = ws.id;
@@ -286,6 +289,16 @@ async function logOut() {
                 you type a prefix here.</small
               >
               <small v-if="prefixError" class="field-error">{{ prefixError }}</small>
+              <label v-for="l in laboratories.data.value ?? []" :key="l.id" class="choice">
+                <span class="workspace-avatar">{{ l.name[0] }}</span><b>{{ l.name }}</b>
+                <input
+                  v-model="laboratory"
+                  type="radio"
+                  name="laboratory"
+                  :value="l.id"
+                  :aria-label="l.name"
+                />
+              </label>
               <LabChartScene
                 v-if="previewChart"
                 :chart="previewChart"

@@ -97,6 +97,17 @@ describe('onboarding Laboratory step', () => {
     expect(nodes[s]!.props['data-rooms']).toBe(1);
   });
 
+  it('offers the available laboratories above the preview, the built-in one preselected', async () => {
+    const { root } = await mount('?step=laboratory');
+    const nodes = all(root);
+    const radio = nodes.findIndex((n) => n.tag === 'input' && n.props.name === 'laboratory');
+    expect(radio).toBeGreaterThan(-1);
+    expect(nodes[radio]!.props['aria-label']).toBe('Built-in laboratory');
+    expect((nodes[radio] as unknown as { checked: boolean }).checked).toBe(true);
+    expect(textOf(root)).toContain('Built-in laboratory');
+    expect(radio).toBeLessThan(nodes.findIndex((n) => n.tag === 'lab-scene'));
+  });
+
   it('renders no preview for an existing workspace', async () => {
     const { root } = await mount('', true);
     const start = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Set up your lab'))!;
