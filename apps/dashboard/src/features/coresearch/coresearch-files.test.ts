@@ -5,7 +5,6 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import FilesPane from './FilesPane.vue';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { guardResourceDrafts, discardDialog, resolveDiscard } from '../../state/resource-draft';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 vi.hoisted(() =>
   Object.defineProperty(globalThis, 'localStorage', {
@@ -15,7 +14,6 @@ vi.hoisted(() =>
 );
 const cleanups: (() => void)[] = [];
 afterEach(() => {
-  resolveDiscard(false);
   cleanups.splice(0).forEach((f) => f());
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -103,14 +101,15 @@ const reply = (data: unknown, status = 200) => ({
   blob: async () => new Blob([String(data)]),
 });
 describe('Coresearch files', () => {
-  it('keeps preview actions minimal in the right pane while retaining editing in a workspace tab', async () => {
+  it('offers no edit action in the right pane or in a workspace tab', async () => {
     const pane = await mount(FilesPane);
     expect(button(pane.root, 'Open file in tab')).toBeUndefined();
     expect(button(pane.root, 'Edit content')).toBeUndefined();
     const download = button(pane.root, 'Download')!;
     expect(download.props.class).toContain('art-download');
     const tab = await mount(FilesPane, { inWorkspaceTab: true });
-    expect(button(tab.root, 'Edit content')).toBeTruthy();
+    expect(button(tab.root, 'Edit content')).toBeUndefined();
+    expect(all(tab.root).some((n) => n.tag === 'textarea')).toBe(false);
   });
   it('downloads a normally previewed selected version', async () => {
     const fetch = vi.fn();
@@ -278,50 +277,6 @@ describe('Coresearch files', () => {
     await vi.waitFor(() => expect(textOf(root)).toContain('too large to preview'));
     expect(button(root, 'Download')).toBeTruthy();
   });
-  it('remote head update after typing pins draft bytes and base; stale save offers force and reload', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(reply({ error: 'stale_base', base: 1, current: 2 }, 409))
-      .mockImplementation((url: string, options: RequestInit) =>
-        Promise.resolve(
-          reply(
-            options.method === 'GET'
-              ? url.endsWith('/versions')
-                ? [version(3), version(2), version(1)]
-                : url.endsWith('/files')
-                  ? [{ ...file, head: version(3) }]
-                  : 'saved'
-              : version(3),
-          ),
-        ),
-      );
-    vi.stubGlobal('fetch', fetch);
-    const { root, client, settle } = await mount(FilesPane, { inWorkspaceTab: true });
-    (button(root, 'Edit content')!.props.onClick as () => void)();
-    await settle();
-    const draft = 'my exact draft\n';
-    const area = all(root).find((n) => n.tag === 'textarea')!;
-    (area.props['onUpdate:modelValue'] as (s: string) => void)(draft);
-    await settle();
-    client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [version(2), version(1)]);
-    client.setQueryData(keys.coresearchFiles('lab', 'p'), [{ ...file, head: version(2) }]);
-    await settle();
-    expect(all(root).find((n) => n.tag === 'textarea')!.value).toBe(draft);
-    expect(textOf(root)).toContain('v1 (old)');
-    (button(root, 'Save')!.props.onClick as () => void)();
-    await settle();
-    expect(textOf(root)).toContain('version 1 is not the latest (2 is)');
-    expect(button(root, 'Reload')).toBeTruthy();
-    const first = fetch.mock.calls[0]![1].body as FormData;
-    expect(first.get('base')).toBe('1');
-    expect(await (first.get('file') as Blob).text()).toBe(draft);
-    (button(root, 'Save anyway')!.props.onClick as () => void)();
-    await settle();
-    const forced = fetch.mock.calls[1]![1].body as FormData;
-    expect(forced.get('force')).toBe('true');
-    expect(forced.get('base')).toBe('1');
-    expect(await (forced.get('file') as Blob).text()).toBe(draft);
-  });
   it('restore creates new version using latest head base', async () => {
     const fetch = vi
       .fn()
@@ -447,31 +402,5 @@ describe('Coresearch files', () => {
     (button(root, 'Show changes')!.props.onClick as () => void)();
     await settle();
     expect(textOf(root)).toContain('These versions cannot be compared as text.');
-  });
-  it('registered file draft shares navigation refusal and accepted discard without advancing base', async () => {
-    const { root, client, settle } = await mount(FilesPane, { inWorkspaceTab: true });
-    (button(root, 'Edit content')!.props.onClick as () => void)();
-    await settle();
-    const bytes = 'navigation draft\n';
-    const area = all(root).find((n) => n.tag === 'textarea')!;
-    (area.props['onUpdate:modelValue'] as (v: string) => void)(bytes);
-    await settle();
-    client.setQueryData(keys.coresearchVersions('lab', 'p', 'f'), [version(2), version(1)]);
-    await settle();
-    const declined = guardResourceDrafts();
-    expect(discardDialog.value).toBe(true);
-    resolveDiscard(false);
-    expect(await declined).toBe(false);
-    await settle();
-    expect(all(root).find((n) => n.tag === 'textarea')!.value).toBe(bytes);
-    expect(textOf(root)).toContain('v1 (old)');
-    const accepted = guardResourceDrafts();
-    expect(discardDialog.value).toBe(true);
-    resolveDiscard(true);
-    expect(await accepted).toBe(true);
-    await settle();
-    expect(all(root).filter((n) => n.tag === 'textarea')).toHaveLength(0);
-    expect(await guardResourceDrafts()).toBe(true);
-    expect(discardDialog.value).toBe(false);
   });
 });

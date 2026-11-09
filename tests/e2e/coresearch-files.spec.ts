@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  installFilesFixture,
-  openFilePage,
-  openSavedFile,
-  texts,
-} from './coresearch-files-fixture';
+import { installFilesFixture, openFilePage, openSavedFile } from './coresearch-files-fixture';
 test('active chat turns display the ring spinner beside Working', async ({ page }) => {
   await installFilesFixture(page);
   await page.route('**/api/coresearch/projects/p/chats/selected/messages', async (route) => {
@@ -90,39 +85,6 @@ test('chat transcript uses the Study step timeline, including errors and expanda
   await expect(group.locator('ol')).toBeHidden();
 });
 
-test('typing before remote head update preserves draft and base through stale and force saves; intentional reload replaces edits', async ({
-  page,
-}) => {
-  const fixture = await installFilesFixture(page, { head: 1 });
-  await openFilePage(page, 'f');
-  const pane = page.getByTestId('artifact-pane');
-  await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
-  const draft = 'time,residual\n1,7.125\n\n';
-  await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
-  fixture.remoteHead(2);
-  await expect(pane).toContainText('v1 (old)');
-  await expect(pane.getByRole('textbox')).toHaveValue(draft);
-  await pane.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(pane.getByRole('alert')).toContainText('version 1 is not the latest (2 is)');
-  await pane.getByRole('button', { name: 'Save anyway' }).click();
-  await expect.poll(() => fixture.writes.length).toBe(2);
-  expect(fixture.writes[0]?.body).toContain('name="base"\r\n\r\n1');
-  expect(fixture.writes[1]?.body).toContain('name="force"\r\n\r\ntrue');
-  expect(fixture.writes[1]?.body).toContain(draft);
-  expect(fixture.writes.every((w) => w.workspace === 'lab')).toBe(true);
-  await expect(pane.locator('tbody')).toContainText('7.125');
-  await expect(pane.getByRole('button', { name: 'Edit content' })).toBeVisible();
-  await pane.getByRole('button', { name: 'Edit content' }).click();
-  await pane.getByRole('textbox').fill('discard me');
-  fixture.remoteHead(4);
-  await expect(pane).toContainText('v3 (old)');
-  await pane.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(pane.getByRole('alert')).toContainText('version 3 is not the latest (4 is)');
-  await pane.getByRole('button', { name: 'Reload' }).click();
-  await expect(pane.getByRole('textbox')).toHaveCount(0);
-  await expect(pane).toContainText('v4');
-  expect(texts[0]).toContain('0.02');
-});
 test('cross-chat transcript renders exact producing turn, SVG remains inert and members cannot rerun', async ({
   page,
 }) => {
@@ -171,50 +133,16 @@ test('version diff uses visible highlighted exact saved bytes and comparison pic
   await expect(pane.getByTestId('artifact-diff')).toHaveCount(0);
 });
 
-for (const destination of ['global route', 'workspace']) {
-  test(`dirty Files draft guards declined and accepted ${destination} exit`, async ({ page }) => {
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    const fixture = await installFilesFixture(page, { head: 1 });
-    await openFilePage(page, 'f');
-    const pane = page.getByTestId('artifact-pane'),
-      draft = `exact ${destination} draft\n\n`;
-    await pane.getByRole('button', { name: 'Edit content', exact: true }).click();
-    await pane.getByRole('textbox', { name: 'File content' }).fill(draft);
-    fixture.remoteHead(2);
-    await expect(pane).toContainText('v1 (old)');
-    const exit = async () => {
-      if (destination === 'global route') {
-        await page.getByRole('link', { name: 'Coresearch', exact: true }).click();
-      } else {
-        if (!(await page.getByRole('menu', { name: 'Workspace', exact: true }).isVisible()))
-          await page.locator('.workspace-switch').click();
-        await page.getByRole('menuitem', { name: /Second lab/ }).click();
-      }
-    };
-    await exit();
-    const dialog = page.getByRole('dialog', { name: 'Discard unsaved changes?', exact: true });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Keep editing', exact: true }).click();
-    await expect(page).toHaveURL(/#\/coresearch\/artifacts\/p\/f$/);
-    expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe('lab');
-    await expect(pane.getByRole('textbox', { name: 'File content' })).toHaveValue(draft);
-    await expect(pane).toContainText('v1 (old)');
-    if (destination === 'workspace') await page.locator('.workspace-switch').click();
-    await pane.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(pane.getByRole('alert')).toContainText('version 1 is not the latest (2 is)');
-    expect(fixture.writes[0]?.workspace).toBe('lab');
-    expect(fixture.writes[0]?.body).toContain('name="base"\r\n\r\n1');
-    expect(fixture.writes[0]?.body).toContain(draft);
-    await exit();
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Discard changes', exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(page).toHaveURL(destination === 'workspace' ? /#\/studies$/ : /#\/coresearch$/);
-    expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(
-      destination === 'workspace' ? 'second' : 'lab',
-    );
-    await expect(page.getByRole('textbox', { name: 'File content' })).toHaveCount(0);
-    expect(errors).toEqual([]);
-  });
-}
+test('a saved file page only views: no edit action, versions and download stay', async ({
+  page,
+}) => {
+  const fixture = await installFilesFixture(page, { head: 2 });
+  await openFilePage(page, 'f');
+  const pane = page.getByTestId('artifact-pane');
+  await expect(pane.locator('tbody')).toContainText('0.02');
+  await expect(pane.getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(pane.getByRole('button', { name: 'Previous version' })).toBeEnabled();
+  await expect(pane.getByRole('button', { name: 'Edit content' })).toHaveCount(0);
+  await expect(pane.getByRole('textbox')).toHaveCount(0);
+  expect(fixture.writes).toEqual([]);
+});

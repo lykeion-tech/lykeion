@@ -13075,60 +13075,6 @@
   line-height: 1.45;
   letter-spacing: 0;
 }
-.coresearch.artifact-editor,
-.coresearch .artifact-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  height: 100%;
-  min-height: 0;
-}
-.coresearch.artifact-editor-host,
-.coresearch .artifact-editor-host {
-  flex: 1 1 auto;
-  min-height: 240px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 8px;
-  overflow: auto;
-}
-.coresearch.artifact-editor-host .cm-editor,
-.coresearch .artifact-editor-host .cm-editor {
-  height: 100%;
-  background: var(--surface-1);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-  font-weight: 400;
-  line-height: 1.55;
-  letter-spacing: 0;
-}
-.coresearch.artifact-editor-host .cm-scroller,
-.coresearch .artifact-editor-host .cm-scroller {
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-  font-weight: 400;
-  line-height: 1.55;
-  letter-spacing: 0;
-}
-.coresearch.artifact-editor-host .cm-content,
-.coresearch .artifact-editor-host .cm-content {
-  user-select: text;
-  caret-color: var(--ink);
-  padding: 8px 0;
-}
-.coresearch.artifact-editor-host .cm-gutters,
-.coresearch .artifact-editor-host .cm-gutters {
-  border-right: 0;
-  background: var(--surface-1);
-  color: var(--ink-subtle);
-}
-.coresearch.artifact-editor-actions,
-.coresearch .artifact-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
-}
 .coresearch.viewer-failed,
 .coresearch .viewer-failed {
   display: flex;
