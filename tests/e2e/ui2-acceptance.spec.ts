@@ -234,8 +234,7 @@ test('fresh daemon work completes a report visible from history and Inbox and cr
   await expect(dialog.getByText('end-of-real-daemon-report', { exact: true })).toBeVisible();
   await expect(dialog.locator('script,img')).toHaveCount(0);
   expect(await page.evaluate(() => 'reportExecuted' in window)).toBe(false);
-  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
-  await expect(dialog.locator('pre.run-raw')).toHaveText(report);
+  await expect(dialog.getByText('Full report · As submitted by the agent')).toBeVisible();
   await page.screenshot({ path: `${shots}/real-daemon-history.png` });
   await page.keyboard.press('Escape');
   const inbox = await page.request.get('/api/decisions', { headers });
@@ -246,8 +245,6 @@ test('fresh daemon work completes a report visible from history and Inbox and cr
   expect(item).toBeTruthy();
   await page.goto(`/#/decisions/${item.id}`);
   await expect(dialog.getByText('end-of-real-daemon-report', { exact: true })).toBeVisible();
-  await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
-  await expect(dialog.locator('pre.run-raw')).toHaveText(report);
   await page.screenshot({ path: `${shots}/real-daemon-inbox.png` });
   await page.keyboard.press('Escape');
   const created = await page.request.post('/api/autoresearch', {
@@ -257,7 +254,7 @@ test('fresh daemon work completes a report visible from history and Inbox and cr
       description: 'Create a study to inspect.',
       execution_mode: 'create_card',
       assignee: { type: 'agent', id: f.agent_id },
-      scope: { from: 'grounding', to: 'validation' },
+      scope: { from: 'experimentation', to: 'experimentation' },
     },
   });
   expect(created.status(), await created.text()).toBe(201);

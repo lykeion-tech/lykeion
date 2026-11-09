@@ -205,23 +205,17 @@ test('report event refreshes member history and selected run independently of ex
         .filter((type) => type.startsWith('autoresearch_run.')),
     ).toEqual(['autoresearch_run.reported']);
     await expect(member.page.getByRole('button', { name: /Running.*Open report/ })).toBeVisible();
-    await expect(dialog.getByText('Running', { exact: true })).toBeVisible();
-    await dialog.getByRole('tab', { name: 'Raw', exact: true }).click();
+    await expect(dialog.getByText('Report available · Run still in progress')).toBeVisible();
     await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
       run_id: run,
       status: 'failed',
       reason: 'fixture_failure_after_report',
       report: '# Colleague report\nretained-after-failure',
     });
-    await expect(dialog.locator('pre.run-raw')).toHaveText(
-      '# Colleague report\nretained-after-failure',
-    );
-    await expect(dialog.getByRole('tab', { name: 'Raw', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect(dialog.getByText('retained-after-failure', { exact: true })).toBeVisible();
     await expect.poll(() => socket.events()).toContain('autoresearch_run.failed');
-    await expect(dialog.getByText('Failed', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('fixture_failure_after_report', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Full report · As submitted by the agent')).toBeVisible();
     await expect(member.page.getByRole('button', { name: /Failed.*Open report/ })).toBeVisible();
   } finally {
     await member.context.close();

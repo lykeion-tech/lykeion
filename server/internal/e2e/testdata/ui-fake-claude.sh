@@ -39,18 +39,19 @@ case "$prompt" in
 esac
 case "$prompt" in
   *"You are the autoresearch role"*)
-    {
+    # The final answer is the hand-in: its report is the text below as one JSON string.
+    report=$({
       printf '# Fresh daemon report\n\n'
       i=1
       while [ "$i" -le 100 ]; do
-        printf 'Recorded fixture paragraph %s preserves the full report from real daemon execution through the report command.\n\n' "$i"
+        printf 'Recorded fixture paragraph %s preserves the full report from real daemon execution through the hand-in.\n\n' "$i"
         i=$((i+1))
       done
       printf '<script>window.reportExecuted = true</script>\n\n![inert image](https://example.com/tracker.png)\n\nend-of-real-daemon-report\n'
-    } | lyk report >/dev/null || exit 1
+    } | awk '{printf "%s\\n", $0}')
     d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
     mkdir -p "$d" && : > "$d/s.jsonl"
-    echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
+    printf '%s\n' '{"type":"result","is_error":false,"structured_output":{"status":"done","answer":"Fresh daemon report","reason":null,"report":"'"$report"'","new_studies":[],"decision":null},"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
     exit 0 ;;
 esac
 

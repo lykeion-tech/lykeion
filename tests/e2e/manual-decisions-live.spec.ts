@@ -84,11 +84,19 @@ test('real members and admin cannot see another member’s manual notes', async 
           expect(text).not.toContain(unlinkedID);
           expect(text).not.toContain('Private live acceptance');
         }
-        // The open count is the member's study decisions alone, never counting the note.
+        // The open count is the member's answerable study decisions, never counting the note.
         const open = await (await context.request.get('/api/decisions', { headers })).json();
         expect(
           (await (await context.request.get('/api/decisions/count', { headers })).json()).open,
-        ).toBe(open.filter((row: any) => row.kind !== 'manual_decision').length);
+        ).toBe(
+          open.filter(
+            (row: any) =>
+              row.kind !== 'manual_decision' &&
+              row.can_answer &&
+              row.status === 'open' &&
+              !row.archived_at,
+          ).length,
+        );
         expect(
           (await context.request.post(`/api/decisions/${note.id}/resolve`, { headers })).status(),
         ).toBe(404);
