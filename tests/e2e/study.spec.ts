@@ -883,7 +883,7 @@ test('a study one agent works names the agent without an auditor chip', async ({
   const name = `Lone agent ${Date.now()}`;
   const made = await page.request.post('/api/agents', {
     headers,
-    data: { name, harness: 'claude' },
+    data: { name, stage: 'grounding', harness: 'claude' },
   });
   expect(made.status()).toBe(201);
   const agent = (await made.json()) as { id: string };

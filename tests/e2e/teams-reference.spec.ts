@@ -113,7 +113,7 @@ test('Teams sorts by creation and shares the first column and Projects heading s
     (
       await page.request.post('/api/agents', {
         headers,
-        data: { name: 'Directory layout agent', harness: 'claude' },
+        data: { name: 'Directory layout agent', stage: 'experimentation', harness: 'claude' },
       })
     ).status(),
   ).toBe(201);

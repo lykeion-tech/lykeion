@@ -152,7 +152,7 @@ async function formAgents(page: Page) {
       await (
         await page.request.post('/api/agents', {
           headers,
-          data: { name: `${name} ${Date.now()}`, harness, model, instructions: `${name} works` },
+          data: { name: `${name} ${Date.now()}`, stage: 'experimentation', harness, model, instructions: `${name} works` },
         })
       ).json()
     ).name as string;
@@ -259,7 +259,7 @@ test('Team slots show the supported agent backends', async ({ page }) => {
   ]) {
     const response = await page.request.post('/api/agents', {
       headers: { 'X-Workspace-ID': ws },
-      data: { name: `Team ${label}`, harness },
+      data: { name: `Team ${label}`, stage: 'experimentation', harness },
     });
     expect(response.status()).toBe(201);
     agents.push({ id: (await response.json()).id, label: label! });

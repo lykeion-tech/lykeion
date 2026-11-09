@@ -77,7 +77,7 @@ test('colleague import refreshes open Settings and Team picker and deletion reta
     const makeAgent = async (name: string, model: string) => {
       const response = await page.request.post('/api/agents', {
         headers: headers(ws),
-        data: { name, harness: 'claude', model, instructions: 'Works' },
+        data: { name, stage: 'experimentation', harness: 'claude', model, instructions: 'Works' },
       });
       expect(response.status()).toBe(201);
       return response.json();

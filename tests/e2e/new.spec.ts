@@ -391,7 +391,7 @@ test.describe('new study', () => {
     const name = `Solo ${Date.now()}`;
     const made = await page.request.post('/api/agents', {
       headers,
-      data: { name, harness: 'claude' },
+      data: { name, stage: 'experimentation', harness: 'claude' },
     });
     expect(made.status()).toBe(201);
     return { name, id: ((await made.json()) as { id: string }).id };

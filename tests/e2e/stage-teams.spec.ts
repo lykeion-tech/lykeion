@@ -39,7 +39,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
     (
       await page.request.post('/api/agents', {
         headers: { 'X-Workspace-ID': ws },
-        data: { name: 'Picker lab agent', harness: 'claude' },
+        data: { name: 'Picker lab agent', stage: 'experimentation', harness: 'claude' },
       })
     ).status(),
   ).toBe(201);

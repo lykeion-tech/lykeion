@@ -15,7 +15,7 @@ async function inFixture(page: Page) {
   const headers = { 'X-Workspace-ID': f.workspace_id };
   const agent = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Watcher', harness: 'claude' },
+    data: { name: 'Watcher', stage: 'experimentation', harness: 'claude' },
   });
   expect(agent.status()).toBe(201);
   return headers;

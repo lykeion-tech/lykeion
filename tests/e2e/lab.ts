@@ -280,7 +280,7 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
   const headers = { 'X-Workspace-ID': fixture.workspace_id };
   const agentResponse = await request.post('/api/agents', {
     headers,
-    data: { name: 'Report watcher', harness: 'claude' },
+    data: { name: 'Report watcher', stage: 'experimentation', harness: 'claude' },
   });
   expect(agentResponse.status()).toBe(201);
   const agent = await agentResponse.json();
@@ -291,7 +291,7 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
       description: 'Read sources and report.',
       execution_mode: mode,
       assignee: { type: 'agent', id: agent.id },
-      scope: { from: 'grounding', to: 'validation' },
+      scope: { from: 'experimentation', to: 'experimentation' },
     },
   });
   expect(response.status()).toBe(201);

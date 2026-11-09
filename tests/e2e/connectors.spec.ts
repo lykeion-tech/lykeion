@@ -354,7 +354,7 @@ test('Team picker submits only workspace identity and preserves removed referenc
   const make = async (name: string, model: string) => {
     const r = await page.request.post('/api/agents', {
       headers,
-      data: { name: name + Date.now(), harness: 'claude', model, instructions: 'Works' },
+      data: { name: name + Date.now(), stage: 'experimentation', harness: 'claude', model, instructions: 'Works' },
     });
     expect(r.status()).toBe(201);
     return r.json();

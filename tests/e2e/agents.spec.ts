@@ -27,7 +27,7 @@ test('the Agent list shows each Agent source', async ({ page }) => {
     (
       await page.request.post('/api/agents', {
         headers,
-        data: { name: 'Custom source agent', harness: 'claude' },
+        data: { name: 'Custom source agent', stage: 'experimentation', harness: 'claude' },
       })
     ).status(),
   ).toBe(201);
@@ -45,7 +45,10 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
 }) => {
   const { headers } = await inFixture(page);
   const post = async (data: object) =>
-    (await page.request.post('/api/agents', { headers, data })).json();
+    (await page.request.post('/api/agents', {
+        headers,
+        data: { stage: 'experimentation', ...data },
+      })).json();
   await post({
     name: 'Evidence curator',
     harness: 'claude',
@@ -155,7 +158,7 @@ test('deletes an unused agent from its detail page', async ({ page }) => {
   const { headers } = await inFixture(page);
   const response = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Agent to delete', harness: 'claude' },
+    data: { name: 'Agent to delete', stage: 'experimentation', harness: 'claude' },
   });
   expect(response.status()).toBe(201);
   const agent = await response.json();
@@ -172,7 +175,7 @@ test('starts a new study with the viewed agent selected', async ({ page }) => {
   const { headers } = await inFixture(page);
   const response = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Study agent', harness: 'claude' },
+    data: { name: 'Study agent', stage: 'experimentation', harness: 'claude' },
   });
   expect(response.status()).toBe(201);
   const agent = await response.json();
@@ -223,7 +226,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
   const agent = await (
     await page.request.post('/api/agents', {
       headers,
-      data: { name: 'Methods reviewer', harness: 'claude', description: 'Reviews methods' },
+      data: { name: 'Methods reviewer', stage: 'experimentation', harness: 'claude', description: 'Reviews methods' },
     })
   ).json();
   const studyId = await assignNewStudy(page, headers, agent.id);

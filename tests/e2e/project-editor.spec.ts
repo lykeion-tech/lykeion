@@ -159,7 +159,7 @@ test('project leads include active agents, persist their selection and preserve 
   );
   const created = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Project curator', harness: 'claude', visibility: 'private' },
+    data: { name: 'Project curator', stage: 'experimentation', harness: 'claude', visibility: 'private' },
   });
   expect(created.status()).toBe(201);
   const agent = await created.json();
