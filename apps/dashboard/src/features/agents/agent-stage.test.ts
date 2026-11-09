@@ -134,6 +134,7 @@ const runtime = (id: string, name: string, extra: Record<string, unknown> = {}) 
   ...extra,
 });
 let runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Bay')];
+let memberRows = [{ user_id: 'u1', name: 'Owner', email: 'o@lab.test' }];
 
 const apps: { unmount(): void }[] = [];
 afterEach(() => {
@@ -143,6 +144,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   request.mockReset();
   runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Bay')];
+  memberRows = [{ user_id: 'u1', name: 'Owner', email: 'o@lab.test' }];
 });
 
 async function mount(
@@ -182,7 +184,7 @@ async function mount(
   client.setQueryData(keys.agents('w'), agents);
   for (const a of agents) client.setQueryData(keys.agent('w', a.id), a);
   client.setQueryData(keys.runtimes('w'), runtimeRows);
-  client.setQueryData(keys.members('w'), [{ user_id: 'u1', name: 'Owner', email: 'o@lab.test' }]);
+  client.setQueryData(keys.members('w'), memberRows);
   client.setQueryData(keys.workspace('w'), { name: 'Lab', display_prefix: 'L' });
   client.setQueryData(keys.cards('w'), []);
   client.setQueryData(keys.teams('w', '', ''), [
@@ -350,6 +352,9 @@ describe('agent stage', () => {
 
   it("explains that a machine other than Linux runs only its owner's studies", async () => {
     runtimeRows = [runtime('r1', 'Bench'), runtime('r2', 'Desk mac', { os: 'darwin' })];
+    const alone = await mount(AgentDetail, { id: 'l' }, [agent({ id: 'l', laboratory: 'built-in', runtime_id: 'r2' })]);
+    expect(alone.text()).not.toContain('runs only its owner');
+    memberRows = [...memberRows, { user_id: 'u2', name: 'Colleague', email: 'c@lab.test' }];
     const note =
       "Desk mac runs only its owner's studies. Bind this agent to a shared Linux machine to run colleagues' studies.";
     const onMac = await mount(AgentDetail, { id: 'l' }, [agent({ id: 'l', laboratory: 'built-in', runtime_id: 'r2' })]);

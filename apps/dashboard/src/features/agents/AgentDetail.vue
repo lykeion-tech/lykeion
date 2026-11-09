@@ -459,7 +459,7 @@ function toggle(id: string) {
                     <template v-else>{{
                       boundMachine ? machineName(boundMachine) : 'Not bound to a machine'
                     }}</template>
-                    <p v-if="boundMachine && boundMachine.os !== 'linux'" class="agent-hint">
+                    <p v-if="boundMachine && boundMachine.os !== 'linux' && (members.data.value?.length ?? 0) > 1" class="agent-hint">
                       {{ machineName(boundMachine) }} runs only its owner's studies. Bind this agent to a shared Linux
                       machine to run colleagues' studies.
                     </p>
