@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { layoutConference, layoutRoom, placeRooms } from './layout'
 import { fitFontSize } from './text-fit'
+import { toPreviewChart } from './preview'
+import type { Laboratory } from '../../api/types'
 
 type Rect = { x: number; z: number; w: number; d: number }
 const overlap = (a: Rect, b: Rect) =>
@@ -98,5 +100,34 @@ describe('fitFontSize', () => {
   })
   it('gives shorter text a larger size', () => {
     expect(fit('Grounding')).toBeGreaterThan(fit('Experimentation'))
+  })
+})
+
+describe('toPreviewChart', () => {
+  const sizes = { grounding: 4, hypotheses: 4, experimentation: 5, validation: 5 } as const
+  const lab: Laboratory = {
+    id: 'built-in',
+    name: 'Built-in laboratory',
+    rooms: (Object.keys(sizes) as (keyof typeof sizes)[]).map((stage) => ({
+      stage,
+      team: stage,
+      agents: Array.from({ length: sizes[stage] }, (_, i) => ({
+        name: i === 0 ? 'leader' : i === sizes[stage] - 1 ? 'auditor' : `m${i}`,
+        role: i === 0 ? ('leader' as const) : i === sizes[stage] - 1 ? ('auditor' as const) : ('member' as const),
+      })),
+    })),
+  }
+  it('shows every agent idle with only the signed-in person and no ticker', () => {
+    const c = toPreviewChart(lab, { user_id: 'u1', name: 'Ada' })
+    const agents = c.rooms.flatMap((r) => r.agents)
+    expect(c.rooms).toHaveLength(4)
+    expect(agents).toHaveLength(18)
+    expect(agents.every((a) => a.status === 'idle' && a.studies.length === 0 && a.source === 'laboratory')).toBe(true)
+    expect(c.people.map((p) => p.user_id)).toEqual(['u1'])
+    expect(c.ticker).toBeNull()
+    expect(c.rooms[0]!.agents.map((a) => a.reports_to)).toEqual([
+      'the researchers', 'Grounding leader', 'Grounding leader', 'nobody: checks Grounding independently',
+    ])
+    expect(new Set(agents.map((a) => a.id)).size).toBe(18)
   })
 })

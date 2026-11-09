@@ -12,8 +12,10 @@ import { api } from '../../api/client';
 import { daemonSessionKey } from '../../lib/daemon-session';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
-import { useRuntimes, useWorkspaces } from '../../api/queries';
+import { useLaboratories, useMe, useRuntimes, useWorkspaces } from '../../api/queries';
 import type { Workspace } from '../../api/types';
+import LabChartScene from '../lab-chart/LabChartScene.vue';
+import { toPreviewChart } from '../lab-chart/preview';
 import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../../lib/studies';
 
 const desktopSession = inject(daemonSessionKey, null);
@@ -22,13 +24,22 @@ const router = useRouter();
 const client = useQueryClient();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'] as const;
+const laboratories = useLaboratories();
+const me = useMe();
+const previewChart = computed(() => {
+  const lab = laboratories.data.value?.find((l) => l.id === 'built-in');
+  return lab && me.data.value
+    ? toPreviewChart(lab, { user_id: me.data.value.id, name: me.data.value.name })
+    : null;
+});
+const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'] as const;
 type Step = (typeof steps)[number];
-const step = ref<Step>(route.query.step === 'workspace' ? 'Workspace' : 'Welcome');
+const laboratoryQuery = (value: unknown) => value === 'laboratory' || value === 'workspace';
+const step = ref<Step>(laboratoryQuery(route.query.step) ? 'Laboratory' : 'Welcome');
 watch(
   () => route.query.step,
   (value) => {
-    if (value === 'workspace') step.value = 'Workspace';
+    if (laboratoryQuery(value)) step.value = 'Laboratory';
   },
 );
 const position = computed(() => steps.indexOf(step.value));
@@ -46,7 +57,7 @@ const choice = ref<string>('new');
 watch(
   () => workspaces.data.value,
   (list) => {
-    if (list?.length && choice.value === 'new' && step.value !== 'Workspace')
+    if (list?.length && choice.value === 'new' && step.value !== 'Laboratory')
       choice.value = list[0]!.id;
   },
   { immediate: true },
@@ -99,6 +110,7 @@ const saveWorkspace = () =>
       const ws = await api<Workspace>('POST', '/api/workspaces', {
         name: name.value.trim(),
         slug: slug.value,
+        laboratory: 'built-in',
       });
       if (!current()) return;
       id = ws.id;
@@ -207,12 +219,12 @@ async function logOut() {
             </div>
           </div>
         </template>
-        <template v-else-if="step === 'Workspace'">
+        <template v-else-if="step === 'Laboratory'">
           <h2>
             {{
               workspaces.data.value?.length
                 ? `Continue with ${workspaces.data.value[0]!.name}, or start another.`
-                : 'Create your workspace.'
+                : 'Create your laboratory.'
             }}
           </h2>
           <p class="sub">You can belong to any number of workspaces.</p>
@@ -274,6 +286,13 @@ async function logOut() {
                 you type a prefix here.</small
               >
               <small v-if="prefixError" class="field-error">{{ prefixError }}</small>
+              <LabChartScene
+                v-if="previewChart"
+                :chart="previewChart"
+                preview
+                height="420px"
+                :me="me.data.value?.id"
+              />
             </template>
           </div>
         </template>
@@ -375,12 +394,12 @@ async function logOut() {
       </section>
       <footer class="actions">
         <template v-if="step === 'Welcome'">
-          <button class="button primary" @click="step = 'Workspace'">Set up your lab</button>
+          <button class="button primary" @click="step = 'Laboratory'">Set up your lab</button>
           <button class="text-button" :disabled="busy" @click="finish">
             I've done this before
           </button>
         </template>
-        <template v-else-if="step === 'Workspace'">
+        <template v-else-if="step === 'Laboratory'">
           <button
             class="button primary"
             :disabled="busy || (choice === 'new' && !canCreate)"
