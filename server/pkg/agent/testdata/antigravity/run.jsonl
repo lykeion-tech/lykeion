@@ -1,7 +1,0 @@
-{"event":"init","conversation_id":"a-1","init":{"model":"Gemini 3 Pro"}}
-{"event":"step_update","step_update":{"conversation_id":"a-1","step_index":1,"state":"ACTIVE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"lyk ground question"}}}}
-{"event":"step_update","step_update":{"conversation_id":"a-1","step_index":1,"state":"DONE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","output":"recorded"},"usage":{"input_tokens":400,"output_tokens":20,"thinking_tokens":5,"cache_read_tokens":100,"cache_write_tokens":0,"total_tokens":420}}}
-{"event":"step_update","step_update":{"conversation_id":"a-1","step_index":2,"state":"ACTIVE","step_type":"agent_response","text_delta":"Scoped"}}
-{"event":"step_update","step_update":{"conversation_id":"a-1","step_index":2,"state":"DONE","step_type":"agent_response","text_delta":" the question.","usage":{"input_tokens":600,"output_tokens":60,"thinking_tokens":30,"cache_read_tokens":300,"cache_write_tokens":10,"total_tokens":660}}}
-{"event":"step_update","step_update":{"conversation_id":"a-1","step_index":2,"state":"DONE","step_type":"agent_response","usage":{"input_tokens":600,"output_tokens":60,"thinking_tokens":30,"cache_read_tokens":300,"cache_write_tokens":10,"total_tokens":660}}}
-{"event":"result","result":{"conversation_id":"a-1","status":"SUCCESS","response":"Scoped the question.","usage":{"input_tokens":9000,"output_tokens":500,"thinking_tokens":100,"cache_read_tokens":2000,"cache_write_tokens":0,"total_tokens":9500}}}
