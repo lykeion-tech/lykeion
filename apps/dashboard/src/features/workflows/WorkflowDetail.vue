@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Icon from '../../ui/Icon.vue';
-import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ArtifactViewer from '../coresearch/viewers/ArtifactViewer.vue';
 import { useWorkflow, workflowFile } from '../../api/workflows';
 import { domainLabel, stripComments } from '../../lib/workflows';
 import { matchesQuery } from '../../lib/search';
 import { useStudyComposer } from '../../state/study-composer';
+
+const RecordedMarkdown = lazyRecordedMarkdown();
 
 const props = defineProps<{ slug: string }>();
 const { openComposer } = useStudyComposer();

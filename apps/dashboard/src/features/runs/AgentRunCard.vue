@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import { FileText, Square } from '@lucide/vue';
 import Modal from '../../ui/Modal.vue';
-import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
@@ -19,6 +19,7 @@ import { registerDraftVisit } from '../../state/resource-draft';
 import RunTurn from './RunTurn.vue';
 import RunStatus from './RunStatus.vue';
 import RunReactions from './RunReactions.vue';
+const RecordedMarkdown = lazyRecordedMarkdown();
 import { roleLabel, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 

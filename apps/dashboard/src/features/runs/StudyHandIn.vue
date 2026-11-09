@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import { useKindRecords } from '../../api/queries';
 import StudyFileThumbnail from '../studies/StudyFileThumbnail.vue';
+
+const RecordedMarkdown = lazyRecordedMarkdown();
 
 const props = defineProps<{
   handIn: Record<string, unknown>;
