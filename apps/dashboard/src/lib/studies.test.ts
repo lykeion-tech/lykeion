@@ -35,6 +35,8 @@ import {
   boardColumnOf,
   boardColumns,
   endLabel,
+  stopReason,
+  stoppedReason,
   groupByColumn,
   matchesFilters,
   roleLabel,
@@ -167,6 +169,13 @@ describe('study labels', () => {
     expect(stateLabel(card({ ending: 'released' }))).toBe('');
     expect(endLabel(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe('Stopped');
     expect(endLabel(card({ ending: 'released' }))).toBe('Released');
+    expect(stoppedReason(card({ ending: 'stopped', end_reason: 'no usable data' }))).toBe(
+      'no usable data',
+    );
+    expect(stoppedReason(card({ ending: 'released', end_reason: 'done' }))).toBe('');
+    expect(stoppedReason(card({ ending: '', end_reason: '' }))).toBe('');
+    expect(stopReason('  too little data  ')).toBe('too little data');
+    expect(stopReason('   ')).toBe('Stopped by user');
     expect(roleLabel('literature-scout')).toBe('Literature scout');
   });
   it('says how long ago', () => {

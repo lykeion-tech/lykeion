@@ -60,6 +60,8 @@ import {
   columnName,
   endLabel,
   stateLabel,
+  stopReason,
+  stoppedReason,
   studyNumber,
   studyActivity,
   groupStudyActivity,
@@ -480,6 +482,28 @@ async function send() {
     if (scope.current()) busy.value = false;
   }
 }
+// Stopping ends the study for good, so it asks first and keeps the typed
+// reason when the person backs out.
+async function stop() {
+  if (busy.value || !c.value) return;
+  if (!confirm(`Stop ${number.value}? Ended studies are never reopened.`)) return;
+  const scope = mutationScope();
+  const reason = stopReason(comment.value);
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('POST', `/api/cards/${scope.id}/stop`, { reason }, undefined, {
+      workspace: scope.workspace,
+    });
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
+    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) busy.value = false;
+  }
+}
 async function cancelComment(id: string) {
   if (cancellingComment.value) return;
   const scope = mutationScope();
@@ -715,6 +739,16 @@ function pin() {
               @keydown.ctrl.enter.prevent="send"
             />
             <footer>
+              <button
+                type="button"
+                class="stop-study"
+                aria-label="Stop study"
+                title="Stop the study"
+                :disabled="busy"
+                @click="stop"
+              >
+                Stop
+              </button>
               <CommentFilePicker
                 :items="commentFiles.items.value"
                 :error="commentFiles.error.value"
@@ -781,6 +815,7 @@ function pin() {
               }}</span>
             </div>
           </div>
+          <p v-if="stoppedReason(c)" class="ending-reason">{{ stoppedReason(c) }}</p>
           <div class="property-row">
             <small>Assignee</small
             ><span class="avatar property-avatar property-icon">{{
@@ -1260,6 +1295,21 @@ function pin() {
   margin-right: auto;
   color: var(--muted);
   font-size: 13px;
+}
+.study-comment .stop-study {
+  margin-right: auto;
+  color: var(--error-text);
+  font-size: 13px;
+}
+.study-comment .stop-study:disabled {
+  opacity: 0.5;
+}
+.study-meta .ending-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .study-comment .round-send {
   width: 26px;

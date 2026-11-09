@@ -99,6 +99,15 @@ export function endLabel(card: Card): string {
   if (card.ending === 'stopped') return 'Stopped';
   return '';
 }
+// The reason a stopped study shows in its properties; a released one's
+// reason already reads in its label.
+export function stoppedReason(card: Card): string {
+  return card.ending === 'stopped' ? card.end_reason : '';
+}
+// What Stop sends: the typed text, or a default when none was typed.
+export function stopReason(text: string): string {
+  return text.trim() || 'Stopped by user';
+}
 export function roleLabel(role: string): string {
   const words = role.replace(/-/g, ' ');
   return words ? words[0]!.toUpperCase() + words.slice(1) : '';
