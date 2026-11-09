@@ -108,6 +108,28 @@ describe('onboarding Laboratory step', () => {
     expect(radio).toBeLessThan(nodes.findIndex((n) => n.tag === 'lab-scene'));
   });
 
+  it('lays the laboratory row out like the Create a new workspace row', async () => {
+    const { root } = await mount('?step=laboratory');
+    const nodes = all(root);
+    const labelOf = (name: string) =>
+      nodes.find(
+        (n) => n.tag === 'label' && all(n).some((c) => c.tag === 'input' && c.props.name === name),
+      )!;
+    const lab = labelOf('laboratory');
+    const create = labelOf('workspace');
+    const cls = (n: ReturnType<typeof node>) => String(n.props.class ?? '');
+    expect(cls(lab)).toBe('choice-head');
+    expect(cls(lab)).toBe(cls(create));
+    const kids = (n: ReturnType<typeof node>) =>
+      n.children.filter((c) => typeof c !== 'string').map((c) => `${c.tag}.${cls(c)}`);
+    expect(kids(lab)).toEqual(kids(create));
+    // Both radios sit in the same card, so the one `.choice input[type='radio']` rule styles them.
+    const card = nodes.find((n) => n.tag === 'div' && cls(n).split(' ').includes('choice'))!;
+    expect(all(card)).toContain(lab);
+    expect(all(card)).toContain(create);
+    expect(all(card).filter((n) => cls(n).split(' ').includes('choice'))).toEqual([card]);
+  });
+
   it('renders no preview for an existing workspace', async () => {
     const { root } = await mount('', true);
     const start = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Set up your lab'))!;

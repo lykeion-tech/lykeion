@@ -289,7 +289,7 @@ async function logOut() {
                 you type a prefix here.</small
               >
               <small v-if="prefixError" class="field-error">{{ prefixError }}</small>
-              <label v-for="l in laboratories.data.value ?? []" :key="l.id" class="choice">
+              <label v-for="l in laboratories.data.value ?? []" :key="l.id" class="choice-head">
                 <span class="workspace-avatar">{{ l.name[0] }}</span><b>{{ l.name }}</b>
                 <input
                   v-model="laboratory"
