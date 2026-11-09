@@ -341,17 +341,28 @@ it('opens the agent panel from its hitbox and links to the agent', async () => {
   await nextTick();
   expect(textOf(v.byClass('lab-chart-panel-name')[0])).toBe('searcher');
   const rows = v.byClass('lab-chart-panel-row').map((r) => textOf(r.children[0]));
-  expect(rows).toEqual(['Room', 'Reports to', 'Status', 'Studies', 'Machine', 'Made by']);
-  expect(textOf(v.byClass('lab-chart-panel-row')[0].children[1])).toBe('Grounding');
-  expect(textOf(v.byClass('lab-chart-panel-row')[2].children[1])).toBe('Working · 4 min');
-  expect(textOf(v.byClass('lab-chart-panel-row')[4].children[1])).toBe('Lab Mac · Claude Code');
+  expect(rows).toEqual(['Reports to', 'Status', 'Studies', 'Machine', 'Made by']);
+  expect(textOf(v.byClass('lab-chart-panel-row')[1].children[1])).toBe('Working · 4 min');
+  expect(textOf(v.byClass('lab-chart-panel-row')[3].children[1])).toBe('Lab Mac · Claude Code');
   const link = all(v.root).find((x) => x.tag === 'button' && textOf(x) === 'Open agent →')!;
   (link.props.onClick as () => void)();
   expect(v.events).toEqual([['agent', searcher.id]]);
   v.app.unmount();
 });
 
-it('keeps the preview quiet: no pills, no ticker, a panel with name, role and room', async () => {
+it('opens the person panel without a Room row', async () => {
+  const v = mount(fixture());
+  v.click('p:u1');
+  await nextTick();
+  expect(textOf(v.byClass('lab-chart-panel-name')[0])).toBe('you');
+  expect(v.byClass('lab-chart-panel-row').map((r) => textOf(r.children[0]))).toEqual([
+    'Role',
+    'Waiting on them',
+  ]);
+  v.app.unmount();
+});
+
+it('keeps the preview quiet: no pills, no ticker, a panel with name and role and no rows', async () => {
   const chart = fixture();
   const v = mount(chart, { preview: true });
   expect(v.byClass('lab-chart-pill')).toHaveLength(0);
@@ -366,7 +377,7 @@ it('keeps the preview quiet: no pills, no ticker, a panel with name, role and ro
   await nextTick();
   expect(textOf(v.byClass('lab-chart-panel-name')[0])).toBe('searcher');
   expect(textOf(v.byClass('lab-chart-panel-role')[0])).toBe('member');
-  expect(v.byClass('lab-chart-panel-row').map((r) => textOf(r.children[0]))).toEqual(['Room']);
+  expect(v.byClass('lab-chart-panel-row').map((r) => textOf(r.children[0]))).toEqual([]);
   expect(all(v.root).some((x) => x.tag === 'button' && textOf(x).includes('→'))).toBe(false);
   v.app.unmount();
 });
@@ -405,11 +416,14 @@ it('hides the list visually while the scene draws', () => {
   v.app.unmount();
 });
 
-it('has the exact hint and no Orbit or Night control', () => {
+it('has no hint text and no Orbit or Night control', () => {
   const v = mount(fixture());
-  expect(textOf(v.byClass('lab-chart-hint')[0])).toBe(
-    'drag to look around · wheel to zoom · click an agent or a person for details',
-  );
+  expect(v.byClass('lab-chart-hint')).toHaveLength(0);
+  expect(textOf(v.root)).not.toContain('drag to look around');
+  const p = mount(fixture(), { preview: true });
+  expect(p.byClass('lab-chart-hint')).toHaveLength(0);
+  expect(textOf(p.root)).not.toContain('drag to look around');
+  p.app.unmount();
   expect(textOf(v.root)).not.toMatch(/Orbit|Night/);
   v.app.unmount();
 });

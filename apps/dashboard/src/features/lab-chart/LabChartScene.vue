@@ -9,7 +9,6 @@ import {
   buildRooms,
   disposeObject,
   fitView,
-  STAGE_LABEL,
   type Rooms,
 } from './scene';
 
@@ -102,7 +101,6 @@ function light() {
     r.outline.visible = key === hoveredRoom.value && !props.preview;
 }
 
-const HINT = 'drag to look around · wheel to zoom · click an agent or a person for details';
 const CLI = { claude: 'Claude Code', codex: 'Codex' };
 function lasted(since: string | null) {
   if (!since) return '';
@@ -134,7 +132,7 @@ const panel = computed(() => {
     };
   }
   const a = e.agent;
-  const rows: Row[] = [{ label: 'Room', value: [STAGE_LABEL[e.stage]] }];
+  const rows: Row[] = [];
   if (!props.preview) {
     const t = lasted(a.since);
     const status: Row =
@@ -368,7 +366,6 @@ onBeforeUnmount(() => {
       @pointerleave="leave"
       @wheel.prevent="wheel"
     />
-    <div class="lab-chart-hint">{{ HINT }}</div>
     <template v-if="!failed">
       <div
         v-for="p in pills"
