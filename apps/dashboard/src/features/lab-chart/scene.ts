@@ -475,7 +475,6 @@ export function buildRooms(
     const chalk = text(`chalk:${room.stage}`, () => chalkPlane(room.stage, 10.4, 2.05));
     chalk.position.set(0, 0.6 + 2.1, 0.07);
     board.add(chalk);
-    tvOnWall(spot.x - 0.4, r.z1, 8.2, `tv:${room.team}`, room.team);
     bookshelf(r.x1 + 3.2, r.z1 + 0.55, 3.4);
     plant(r.x2 - 1.2, 0.62, r.z2 - 1.2);
     const byId = new Map(room.agents.map((a) => [a.id, a]));

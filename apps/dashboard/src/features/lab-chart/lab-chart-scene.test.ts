@@ -265,13 +265,24 @@ function mount(
 const STAGE_NAMES = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation'];
 const TEAM_NAMES = STAGE_NAMES.map((n) => `${n} Team`);
 
-it('writes only the Team and Conference room names, on upright surfaces only', () => {
+it('puts a TV in the Conference room only, none in any stage room', () => {
   const v = mount(fixture());
   v.scene().updateMatrixWorld(true);
   const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
-  expect(texts.map((m) => m.userData.text).sort()).toEqual(
-    [...TEAM_NAMES, 'Conference room'].sort(),
-  );
+  expect(texts.map((m) => m.userData.text)).toEqual(['Conference room']);
+  const screens = v.meshes().filter((m) => {
+    const g = m.geometry as THREE.BoxGeometry;
+    return g.parameters?.width === 8.2;
+  });
+  expect(screens).toHaveLength(0);
+  v.app.unmount();
+});
+
+it('writes only the Conference room name, on upright surfaces only', () => {
+  const v = mount(fixture());
+  v.scene().updateMatrixWorld(true);
+  const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
+  expect(texts.map((m) => m.userData.text).sort()).toEqual(['Conference room']);
   for (const m of texts) expect(STAGE_NAMES).not.toContain(m.userData.text);
   for (const m of texts) expect(m.userData.lines).toHaveLength(2);
   for (const m of [...texts, ...v.meshes().filter((m) => m.userData.board)]) {
@@ -462,7 +473,7 @@ it('draws each text texture once, however often the chart changes', async () => 
   flush();
   expect(made).not.toHaveBeenCalled();
   v.scene().updateMatrixWorld(true);
-  expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(5);
+  expect(v.meshes().filter((m) => typeof m.userData.text === 'string')).toHaveLength(1);
   expect(v.meshes().filter((m) => m.userData.board)).toHaveLength(4);
   v.app.unmount();
 });
@@ -495,7 +506,7 @@ it('settles with every TV line at least 12px tall on a 1200×830 canvas', () => 
   const v = settled(builtIn(), size);
   const cam = v.camera();
   const texts = v.meshes().filter((m) => typeof m.userData.text === 'string');
-  expect(texts).toHaveLength(5);
+  expect(texts).toHaveLength(1);
   for (const m of texts) {
     const centre = m.localToWorld(new THREE.Vector3(0, 0, 0));
     const top = m.localToWorld(new THREE.Vector3(0, m.userData.fontSize as number, 0));
@@ -541,7 +552,7 @@ it('fits the whole plan inside the canvas once settled, in the page and the onbo
   }
 });
 
-it('hangs every TV between its bookshelf and the windows, clear of both', () => {
+it('hangs the TV between its bookshelf and the windows, clear of both', () => {
   const v = mount(builtIn());
   v.scene().updateMatrixWorld(true);
   const rooms = v.scene().children.find((o) => o instanceof THREE.Group)!;
@@ -556,7 +567,7 @@ it('hangs every TV between its bookshelf and the windows, clear of both', () => 
   };
   const tvs = parts(0x1b1c1e);
   const blocked = [...parts(0x8fb8d8), ...parts(0x6b4f35)];
-  expect(tvs).toHaveLength(5);
+  expect(tvs).toHaveLength(1);
   expect(blocked.length).toBeGreaterThan(5 * 3);
   for (const tv of tvs) {
     expect(tv.max.x - tv.min.x).toBeLessThanOrEqual(8.2 + 1e-9);
