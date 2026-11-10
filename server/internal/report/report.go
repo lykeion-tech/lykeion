@@ -565,8 +565,7 @@ func sortedKeys(m map[string]db.Record) []string {
 // judgedChecks appends each recorded figure, table and novelty check to its
 // node, and sets each finding's novelty from its papers' checks.
 func (b *builder) judgedChecks() {
-	type tally struct{ passed, unrelated, total int }
-	novelty := map[string]*tally{}
+	unrelated := map[string]map[string]bool{} // finding id → papers with a passed unrelated check
 	contradicted := map[string]bool{}
 	confirmed := map[string]bool{}
 	for _, c := range b.in.Checks {
@@ -577,14 +576,7 @@ func (b *builder) judgedChecks() {
 		ck := review.Check{ID: c.CheckID, By: "jev", Question: c.Question, P: &c.P, Status: c.Status, Detail: c.Evidence, Basis: c.Basis}
 		if paper, ok := strings.CutPrefix(c.CheckID, "novelty:"); ok {
 			ck.Detail = "choice: " + c.Choice + "\n" + c.Evidence
-			t := novelty[c.NodeID]
-			if t == nil {
-				t = &tally{}
-				novelty[c.NodeID] = t
-			}
-			t.total++
 			if c.Status == review.Pass {
-				t.passed++
 				switch c.Choice {
 				case "contradicts":
 					contradicted[c.NodeID] = true
@@ -594,21 +586,22 @@ func (b *builder) judgedChecks() {
 				case "confirms":
 					confirmed[c.NodeID] = true
 				case "unrelated":
-					t.unrelated++
+					if unrelated[c.NodeID] == nil {
+						unrelated[c.NodeID] = map[string]bool{}
+					}
+					unrelated[c.NodeID][paper] = true
 				}
 			}
 		}
 		b.nodes[i].Checks = append(b.nodes[i].Checks, ck)
 	}
 	for i, n := range b.nodes {
-		t := novelty[n.ID]
 		switch {
-		case t == nil:
 		case contradicted[n.ID]:
 			b.nodes[i].Novelty = "contradicts"
 		case confirmed[n.ID]:
 			b.nodes[i].Novelty = "confirms"
-		case t.unrelated == t.total:
+		case b.allPapersUnrelated(unrelated[n.ID]):
 			b.nodes[i].Novelty = "new"
 		}
 	}
@@ -657,4 +650,19 @@ func (b *builder) links(h *HandIn) []Link {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Start < out[j].Start })
 	return out
+}
+
+// allPapersUnrelated says whether every paper in the graph is in done; a
+// paper Jev was never asked about keeps a finding from being called new.
+func (b *builder) allPapersUnrelated(done map[string]bool) bool {
+	papers := 0
+	for _, n := range b.nodes {
+		if n.Kind == "paper" {
+			if !done[n.ID] {
+				return false
+			}
+			papers++
+		}
+	}
+	return papers > 0
 }

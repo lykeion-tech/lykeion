@@ -156,3 +156,26 @@ func TestReportEndpointIncludesExtras(t *testing.T) {
 		t.Fatalf("no concept node: %+v", r.Nodes)
 	}
 }
+
+func TestReportEndpointNamesTheMachineAQueuedReportWaitsFor(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	id := s.finishedStudy(t, a, w.ID)
+	s.mustUpdate(t, `INSERT INTO runtime (workspace_id, owner_id, daemon_id, harness, device_name, custom_name)
+		SELECT workspace_id, owner_id, 'd1', 'claude', 'device-mac', 'Lab Mac' FROM card WHERE id = $1`, id)
+	s.mustUpdate(t, `INSERT INTO agent_run (workspace_id, kind, card_id, responsible_user_id, board_column, round, role, harness, pinned_runtime_id, prompt, continuity_scope)
+		SELECT c.workspace_id, 'report', c.id, c.owner_id, 'validation', 1, 'reporter', 'claude', r.id, 'p', 'report:' || c.id::text
+		FROM card c JOIN runtime r ON r.workspace_id = c.workspace_id WHERE c.id = $1`, id)
+	s.mustUpdate(t, `INSERT INTO report_build (workspace_id, card_id, agent_run_id, status, checks_status)
+		SELECT c.workspace_id, c.id, (SELECT id FROM agent_run WHERE card_id = c.id AND kind = 'report'), 'queued', 'pending' FROM card c WHERE c.id = $1`, id)
+	var rep struct{ Extras, Machine string }
+	if code := s.call(t, "GET", "/api/cards/"+id+"/report", a, w.ID, nil, &rep); code != 200 || rep.Extras != "pending" || rep.Machine != "Lab Mac" {
+		t.Fatalf("custom name: %d %+v", code, rep)
+	}
+	s.mustUpdate(t, `UPDATE runtime SET custom_name = NULL WHERE daemon_id = 'd1' AND workspace_id = (SELECT workspace_id FROM card WHERE id = $1)`, id)
+	if code := s.call(t, "GET", "/api/cards/"+id+"/report", a, w.ID, nil, &rep); code != 200 || rep.Machine != "device-mac" {
+		t.Fatalf("device name: %d %+v", code, rep)
+	}
+}

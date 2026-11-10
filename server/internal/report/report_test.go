@@ -366,6 +366,10 @@ func TestBuildNoveltyNewOnlyWhenAllUnrelated(t *testing.T) {
 	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "" {
 		t.Fatalf("one unclear: %q", got)
 	}
+	s.in.Checks = []db.ReportCheck{chk("r1", "unrelated", review.Pass)} // r4 was never asked
+	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "" {
+		t.Fatalf("unasked paper: %q", got)
+	}
 	s.in.Checks = []db.ReportCheck{chk("r1", "confirms", review.Pass), chk("r4", "unrelated", review.Pass)}
 	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "confirms" {
 		t.Fatalf("confirms: %q", got)

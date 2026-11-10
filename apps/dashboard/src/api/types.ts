@@ -114,7 +114,14 @@ export interface ReportEdge {
     | 'supports'
     | 'challenges'
     | 'contradicts'
-    | 'uses';
+    | 'uses'
+    | 'is_a'
+    | 'part_of'
+    | 'associated_with'
+    | 'increases'
+    | 'decreases'
+    | 'measured_by'
+    | 'mentioned_in';
 }
 export interface ReportHandIn {
   text: string;
