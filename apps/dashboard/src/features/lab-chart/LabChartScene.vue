@@ -89,11 +89,11 @@ const pills = computed(() => {
 // The room under the pointer, named in a popup unless an agent or a person is hovered.
 const roomPopup = computed(() => {
   const r = hoveredRoom.value && !hovered.value ? rooms.value?.rooms.get(hoveredRoom.value) : null;
-  return props.preview || !r ? null : r;
+  return r ?? null;
 });
 function light() {
   for (const [key, r] of rooms.value?.rooms ?? [])
-    r.outline.visible = key === hoveredRoom.value && !props.preview;
+    r.outline.visible = key === hoveredRoom.value;
 }
 
 const CLI = { claude: 'Claude Code', codex: 'Codex' };

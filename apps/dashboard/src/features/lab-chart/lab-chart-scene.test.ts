@@ -608,9 +608,12 @@ it('styles the panel, pills and ticker with the dashboard surface, tokens and co
   v.app.unmount();
 });
 
-it('lights a hovered room and names it in a popup, and clears both on leaving', async () => {
+it.each([
+  ['the page', false],
+  ['the onboarding preview', true],
+])('lights a hovered room in %s and names it in a popup, and clears both on leaving', async (_, preview) => {
   const chart = fixture();
-  const v = mount(chart);
+  const v = mount(chart, { preview });
   v.scene().updateMatrixWorld(true);
   const floor = (room: string) =>
     v.meshes().find((m) => m.userData.room === room && m.userData.floor)!;
@@ -650,7 +653,7 @@ it('lights a hovered room and names it in a popup, and clears both on leaving', 
   await nextTick();
   expect(popup()).toEqual([]);
   expect(lit('r:grounding')).toBe(true);
-  expect(v.byClass('lab-chart-pill').some((p) => textOf(p).startsWith('searcher'))).toBe(true);
+  expect(v.byClass('lab-chart-pill').some((p) => textOf(p).startsWith('searcher'))).toBe(!preview);
 
   (v.canvas!.props.onPointerleave as () => void)();
   await nextTick();
