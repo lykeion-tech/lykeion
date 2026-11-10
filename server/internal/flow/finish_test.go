@@ -100,7 +100,7 @@ func TestFinishLeavesOutPrivateManualDecisions(t *testing.T) {
 	}
 	// The noter finishing the study is the one transaction that can see the note.
 	if err := l.st.InWorkspace(context.Background(), l.ws, noter, func(tx *store.Tx) error {
-		return finishStudy(context.Background(), tx, l.card(t, c.ID))
+		return l.e.finishStudy(context.Background(), tx, l.card(t, c.ID))
 	}); err != nil {
 		t.Fatal(err)
 	}

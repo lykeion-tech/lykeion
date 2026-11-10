@@ -71,3 +71,10 @@ SELECT c.workspace_id, 'report', c.id, c.owner_id, sqlc.narg(agent_id), @board_c
   @pinned_runtime_id, @prompt, @skill, 'report:' || c.id::text
 FROM card c WHERE c.workspace_id = @workspace_id AND c.id = @card_id
 RETURNING *;
+
+-- A study's completed role runs that ran on a runtime, newest first: the
+-- newest whose role leads is the study's final run.
+-- name: StudyCompletedRoleRuns :many
+SELECT * FROM agent_run
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND kind = 'role' AND status = 'completed' AND runtime_id IS NOT NULL
+ORDER BY created_at DESC, id DESC;

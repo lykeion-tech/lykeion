@@ -552,3 +552,89 @@ func (q *Queries) SetReportChecksStatus(ctx context.Context, arg SetReportChecks
 	}
 	return result.RowsAffected(), nil
 }
+
+const studyCompletedRoleRuns = `-- name: StudyCompletedRoleRuns :many
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id FROM agent_run
+WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'role' AND status = 'completed' AND runtime_id IS NOT NULL
+ORDER BY created_at DESC, id DESC
+`
+
+type StudyCompletedRoleRunsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// A study's completed role runs that ran on a runtime, newest first: the
+// newest whose role leads is the study's final run.
+func (q *Queries) StudyCompletedRoleRuns(ctx context.Context, arg StudyCompletedRoleRunsParams) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, studyCompletedRoleRuns, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentRun
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.ResponsibleUserID,
+			&i.BoardColumn,
+			&i.Round,
+			&i.Role,
+			&i.Harness,
+			&i.Prompt,
+			&i.Skill,
+			&i.Status,
+			&i.QueueReason,
+			&i.RuntimeID,
+			&i.PrepareLeaseExpiresAt,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.SessionID,
+			&i.ContinuityScope,
+			&i.ProfileMode,
+			&i.PolicyDigest,
+			&i.Model,
+			&i.Error,
+			&i.FailureReason,
+			&i.CostUsd,
+			&i.LateUsageAt,
+			&i.CreatedAt,
+			&i.HandoffNote,
+			&i.InputLeaseExpiresAt,
+			&i.InputFetchExpiresAt,
+			&i.InputFetchID,
+			&i.InputOutcomes,
+			&i.AddonHash,
+			&i.AddonMcp,
+			&i.Kind,
+			&i.RequesterID,
+			&i.RequestedModel,
+			&i.AgentID,
+			&i.Assignment,
+			&i.CancelReason,
+			&i.MachineName,
+			&i.MachineOwnerID,
+			&i.CoresearchChatID,
+			&i.CoresearchBuildID,
+			&i.RetryAfter,
+			&i.InfraFailures,
+			&i.AttachmentSnapshot,
+			&i.LabChatID,
+			&i.LabPurpose,
+			&i.PinnedRuntimeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

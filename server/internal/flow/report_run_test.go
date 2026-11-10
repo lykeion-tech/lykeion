@@ -2,14 +2,19 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/handin"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	"lykeion/server/pkg/agent"
@@ -333,5 +338,224 @@ func TestReportBuildsToResume(t *testing.T) {
 		if in != want.in || (in && j != want.jdg) {
 			t.Errorf("%s: resumable=%v judging=%v, want %v %v", name, in, j, want.in, want.jdg)
 		}
+	}
+}
+
+// finishedStudy runs a Team Validation study to done. Its leader run ended
+// on daemon d1's runtime for its harness before the objector settled.
+func (l *lab) finishedStudy(t *testing.T) (db.Card, db.AgentRun) {
+	t.Helper()
+	ctx := context.Background()
+	l.jev(t, 200, levels(nil))
+	l.online(t, "d1", "claude", "codex")
+	yes := true
+	c := modeAStudy(t, l, &yes)
+	l.assess(t, c.ID)
+	lead := l.latestRun(t, c.ID, "leader")
+	var rt uuid.UUID
+	if err := l.env.Owner.QueryRow(ctx, "SELECT id FROM runtime WHERE harness = $1", lead.Harness).Scan(&rt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.env.Owner.Exec(ctx, "UPDATE agent_run SET status = 'completed', runtime_id = $2 WHERE id = $1", lead.ID, rt); err != nil {
+		t.Fatal(err)
+	}
+	lead.RuntimeID = &rt
+	l.object(t, c.ID)
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("state %s", got.State)
+	}
+	return c, lead
+}
+
+func (l *lab) reportBuild(t *testing.T, card uuid.UUID) (db.ReportBuild, bool) {
+	t.Helper()
+	var b db.ReportBuild
+	var found bool
+	l.in(t, func(tx *store.Tx) error {
+		var err error
+		b, err = tx.Q.GetReportBuild(context.Background(), db.GetReportBuildParams{WorkspaceID: l.ws, CardID: card})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		found = err == nil
+		return err
+	})
+	return b, found
+}
+
+func TestFinishQueuesReportRunOnFinalRunsRuntime(t *testing.T) {
+	l := newLab(t)
+	c, lead := l.finishedStudy(t)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 1 {
+		t.Fatalf("%d report runs, want 1", n)
+	}
+	r := l.latestRun(t, c.ID, "reporter")
+	if r.Kind != "report" || r.Status != "queued" || r.PinnedRuntimeID == nil || *r.PinnedRuntimeID != *lead.RuntimeID || r.Harness != lead.Harness ||
+		r.BoardColumn != lead.BoardColumn || r.Round != lead.Round || (r.AgentID == nil) != (lead.AgentID == nil) || (r.AgentID != nil && *r.AgentID != *lead.AgentID) {
+		t.Fatalf("report run %+v\nfinal run %+v", r, lead)
+	}
+	if !strings.Contains(r.Prompt, supportedText) || r.Skill == "" {
+		t.Fatalf("report run prompt %q skill %q", r.Prompt, r.Skill)
+	}
+	b, ok := l.reportBuild(t, c.ID)
+	if !ok || b.Status != "queued" || b.ChecksStatus != "pending" || b.AgentRunID == nil || *b.AgentRunID != r.ID {
+		t.Fatalf("report build %+v (found %v)", b, ok)
+	}
+}
+
+func TestFinishQueuesNoReportRunForWorkflowOrStopped(t *testing.T) {
+	ctx := context.Background()
+	t.Run("workflow", func(t *testing.T) {
+		l := newLab(t)
+		l.legacy = true
+		l.jev(t, 200, levels(nil))
+		l.online(t, "d1", "claude")
+		a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+		c := l.scoped(t, "grounding", "grounding", a)
+		if _, err := l.env.Owner.Exec(ctx, "UPDATE card SET workflow = 'w', workflow_release = 'v0.1.0' WHERE id = $1", c.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.declare(t, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		// The agent's run ended on a runtime, so only the Workflow rule keeps the report away.
+		if _, err := l.env.Owner.Exec(ctx, "UPDATE agent_run SET status = 'completed', runtime_id = (SELECT id FROM runtime LIMIT 1) WHERE card_id = $1 AND role = 'agent'", c.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.e.Audit(ctx, l.ws, c.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got := l.card(t, c.ID); got.State != "done" {
+			t.Fatalf("state %s", got.State)
+		}
+		if _, ok := l.reportBuild(t, c.ID); ok {
+			t.Fatal("a Workflow study has a report build")
+		}
+		if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
+			t.Fatalf("%d report runs", n)
+		}
+	})
+	t.Run("stopped", func(t *testing.T) {
+		l := newLab(t)
+		c, item := l.heldStudy(t)
+		if err := l.e.Decide(ctx, l.ws, item, l.owner, "close", "no data"); err != nil {
+			t.Fatal(err)
+		}
+		if got := l.card(t, c.ID); got.Ending != "stopped" {
+			t.Fatalf("ending %q", got.Ending)
+		}
+		if _, ok := l.reportBuild(t, c.ID); ok {
+			t.Fatal("a stopped study has a report build")
+		}
+		if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
+			t.Fatalf("%d report runs", n)
+		}
+	})
+	t.Run("no final run", func(t *testing.T) {
+		l := newLab(t)
+		l.legacy = true
+		l.jev(t, 200, levels(nil))
+		a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+		c := l.scoped(t, "grounding", "grounding", a)
+		l.done(t, c.ID)
+		if got := l.card(t, c.ID); got.State != "done" {
+			t.Fatalf("state %s", got.State)
+		}
+		b, ok := l.reportBuild(t, c.ID)
+		if !ok || b.Status != "skipped" || b.ChecksStatus != "pending" || b.AgentRunID != nil {
+			t.Fatalf("report build %+v (found %v)", b, ok)
+		}
+		if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
+			t.Fatalf("%d report runs", n)
+		}
+	})
+}
+
+func TestReportRunInStudyTimeline(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c := l.study(t, "validation", true, nil)
+	a := l.register(t, "d1", "claude")
+	r := l.reportRun(t, c, a["claude"])
+	l.in(t, func(tx *store.Tx) error {
+		runs, err := tx.Q.StudyRuns(ctx, db.StudyRunsParams{WorkspaceID: l.ws, CardID: c.ID})
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(runs, func(x db.StudyRunsRow) bool { return x.ID == r.ID }) {
+			t.Errorf("StudyRuns leaves out the report run: %+v", runs)
+		}
+		page, err := tx.Q.CardAgentRuns(ctx, db.CardAgentRunsParams{WorkspaceID: l.ws, CardID: &c.ID})
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(page, func(x db.CardAgentRunsRow) bool { return x.ID == r.ID }) {
+			t.Errorf("the study page's runs leave out the report run")
+		}
+		return nil
+	})
+}
+
+func TestReportRunDoesNotAdvanceStudy(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c, _ := l.finishedStudy(t)
+	ref, claimed := l.claim(t, c.ID, "report")
+	run := claimed.AgentRun
+	// The report run's token opens no study route, and it gets no tools.
+	rows, err := l.env.Owner.Query(ctx, "SELECT scopes FROM agent_run_token WHERE agent_run_id = $1", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokens [][]string
+	for rows.Next() {
+		var s []string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, s)
+	}
+	rows.Close()
+	if len(tokens) != 1 || !slices.Equal(tokens[0], []string{service.ScopeHandIn}) || claimed.CallToken != "" {
+		t.Fatalf("report run tokens %v, call token %q", tokens, claimed.CallToken)
+	}
+	if len(claimed.Connectors) != 0 || len(claimed.WorkspaceConnectors) != 0 || len(claimed.MCP) != 0 || len(claimed.Attachments) != 0 || len(claimed.Skills) != 0 {
+		t.Fatalf("report run got tools: %+v", claimed)
+	}
+
+	recordsBefore := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1", c.ID)
+	itemsBefore := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1", c.ID)
+	runsBefore := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID)
+	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
+	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, json.RawMessage(`{"status":"done","reason":null,"concepts":[],"facts":[],"links":[{"phrase":"","occurrence":0,"node":""}]}`)); err != nil || len(probs) == 0 {
+		t.Fatalf("a misshapen report hand-in: %v %v", probs, err)
+	}
+	raw := json.RawMessage(`{"status":"done","reason":null,"concepts":[{"key":"auc","label":"AUC","type":"measure"}],"facts":[],"links":[]}`)
+	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(probs) != 0 {
+		t.Fatalf("the report hand-in: %v %v", probs, err)
+	}
+	if probs, err := hs.Submit(ctx, l.owner, ref, run.ID, raw); err != nil || len(probs) != 0 {
+		t.Fatalf("the report hand-in again: %v %v", probs, err)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1", c.ID); n != recordsBefore+1 {
+		t.Fatalf("%d records after the hand-in, want %d", n, recordsBefore+1)
+	}
+	var stored json.RawMessage
+	if err := l.env.Owner.QueryRow(ctx, "SELECT body->'hand_in' FROM record WHERE agent_run_id = $1 AND kind = 'hand_in'", run.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if h, probs := handin.ParseReport(stored); len(probs) != 0 || len(h.Concepts) != 1 {
+		t.Fatalf("stored hand-in %s: %v", stored, probs)
+	}
+
+	l.settle(t, run, "completed", "", "")
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("state %s after the report run", got.State)
+	}
+	if n := l.count(t, "SELECT count(*) FROM inbox_item WHERE card_id = $1", c.ID); n != itemsBefore {
+		t.Fatalf("%d Inbox items after the report run, want %d", n, itemsBefore)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1", c.ID); n != runsBefore {
+		t.Fatalf("%d runs after the report run, want %d", n, runsBefore)
 	}
 }

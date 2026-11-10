@@ -798,7 +798,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			return err
 		}
 		if finished {
-			if err := finishStudy(ctx, tx, c); err != nil {
+			if err := e.finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}

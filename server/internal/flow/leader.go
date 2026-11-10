@@ -164,6 +164,10 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if t.Kind == "rerun" {
 		return e.afterRerun(ctx, t)
 	}
+	// A report run belongs to a finished study and never moves it.
+	if t.Kind == "report" {
+		return nil
+	}
 	if accessInterrupted(t) || !leads(t.Role) || t.Status == "cancelled" {
 		return nil
 	}

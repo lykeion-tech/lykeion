@@ -679,7 +679,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		if finished {
-			if err := finishStudy(ctx, tx, c); err != nil {
+			if err := e.finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}

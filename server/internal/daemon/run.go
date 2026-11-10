@@ -407,7 +407,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	// A Claude turn that hands in takes comments while it runs. Codex can't
 	// take input mid-turn: its comments wait for the leader or the next run.
-	takesComments := c.AgentRun.Harness == "claude" && c.OutputSchema != "" && c.AgentRun.CardID != nil
+	// A report run belongs to a finished study and takes none.
+	takesComments := c.AgentRun.Harness == "claude" && c.OutputSchema != "" && c.AgentRun.CardID != nil && c.AgentRun.Kind != "report"
 	// Recheck cancellations immediately before launch, after setup. The frozen
 	// prompt does not absorb comments posted after enqueue.
 	var launchComments service.CommentLaunch

@@ -54,6 +54,9 @@ const (
 	// ScopeCall records a connector call. Only the daemon's tool door holds a
 	// token with it; the agent's own token never does.
 	ScopeCall = "call:record"
+	// ScopeHandIn is a report run's only scope, and no route accepts it: the
+	// run's hand-in is its final answer, which its daemon posts.
+	ScopeHandIn = "run:hand-in"
 )
 
 // issueClaimTokens keeps the daemon's connector token separate from the CLI
@@ -69,7 +72,7 @@ func issueClaimTokens(ctx context.Context, tx *store.Tx, t db.AgentRun, workspac
 	if err != nil {
 		return "", "", err
 	}
-	if t.Kind == "aristotle" || ((t.Kind == "coresearch" || t.Kind == "rerun") && !workspaceConnectors) {
+	if t.Kind == "aristotle" || t.Kind == "report" || ((t.Kind == "coresearch" || t.Kind == "rerun") && !workspaceConnectors) {
 		return plain, "", nil
 	}
 	scope := ScopeCall
@@ -93,6 +96,9 @@ func Scopes(kind string) []string {
 	}
 	if kind == "rerun" {
 		return []string{ScopeRerun}
+	}
+	if kind == "report" {
+		return []string{ScopeHandIn}
 	}
 	return []string{ScopeRole}
 }
@@ -808,7 +814,7 @@ func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, e
 	}
 	var b strings.Builder
 	for _, r := range recs {
-		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent", "objector", "rerun"}, r.Role) {
+		if r.Kind != "hand_in" || r.Round != t.Round || slices.Contains([]string{"", "leader", "auditor", "agent", "objector", "rerun", "reporter"}, r.Role) {
 			continue
 		}
 		var body struct {
@@ -1025,9 +1031,10 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
-					// A rerun runs only recorded scripts: no tool servers or connectors.
+					// A rerun runs only recorded scripts, and a report run reads only
+					// its brief: no tool servers or connectors.
 					var mcp []agent.MCPServer
-					if t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
+					if t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" && t.Kind != "report" {
 						mcp, err = addon.Servers(t.AddonMcp)
 					}
 					if accessErr != nil {
@@ -1036,7 +1043,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var conns []pack.Connector
 					var team *TeamClaim
 					var workspace []WorkspaceConnectorClaim
-					if err == nil && t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" {
+					if err == nil && t.Kind != "coresearch" && t.Kind != "rerun" && t.Kind != "aristotle" && t.Kind != "report" {
 						conns, team, err = ClaimConnectors(ctx, tx, t)
 						if err != nil {
 							return err
@@ -1115,7 +1122,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					}
 					if team != nil {
 						teams[t.ID] = *team
-					} else if t.Kind != "coresearch" && t.Kind != "aristotle" && t.AgentID != nil {
+					} else if t.Kind != "coresearch" && t.Kind != "aristotle" && t.Kind != "report" && t.AgentID != nil {
 						cfg, err := tx.AgentCapabilities(ctx, *t.AgentID)
 						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 							return err
@@ -1140,7 +1147,8 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					var python string
 					var files []ClaimedAttachment
 					var services []ClaimedService
-					if t.CardID != nil {
+					// A report run gets none of its study's files: its brief is its evidence.
+					if t.CardID != nil && t.Kind != "report" {
 						python, err = StudyPython(ctx, tx, *t.CardID)
 						if err != nil {
 							return err

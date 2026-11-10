@@ -37,8 +37,9 @@ const maxOutputProblems = 20
 // is the daemon's own: a call to the server that did not get an answer.
 func (d *daemon) handIn(ctx context.Context, c claimed, res agent.Result, exec func(prompt, resume string) agent.Result, say func(agent.Message) error, door *Door) (agent.Result, []string, error) {
 	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
-	// Cardless Aristotle and Autoresearch runs submit only their hand-ins.
-	outputs := c.AgentRun.Kind != "autoresearch" && c.AgentRun.Kind != "aristotle"
+	// Cardless Aristotle and Autoresearch runs, and a finished study's report
+	// run, submit only their hand-ins.
+	outputs := c.AgentRun.Kind != "autoresearch" && c.AgentRun.Kind != "aristotle" && c.AgentRun.Kind != "report"
 	// The saved outputs are listed only once there is a file to send, so a
 	// run without outputs needs the server only for the hand-in itself.
 	var saved map[string]bool
