@@ -32,6 +32,7 @@ const (
 	Autoresearch        Kind = "autoresearch"
 	Validation          Kind = "validation"
 	Objector            Kind = "objector"
+	Report              Kind = "report"
 )
 
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
@@ -41,6 +42,8 @@ func KindFor(runKind, role, column string) (Kind, bool) {
 		return Aristotle, true
 	case runKind == "autoresearch":
 		return Autoresearch, true
+	case runKind == "report":
+		return Report, true
 	case role == "auditor":
 		return Auditor, true
 	case role == "objector" && column == board.Validation:
@@ -345,6 +348,10 @@ func deref(s *string) string {
 // one plain sentence each, led by where it is. Nothing wrong means no problems.
 func Parse(k Kind, raw []byte) (HandIn, []string) {
 	var h HandIn
+	if k == Report {
+		_, probs := parseReport(raw)
+		return h, probs
+	}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		return h, []string{"the hand-in is not one JSON object"}
