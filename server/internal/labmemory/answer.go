@@ -253,10 +253,20 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 				continue
 			case (s.Kind == "lesson") != (ref.Kind == "lesson"):
 				problem("use fact references for facts and lesson references for lessons")
-			case !readHere[ref]:
+			case !readHere[ref.Base()]:
 				problem("the reference must have been read in this run and must still be available")
 			default:
-				stmt.Cites = append(stmt.Cites, titles[ref])
+				// A report node is citable once its report was read, while the
+				// report still has that node.
+				cite, visible, e := lookup(ref)
+				if e != nil {
+					return nil, e
+				}
+				if !visible {
+					problem("the report has no such node")
+					continue
+				}
+				stmt.Cites = append(stmt.Cites, cite)
 			}
 		}
 		result.Statements = append(result.Statements, stmt)

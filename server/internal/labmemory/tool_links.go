@@ -71,7 +71,7 @@ func studyLinks(ctx context.Context, tx *store.Tx, ref Ref, after string, limit 
 	}
 	refs := make([]Ref, 0, len(rows))
 	for _, row := range rows {
-		refs = append(refs, Ref{row.Kind, row.ID})
+		refs = append(refs, Ref{Kind: row.Kind, ID: row.ID})
 	}
 	if len(refs) > limit {
 		return refs[:limit], refs[limit-1].String(), nil
@@ -119,7 +119,7 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 		}
 		refs := make([]Ref, 0, len(rows))
 		for _, row := range rows {
-			refs = append(refs, Ref{"lesson", row.ID})
+			refs = append(refs, Ref{Kind: "lesson", ID: row.ID})
 		}
 		if len(refs) > limit {
 			return refs[:limit], rows[limit-1].DirectoryKey.String(), nil
@@ -133,7 +133,7 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 func kindRefs(kind string, ids []uuid.UUID) []Ref {
 	refs := make([]Ref, 0, len(ids))
 	for _, id := range ids {
-		refs = append(refs, Ref{kind, id})
+		refs = append(refs, Ref{Kind: kind, ID: id})
 	}
 	return refs
 }

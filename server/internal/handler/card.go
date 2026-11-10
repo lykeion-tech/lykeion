@@ -18,6 +18,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/labmemory"
+	"lykeion/server/internal/report"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -353,7 +354,7 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	if err != nil {
 		return v, err
 	}
-	if v.HasReport, err = hasReport(r, tx, c); err != nil {
+	if v.HasReport, err = report.Has(r.Context(), tx, c); err != nil {
 		return v, err
 	}
 	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})

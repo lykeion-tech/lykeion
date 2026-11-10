@@ -16,7 +16,7 @@ func manualNote(t *testing.T, f *fixture) Ref {
 	t.Helper()
 	id := uuid.New()
 	f.exec(`INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,title,context) VALUES($1,$2,$3,$4,'manual_decision','','Private zirconium plan','Secret laboratory context')`, id, f.ws, f.study, f.user)
-	return Ref{"decision", id}
+	return Ref{Kind: "decision", ID: id}
 }
 
 func TestManualDecisionLabAccess(t *testing.T) {
@@ -32,7 +32,7 @@ func TestManualDecisionLabAccess(t *testing.T) {
 	// An erroneous shared cache candidate belonging to another creator is reauthorized.
 	foreign := uuid.New()
 	f.exec(`INSERT INTO inbox_item(id,workspace_id,user_id,kind,text,title) VALUES($1,$2,$3,'manual_decision','','Foreign hidden')`, foreign, f.ws, outsider)
-	cached := newTools(t, f, searchStub{f.ws, []Ref{{"decision", foreign}}, nil})
+	cached := newTools(t, f, searchStub{f.ws, []Ref{{Kind: "decision", ID: foreign}}, nil})
 	if out := cached.call("search", map[string]any{"query": "unmatched"}, false); strings.Contains(out, foreign.String()) || strings.Contains(out, "Foreign hidden") {
 		t.Fatalf("cached private hit escaped: %s", out)
 	}
@@ -45,7 +45,7 @@ func TestManualDecisionLabAccess(t *testing.T) {
 	if out := tf.call("search", map[string]any{"query": "zirconium"}, false); !strings.Contains(out, note.String()) {
 		t.Fatalf("creator search: %s", out)
 	}
-	if out := tf.call("links", map[string]any{"ref": Ref{"study", f.study}.String()}, false); !strings.Contains(out, note.String()) {
+	if out := tf.call("links", map[string]any{"ref": Ref{Kind: "study", ID: f.study}.String()}, false); !strings.Contains(out, note.String()) {
 		t.Fatalf("creator links: %s", out)
 	}
 }
@@ -66,7 +66,7 @@ func TestManualDecisionNeverSharedMemory(t *testing.T) {
 		if e := tx.QueueLessonStudy(t.Context(), f.study, &f.decision, "decision", time.Now()); e != nil {
 			return e
 		}
-		study, e := ReadMaintenance(t.Context(), tx, Ref{"study", f.study})
+		study, e := ReadMaintenance(t.Context(), tx, Ref{Kind: "study", ID: f.study})
 		if e != nil {
 			return e
 		}
@@ -84,7 +84,7 @@ func TestManualDecisionNeverSharedMemory(t *testing.T) {
 				t.Fatal("private reference indexed")
 			}
 		}
-		if _, e := ReadMaintenance(t.Context(), tx, Ref{"decision", f.decision}); e != nil {
+		if _, e := ReadMaintenance(t.Context(), tx, Ref{Kind: "decision", ID: f.decision}); e != nil {
 			t.Fatalf("shared decision: %v", e)
 		}
 		return nil
@@ -141,7 +141,7 @@ func TestManualDecisionNeverSharedMemoryMaliciousLesson(t *testing.T) {
 	cites, _ := json.Marshal([]Citation{{Ref: note.String(), Version: fact.Version}})
 	id := uuid.New()
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,checked_at,model) VALUES($1,$2,'lab','Leaked lesson',$3,now(),'test')`, id, f.ws, cites)
-	if _, e = f.read(Ref{"lesson", id}); !errors.Is(e, ErrNotFound) {
+	if _, e = f.read(Ref{Kind: "lesson", ID: id}); !errors.Is(e, ErrNotFound) {
 		t.Fatalf("checked private lesson cite opened: %v", e)
 	}
 }

@@ -86,14 +86,14 @@ func (f *toolFixture) call(name string, args map[string]any, wantErr bool) strin
 func TestLabToolsReadAsTheAsker(t *testing.T) {
 	f := setup(t)
 	tf := newTools(t, f, nil)
-	ref := Ref{"study", f.study}.String()
+	ref := Ref{Kind: "study", ID: f.study}.String()
 	out := tf.call("read", map[string]any{"ref": ref}, false)
 	if !strings.Contains(out, "Question") {
 		t.Fatal(out)
 	}
 	tf.call("links", map[string]any{"ref": ref}, false)
 	var n int
-	if err := f.env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM lab_read WHERE agent_run_id=$1 AND ((ref=$2 AND via='read') OR (ref=$3 AND via=$2))`, tf.run, ref, Ref{"record", f.record}.String()).Scan(&n); err != nil || n != 2 {
+	if err := f.env.Owner.QueryRow(context.Background(), `SELECT count(*) FROM lab_read WHERE agent_run_id=$1 AND ((ref=$2 AND via='read') OR (ref=$3 AND via=$2))`, tf.run, ref, Ref{Kind: "record", ID: f.record}.String()).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("missing provenance: %d %v", n, err)
 	}
 }
@@ -118,12 +118,12 @@ func TestSearchDropsWhatTheAskerCannotOpen(t *testing.T) {
 	f.exec("INSERT INTO workspace(id,slug,name) VALUES($1,'foreign','Foreign')", ws)
 	f.exec("INSERT INTO card(id,workspace_id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'Private','Hidden',$3,'grounding')", card, ws, f.user)
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Stale lesson',$3,'test',now())`, stale, f.ws, `[{"ref":"record:`+f.record.String()+`","version":"superseded"}]`)
-	tf := newTools(t, f, searchStub{f.ws, []Ref{{"study", card}, {"study", f.study}, {"lesson", stale}}, nil})
+	tf := newTools(t, f, searchStub{f.ws, []Ref{{Kind: "study", ID: card}, {Kind: "study", ID: f.study}, {Kind: "lesson", ID: stale}}, nil})
 	out := tf.call("search", map[string]any{"query": "X"}, false)
 	if strings.Contains(out, card.String()) || strings.Contains(out, stale.String()) || !strings.Contains(out, f.study.String()) {
 		t.Fatal(out)
 	}
-	tf.call("read", map[string]any{"ref": Ref{"lesson", stale}.String()}, true)
+	tf.call("read", map[string]any{"ref": Ref{Kind: "lesson", ID: stale}.String()}, true)
 	var n int
 	if err := f.env.Owner.QueryRow(context.Background(), "SELECT count(*) FROM lab_read WHERE agent_run_id=$1 AND via='search'", tf.run).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d %v", n, err)
@@ -167,7 +167,7 @@ func TestLabReadAttachmentPagesAndPrivateBoundaries(t *testing.T) {
 	blobs := storage.Local{Dir: t.TempDir()}
 	tf := newTools(t, f, nil, blobs)
 	f.team()
-	ref := Ref{"study", f.study}.String()
+	ref := Ref{Kind: "study", ID: f.study}.String()
 	if s := tf.call("read", map[string]any{"ref": ref}, false); strings.Contains(s, "private-method") || !strings.Contains(s, "Private Team") {
 		t.Fatal(s)
 	}
@@ -181,7 +181,7 @@ func TestLabReadAttachmentPagesAndPrivateBoundaries(t *testing.T) {
 	if err := blobs.Put(context.Background(), key+".text", strings.NewReader(full), int64(len(full))); err != nil {
 		t.Fatal(err)
 	}
-	ref = Ref{"record", rec}.String()
+	ref = Ref{Kind: "record", ID: rec}.String()
 	first := tf.call("read", map[string]any{"ref": ref}, false)
 	if !strings.Contains(first, "next_offset") || strings.Contains(first, "tail-proof") {
 		t.Fatal("wrong first page")
@@ -193,7 +193,7 @@ func TestLabReadAttachmentPagesAndPrivateBoundaries(t *testing.T) {
 	// Removing the attachment also hides its recorded preview and its link.
 	f.exec(`DELETE FROM attachment WHERE id=$1`, aid)
 	tf.call("read", map[string]any{"ref": ref}, true)
-	if s := tf.call("links", map[string]any{"ref": Ref{"study", f.study}.String()}, false); strings.Contains(s, rec.String()) {
+	if s := tf.call("links", map[string]any{"ref": Ref{Kind: "study", ID: f.study}.String()}, false); strings.Contains(s, rec.String()) {
 		t.Fatal(s)
 	}
 }
@@ -243,7 +243,7 @@ func TestSearchRechecksMembershipAfterRetrieval(t *testing.T) {
 	f := setup(t)
 	tf := newTools(t, f, searchFunc(func(ctx context.Context, ws uuid.UUID, q string, k int) ([]Ref, error) {
 		_, err := f.env.Owner.Exec(ctx, "DELETE FROM member WHERE workspace_id=$1 AND user_id=$2", ws, f.user)
-		return []Ref{{"study", f.study}}, err
+		return []Ref{{Kind: "study", ID: f.study}}, err
 	}))
 	out := tf.call("search", map[string]any{"query": "study"}, true)
 	if !strings.Contains(out, errMember.Error()) {
@@ -259,13 +259,13 @@ func TestLabRejectsBorrowedChatOwner(t *testing.T) {
 	f := setup(t)
 	tf := newTools(t, f, nil)
 	f.exec("UPDATE agent_run SET requester_id=$1 WHERE id=$2", f.member(), tf.run)
-	tf.call("read", map[string]any{"ref": Ref{"study", f.study}.String()}, true)
+	tf.call("read", map[string]any{"ref": Ref{Kind: "study", ID: f.study}.String()}, true)
 }
 func TestLabHidesHiddenServiceAndCoresearchAttachmentMetadata(t *testing.T) {
 	f := setup(t)
 	tf := newTools(t, f, nil)
 	f.exec(`INSERT INTO attachment(workspace_id,uploader_id,card_id,name,content_type,size_bytes,sha256,blob_key,kind,service_name,service_start) VALUES($1,$2,$3,'private-service.zip','application/zip',2,'abc','hidden','service','evaluator','python service.py'),($1,$2,$3,'project-only.txt','text/plain',2,'abc',$4,'file',NULL,NULL)`, f.ws, f.user, f.study, f.ws.String()+"/coresearch-uploads/"+uuid.NewString())
-	out := tf.call("read", map[string]any{"ref": Ref{"study", f.study}.String()}, false)
+	out := tf.call("read", map[string]any{"ref": Ref{Kind: "study", ID: f.study}.String()}, false)
 	if strings.Contains(out, "project-only.txt") || strings.Contains(out, "private-service.zip") {
 		t.Fatal(out)
 	}
@@ -276,7 +276,7 @@ func TestSearchRejectsRevokedTokenDuringIndexIO(t *testing.T) {
 	var run uuid.UUID
 	tf := newTools(t, f, searchFunc(func(ctx context.Context, ws uuid.UUID, q string, k int) ([]Ref, error) {
 		_, err := f.env.Owner.Exec(ctx, "UPDATE agent_run_token SET scopes=ARRAY['call:record'] WHERE agent_run_id=$1", run)
-		return []Ref{{"study", f.study}}, err
+		return []Ref{{Kind: "study", ID: f.study}}, err
 	}))
 	run = tf.run
 	if s := tf.call("search", map[string]any{"query": "test"}, true); !strings.Contains(s, middleware.ErrRoleUnauthorized.Error()) {
@@ -304,7 +304,7 @@ func TestLabOutputBytesRequireMemberDownloadVisibility(t *testing.T) {
 		if i == 1 {
 			f.exec("UPDATE record SET superseded_at=now() WHERE id=$1", id)
 		}
-		out := tf.call("read", map[string]any{"ref": Ref{"record", id}.String()}, false)
+		out := tf.call("read", map[string]any{"ref": Ref{Kind: "record", ID: id}.String()}, false)
 		if !strings.Contains(out, "output-metadata.txt") || strings.Contains(out, payload) != (i == 0) {
 			t.Fatalf("output case %d returned %s", i, out)
 		}
@@ -312,11 +312,11 @@ func TestLabOutputBytesRequireMemberDownloadVisibility(t *testing.T) {
 }
 func TestLabLessonDirectoryAndSearchRequireSuccessfulCheck(t *testing.T) {
 	f := setup(t)
-	unchecked := f.lessonFor(Ref{"record", f.record})
+	unchecked := f.lessonFor(Ref{Kind: "record", ID: f.record})
 	f.exec("UPDATE lesson SET checked_at=NULL WHERE id=$1", unchecked.ID)
-	stale := f.lessonFor(Ref{"comment", f.comment})
+	stale := f.lessonFor(Ref{Kind: "comment", ID: f.comment})
 	f.exec("INSERT INTO comment_cancellation(workspace_id,comment_id,author_id) VALUES($1,$2,$3)", f.ws, f.comment, f.user)
-	checked := f.lessonFor(Ref{"record", f.record})
+	checked := f.lessonFor(Ref{Kind: "record", ID: f.record})
 	// Pin fixture navigation order without using either lesson reference.
 	f.exec("UPDATE lesson SET directory_key=$1 WHERE id=$2", "10000000-0000-4000-8000-000000000000", stale.ID)
 	f.exec("UPDATE lesson SET directory_key=$1 WHERE id=$2", "f0000000-0000-4000-8000-000000000000", checked.ID)
@@ -365,7 +365,7 @@ func TestLabLargeStudyLogsOnlyCurrentPage(t *testing.T) {
 	f := setup(t)
 	tf := newTools(t, f, nil)
 	f.exec(`INSERT INTO comment(workspace_id,card_id,author_id,body) SELECT $1,$2,$3,'Comment '||i FROM generate_series(1,1500) i`, f.ws, f.study, f.user)
-	src := Ref{"study", f.study}.String()
+	src := Ref{Kind: "study", ID: f.study}.String()
 	args := map[string]any{"ref": src}
 	first := tf.page(args)
 	if len(first.Results) != 20 || first.NextAfter == "" {
@@ -464,8 +464,8 @@ func TestLabLessonCursorIndependentOfOtherWorkspace(t *testing.T) {
 
 func TestRestartFactsOnlyTools(t *testing.T) {
 	f := setup(t)
-	lesson := f.lessonFor(Ref{"record", f.record})
-	fact := Ref{"record", f.record}
+	lesson := f.lessonFor(Ref{Kind: "record", ID: f.record})
+	fact := Ref{Kind: "record", ID: f.record}
 	for _, enabled := range []bool{true, false, true} {
 		tf := newToolsWithPolicy(t, f, searchStub{f.ws, []Ref{lesson, fact}, nil}, enabled)
 		tf.call("read", map[string]any{"ref": lesson.String()}, !enabled)

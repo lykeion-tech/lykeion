@@ -116,3 +116,13 @@ func scope(c db.Card) []string {
 	}
 	return append([]string(nil), board.Stages[from:to+1]...)
 }
+
+// Has says whether the card is a finished study that raised a report. Studies
+// that are unfinished, stopped, run a Workflow or finished before reports
+// shipped have none.
+func Has(ctx context.Context, tx *store.Tx, c db.Card) (bool, error) {
+	if c.State != "done" || c.Ending != "" || c.Workflow != nil {
+		return false, nil
+	}
+	return tx.Q.CardHasReport(ctx, db.CardHasReportParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
+}

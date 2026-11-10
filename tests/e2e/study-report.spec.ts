@@ -257,6 +257,24 @@ test('Go to the report on the study page opens the report and Aristotle opens by
   await expect(page.getByRole('button', { name: 'Ask Aristotle', exact: true })).toBeVisible();
 });
 
+test('report page opens Aristotle with the report as context', async ({ page }) => {
+  const study = await finishedStudy(page.request);
+  await page.goto(`/#/decisions/report/${study.id}`);
+  const window = page.locator('section.lab-window');
+  await expect(window).toBeVisible();
+  await expect(window.locator('.chip')).toHaveText(`This study: ${study.title}`);
+  const asked = page.waitForResponse(
+    (r) => /\/api\/lab\/chats\/[^/]+\/questions$/.test(r.url()) && r.request().method() === 'POST',
+  );
+  await window.getByRole('textbox', { name: 'Question' }).fill('What did this study find?');
+  await window.getByRole('textbox', { name: 'Question' }).press('Enter');
+  const response = await asked;
+  expect(response.request().postDataJSON().context_ref).toBe(`report:${study.id}`);
+  // The server accepts the report as context; with no machine online it
+  // answers that the machine is offline rather than rejecting the context.
+  expect([202, 409]).toContain(response.status());
+});
+
 test('a non-participant opens the report by URL and has no Decisions item', async ({
   page,
   browser,

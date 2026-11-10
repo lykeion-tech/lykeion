@@ -364,7 +364,7 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 		var ref labmemory.Ref
 		if in.ContextRef != nil {
 			ref, err = labmemory.ParseRef(*in.ContextRef)
-			if in.ContextCard != nil || err != nil || (ref.Kind != "study" && ref.Kind != "record") {
+			if in.ContextCard != nil || err != nil || (ref.Kind != "study" && ref.Kind != "record" && ref.Kind != "report") || ref.Node != "" {
 				writeErr(w, 400, "invalid context reference")
 				return
 			}

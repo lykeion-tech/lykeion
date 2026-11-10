@@ -199,6 +199,17 @@ func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, err
 			return nil, false, nil
 		}
 		for _, c := range s.Cites {
+			if ref, e := ParseRef(c.Ref); e == nil && ref.Node != "" && c.Version != "" {
+				// A report node stands on its report having been read and on
+				// the node's own current projection.
+				if _, read := visible[ref.Base().String()]; !read {
+					return nil, false, nil
+				}
+				if ok, err := current(c); !ok || err != nil {
+					return nil, false, err
+				}
+				continue
+			}
 			if c.Version == "" || visible[c.Ref] != c.Version {
 				return nil, false, nil
 			}

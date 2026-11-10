@@ -92,7 +92,7 @@ func (d *DisplayReader) visible(ctx context.Context, id uuid.UUID) (bool, error)
 func displayRef(f *Fact) DisplayRef {
 	result := DisplayRef{Ref: f.Ref.String(), Title: f.Title}
 	switch f.Ref.Kind {
-	case "study":
+	case "study", "report":
 		result.StudyID = &f.Ref.ID
 	case "record", "comment", "decision":
 		for _, link := range f.Links {

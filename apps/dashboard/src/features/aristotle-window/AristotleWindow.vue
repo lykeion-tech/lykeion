@@ -16,7 +16,7 @@ import LabContextPicker from './LabContextPicker.vue';
 import RunStatus from '../runs/RunStatus.vue';
 import { parseManualDecisionProposal, type ManualDecisionDraft, type ManualDecisionTurn } from '../decisions/manualDecisionDraft';
 
-const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
+const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; reportContext?: boolean; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
 const emit = defineEmits<{ manualProposal: [value: { messageId: string; draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
 const drafting = computed(() => !!props.draftChat);
 const open = ref(!!props.draftChat),
@@ -140,7 +140,7 @@ watch([turns, () => messages.isSuccess.value, () => messages.isFetching.value, (
 }, { immediate: true });
 const currentStudy = computed(() =>
   !drafting.value && props.studyId && props.studyTitle
-    ? { ref: 'study:' + props.studyId, title: 'This study: ' + props.studyTitle }
+    ? { ref: (props.reportContext ? 'report:' : 'study:') + props.studyId, title: 'This study: ' + props.studyTitle }
     : null,
 );
 const picked = ref<{ ref: string; title: string } | null>(),

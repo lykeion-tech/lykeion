@@ -46,11 +46,11 @@ func (f *fixture) read(r Ref) (Fact, error) {
 }
 func TestReadStudyLinksItsRecordsCommentsAndDecisions(t *testing.T) {
 	f := setup(t)
-	fact, err := f.read(Ref{"study", f.study})
+	fact, err := f.read(Ref{Kind: "study", ID: f.study})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[Ref]bool{{"record", f.record}: true, {"comment", f.comment}: true, {"decision", f.decision}: true}
+	want := map[Ref]bool{{Kind: "record", ID: f.record}: true, {Kind: "comment", ID: f.comment}: true, {Kind: "decision", ID: f.decision}: true}
 	for _, link := range fact.Links {
 		delete(want, link)
 	}
@@ -60,7 +60,7 @@ func TestReadStudyLinksItsRecordsCommentsAndDecisions(t *testing.T) {
 }
 func TestRecordVersionChangesWhenSuperseded(t *testing.T) {
 	f := setup(t)
-	r := Ref{"record", f.record}
+	r := Ref{Kind: "record", ID: f.record}
 	before, err := f.read(r)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestRecordVersionChangesWhenSuperseded(t *testing.T) {
 }
 func TestCommentVersionChangesWhenCancelled(t *testing.T) {
 	f := setup(t)
-	r := Ref{"comment", f.comment}
+	r := Ref{Kind: "comment", ID: f.comment}
 	before, err := f.read(r)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestCommentVersionChangesWhenCancelled(t *testing.T) {
 func TestNonMemberCannotRead(t *testing.T) {
 	f := setup(t)
 	f.exec(`DELETE FROM member WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
-	for _, r := range []Ref{{"study", f.study}, {"record", f.record}, {"comment", f.comment}, {"decision", f.decision}, {Kind: "workspace"}} {
+	for _, r := range []Ref{{Kind: "study", ID: f.study}, {Kind: "record", ID: f.record}, {Kind: "comment", ID: f.comment}, {Kind: "decision", ID: f.decision}, {Kind: "workspace"}} {
 		if _, err := f.read(r); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%v: %v", r, err)
 		}
@@ -96,13 +96,13 @@ func TestNonMemberCannotRead(t *testing.T) {
 func TestLessonOpensOnlyWhenEveryCiteOpens(t *testing.T) {
 	f := setup(t)
 	id := uuid.New()
-	study, err := f.read(Ref{"study", f.study})
+	study, err := f.read(Ref{Kind: "study", ID: f.study})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cites, _ := json.Marshal([]Citation{{Ref: Ref{"record", f.record}.String(), Version: "live"}, {Ref: Ref{"study", f.study}.String(), Version: study.Version}})
+	cites, _ := json.Marshal([]Citation{{Ref: Ref{Kind: "record", ID: f.record}.String(), Version: "live"}, {Ref: Ref{Kind: "study", ID: f.study}.String(), Version: study.Version}})
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())`, id, f.ws, cites)
-	r := Ref{"lesson", id}
+	r := Ref{Kind: "lesson", ID: id}
 	fact, err := f.read(r)
 	if err != nil || len(fact.Links) != 2 {
 		t.Fatalf("%+v %v", fact, err)
@@ -132,7 +132,7 @@ func TestWorkspaceContextAndScope(t *testing.T) {
 	if err != nil || a.Version == b.Version {
 		t.Fatalf("%+v %+v %v", a, b, err)
 	}
-	if _, err := f.read(Ref{"workspace", uuid.New()}); !errors.Is(err, ErrNotFound) {
+	if _, err := f.read(Ref{Kind: "workspace", ID: uuid.New()}); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
 }
@@ -142,16 +142,16 @@ func TestFactsCannotCrossWorkspace(t *testing.T) {
 	otherWS, otherStudy := uuid.New(), uuid.New()
 	f.exec(`INSERT INTO workspace(id,slug,name) VALUES($1,'other','Other')`, otherWS)
 	f.exec(`INSERT INTO card(id,workspace_id,number,title,question,owner_id,board_column) VALUES($1,$2,1,'Private','Secret',$3,'grounding')`, otherStudy, otherWS, f.user)
-	for _, r := range []Ref{{"study", otherStudy}, {"workspace", otherWS}, {"decision", f.record}} {
+	for _, r := range []Ref{{Kind: "study", ID: otherStudy}, {Kind: "workspace", ID: otherWS}, {Kind: "decision", ID: f.record}} {
 		if _, err := f.read(r); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%v: %v", r, err)
 		}
 	}
 	// A workspace-local lesson cannot smuggle another workspace's fact.
 	id := uuid.New()
-	cites, _ := json.Marshal([]Citation{{Ref: Ref{"study", otherStudy}.String(), Version: "1"}})
+	cites, _ := json.Marshal([]Citation{{Ref: Ref{Kind: "study", ID: otherStudy}.String(), Version: "1"}})
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Leak',$3,'test',now())`, id, f.ws, cites)
-	if _, err := f.read(Ref{"lesson", id}); !errors.Is(err, ErrNotFound) {
+	if _, err := f.read(Ref{Kind: "lesson", ID: id}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign citation: %v", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestLessonRejectsMalformedEmptyAndRecursiveCites(t *testing.T) {
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Bad lesson','[]','test',now())`, id, f.ws)
 	for _, cites := range []string{`[]`, `{}`, `["record:` + f.record.String() + `"]`, `[{"ref":"record:` + f.record.String() + `"}]`, `[{"ref":"lesson:` + id.String() + `","version":"1"}]`} {
 		f.exec(`UPDATE lesson SET cites=$2 WHERE id=$1`, id, cites)
-		if _, err := f.read(Ref{"lesson", id}); !errors.Is(err, ErrNotFound) {
+		if _, err := f.read(Ref{Kind: "lesson", ID: id}); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%s: %v", cites, err)
 		}
 	}
@@ -170,7 +170,7 @@ func TestStudyAndRecordFactProjections(t *testing.T) {
 	f := setup(t)
 	f.exec(`UPDATE card SET workflow='reproducible',workflow_release='v1',end_reason='Failed validation',ending='stopped' WHERE id=$1`, f.study)
 	f.exec(`INSERT INTO attachment(workspace_id,uploader_id,card_id,name,content_type,size_bytes,sha256,blob_key) VALUES($1,$2,$3,'protocol.txt','text/plain',7,'hash','private/blob')`, f.ws, f.user, f.study)
-	study, err := f.read(Ref{"study", f.study})
+	study, err := f.read(Ref{Kind: "study", ID: f.study})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestStudyAndRecordFactProjections(t *testing.T) {
 	if projection.Study.EndReason != "Failed validation" || projection.Study.Workflow != "reproducible" || len(projection.Attachments) != 1 || projection.Attachments[0].Name != "protocol.txt" {
 		t.Fatalf("%s", study.Text)
 	}
-	record, err := f.read(Ref{"record", f.record})
+	record, err := f.read(Ref{Kind: "record", ID: f.record})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,11 +204,11 @@ func TestCanOpenAndInternalVersion(t *testing.T) {
 	ctx := context.Background()
 	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	err := s.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
-		yes, err := CanOpen(ctx, tx, f.user, Ref{"record", f.record})
+		yes, err := CanOpen(ctx, tx, f.user, Ref{Kind: "record", ID: f.record})
 		if err != nil || !yes {
 			t.Fatalf("member: %v %v", yes, err)
 		}
-		no, err := CanOpen(ctx, tx, uuid.New(), Ref{"record", f.record})
+		no, err := CanOpen(ctx, tx, uuid.New(), Ref{Kind: "record", ID: f.record})
 		if err != nil || no {
 			t.Fatalf("nonmember: %v %v", no, err)
 		}
@@ -218,17 +218,17 @@ func TestCanOpenAndInternalVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = s.Maintenance(ctx, func(tx *store.Tx) error {
-		if _, err := Version(ctx, tx, Ref{"record", f.record}); !errors.Is(err, ErrNotFound) {
+		if _, err := Version(ctx, tx, Ref{Kind: "record", ID: f.record}); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("unscoped version: %v", err)
 		}
 		if err := tx.Workspace(ctx, f.ws); err != nil {
 			return err
 		}
-		v, err := Version(ctx, tx, Ref{"record", f.record})
+		v, err := Version(ctx, tx, Ref{Kind: "record", ID: f.record})
 		if err != nil || v != "live" {
 			t.Fatalf("scoped version: %s %v", v, err)
 		}
-		if _, err := Read(ctx, tx, uuid.Nil, Ref{"record", f.record}); !errors.Is(err, ErrNotFound) {
+		if _, err := Read(ctx, tx, uuid.Nil, Ref{Kind: "record", ID: f.record}); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("maintenance cannot public-read: %v", err)
 		}
 		return nil
@@ -267,14 +267,14 @@ func (f *fixture) lessonFor(ref Ref) Ref {
 	cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: fact.Version}})
 	id := uuid.New()
 	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())`, id, f.ws, cites)
-	return Ref{"lesson", id}
+	return Ref{Kind: "lesson", ID: id}
 }
 func TestPublicReadsBindTransactionIdentity(t *testing.T) {
 	f := setup(t)
 	other := f.member()
 	ctx := context.Background()
 	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
-	r := Ref{"study", f.study}
+	r := Ref{Kind: "study", ID: f.study}
 	check := func(tx *store.Tx) error {
 		if _, err := Read(ctx, tx, f.user, r); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("borrowed identity read: %v", err)
@@ -303,7 +303,7 @@ func TestTeamVisibilityAndLessonsFollowAsker(t *testing.T) {
 	f := setup(t)
 	other := f.member()
 	team := f.team()
-	for _, r := range []Ref{{"study", f.study}, {Kind: "workspace"}} {
+	for _, r := range []Ref{{Kind: "study", ID: f.study}, {Kind: "workspace"}} {
 		own, err := f.read(r)
 		if err != nil {
 			t.Fatal(err)
@@ -368,12 +368,12 @@ func TestProjectionVersionsTrackSubstantiveChanges(t *testing.T) {
 			t.Fatalf("lesson survived changed %v: %v", r, err)
 		}
 	}
-	check(Ref{"decision", f.decision}, `INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,options) VALUES($1,$2,$3,$4,'agent_decision','New open question','[{"id":"b"}]') ON CONFLICT(id) DO UPDATE SET text=excluded.text,options=excluded.options`, f.decision, f.ws, f.study, f.user)
+	check(Ref{Kind: "decision", ID: f.decision}, `INSERT INTO inbox_item(id,workspace_id,card_id,user_id,kind,text,options) VALUES($1,$2,$3,$4,'agent_decision','New open question','[{"id":"b"}]') ON CONFLICT(id) DO UPDATE SET text=excluded.text,options=excluded.options`, f.decision, f.ws, f.study, f.user)
 	check(Ref{Kind: "workspace"}, `UPDATE field_pack SET manifest='{"method":"updated"}' WHERE id=$1`, team)
 	check(Ref{Kind: "workspace"}, `UPDATE card SET workflow='new-workflow' WHERE id=$1`, f.study)
-	check(Ref{"study", f.study}, `INSERT INTO attachment(workspace_id,uploader_id,card_id,name,content_type,size_bytes,sha256,blob_key) VALUES($1,$2,$3,'new.txt','text/plain',1,'hash','blob')`, f.ws, f.user, f.study)
-	check(Ref{"study", f.study}, `UPDATE field_pack SET manifest='{"method":"revised"}' WHERE id=$1`, team)
-	check(Ref{"study", f.study}, `UPDATE card SET handoff_note='New hand-in' WHERE id=$1`, f.study)
+	check(Ref{Kind: "study", ID: f.study}, `INSERT INTO attachment(workspace_id,uploader_id,card_id,name,content_type,size_bytes,sha256,blob_key) VALUES($1,$2,$3,'new.txt','text/plain',1,'hash','blob')`, f.ws, f.user, f.study)
+	check(Ref{Kind: "study", ID: f.study}, `UPDATE field_pack SET manifest='{"method":"revised"}' WHERE id=$1`, team)
+	check(Ref{Kind: "study", ID: f.study}, `UPDATE card SET handoff_note='New hand-in' WHERE id=$1`, f.study)
 	// Repeated reads must stay stable, rather than hashing non-deterministic arrays.
 	a, _ := f.read(Ref{Kind: "workspace"})
 	b, _ := f.read(Ref{Kind: "workspace"})
@@ -384,7 +384,7 @@ func TestProjectionVersionsTrackSubstantiveChanges(t *testing.T) {
 func TestStudyProjectionExcludesInternalColumns(t *testing.T) {
 	f := setup(t)
 	f.exec(`UPDATE card SET grounding_criteria='[{"private":"legacy-secret"}]',legacy_column='grounding' WHERE id=$1`, f.study)
-	fact, err := f.read(Ref{"study", f.study})
+	fact, err := f.read(Ref{Kind: "study", ID: f.study})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
 	f.exec(`INSERT INTO card_team(workspace_id,card_id,board_column,pack_id) VALUES($1,$2,'hypotheses',$3)`, f.ws, f.study, sharedTeam)
 	ctx := context.Background()
 	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
-	for _, ref := range []Ref{{"study", f.study}, {Kind: "workspace"}} {
+	for _, ref := range []Ref{{Kind: "study", ID: f.study}, {Kind: "workspace"}} {
 		shared, err := f.readAs(other, ref)
 		if err != nil {
 			t.Fatal(err)
@@ -412,7 +412,7 @@ func TestSharedBaselineStableForMembersAndMaintenance(t *testing.T) {
 		cites, _ := json.Marshal([]Citation{{Ref: ref.String(), Version: shared.Version}})
 		id := uuid.New()
 		f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Shared lesson',$3,'test',now())`, id, f.ws, cites)
-		lesson := Ref{"lesson", id}
+		lesson := Ref{Kind: "lesson", ID: id}
 		ownerLesson := f.lessonFor(ref)
 		check := func() {
 			t.Helper()
@@ -465,7 +465,7 @@ func TestPrivateTeamAssignmentMetadataIsSharedAndVersioned(t *testing.T) {
 	f := setup(t)
 	peer := f.member()
 	team := f.team()
-	ref := Ref{"study", f.study}
+	ref := Ref{Kind: "study", ID: f.study}
 	ctx := context.Background()
 	s := &store.Store{LessonsEnabled: true, Pool: f.env.App}
 	f.exec(`UPDATE field_pack SET stage='grounding' WHERE id=$1`, team)
@@ -564,7 +564,7 @@ func TestReadMaintenanceRequiresInternalScopedTransaction(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	st := &store.Store{LessonsEnabled: true, Pool: f.env.App}
-	ref := Ref{"study", f.study}
+	ref := Ref{Kind: "study", ID: f.study}
 	if err := st.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
 		_, err := ReadMaintenance(ctx, tx, ref)
 		if !errors.Is(err, ErrNotFound) {

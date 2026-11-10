@@ -75,8 +75,8 @@ func (x *turn) historicalAnswer(ctx context.Context, raw json.RawMessage) ([]str
 }
 func TestAnswerAcceptsCitedFacts(t *testing.T) {
 	x := runningTurn(t)
-	from := Ref{"study", x.study}.String()
-	to := Ref{"record", x.record}.String()
+	from := Ref{Kind: "study", ID: x.study}.String()
+	to := Ref{Kind: "record", ID: x.record}.String()
 	x.log(from, "links")
 	x.log(to, from)
 	x.log(to, from)
@@ -94,8 +94,8 @@ func TestAnswerAcceptsCitedFacts(t *testing.T) {
 }
 func TestAnswerRejectsInvalidStatements(t *testing.T) {
 	x := runningTurn(t)
-	r := Ref{"record", x.record}.String()
-	l := Ref{"lesson", uuid.New()}.String()
+	r := Ref{Kind: "record", ID: x.record}.String()
+	l := Ref{Kind: "lesson", ID: uuid.New()}.String()
 	for _, tc := range []struct {
 		name, kind string
 		refs       []string
@@ -117,7 +117,7 @@ func TestAnswerRejectsInvalidStatements(t *testing.T) {
 func TestAnswerRejectsLessonWhoseFactChanged(t *testing.T) {
 	x := runningTurn(t)
 	l := uuid.New()
-	ref := Ref{"lesson", l}.String()
+	ref := Ref{Kind: "lesson", ID: l}.String()
 	x.exec("INSERT INTO lesson(id,workspace_id,kind,text,cites,checked_at,model) VALUES($1,$2,'lab','Lesson',$3,now(),'test')", l, x.ws, `[{"ref":"record:`+x.record.String()+`","version":"live"}]`)
 	x.log(ref, "read")
 	x.exec("UPDATE record SET superseded_at=now() WHERE id=$1", x.record)
@@ -220,7 +220,7 @@ func TestAnswerCannotBorrowAnotherRunsReads(t *testing.T) {
 	x := runningTurn(t)
 	chat := db.LabChat{ID: *x.run.LabChatID, OwnerID: x.user, WorkspaceID: x.ws}
 	second := enqueueQuestion(t, x.fixture, x.runs, chat, "another turn", "")
-	ref := Ref{"record", x.record}.String()
+	ref := Ref{Kind: "record", ID: x.record}.String()
 	x.exec("INSERT INTO lab_read(workspace_id,agent_run_id,ref,via) VALUES($1,$2,$3,'read')", x.ws, second.ID, ref)
 	if p, e := x.submit(t.Context(), "fact", ref); e != nil || len(p) == 0 {
 		t.Fatal(e, p)
@@ -230,7 +230,7 @@ func TestAnswerCannotBorrowAnotherRunsReads(t *testing.T) {
 func TestAnswerLessonMustBeCheckedAndActive(t *testing.T) {
 	x := runningTurn(t)
 	id := uuid.New()
-	ref := Ref{"lesson", id}.String()
+	ref := Ref{Kind: "lesson", ID: id}.String()
 	x.exec("INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())", id, x.ws, `[{"ref":"record:`+x.record.String()+`","version":"live"}]`)
 	x.log(ref, "read")
 	x.exec("UPDATE lesson SET checked_at=NULL WHERE id=$1", id)
@@ -249,7 +249,7 @@ func TestAnswerLessonMustBeCheckedAndActive(t *testing.T) {
 
 func TestAnswerReadLogAndDefinerAreRequesterOnly(t *testing.T) {
 	x := runningTurn(t)
-	r := Ref{"record", x.record}.String()
+	r := Ref{Kind: "record", ID: x.record}.String()
 	x.log(r, "read")
 	other := uuid.New()
 	x.exec(`INSERT INTO "user"(id,email,name) VALUES($1,'peer@test','peer')`, other)
@@ -382,10 +382,10 @@ func TestLaunchRechecksPrivateHistoryAfterClaim(t *testing.T) {
 			if strings.HasPrefix(change, "team unshared") {
 				team := x.team()
 				x.exec("UPDATE field_pack SET visibility='workspace' WHERE id=$1", team)
-				r = Ref{"study", x.study}
+				r = Ref{Kind: "study", ID: x.study}
 				hide = func() { x.exec("UPDATE field_pack SET visibility='private' WHERE id=$1", team) }
 			} else {
-				r = x.lessonFor(Ref{"record", x.record})
+				r = x.lessonFor(Ref{Kind: "record", ID: x.record})
 				hide = func() { x.exec("UPDATE lesson SET status='set_aside' WHERE id=$1", r.ID) }
 				if change == "lessons disabled" {
 					hide = func() { x.runs.Store = &store.Store{Pool: x.env.App} }
@@ -504,7 +504,7 @@ func TestLaunchDropsOnlyAnswersThatSawRedactedHistory(t *testing.T) {
 			t.Fatal(e, p)
 		}
 	}
-	lesson := x.lessonFor(Ref{"record", x.record})
+	lesson := x.lessonFor(Ref{Kind: "record", ID: x.record})
 	x.log(lesson.String(), "read")
 	say("lesson", "sensitive lesson", lesson.String())
 	if prompt := next("Second question"); !strings.Contains(prompt, "sensitive lesson") {
@@ -528,7 +528,7 @@ func TestRevokedEvidenceCannotReachAnswer(t *testing.T) {
 			ctx := t.Context()
 			team := x.team()
 			x.exec("UPDATE field_pack SET visibility='workspace' WHERE id=$1", team)
-			ref := Ref{"study", x.study}
+			ref := Ref{Kind: "study", ID: x.study}
 			x.log(ref.String(), "read")
 			raw := func(k, text string, cites ...string) []byte {
 				if cites == nil {
@@ -614,7 +614,7 @@ func TestDaemonCannotRequestUnverifiedContextRestart(t *testing.T) {
 
 func TestFactsOnlyRestartRejectsHandInFromEarlierLessonRead(t *testing.T) {
 	x := runningTurn(t)
-	lesson := x.lessonFor(Ref{"record", x.record})
+	lesson := x.lessonFor(Ref{Kind: "record", ID: x.record})
 	x.log(lesson.String(), "read")
 	x.runs.Store = &store.Store{Pool: x.env.App}
 	if p, err := x.submit(t.Context(), "lesson", lesson.String()); err != nil || len(p) != 1 || p[0] != FreshTurnProblem {

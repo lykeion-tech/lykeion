@@ -24,7 +24,7 @@ func (h *H) cardReport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		has, err := hasReport(r, tx, card)
+		has, err := report.Has(r.Context(), tx, card)
 		if err != nil || !has {
 			noReport = true
 			return err
@@ -45,12 +45,4 @@ func (h *H) cardReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
-}
-
-// hasReport says whether the card is a finished study that raised a report.
-func hasReport(r *http.Request, tx *store.Tx, c db.Card) (bool, error) {
-	if c.State != "done" || c.Ending != "" || c.Workflow != nil {
-		return false, nil
-	}
-	return tx.Q.CardHasReport(r.Context(), db.CardHasReportParams{WorkspaceID: c.WorkspaceID, CardID: c.ID})
 }

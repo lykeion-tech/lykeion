@@ -176,7 +176,7 @@ const heading = computed(() =>
   current.value === 'teams' ? 'Teams' : (route.meta.title ?? 'Studies'),
 );
 const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
-// Arriving at a study's report opens Aristotle once, with the study as its
+// Arriving at a study's report opens Aristotle once, with the report as its
 // context; closing it holds until the next arrival.
 let reportOpened = '';
 watch([() => shownReport.value?.id ?? '', labWindow], ([id, win]) => {
@@ -721,6 +721,7 @@ onUnmounted(() => {
       :key="workspaceId + ':' + me.data.value.id"
       :user-id="me.data.value.id"
       :study-id="cardId || shownReport?.id"
+      :report-context="!cardId && !!shownReport"
       :study-title="shownCard ? studyDisplayTitle(shownCard.title) : shownReport?.title"
     />
     <CreateStudy

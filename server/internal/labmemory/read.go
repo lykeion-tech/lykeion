@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"lykeion/server/internal/fence"
+	"lykeion/server/internal/report"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -81,6 +84,9 @@ func load(ctx context.Context, tx *store.Tx, r Ref) (db.LabFactRow, error) {
 }
 
 func read(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
+	if r.Kind == "report" {
+		return readReport(ctx, tx, r)
+	}
 	if r.Kind == "lesson" && !tx.LessonsEnabled {
 		return Fact{}, ErrNotFound
 	}
@@ -163,4 +169,109 @@ func ReadMaintenance(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
 		return Fact{}, ErrNotFound
 	}
 	return read(ctx, tx, r)
+}
+
+// reportGraph is the part of a study's report that Aristotle reads: its
+// nodes, the facts Jev accepted on its concepts, and its edges.
+type reportGraph struct {
+	Nodes     []reportNode  `json:"nodes"`
+	Edges     []report.Edge `json:"edges"`
+	Truncated bool          `json:"truncated,omitempty"`
+}
+
+type reportNode struct {
+	ID     string        `json:"id"`
+	Kind   string        `json:"kind"`
+	Label  string        `json:"label"`
+	Status string        `json:"status,omitempty"`
+	Quote  string        `json:"quote,omitempty"`
+	Facts  []report.Fact `json:"facts,omitempty"`
+}
+
+// readReport opens a study's report only for a reader who can open the study,
+// and only when the study has the report its report page shows. A ref with a
+// node reads that node alone.
+func readReport(ctx context.Context, tx *store.Tx, r Ref) (Fact, error) {
+	if _, err := read(ctx, tx, Ref{Kind: "study", ID: r.ID}); err != nil {
+		return Fact{}, err
+	}
+	card, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: r.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Fact{}, ErrNotFound
+	}
+	if err != nil {
+		return Fact{}, err
+	}
+	has, err := report.Has(ctx, tx, card)
+	if err != nil {
+		return Fact{}, err
+	}
+	if !has {
+		return Fact{}, ErrNotFound
+	}
+	in, err := report.Load(ctx, tx, card)
+	if err != nil {
+		return Fact{}, err
+	}
+	rep := report.Build(in)
+	g := reportGraph{Nodes: []reportNode{}, Edges: rep.Edges}
+	for _, n := range rep.Nodes {
+		g.Nodes = append(g.Nodes, reportNode{n.ID, n.Kind, n.Label, n.Status, n.Quote, n.Facts})
+	}
+	f := Fact{Ref: r, Title: fmt.Sprintf("Report of study #%d", card.Number), Links: []Ref{{Kind: "study", ID: r.ID}}}
+	if r.Node != "" {
+		i := slices.IndexFunc(g.Nodes, func(n reportNode) bool { return n.ID == r.Node })
+		if i < 0 {
+			return Fact{}, ErrNotFound
+		}
+		f.Title += " › " + g.Nodes[i].Label
+		g = reportGraph{Nodes: g.Nodes[i : i+1], Edges: []report.Edge{}}
+	}
+	text, err := json.Marshal(g)
+	if err != nil {
+		return Fact{}, err
+	}
+	f.Text = string(text)
+	f.Version = fmt.Sprintf("sha256:%x", sha256.Sum256(text))
+	return f, nil
+}
+
+// reportPage is what the read tool returns for a report: every quote fenced
+// as untrusted data, and nodes then edges kept while they fit in one page.
+func reportPage(text string) (string, error) {
+	var g reportGraph
+	if err := json.Unmarshal([]byte(text), &g); err != nil {
+		return "", err
+	}
+	out := reportGraph{Nodes: []reportNode{}, Edges: []report.Edge{}}
+	budget := pageSize - 64 // the envelope and the truncated flag
+	fits := func(v any) bool {
+		b, _ := json.Marshal(v)
+		if len(b)+1 > budget {
+			out.Truncated = true
+			return false
+		}
+		budget -= len(b) + 1
+		return true
+	}
+	for _, n := range g.Nodes {
+		if n.Quote != "" {
+			n.Quote = fence.Untrusted("Recorded text", n.Quote)
+		}
+		for i := range n.Facts {
+			n.Facts[i].Quote = fence.Untrusted("Quoted evidence", n.Facts[i].Quote)
+		}
+		if !fits(n) {
+			break
+		}
+		out.Nodes = append(out.Nodes, n)
+	}
+	for _, e := range g.Edges {
+		if out.Truncated || !fits(e) {
+			break
+		}
+		out.Edges = append(out.Edges, e)
+	}
+	b, err := json.Marshal(out)
+	return string(b), err
 }

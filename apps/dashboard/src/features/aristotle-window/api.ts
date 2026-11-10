@@ -102,6 +102,7 @@ export function sourcePath(source: LabRef): string | undefined {
   if (!source.study_id) return;
   const path = '/studies/' + encodeURIComponent(source.study_id);
   if (kind === 'study') return path;
+  if (kind === 'report') return '/decisions/report/' + encodeURIComponent(source.study_id);
   if (kind === 'record' || kind === 'comment')
     return path + '?cite=' + encodeURIComponent(source.ref);
 }
