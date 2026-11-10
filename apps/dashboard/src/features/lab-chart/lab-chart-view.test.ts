@@ -82,10 +82,11 @@ it('takes the shell page header, as Agents does, titled Lykeion', async () => {
   const agents = router.resolve('/agents').meta;
   expect(lab).toEqual({ page: 'lab-chart', title: 'Lykeion' });
   expect(Object.keys(lab).sort()).toEqual(Object.keys(agents).sort());
-  // The shell draws its header for every page whose route does not bring its own.
+  // The shell draws its header for every page whose route does not bring its
+  // own, and not over a study's report, which heads itself.
   const app = readFileSync('apps/dashboard/src/App.vue', 'utf8');
   expect(app).toMatch(
-    /<header\s+v-if="current !== 'settings' && !route\.meta\.ownHeader"\s+class="page-header"/,
+    /<header\s+v-if="current !== 'settings' && !route\.meta\.ownHeader && !shownReport"\s+class="page-header"/,
   );
   expect(app).toContain("(route.meta.title ?? 'Studies')");
 });

@@ -47,7 +47,9 @@ const finished = computed(() => {
 const stages = computed(() => (report.value?.stages ?? []).map(columnName).join(' → '));
 const handInBy = computed(() => {
   const h = report.value?.hand_in;
-  return h ? [h.agent_name, new Date(h.at).toLocaleString()].filter(Boolean).join(' · ') : '';
+  if (!h) return '';
+  const run = h.run_id && !/^[0-]+$/.test(h.run_id) ? `run ${h.run_id.slice(0, 8)}` : '';
+  return [h.agent_name, run, new Date(h.at).toLocaleString()].filter(Boolean).join(' · ');
 });
 
 // The hand-in folds to 260px; the button shows only when the text is taller.

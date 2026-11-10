@@ -97,7 +97,7 @@ async function finishedStudy(
     { kind: 'outcome', key: 'o1', body: { verdict: 'high', attempt: 1 } },
   ];
   if (opts.summary !== false)
-    validation.push({ kind: 'summary', key: 's1', body: { text: SUMMARY } });
+    validation.push({ kind: 'summary', key: 's1', body: { text: SUMMARY }, run: true });
   await step('validation', validation, opts.workflow ? { workflow: opts.workflow } : {});
   await labInbox(
     request,
@@ -154,6 +154,13 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
       headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
     })
   ).json();
+  // The hand-in names the run that wrote it.
+  expect(report.hand_in.run_id).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(handIn.locator('.hand-in-by')).toContainText(
+    `run ${report.hand_in.run_id.slice(0, 8)}`,
+  );
+  // The page's own heading is the only one; the shell adds none.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   const nodes = graph(page).getByRole('button');
   await expect(nodes).toHaveCount(report.nodes.length);
   for (const label of [
@@ -173,6 +180,9 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
 test('clicking a finding opens its section and every row is inspectable', async ({ page }) => {
   const study = await finishedStudy(page.request);
   await page.goto(`/#/decisions/report/${study.id}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    `#${study.number} ${study.title}`,
+  );
   await graph(page)
     .getByRole('button', { name: `Finding: ${H2}`, exact: true })
     .click();
@@ -212,6 +222,8 @@ test('nodes work from the keyboard', async ({ page }) => {
   await page.keyboard.press('Enter');
   const selected = pane(page).getByRole('region', { name: 'Selected' });
   await expect(selected).toContainText('Question');
+  const live = pane(page).getByRole('status');
+  await expect(live).toHaveText(/^Question: Does glucose raise insulin secretion\?$/);
   // Moving between nodes keeps focus in the graph.
   await expect(question).toBeFocused();
   await page.keyboard.press('Tab');
@@ -219,6 +231,7 @@ test('nodes work from the keyboard', async ({ page }) => {
   await expect(paper).toBeFocused();
   await page.keyboard.press(' ');
   await expect(selected).toContainText(PAPER);
+  await expect(live).toHaveText(`Paper: ${PAPER}`);
   await expect(paper).toBeFocused();
 });
 

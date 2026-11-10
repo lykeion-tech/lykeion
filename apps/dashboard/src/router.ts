@@ -45,8 +45,6 @@ declare module 'vue-router' {
     public?: boolean;
     // The view draws its own heading instead of the shell's.
     ownHeader?: boolean;
-    // A study's report page.
-    report?: boolean;
   }
 }
 
@@ -158,7 +156,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/decisions/report/:cardId',
     component: () => import('./features/reports/StudyReport.vue'),
-    meta: { page: 'decisions', title: 'Report', report: true },
+    meta: { page: 'decisions', title: 'Report', ownHeader: true },
     props: (route) => ({ cardId: param(route, 'cardId') ?? '' }),
   },
   {

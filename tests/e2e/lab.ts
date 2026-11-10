@@ -194,6 +194,8 @@ export interface FlowRecord {
   kind: string;
   key?: string;
   body: Record<string, unknown>;
+  // Gives the record a finished agent run of its own.
+  run?: boolean;
 }
 
 // Puts a study in a column and state and writes the flow's records into it:

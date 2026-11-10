@@ -425,6 +425,8 @@ func TestUILab(t *testing.T) {
 				Kind string         `json:"kind"`
 				Key  string         `json:"key"`
 				Body map[string]any `json:"body"`
+				// Run gives the record a finished agent run of its own.
+				Run bool `json:"run"`
 			} `json:"records"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Column == "" || in.Round < 1 {
@@ -442,9 +444,20 @@ func TestUILab(t *testing.T) {
 		}
 		for _, rec := range in.Records {
 			body, _ := json.Marshal(rec.Body)
-			if _, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
-				SELECT workspace_id, id, board_column, round, $2, 'server', $3, $4::jsonb FROM card WHERE id = $1`,
-				r.PathValue("card"), rec.Kind, rec.Key, string(body)); err != nil {
+			var run *uuid.UUID
+			if rec.Run {
+				var id uuid.UUID
+				if err := env.Owner.QueryRow(r.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, completed_at)
+					SELECT workspace_id, id, owner_id, board_column, round, 'leader', 'claude', 'lab hand-in', 'completed', now() FROM card WHERE id = $1 RETURNING id`,
+					r.PathValue("card")).Scan(&id); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				run = &id
+			}
+			if _, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, agent_run_id)
+				SELECT workspace_id, id, board_column, round, $2, 'server', $3, $4::jsonb, $5 FROM card WHERE id = $1`,
+				r.PathValue("card"), rec.Kind, rec.Key, string(body), run); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}

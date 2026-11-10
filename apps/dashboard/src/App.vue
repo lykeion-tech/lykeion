@@ -683,7 +683,7 @@ onUnmounted(() => {
     />
     <main class="main-pane">
       <header
-        v-if="current !== 'settings' && !route.meta.ownHeader"
+        v-if="current !== 'settings' && !route.meta.ownHeader && !shownReport"
         class="page-header"
         :class="{
           'machine-detail-shell-heading': current === 'machines' && route.params.machineId,

@@ -74,6 +74,10 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
 
 <template>
   <section class="report-pane type-body" aria-label="Report section">
+    <!-- Focus may stay in the graph, so the newly shown section is announced. -->
+    <p class="sr-only" role="status">
+      {{ section ? `${kindName(section.node.kind)}: ${section.node.label}` : 'Overview' }}
+    </p>
     <section v-if="!section" ref="overviewEl" tabindex="-1" class="report-overview">
       <h2 class="pane-heading">Overview</h2>
       <ul class="overview-counts">
