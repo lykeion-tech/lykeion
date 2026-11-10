@@ -13,6 +13,8 @@ import type { DecisionItem } from '../../api/types';
 import {
   agentDecisionParts,
   decideByLabel,
+  decisionGroupOf,
+  decisionGroups,
   decisionKindOf,
   inboxText,
   inboxTitle,
@@ -32,7 +34,10 @@ const shown = computed(() => {
   return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 });
 const groups = computed(() => [
-  { id: 'current', label: '', items: shown.value.filter((item) => !item.archived_at) },
+  ...decisionGroups.map((group) => ({
+    ...group,
+    items: shown.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
+  })),
   { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
 ].filter((group) => group.items.length));
 const listError = computed(() => open.error.value ?? past.error.value);
@@ -83,8 +88,9 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
         {{ (listError ?? { message: error }).message }}
       </p>
       <template v-for="group in groups" :key="group.id">
-      <h2 v-if="group.label" class="decision-group-title">
-        <button class="archive-toggle" :aria-expanded="archivedExpanded" @click="archivedExpanded = !archivedExpanded">
+      <h2 class="decision-group-title">
+        <template v-if="group.id !== 'archived'">{{ group.label }}</template>
+        <button v-else class="archive-toggle" :aria-expanded="archivedExpanded" @click="archivedExpanded = !archivedExpanded">
           <Icon :name="archivedExpanded ? 'down' : 'right'" :size="12" />{{ group.label }}
         </button>
       </h2>
@@ -210,6 +216,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   font-size: 11px;
   font-weight: 600;
 }
+.decision-group-title:not(:has(.archive-toggle)) { padding: 4px 10px; }
 .archive-toggle {
   display: flex;
   align-items: center;

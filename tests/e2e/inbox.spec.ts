@@ -1,8 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
-  labAutoresearchRun,
-  labReportAutoresearch,
-  fullAutoresearchReport,
   labFixture,
   labInbox,
   labWorkspace,
@@ -189,11 +186,6 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
   const card = await newStudy(page.request, `${name}?`, { title: name, assignee: null });
   const kinds: [string, string, string][] = [
     [
-      'middle_score',
-      `Study #${card.number}'s Grounding column scored in the middle; its weakest criterion was “Does it answer what the researcher asked?” (level 3 of 5).`,
-      `${name} moved on with a middling score: Does it answer what the researcher asked?`,
-    ],
-    [
       'blocked',
       `Study #${card.number} scored low twice.`,
       `${name} scored low twice and is waiting for you`,
@@ -216,113 +208,60 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
   for (const [, , shown] of kinds)
     await expect(list.getByText(shown, { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
-  for (const i of [4, 1]) {
+  for (const i of [3, 0]) {
     await list.getByText(kinds[i]![2], { exact: true }).click();
     await expect(shownStudy(page, name)).toBeVisible();
     await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
   }
 });
 
-test('Inbox report without card opens the run', async ({ page }) => {
-  const f = await labReportAutoresearch(page.request);
-  await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
-  const runId = await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
-    status: 'running',
-    report: fullAutoresearchReport,
-    inbox: true,
-  });
-  const headers = { 'X-Workspace-ID': f.workspace_id };
-  const items = await (await page.request.get('/api/decisions', { headers })).json();
-  const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
-  expect(item.card_id).toBeNull();
-  await page.goto('/#/decisions');
-  await row(page, item.id).click();
-  const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
-  await expect(dialog.getByRole('heading', { name: 'Report literature watch' })).toBeVisible();
-  await expect(dialog.getByText('Report available · Run still in progress')).toBeVisible();
-  await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open study →' })).toHaveCount(0);
-  await expect
-    .poll(
-      async () =>
-        (await (await page.request.get('/api/decisions?view=history', { headers })).json()).find(
-          (i: { id: string }) => i.id === item.id,
-        )?.read_at,
-    )
-    .toBeTruthy();
-  await page.screenshot({ path: 'test-results/ui2/task15-inbox.png', fullPage: true });
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`#/decisions/${item.id}$`));
-  await page.getByRole('button', { name: 'Open report', exact: true }).click();
-  await expect(dialog).toBeVisible();
-});
-
-test('Inbox report context survives archive refresh and a closed run stays closed', async ({
+test('the Decisions sidebar groups items under Reports, Questions for you, Problems and My decisions', async ({
   page,
 }) => {
-  const f = await labReportAutoresearch(page.request);
+  const f = await labFixture(page.request);
   await page.addInitScript((ws) => localStorage.setItem('lykeion.workspace', ws), f.workspace_id);
-  const runId = await labAutoresearchRun(page.request, f.workspace_id, f.autoresearch_id, {
-    status: 'running',
-    report: fullAutoresearchReport,
-    inbox: true,
-  });
   const headers = { 'X-Workspace-ID': f.workspace_id };
-  const items = await (await page.request.get('/api/decisions', { headers })).json();
-  const item = items.find((i: { autoresearch_run_id: string }) => i.autoresearch_run_id === runId);
-  let holding = false;
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let ready!: () => void;
-  const initial = new Promise<void>((resolve) => {
-    ready = resolve;
-  });
-  let drained!: () => void;
-  const late = new Promise<void>((resolve) => {
-    drained = resolve;
-  });
-  await page.route('**/api/decisions?view=history', async (route) => {
-    const response = await route.fetch();
-    if (holding) {
-      await gate;
-      await route.fulfill({ response });
-      drained();
-    } else {
-      await route.fulfill({ response });
-      ready();
-    }
-  });
-  try {
-    await page.goto('/#/decisions');
-    await initial;
-    holding = true;
-    await row(page, item.id).click();
-    await expect(page.getByRole('navigation', { name: 'Decisions' })).toContainText(
-      'No decisions yet',
+  // The lab seeds items directly: it does not run the server's finish path.
+  await labInbox(page.request, f.card_id, 'blocked', 'Study #1 scored low twice.');
+  await labInbox(page.request, f.card_id, 'study_report', 'Report');
+  await labInbox(page.request, f.card_id, 'needs_decision', 'Needs a call');
+  expect(
+    (
+      await page.request.post('/api/decisions/manual', {
+        headers,
+        data: { title: 'My own note' },
+      })
+    ).status(),
+  ).toBe(201);
+  const items = (await (await page.request.get('/api/decisions', { headers })).json()) as {
+    id: string;
+    kind: string;
+  }[];
+  const id = (kind: string) => items.find((i) => i.kind === kind)!.id;
+  await page.goto('/#/decisions');
+  const list = page.getByRole('navigation', { name: 'Decisions' });
+  await expect(list.locator('h2.decision-group-title')).toHaveText([
+    'Reports',
+    'Questions for you',
+    'Problems',
+    'My decisions',
+  ]);
+  const order = await list
+    .locator('h2.decision-group-title, a.decision-row')
+    .evaluateAll((els) =>
+      els.map((e) => (e.tagName === 'H2' ? e.textContent!.trim() : e.getAttribute('href'))),
     );
-    const dialog = page.getByRole('dialog', { name: 'Autoresearch run' });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('end-of-full-report', { exact: false })).toBeVisible();
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    release();
-    await late;
-    await expect(dialog).toHaveCount(0);
-    await page.getByRole('button', { name: 'Open report', exact: true }).click();
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(row(page, item.id)).toBeVisible();
-    await expect(unread(page, item.id)).toHaveCount(0);
-    const receipt = (
-      await (await page.request.get('/api/decisions?view=history', { headers })).json()
-    ).find((i: { id: string }) => i.id === item.id);
-    expect(receipt.read_at).toBeTruthy();
-    expect(receipt.resolved_at).toBeTruthy();
-  } finally {
-    release();
-  }
+  expect(order).toEqual([
+    'Reports',
+    `#/decisions/${id('study_report')}`,
+    'Questions for you',
+    `#/decisions/${id('needs_decision')}`,
+    'Problems',
+    `#/decisions/${id('blocked')}`,
+    'My decisions',
+    `#/decisions/${id('manual_decision')}`,
+  ]);
+  await expect(row(page, id('study_report'))).toContainText('Report');
 });
 
 test('study descriptions render safe, readable Markdown in Studies and in Decisions', async ({

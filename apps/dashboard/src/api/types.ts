@@ -277,16 +277,14 @@ export interface DecisionItem {
   kind:
     | 'manual_decision'
     | 'agent_decision'
-    | 'autoresearch_card'
-    | 'autoresearch_report'
-    | 'middle_score'
     | 'blocked'
     | 'no_tool'
     | 'scoring_unavailable'
     | 'waiting_for_machine'
     | 'machine_offline'
     | 'needs_decision'
-    | 'open_doubts'
+    | 'study_report'
+    | 'autoresearch_failed'
     | 'done';
   text: string;
   // What the item asks for, for a needs_decision; null on other kinds.

@@ -3,7 +3,6 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
-import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
 import ManualDecisionControls from './ManualDecisionControls.vue';
 import DecisionOptions from './DecisionOptions.vue';
 import DecisionMeta from './DecisionMeta.vue';
@@ -14,7 +13,6 @@ import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { useCards, useDecisions, useMe } from '../../api/queries';
-import type { DecisionItem } from '../../api/types';
 import { agentDecisionParts, decisionKindOf, inboxTitle, isMachineWait, timeAgo } from '../../lib/studies';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
@@ -27,8 +25,7 @@ const cards = useCards();
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId && i.workspace_id === workspaceId.value && (i.kind !== 'manual_decision' || (i.user_id === me.data.value?.id && !open.error.value && !resolved.error.value))),
 );
-const selectedReport = ref<DecisionItem>();
-const display = computed(() => selected.value ?? selectedReport.value);
+const display = selected;
 const filteredOut = computed(() => !!display.value && !matchesDecisionFilters(display.value));
 const study = computed(() => cards.data.value?.find((card) => card.id === display.value?.card_id));
 const question = computed(() => {
@@ -38,33 +35,6 @@ const question = computed(() => {
   if (item.kind === 'agent_decision') return agentDecisionParts(item.text);
   return { title: study.value?.title || (item.card_id ? inboxTitle(item) : decisionKindOf(item.kind).label), body: item.text };
 });
-const reportOpen = ref(false);
-let reportVisit = '';
-// A read receipt moves the item between lists without changing the open run.
-watch(
-  [workspaceId, () => props.itemId, () => selected.value],
-  ([workspace, itemId, item]) => {
-    const visit = `${workspace}:${itemId}`;
-    if (visit !== reportVisit) {
-      reportVisit = visit;
-      selectedReport.value = undefined;
-      reportOpen.value = false;
-    }
-    if (
-      !item ||
-      item.workspace_id !== workspace ||
-      item.id !== itemId ||
-      item.kind !== 'autoresearch_report' ||
-      !item.autoresearch_run_id
-    )
-      return;
-    const previous = selectedReport.value;
-    selectedReport.value = item;
-    if (previous?.id !== item.id || previous.autoresearch_run_id !== item.autoresearch_run_id)
-      reportOpen.value = true;
-  },
-  { immediate: true, flush: 'sync' },
-);
 const error = ref('');
 let generation = 0;
 watch(
@@ -130,7 +100,6 @@ watch(
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
           <DecisionMeta v-if="display.kind !== 'manual_decision' && (display.options?.length || display.question_set?.questions?.length)" :item="display" />
-          <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>
         </div>
       </article>
       <div v-else class="conversation-empty">
@@ -142,8 +111,6 @@ watch(
         <p v-else>Decision not found or no longer available.</p>
       </div>
     </main>
-    <AutoresearchRunDialog v-if="reportOpen && selectedReport?.autoresearch_run_id"
-      :key="workspaceId + ':' + selectedReport.autoresearch_run_id" :run-id="selectedReport.autoresearch_run_id" @close="reportOpen = false" />
   </section>
 </template>
 <style scoped src="../../ui/resources.css"></style>
@@ -159,7 +126,6 @@ watch(
 .status-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .status-actions { display:flex; align-items:center; gap:16px; margin-left:auto; }
 .status-pill { display:inline-flex; padding:4px 8px; border:1px solid var(--primary); border-radius:5px; color:var(--primary-text); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-.report-button { align-self:flex-start; }
 .study-link { font-size:13px; color:var(--primary-text); }
 .study-link:hover { text-decoration:underline; }
 .conversation-empty { min-height:300px; }

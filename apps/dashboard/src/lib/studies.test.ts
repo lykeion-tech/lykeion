@@ -553,14 +553,12 @@ describe('flow records and Inbox sentences', () => {
   it('titles an Inbox item by its study, or by what it is when it has none', () => {
     expect(studies.inboxTitle({ kind: 'blocked' }, 'Why?')).toBe('Why?');
     expect(studies.inboxTitle({ kind: 'waiting_for_machine' })).toBe('Waiting for machine');
-    expect(studies.inboxTitle({ kind: 'autoresearch_report' })).toBe('Autoresearch');
     expect(studies.inboxTitle({ kind: 'blocked' })).toBe('Study');
   });
   it('labels the Validation decisions', () => {
     const at = (kind: any, cause?: string) => studies.inboxText({ kind, cause, text: 'x' }, 'S');
     expect(at('needs_decision', 'all_withdrawn')).toBe('S: Everything withdrawn');
     expect(at('needs_decision', 'validation_invalid')).toBe('S: Validation found invalid results');
-    expect(at('open_doubts')).toBe('S: Passed with open doubts');
     expect(at('needs_decision', 'could_not_do')).toBeNull();
   });
   it('shows only the newest round of final Validation statuses, one line per hypothesis', () => {
@@ -586,31 +584,12 @@ describe('flow records and Inbox sentences', () => {
     expect(studies.validationLines([])).toEqual([]);
   });
   it('leaves the server text alone when it does not fit', () => {
-    expect(studies.inboxText({ kind: 'middle_score', text: 'no quotes here' }, 'S')).toBeNull();
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
     expect(
-      studies.inboxText({ kind: 'autoresearch_card', text: 'Asked a question' }, 'S'),
+      studies.inboxText({ kind: 'agent_decision', text: 'Asked a question' }, 'S'),
     ).toBeNull();
   });
   it('lifts the criterion and the need out of the server sentence', () => {
-    expect(
-      studies.inboxText(
-        {
-          kind: 'middle_score',
-          text: 'Study #1 scored; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).',
-        },
-        'S',
-      ),
-    ).toBe('S moved on with a middling score: Does it say what it couldn’t do?');
-    expect(
-      studies.inboxText(
-        {
-          kind: 'middle_score',
-          text: "Study #1's Validation column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn’t do?” (level 3 of 5).",
-        },
-        'S',
-      ),
-    ).toBe('S finished with a middling score: Does it say what it couldn’t do?');
     expect(
       studies.inboxText(
         { kind: 'no_tool', text: 'found no skill or connector that fits what it needed: a parser' },
@@ -719,5 +698,28 @@ describe('a held study', () => {
     delete (listed as Partial<Card>).hold_text;
     expect(blockBadge(listed)).toBe('escalated');
     expect(blockedMessage(listed)).toBe('This study is waiting for you.');
+  });
+  it('decisionGroupOf maps every kind to its group', () => {
+    const g = studies.decisionGroupOf;
+    expect(g('study_report')).toBe('reports');
+    expect(g('done')).toBe('reports');
+    expect(g('agent_decision')).toBe('questions');
+    expect(g('needs_decision')).toBe('questions');
+    for (const k of [
+      'blocked',
+      'no_tool',
+      'scoring_unavailable',
+      'waiting_for_machine',
+      'machine_offline',
+      'autoresearch_failed',
+    ] as const)
+      expect(g(k)).toBe('problems');
+    expect(g('manual_decision')).toBe('mine');
+    expect(studies.decisionGroups.map((x) => x.label)).toEqual([
+      'Reports',
+      'Questions for you',
+      'Problems',
+      'My decisions',
+    ]);
   });
 });
