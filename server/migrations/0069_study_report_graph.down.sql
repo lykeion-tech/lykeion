@@ -1,3 +1,4 @@
+DROP FUNCTION report_builds_to_resume();
 DROP TABLE report_check, report_link, report_fact, report_concept, report_build;
 DELETE FROM agent_run WHERE kind = 'report';
 ALTER TABLE agent_run

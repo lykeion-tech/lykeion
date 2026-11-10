@@ -16,15 +16,11 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id;
 UPDATE report_build SET checks_status = @checks_status
 WHERE workspace_id = @workspace_id AND card_id = @card_id;
 
--- Builds a restart left unfinished: judging with a settled run, or checks
--- still pending, once they are two minutes old.
+-- Unfinished builds of every workspace, through a definer function like
+-- board_candidates.
 -- name: ReportBuildsToResume :many
-SELECT b.* FROM report_build b
-LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id
-WHERE b.workspace_id = @workspace_id AND b.created_at < now() - interval '2 minutes'
-  AND ((b.status = 'judging' AND r.status IN ('completed', 'failed', 'cancelled'))
-    OR b.checks_status = 'pending')
-ORDER BY b.created_at;
+SELECT workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, judging::boolean AS judging
+FROM report_builds_to_resume();
 
 -- name: DeleteReportConcepts :exec
 DELETE FROM report_concept WHERE workspace_id = @workspace_id AND card_id = @card_id;

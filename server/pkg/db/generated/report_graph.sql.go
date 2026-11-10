@@ -481,34 +481,28 @@ func (q *Queries) ListReportLinks(ctx context.Context, arg ListReportLinksParams
 }
 
 const reportBuildsToResume = `-- name: ReportBuildsToResume :many
-SELECT b.workspace_id, b.card_id, b.agent_run_id, b.status, b.checks_status, b.created_at, b.finished_at FROM report_build b
-LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id
-WHERE b.workspace_id = $1 AND b.created_at < now() - interval '2 minutes'
-  AND ((b.status = 'judging' AND r.status IN ('completed', 'failed', 'cancelled'))
-    OR b.checks_status = 'pending')
-ORDER BY b.created_at
+SELECT workspace_id::uuid AS workspace_id, card_id::uuid AS card_id, judging::boolean AS judging
+FROM report_builds_to_resume()
 `
 
-// Builds a restart left unfinished: judging with a settled run, or checks
-// still pending, once they are two minutes old.
-func (q *Queries) ReportBuildsToResume(ctx context.Context, workspaceID uuid.UUID) ([]ReportBuild, error) {
-	rows, err := q.db.Query(ctx, reportBuildsToResume, workspaceID)
+type ReportBuildsToResumeRow struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Judging     bool      `json:"judging"`
+}
+
+// Unfinished builds of every workspace, through a definer function like
+// board_candidates.
+func (q *Queries) ReportBuildsToResume(ctx context.Context) ([]ReportBuildsToResumeRow, error) {
+	rows, err := q.db.Query(ctx, reportBuildsToResume)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ReportBuild
+	var items []ReportBuildsToResumeRow
 	for rows.Next() {
-		var i ReportBuild
-		if err := rows.Scan(
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.AgentRunID,
-			&i.Status,
-			&i.ChecksStatus,
-			&i.CreatedAt,
-			&i.FinishedAt,
-		); err != nil {
+		var i ReportBuildsToResumeRow
+		if err := rows.Scan(&i.WorkspaceID, &i.CardID, &i.Judging); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

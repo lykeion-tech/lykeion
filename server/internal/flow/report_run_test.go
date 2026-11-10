@@ -211,3 +211,127 @@ func TestMigration0069RoundTrips(t *testing.T) {
 		t.Fatalf("after second up: %d tables, column %v", n, c)
 	}
 }
+
+func TestReportRunNeedsTheShareItWasPinnedUnder(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c := l.study(t, "validation", true, nil)
+	guest, err := l.st.Global().UpsertUserByEmail(ctx, "guest@lab.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		return tx.Q.AddMember(ctx, db.AddMemberParams{WorkspaceID: l.ws, UserID: guest.ID, Role: "member"})
+	})
+	rts, err := l.e.AgentRuns.Register(ctx, guest.ID, l.ws, "gd", "gd", []string{"claude"}, nil, agent.Platform{OS: "linux"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := rts[0].ID
+	l.reportRun(t, c, rt)
+	claim := func() bool {
+		ok := false
+		l.in(t, func(tx *store.Tx) error {
+			_, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{WorkspaceID: l.ws, RuntimeID: &rt, GuestIsolation: true})
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatal(err)
+			}
+			ok = err == nil
+			return nil
+		})
+		return ok
+	}
+	if claim() {
+		t.Fatal("claimed on a colleague's runtime that was never shared")
+	}
+	if _, err := l.env.Owner.Exec(ctx, `INSERT INTO runtime_share(workspace_id, runtime_id, user_id) VALUES($1,$2,$3)`, l.ws, rt, l.owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.env.Owner.Exec(ctx, `DELETE FROM runtime_share`); err != nil {
+		t.Fatal(err)
+	}
+	if claim() {
+		t.Fatal("claimed after the share was removed")
+	}
+	if _, err := l.env.Owner.Exec(ctx, `INSERT INTO runtime_share(workspace_id, runtime_id, user_id) VALUES($1,$2,$3)`, l.ws, rt, l.owner); err != nil {
+		t.Fatal(err)
+	}
+	if !claim() {
+		t.Fatal("not claimed while the share stands")
+	}
+}
+
+func TestReportRunSurvivesItsRuntimeBeingDeleted(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c := l.study(t, "validation", true, nil)
+	a := l.register(t, "d1", "claude")
+	r := l.reportRun(t, c, a["claude"])
+	l.in(t, func(tx *store.Tx) error {
+		n, err := tx.Q.DeleteRuntime(ctx, db.DeleteRuntimeParams{ID: a["claude"], WorkspaceID: l.ws, OwnerID: l.owner})
+		if err == nil && n != 1 {
+			t.Errorf("deleted %d runtimes, want 1", n)
+		}
+		return err
+	})
+	var pin *uuid.UUID
+	if err := l.env.Owner.QueryRow(ctx, `SELECT pinned_runtime_id FROM agent_run WHERE id = $1`, r.ID).Scan(&pin); err != nil {
+		t.Fatal(err)
+	}
+	if pin != nil {
+		t.Fatalf("pin = %v, want NULL", pin)
+	}
+}
+
+func TestReportBuildsToResume(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	a := l.register(t, "d1", "claude")
+	mk := func(status, checks string, withRun bool, age, runAge string) uuid.UUID {
+		c := l.study(t, "validation", true, nil)
+		var run *uuid.UUID
+		if withRun {
+			r := l.reportRun(t, c, a["claude"])
+			run = &r.ID
+			if _, err := l.env.Owner.Exec(ctx, `UPDATE agent_run SET status='completed', completed_at = now() - $2::interval WHERE id=$1`, r.ID, runAge); err != nil {
+				t.Fatal(err)
+			}
+		}
+		l.in(t, func(tx *store.Tx) error {
+			_, err := tx.Q.InsertReportBuild(ctx, db.InsertReportBuildParams{WorkspaceID: l.ws, CardID: c.ID, AgentRunID: run, Status: status, ChecksStatus: checks})
+			return err
+		})
+		if _, err := l.env.Owner.Exec(ctx, `UPDATE report_build SET created_at = now() - $2::interval WHERE card_id=$1`, c.ID, age); err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	settledOld := mk("judging", "done", true, "10 minutes", "5 minutes")
+	settledJustNow := mk("judging", "done", true, "10 minutes", "10 seconds") // a long run that just settled: still being judged
+	noRun := mk("judging", "done", false, "10 minutes", "")
+	pendingOld := mk("done", "pending", false, "10 minutes", "")
+	pendingNew := mk("done", "pending", false, "10 seconds", "")
+	finished := mk("done", "done", false, "10 minutes", "")
+	got := map[uuid.UUID]bool{}
+	rows, err := l.st.Global().ReportBuildsToResume(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		got[r.CardID] = r.Judging
+	}
+	for name, want := range map[string]struct {
+		id  uuid.UUID
+		in  bool
+		jdg bool
+	}{
+		"settled long ago": {settledOld, true, true}, "settled just now": {settledJustNow, false, false},
+		"run row gone": {noRun, true, true}, "checks pending": {pendingOld, true, false},
+		"checks pending, new": {pendingNew, false, false}, "finished": {finished, false, false},
+	} {
+		j, in := got[want.id]
+		if in != want.in || (in && j != want.jdg) {
+			t.Errorf("%s: resumable=%v judging=%v, want %v %v", name, in, j, want.in, want.jdg)
+		}
+	}
+}

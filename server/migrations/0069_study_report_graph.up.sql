@@ -10,7 +10,7 @@ ALTER TABLE agent_run
     OR (kind = 'coresearch' AND card_id IS NULL AND requester_id IS NOT NULL AND coresearch_chat_id IS NOT NULL AND lab_chat_id IS NULL)
     OR (kind = 'rerun' AND card_id IS NOT NULL AND lab_chat_id IS NULL)
     OR (kind = 'aristotle' AND card_id IS NULL AND requester_id IS NOT NULL AND coresearch_chat_id IS NULL AND lab_chat_id IS NOT NULL)
-    OR (kind = 'report' AND card_id IS NOT NULL AND coresearch_chat_id IS NULL AND lab_chat_id IS NULL AND pinned_runtime_id IS NOT NULL));
+    OR (kind = 'report' AND card_id IS NOT NULL AND coresearch_chat_id IS NULL AND lab_chat_id IS NULL));
 
 CREATE TABLE report_build (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
@@ -106,3 +106,19 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
   UPDATE agent_run SET queue_reason = want.reason FROM want
   WHERE agent_run.id = want.id AND agent_run.queue_reason IS DISTINCT FROM want.reason
 $$;
+
+-- Builds a restart left unfinished, across workspaces: judging with a run that
+-- settled two minutes ago (or whose run row is gone), or checks still pending
+-- two minutes after the build began.
+CREATE FUNCTION report_builds_to_resume() RETURNS TABLE (workspace_id uuid, card_id uuid, judging boolean)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT b.workspace_id, b.card_id, b.status = 'judging'
+  FROM report_build b
+  LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id
+  WHERE (b.status = 'judging' AND ((b.agent_run_id IS NULL AND b.created_at < now() - interval '2 minutes')
+          OR (r.status IN ('completed', 'failed', 'cancelled') AND r.completed_at < now() - interval '2 minutes')))
+    OR (b.checks_status = 'pending' AND b.created_at < now() - interval '2 minutes')
+  ORDER BY b.created_at
+$$;
+REVOKE ALL ON FUNCTION report_builds_to_resume() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION report_builds_to_resume() TO lykeion_app;

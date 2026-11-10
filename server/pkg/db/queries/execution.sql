@@ -86,7 +86,10 @@ WHERE id = (
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
       -- a report run goes to the one runtime that ran the study's final run, even after the study is done
-      OR (t.kind = 'report' AND r.id = t.pinned_runtime_id AND t.responsible_user_id = c.owner_id AND c.ending = '')
+      OR (t.kind = 'report' AND r.id = t.pinned_runtime_id AND t.responsible_user_id = c.owner_id AND c.flag = '' AND c.ending = ''
+          AND EXISTS (SELECT 1 FROM member m WHERE m.workspace_id = t.workspace_id AND m.user_id = c.owner_id)
+          AND (r.owner_id = c.owner_id OR (@guest_isolation::boolean AND r.os = 'linux' AND (r.visibility = 'workspace'
+            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))
       OR (t.kind='aristotle' AND r.last_seen_at>now()-interval '60 seconds' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
           AND EXISTS(SELECT 1 FROM lab_chat lc JOIN member m ON m.workspace_id=lc.workspace_id AND m.user_id=lc.owner_id
                      WHERE lc.workspace_id=t.workspace_id AND lc.id=t.lab_chat_id AND lc.owner_id=r.owner_id
