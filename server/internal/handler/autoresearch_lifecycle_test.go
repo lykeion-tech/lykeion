@@ -66,63 +66,6 @@ func TestRuleDeletionRefusesLiveRunOnlyAgents(t *testing.T) {
 	}
 }
 
-func TestReadingAutoresearchInboxResolvesAndArchives(t *testing.T) {
-	s := newServer(t)
-	a := s.signIn(t, "inboxar@lab.org")
-	w := s.workspace(t, a, "lab")
-	other := s.member(t, a, w.ID, "otherinbox@lab.org", "member")
-	ap := s.autoresearch(t, a, w.ID, map[string]any{"title": "Inbox card", "execution_mode": "create_card"})
-	var run runView
-	if code := s.call(t, "POST", "/api/autoresearch/"+ap.ID+"/run", a, w.ID, nil, &run); code != 201 {
-		t.Fatal(code)
-	}
-	s.dropStudyRuns(t)
-	_, _, token, _ := s.runOnly(t, a, w.ID)
-	if code := s.call(t, "POST", "/api/role/report", token, "", map[string]string{"text": "Read this"}, nil); code != 201 {
-		t.Fatal(code)
-	}
-	var items []struct{ ID, Kind string }
-	if code := s.call(t, "GET", "/api/decisions", a, w.ID, nil, &items); code != 200 || len(items) != 2 {
-		t.Fatalf("inbox %d %+v", code, items)
-	}
-	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE inbox_item SET read_at='2000-01-01T00:00:00Z' WHERE id=$1`, items[0].ID); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range items {
-		// Another member who can see the item opens it without reading it
-		// for its addressee: a studyless one is not theirs to see at all.
-		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", other, w.ID, nil, nil); code != 204 && code != 404 {
-			t.Fatalf("other reader: %d", code)
-		}
-		if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND resolved_at IS NULL`, item.ID) != 1 {
-			t.Fatalf("another member's read resolved %s", item.Kind)
-		}
-		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
-			t.Fatal(code)
-		}
-		if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND read_at IS NOT NULL AND resolved_at IS NOT NULL`, item.ID) != 1 || s.count(t, `SELECT count(*) FROM event WHERE type='inbox.resolved' AND payload->>'inbox_item_id'=$1`, item.ID) != 1 {
-			t.Errorf("unresolved %s", item.Kind)
-		}
-		// A repeated read is accepted and records nothing more.
-		if code := s.call(t, "POST", "/api/decisions/"+item.ID+"/read", a, w.ID, nil, nil); code != 204 {
-			t.Fatalf("repeat: %d", code)
-		}
-		if s.count(t, `SELECT count(*) FROM event WHERE type='inbox.resolved' AND payload->>'inbox_item_id'=$1`, item.ID) != 1 {
-			t.Errorf("a repeated read of %s emitted again", item.Kind)
-		}
-	}
-	if s.count(t, `SELECT count(*) FROM inbox_item WHERE id=$1 AND read_at='2000-01-01T00:00:00Z'`, items[0].ID) != 1 {
-		t.Fatal("prior read timestamp changed")
-	}
-	var active, archived []map[string]any
-	if code := s.call(t, "GET", "/api/decisions", a, w.ID, nil, &active); code != 200 || len(active) != 0 {
-		t.Fatalf("active %d %+v", code, active)
-	}
-	if code := s.call(t, "GET", "/api/decisions?view=history", a, w.ID, nil, &archived); code != 200 || len(archived) != 2 {
-		t.Fatalf("archive %d %+v", code, archived)
-	}
-}
-
 func TestRuleDeletionAfterCancellationPreservesLateSettlement(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "canceldelete@lab.org")

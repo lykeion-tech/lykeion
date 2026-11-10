@@ -410,26 +410,6 @@ func TestDecideParkCancelsHeldRuns(t *testing.T) {
 	}
 }
 
-// A pass with open doubts only informs: reading it resolves and dismisses it.
-func TestReadingOpenDoubtsResolvesIt(t *testing.T) {
-	s := newServer(t)
-	s.H.Engine = nil
-	a := s.signIn(t, "a@lab.org")
-	w := s.workspace(t, a, "lab")
-	c := s.idleCard(t, a, w.ID, "q")
-	var id string
-	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, 'open_doubts', 'x')
-		RETURNING id`, w.ID, c.ID, s.userID(t, a)).Scan(&id); err != nil {
-		t.Fatal(err)
-	}
-	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", a, w.ID, nil, nil); code != 204 {
-		t.Fatalf("read: %d", code)
-	}
-	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND status = 'dismissed' AND resolved_at IS NOT NULL`, id); n != 1 {
-		t.Fatal("open doubts stayed open after reading")
-	}
-}
-
 func TestTextOnlyDecisionVisibilityAndArchive(t *testing.T) {
 	s := newServer(t)
 	s.H.Engine = nil
@@ -461,5 +441,72 @@ func TestTextOnlyDecisionVisibilityAndArchive(t *testing.T) {
 	otherWS := s.workspace(t, other, "other-question-set")
 	if got := s.decisions(t, other, otherWS.ID, ""); len(got) != 0 {
 		t.Fatalf("cross workspace: %+v", got)
+	}
+}
+
+func (s *server) seedKind(t *testing.T, ws, cardID, user, kind string) string {
+	t.Helper()
+	var id string
+	if err := s.Env.Owner.QueryRow(t.Context(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) VALUES ($1, $2, $3, $4, 'x')
+		RETURNING id`, ws, cardID, user, kind).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestStudyReportVisibleOnlyToItsUser(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	b := s.member(t, a, w.ID, "b@lab.org", "member")
+	c := s.idleCard(t, a, w.ID, "q")
+	id := s.seedKind(t, w.ID, c.ID, s.userID(t, a), "study_report")
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].ID != id || got[0].CanAnswer {
+		t.Fatalf("A list: %+v", got)
+	}
+	if got := s.decisions(t, b, w.ID, ""); len(got) != 0 {
+		t.Fatalf("B list: %+v", got)
+	}
+	if code := s.call(t, "GET", "/api/decisions/"+id, b, w.ID, nil, nil); code != 404 {
+		t.Fatalf("B get: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/decisions/"+id+"/read", a, w.ID, nil, nil); code != 204 {
+		t.Fatalf("read: %d", code)
+	}
+	if n := s.count(t, `SELECT count(*) FROM inbox_item WHERE id = $1 AND resolved_at IS NOT NULL`, id); n != 1 {
+		t.Fatal("study_report stayed unresolved after reading")
+	}
+}
+
+func TestHiddenKindsNotListed(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	for _, k := range []string{"autoresearch_card", "autoresearch_report", "middle_score", "open_doubts"} {
+		s.seedKind(t, w.ID, c.ID, s.userID(t, a), k)
+	}
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 0 {
+		t.Fatalf("open: %+v", got)
+	}
+	if got := s.decisions(t, a, w.ID, "?view=history"); len(got) != 0 {
+		t.Fatalf("history: %+v", got)
+	}
+	if n := s.decisionCount(t, a, w.ID); n != 0 {
+		t.Fatalf("count %d", n)
+	}
+}
+
+func TestAutoresearchFailedIsAccepted(t *testing.T) {
+	s := newServer(t)
+	s.H.Engine = nil
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "q")
+	id := s.seedKind(t, w.ID, c.ID, s.userID(t, a), "autoresearch_failed")
+	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].ID != id {
+		t.Fatalf("list: %+v", got)
 	}
 }
