@@ -330,6 +330,8 @@ type studyView struct {
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
+	// HasReport says the study page links to a report.
+	HasReport bool `json:"has_report"`
 }
 
 type serviceNameView struct {
@@ -349,6 +351,9 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	var err error
 	v.StartDate, err = tx.StudyStartDate(r.Context(), c.ID)
 	if err != nil {
+		return v, err
+	}
+	if v.HasReport, err = hasReport(r, tx, c); err != nil {
 		return v, err
 	}
 	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})

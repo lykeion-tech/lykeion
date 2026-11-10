@@ -11,8 +11,27 @@ import (
 	"github.com/google/uuid"
 )
 
+const cardHasReport = `-- name: CardHasReport :one
+SELECT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid AND kind = 'study_report')
+`
+
+type CardHasReportParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// Whether a study has a report: finishing raised one to someone. A study that
+// finished before reports shipped has none.
+func (q *Queries) CardHasReport(ctx context.Context, arg CardHasReportParams) (bool, error) {
+	row := q.db.QueryRow(ctx, cardHasReport, arg.WorkspaceID, arg.CardID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const studyDecidedItems = `-- name: StudyDecidedItems :many
 SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid AND decided_by IS NOT NULL
+  AND kind <> 'manual_decision'
 ORDER BY decided_at, created_at, id
 `
 
@@ -21,7 +40,8 @@ type StudyDecidedItemsParams struct {
 	CardID      uuid.UUID `json:"card_id"`
 }
 
-// A study's Inbox items someone decided, oldest decision first.
+// A study's Inbox items someone decided, oldest decision first. Manual
+// decisions are their author's private notes and stay out.
 func (q *Queries) StudyDecidedItems(ctx context.Context, arg StudyDecidedItemsParams) ([]InboxItem, error) {
 	rows, err := q.db.Query(ctx, studyDecidedItems, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -84,7 +104,8 @@ SELECT m.user_id FROM member m
 WHERE m.workspace_id = $1 AND (
   m.user_id = (SELECT c.owner_id FROM card c WHERE c.workspace_id = $1 AND c.id = $2)
   OR m.user_id IN (SELECT cm.author_id FROM comment cm WHERE cm.workspace_id = $1 AND cm.card_id = $2)
-  OR m.user_id IN (SELECT i.decided_by FROM inbox_item i WHERE i.workspace_id = $1 AND i.card_id = $2 AND i.decided_by IS NOT NULL))
+  OR m.user_id IN (SELECT i.decided_by FROM inbox_item i WHERE i.workspace_id = $1 AND i.card_id = $2 AND i.decided_by IS NOT NULL
+    AND i.kind <> 'manual_decision'))
 ORDER BY m.user_id = (SELECT c.owner_id FROM card c WHERE c.workspace_id = $1 AND c.id = $2) DESC, m.user_id
 `
 
@@ -94,7 +115,8 @@ type StudyParticipantsParams struct {
 }
 
 // The people a finished study's report goes to: its owner, then everyone who
-// commented on it or decided one of its Inbox items, those still members.
+// commented on it or decided one of its Inbox items (not a private manual
+// decision), those still members.
 func (q *Queries) StudyParticipants(ctx context.Context, arg StudyParticipantsParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, studyParticipants, arg.WorkspaceID, arg.CardID)
 	if err != nil {
@@ -153,7 +175,7 @@ func (q *Queries) StudyRunAgents(ctx context.Context, arg StudyRunAgentsParams) 
 }
 
 const studyRuns = `-- name: StudyRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid ORDER BY created_at, id
+SELECT id, board_column, agent_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid ORDER BY created_at, id
 `
 
 type StudyRunsParams struct {
@@ -161,69 +183,23 @@ type StudyRunsParams struct {
 	CardID      uuid.UUID `json:"card_id"`
 }
 
+type StudyRunsRow struct {
+	ID          uuid.UUID  `json:"id"`
+	BoardColumn string     `json:"board_column"`
+	AgentID     *uuid.UUID `json:"agent_id"`
+}
+
 // Every run a study made, oldest first.
-func (q *Queries) StudyRuns(ctx context.Context, arg StudyRunsParams) ([]AgentRun, error) {
+func (q *Queries) StudyRuns(ctx context.Context, arg StudyRunsParams) ([]StudyRunsRow, error) {
 	rows, err := q.db.Query(ctx, studyRuns, arg.WorkspaceID, arg.CardID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AgentRun
+	var items []StudyRunsRow
 	for rows.Next() {
-		var i AgentRun
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.CardID,
-			&i.ResponsibleUserID,
-			&i.BoardColumn,
-			&i.Round,
-			&i.Role,
-			&i.Harness,
-			&i.Prompt,
-			&i.Skill,
-			&i.Status,
-			&i.QueueReason,
-			&i.RuntimeID,
-			&i.PrepareLeaseExpiresAt,
-			&i.DispatchedAt,
-			&i.StartedAt,
-			&i.CompletedAt,
-			&i.Attempt,
-			&i.MaxAttempts,
-			&i.SessionID,
-			&i.ContinuityScope,
-			&i.ProfileMode,
-			&i.PolicyDigest,
-			&i.Model,
-			&i.Error,
-			&i.FailureReason,
-			&i.CostUsd,
-			&i.LateUsageAt,
-			&i.CreatedAt,
-			&i.HandoffNote,
-			&i.InputLeaseExpiresAt,
-			&i.InputFetchExpiresAt,
-			&i.InputFetchID,
-			&i.InputOutcomes,
-			&i.AddonHash,
-			&i.AddonMcp,
-			&i.Kind,
-			&i.RequesterID,
-			&i.RequestedModel,
-			&i.AgentID,
-			&i.Assignment,
-			&i.CancelReason,
-			&i.MachineName,
-			&i.MachineOwnerID,
-			&i.CoresearchChatID,
-			&i.CoresearchBuildID,
-			&i.RetryAfter,
-			&i.InfraFailures,
-			&i.AttachmentSnapshot,
-			&i.LabChatID,
-			&i.LabPurpose,
-		); err != nil {
+		var i StudyRunsRow
+		if err := rows.Scan(&i.ID, &i.BoardColumn, &i.AgentID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

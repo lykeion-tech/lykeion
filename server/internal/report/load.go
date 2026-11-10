@@ -14,7 +14,7 @@ import (
 type Input struct {
 	Card     db.Card
 	Records  []db.Record
-	Runs     []db.AgentRun
+	Runs     []db.StudyRunsRow
 	Comments []db.Comment
 	Decided  []db.InboxItem
 	// Agents names each agent that ran in the study, by agent id.

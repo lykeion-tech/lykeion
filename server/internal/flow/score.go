@@ -53,9 +53,8 @@ const scoringLease = 10 * time.Minute
 
 var errNoJev = errors.New("the lab has no TypeSafe key")
 
-// The Inbox sentences below are read back by the dashboard (inboxText in
-// lib/studies.ts), which lifts the quoted criterion out of a middle score;
-// the other kinds it words itself. Change them together.
+// weakCriterion names the criterion a blocked study scored lowest on, as its
+// Decisions item says it.
 func weakCriterion(text string, level float64) string {
 	return fmt.Sprintf("“%s” (level %s of 5)", text, strconv.FormatFloat(level, 'g', 3, 64))
 }

@@ -32,7 +32,7 @@ func (s *study) at() time.Time { s.n++; return t0.Add(time.Duration(s.n) * time.
 func (s *study) run(column, agent string) uuid.UUID {
 	id, agentID := uuid.New(), uuid.New()
 	s.in.Agents[agentID] = agent
-	s.in.Runs = append(s.in.Runs, db.AgentRun{ID: id, BoardColumn: column, AgentID: &agentID})
+	s.in.Runs = append(s.in.Runs, db.StudyRunsRow{ID: id, BoardColumn: column, AgentID: &agentID})
 	return id
 }
 
@@ -147,7 +147,7 @@ func TestBuildFullStudy(t *testing.T) {
 	if string(f.Rerun) != `{"reproduced":{"m":true}}` {
 		t.Fatalf("finding rerun: %s", f.Rerun)
 	}
-	if o := nodeOf(t, r, "obj:"+obj.ID.String()); o.Quote != "Test rows reached the fit." || o.Status != review.Unclear || len(o.Checks) != 2 {
+	if o := nodeOf(t, r, "obj:"+obj.ID.String()); o.Quote != "Test rows reached the fit." || o.Status != "not_upheld" || len(o.Checks) != 2 {
 		t.Fatalf("objection: %+v", o)
 	}
 	finding, exp := "rec:r12", "run:"+eRun.String()
@@ -263,5 +263,57 @@ func TestBuildUnmatchedObjectionLinksToQuestion(t *testing.T) {
 	id := "obj:" + o.ID.String()
 	if !hasEdge(r, id, "question", "challenges") || hasEdge(r, id, "rec:r2", "challenges") {
 		t.Fatalf("edges: %v", r.Edges)
+	}
+}
+
+// objectionStudy is a finished study with one hypothesis "H" (r1), an
+// experiment run that saved fig.png (r2) and a value "m" read from it (r3),
+// and a final finding on H (r5) measured by m.
+func objectionStudy() *study {
+	s := newStudy("hypotheses", "validation")
+	s.rec("hypotheses", "hypothesis", "r1", 1, nil, review.HypothesisBody{Text: "H"})
+	run := s.run("experimentation", "Experimenter")
+	s.rec("experimentation", "output", "r2", 3, &run, map[string]any{"name": "fig.png"})
+	s.rec("experimentation", "value", "r3", 3, &run, map[string]any{"name": "m", "value": "1", "file": "fig.png"})
+	s.rec("validation", "assessment", "r4", 4, nil, review.Assessment{Hypothesis: "H", Measurement: "m"})
+	s.rec("validation", "validation_status", "r5", 4, nil, map[string]any{"hypothesis": "H", "status": "supported", "final": true})
+	return s
+}
+
+func TestBuildObjectionThroughHypothesisIsUpheld(t *testing.T) {
+	s := objectionStudy()
+	o := s.rec("validation", "objection", "r6", 4, nil, review.Objection{TargetKey: "r1", Type: "overreach", Problem: "Claims too much.", Server: "ok",
+		Upheld: true, Checks: []review.Check{{ID: "wrong", By: "jev", Status: review.Pass}, {ID: "specific", By: "jev", Status: review.Pass}}})
+	r := Build(s.in)
+	id := "obj:" + o.ID.String()
+	if n := nodeOf(t, r, id); n.Status != "upheld" {
+		t.Fatalf("status %q, want upheld", n.Status)
+	}
+	if !hasEdge(r, id, "rec:r5", "challenges") || hasEdge(r, id, "question", "challenges") {
+		t.Fatalf("edges: %v", r.Edges)
+	}
+}
+
+func TestBuildObjectionThroughOutput(t *testing.T) {
+	s := objectionStudy()
+	o := s.rec("validation", "objection", "r6", 4, nil, review.Objection{TargetKey: "r2", Type: "unit_mismatch", Problem: "Units differ.", Server: "ok",
+		Checks: []review.Check{{ID: "wrong", By: "jev", Status: review.Fail}, {ID: "specific", By: "jev", Status: review.Pass}}})
+	r := Build(s.in)
+	id := "obj:" + o.ID.String()
+	if n := nodeOf(t, r, id); n.Status != "not_upheld" {
+		t.Fatalf("status %q, want not_upheld", n.Status)
+	}
+	if !hasEdge(r, id, "rec:r5", "challenges") || hasEdge(r, id, "question", "challenges") {
+		t.Fatalf("edges: %v", r.Edges)
+	}
+}
+
+func TestBuildFindingIgnoresAnotherRoundsRerun(t *testing.T) {
+	s := newStudy("hypotheses", "validation")
+	s.rec("hypotheses", "hypothesis", "r1", 1, nil, review.HypothesisBody{Text: "H"})
+	s.rec("validation", "rerun", "r2", 1, nil, map[string]any{"reproduced": map[string]bool{"m": true}})
+	s.rec("validation", "validation_status", "r3", 2, nil, map[string]any{"hypothesis": "H", "status": "supported", "final": true})
+	if f := nodeOf(t, Build(s.in), "rec:r3"); f.Rerun != nil {
+		t.Fatalf("rerun from round 1 on a round-2 finding: %s", f.Rerun)
 	}
 }

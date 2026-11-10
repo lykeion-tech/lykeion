@@ -24,6 +24,7 @@ func (s *server) finishedStudy(t *testing.T, tok, wsID string) string {
 		t.Fatal(err)
 	}
 	s.mustUpdate(t, `UPDATE card SET state = 'done' WHERE id = $1`, c.ID)
+	s.mustUpdate(t, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) SELECT workspace_id, id, owner_id, 'study_report', 'ready' FROM card WHERE id = $1`, c.ID)
 	return c.ID
 }
 
@@ -79,5 +80,43 @@ func TestReportReadableByAnyMember(t *testing.T) {
 	id := s.finishedStudy(t, a, w.ID)
 	if code := s.call(t, "GET", "/api/cards/"+id+"/report", b, w.ID, nil, nil); code != 200 {
 		t.Fatalf("member: %d", code)
+	}
+}
+
+func TestReportNeedsAStudyReportItem(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	id := s.finishedStudy(t, a, w.ID)
+	var card struct {
+		HasReport bool `json:"has_report"`
+	}
+	if code := s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &card); code != 200 || !card.HasReport {
+		t.Fatalf("with a report: %d %+v", code, card)
+	}
+	// A study that finished before reports shipped has no study_report item.
+	s.mustUpdate(t, `DELETE FROM inbox_item WHERE card_id = $1 AND kind = 'study_report'`, id)
+	var out map[string]any
+	if code := s.call(t, "GET", "/api/cards/"+id+"/report", a, w.ID, nil, &out); code != 409 || out["error"] != "this study has no report" {
+		t.Fatalf("report: %d %v", code, out)
+	}
+	card.HasReport = true
+	if code := s.call(t, "GET", "/api/cards/"+id, a, w.ID, nil, &card); code != 200 || card.HasReport {
+		t.Fatalf("without a report: %d %+v", code, card)
+	}
+}
+
+func TestReportSteeringLeavesOutManualDecisions(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	id := s.finishedStudy(t, a, w.ID)
+	s.mustUpdate(t, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, title, text, status, resolved_at, decided_at, decided_by)
+		SELECT workspace_id, id, owner_id, 'manual_decision', 'Note', 'private note', 'decided', now(), now(), owner_id FROM card WHERE id = $1`, id)
+	var rep struct{ Steering []map[string]any }
+	if code := s.call(t, "GET", "/api/cards/"+id+"/report", a, w.ID, nil, &rep); code != 200 || len(rep.Steering) != 0 {
+		t.Fatalf("steering: %d %+v", code, rep.Steering)
 	}
 }

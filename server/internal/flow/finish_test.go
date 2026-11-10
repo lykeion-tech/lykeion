@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"lykeion/server/internal/store"
 )
 
 func (l *lab) reportRecipients(t *testing.T, id uuid.UUID) []uuid.UUID {
@@ -18,8 +20,13 @@ func (l *lab) reportRecipients(t *testing.T, id uuid.UUID) []uuid.UUID {
 	var out []uuid.UUID
 	for rows.Next() {
 		var u uuid.UUID
-		rows.Scan(&u)
+		if err := rows.Scan(&u); err != nil {
+			t.Fatal(err)
+		}
 		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	return out
 }
@@ -78,6 +85,26 @@ func TestStoppedStudyRaisesNoReport(t *testing.T) {
 		t.Fatalf("state %s", got.State)
 	}
 	if got := l.reportRecipients(t, c.ID); len(got) != 0 {
+		t.Fatalf("report recipients %v", got)
+	}
+}
+
+func TestFinishLeavesOutPrivateManualDecisions(t *testing.T) {
+	l := newLab(t)
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	noter := l.colleague(t, "n@lab.org")
+	if _, err := l.env.Owner.Exec(context.Background(), `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, title, text, status, resolved_at, decided_at, decided_by)
+		VALUES ($1, $2, $3, 'manual_decision', 'Note', 'private note', 'decided', now(), now(), $3)`, l.ws, c.ID, noter); err != nil {
+		t.Fatal(err)
+	}
+	// The noter finishing the study is the one transaction that can see the note.
+	if err := l.st.InWorkspace(context.Background(), l.ws, noter, func(tx *store.Tx) error {
+		return finishStudy(context.Background(), tx, l.card(t, c.ID))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.reportRecipients(t, c.ID); slices.Contains(got, noter) || len(got) != 1 {
 		t.Fatalf("report recipients %v", got)
 	}
 }

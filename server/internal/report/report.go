@@ -41,7 +41,7 @@ type Node struct {
 	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "out:<output name>", "obj:<record id>", "doubt:<column>:<item key>"
 	Kind    string          `json:"kind"` // question|paper|dataset|hypothesis|experiment|output|finding|objection|doubt
 	Label   string          `json:"label"`
-	Status  string          `json:"status"`          // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses: kept|rejected; review items: pass|unclear|fail; else ""
+	Status  string          `json:"status"`          // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses: kept|rejected; objections: upheld|not_upheld; papers, datasets and doubts: pass|unclear|fail; else ""
 	Reasons []string        `json:"reasons"`         // recorded reasons only
 	Quote   string          `json:"quote"`           // the recorded text the node stands for
 	Checks  []review.Check  `json:"checks"`          // checks recorded in the newest review of the node's item
@@ -68,7 +68,7 @@ type builder struct {
 	in    Input
 	live  []db.Record
 	byKey map[string]db.Record
-	runs  map[uuid.UUID]db.AgentRun
+	runs  map[uuid.UUID]db.StudyRunsRow
 	nodes []Node
 	order map[string]string // node id → the record or item key it sorts by
 	edges []Edge
@@ -78,7 +78,7 @@ type builder struct {
 // A row a rule does not name stays out of the graph.
 func Build(in Input) Report {
 	c := in.Card
-	b := &builder{in: in, byKey: map[string]db.Record{}, runs: map[uuid.UUID]db.AgentRun{}, order: map[string]string{}}
+	b := &builder{in: in, byKey: map[string]db.Record{}, runs: map[uuid.UUID]db.StudyRunsRow{}, order: map[string]string{}}
 	for _, r := range in.Records {
 		if r.SupersededAt == nil {
 			b.live = append(b.live, r)
@@ -167,7 +167,6 @@ func Build(in Input) Report {
 			}
 		}
 	}
-	hasExp := slices.Contains(rep.Stages, board.Experimentation)
 	for _, run := range b.in.Runs {
 		key, produced := firstKey[run.ID]
 		if run.BoardColumn != board.Experimentation || !produced {
@@ -176,11 +175,9 @@ func Build(in Input) Report {
 		id := run.ID
 		n := Node{ID: "run:" + id.String(), Kind: "experiment", Label: b.agentOf(&id), RunID: &id, Agent: b.agentOf(&id), Column: run.BoardColumn}
 		b.add(n, key)
-		if hasExp {
-			for _, h := range hyps {
-				if h.kept {
-					b.edge(h.id, n.ID, "tested_by")
-				}
+		for _, h := range hyps {
+			if h.kept {
+				b.edge(h.id, n.ID, "tested_by")
 			}
 		}
 	}
@@ -216,7 +213,9 @@ func Build(in Input) Report {
 	}
 	var rerun json.RawMessage
 	for _, r := range b.of(board.Validation, "rerun") {
-		rerun = r.Body
+		if r.Round == round {
+			rerun = r.Body
+		}
 	}
 	valReview, _ := b.newestReview(board.Validation, false)
 	assessments := map[string]review.Assessment{} // by hypothesis text, trimmed
@@ -295,8 +294,9 @@ func Build(in Input) Report {
 		}
 		n := b.recNode(r, "objection")
 		n.ID, n.Label, n.Quote, n.Checks = "obj:"+r.ID.String(), strings.ReplaceAll(o.Type, "_", " "), o.Problem, o.Checks
-		if len(o.Checks) > 0 {
-			n.Status = review.ItemStatus(o.Checks)
+		n.Status = "not_upheld"
+		if o.Upheld {
+			n.Status = "upheld"
 		}
 		b.add(n, r.Key)
 		target, found := b.byKey[o.TargetKey]
