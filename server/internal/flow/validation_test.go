@@ -285,8 +285,8 @@ func TestModeAEndsWithStatuses(t *testing.T) {
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'objection' AND role = 'objector' AND superseded_at IS NULL", c.ID); n != 0 {
 		t.Fatalf("%d unjudged objections left live", n)
 	}
-	if items := l.inbox(t, c.ID, "done"); len(items) != 1 {
-		t.Fatalf("done items: %v", items)
+	if items := l.inbox(t, c.ID, "study_report"); len(items) != 1 {
+		t.Fatalf("study_report items: %v", items)
 	}
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind IN ('review', 'outcome') AND board_column = 'validation'", c.ID); n != 2 {
 		t.Fatalf("%d review and outcome records", n)

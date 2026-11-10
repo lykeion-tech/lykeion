@@ -50,12 +50,11 @@ func (s *server) runOnly(t *testing.T, tok, wsID string) (apView, runView, strin
 	return ap, run, claimed[0].Token, complete
 }
 
-func TestTheReportReachesTheOwnerAndSubscribersOnce(t *testing.T) {
+func TestTheReportIsStoredAndRaisesNoInboxItem(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	sub := s.member(t, a, w.ID, "s@lab.org", "member")
-	bystander := s.member(t, a, w.ID, "m@lab.org", "member")
 	gone := s.member(t, a, w.ID, "r@lab.org", "member")
 	ap, run, ltk, _ := s.runOnly(t, a, w.ID)
 	for _, tok := range []string{sub, gone} {
@@ -85,10 +84,8 @@ func TestTheReportReachesTheOwnerAndSubscribersOnce(t *testing.T) {
 	if len(runs) != 1 || runs[0].ID != run.ID || runs[0].Report != "Two new papers on hepatic lipids." {
 		t.Fatalf("%+v", runs)
 	}
-	items := `SELECT count(*) FROM inbox_item WHERE kind = 'autoresearch_report' AND autoresearch_run_id = $1 AND user_id = $2 AND text LIKE 'Digest: Two new papers%'`
-	if s.count(t, items, run.ID, s.userID(t, a)) != 1 || s.count(t, items, run.ID, s.userID(t, sub)) != 1 ||
-		s.count(t, items, run.ID, s.userID(t, bystander)) != 0 || s.count(t, items, run.ID, s.userID(t, gone)) != 0 {
-		t.Fatal("the report reached the wrong people")
+	if s.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id = $1`, run.ID) != 0 {
+		t.Fatal("the report raised an Inbox item")
 	}
 }
 
@@ -137,9 +134,8 @@ func TestRunOnlyReportFullTextAndExcerpt(t *testing.T) {
 	if len(runs) != 1 || runs[0].Report != text {
 		t.Fatalf("full report: %+v", runs)
 	}
-	want := "Digest: " + strings.Repeat("界", 1999) + "…"
-	if s.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1 AND kind='autoresearch_report' AND text=$2`, run.ID, want) != 1 {
-		t.Fatal("wrong excerpt")
+	if s.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1`, run.ID) != 0 {
+		t.Fatal("a report raised an Inbox item")
 	}
 	if s.count(t, `SELECT count(*) FROM event WHERE type='autoresearch_run.reported' AND payload->>'run_id'=$1`, run.ID) != 1 {
 		t.Fatal("missing report event")
@@ -232,7 +228,7 @@ func TestRunOnlyConcurrentReportsCommitOnce(t *testing.T) {
 	if !((x.code == 201 && y.code == 409) || (x.code == 409 && y.code == 201)) {
 		t.Fatalf("reports: %+v %+v", x, y)
 	}
-	if s.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1 AND kind='autoresearch_report'`, run.ID) != 1 || s.count(t, `SELECT count(*) FROM event WHERE type='autoresearch_run.reported' AND payload->>'run_id'=$1`, run.ID) != 1 {
+	if s.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1`, run.ID) != 0 || s.count(t, `SELECT count(*) FROM event WHERE type='autoresearch_run.reported' AND payload->>'run_id'=$1`, run.ID) != 1 {
 		t.Fatal("concurrent report duplicated notifications")
 	}
 }

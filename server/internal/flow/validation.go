@@ -624,8 +624,7 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			Round: c.Round, Redos: c.Redos}); err != nil {
 			return err
 		}
-		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "done",
-			Text: doneText(c.Number, c.BoardColumn)}); err != nil {
+		if err := finishStudy(ctx, tx, c); err != nil {
 			return err
 		}
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "done", "verdict": res.Decision})

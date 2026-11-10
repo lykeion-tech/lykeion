@@ -40,7 +40,7 @@ func (s *Service) runOnly(ctx context.Context, tx *store.Tx, ap db.Autoresearch,
 			return err
 		}
 		if draft != nil {
-			if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not start creating the study. Check that its CLI is online and try again."); err != nil {
+			if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_failed", "The agent could not start creating the study. Check that its CLI is online and try again."); err != nil {
 				return err
 			}
 		}

@@ -39,13 +39,13 @@ func TestAutoresearchInboxRunWithoutCardResolves(t *testing.T) {
 	if code := s.call(t, "POST", "/api/role/report", token, "", map[string]string{"text": fullReport}, nil); code != 201 {
 		t.Fatalf("post report: %d", code)
 	}
-	// The report row is hidden from the Decisions list but still recorded.
+	// A report raises no Inbox item, so nothing is listed.
 	var listed []map[string]any
 	if code := s.call(t, "GET", "/api/decisions", owner, workspace.ID, nil, &listed); code != 200 || len(listed) != 0 {
 		t.Fatalf("hidden report listed: %d %+v", code, listed)
 	}
-	if s.count(t, `SELECT count(*) FROM inbox_item WHERE kind='autoresearch_report' AND card_id IS NULL AND autoresearch_run_id=$1 AND text <> $2`, run.ID, fullReport) != 1 {
-		t.Fatal("cardless report row missing or holds the full report")
+	if s.count(t, `SELECT count(*) FROM inbox_item WHERE kind='autoresearch_report' AND autoresearch_run_id=$1`, run.ID) != 0 {
+		t.Fatal("a report raised an Inbox item")
 	}
 	got := s.resolvedRun(t, owner, workspace.ID, run.ID)
 	if got.AutoresearchID != ap.ID || got.AutoresearchTitle != "Digest" || got.ExecutionMode != "run_only" || got.Run.ID.String() != run.ID || got.Run.AutoresearchID.String() != ap.ID {

@@ -209,7 +209,7 @@ func (s *Service) FailStudyDraft(ctx context.Context, ws, id uuid.UUID) error {
 		if err := s.setRun(ctx, tx, r); err != nil {
 			return err
 		}
-		return s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not start creating the study. Please try again.")
+		return s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_failed", "The agent could not start creating the study. Please try again.")
 	})
 }
 

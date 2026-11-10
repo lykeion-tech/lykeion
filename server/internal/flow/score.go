@@ -60,16 +60,6 @@ func weakCriterion(text string, level float64) string {
 	return fmt.Sprintf("“%s” (level %s of 5)", text, strconv.FormatFloat(level, 'g', 3, 64))
 }
 
-// middleScoreText says whether the study went on to the next column or
-// finished; the dashboard tells the two apart by "and the study finished".
-func middleScoreText(number int32, column, weak string, finished bool) string {
-	end := ""
-	if finished {
-		end = " and the study finished"
-	}
-	return fmt.Sprintf("Study #%d's %s column scored in the middle%s; its weakest criterion was %s.", number, title(column), end, weak)
-}
-
 func blockedText(number int32, column, weak string) string {
 	if weak == "" {
 		return fmt.Sprintf("Study #%d's %s column: Jev scored the column low twice. Comment on the study to tell the Team what to fix.", number, title(column))
@@ -113,10 +103,6 @@ func allWithdrawnText(column string, reasons []string) string {
 		noun = map[string]string{"items": "item", "hypotheses": "hypothesis", "verdicts and flagged errors": "verdict or flagged error"}[noun]
 	}
 	return fmt.Sprintf("The Team withdrew all %d %s: %s. %s Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), noun, strings.TrimRight(strings.Join(reasons, "; "), "."), left)
-}
-
-func openDoubtsText(number int32, column string, doubts []string) string {
-	return fmt.Sprintf("Study #%d passed %s with open doubts: %s", number, title(column), strings.Join(doubts, "; "))
 }
 
 func doneText(number int32, column string) string {
@@ -666,7 +652,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": verdict, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		var items []board.Item
+		finished := false
 		weak := weakCriterion(lowest.Text, lowestLevel)
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
@@ -683,21 +669,18 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
-			if verdict == "middle" {
-				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak, last)})
-			}
 			if i := board.StageIndex(c.BoardColumn); !last {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 			} else {
 				next.State = "done"
-				items = append(items, board.Item{Kind: "done", Text: doneText(c.Number, c.BoardColumn)})
+				finished = true
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
 			return err
 		}
-		for _, it := range items {
-			if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+		if finished {
+			if err := finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}

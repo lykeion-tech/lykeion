@@ -88,7 +88,7 @@ func TestRunOnlyThroughADaemonHasOnlyItsTwoPowers(t *testing.T) {
 	var items int
 	must(t, l.env.Owner.QueryRow(ctx, `SELECT report FROM autoresearch_run WHERE id = $1`, run.ID).Scan(&report))
 	must(t, l.env.Owner.QueryRow(ctx, `SELECT count(*) FROM inbox_item WHERE kind = 'autoresearch_report' AND user_id = $1`, l.owner).Scan(&items))
-	if report != "Nothing new this week." || items != 1 {
+	if report != "Nothing new this week." || items != 0 {
 		t.Fatalf("report %q, Inbox items %d", report, items)
 	}
 	var owner, origin string

@@ -298,15 +298,15 @@ func TestHighMovesOnAndTheLastColumnEnds(t *testing.T) {
 	if got.BoardColumn != "hypotheses" || got.State != "done" {
 		t.Fatalf("after the last column: %s %s", got.BoardColumn, got.State)
 	}
-	if items := l.inbox(t, c.ID, "done"); len(items) != 1 {
-		t.Fatalf("done items: %v", items)
+	if items := l.inbox(t, c.ID, "study_report"); len(items) != 1 {
+		t.Fatalf("study_report items: %v", items)
 	}
 	if items := l.inbox(t, c.ID, "middle_score"); len(items) != 0 {
 		t.Fatalf("a high score raised a middle item: %v", items)
 	}
 }
 
-func TestMiddleMovesOnWithAnInboxItem(t *testing.T) {
+func TestMiddleMovesOnWithoutAnInboxItem(t *testing.T) {
 	l := newLab(t)
 	l.legacy = true
 	const weak = "Does it answer what the researcher asked?"
@@ -317,8 +317,7 @@ func TestMiddleMovesOnWithAnInboxItem(t *testing.T) {
 	if got := l.card(t, c.ID); got.BoardColumn != "hypotheses" || got.State != "working" {
 		t.Fatalf("after a middle score: %s %s", got.BoardColumn, got.State)
 	}
-	items := l.inbox(t, c.ID, "middle_score")
-	if len(items) != 1 || !strings.Contains(items[0], weak) {
+	if items := l.inbox(t, c.ID, "middle_score"); len(items) != 0 {
 		t.Fatalf("middle items: %v", items)
 	}
 }
@@ -608,11 +607,9 @@ func TestInboxSentences(t *testing.T) {
 		t.Fatalf("weak = %q", weak)
 	}
 	for got, want := range map[string]string{
-		middleScoreText(7, "grounding", weak, false): "Study #7's Grounding column scored in the middle; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
-		middleScoreText(7, "grounding", weak, true):  "Study #7's Grounding column scored in the middle and the study finished; its weakest criterion was “Does it say what it couldn't do?” (level 3 of 5).",
-		blockedText(7, "grounding", weak):            "Study #7 scored low twice in its Grounding column, lowest on “Does it say what it couldn't do?” (level 3 of 5). Comment on the study to tell the Team what to fix.",
-		doneText(7, "validation"):                    "Study #7 is done, in its Validation column.",
-		unavailableText(7, "grounding"):              "Scoring is unavailable for study #7's Grounding column. It stays there, and Lykeion keeps retrying.",
+		blockedText(7, "grounding", weak): "Study #7 scored low twice in its Grounding column, lowest on “Does it say what it couldn't do?” (level 3 of 5). Comment on the study to tell the Team what to fix.",
+		doneText(7, "validation"):         "Study #7 is done, in its Validation column.",
+		unavailableText(7, "grounding"):   "Scoring is unavailable for study #7's Grounding column. It stays there, and Lykeion keeps retrying.",
 	} {
 		if got != want {
 			t.Errorf("got  %q\nwant %q", got, want)

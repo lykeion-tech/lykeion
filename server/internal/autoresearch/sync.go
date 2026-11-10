@@ -97,7 +97,7 @@ func (s *Service) Sync(ctx context.Context) error {
 					if err != nil {
 						return err
 					}
-					if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_report", "The agent could not create the study. Check its run for details."); err != nil {
+					if err := s.notify(ctx, tx, ap, nil, r.ID, "autoresearch_failed", "The agent could not create the study. Check its run for details."); err != nil {
 						return err
 					}
 				}

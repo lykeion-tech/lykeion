@@ -757,7 +757,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": res.Decision, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		var items []board.Item
+		finished := false
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
 		switch {
@@ -784,9 +784,6 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			}
 		default:
 			e.drawRatingSafely(ctx, tx, c)
-			if doubts := review.OpenDoubts(res); len(doubts) > 0 {
-				items = append(items, board.Item{Kind: "open_doubts", Text: openDoubtsText(c.Number, c.BoardColumn, doubts)})
-			}
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 				if res.Decision == review.DecideCarry {
@@ -794,14 +791,14 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 				}
 			} else {
 				next.State = "done"
-				items = append(items, board.Item{Kind: "done", Text: doneText(c.Number, c.BoardColumn)})
+				finished = true
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
 			return err
 		}
-		for _, it := range items {
-			if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+		if finished {
+			if err := finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}
