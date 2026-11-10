@@ -72,7 +72,7 @@ func judgeFixture() (Report, Proposals) {
 func TestJudgeKeepsOnlyAccepted(t *testing.T) {
 	rep, p := judgeFixture()
 	f := &fakeJev{p: func(s string) float64 {
-		if strings.Contains(s, "IL6 increases Inflammation") {
+		if strings.Contains(s, "IL6 (protein) increases Inflammation (disease)") {
 			return 0.95
 		}
 		return 0.4
@@ -305,12 +305,16 @@ func TestJudgeReadsConceptLabelsAndTypes(t *testing.T) {
 	if _, err := Judge(context.Background(), f, rep, p); err != nil {
 		t.Fatal(err)
 	}
-	if !fencedContains(f.states[0], "Cures cancer increases Inflammation") ||
-		!fencedContains(f.states[0], "Concept Cures cancer, of type protein.") || !fencedContains(f.states[0], "Concept Inflammation, of type disease.") {
-		t.Fatalf("the fact was not judged by its concepts' labels and types:\n%s", f.states[0])
+	item, evidence, _ := strings.Cut(f.states[0], "Evidence 1:")
+	if !fencedContains(item, "Cures cancer (protein) increases Inflammation (disease)") {
+		t.Fatalf("the fact's item does not carry its concepts' labels and types:\n%s", f.states[0])
 	}
-	if !fencedContains(f.states[1], "TNF mentioned in arxiv:2") || !fencedContains(f.states[1], "Concept TNF, of type protein.") {
-		t.Fatalf("a mentioned_in fact was not judged by its node's label:\n%s", f.states[1])
+	if strings.Contains(evidence, "protein") || strings.Contains(evidence, "disease") || strings.Contains(evidence, "Concept") {
+		t.Fatalf("the model's concept types were fenced as evidence:\n%s", f.states[0])
+	}
+	item, evidence, _ = strings.Cut(f.states[1], "Evidence 1:")
+	if !fencedContains(item, "TNF (protein) mentioned in arxiv:2\n") || strings.Contains(evidence, "protein") {
+		t.Fatalf("a mentioned_in fact was not judged by its node's untyped label:\n%s", f.states[1])
 	}
 }
 

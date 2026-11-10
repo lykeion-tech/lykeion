@@ -85,14 +85,13 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		seen[f] = true
 		asked++
 		subject, object := concepts[f.Subject], concepts[f.Object]
-		item := subject.Label + " " + strings.ReplaceAll(f.Relation, "_", " ") + " "
-		evidence := []string{f.Quote, nodes[f.SourceNode].Quote, conceptText(subject)}
+		item := conceptText(subject) + " " + strings.ReplaceAll(f.Relation, "_", " ") + " "
 		if f.Relation == "mentioned_in" {
 			item += nodes[f.Object].Label
 		} else {
-			item += object.Label
-			evidence = append(evidence, conceptText(object))
+			item += conceptText(object)
 		}
+		evidence := []string{f.Quote, nodes[f.SourceNode].Quote}
 		ps, err := a.Noul(ctx, review.ItemState("Report", item, evidence, review.MaxState),
 			map[string]string{"holds": factQuestion})
 		if err != nil {
@@ -134,9 +133,10 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 	return j, nil
 }
 
-// conceptText is what Jev reads of a concept: its label and type.
+// conceptText is how a fact names a concept to Jev: its label and type,
+// as part of the judged item, never as evidence.
 func conceptText(c handin.ReportConcept) string {
-	return "Concept " + c.Label + ", of type " + c.Type + "."
+	return c.Label + " (" + c.Type + ")"
 }
 
 // sentence is the sentence of text holding bytes start to end.
