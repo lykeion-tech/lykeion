@@ -61,7 +61,7 @@ test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top a
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
   const brand = nav.locator('.sidebar-brand');
-  await expect(brand.getByText('Lykeion (Λύκειον)')).toBeAttached();
+  await expect(brand.locator('.wordmark')).toHaveText('Lykeion');
   const mark = (await brand.locator('.wordmark').boundingBox())!;
   const switchBox = (await brand.locator('.brand-switch').boundingBox())!;
   const side = (await nav.boundingBox())!;

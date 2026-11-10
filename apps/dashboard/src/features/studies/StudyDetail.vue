@@ -12,6 +12,7 @@ import {
   watch,
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { Square } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
@@ -204,16 +205,22 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
+const agentsWorking = computed(
+  () =>
+    c.value?.state === 'working' &&
+    !!cards.data.value?.find((item) => item.id === c.value!.id)?.agent_running,
+);
 const propertyStateLabel = computed(() => {
   const current = c.value;
   if (!current) return '';
-  if (
-    current.state === 'working' &&
-    !cards.data.value?.find((item) => item.id === current.id)?.agent_running
-  )
-    return '';
+  if (current.state === 'working' && !agentsWorking.value) return '';
   return stateLabel(current);
 });
+// While agents work on an empty composer, Send becomes Stop; typing brings
+// Send back so a comment can still steer them.
+const showStop = computed(
+  () => agentsWorking.value && !comment.value.trim() && !commentFiles.items.value.length,
+);
 const services = computed(() => c.value?.services ?? []);
 const creator = computed(
   () =>
@@ -482,8 +489,7 @@ async function send() {
     if (scope.current()) busy.value = false;
   }
 }
-// Stopping ends the study for good, so it asks first and keeps the typed
-// reason when the person backs out.
+// Stopping ends the study for good, so it asks first.
 async function stop() {
   if (busy.value || !c.value) return;
   if (!confirm(`Stop ${number.value}? Ended studies are never reopened.`)) return;
@@ -739,16 +745,6 @@ function pin() {
               @keydown.ctrl.enter.prevent="send"
             />
             <footer>
-              <button
-                type="button"
-                class="stop-study"
-                aria-label="Stop study"
-                title="Stop the study"
-                :disabled="busy"
-                @click="stop"
-              >
-                Stop
-              </button>
               <CommentFilePicker
                 :items="commentFiles.items.value"
                 :error="commentFiles.error.value"
@@ -757,6 +753,17 @@ function pin() {
                 @remove="commentFiles.remove"
               />
               <button
+                v-if="showStop"
+                type="button"
+                class="round-send"
+                aria-label="Stop study"
+                :disabled="busy"
+                @click="stop"
+              >
+                <Square :size="10" fill="currentColor" />
+              </button>
+              <button
+                v-else
                 class="round-send"
                 type="submit"
                 :disabled="
@@ -1296,14 +1303,6 @@ function pin() {
   color: var(--muted);
   font-size: 13px;
 }
-.study-comment .stop-study {
-  margin-right: auto;
-  color: var(--error-text);
-  font-size: 13px;
-}
-.study-comment .stop-study:disabled {
-  opacity: 0.5;
-}
 .study-meta .ending-reason {
   margin: 0;
   color: var(--muted);
@@ -1315,10 +1314,6 @@ function pin() {
   width: 26px;
   height: 26px;
   padding: 0;
-}
-.study-comment .round-send.stop-control {
-  background: var(--primary-text);
-  color: #000;
 }
 .composer-scroll-alignment {
   flex: none;
