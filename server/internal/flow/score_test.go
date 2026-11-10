@@ -43,6 +43,7 @@ type jevStub struct {
 type jevRequest struct {
 	State     string
 	Questions map[string]jevQuestion
+	Assets    map[string]struct{ Type, Format, Data_base64 string }
 }
 
 // jevQuestion is one asked question: a score's levels are in Criteria, a

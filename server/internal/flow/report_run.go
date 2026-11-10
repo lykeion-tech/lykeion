@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"path"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/report"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -235,11 +239,11 @@ func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 		return err
 	}
 	rep := report.Build(in)
-	texts, err := e.reportTexts(ctx, in, rep)
+	ev, err := e.reportEvidence(ctx, in, rep)
 	if err != nil {
 		return err
 	}
-	checks, jerr := report.CheckFindings(ctx, retryAsker{&reviewPass{e: e, ws: ws, retry: e.retry(), renewed: e.now()}}, rep, texts)
+	checks, jerr := report.CheckFindings(ctx, retryAsker{&reviewPass{e: e, ws: ws, retry: e.retry(), renewed: e.now()}}, rep, ev)
 	if jerr != nil {
 		slog.Warn("report checks unavailable", "card", card, "err", jerr)
 	}
@@ -264,7 +268,7 @@ func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 			}
 			for _, k := range checks {
 				if err := tx.Q.InsertReportCheck(ctx, db.InsertReportCheckParams{WorkspaceID: ws, CardID: card, NodeID: k.Node, CheckID: k.CheckID,
-					Question: k.Question, Choice: k.Choice, P: k.P, Status: k.Status, Evidence: k.Evidence}); err != nil {
+					Question: k.Question, Choice: k.Choice, P: k.P, Status: k.Status, Evidence: k.Evidence, Basis: k.Basis}); err != nil {
 					return err
 				}
 			}
@@ -274,9 +278,17 @@ func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 	})
 }
 
-// reportTexts is each output node's saved text, and under "paper:<node id>"
-// each paper's text as the calls it was fetched in recorded it.
-func (e *Engine) reportTexts(ctx context.Context, in report.Input, rep report.Report) (map[string]string, error) {
+// maxImageRead is the most of a saved image read to show Jev.
+// ponytail: larger images are judged from text or script instead; raise it if real figures exceed it.
+const maxImageRead = 32 << 20
+
+// reportEvidence is what the report's checks are judged from: each output
+// node's saved text, its image when it is a PNG or JPEG that supports a
+// finding and fits Jev, and the script that produced it; and under
+// "paper:<node id>" each paper's text as the calls it was fetched in
+// recorded it.
+func (e *Engine) reportEvidence(ctx context.Context, in report.Input, rep report.Report) (report.Evidence, error) {
+	ev := report.Evidence{Images: map[string]jev.Image{}, Texts: map[string]string{}, Scripts: map[string]string{}}
 	var outputs []db.Record
 	byKey := map[string]db.Record{}
 	for _, r := range in.Records {
@@ -290,16 +302,41 @@ func (e *Engine) reportTexts(ctx context.Context, in report.Input, rep report.Re
 	}
 	files, err := e.outputTexts(ctx, outputs)
 	if err != nil {
-		return nil, err
+		return ev, err
 	}
-	texts := map[string]string{}
+	supports := map[string]bool{}
+	for _, ed := range rep.Edges {
+		if ed.Kind == "supports" {
+			supports[ed.From] = true
+		}
+	}
+	// The newest output under a name is its node, as the report keeps it.
+	newest := map[string]db.Record{}
 	for _, r := range outputs {
-		// The newest output under a name is its node, as the report keeps it.
-		id := "out:" + records.Body[struct{ Name string }](r).Name
+		newest["out:"+records.Body[struct{ Name string }](r).Name] = r
+	}
+	for id, r := range newest {
 		if f, ok := files[r.Key]; ok {
-			texts[id] = f
-		} else {
-			delete(texts, id)
+			ev.Texts[id] = f
+		}
+		if !supports[id] {
+			continue
+		}
+		body := records.Body[struct {
+			Name        string `json:"name"`
+			ContentType string `json:"content_type"`
+		}](r)
+		if format := report.ImageFormat(body.ContentType); format != "" {
+			im, err := e.outputImage(ctx, r, format)
+			if err != nil {
+				return ev, err
+			}
+			if im != nil {
+				ev.Images[id] = *im
+			}
+		}
+		if s := producingScript(in.Records, r, body.Name); s != "" {
+			ev.Scripts[id] = s
 		}
 	}
 	sources := map[string][]db.Record{}
@@ -315,10 +352,73 @@ func (e *Engine) reportTexts(ctx context.Context, in report.Input, rep report.Re
 	}
 	papers, err := e.sourceTexts(ctx, sources)
 	if err != nil {
-		return nil, err
+		return ev, err
 	}
 	for k, v := range papers {
-		texts[k] = v
+		ev.Texts[k] = v
 	}
-	return texts, nil
+	return ev, nil
+}
+
+// outputImage is output r's image fitted for Jev, or nil when it is gone, too
+// large, or not a decodable image of format.
+func (e *Engine) outputImage(ctx context.Context, r db.Record, format string) (*jev.Image, error) {
+	if r.BlobKey == "" || e.Blobs == nil || records.Body[struct {
+		SizeBytes int64 `json:"size_bytes"`
+	}](r).SizeBytes > maxImageRead {
+		return nil, nil
+	}
+	rc, err := e.Blobs.Get(ctx, r.BlobKey)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(io.LimitReader(rc, maxImageRead+1))
+	rc.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxImageRead {
+		return nil, nil
+	}
+	im, err := jev.FitImage(b, format)
+	if err != nil {
+		slog.Info("report figure not shown as an image", "record", r.Key, "err", err)
+		return nil, nil
+	}
+	return &im, nil
+}
+
+// producingScript is the code of the run records of output's agent run that
+// name the file, or, when none does, of all that run's run records, cut to
+// review.MaxState.
+func producingScript(recs []db.Record, output db.Record, name string) string {
+	if output.AgentRunID == nil {
+		return ""
+	}
+	var named, all []string
+	for _, r := range recs {
+		if r.Kind != "run" || r.SupersededAt != nil || r.AgentRunID == nil || *r.AgentRunID != *output.AgentRunID {
+			continue
+		}
+		b := records.Body[struct{ Path, Script, Code string }](r)
+		code := b.Script + b.Code
+		if strings.TrimSpace(code) == "" {
+			continue
+		}
+		if b.Path != "" {
+			code = b.Path + "\n" + code
+		}
+		all = append(all, code)
+		if strings.Contains(code, path.Base(name)) {
+			named = append(named, code)
+		}
+	}
+	if len(named) > 0 {
+		all = named
+	}
+	s, _ := Excerpt(strings.Join(all, "\n\n"), review.MaxState)
+	return s
 }

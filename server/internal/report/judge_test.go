@@ -18,11 +18,19 @@ type fakeJev struct {
 	choiceP float64
 	states  []string
 	asks    int
+	images  []map[string]jev.Image // the images each ask showed, nil for none
+	kinds   []string               // "noul", "image" or "choice", one per ask
+}
+
+func (f *fakeJev) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (map[string]float64, error) {
+	out, err := f.Noul(ctx, state, qs)
+	f.images[len(f.images)-1], f.kinds[len(f.kinds)-1] = images, "image"
+	return out, err
 }
 
 func (f *fakeJev) Noul(_ context.Context, state string, qs map[string]string) (map[string]float64, error) {
 	f.asks++
-	f.states = append(f.states, state)
+	f.states, f.images, f.kinds = append(f.states, state), append(f.images, nil), append(f.kinds, "noul")
 	out := map[string]float64{}
 	for k := range qs {
 		out[k] = f.p(state)
@@ -32,7 +40,7 @@ func (f *fakeJev) Noul(_ context.Context, state string, qs map[string]string) (m
 
 func (f *fakeJev) Choice(_ context.Context, state, _ string, _ map[string]string) (jev.Answer, error) {
 	f.asks++
-	f.states = append(f.states, state)
+	f.states, f.images, f.kinds = append(f.states, state), append(f.images, nil), append(f.kinds, "choice")
 	return jev.Answer{Choice: f.choice, Probabilities: map[string]float64{f.choice: f.choiceP}}, nil
 }
 
@@ -126,20 +134,27 @@ func fencedContains(state, q string) bool {
 	return begin > end && strings.Contains(state[i:], "-END\n")
 }
 
-func TestJudgeStopsAtMaxQuestions(t *testing.T) {
+func TestQuestionBudgetsSumToTheCap(t *testing.T) {
+	if JudgeQuestions+CheckQuestions != MaxJevQuestions || MaxJevQuestions != 200 || JudgeQuestions != 120 {
+		t.Fatalf("budgets %d + %d, cap %d", JudgeQuestions, CheckQuestions, MaxJevQuestions)
+	}
+}
+
+func TestJudgeStopsAtItsBudget(t *testing.T) {
 	rep, p := judgeFixture()
 	p.Facts = nil
 	for i := range 250 {
 		p.Facts = append(p.Facts, handin.ReportFact{Subject: "il6", Relation: "increases", Object: "infl",
 			Quote: fmt.Sprintf("IL6 increases inflammation %d", i), SourceNode: "rec:a1"})
 	}
+	p.Links = []Span{{Start: 14, End: 17, Node: "rec:a1", Phrase: "IL6"}}
 	f := &fakeJev{p: func(string) float64 { return 0.9 }}
 	j, err := Judge(context.Background(), f, rep, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.asks != MaxJevQuestions || len(j.Facts) != MaxJevQuestions {
-		t.Fatalf("%d asks, %d facts; want %d", f.asks, len(j.Facts), MaxJevQuestions)
+	if f.asks != JudgeQuestions || len(j.Facts) != JudgeQuestions || len(j.Links) != 0 {
+		t.Fatalf("%d asks, %d facts, %d links; want %d, %d, 0", f.asks, len(j.Facts), len(j.Links), JudgeQuestions, JudgeQuestions)
 	}
 }
 
@@ -159,8 +174,9 @@ func findingsFixture() Report {
 func TestCheckFindingsFigureTableNovelty(t *testing.T) {
 	texts := map[string]string{"out:plot.png": "A bar plot of IL6 by group.", "out:data.csv": "group,il6\na,1\nb,3\n",
 		"paper:rec:p1": "IL6 falls with age.", "paper:rec:p2": "Unrelated work."}
+	im := jev.Image{Format: "png", Data: []byte("fitted")}
 	f := &fakeJev{p: func(string) float64 { return 0.2 }, choice: "contradicts", choiceP: 0.9}
-	cs, err := CheckFindings(context.Background(), f, findingsFixture(), texts)
+	cs, err := CheckFindings(context.Background(), f, findingsFixture(), Evidence{Texts: texts, Images: map[string]jev.Image{"out:plot.png": im}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,10 +191,18 @@ func TestCheckFindingsFigureTableNovelty(t *testing.T) {
 		t.Fatalf("checks %+v", cs)
 	}
 	fig, tab := got["figure:out:plot.png"], got["table:out:data.csv"]
-	if fig.Question != "Does this figure, as its recorded text describes it, show what the claim says?" || fig.Status != "fail" || fig.P != 0.2 {
+	if fig.Question != "Does this figure show what the claim says?" || fig.Basis != "image" || fig.Status != "fail" || fig.P != 0.2 {
 		t.Fatalf("figure %+v", fig)
 	}
-	if tab.Question != "Does this table's data match the claim?" || tab.Status != "fail" || tab.Evidence != texts["out:data.csv"] {
+	if f.kinds[0] != "image" || len(f.images[0]) != 1 {
+		t.Fatalf("the figure was asked as %s with images %v", f.kinds[0], f.images[0])
+	}
+	for ref, got := range f.images[0] {
+		if string(got.Data) != "fitted" || !strings.Contains(f.states[0], ref) || !fencedContains(f.states[0], "IL6 rises") {
+			t.Fatalf("image %s not named in state, or claim not fenced:\n%s", ref, f.states[0])
+		}
+	}
+	if tab.Question != "Does this table's data match the claim?" || tab.Basis != "text" || tab.Status != "fail" || tab.Evidence != texts["out:data.csv"] {
 		t.Fatalf("table %+v", tab)
 	}
 	for _, id := range []string{"novelty:rec:p1", "novelty:rec:p2"} {
@@ -195,11 +219,11 @@ func TestCheckFindingsStatuses(t *testing.T) {
 	}{{0.95, "pass", "pass"}, {0.5, "unclear", "unclear"}, {0.1, "fail", "unclear"}} {
 		f := &fakeJev{p: func(string) float64 { return tc.p }, choice: "confirms", choiceP: tc.p}
 		cs, err := CheckFindings(context.Background(), f, findingsFixture(),
-			map[string]string{"out:plot.png": "a plot", "paper:rec:p1": "abstract"})
+			Evidence{Texts: map[string]string{"out:plot.png": "a plot", "paper:rec:p1": "abstract"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(cs) != 2 || cs[0].Status != tc.fig || cs[1].Status != tc.nv {
+		if len(cs) != 2 || cs[0].Status != tc.fig || cs[0].Basis != "text" || cs[1].Status != tc.nv {
 			t.Fatalf("p %v: %+v", tc.p, cs)
 		}
 	}
@@ -207,11 +231,62 @@ func TestCheckFindingsStatuses(t *testing.T) {
 
 func TestCheckFindingsSkipsUntextedOutput(t *testing.T) {
 	f := &fakeJev{p: func(string) float64 { return 0.9 }}
-	cs, err := CheckFindings(context.Background(), f, findingsFixture(), map[string]string{"out:data.csv": "a,b\n1,2\n"})
+	cs, err := CheckFindings(context.Background(), f, findingsFixture(), Evidence{Texts: map[string]string{"out:data.csv": "a,b\n1,2\n"},
+		Scripts: map[string]string{"out:data.csv": "write.csv(x)"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cs) != 1 || cs[0].CheckID != "table:out:data.csv" || f.asks != 1 {
 		t.Fatalf("%d asks, checks %+v", f.asks, cs)
+	}
+}
+
+func TestCheckFindingsJudgesUnseenFiguresFromTheirScript(t *testing.T) {
+	rep := Report{
+		Nodes: []Node{
+			{ID: "out:fig.pdf", Kind: "output", ContentType: "application/pdf"},
+			{ID: "out:none.svg", Kind: "output", ContentType: "image/svg+xml"},
+			{ID: "rec:f1", Kind: "finding", Quote: "IL6 rises"},
+		},
+		Edges: []Edge{{From: "out:fig.pdf", To: "rec:f1", Kind: "supports"}, {From: "out:none.svg", To: "rec:f1", Kind: "supports"}},
+	}
+	f := &fakeJev{p: func(string) float64 { return 0.9 }}
+	cs, err := CheckFindings(context.Background(), f, rep, Evidence{Scripts: map[string]string{"out:fig.pdf": "plot(il6); savefig('fig.pdf')"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || f.asks != 1 || cs[0].CheckID != "figure:out:fig.pdf" || cs[0].Basis != "script" ||
+		cs[0].Question != "Does this figure, as the script that produced it describes it, show what the claim says?" || !fencedContains(f.states[0], "savefig") {
+		t.Fatalf("%d asks, checks %+v", f.asks, cs)
+	}
+}
+
+func TestCheckFindingsStopsAtItsBudgetFiguresFirst(t *testing.T) {
+	rep := Report{}
+	ev := Evidence{Texts: map[string]string{}}
+	for i := range 49 {
+		rep.Nodes = append(rep.Nodes, Node{ID: fmt.Sprintf("rec:p%d", i), Kind: "paper"})
+		ev.Texts[fmt.Sprintf("paper:rec:p%d", i)] = "abstract"
+	}
+	for i := range 5 {
+		f := Node{ID: fmt.Sprintf("rec:f%d", i), Kind: "finding", Quote: "claim"}
+		out := Node{ID: fmt.Sprintf("out:t%d.csv", i), Kind: "output", ContentType: "text/csv"}
+		rep.Nodes = append(rep.Nodes, out, f)
+		rep.Edges = append(rep.Edges, Edge{From: out.ID, To: f.ID, Kind: "supports"})
+		ev.Texts[out.ID] = "a,b\n1,2\n"
+	}
+	// 5 table checks and 5 × 49 novelty checks: 250 candidates.
+	f := &fakeJev{p: func(string) float64 { return 0.9 }, choice: "confirms", choiceP: 0.9}
+	cs, err := CheckFindings(context.Background(), f, rep, ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.asks != CheckQuestions || len(cs) != CheckQuestions {
+		t.Fatalf("%d asks, %d checks; want %d", f.asks, len(cs), CheckQuestions)
+	}
+	for i, k := range f.kinds {
+		if (i < 5) != (k == "noul") {
+			t.Fatalf("ask %d was %s; tables come before novelty", i, k)
+		}
 	}
 }

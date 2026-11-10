@@ -666,6 +666,21 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 	return out, err
 }
 
+// NoulImages is Noul with images; only a report's figure checks show Jev images.
+func (a retryAsker) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (out map[string]float64, err error) {
+	if err := a.p.keep(ctx); err != nil {
+		return nil, fmt.Errorf("extending the scoring lease: %w", err)
+	}
+	err = a.p.retry.Do(ctx, func() (err error) {
+		out, err = a.p.e.Jev.NoulImages(ctx, state, qs, images)
+		return err
+	})
+	if err != nil {
+		err = fmt.Errorf("asking Jev: %w", err)
+	}
+	return out, err
+}
+
 func (a retryAsker) Choice(ctx context.Context, state, instructions string, options map[string]string) (out jev.Answer, err error) {
 	if err := a.p.keep(ctx); err != nil {
 		return jev.Answer{}, fmt.Errorf("extending the scoring lease: %w", err)

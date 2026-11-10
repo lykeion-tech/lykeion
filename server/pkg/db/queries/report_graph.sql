@@ -47,8 +47,8 @@ INSERT INTO report_link (workspace_id, card_id, start_byte, end_byte, node_id, p
 VALUES (@workspace_id, @card_id, @start_byte, @end_byte, @node_id, @p);
 
 -- name: InsertReportCheck :exec
-INSERT INTO report_check (workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence)
-VALUES (@workspace_id, @card_id, @node_id, @check_id, @question, @choice, @p, @status, @evidence);
+INSERT INTO report_check (workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence, basis)
+VALUES (@workspace_id, @card_id, @node_id, @check_id, @question, @choice, @p, @status, @evidence, @basis);
 
 -- name: ListReportConcepts :many
 SELECT * FROM report_concept WHERE workspace_id = @workspace_id AND card_id = @card_id ORDER BY key;

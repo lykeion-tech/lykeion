@@ -220,8 +220,8 @@ func (q *Queries) InsertReportBuild(ctx context.Context, arg InsertReportBuildPa
 }
 
 const insertReportCheck = `-- name: InsertReportCheck :exec
-INSERT INTO report_check (workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO report_check (workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence, basis)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertReportCheckParams struct {
@@ -234,6 +234,7 @@ type InsertReportCheckParams struct {
 	P           float64   `json:"p"`
 	Status      string    `json:"status"`
 	Evidence    string    `json:"evidence"`
+	Basis       string    `json:"basis"`
 }
 
 func (q *Queries) InsertReportCheck(ctx context.Context, arg InsertReportCheckParams) error {
@@ -247,6 +248,7 @@ func (q *Queries) InsertReportCheck(ctx context.Context, arg InsertReportCheckPa
 		arg.P,
 		arg.Status,
 		arg.Evidence,
+		arg.Basis,
 	)
 	return err
 }
@@ -332,7 +334,7 @@ func (q *Queries) InsertReportLink(ctx context.Context, arg InsertReportLinkPara
 }
 
 const listReportChecks = `-- name: ListReportChecks :many
-SELECT workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence FROM report_check WHERE workspace_id = $1 AND card_id = $2 ORDER BY node_id, check_id
+SELECT workspace_id, card_id, node_id, check_id, question, choice, p, status, evidence, basis FROM report_check WHERE workspace_id = $1 AND card_id = $2 ORDER BY node_id, check_id
 `
 
 type ListReportChecksParams struct {
@@ -359,6 +361,7 @@ func (q *Queries) ListReportChecks(ctx context.Context, arg ListReportChecksPara
 			&i.P,
 			&i.Status,
 			&i.Evidence,
+			&i.Basis,
 		); err != nil {
 			return nil, err
 		}

@@ -896,6 +896,7 @@ type ReportCheck struct {
 	P           float64   `json:"p"`
 	Status      string    `json:"status"`
 	Evidence    string    `json:"evidence"`
+	Basis       string    `json:"basis"`
 }
 
 type ReportConcept struct {

@@ -63,7 +63,8 @@ CREATE TABLE report_link (
 );
 
 -- check_id is figure:<output node>, table:<output node> or novelty:<paper node>;
--- a novelty check's choice is confirms, contradicts or unrelated.
+-- a novelty check's choice is confirms, contradicts or unrelated. basis is
+-- what Jev judged: the image itself, recorded text, or the producing script.
 CREATE TABLE report_check (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   card_id uuid NOT NULL,
@@ -74,6 +75,7 @@ CREATE TABLE report_check (
   p double precision NOT NULL,
   status text NOT NULL CHECK (status IN ('pass', 'unclear', 'fail')),
   evidence text NOT NULL,
+  basis text NOT NULL CHECK (basis IN ('image', 'text', 'script')),
   PRIMARY KEY (workspace_id, card_id, node_id, check_id),
   FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE
 );

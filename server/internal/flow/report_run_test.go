@@ -1,9 +1,12 @@
 package flow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +20,7 @@ import (
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/report"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
 	"lykeion/server/pkg/agent"
@@ -155,7 +159,7 @@ func TestReportTablesAreWorkspaceIsolated(t *testing.T) {
 		if err := tx.Q.InsertReportLink(ctx, db.InsertReportLinkParams{WorkspaceID: l.ws, CardID: c.ID, StartByte: 0, EndByte: 3, NodeID: "n", P: 0.9}); err != nil {
 			return err
 		}
-		return tx.Q.InsertReportCheck(ctx, db.InsertReportCheckParams{WorkspaceID: l.ws, CardID: c.ID, NodeID: "n", CheckID: "figure:o", Question: "q", Choice: "yes", P: 0.9, Status: "pass", Evidence: "e"})
+		return tx.Q.InsertReportCheck(ctx, db.InsertReportCheckParams{WorkspaceID: l.ws, CardID: c.ID, NodeID: "n", CheckID: "figure:o", Question: "q", Choice: "yes", P: 0.9, Status: "pass", Evidence: "e", Basis: "text"})
 	})
 	count := func(ws uuid.UUID, tbl string) int {
 		tx, err := l.env.App.Begin(ctx)
@@ -790,5 +794,68 @@ func TestReportBuildsToResumeQueued(t *testing.T) {
 		if j, in := got[want.id]; in != want.in || in && !j {
 			t.Errorf("%s: resumable=%v judging=%v, want %v", name, in, j, want.in)
 		}
+	}
+}
+
+func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Blobs = storage.Local{Dir: t.TempDir()}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 3000, 200))); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Blobs.Put(ctx, "plot", bytes.NewReader(buf.Bytes()), int64(buf.Len())); err != nil {
+		t.Fatal(err)
+	}
+	maker, other := uuid.New(), uuid.New()
+	rec := func(key, kind, blob string, run uuid.UUID, body map[string]any) db.Record {
+		b, _ := json.Marshal(body)
+		return db.Record{Key: key, Kind: kind, Body: b, BlobKey: blob, AgentRunID: &run}
+	}
+	in := report.Input{Records: []db.Record{
+		rec("o1", "output", "plot", maker, map[string]any{"name": "plot.png", "content_type": "image/png", "size_bytes": buf.Len()}),
+		rec("o2", "output", "", maker, map[string]any{"name": "out/fig.pdf", "content_type": "application/pdf"}),
+		rec("o3", "output", "", other, map[string]any{"name": "none.pdf", "content_type": "application/pdf"}),
+		rec("r1", "run", "", maker, map[string]any{"tool": "run_script", "path": "plot.py", "script": "import pylab; pylab.savefig('fig.pdf')"}),
+		rec("r2", "run", "", maker, map[string]any{"tool": "run_code", "code": "print('unrelated')"}),
+	}}
+	rep := report.Report{Nodes: []report.Node{
+		{ID: "out:plot.png", Kind: "output", ContentType: "image/png"},
+		{ID: "out:out/fig.pdf", Kind: "output", ContentType: "application/pdf"},
+		{ID: "out:none.pdf", Kind: "output", ContentType: "application/pdf"},
+		{ID: "rec:f1", Kind: "finding", Quote: "IL6 rises"},
+	}, Edges: []report.Edge{{From: "out:plot.png", To: "rec:f1", Kind: "supports"}, {From: "out:out/fig.pdf", To: "rec:f1", Kind: "supports"},
+		{From: "out:none.pdf", To: "rec:f1", Kind: "supports"}}}
+	ev, err := l.e.reportEvidence(ctx, in, rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]report.FindingCheck{}
+	for _, c := range checks {
+		got[c.CheckID] = c
+	}
+	if len(checks) != 2 || got["figure:out:plot.png"].Basis != "image" || got["figure:out:out/fig.pdf"].Basis != "script" {
+		t.Fatalf("checks %+v", checks)
+	}
+	if s := got["figure:out:out/fig.pdf"].Evidence; !strings.Contains(s, "savefig('fig.pdf')") || strings.Contains(s, "unrelated") {
+		t.Fatalf("script evidence %q", s)
+	}
+	var images int
+	for _, req := range stub.calls() {
+		for ref, a := range req.Assets {
+			images++
+			if !strings.Contains(req.State, ref) || a.Type != "image" || a.Format != "png" || a.Data_base64 == "" {
+				t.Fatalf("asset %s %+v in state %q", ref, a, req.State)
+			}
+		}
+	}
+	if images != 1 {
+		t.Fatalf("%d images sent, want 1", images)
 	}
 }

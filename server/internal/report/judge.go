@@ -5,21 +5,32 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/review"
 )
 
-// MaxJevQuestions is the most questions one report asks Jev; proposals past
-// it are not asked and not kept.
-const MaxJevQuestions = 200
+// The questions one report asks Jev, in fixed budgets: JudgeQuestions for
+// its proposals, facts first, and CheckQuestions for its findings' checks,
+// figures and tables first. Anything past a budget is not asked: a proposal
+// is not kept, and a check is not stored.
+const (
+	JudgeQuestions  = 120
+	CheckQuestions  = 80
+	MaxJevQuestions = JudgeQuestions + CheckQuestions
+)
 
 const (
-	factQuestion    = "Does the evidence state that the item holds? Answer yes only if the quoted evidence says so."
-	linkQuestion    = "Does the phrase refer to this item?"
-	figureQuestion  = "Does this figure, as its recorded text describes it, show what the claim says?"
-	tableQuestion   = "Does this table's data match the claim?"
-	noveltyQuestion = "Reading only the paper's abstract, does it confirm the finding, contradict it, or is it unrelated to it?"
+	factQuestion         = "Does the evidence state that the item holds? Answer yes only if the quoted evidence says so."
+	linkQuestion         = "Does the phrase refer to this item?"
+	imageFigureQuestion  = "Does this figure show what the claim says?"
+	textFigureQuestion   = "Does this figure, as its recorded text describes it, show what the claim says?"
+	scriptFigureQuestion = "Does this figure, as the script that produced it describes it, show what the claim says?"
+	tableQuestion        = "Does this table's data match the claim?"
+	noveltyQuestion      = "Reading only the paper's abstract, does it confirm the finding, contradict it, or is it unrelated to it?"
 )
 
 var noveltyOptions = map[string]string{
@@ -46,7 +57,7 @@ type Judged struct {
 }
 
 // Judge asks Jev about each fact, then each link, against its quoted
-// evidence, up to MaxJevQuestions, and keeps those it accepts and the
+// evidence, up to JudgeQuestions, and keeps those it accepts and the
 // concepts a kept fact still mentions, each once. Identical facts are
 // asked and kept once.
 func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged, error) {
@@ -61,7 +72,7 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		if seen[f] {
 			continue
 		}
-		if asked == MaxJevQuestions {
+		if asked == JudgeQuestions {
 			break
 		}
 		seen[f] = true
@@ -77,7 +88,7 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 	}
 	for _, s := range p.Links {
-		if asked == MaxJevQuestions || rep.HandIn == nil {
+		if asked == JudgeQuestions || rep.HandIn == nil {
 			break
 		}
 		asked++
@@ -120,81 +131,168 @@ func sentence(text string, start, end int) string {
 
 type FindingCheck struct {
 	Node, CheckID, Question, Choice, Status, Evidence string
+	Basis                                             string // image|text|script: what Jev judged
 	P                                                 float64
 }
 
-// CheckFindings asks Jev whether each finding's supporting figures and
-// tables, by their recorded text, match it, and how each Grounding paper's
-// abstract stands to it. texts holds each output's text by node id and each
-// paper's abstract under "paper:<node id>"; an output or paper with no text
-// is not asked about.
-func CheckFindings(ctx context.Context, a review.Asker, rep Report, texts map[string]string) ([]FindingCheck, error) {
+// ImageAsker is an Asker that can also show Jev images.
+type ImageAsker interface {
+	review.Asker
+	NoulImages(ctx context.Context, state string, questions map[string]string, images map[string]jev.Image) (map[string]float64, error)
+}
+
+// Evidence is what a report's checks are judged from, by node id: each
+// output's fitted image, its saved text and the script that produced it,
+// and under "paper:<node id>" each paper's abstract.
+type Evidence struct {
+	Images  map[string]jev.Image
+	Texts   map[string]string
+	Scripts map[string]string
+}
+
+// CheckFindings asks Jev, up to CheckQuestions, whether each finding's
+// supporting figures and tables match it, and then how each Grounding
+// paper's abstract stands to it. A PNG or JPEG figure is judged from its
+// image; any other figure from its saved text, or else from the script that
+// produced it. A table is judged from its text. An output or paper with
+// nothing to judge from is not asked about.
+func CheckFindings(ctx context.Context, a ImageAsker, rep Report, ev Evidence) ([]FindingCheck, error) {
 	nodes := map[string]Node{}
-	var papers []Node
+	var papers, findings []Node
 	for _, n := range rep.Nodes {
 		nodes[n.ID] = n
-		if n.Kind == "paper" {
+		switch n.Kind {
+		case "paper":
 			papers = append(papers, n)
+		case "finding":
+			findings = append(findings, n)
 		}
 	}
-	var out []FindingCheck
-	for _, f := range rep.Nodes {
-		if f.Kind != "finding" {
-			continue
-		}
+	var asks []func() (FindingCheck, error)
+	for _, f := range findings {
 		for _, e := range rep.Edges {
 			o := nodes[e.From]
 			if e.To != f.ID || e.Kind != "supports" || o.Kind != "output" {
 				continue
 			}
-			kind, q := outputKind(o.ContentType)
-			text := texts[o.ID]
-			if kind == "" || text == "" {
-				continue
+			if ask := outputAsk(ctx, a, f, o, ev); ask != nil {
+				asks = append(asks, ask)
 			}
-			ps, err := a.Noul(ctx, review.ItemState("Report", f.Quote, []string{text}, review.MaxState), map[string]string{"matches": q})
-			if err != nil {
-				return nil, err
-			}
-			p := ps["matches"]
-			out = append(out, FindingCheck{Node: f.ID, CheckID: kind + ":" + o.ID, Question: q, Status: status(p), Evidence: evidence(text), P: p})
 		}
+	}
+	for _, f := range findings {
 		for _, pp := range papers {
-			text := texts["paper:"+pp.ID]
-			if text == "" {
-				continue
+			if text := ev.Texts["paper:"+pp.ID]; text != "" {
+				asks = append(asks, func() (FindingCheck, error) { return novelty(ctx, a, f, pp, text) })
 			}
-			ans, err := a.Choice(ctx, review.ItemState("Report", f.Quote, []string{text}, review.MaxState), noveltyQuestion, noveltyOptions)
-			if err != nil {
-				return nil, err
-			}
-			if _, ok := noveltyOptions[ans.Choice]; !ok {
-				return nil, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
-			}
-			p := ans.Probabilities[ans.Choice]
-			s := review.Pass
-			if p < review.PassP {
-				s = review.Unclear
-			}
-			out = append(out, FindingCheck{Node: f.ID, CheckID: "novelty:" + pp.ID, Question: noveltyQuestion, Choice: ans.Choice,
-				Status: s, Evidence: evidence(text), P: p})
 		}
+	}
+	var out []FindingCheck
+	for _, ask := range asks[:min(len(asks), CheckQuestions)] {
+		c, err := ask()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
 	}
 	return out, nil
 }
 
-// outputKind says whether an output of contentType is a figure or a table,
-// and the question asked of it; "" for neither.
-func outputKind(contentType string) (string, string) {
+// outputAsk is the question about output o's support for finding f, or nil
+// when there is nothing to judge it from.
+func outputAsk(ctx context.Context, a ImageAsker, f, o Node, ev Evidence) func() (FindingCheck, error) {
+	kind := outputKind(o.ContentType)
+	c := FindingCheck{Node: f.ID, CheckID: "figure:" + o.ID}
+	var evidence string
+	switch kind {
+	case "image":
+		if im, ok := ev.Images[o.ID]; ok {
+			c.Basis, c.Question = "image", imageFigureQuestion
+			return func() (FindingCheck, error) {
+				ref := uuid.NewString()
+				state := review.ItemState("Report", f.Quote, nil, review.MaxState) + "\nThe figure is the image " + ref + ".\n"
+				ps, err := a.NoulImages(ctx, state, map[string]string{"matches": c.Question}, map[string]jev.Image{ref: im})
+				if err != nil {
+					return FindingCheck{}, err
+				}
+				c.P = ps["matches"]
+				c.Status = status(c.P)
+				return c, nil
+			}
+		}
+		fallthrough
+	case "figure":
+		switch {
+		case ev.Texts[o.ID] != "":
+			c.Basis, c.Question, evidence = "text", textFigureQuestion, ev.Texts[o.ID]
+		case ev.Scripts[o.ID] != "":
+			c.Basis, c.Question, evidence = "script", scriptFigureQuestion, ev.Scripts[o.ID]
+		default:
+			return nil
+		}
+	case "table":
+		if ev.Texts[o.ID] == "" {
+			return nil
+		}
+		c.CheckID, c.Basis, c.Question, evidence = "table:"+o.ID, "text", tableQuestion, ev.Texts[o.ID]
+	default:
+		return nil
+	}
+	return func() (FindingCheck, error) {
+		ps, err := a.Noul(ctx, review.ItemState("Report", f.Quote, []string{evidence}, review.MaxState), map[string]string{"matches": c.Question})
+		if err != nil {
+			return FindingCheck{}, err
+		}
+		c.P, c.Evidence = ps["matches"], cut(evidence)
+		c.Status = status(c.P)
+		return c, nil
+	}
+}
+
+// novelty asks how paper pp's abstract stands to finding f.
+func novelty(ctx context.Context, a review.Asker, f, pp Node, text string) (FindingCheck, error) {
+	ans, err := a.Choice(ctx, review.ItemState("Report", f.Quote, []string{text}, review.MaxState), noveltyQuestion, noveltyOptions)
+	if err != nil {
+		return FindingCheck{}, err
+	}
+	if _, ok := noveltyOptions[ans.Choice]; !ok {
+		return FindingCheck{}, fmt.Errorf("jev chose %q, not one of the options", ans.Choice)
+	}
+	p := ans.Probabilities[ans.Choice]
+	s := review.Pass
+	if p < review.PassP {
+		s = review.Unclear
+	}
+	return FindingCheck{Node: f.ID, CheckID: "novelty:" + pp.ID, Question: noveltyQuestion, Choice: ans.Choice,
+		Status: s, Evidence: cut(text), Basis: "text", P: p}, nil
+}
+
+// outputKind is "image" for a PNG or JPEG Jev can look at, "figure" for any
+// other figure, "table" for a table, and "" for neither.
+func outputKind(contentType string) string {
 	mt, _, _ := strings.Cut(contentType, ";")
 	mt = strings.ToLower(strings.TrimSpace(mt))
 	switch {
+	case mt == "image/png" || mt == "image/jpeg" || mt == "image/jpg":
+		return "image"
 	case strings.HasPrefix(mt, "image/") || mt == "application/pdf":
-		return "figure", figureQuestion
+		return "figure"
 	case mt == "text/csv" || mt == "text/tab-separated-values":
-		return "table", tableQuestion
+		return "table"
 	}
-	return "", ""
+	return ""
+}
+
+// ImageFormat is the decoded format an output of contentType must have to
+// be shown to Jev, or "" when it is not a PNG or JPEG.
+func ImageFormat(contentType string) string {
+	if outputKind(contentType) != "image" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(contentType), "png") {
+		return "png"
+	}
+	return "jpeg"
 }
 
 // status is pass when Jev's yes reaches the pass threshold, fail when its no
@@ -209,8 +307,8 @@ func status(p float64) string {
 	return review.Unclear
 }
 
-// evidence is the text a check keeps, cut as a fence cuts it.
-func evidence(s string) string {
+// cut is the text a check keeps, cut as a fence cuts it.
+func cut(s string) string {
 	if len(s) > fence.Max {
 		return strings.ToValidUTF8(s[:fence.Max], "")
 	}

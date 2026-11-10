@@ -5,6 +5,7 @@ package jev
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +35,7 @@ type Answer struct {
 func (c *Client) Choice(ctx context.Context, state, instructions string, options map[string]string) (Answer, error) {
 	raw, err := c.post(ctx, state, map[string]any{
 		"q": map[string]any{"type": "choice", "instructions": instructions, "criteria": options},
-	})
+	}, nil)
 	if err != nil {
 		return Answer{}, err
 	}
@@ -70,7 +71,7 @@ func (c *Client) Score(ctx context.Context, state string, questions map[string]S
 		}
 		qs[id] = map[string]any{"type": "score", "instructions": q.Instructions, "criteria": q.Levels}
 	}
-	raw, err := c.post(ctx, state, qs)
+	raw, err := c.post(ctx, state, qs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -96,11 +97,17 @@ func (c *Client) Score(ctx context.Context, state string, questions map[string]S
 
 // Noul puts every yes/no question in one request and returns each probability of yes.
 func (c *Client) Noul(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	return c.NoulImages(ctx, state, questions, nil)
+}
+
+// NoulImages is Noul with images Jev looks at, each keyed by a reference
+// that state names.
+func (c *Client) NoulImages(ctx context.Context, state string, questions map[string]string, images map[string]Image) (map[string]float64, error) {
 	qs := map[string]any{}
 	for id, instructions := range questions {
 		qs[id] = map[string]any{"type": "noul", "instructions": instructions}
 	}
-	raw, err := c.post(ctx, state, qs)
+	raw, err := c.post(ctx, state, qs, images)
 	if err != nil {
 		return nil, err
 	}
@@ -120,27 +127,45 @@ func (c *Client) Noul(ctx context.Context, state string, questions map[string]st
 	return out, nil
 }
 
-// post sends the questions and returns each id's raw answer; it refuses an
-// answer from another model and any id the reply leaves out.
-func (c *Client) post(ctx context.Context, state string, questions map[string]any) (map[string]json.RawMessage, error) {
+// post sends the questions, and any images, and returns each id's raw
+// answer; it refuses an answer from another model and any id the reply
+// leaves out.
+func (c *Client) post(ctx context.Context, state string, questions map[string]any, images map[string]Image) (map[string]json.RawMessage, error) {
 	if len(questions) == 0 {
 		return nil, errors.New("jev: no questions to ask")
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "state": state, "questions": questions})
+	req := map[string]any{"model": c.Model, "state": state, "questions": questions}
+	if len(images) > 0 {
+		assets := map[string]any{}
+		for ref, im := range images {
+			if !strings.Contains(state, ref) || len(im.Data) > MaxImageBytes {
+				return nil, fmt.Errorf("%w: image %s is not named in the state or is over %d bytes", ErrRefused, ref, MaxImageBytes)
+			}
+			assets[ref] = map[string]string{"type": "image", "format": im.Format, "data_base64": base64.StdEncoding.EncodeToString(im.Data)}
+		}
+		req["assets"] = assets
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/v1/systemone", bytes.NewReader(body))
+	if len(body) > maxBody {
+		return nil, fmt.Errorf("%w: the request is %d bytes, over %d", ErrRefused, len(body), maxBody)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/v1/systemone", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Key)
-	req.Header.Set("Content-Type", "application/json")
+	hreq.Header.Set("Authorization", "Bearer "+c.Key)
+	hreq.Header.Set("Content-Type", "application/json")
+	if len(images) > 0 {
+		hreq.Header.Set("TypeSafe-Danger-Zone-Images", "true")
+	}
 	h := c.HTTP
 	if h == nil {
 		h = &http.Client{Timeout: 60 * time.Second}
 	}
-	resp, err := h.Do(req)
+	resp, err := h.Do(hreq)
 	if err != nil {
 		return nil, err
 	}
