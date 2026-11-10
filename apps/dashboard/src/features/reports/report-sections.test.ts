@@ -93,6 +93,10 @@ function report(): StudyReport {
     steering: [
       { kind: 'comment', author: 'u', text: 'Look at the old.', at: '2026-11-09T10:00:00Z' },
     ],
+    links: [],
+    extras: 'none',
+    checks: 'none',
+    machine: '',
   };
 }
 

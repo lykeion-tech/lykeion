@@ -33,6 +33,7 @@ type Check struct {
 	P        *float64 `json:"p,omitempty"`        // Jev's probability of yes, after any inversion
 	Status   string   `json:"status"`
 	Warning  bool     `json:"warning,omitempty"` // counts toward nothing but the Review surface
+	Basis    string   `json:"basis,omitempty"`   // report checks: what Jev judged from, "image" | "text" | "script"
 }
 
 type Item struct {

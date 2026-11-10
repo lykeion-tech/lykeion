@@ -54,6 +54,8 @@ export interface ReviewCheck {
   p?: number;
   status: CheckStatus;
   warning?: boolean;
+  // Report checks: what Jev judged from.
+  basis?: 'image' | 'text' | 'script';
 }
 // A finished study's report: the graph of its argument, built by the server
 // from recorded rows only.
@@ -66,7 +68,22 @@ export type ReportNodeKind =
   | 'output'
   | 'finding'
   | 'objection'
-  | 'doubt';
+  | 'doubt'
+  | 'concept';
+export interface ReportFact {
+  subject: string;
+  relation: string;
+  object: string;
+  quote: string;
+  source_node: string;
+  p: number;
+}
+export interface ReportLink {
+  start: number;
+  end: number;
+  node: string;
+  p: number;
+}
 export interface ReportNode {
   id: string;
   kind: ReportNodeKind;
@@ -82,6 +99,9 @@ export interface ReportNode {
   run_id: string | null;
   agent: string;
   column: string;
+  content_type?: string;
+  facts?: ReportFact[];
+  novelty?: 'contradicts' | 'confirms' | 'new';
 }
 export interface ReportEdge {
   from: string;
@@ -119,6 +139,10 @@ export interface StudyReport {
   nodes: ReportNode[];
   edges: ReportEdge[];
   steering: ReportSteering[];
+  links: ReportLink[];
+  extras: 'pending' | 'ready' | 'none';
+  checks: 'pending' | 'ready' | 'unavailable' | 'none';
+  machine: string;
 }
 export interface ReviewItem {
   key: string;

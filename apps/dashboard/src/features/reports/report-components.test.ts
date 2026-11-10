@@ -57,6 +57,10 @@ const report: StudyReport = {
     { from: 'rec:r2', to: 'rec:r5', kind: 'tests' },
   ],
   steering: [],
+  links: [],
+  extras: 'none',
+  checks: 'none',
+  machine: '',
 };
 
 it('report-node is focusable and Enter selects it', async () => {

@@ -120,3 +120,39 @@ func TestReportSteeringLeavesOutManualDecisions(t *testing.T) {
 		t.Fatalf("steering: %d %+v", code, rep.Steering)
 	}
 }
+
+func TestReportEndpointIncludesExtras(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab-a")
+	id := s.finishedStudy(t, a, w.ID)
+	type out struct {
+		Extras, Checks, Machine string
+		Links                   []struct{ Start int }
+		Nodes                   []struct{ ID, Kind string }
+	}
+	get := func() out {
+		var rep out
+		if code := s.call(t, "GET", "/api/cards/"+id+"/report", a, w.ID, nil, &rep); code != 200 {
+			t.Fatalf("code %d", code)
+		}
+		return rep
+	}
+	if r := get(); r.Extras != "none" || r.Checks != "none" || r.Links == nil {
+		t.Fatalf("no build: %+v", r)
+	}
+	s.mustUpdate(t, `INSERT INTO report_build (workspace_id, card_id, status, checks_status) SELECT workspace_id, id, 'done', 'done' FROM card WHERE id = $1`, id)
+	s.mustUpdate(t, `INSERT INTO report_concept (workspace_id, card_id, key, label, type) SELECT workspace_id, id, 'x', 'X', 'chemical' FROM card WHERE id = $1`, id)
+	r := get()
+	if r.Extras != "ready" || r.Checks != "ready" {
+		t.Fatalf("done: %+v", r)
+	}
+	found := false
+	for _, n := range r.Nodes {
+		found = found || n.ID == "concept:x" && n.Kind == "concept"
+	}
+	if !found {
+		t.Fatalf("no concept node: %+v", r.Nodes)
+	}
+}

@@ -28,6 +28,29 @@ type Report struct {
 	Nodes      []Node     `json:"nodes"`
 	Edges      []Edge     `json:"edges"`
 	Steering   []Steering `json:"steering"` // comments and answered decisions, oldest first
+
+	Links   []Link `json:"links"`   // phrases of the hand-in tied to nodes, by start
+	Extras  string `json:"extras"`  // concepts and links: pending|ready|none
+	Checks  string `json:"checks"`  // figure, table and novelty checks: pending|ready|unavailable|none
+	Machine string `json:"machine"` // the machine the report run waits for, while Extras is pending
+}
+
+// Link ties the hand-in's bytes [Start, End) to a graph node.
+type Link struct {
+	Start int     `json:"start"`
+	End   int     `json:"end"`
+	Node  string  `json:"node"`
+	P     float64 `json:"p"`
+}
+
+// Fact is a quoted statement about concepts, kept on its subject concept.
+type Fact struct {
+	Subject    string  `json:"subject"`
+	Relation   string  `json:"relation"`
+	Object     string  `json:"object"`
+	Quote      string  `json:"quote"`
+	SourceNode string  `json:"source_node"`
+	P          float64 `json:"p"`
 }
 
 type HandIn struct {
@@ -49,6 +72,12 @@ type Node struct {
 	RunID   *uuid.UUID      `json:"run_id"`
 	Agent   string          `json:"agent"` // the producing run's agent name, "" when none
 	Column  string          `json:"column"`
+
+	// Facts are a concept's statements.
+	Facts []Fact `json:"facts,omitempty"`
+	// Novelty is a finding's standing against the grounding papers:
+	// contradicts|confirms|new, or "" when not judged.
+	Novelty string `json:"novelty,omitempty"`
 
 	// ContentType is an output's recorded media type: it says whether the
 	// output is a figure or a table.
@@ -359,8 +388,7 @@ func Build(in Input) Report {
 		}
 	}
 
-	// No contradicts edge: a verdict names its source but no finding, and the
-	// claim-checking Validation that writes verdicts writes no statuses.
+	b.judgedChecks()
 
 	if r, ok := b.newest(c.ScopeTo, "summary"); ok {
 		rep.HandIn = &HandIn{Text: records.Body[struct{ Text string }](r).Text, AgentName: b.agentOf(r.AgentRunID), At: r.CreatedAt}
@@ -400,7 +428,21 @@ func Build(in Input) Report {
 		}
 		return keyLess(b.order[a.ID], b.order[c.ID])
 	})
+	b.concepts()
 	rep.Nodes, rep.Edges = b.nodes, b.edges
+	rep.Links, rep.Extras, rep.Checks, rep.Machine = b.links(rep.HandIn), "none", "none", ""
+	if bd := in.Build; bd != nil {
+		switch bd.Status {
+		case "queued", "judging":
+			rep.Extras, rep.Machine = "pending", in.Machine
+		case "done":
+			rep.Extras = "ready"
+		}
+		rep.Checks = map[string]string{"pending": "pending", "done": "ready", "unavailable": "unavailable"}[bd.ChecksStatus]
+		if rep.Checks == "" {
+			rep.Checks = "none"
+		}
+	}
 	if rep.Edges == nil {
 		rep.Edges = []Edge{}
 	}
@@ -517,5 +559,102 @@ func sortedKeys(m map[string]db.Record) []string {
 		out = append(out, k)
 	}
 	sort.Slice(out, func(i, j int) bool { return keyLess(out[i], out[j]) })
+	return out
+}
+
+// judgedChecks appends each recorded figure, table and novelty check to its
+// node, and sets each finding's novelty from its papers' checks.
+func (b *builder) judgedChecks() {
+	type tally struct{ passed, unrelated, total int }
+	novelty := map[string]*tally{}
+	contradicted := map[string]bool{}
+	confirmed := map[string]bool{}
+	for _, c := range b.in.Checks {
+		i := slices.IndexFunc(b.nodes, func(n Node) bool { return n.ID == c.NodeID })
+		if i < 0 {
+			continue
+		}
+		ck := review.Check{ID: c.CheckID, By: "jev", Question: c.Question, P: &c.P, Status: c.Status, Detail: c.Evidence, Basis: c.Basis}
+		if paper, ok := strings.CutPrefix(c.CheckID, "novelty:"); ok {
+			ck.Detail = "choice: " + c.Choice + "\n" + c.Evidence
+			t := novelty[c.NodeID]
+			if t == nil {
+				t = &tally{}
+				novelty[c.NodeID] = t
+			}
+			t.total++
+			if c.Status == review.Pass {
+				t.passed++
+				switch c.Choice {
+				case "contradicts":
+					contradicted[c.NodeID] = true
+					if b.has(paper) {
+						b.edge(c.NodeID, paper, "contradicts")
+					}
+				case "confirms":
+					confirmed[c.NodeID] = true
+				case "unrelated":
+					t.unrelated++
+				}
+			}
+		}
+		b.nodes[i].Checks = append(b.nodes[i].Checks, ck)
+	}
+	for i, n := range b.nodes {
+		t := novelty[n.ID]
+		switch {
+		case t == nil:
+		case contradicted[n.ID]:
+			b.nodes[i].Novelty = "contradicts"
+		case confirmed[n.ID]:
+			b.nodes[i].Novelty = "confirms"
+		case t.unrelated == t.total:
+			b.nodes[i].Novelty = "new"
+		}
+	}
+}
+
+// concepts adds a node per recorded concept, keeping its facts, and an edge
+// per fact whose ends are in the graph.
+func (b *builder) concepts() {
+	known := map[string]bool{}
+	for _, c := range b.in.Concepts {
+		known[c.Key] = true
+	}
+	factsOf := map[string][]Fact{}
+	for _, f := range b.in.Facts {
+		factsOf[f.Subject] = append(factsOf[f.Subject], Fact{f.Subject, f.Relation, f.Object, f.Quote, f.SourceNode, f.P})
+		from := "concept:" + f.Subject
+		switch {
+		case !known[f.Subject]:
+		case f.Relation == "mentioned_in" && b.has(f.Object):
+			b.edge(from, f.Object, f.Relation)
+		case f.Relation != "mentioned_in" && known[f.Object]:
+			b.edge(from, "concept:"+f.Object, f.Relation)
+		}
+	}
+	cs := slices.Clone(b.in.Concepts)
+	sort.Slice(cs, func(i, j int) bool { return cs[i].Key < cs[j].Key })
+	for _, c := range cs {
+		// Concepts have no column, so they come after every stage's nodes.
+		b.order["concept:"+c.Key] = c.Key
+		b.nodes = append(b.nodes, Node{ID: "concept:" + c.Key, Kind: "concept", Label: c.Label, Status: c.Type,
+			Reasons: []string{}, Checks: []review.Check{}, Facts: factsOf[c.Key]})
+	}
+}
+
+// links are the recorded links that lie inside the hand-in and name a node,
+// by start.
+func (b *builder) links(h *HandIn) []Link {
+	out := []Link{}
+	if h == nil {
+		return out
+	}
+	for _, l := range b.in.Links {
+		if l.StartByte >= 0 && l.StartByte < l.EndByte && int(l.EndByte) <= len(h.Text) && b.has(l.NodeID) {
+			out = append(out, Link{int(l.StartByte), int(l.EndByte), l.NodeID, l.P})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Start < out[j].Start })
 	return out
 }

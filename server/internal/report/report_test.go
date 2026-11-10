@@ -317,3 +317,95 @@ func TestBuildFindingIgnoresAnotherRoundsRerun(t *testing.T) {
 		t.Fatalf("rerun from round 1 on a round-2 finding: %s", f.Rerun)
 	}
 }
+
+// judgedStudy has one paper, one finding and a hand-in of 24 bytes.
+func judgedStudy() *study {
+	s := newStudy("grounding", "validation")
+	s.rec("grounding", "paper", "r1", 1, nil, review.PaperBody{ID: "arxiv:1", Text: "abstract"})
+	s.rec("validation", "validation_status", "r2", 2, nil, map[string]any{"hypothesis": "X raises Y", "status": "supported", "final": true})
+	s.rec("validation", "summary", "r3", 2, nil, map[string]any{"text": "X raises Y, as found."})
+	return s
+}
+
+func TestBuildAddsConceptsFactsAndContradicts(t *testing.T) {
+	s := judgedStudy()
+	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
+	s.in.Concepts = []db.ReportConcept{{Key: "x", Label: "X", Type: "chemical"}, {Key: "y", Label: "Y", Type: "phenotype"}}
+	s.in.Facts = []db.ReportFact{
+		{Subject: "x", Relation: "increases", Object: "y", Quote: "X raises Y", SourceNode: "rec:r2", P: 0.9},
+		{Subject: "x", Relation: "mentioned_in", Object: "rec:r1", Quote: "abstract", SourceNode: "rec:r1", P: 0.8},
+	}
+	s.in.Checks = []db.ReportCheck{{NodeID: "rec:r2", CheckID: "novelty:rec:r1", Question: "q", Choice: "contradicts", P: 0.9, Status: review.Pass, Evidence: "abstract", Basis: "text"}}
+	r := Build(s.in)
+	x := nodeOf(t, r, "concept:x")
+	if x.Kind != "concept" || x.Label != "X" || x.Status != "chemical" || len(x.Facts) != 2 || x.Facts[0].Relation != "increases" {
+		t.Fatalf("concept x %+v", x)
+	}
+	for _, e := range [][3]string{{"concept:x", "concept:y", "increases"}, {"concept:x", "rec:r1", "mentioned_in"}, {"rec:r2", "rec:r1", "contradicts"}} {
+		if !hasEdge(r, e[0], e[1], e[2]) {
+			t.Fatalf("missing edge %v in %+v", e, r.Edges)
+		}
+	}
+	f := nodeOf(t, r, "rec:r2")
+	if f.Novelty != "contradicts" || len(f.Checks) != 1 || f.Checks[0].Detail != "choice: contradicts\nabstract" || f.Checks[0].Basis != "text" || f.Checks[0].By != "jev" {
+		t.Fatalf("finding %+v", f)
+	}
+}
+
+func TestBuildNoveltyNewOnlyWhenAllUnrelated(t *testing.T) {
+	s := judgedStudy()
+	s.rec("grounding", "paper", "r4", 1, nil, review.PaperBody{ID: "arxiv:2", Text: "other"})
+	chk := func(paper, choice, status string) db.ReportCheck {
+		return db.ReportCheck{NodeID: "rec:r2", CheckID: "novelty:rec:" + paper, Choice: choice, P: 0.9, Status: status}
+	}
+	s.in.Checks = []db.ReportCheck{chk("r1", "unrelated", review.Pass), chk("r4", "unrelated", review.Pass)}
+	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "new" {
+		t.Fatalf("all unrelated: %q", got)
+	}
+	s.in.Checks = []db.ReportCheck{chk("r1", "unrelated", review.Pass), chk("r4", "unrelated", review.Unclear)}
+	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "" {
+		t.Fatalf("one unclear: %q", got)
+	}
+	s.in.Checks = []db.ReportCheck{chk("r1", "confirms", review.Pass), chk("r4", "unrelated", review.Pass)}
+	if got := nodeOf(t, Build(s.in), "rec:r2").Novelty; got != "confirms" {
+		t.Fatalf("confirms: %q", got)
+	}
+}
+
+func TestBuildExtrasStates(t *testing.T) {
+	for _, c := range []struct {
+		build          *db.ReportBuild
+		extras, checks string
+		machine        string
+	}{
+		{&db.ReportBuild{Status: "queued", ChecksStatus: "pending"}, "pending", "pending", "lab-mac"},
+		{&db.ReportBuild{Status: "judging", ChecksStatus: "pending"}, "pending", "pending", "lab-mac"},
+		{&db.ReportBuild{Status: "done", ChecksStatus: "done"}, "ready", "ready", ""},
+		{&db.ReportBuild{Status: "failed", ChecksStatus: "unavailable"}, "none", "unavailable", ""},
+		{&db.ReportBuild{Status: "skipped", ChecksStatus: "done"}, "none", "ready", ""},
+		{nil, "none", "none", ""},
+	} {
+		s := judgedStudy()
+		s.in.Build, s.in.Machine = c.build, "lab-mac"
+		r := Build(s.in)
+		if r.Extras != c.extras || r.Checks != c.checks || r.Machine != c.machine {
+			t.Fatalf("%+v: got extras %q checks %q machine %q", c.build, r.Extras, r.Checks, r.Machine)
+		}
+	}
+}
+
+func TestBuildLinksSortedAndInsideHandIn(t *testing.T) {
+	s := judgedStudy() // hand-in "X raises Y, as found." is 21 bytes
+	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
+	s.in.Links = []db.ReportLink{
+		{StartByte: 12, EndByte: 21, NodeID: "rec:r2", P: 0.8},
+		{StartByte: 0, EndByte: 9, NodeID: "rec:r1", P: 0.9},
+		{StartByte: 15, EndByte: 99, NodeID: "rec:r1", P: 0.9},    // past the end
+		{StartByte: 3, EndByte: 3, NodeID: "rec:r1", P: 0.9},      // empty
+		{StartByte: 0, EndByte: 5, NodeID: "rec:missing", P: 0.9}, // no such node
+	}
+	r := Build(s.in)
+	if len(r.Links) != 2 || r.Links[0] != (Link{0, 9, "rec:r1", 0.9}) || r.Links[1].Start != 12 {
+		t.Fatalf("links %+v", r.Links)
+	}
+}
