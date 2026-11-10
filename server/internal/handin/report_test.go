@@ -92,3 +92,16 @@ func TestReportCouldNotDoNeedsReason(t *testing.T) {
 		t.Fatal(probs)
 	}
 }
+
+func TestReportConceptKeyIsCapped(t *testing.T) {
+	concept := func(key string) map[string]any {
+		return map[string]any{"concepts": []any{map[string]any{"key": key, "label": "L", "type": "gene"}}}
+	}
+	if _, probs := Parse(Report, reportJSON(t, concept(strings.Repeat("k", MaxConceptKeyBytes)))); len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	_, probs := Parse(Report, reportJSON(t, concept(strings.Repeat("k", MaxConceptKeyBytes+1))))
+	if !hasProblem(probs, "key must be at most 80 bytes") {
+		t.Fatal(probs)
+	}
+}

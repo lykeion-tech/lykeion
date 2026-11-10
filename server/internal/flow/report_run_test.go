@@ -150,7 +150,7 @@ func TestReportTablesAreWorkspaceIsolated(t *testing.T) {
 		if _, err := tx.Q.InsertReportBuild(ctx, db.InsertReportBuildParams{WorkspaceID: l.ws, CardID: c.ID, Status: "queued", ChecksStatus: "pending"}); err != nil {
 			return err
 		}
-		if err := tx.Q.InsertReportConcept(ctx, db.InsertReportConceptParams{WorkspaceID: l.ws, CardID: c.ID, Key: "k", Label: "K", Type: "t"}); err != nil {
+		if err := tx.Q.InsertReportConcept(ctx, db.InsertReportConceptParams{WorkspaceID: l.ws, CardID: c.ID, Key: "k", Label: "K", Type: "other"}); err != nil {
 			return err
 		}
 		if err := tx.Q.InsertReportFact(ctx, db.InsertReportFactParams{WorkspaceID: l.ws, CardID: c.ID, Subject: "k", Relation: "is_a", Object: "j", Quote: "q", SourceNode: "n", P: 0.9}); err != nil {
@@ -642,7 +642,7 @@ func (l *lab) judgedStudy(t *testing.T) db.Card {
 	}
 	phrase := strings.Fields(rep.HandIn.Text)[0]
 	l.jev(t, 200, levels(nil)).byState = func(state string) float64 {
-		if strings.Contains(state, "q associated_with r") {
+		if strings.Contains(state, "Q associated with R") {
 			return 0.3
 		}
 		return 0.9
@@ -859,5 +859,23 @@ func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
 	}
 	if images != 1 {
 		t.Fatalf("%d images sent, want 1", images)
+	}
+}
+
+func TestReportConceptTypeIsOneOfTheHandInsTypes(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c := l.study(t, "validation", true, nil)
+	insert := func(typ string) error {
+		_, err := l.env.Owner.Exec(ctx, `INSERT INTO report_concept(workspace_id,card_id,key,label,type) VALUES($1,$2,$3,'L',$3)`, l.ws, c.ID, typ)
+		return err
+	}
+	for _, typ := range handin.ReportConceptTypes {
+		if err := insert(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+	}
+	if err := insert("chemical"); err == nil {
+		t.Fatal("a concept of type chemical was stored")
 	}
 }

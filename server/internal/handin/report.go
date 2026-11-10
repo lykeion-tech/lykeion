@@ -12,11 +12,12 @@ import (
 // What a report run hands in: concepts and facts about the study's own text,
 // and links from phrases of its hand-in to the graph's nodes.
 const (
-	MaxReportConcepts = 40
-	MaxReportFacts    = 80
-	MaxReportLinks    = 60
-	MaxQuoteBytes     = 600
-	MaxPhraseBytes    = 200
+	MaxReportConcepts  = 40
+	MaxReportFacts     = 80
+	MaxReportLinks     = 60
+	MaxQuoteBytes      = 600
+	MaxPhraseBytes     = 200
+	MaxConceptKeyBytes = 80
 )
 
 // ReportRelations are the fixed relations a fact may state; mentioned_in is
@@ -103,6 +104,7 @@ func parseReport(raw []byte) (ReportHandIn, []string) {
 	add(len(h.Links) <= MaxReportLinks, "links: at most %d links", MaxReportLinks)
 	for i, c := range h.Concepts {
 		add(strings.TrimSpace(c.Key) != "" && within(c.Label, 200), "concepts %d: key is required and label must be 1 to 200 characters", i+1)
+		add(len(c.Key) <= MaxConceptKeyBytes, "concepts %d: key must be at most %d bytes", i+1, MaxConceptKeyBytes)
 		add(slices.Contains(ReportConceptTypes, c.Type), "concepts %d: type must be one of %s", i+1, strings.Join(ReportConceptTypes, ", "))
 	}
 	for i, f := range h.Facts {

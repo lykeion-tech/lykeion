@@ -30,7 +30,7 @@ CREATE TABLE report_concept (
   card_id uuid NOT NULL,
   key text NOT NULL,
   label text NOT NULL,
-  type text NOT NULL,
+  type text NOT NULL CHECK (type IN ('gene', 'protein', 'drug', 'disease', 'organism', 'cohort', 'measure', 'method', 'other')),
   PRIMARY KEY (workspace_id, card_id, key),
   FOREIGN KEY (workspace_id, card_id) REFERENCES card (workspace_id, id) ON DELETE CASCADE
 );
@@ -124,7 +124,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
         OR (r.status = 'queued' AND r.pinned_runtime_id IS NULL)), false) AS judging,
       b.checks_status = 'pending' AND b.created_at < now() - interval '2 minutes' AS checks
     FROM report_build b
-    LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id) s
+    LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id
+    WHERE b.status IN ('queued', 'judging') OR b.checks_status = 'pending') s
   WHERE s.judging OR s.checks
   ORDER BY s.created_at
 $$;

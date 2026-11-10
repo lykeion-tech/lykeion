@@ -330,7 +330,7 @@ func judgedStudy() *study {
 func TestBuildAddsConceptsFactsAndContradicts(t *testing.T) {
 	s := judgedStudy()
 	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
-	s.in.Concepts = []db.ReportConcept{{Key: "x", Label: "X", Type: "chemical"}, {Key: "y", Label: "Y", Type: "phenotype"}}
+	s.in.Concepts = []db.ReportConcept{{Key: "x", Label: "X", Type: "drug"}, {Key: "y", Label: "Y", Type: "disease"}}
 	s.in.Facts = []db.ReportFact{
 		{Subject: "x", Relation: "increases", Object: "y", Quote: "X raises Y", SourceNode: "rec:r2", P: 0.9},
 		{Subject: "x", Relation: "mentioned_in", Object: "rec:r1", Quote: "abstract", SourceNode: "rec:r1", P: 0.8},
@@ -338,7 +338,7 @@ func TestBuildAddsConceptsFactsAndContradicts(t *testing.T) {
 	s.in.Checks = []db.ReportCheck{{NodeID: "rec:r2", CheckID: "novelty:rec:r1", Question: "q", Choice: "contradicts", P: 0.9, Status: review.Pass, Evidence: "abstract", Basis: "text"}}
 	r := Build(s.in)
 	x := nodeOf(t, r, "concept:x")
-	if x.Kind != "concept" || x.Label != "X" || x.Status != "chemical" || len(x.Facts) != 2 || x.Facts[0].Relation != "increases" {
+	if x.Kind != "concept" || x.Label != "X" || x.Status != "drug" || len(x.Facts) != 2 || x.Facts[0].Relation != "increases" {
 		t.Fatalf("concept x %+v", x)
 	}
 	for _, e := range [][3]string{{"concept:x", "concept:y", "increases"}, {"concept:x", "rec:r1", "mentioned_in"}, {"rec:r2", "rec:r1", "contradicts"}} {

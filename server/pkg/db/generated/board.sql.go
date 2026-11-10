@@ -568,7 +568,7 @@ JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND 
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) AS la(id, owner_id, runtime_id, name) ON true
 WHERE r.workspace_id = $1 AND r.status = 'offline'
-  AND ((la.id IS NOT NULL AND (r.id = la.runtime_id
+  AND ((t.kind <> 'report' AND la.id IS NOT NULL AND (r.id = la.runtime_id
       OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id))))
     OR (t.kind = 'report' AND r.id = t.pinned_runtime_id)
     OR (t.kind <> 'report' AND la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))

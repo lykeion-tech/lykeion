@@ -143,7 +143,7 @@ func TestReportEndpointIncludesExtras(t *testing.T) {
 		t.Fatalf("no build: %+v", r)
 	}
 	s.mustUpdate(t, `INSERT INTO report_build (workspace_id, card_id, status, checks_status) SELECT workspace_id, id, 'done', 'done' FROM card WHERE id = $1`, id)
-	s.mustUpdate(t, `INSERT INTO report_concept (workspace_id, card_id, key, label, type) SELECT workspace_id, id, 'x', 'X', 'chemical' FROM card WHERE id = $1`, id)
+	s.mustUpdate(t, `INSERT INTO report_concept (workspace_id, card_id, key, label, type) SELECT workspace_id, id, 'x', 'X', 'drug' FROM card WHERE id = $1`, id)
 	r := get()
 	if r.Extras != "ready" || r.Checks != "ready" {
 		t.Fatalf("done: %+v", r)
