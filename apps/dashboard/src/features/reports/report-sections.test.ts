@@ -87,6 +87,8 @@ function report(): StudyReport {
       { from: 'doubt:grounding:r1', to: 'rec:r5', kind: 'challenges' },
       // An edge to a node the report does not hold is never linked.
       { from: 'rec:gone', to: 'rec:r5', kind: 'supports' },
+      { from: 'rec:gone', to: 'rec:r2', kind: 'grounds' },
+      { from: 'obj:gone', to: 'rec:r5', kind: 'challenges' },
     ],
     steering: [
       { kind: 'comment', author: 'u', text: 'Look at the old.', at: '2026-11-09T10:00:00Z' },
@@ -152,4 +154,22 @@ it('overviewOf counts each finding status separately', () => {
     objections: 1,
     doubts: 1,
   });
+});
+
+it("study steering is labelled as the study's, apart from the node's own run and judge", () => {
+  const who = sectionFor(report(), 'rec:r5').folds.find((f) => f.title === 'Who decided')!;
+  expect(who.rows.map((r) => r.label)).toEqual([
+    'Study steering · Look at the old.',
+    'Judged in Validation',
+  ]);
+  const steering = who.rows[0]!;
+  expect(steering.kind === 'detail' && steering.detail[0]!.label).toBe(
+    "A researcher's comment on the study, not linked to this node",
+  );
+});
+
+it('the checks summary has words for screen readers', () => {
+  const checks = sectionFor(report(), 'rec:r5').folds.find((f) => f.title === 'Checks · evidence')!;
+  expect(checks.summary).toBe('✓ 1 · ◐ 0 · ○ 0');
+  expect(checks.srSummary).toBe('1 supported, 0 unclear, 0 unsupported');
 });

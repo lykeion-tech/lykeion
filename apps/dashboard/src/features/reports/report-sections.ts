@@ -14,7 +14,8 @@ export type Row =
       detail: DetailBlock[];
     }
   | { kind: 'link'; nodeId: string; label: string };
-export type Fold = { title: string; summary: string; rows: Row[] };
+// srSummary, when set, is the summary in words for screen readers.
+export type Fold = { title: string; summary: string; srSummary?: string; rows: Row[] };
 export type Status = { icon: '✓' | '◐' | '○' | ''; word: string; srText: string };
 
 const statuses: Record<string, [Status['icon'], string]> = {
@@ -102,10 +103,11 @@ export function sectionFor(report: StudyReport, nodeId: string) {
   const steeringRows = (): Row[] =>
     report.steering.map((s) => ({
       kind: 'detail',
-      label: s.text,
+      // The server links steering to the study, not to any node.
+      label: `Study steering · ${s.text}`,
       detail: [
         {
-          label: s.kind === 'comment' ? "A researcher's comment" : 'An answered decision',
+          label: `${s.kind === 'comment' ? "A researcher's comment" : 'An answered decision'} on the study, not linked to this node`,
           text: new Date(s.at).toLocaleString(),
         },
       ],
@@ -141,6 +143,7 @@ export function sectionFor(report: StudyReport, nodeId: string) {
       folds.push({
         title: 'Checks · evidence',
         summary: `✓ ${by('pass')} · ◐ ${by('unclear')} · ○ ${by('fail')}`,
+        srSummary: `${by('pass')} supported, ${by('unclear')} unclear, ${by('fail')} unsupported`,
         rows: node.checks.map(checkRow),
       });
       const challengers = links(into(node.id, 'challenges'));

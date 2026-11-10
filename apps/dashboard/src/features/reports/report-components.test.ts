@@ -145,3 +145,41 @@ it('Back returns to the previous node, and Back to the overview clears the selec
   expect(emitted.at(-1)).toBeNull();
   expect(textOf(root)).toContain('Click a node to see its section');
 });
+
+it('the checks summary glyphs are hidden from screen readers and read as words', async () => {
+  const { root } = pane('rec:r5');
+  await nextTick();
+  const fold = folds(root).find((n) => textOf(n).includes('Checks · evidence'))!;
+  const glyphs = all(fold).find((n) => textOf(n) === '✓ 1 · ◐ 0 · ○ 0' && n.tag === 'span')!;
+  expect(glyphs.props['aria-hidden']).toBe('true');
+  const words = all(fold).find((n) => n.props.class === 'sr-only')!;
+  expect(textOf(words)).toBe('1 supported, 0 unclear, 0 unsupported');
+});
+
+it('Back does not stick when the parent ignores the select', async () => {
+  const selected = ref<string | null>('rec:r5');
+  const emitted: (string | null)[] = [];
+  let ignore = false;
+  const root = mount(ReportPane, () => ({
+    report,
+    selected: selected.value,
+    onSelect: (id: string | null) => {
+      emitted.push(id);
+      if (!ignore) selected.value = id;
+    },
+  }));
+  await nextTick();
+  for (const fold of folds(root)) press(fold);
+  await nextTick();
+  press(byText(root, 'doi:10.1/a'));
+  await nextTick();
+  ignore = true;
+  press(byText(root, '← Back to Sleep helps memory'));
+  await nextTick();
+  await nextTick();
+  ignore = false;
+  // A later move forward must push, so Back still names the node just left.
+  selected.value = 'rec:r2';
+  await nextTick();
+  expect(textOf(byText(root, '← Back to'))).toContain('doi:10.1/a');
+});

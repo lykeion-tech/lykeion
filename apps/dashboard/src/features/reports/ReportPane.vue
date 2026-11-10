@@ -59,6 +59,9 @@ function back() {
   if (!to) return;
   goingBack = true;
   emit('select', to);
+  // A parent that ignores the select never fires the watch; don't let the
+  // next forward move be taken for a step back.
+  void nextTick(() => (goingBack = false));
 }
 const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key) : set.add(key));
 </script>
@@ -109,7 +112,10 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
           @click="toggle(openFolds, fold.title)"
         >
           <b>{{ fold.title }}</b
-          ><span class="type-caption">{{ fold.summary }}</span>
+          ><span class="type-caption"
+            ><span :aria-hidden="fold.srSummary ? 'true' : undefined">{{ fold.summary }}</span
+            ><span v-if="fold.srSummary" class="sr-only">{{ fold.srSummary }}</span></span
+          >
         </button>
         <template v-if="openFolds.has(fold.title)">
           <p v-if="!fold.rows.length" class="type-caption fold-empty">None recorded</p>
