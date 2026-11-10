@@ -1,9 +1,11 @@
 package labmemory
 
 import (
+	"fmt"
 	"github.com/google/uuid"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +88,39 @@ func TestDisplayReportCitation(t *testing.T) {
 	})
 	if e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestReportNodeCiteNeedsTheReportRead(t *testing.T) {
+	x := runningTurn(t)
+	x.finishReport()
+	base := "report:" + x.study.String()
+	x.log(base, "links")
+	if p, e := x.submit(t.Context(), "fact", base+"#concept:brca1"); e != nil || len(p) == 0 {
+		t.Fatal("links made a node citable", e, p)
+	}
+	x.log(base, "read")
+	if p, e := x.submit(t.Context(), "fact", base+"#concept:brca1"); e != nil || len(p) != 0 {
+		t.Fatal(e, p)
+	}
+}
+
+func TestReportNodePastThePageIsNotCitable(t *testing.T) {
+	x := runningTurn(t)
+	x.finishReport()
+	// Concepts sort by key after every stage node; each fact quote is large
+	// enough that the later concepts fall past the page.
+	for i := range 10 {
+		key := fmt.Sprintf("big%02d", i)
+		x.exec(`INSERT INTO report_concept(workspace_id,card_id,key,label,type) VALUES($1,$2,$3,$3,'gene')`, x.ws, x.study, key)
+		x.exec(`INSERT INTO report_fact(workspace_id,card_id,subject,relation,object,quote,source_node,p) VALUES($1,$2,$3,'mentioned_in','question',$4,'question',0.9)`, x.ws, x.study, key, strings.Repeat("q", 30<<10))
+	}
+	base := "report:" + x.study.String()
+	x.log(base, "read")
+	if p, e := x.submit(t.Context(), "fact", base+"#concept:big09"); e != nil || len(p) == 0 {
+		t.Fatal("a node past the page was accepted", e, p)
+	}
+	if p, e := x.submit(t.Context(), "fact", base+"#concept:big00"); e != nil || len(p) != 0 {
+		t.Fatal(e, p)
 	}
 }

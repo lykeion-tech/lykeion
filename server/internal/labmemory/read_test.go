@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/report"
+	"lykeion/server/internal/store"
 )
 
 func TestParseRefRoundTrip(t *testing.T) {
@@ -152,15 +153,47 @@ func TestReadReportRefIncludesJudgedFacts(t *testing.T) {
 func TestReportPageKeepsToOnePage(t *testing.T) {
 	g := reportGraph{Edges: []report.Edge{{From: "a", To: "b", Kind: "uses"}}}
 	for i := range 10 {
-		g.Nodes = append(g.Nodes, reportNode{ID: fmt.Sprint("rec:", i), Kind: "paper", Quote: strings.Repeat("x", 30<<10)})
+		g.Nodes = append(g.Nodes, reportNode{ID: fmt.Sprint("rec:", i), Kind: "paper", Quote: strings.Repeat("x", 30<<10),
+			Facts: []report.Fact{{Quote: strings.Repeat("y", 500)}}})
 	}
-	text, _ := json.Marshal(g)
+	kept := onePage(g)
+	if !kept.Truncated || len(kept.Nodes) == 0 || len(kept.Nodes) == 10 || len(kept.Edges) != 0 || strings.Contains(kept.Nodes[0].Quote, "untrusted") {
+		t.Fatalf("%v %d %d", kept.Truncated, len(kept.Nodes), len(kept.Edges))
+	}
+	text, _ := json.Marshal(kept)
 	page, err := reportPage(string(text))
-	if err != nil || len(page) > pageSize {
+	if err != nil || len(page) > pageSize || !strings.Contains(page, "untrusted data") {
 		t.Fatal(len(page), err)
 	}
-	var out reportGraph
-	if err := json.Unmarshal([]byte(page), &out); err != nil || !out.Truncated || len(out.Nodes) == 0 || len(out.Nodes) == 10 || len(out.Edges) != 0 {
-		t.Fatalf("%v %d %d %v", out.Truncated, len(out.Nodes), len(out.Edges), err)
+}
+
+func TestReportIsNeverMaintenanceOrLessonEvidence(t *testing.T) {
+	f := setup(t)
+	f.finishReport()
+	r := Ref{Kind: "report", ID: f.study}
+	fact, err := f.read(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = (&store.Store{Pool: f.env.App, LessonsEnabled: true}).Maintenance(t.Context(), func(tx *store.Tx) error {
+		if e := tx.Workspace(t.Context(), f.ws); e != nil {
+			return e
+		}
+		if _, e := ReadMaintenance(t.Context(), tx, r); !errors.Is(e, ErrNotFound) {
+			t.Fatalf("maintenance read: %v", e)
+		}
+		if _, e := Version(t.Context(), tx, r); !errors.Is(e, ErrNotFound) {
+			t.Fatalf("maintenance version: %v", e)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.New()
+	cites, _ := json.Marshal([]Citation{{Ref: r.String(), Version: fact.Version}})
+	f.exec(`INSERT INTO lesson(id,workspace_id,kind,text,cites,model,checked_at) VALUES($1,$2,'lab','Lesson',$3,'test',now())`, id, f.ws, cites)
+	if _, err := f.read(Ref{Kind: "lesson", ID: id}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("lesson citing a report: %v", err)
 	}
 }

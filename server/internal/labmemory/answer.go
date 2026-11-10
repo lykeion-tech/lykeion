@@ -174,6 +174,9 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		result.Evidence = append(result.Evidence, answerEvidence{cite, "read"})
 	}
 	readHere := map[Ref]bool{}
+	// opened holds refs whose content the run read. Search and links show
+	// only titles, so they never make a report node citable.
+	opened := map[Ref]bool{}
 	for _, row := range log {
 		ref, e := ParseRef(row.Ref)
 		if e != nil {
@@ -190,6 +193,9 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 			return denyStale()
 		}
 		readHere[ref] = true
+		if row.Via == "read" {
+			opened[ref] = true
+		}
 		via := row.Via
 		switch via {
 		case "read", "search", "links":
@@ -253,7 +259,7 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 				continue
 			case (s.Kind == "lesson") != (ref.Kind == "lesson"):
 				problem("use fact references for facts and lesson references for lessons")
-			case !readHere[ref.Base()]:
+			case ref.Node == "" && !readHere[ref], ref.Node != "" && !opened[ref.Base()] && !opened[ref]:
 				problem("the reference must have been read in this run and must still be available")
 			default:
 				// A report node is citable once its report was read, while the
