@@ -642,7 +642,7 @@ func (l *lab) judgedStudy(t *testing.T) db.Card {
 	}
 	phrase := strings.Fields(rep.HandIn.Text)[0]
 	l.jev(t, 200, levels(nil)).byState = func(state string) float64 {
-		if strings.Contains(state, "Q associated with R") {
+		if strings.Contains(state, "Q (other) associated with R (other)") {
 			return 0.3
 		}
 		return 0.9
