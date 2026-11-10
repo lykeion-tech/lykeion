@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { ReportNode, StudyReport } from '../../api/types';
-import { overviewOf, sectionFor } from './report-sections';
+import { handInSegments, noticesOf, overviewOf, sectionFor } from './report-sections';
 
 const node = (n: Partial<ReportNode> & Pick<ReportNode, 'id' | 'kind'>): ReportNode => ({
   label: n.id,
@@ -195,4 +195,166 @@ it('a doubt whose item passed reads "Passed", not "Supported"', () => {
   expect(sectionFor(r, 'doubt:grounding:r1').status.word).toBe('Passed');
   r.nodes = r.nodes.map((n) => (n.kind === 'doubt' ? { ...n, status: 'fail' } : n));
   expect(sectionFor(r, 'doubt:grounding:r1').status.word).toBe('Failed');
+});
+
+// A report with concepts, Jev's figure, table and novelty checks, and links.
+function judged(): StudyReport {
+  const r = report();
+  r.extras = 'ready';
+  r.checks = 'ready';
+  r.nodes.push(
+    node({ id: 'out:table.csv', kind: 'output', label: 'table.csv', content_type: 'text/csv' }),
+    node({
+      id: 'concept:insulin',
+      kind: 'concept',
+      label: 'Insulin',
+      status: 'protein',
+      facts: [
+        {
+          subject: 'insulin',
+          relation: 'measured_by',
+          object: 'elisa',
+          quote: 'Insulin was measured by ELISA.',
+          source_node: 'rec:r5',
+          p: 0.91,
+        },
+        {
+          subject: 'insulin',
+          relation: 'mentioned_in',
+          object: 'rec:r2',
+          quote: 'Sleep helps insulin.',
+          source_node: 'rec:r2',
+          p: 0.88,
+        },
+      ],
+    }),
+    node({ id: 'concept:elisa', kind: 'concept', label: 'ELISA', status: 'method' }),
+  );
+  r.edges.push({ from: 'out:table.csv', to: 'rec:r5', kind: 'supports' });
+  const f = r.nodes.find((n) => n.id === 'rec:r5')!;
+  f.novelty = 'contradicts';
+  f.checks.push(
+    {
+      id: 'figure:out:plot.png',
+      by: 'jev',
+      status: 'pass',
+      p: 0.9,
+      question: 'Does this figure, as its recorded text describes it, show what the claim says?',
+      detail: 'Recall by group.',
+      basis: 'text',
+    },
+    {
+      id: 'novelty:rec:r1',
+      by: 'jev',
+      status: 'pass',
+      p: 0.85,
+      question: 'Reading only the abstract…',
+      detail: 'choice: contradicts\nSleep does not help memory.',
+      basis: 'text',
+    },
+  );
+  return r;
+}
+
+it('concept section lists judged facts with quotes', () => {
+  const s = sectionFor(judged(), 'concept:insulin');
+  expect(s.status).toEqual({ icon: '', word: 'Protein', srText: 'Protein' });
+  expect(s.folds.map((f) => f.title)).toEqual(['Facts about it']);
+  const rows = s.folds[0]!.rows;
+  expect(rows.map((r) => r.label)).toEqual([
+    'Insulin is measured by ELISA',
+    'Insulin is mentioned in Sleep helps',
+  ]);
+  const first = rows[0]!;
+  expect(first.kind === 'detail' && first.pct).toBe(91);
+  expect(first.kind === 'detail' && first.detail).toEqual([
+    { label: 'Quote', text: 'Insulin was measured by ELISA.' },
+    { label: 'From', text: 'Sleep helps', nodeId: 'rec:r5' },
+  ]);
+});
+
+it('finding novelty fold summarises contradicts', () => {
+  const r = judged();
+  const folds = sectionFor(r, 'rec:r5').folds;
+  expect(folds.map((f) => f.title)).toEqual([
+    'Checks · evidence',
+    'Novelty',
+    'Rerun · objections',
+    'Sources',
+    'Who decided',
+  ]);
+  const novelty = folds[1]!;
+  expect(novelty.summary).toBe('Contradicts');
+  expect(novelty.rows).toHaveLength(1);
+  const row = novelty.rows[0]!;
+  expect(row.label).toBe('doi:10.1/a · Contradicts');
+  expect(row.kind === 'detail' && row.pct).toBe(85);
+  expect(row.kind === 'detail' && row.detail[0]).toEqual({
+    label: 'Paper',
+    text: 'doi:10.1/a',
+    nodeId: 'rec:r1',
+  });
+  // Novelty checks are not counted among the finding's evidence checks.
+  expect(folds[0]!.summary).toBe('✓ 2 · ◐ 0 · ○ 0');
+  r.nodes.find((n) => n.id === 'rec:r5')!.novelty = undefined;
+  expect(sectionFor(r, 'rec:r5').folds[1]!.summary).toBe('Not judged');
+});
+
+it('figure check row says it is judged from text', () => {
+  const r = judged();
+  const checks = sectionFor(r, 'rec:r5').folds[0]!.rows;
+  const figure = checks.find((c) => c.label === 'Figure · plot.png')!;
+  expect(figure.kind === 'detail' && figure.detail[0]!.text).toBe(
+    "Judged from the figure's recorded text, not the image.",
+  );
+  const image = r.nodes.find((n) => n.id === 'rec:r5')!.checks[1]!;
+  image.basis = 'image';
+  const shown = sectionFor(r, 'rec:r5').folds[0]!.rows.find(
+    (c) => c.label === 'Figure · plot.png',
+  )!;
+  expect(shown.kind === 'detail' && shown.detail[0]!.text).toBe('Judged from the image.');
+  // The table has no check, and says so.
+  const table = checks.find((c) => c.label.startsWith('table.csv'))!;
+  expect(table.kind === 'detail' && table.detail[0]!.text).toBe(
+    'Not checked: no recorded text describes this output.',
+  );
+  // The output's own section shows Jev's check for the finding it supports.
+  const supports = sectionFor(r, 'out:plot.png').folds.find((f) => f.title === 'Supports')!;
+  expect(supports.rows.map((x) => x.label)).toEqual(['Sleep helps', 'Figure · plot.png']);
+});
+
+it('hand-in links never change the text', () => {
+  const text = '\uFEFFRésumé: β-cells 🧪 secrete insulin; sleep helps.';
+  const bytes = new TextEncoder().encode(text);
+  const at = (s: string) => new TextEncoder().encode(text.slice(0, text.indexOf(s))).length;
+  const len = (s: string) => new TextEncoder().encode(s).length;
+  const links = [
+    { start: at('insulin'), end: at('insulin') + len('insulin'), node: 'concept:insulin', p: 0.9 },
+    { start: at('β-cells'), end: at('β-cells') + len('β-cells'), node: 'rec:r5', p: 0.8 },
+    // Overlapping, or cutting a character in half, is never linked.
+    { start: at('β-cells') + 1, end: at('🧪') + 2, node: 'rec:r2', p: 0.8 },
+    { start: at('sleep'), end: bytes.length + 5, node: 'rec:r2', p: 0.8 },
+  ];
+  const segments = handInSegments(text, links);
+  expect(segments.map((s) => s.text).join('')).toBe(text);
+  expect(segments.filter((s) => s.node).map((s) => [s.text, s.node])).toEqual([
+    ['β-cells', 'rec:r5'],
+    ['insulin', 'concept:insulin'],
+  ]);
+});
+
+it('pending extras notice names the machine', () => {
+  const r = judged();
+  r.extras = 'pending';
+  r.machine = 'lab-mac';
+  expect(noticesOf(r)).toEqual(['Concepts and links are waiting for lab-mac.']);
+  r.machine = '';
+  r.checks = 'unavailable';
+  expect(noticesOf(r)).toEqual([
+    'Concepts and links are being judged.',
+    "Jev could not judge this report's figure, table and novelty checks.",
+  ]);
+  r.extras = 'ready';
+  r.checks = 'ready';
+  expect(noticesOf(r)).toEqual([]);
 });

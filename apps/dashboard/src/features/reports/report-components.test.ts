@@ -187,3 +187,47 @@ it('Back does not stick when the parent ignores the select', async () => {
   await nextTick();
   expect(textOf(byText(root, '← Back to'))).toContain('doi:10.1/a');
 });
+
+it("a fact's source is a link that selects its node", async () => {
+  const selected = ref<string | null>('concept:insulin');
+  const emitted: (string | null)[] = [];
+  const withConcept: StudyReport = {
+    ...report,
+    extras: 'ready',
+    nodes: [
+      ...report.nodes,
+      reportNode({
+        id: 'concept:insulin',
+        kind: 'concept',
+        label: 'Insulin',
+        status: 'protein',
+        facts: [
+          {
+            subject: 'insulin',
+            relation: 'mentioned_in',
+            object: 'rec:r5',
+            quote: 'Insulin rose after sleep.',
+            source_node: 'rec:r5',
+            p: 0.9,
+          },
+        ],
+      }),
+    ],
+  };
+  const root = mount(ReportPane, () => ({
+    report: withConcept,
+    selected: selected.value,
+    onSelect: (id: string | null) => emitted.push(id),
+  }));
+  await nextTick();
+  for (const fold of folds(root)) press(fold);
+  await nextTick();
+  press(byText(root, 'Insulin is mentioned in Sleep helps memory'));
+  await nextTick();
+  expect(textOf(root)).toContain('Insulin rose after sleep.');
+  const source = all(root).find((n) => n.tag === 'button' && n.props.class === 'detail-link')!;
+  // The link sets its text whole (v-text), so no template space reaches it.
+  expect(source.props.textContent).toBe('Sleep helps memory');
+  press(source);
+  expect(emitted).toEqual(['rec:r5']);
+});

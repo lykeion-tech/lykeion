@@ -158,7 +158,14 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
               <dl v-if="openRows.has(`${f}:${r}`)" class="row-detail">
                 <template v-for="(block, b) in row.detail" :key="b">
                   <dt class="type-caption">{{ block.label }}</dt>
-                  <dd>{{ block.text }}</dd>
+                  <dd>
+                    <button
+                      v-if="block.nodeId"
+                      class="detail-link"
+                      @click="go(block.nodeId)"
+                      v-text="block.text"
+                    /><template v-else>{{ block.text }}</template>
+                  </dd>
                 </template>
               </dl>
             </template>
@@ -273,6 +280,12 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   padding: 9px 4px 9px 28px;
   text-align: left;
   border-radius: 5px;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+.detail-link {
+  text-align: left;
   text-decoration: underline;
   text-decoration-color: var(--border);
   text-underline-offset: 3px;

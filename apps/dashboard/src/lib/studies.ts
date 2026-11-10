@@ -109,8 +109,15 @@ export function stopReason(text: string): string {
   return text.trim() || 'Stopped by user';
 }
 export function roleLabel(role: string): string {
+  // The report run's role; its runs read as the report they build.
+  if (role === 'reporter') return 'Report';
   const words = role.replace(/-/g, ' ');
   return words ? words[0]!.toUpperCase() + words.slice(1) : '';
+}
+// A run's name in the study timeline: its agent, or its role when it has
+// none. The report run carries the final run's agent but reads "Report".
+export function runLabel(run: { kind?: string; role: string; agent_name: string | null }): string {
+  return run.kind === 'report' ? 'Report' : run.agent_name || roleLabel(run.role);
 }
 // Validation's objector and rerun are runs Lykeion starts itself, with no agent.
 export function systemRun(role: string): boolean {

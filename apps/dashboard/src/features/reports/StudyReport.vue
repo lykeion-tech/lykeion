@@ -8,6 +8,7 @@ import SurfacePane from '../../ui/SurfacePane.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ReportGraph from './ReportGraph.vue';
 import ReportPane from './ReportPane.vue';
+import { handInSegments, kindName, noticesOf } from './report-sections';
 import { shownReport } from './shown-report';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
@@ -64,6 +65,19 @@ watch(handInBody, (el) => {
 });
 onUnmounted(() => observer?.disconnect());
 
+const notices = computed(() => (report.value ? noticesOf(report.value) : []));
+// With links, the hand-in is shown as its raw text so each link covers
+// exactly the bytes it was judged on; without, it reads as Markdown.
+const segments = computed(() => {
+  const r = report.value;
+  return r?.hand_in && r.links.length ? handInSegments(r.hand_in.text, r.links) : null;
+});
+const nodeOf = (id: string) => report.value?.nodes.find((n) => n.id === id);
+function selectRef(id: string) {
+  selected.value = id;
+  paneOpen.value = true;
+}
+
 const paneOpen = ref(typeof window === 'undefined' || window.innerWidth > 980);
 const paneActive = ref<string | null>('report');
 const paneFocused = ref(false);
@@ -109,7 +123,20 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
           <template v-if="report.hand_in">
             <p class="type-caption hand-in-by">{{ handInBy }}</p>
             <div class="hand-in-text" :class="{ folded: overflows && !expanded }">
-              <div ref="handInBody"><RecordedMarkdown :content="report.hand_in.text" /></div>
+              <div v-if="segments" ref="handInBody" class="hand-in-plain">
+                <template v-for="(seg, i) in segments" :key="i"
+                  ><button
+                    v-if="seg.node && nodeOf(seg.node)"
+                    type="button"
+                    class="ref"
+                    :aria-label="`${seg.text}, ${kindName(nodeOf(seg.node)!.kind)}: ${nodeOf(seg.node)!.label}`"
+                    :aria-pressed="selected === seg.node"
+                    @click="selectRef(seg.node)"
+                    v-text="seg.text"
+                  /><template v-else>{{ seg.text }}</template></template
+                >
+              </div>
+              <div v-else ref="handInBody"><RecordedMarkdown :content="report.hand_in.text" /></div>
             </div>
             <button
               v-if="overflows"
@@ -122,6 +149,9 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
           </template>
           <p v-else class="hand-in-none">The agents left no hand-in report.</p>
         </section>
+        <p v-for="notice in notices" :key="notice" class="report-notice type-caption" role="status">
+          {{ notice }}
+        </p>
         <div class="report-graph-frame">
           <ReportGraph :report="report" :selected="selected" @select="selected = $event" />
         </div>
@@ -236,7 +266,38 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
   mask-image: linear-gradient(to bottom, #000 75%, transparent);
 }
+.hand-in-plain {
+  white-space: pre-wrap;
+}
+.hand-in-plain .ref {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  color: var(--primary-text);
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+  border-radius: 3px;
+}
+.hand-in-plain .ref:hover,
+.hand-in-plain .ref[aria-pressed='true'] {
+  background: var(--hover);
+}
+.hand-in-plain .ref:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.report-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
 .report-graph-frame {
+  position: relative;
   flex: none;
   height: 460px;
   border: 1px solid var(--border);

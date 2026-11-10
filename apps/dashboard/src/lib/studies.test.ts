@@ -177,6 +177,12 @@ describe('study labels', () => {
     expect(stopReason('  too little data  ')).toBe('too little data');
     expect(stopReason('   ')).toBe('Stopped by user');
     expect(roleLabel('literature-scout')).toBe('Literature scout');
+    expect(studies.runLabel({ kind: 'report', role: 'reporter', agent_name: 'Leader' })).toBe(
+      'Report',
+    );
+    expect(studies.runLabel({ kind: 'role', role: 'leader', agent_name: 'Leader' })).toBe('Leader');
+    expect(studies.runLabel({ kind: 'role', role: 'rerun', agent_name: null })).toBe('Rerun');
+    expect(roleLabel('reporter')).toBe('Report');
   });
   it('says how long ago', () => {
     const now = Date.parse('2026-10-15T12:00:00Z');

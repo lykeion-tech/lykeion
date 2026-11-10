@@ -20,7 +20,7 @@ import RunTurn from './RunTurn.vue';
 import RunStatus from './RunStatus.vue';
 import RunReactions from './RunReactions.vue';
 const RecordedMarkdown = lazyRecordedMarkdown();
-import { roleLabel, timeAgo } from '../../lib/studies';
+import { runLabel, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 
 const props = defineProps<{
@@ -175,7 +175,7 @@ async function sendReply() {
     if (replyVisit === visit) replyBusy.value = false;
   }
 }
-const name = computed(() => agentDisplayName(props.run.agent_name || roleLabel(props.run.role)));
+const name = computed(() => agentDisplayName(runLabel(props.run)));
 function replyAuthor(item: Comment) {
   const member = members.data.value?.find((m) => m.user_id === item.author_id);
   return member?.name || member?.email || 'Unknown colleague';
@@ -230,9 +230,7 @@ const lastActive = computed(
             <span v-if="active" class="live-dot" :title="state" />
           </span>
           <span class="run-identity">
-            <span class="agent-name">{{
-              agentNameWithoutCli(run.agent_name || roleLabel(run.role), run.harness)
-            }}</span>
+            <span class="agent-name">{{ agentNameWithoutCli(runLabel(run), run.harness) }}</span>
             <span class="run-meta"
               ><time :datetime="lastActive">{{ timeAgo(lastActive) }}</time></span
             >

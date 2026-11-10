@@ -1,10 +1,11 @@
-import type { ReportEdge, ReportNode, ReviewCheck, StudyReport } from '../../api/types';
+import type { ReportEdge, ReportLink, ReportNode, ReviewCheck, StudyReport } from '../../api/types';
 import { checkLabel } from '../../lib/review';
 import { columnName } from '../../lib/studies';
 
 // A section shows only what the report recorded: every label, status and
 // detail below is copied from a node, edge, check or steering entry.
-export type DetailBlock = { label: string; text: string };
+// A block with a nodeId shows its text as a link to that node.
+export type DetailBlock = { label: string; text: string; nodeId?: string };
 export type Row =
   | {
       kind: 'detail';
@@ -37,6 +38,11 @@ const statuses: Record<string, [Status['icon'], string]> = {
 const doubtWords: Record<string, string> = { pass: 'Passed', fail: 'Failed' };
 
 export function statusOf(status: string, kind?: string): Status {
+  // A concept's status is its type, never a judgement.
+  if (kind === 'concept') {
+    const type = kindName(status.replaceAll('_', ' '));
+    return { icon: '', word: type, srText: type };
+  }
   const [icon, word] = statuses[status] ?? ['', ''];
   const w = (kind === 'doubt' && doubtWords[status]) || word;
   return { icon, word: w, srText: w };
@@ -66,6 +72,23 @@ function checkRow(check: ReviewCheck): Row {
   };
 }
 
+const relationWords: Record<string, string> = {
+  is_a: 'is a',
+  part_of: 'is part of',
+  associated_with: 'is associated with',
+  increases: 'increases',
+  decreases: 'decreases',
+  measured_by: 'is measured by',
+  mentioned_in: 'is mentioned in',
+};
+const choiceWords: Record<string, string> = {
+  confirms: 'Confirms',
+  contradicts: 'Contradicts',
+  unrelated: 'Unrelated',
+};
+const noveltyWords = { new: 'New', confirms: 'Confirms', contradicts: 'Contradicts' };
+const notChecked = 'Not checked: no recorded text describes this output.';
+
 const reasonRow = (reason: string, node: ReportNode): Row => ({
   kind: 'detail',
   label: reason,
@@ -87,6 +110,38 @@ export function sectionFor(report: StudyReport, nodeId: string) {
   const into = (to: string, ...kinds: ReportEdge['kind'][]) =>
     report.edges.filter((e) => e.to === to && kinds.includes(e.kind)).map((e) => e.from);
   const links = (ids: string[]) => unique(ids).flatMap(linkTo);
+  const labelOf = (id: string) => byId.get(id)?.label ?? id;
+  // A figure or table check names its output; Jev's check of an output for a
+  // finding lives on the finding, under figure:<output> or table:<output>.
+  const outputCheck = (finding: ReportNode, output: string) =>
+    finding.checks.find((c) => c.id === `figure:${output}` || c.id === `table:${output}`);
+  const outputRow = (check: ReviewCheck): Row => {
+    const [kind, ...rest] = check.id.split(':');
+    const output = rest.join(':');
+    const row = checkRow(check);
+    const detail: DetailBlock[] = [];
+    if (kind === 'figure')
+      detail.push({
+        label: 'Jev judged',
+        text:
+          check.basis === 'image'
+            ? 'Judged from the image.'
+            : "Judged from the figure's recorded text, not the image.",
+      });
+    if (check.detail) detail.push({ label: 'Jev read', text: check.detail });
+    return {
+      ...row,
+      label: `${kind === 'figure' ? 'Figure' : 'Table'} · ${labelOf(output)}`,
+      detail: [...detail, ...(row.kind === 'detail' ? row.detail : [])],
+    } as Row;
+  };
+  const notCheckedRow = (output: string): Row => ({
+    kind: 'detail',
+    label: `${labelOf(output)} · Not checked`,
+    detail: [{ label: 'Jev', text: notChecked }],
+  });
+  // Outputs are only called unchecked once Jev's checks are in.
+  const checksIn = report.checks === 'ready';
   const linkFold = (title: string, ids: string[]): Fold => {
     const rows = links(ids);
     return { title, summary: rows.length ? String(rows.length) : 'None recorded', rows };
@@ -145,13 +200,51 @@ export function sectionFor(report: StudyReport, nodeId: string) {
           rows: node.reasons.map((r) => reasonRow(r, node)),
         });
       }
-      const by = (s: string) => node.checks.filter((c) => c.status === s).length;
+      const evidence = node.checks.filter((c) => !c.id.startsWith('novelty:'));
+      const by = (s: string) => evidence.filter((c) => c.status === s).length;
+      const isOutputCheck = (c: ReviewCheck) => /^(figure|table):/.test(c.id);
+      const unchecked = checksIn
+        ? unique(into(node.id, 'supports')).filter(
+            (id) => byId.get(id)?.kind === 'output' && !outputCheck(node, id),
+          )
+        : [];
       folds.push({
         title: 'Checks · evidence',
         summary: `✓ ${by('pass')} · ◐ ${by('unclear')} · ○ ${by('fail')}`,
         srSummary: `${by('pass')} supported, ${by('unclear')} unclear, ${by('fail')} unsupported`,
-        rows: node.checks.map(checkRow),
+        rows: [
+          ...evidence.filter((c) => !isOutputCheck(c)).map(checkRow),
+          ...evidence.filter(isOutputCheck).map(outputRow),
+          ...unchecked.map(notCheckedRow),
+        ],
       });
+      if (report.checks !== 'none') {
+        const novelty = node.checks.filter((c) => c.id.startsWith('novelty:'));
+        folds.push({
+          title: 'Novelty',
+          summary: node.novelty ? noveltyWords[node.novelty] : 'Not judged',
+          rows: novelty.map((c) => {
+            const paper = c.id.slice('novelty:'.length);
+            const [first = '', ...abstract] = (c.detail ?? '').split('\n');
+            const choice = first.replace(/^choice: /, '');
+            const word = choiceWords[choice] ?? choice;
+            const row = checkRow(c);
+            return {
+              ...row,
+              label: `${labelOf(paper)} · ${word}`,
+              detail: [
+                {
+                  label: 'Paper',
+                  text: labelOf(paper),
+                  ...(byId.has(paper) ? { nodeId: paper } : {}),
+                },
+                ...(row.kind === 'detail' ? row.detail : []),
+                ...(abstract.length ? [{ label: 'Jev read', text: abstract.join('\n') }] : []),
+              ],
+            } as Row;
+          }),
+        });
+      }
       const challengers = links(into(node.id, 'challenges'));
       const rerun: Row[] =
         node.rerun === undefined || node.rerun === null
@@ -207,10 +300,46 @@ export function sectionFor(report: StudyReport, nodeId: string) {
       folds.push(linkFold('Outputs', out(node.id, 'produced')));
       folds.push(whoFold('Who decided'));
       break;
-    case 'output':
-      folds.push(linkFold('Supports', out(node.id, 'supports')));
+    case 'output': {
+      const findings = unique(out(node.id, 'supports')).filter((id) => byId.has(id));
+      const rows = findings.flatMap((id): Row[] => {
+        const check = outputCheck(byId.get(id)!, node.id);
+        return [
+          ...linkTo(id),
+          ...(check ? [outputRow(check)] : checksIn ? [notCheckedRow(node.id)] : []),
+        ];
+      });
+      folds.push({
+        title: 'Supports',
+        summary: findings.length ? String(findings.length) : 'None recorded',
+        rows,
+      });
       folds.push(whoFold('Who made it'));
       break;
+    }
+    case 'concept': {
+      const conceptLabel = (key: string) => labelOf(`concept:${key}`);
+      folds.push({
+        title: 'Facts about it',
+        summary: node.facts?.length ? count(node.facts.length, 'fact') : 'None recorded',
+        rows: (node.facts ?? []).map((f) => ({
+          kind: 'detail',
+          label: `${conceptLabel(f.subject)} ${relationWords[f.relation] ?? f.relation.replaceAll('_', ' ')} ${
+            f.relation === 'mentioned_in' ? labelOf(f.object) : conceptLabel(f.object)
+          }`,
+          pct: pct(f.p),
+          detail: [
+            { label: 'Quote', text: f.quote },
+            {
+              label: 'From',
+              text: labelOf(f.source_node),
+              ...(byId.has(f.source_node) ? { nodeId: f.source_node } : {}),
+            },
+          ],
+        })),
+      });
+      break;
+    }
     case 'objection':
     case 'doubt': {
       folds.push(linkFold('Affects', out(node.id, 'challenges')));
@@ -249,4 +378,45 @@ export function overviewOf(report: StudyReport) {
     objections: n('objection'),
     doubts: n('doubt'),
   };
+}
+
+// The notices shown above the graph while the report's judged parts are
+// missing.
+export function noticesOf(report: StudyReport): string[] {
+  const out: string[] = [];
+  if (report.extras === 'pending')
+    out.push(
+      report.machine
+        ? `Concepts and links are waiting for ${report.machine}.`
+        : 'Concepts and links are being judged.',
+    );
+  if (report.checks === 'unavailable')
+    out.push("Jev could not judge this report's figure, table and novelty checks.");
+  return out;
+}
+
+// handInSegments cuts the hand-in at its links' byte offsets. The segments'
+// texts join back to text exactly; a link that overlaps an earlier one, runs
+// past the end or splits a character stays plain text.
+export function handInSegments(
+  text: string,
+  links: ReportLink[],
+): { text: string; node?: string }[] {
+  const bytes = new TextEncoder().encode(text);
+  // ignoreBOM keeps a leading byte-order mark as text instead of dropping it.
+  const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+  const decode = (from: number, to: number) => decoder.decode(bytes.subarray(from, to));
+  // A UTF-8 continuation byte is 10xxxxxx; a character starts anywhere else.
+  const boundary = (i: number) => i === bytes.length || (bytes[i]! & 0xc0) !== 0x80;
+  const out: { text: string; node?: string }[] = [];
+  let at = 0;
+  for (const l of [...links].sort((a, b) => a.start - b.start)) {
+    if (l.start < at || l.end <= l.start || l.end > bytes.length) continue;
+    if (!boundary(l.start) || !boundary(l.end)) continue;
+    if (l.start > at) out.push({ text: decode(at, l.start) });
+    out.push({ text: decode(l.start, l.end), node: l.node });
+    at = l.end;
+  }
+  if (at < bytes.length || !out.length) out.push({ text: decode(at, bytes.length) });
+  return out;
 }

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { ReportEdge, ReportNode } from '../../api/types';
-import { layoutReport } from './report-layout';
+import { edgeStyle, layoutReport } from './report-layout';
 
 const node = (id: string, kind: ReportNode['kind']): ReportNode => ({
   id,
@@ -30,4 +30,16 @@ it('layoutReport puts the question left of hypotheses and hypotheses left of fin
   const at = layoutReport(nodes, edges);
   expect(at.size).toBe(4);
   for (const e of edges) expect(at.get(e.from)!.x).toBeLessThan(at.get(e.to)!.x);
+});
+
+it('contradicts edge is dashed and red', () => {
+  expect(edgeStyle('contradicts', false)).toEqual({
+    stroke: 'var(--danger-text)',
+    strokeWidth: 1,
+    strokeDasharray: '5 4',
+  });
+  expect(edgeStyle('tests', false).strokeDasharray).toBeUndefined();
+  // Fact edges stay thin and grey even beside the selected node.
+  expect(edgeStyle('is_a', true)).toEqual({ stroke: 'var(--chart-rule)', strokeWidth: 1 });
+  expect(edgeStyle('tests', true)).toEqual({ stroke: 'var(--text)', strokeWidth: 2 });
 });

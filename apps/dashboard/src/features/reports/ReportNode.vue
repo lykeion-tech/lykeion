@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ReportNodeKind } from '../../api/types';
+import { kindDot } from './report-layout';
 import { kindName } from './report-sections';
 
 const props = defineProps<{
@@ -31,7 +32,7 @@ function onKey(e: KeyboardEvent) {
     @click="emit('select', id)"
     @keydown="onKey"
   >
-    <span class="report-node-dot" aria-hidden="true" />
+    <span class="report-node-dot" :style="{ background: kindDot[data.kind] }" aria-hidden="true" />
     <span class="report-node-label">{{ shortLabel }}</span>
   </div>
 </template>
@@ -63,6 +64,9 @@ function onKey(e: KeyboardEvent) {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+.report-node.kind-concept {
+  border-radius: 20px;
+}
 .report-node.rejected {
   opacity: 0.55;
 }
@@ -71,33 +75,11 @@ function onKey(e: KeyboardEvent) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--dot);
 }
 .report-node-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.kind-question {
-  --dot: var(--text);
-}
-.kind-paper,
-.kind-dataset {
-  --dot: var(--stage-dot);
-}
-.kind-hypothesis {
-  --dot: var(--stage-hypotheses-dot);
-}
-.kind-experiment,
-.kind-output {
-  --dot: var(--stage-experimentation-dot);
-}
-.kind-finding {
-  --dot: var(--stage-validation-dot);
-}
-.kind-objection,
-.kind-doubt {
-  --dot: var(--danger-text);
 }
 </style>

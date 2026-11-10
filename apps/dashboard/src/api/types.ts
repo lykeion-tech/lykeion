@@ -312,6 +312,8 @@ export interface AgentRun {
   board_column: Column;
   round: number;
   role: string;
+  // role for a study's stage runs; report for the run that builds its report.
+  kind?: string;
   harness: string;
   status: 'queued' | 'dispatched' | 'running' | 'completed' | 'failed' | 'cancelled';
   queue_reason: string | null;

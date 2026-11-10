@@ -319,3 +319,85 @@ test('a study that finished before reports shipped has no report', async ({ page
   await page.goto(`/#/decisions/report/${study.id}`);
   await expect(page.getByText('This study has no report.')).toBeVisible();
 });
+
+test('clicking a hand-in link selects its node and opens its section', async ({ page }) => {
+  const study = await finishedStudy(page.request);
+  // The report is the server's, with judged concepts and links laid over it.
+  const text = `Résumé — β-cells 🧪: ${H1}.\n\nInsulin was measured by ELISA.`;
+  const bytes = (s: string) => new TextEncoder().encode(s).length;
+  const at = (s: string) => bytes(text.slice(0, text.indexOf(s)));
+  await page.route(`**/api/cards/${study.id}/report`, async (route) => {
+    const report = await (await route.fetch()).json();
+    const finding = report.nodes.find(
+      (n: { kind: string; label: string }) => n.kind === 'finding' && n.label === H1,
+    );
+    report.hand_in.text = text;
+    report.nodes.push({
+      ...finding,
+      id: 'concept:insulin',
+      kind: 'concept',
+      label: 'Insulin',
+      status: 'protein',
+      checks: [],
+      reasons: [],
+      quote: '',
+      run_id: null,
+      facts: [
+        {
+          subject: 'insulin',
+          relation: 'mentioned_in',
+          object: finding.id,
+          quote: 'Insulin was measured by ELISA.',
+          source_node: finding.id,
+          p: 0.9,
+        },
+      ],
+    });
+    report.edges.push({ from: 'concept:insulin', to: finding.id, kind: 'mentioned_in' });
+    report.links = [
+      { start: at(H1), end: at(H1) + bytes(H1), node: finding.id, p: 0.9 },
+      {
+        start: at('Insulin'),
+        end: at('Insulin') + bytes('Insulin'),
+        node: 'concept:insulin',
+        p: 0.9,
+      },
+    ];
+    report.extras = 'pending';
+    report.checks = 'unavailable';
+    report.machine = 'lab-mac';
+    await route.fulfill({ json: report });
+  });
+  await page.goto(`/#/decisions/report/${study.id}`);
+  const handIn = page.getByRole('region', { name: 'Hand-in report' });
+  const body = handIn.locator('.hand-in-plain');
+  await expect(body).toBeVisible();
+  // Linking changes no text.
+  expect(await body.evaluate((e) => e.textContent)).toBe(text);
+  await expect(page.getByText('Concepts and links are waiting for lab-mac.')).toBeVisible();
+  await expect(
+    page.getByText("Jev could not judge this report's figure, table and novelty checks."),
+  ).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Legend' })).toContainText('Concept');
+  await expect(graph(page).getByRole('button', { name: 'Concept: Insulin' })).toBeVisible();
+
+  const link = handIn.getByRole('button', { name: `${H1}, Finding: ${H1}` });
+  await link.focus();
+  await page.keyboard.press('Enter');
+  await expect(link).toHaveAttribute('aria-pressed', 'true');
+  const selected = pane(page).getByRole('region', { name: 'Selected' });
+  await expect(selected).toContainText(H1);
+  await expect(selected).toContainText('Finding');
+
+  await handIn.getByRole('button', { name: 'Insulin, Concept: Insulin' }).click();
+  await expect(selected).toContainText('Insulin');
+  await expect(selected).toContainText('Protein');
+  await pane(page)
+    .getByRole('button', { name: /Facts about it/ })
+    .click();
+  await pane(page)
+    .getByRole('button', { name: new RegExp(`Insulin is mentioned in ${H1}`) })
+    .click();
+  await expect(pane(page)).toContainText('Insulin was measured by ELISA.');
+  await page.screenshot({ path: `${shots}/study-report-links.png`, fullPage: true });
+});

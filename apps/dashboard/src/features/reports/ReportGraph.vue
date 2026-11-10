@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Handle, Position, VueFlow, type Edge, type Node } from '@vue-flow/core';
 import '@vue-flow/core/dist/style.css';
 import type { StudyReport } from '../../api/types';
-import { layoutReport } from './report-layout';
+import { edgeStyle, kindDot, layoutReport, legend } from './report-layout';
 import ReportNode from './ReportNode.vue';
 
 const props = defineProps<{ report: StudyReport; selected: string | null }>();
@@ -26,16 +26,11 @@ const edges = computed<Edge[]>(() =>
   edgesShown.value.map((e) => {
     const touching =
       props.selected !== null && (e.from === props.selected || e.to === props.selected);
-    const contradicts = e.kind === 'contradicts';
     return {
       id: `${e.from}>${e.to}:${e.kind}`,
       source: e.from,
       target: e.to,
-      style: {
-        stroke: contradicts ? 'var(--danger-text)' : touching ? 'var(--text)' : 'var(--chart-rule)',
-        strokeWidth: touching ? 2 : 1,
-        strokeDasharray: contradicts ? '5 4' : undefined,
-      },
+      style: edgeStyle(e.kind, touching),
     };
   }),
 );
@@ -61,9 +56,41 @@ const edges = computed<Edge[]>(() =>
       <Handle type="source" :position="Position.Right" :connectable="false" />
     </template>
   </VueFlow>
+  <ul class="report-legend type-caption" aria-label="Legend">
+    <li v-for="item in legend" :key="item.kind">
+      <i :style="{ background: kindDot[item.kind] }" aria-hidden="true" />{{ item.label }}
+    </li>
+  </ul>
 </template>
 
 <style scoped>
+.report-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: 6px 10px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--fill-raised);
+  color: var(--muted);
+  pointer-events: none;
+}
+.report-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.report-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
 .report-graph {
   width: 100%;
   height: 100%;

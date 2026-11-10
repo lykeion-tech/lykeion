@@ -127,6 +127,12 @@ export const useStudyReport = (cardId: Ref<string | undefined>) =>
     queryKey: computed(() => keys.studyReport(ws.value, cardId.value ?? '')),
     queryFn: () => api<StudyReport>('GET', `/api/cards/${cardId.value}/report`),
     enabled: computed(() => inWorkspace.value && Boolean(cardId.value)),
+    // Concepts, links and Jev's checks arrive after the report; look again
+    // until neither is pending.
+    refetchInterval: (query) =>
+      query.state.data?.extras === 'pending' || query.state.data?.checks === 'pending'
+        ? 15_000
+        : false,
   });
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
