@@ -4,8 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { Pin, ListX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import { useWorkspaceTabs, type Tab } from '../../state/workspace-tabs';
-const props = defineProps<{ title: string; icon: string; collapsed: boolean }>();
-const emit = defineEmits<{ toggle: [] }>();
+const props = defineProps<{ title: string; icon: string }>();
 const route = useRoute();
 const router = useRouter();
 const { tabs, selected, openTab: add, ensureTab } = useWorkspaceTabs();
@@ -52,8 +51,7 @@ async function select(t: Tab) {
 async function history(delta: number) {
   const t = active.value;
   let index = t.index + delta;
-  if (delta < 0 && t.history[index] === '/coresearch' && t.path.startsWith('/coresearch/'))
-    index--;
+  if (delta < 0 && t.history[index] === '/coresearch' && t.path.startsWith('/coresearch/')) index--;
   if (index < 0 || index >= t.history.length) return;
   t.index = index;
   t.path = t.history[index]!;
@@ -211,9 +209,7 @@ onUnmounted(() => {
         :disabled="active.index === active.history.length - 1"
         @click="history(1)"
       >
-        <Icon name="forward" :size="14" /></button
-      ><button class="icon-button" aria-label="Toggle left sidebar" @click="emit('toggle')">
-        <Icon name="sidebar" :size="15" />
+        <Icon name="forward" :size="14" />
       </button>
     </div>
     <div class="tab-strip" role="tablist" aria-label="Workspace tabs">
@@ -221,7 +217,11 @@ onUnmounted(() => {
         v-for="t in tabs"
         :key="t.id"
         class="workspace-tab"
-        :class="{ active: t.id === selected, pinned: t.pinned, 'short-title': t.title.length <= 10 }"
+        :class="{
+          active: t.id === selected,
+          pinned: t.pinned,
+          'short-title': t.title.length <= 10,
+        }"
         draggable="true"
         @dragstart="dragged = t.id"
         @dragover.prevent
@@ -289,12 +289,13 @@ onUnmounted(() => {
   -webkit-app-region: drag;
 }
 .window-navigation {
-  width: 224px;
+  /* The history arrows sit above the Coresearch/Decisions toggle at the rail's right edge. */
+  width: var(--rail-width, 262px);
   flex: none;
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  padding-right: 12px;
+  padding-right: 10px;
 }
 .window-navigation button,
 .tab-strip {
@@ -305,7 +306,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 5px;
   overflow: auto;
-  max-width: calc(100% - 224px);
+  max-width: calc(100% - var(--rail-width, 262px));
   padding: 2px 10px;
 }
 .workspace-tab {

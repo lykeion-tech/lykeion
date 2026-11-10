@@ -13940,47 +13940,6 @@
       box-shadow 100ms ease;
   }
 }
-.coresearch.rail-fabs,
-.coresearch .rail-fabs {
-  position: absolute;
-  left: 16px;
-  bottom: 46px;
-  z-index: 30;
-  display: flex;
-  gap: 8px;
-}
-.coresearch.rail-fab,
-.coresearch .rail-fab {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline-strong);
-  color: var(--ink-subtle);
-  box-shadow: 0 0 0 1px var(--hairline);
-  cursor: default;
-}
-.coresearch.rail-fab:hover,
-.coresearch .rail-fab:hover {
-  color: var(--ink);
-}
-.coresearch.rail-fab.is-active,
-.coresearch .rail-fab.is-active {
-  background: var(--ink);
-  border-color: transparent;
-  color: var(--canvas);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .coresearch.rail-fab,
-  .coresearch .rail-fab {
-    transition:
-      background-color 120ms ease,
-      color 120ms ease,
-      border-color 120ms ease;
-  }
-}
 @property --tw-translate-x {
   syntax: '*';
   inherits: false;

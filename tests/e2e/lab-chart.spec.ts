@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
 
-test('the Lab Chart page sits above Settings and draws the lab', async ({ page }) => {
+test('the Lab menu lists Lykeion after Settings and opens the lab chart', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
-  const settings = nav.getByRole('link', { name: 'Settings', exact: true });
-  await expect(settings).toBeVisible();
-  const above = settings.locator('xpath=preceding::*[self::a or self::button][1]');
-  await expect(above).toHaveText('Lykeion');
+  await nav.locator('.workspace-switch').click();
+  const settings = page.getByRole('menuitem', { name: 'Settings', exact: true });
+  const after = settings.locator('xpath=following-sibling::button[1]');
+  await expect(after).toHaveText('Lykeion');
   const chart = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/lab-chart');
-  await above.click();
+  await after.click();
   const rooms: { agents: { source: string }[] }[] = (await (await chart).json()).rooms;
   const agents = rooms.flatMap((r) => r.agents);
   await expect(page).toHaveURL(/#\/lab-chart$/);

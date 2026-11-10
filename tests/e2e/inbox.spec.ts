@@ -26,14 +26,11 @@ test('an escalation reaches the Inbox and is read on opening', async ({ page }) 
   await link.click();
   await expect(shownStudy(page, title)).toBeVisible();
   await expect(unread(page, item.id)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Show decisions' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await expect(page.locator('.decision-rail')).toBeVisible();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible();
   await expect(shownStudy(page, title)).toBeVisible();
-  await page.getByRole('button', { name: 'Show decisions' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(link).toBeVisible();
 
   await expect
@@ -146,12 +143,8 @@ for (const destination of [
       await page.goto(`/#/decisions/${a.item.id}`);
       expect(await refused).toBe(404);
       if (destination === 'another workspace') {
-        // The inbox shows its own rail; the workspace switcher lives in the navigation rail.
-        await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
-        await page
-          .getByRole('complementary', { name: 'Workspace navigation' })
-          .getByRole('button', { name: /Beta-cell lab/ })
-          .click();
+        // The inbox rail carries the Lab menu in its footer.
+        await page.locator('.workspace-switch:visible').click();
         await page
           .getByRole('menu', { name: 'Workspace' })
           .getByRole('menuitem', { name: new RegExp(otherName) })

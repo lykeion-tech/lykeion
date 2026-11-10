@@ -389,7 +389,8 @@ test('reconnect during initial fetch cancels the old real snapshot before refres
     });
     await page.goto('/#/studies');
     await socket.subscribed();
-    await page.getByRole('link', { name: 'Settings', exact: true }).click();
+    await page.locator('.workspace-switch').click();
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: 'Skills', exact: true }).click();
     await captured.promise;
     const resume = await socket.pause();

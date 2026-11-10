@@ -23,7 +23,7 @@ test('keeps workspace navigation reachable in a short viewport', async ({ page }
   await expect.poll(() => links.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   await links.getByRole('link', { name: 'Agents', exact: true }).scrollIntoViewIfNeeded();
   await expect(links.getByRole('link', { name: 'Agents', exact: true })).toBeInViewport();
-  await expect(navigation.getByRole('link', { name: 'Settings' })).toBeInViewport();
+  await expect(navigation.locator('.workspace-switch')).toBeInViewport();
 });
 
 test('returning to a conversation restores whether its experiment pane was open', async ({
@@ -160,35 +160,11 @@ for (const theme of ['ash', 'midnight']) {
     );
     await page.screenshot({ path: `/tmp/aristotle-${theme}-narrow-open.png` });
     const input = page.getByRole('textbox', { name: 'Message the agent' });
-    for (const value of ['Single line draft', 'First line\nSecond line\nThird line\nFourth line']) {
-      await input.fill(value);
-      for (const fab of ['Show navigation', 'Show conversations']) {
-        const textarea = await input.boundingBox();
-        const button = await page.getByRole('button', { name: fab, exact: true }).boundingBox();
-        expect(textarea).not.toBeNull();
-        expect(button).not.toBeNull();
-        const overlap =
-          Math.max(
-            0,
-            Math.min(textarea!.x + textarea!.width, button!.x + button!.width) -
-              Math.max(textarea!.x, button!.x),
-          ) *
-          Math.max(
-            0,
-            Math.min(textarea!.y + textarea!.height, button!.y + button!.height) -
-              Math.max(textarea!.y, button!.y),
-          );
-        expect(overlap, `${fab} must not overlap editable text area`).toBe(0);
-      }
-    }
     await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat with Aristotle' })).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Ground a research question', exact: true }),
     ).toBeVisible();
-    // The rail buttons exist only while the rail is open.
-    for (const fab of ['Show navigation', 'Show conversations'])
-      await expect(page.getByRole('button', { name: fab, exact: true })).toHaveCount(0);
     await input.click();
     await expect(input).toBeFocused();
     await input.fill('Narrow viewport retained draft');
@@ -345,10 +321,10 @@ test('stale and other-scope pointers fall back; rail switches never duplicate ra
   await expect(page).toHaveURL(/conversations\/welcome$/);
   await expect(page.getByRole('complementary', { name: 'Chat' })).toBeVisible();
   const conversations = page.getByRole('complementary', { name: 'Chat', exact: true });
-  const settingsAppearance = async () =>
+  const labAppearance = async () =>
     page
       .getByRole('complementary')
-      .getByRole('link', { name: 'Settings', exact: true })
+      .locator('.workspace-switch')
       .evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
@@ -362,15 +338,15 @@ test('stale and other-scope pointers fall back; rail switches never duplicate ra
           background: style.backgroundColor,
         };
       });
-  const chatSettings = await settingsAppearance();
+  const chatLab = await labAppearance();
   await expect(conversations.getByRole('link', { name: 'Projects', exact: true })).toHaveCount(0);
   await expect(
     conversations.getByRole('link', { name: 'Manage projects', exact: true }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(navigation).toBeVisible();
-  expect(await settingsAppearance()).toEqual(chatSettings);
+  expect(await labAppearance()).toEqual(chatLab);
   await expect(navigation.getByRole('link', { name: 'Projects', exact: true })).toHaveAttribute(
     'href',
     '#/projects',
@@ -378,19 +354,14 @@ test('stale and other-scope pointers fall back; rail switches never duplicate ra
   await expect(page.getByRole('complementary', { name: 'Chat' })).toHaveCount(0);
   await page.reload();
   // A Coresearch conversation page always opens on the conversation rail.
-  await expect(page.getByRole('button', { name: 'Show navigation' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
   await expect(page.getByRole('complementary', { name: 'Chat' })).toBeVisible();
-  await page.getByRole('button', { name: 'Show conversations' }).click();
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Help', exact: true }).click();
   const helpMenu = page.getByRole('menu', { name: 'Help', exact: true });
   await expect(helpMenu).toBeVisible();
   await helpMenu.press('Escape');
   await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused();
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await navigation.getByRole('link', { name: 'Projects', exact: true }).click();
   await expect(page).toHaveURL(/#\/projects$/);
   await page.goto('/#/coresearch/projects');
@@ -398,9 +369,9 @@ test('stale and other-scope pointers fall back; rail switches never duplicate ra
   await page.goto('/#/coresearch/p/selected');
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await expect(conversations).toHaveCount(1);
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(navigation).toBeVisible();
-  await page.getByRole('button', { name: 'Show conversations' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(navigation).toHaveCount(0);
   await expect(conversations).toHaveCount(1);
   await expect(conversations).toBeVisible();

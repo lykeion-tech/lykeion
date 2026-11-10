@@ -73,6 +73,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 </script>
 <template>
   <aside class="sidebar decision-rail">
+    <slot name="brand" />
     <header>
       <span class="rail-title">Decisions</span>
       <RouterLink to="/decisions/new" class="icon-button add-decision" aria-label="Add decision" title="Add decision"><Icon name="plus" :size="16" /></RouterLink>

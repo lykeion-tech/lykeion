@@ -76,13 +76,13 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await expect(rail).toBeVisible();
   await rail.focus();
   await page.keyboard.press('Home');
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '200px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '219px');
   const box = (await rail.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + 60);
   await page.mouse.down();
   await page.mouse.move(box.x + 62, box.y + 60);
   await page.mouse.up();
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '279px');
   const pane = page.locator('aside[aria-label="Right pane"]');
   await openSurface(page, 'Properties');
   const inspector = page.getByRole('separator', { name: 'Resize right pane' });
@@ -98,7 +98,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.goto('/#/projects');
   await page.goto(`/#/studies/${f.card_id}`);
   await page.reload();
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '279px');
   await expect(pane).toHaveCSS('width', '240px');
 });
 

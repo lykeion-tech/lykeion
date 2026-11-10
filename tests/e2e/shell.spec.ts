@@ -16,32 +16,22 @@ test('the sidebar shows the implemented workspace destinations only', async ({ p
     'Agents',
     'Coresearch',
     'Colleagues',
-    'Lykeion',
-    'Settings',
   ])
     await expect(
       nav
         .getByRole('link', { name, exact: true })
         .or(nav.getByRole('button', { name, exact: true })),
     ).toBeVisible();
-  // The unread badge joins the Decisions link's name.
-  await expect(nav.getByRole('link', { name: /^Decisions/ })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Decisions', exact: true })).toBeVisible();
+  // Lykeion and Settings live in the Lab menu at the bottom.
+  for (const name of ['Lykeion', 'Settings'])
+    await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
   for (const name of ['Inbox', 'Skills', 'Connectors', 'Machines', 'Updates', 'Search...'])
     await expect(nav.getByText(name, { exact: true })).toHaveCount(0);
   const groups = nav.locator('.nav-group:not(.pinned-study-group)');
-  await expect(groups.nth(0).getByRole('link')).toHaveText([/^Decisions/, 'My Studies']);
-  await expect(groups.nth(1).getByRole('link')).toHaveText([
-    'Studies',
-    'Projects',
-    'Coresearch',
-    'Colleagues',
-  ]);
-  await expect(groups.nth(2).getByRole('link')).toHaveText([
-    'Teams',
-    'Workflows',
-    'Autoresearch',
-    'Agents',
-  ]);
+  await expect(groups.nth(0).getByRole('link')).toHaveText(['Autoresearch', 'My Studies']);
+  await expect(groups.nth(1).getByRole('link')).toHaveText(['Studies', 'Projects', 'Colleagues']);
+  await expect(groups.nth(2).getByRole('link')).toHaveText(['Teams', 'Workflows', 'Agents']);
   await expect(page.getByRole('button', { name: 'Open Aristotle' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });
 });

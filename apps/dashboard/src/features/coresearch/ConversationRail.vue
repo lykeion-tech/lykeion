@@ -77,6 +77,7 @@ async function startDraft(
 </script>
 <template>
   <aside class="sidebar conversation-rail" aria-label="Chat">
+    <slot name="brand" />
     <header>
       <RouterLink to="/coresearch">Chat</RouterLink
       ><RouterLink v-slot="{ href, navigate, isActive, isExactActive }" to="/coresearch/new" custom>

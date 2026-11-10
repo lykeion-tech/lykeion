@@ -238,7 +238,7 @@ test('the session rail carries the rail buttons and the session title tab, and t
   await expect(page.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab')).toHaveText([
     'Paper',
   ]);
-  await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(navigation).toBeVisible();
   await expect(rail).toBeHidden();
@@ -246,6 +246,6 @@ test('the session rail carries the rail buttons and the session title tab, and t
   await navigation.locator('.workspace-switch').click();
   await expect(page.getByRole('menu', { name: 'Workspace' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Show session details', exact: true }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(rail.getByRole('tab', { name: 'Files' })).toBeVisible();
 });

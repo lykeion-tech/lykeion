@@ -26,8 +26,7 @@ import { keys } from './api/keys';
 import { useCoresearchFiles, useCoresearchProject } from './features/coresearch/api';
 import { useAristotle } from './features/coresearch/aristotle';
 import ConversationRail from './features/coresearch/ConversationRail.vue';
-import RailFabs from './features/coresearch/RailFabs.vue';
-import DecisionBadge from './features/decisions/DecisionBadge.vue';
+import SidebarBrand, { brandSwitches } from './ui/SidebarBrand.vue';
 import AristotleWindow from './features/aristotle-window/AristotleWindow.vue';
 import DecisionRail from './features/decisions/DecisionRail.vue';
 const labWindow = ref<InstanceType<typeof AristotleWindow>>();
@@ -144,7 +143,7 @@ const groups = [
   {
     name: '',
     items: [
-      { id: 'decisions', name: 'Decisions', icon: 'inbox' },
+      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'my-studies', name: 'My Studies', icon: 'tasks' },
     ],
   },
@@ -153,7 +152,6 @@ const groups = [
     items: [
       { id: 'studies', name: 'Studies', icon: 'tasks' },
       { id: 'projects', name: 'Projects', icon: 'folder' },
-      { id: 'coresearch', name: 'Coresearch', icon: 'chat' },
       { id: 'colleagues', name: 'Colleagues', icon: 'users' },
     ],
   },
@@ -162,13 +160,13 @@ const groups = [
     items: [
       { id: 'teams', name: 'Teams', icon: 'team' },
       { id: 'workflows', name: 'Workflows', icon: 'flask' },
-      { id: 'autoresearch', name: 'Autoresearch', icon: 'zap' },
       { id: 'agents', name: 'Agents', icon: 'bot' },
     ],
   },
 ];
 const destinations = [
   ...groups.flatMap((g) => g.items),
+  ...brandSwitches,
   { id: 'lab-chart', name: 'Lykeion', icon: 'network' },
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
@@ -189,7 +187,7 @@ const tabTitle = computed(() =>
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
 );
-const rail = usePaneResize('lykeion.sidebar-width', 224, 200, 360);
+const rail = usePaneResize('lykeion.sidebar-width', 262, 219, 360);
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 // Entering either workspace starts with its own history; the toggle remains
 // available while navigating within that workspace.
@@ -220,7 +218,6 @@ const help = ref(false);
 const desktop = Boolean(window.lykeionDesktop);
 const workspacePopup = ref<HTMLElement>();
 const helpPopup = ref<HTMLElement>();
-const workspaceTrigger = ref<HTMLButtonElement>();
 const sidebarFooter = ref<InstanceType<typeof SidebarFooter>>();
 const feedback = ref(false);
 const paletteOpen = ref(false);
@@ -349,7 +346,7 @@ function popupKey(
     event.stopPropagation();
     if (kind === 'workspace') {
       workspaceMenu.value = false;
-      workspaceTrigger.value?.focus();
+      sidebarFooter.value?.focusWorkspace();
     } else {
       help.value = false;
       sidebarFooter.value?.focusHelp();
@@ -469,12 +466,16 @@ onUnmounted(() => {
     }"
     :style="{ '--rail-width': rail.width.value + 'px' }"
   >
-    <WorkspaceTabs
-      :title="tabTitle"
-      :icon="headingIcon"
-      :collapsed="collapsed"
-      @toggle="collapsed = !collapsed"
-    />
+    <WorkspaceTabs :title="tabTitle" :icon="headingIcon" />
+    <!-- Outside the rails, so it stays reachable while the sidebar is hidden. -->
+    <button
+      class="icon-button sidebar-toggle"
+      aria-label="Toggle left sidebar"
+      :aria-expanded="!collapsed"
+      @click="collapsed = !collapsed"
+    >
+      <Icon name="sidebar" :size="15" />
+    </button>
     <!-- Kept mounted while the navigation is shown: the session teleports
          its sidebar into the slot and would lose it otherwise. -->
     <div
@@ -484,42 +485,60 @@ onUnmounted(() => {
       :inert="collapsed || undefined"
       :aria-hidden="collapsed || undefined"
     >
+      <SidebarBrand
+        :current="current"
+        @reselect="changeRail(railView === 'context' ? 'nav' : 'context')"
+      />
       <div id="cowrite-context-rail" class="cowrite-context-slot" />
       <SidebarFooter
         v-if="railView === 'context'"
         ref="sidebarFooter"
-        :selected="current === 'settings'"
+        :workspace-name="workspaceName"
+        :selected="current === 'settings' || current === 'lab-chart'"
+        :menu-open="workspaceMenu"
         :help-open="help"
+        @toggle-workspace="toggleWorkspace"
         @toggle-help="toggleHelp"
       />
     </div>
     <ConversationRail v-else-if="aristotleShell && railView === 'context'">
+      <template #brand>
+        <SidebarBrand
+          :current="current"
+          @reselect="changeRail(railView === 'context' ? 'nav' : 'context')"
+        />
+      </template>
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
-          :selected="current === 'settings'"
+          :workspace-name="workspaceName"
+          :selected="current === 'settings' || current === 'lab-chart'"
+          :menu-open="workspaceMenu"
           :help-open="help"
+          @toggle-workspace="toggleWorkspace"
           @toggle-help="toggleHelp"
         />
       </template>
     </ConversationRail>
     <DecisionRail v-if="inboxShell" v-show="railView === 'context'">
+      <template #brand>
+        <SidebarBrand
+          :current="current"
+          @reselect="changeRail(railView === 'context' ? 'nav' : 'context')"
+        />
+      </template>
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
-          :selected="current === 'settings'"
+          :workspace-name="workspaceName"
+          :selected="current === 'settings' || current === 'lab-chart'"
+          :menu-open="workspaceMenu"
           :help-open="help"
+          @toggle-workspace="toggleWorkspace"
           @toggle-help="toggleHelp"
         />
       </template>
     </DecisionRail>
-    <RailFabs
-      v-if="!collapsed && (aristotleShell || cowriteShell || inboxShell)"
-      :view="railView"
-      :session="cowriteShell"
-      :inbox="inboxShell"
-      @change="changeRail"
-    />
     <div
       v-if="workspaceMenu"
       id="workspace-menu"
@@ -537,6 +556,12 @@ onUnmounted(() => {
           >{{ me.data.value?.name || me.data.value?.email
           }}<small>{{ me.data.value?.email }}</small></span
         >
+      </button>
+      <button role="menuitem" @click="go('settings')">
+        <Icon name="settings" :size="16" />Settings
+      </button>
+      <button role="menuitem" @click="go('lab-chart')">
+        <Icon name="network" :size="16" />Lykeion
       </button>
       <div class="shell-menu-divider" />
       <small class="workspace-menu-label">Workspaces</small>
@@ -564,20 +589,10 @@ onUnmounted(() => {
       :aria-hidden="collapsed || undefined"
       aria-label="Workspace navigation"
     >
-      <button
-        ref="workspaceTrigger"
-        class="workspace-switch nav-item"
-        data-shell-menu-trigger
-        aria-haspopup="menu"
-        :aria-expanded="workspaceMenu"
-        aria-controls="workspace-menu"
-        @click="toggleWorkspace"
-        @keydown.down.prevent="!workspaceMenu && toggleWorkspace()"
-      >
-        <span class="workspace-avatar">{{ workspaceName[0] }}</span
-        ><span>{{ workspaceName }}</span
-        ><Icon name="down" class="push-right" :size="14" />
-      </button>
+      <SidebarBrand
+        :current="current"
+        @reselect="changeRail(railView === 'context' ? 'nav' : 'context')"
+      />
       <div class="quick-actions">
         <button
           class="nav-item palette-trigger"
@@ -628,20 +643,18 @@ onUnmounted(() => {
               class="nav-item"
               :class="{ selected: current === item.id }"
               :aria-current="current === item.id ? 'page' : undefined"
-              @click="
-                item.id === current &&
-                ['coresearch', 'decisions'].includes(item.id) &&
-                changeRail('context')
-              "
-              ><Icon :name="item.icon" />{{ item.name
-              }}<DecisionBadge v-if="item.id === 'decisions'"
-            /></RouterLink></section
-        ></template>
+              ><Icon :name="item.icon" />{{ item.name }}</RouterLink
+            >
+          </section></template
+        >
       </nav>
       <SidebarFooter
         ref="sidebarFooter"
-        :selected="current === 'settings'"
+        :workspace-name="workspaceName"
+        :selected="current === 'settings' || current === 'lab-chart'"
+        :menu-open="workspaceMenu"
         :help-open="help"
+        @toggle-workspace="toggleWorkspace"
         @toggle-help="toggleHelp"
       />
     </aside>
@@ -651,7 +664,7 @@ onUnmounted(() => {
       aria-orientation="vertical"
       aria-label="Resize left sidebar"
       :aria-valuenow="rail.width.value"
-      :aria-valuemin="200"
+      :aria-valuemin="219"
       :aria-valuemax="rail.maximum.value"
       @pointerdown="rail.pointerdown($event, () => (collapsed = !collapsed))"
       @keydown="rail.keydown"
@@ -812,9 +825,9 @@ onUnmounted(() => {
 }
 .workspace-popup {
   left: 8px;
-  top: 98px;
+  bottom: 48px;
   width: 224px;
-  max-height: calc(100dvh - 106px);
+  max-height: calc(100dvh - 60px);
   overflow-y: auto;
 }
 .workspace-popup > .workspace-profile {
@@ -999,6 +1012,15 @@ onUnmounted(() => {
 .application .sidebar-handle {
   left: calc(var(--rail-width) - 5px);
 }
+/* Sits in the brand row's left gap, left of the wordmark. */
+.sidebar-toggle {
+  position: fixed;
+  top: 62px;
+  left: 10px;
+  z-index: 40;
+  width: 28px;
+  height: 32px;
+}
 .application.sidebar-hidden .sidebar-handle {
   left: 0;
 }
@@ -1045,9 +1067,6 @@ onUnmounted(() => {
   .application.aristotle-shell:not(.sidebar-hidden) .main-pane {
     min-width: 0;
   }
-  .aristotle-shell .rail-fabs {
-    left: 8px;
-  }
 }
 </style>
 
@@ -1062,16 +1081,13 @@ onUnmounted(() => {
     left: 0;
     top: 62px;
     bottom: var(--aristotle-mobile-dock-height);
-    width: 224px;
+    width: 262px;
     z-index: 25;
     background: var(--canvas);
     border-right: 1px solid var(--border);
   }
   .application.aristotle-shell .main-pane {
     width: 100%;
-  }
-  .application.aristotle-shell .rail-fabs {
-    z-index: 30;
   }
 }
 </style>
@@ -1088,6 +1104,9 @@ onUnmounted(() => {
 .application .sidebar.cowrite-context-rail .task-sidebar :is(div, button, span, p, strong, small) {
   color: #666a6d;
 }
+.application .cowrite-context-rail > .sidebar-brand {
+  margin: 0 10px 12px;
+}
 .application .cowrite-context-rail > .sidebar-bottom {
   padding: 0 10px;
   flex: none;
@@ -1100,5 +1119,20 @@ onUnmounted(() => {
 .application .cowrite-context-slot > * {
   flex: 1;
   min-width: 0;
+}
+/* With the sidebar hidden the toggle sits over the page's top-left corner;
+   each page's header starts just past it while the page keeps its full width. */
+.application.sidebar-hidden
+  :is(
+    .main-pane > .page-header,
+    .study-heading,
+    .aristotle-header,
+    .coresearch-list-header,
+    .agent-create-header
+  ) {
+  padding-left: 44px;
+}
+.application.sidebar-hidden .settings-rail > h1 {
+  padding-left: 34px;
 }
 </style>

@@ -815,7 +815,10 @@ test('many workspaces remain normally clickable in the workspace popup on a smal
     await expect(page.locator('.workspace-switch')).toContainText(last.name);
     await page.locator('.workspace-switch').click();
     const box = await menu.boundingBox();
-    expect(box?.y).toBe(98);
+    const trigger = (await page.locator('.workspace-switch').boundingBox())!;
+    // The menu opens upward from the Lab toggle at the bottom of the sidebar.
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(trigger.y);
     expect(box?.width).toBe(224);
     expect(box!.y + box!.height).toBeLessThanOrEqual(600);
     expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);

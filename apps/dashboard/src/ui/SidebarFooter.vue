@@ -1,22 +1,40 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import Icon from './Icon.vue';
-withDefaults(defineProps<{ selected?: boolean; helpOpen?: boolean }>(), {
-  selected: false,
-  helpOpen: false,
-});
-const emit = defineEmits<{ toggleHelp: [] }>();
+withDefaults(
+  defineProps<{
+    workspaceName: string;
+    selected?: boolean;
+    menuOpen?: boolean;
+    helpOpen?: boolean;
+  }>(),
+  { selected: false, menuOpen: false, helpOpen: false },
+);
+const emit = defineEmits<{ toggleWorkspace: []; toggleHelp: [] }>();
+const workspaceTrigger = ref<HTMLButtonElement>();
 const helpTrigger = ref<HTMLButtonElement>();
-defineExpose({ focusHelp: () => helpTrigger.value?.focus() });
+defineExpose({
+  focusWorkspace: () => workspaceTrigger.value?.focus(),
+  focusHelp: () => helpTrigger.value?.focus(),
+});
 </script>
 <template>
   <div class="sidebar-bottom">
-    <RouterLink to="/lab-chart" class="nav-item" active-class="selected"
-      ><Icon name="network" />Lykeion</RouterLink
-    >
     <div class="settings-line">
-      <RouterLink to="/settings" class="nav-item" :class="{ selected }"
-        ><Icon name="settings" />Settings</RouterLink
+      <button
+        ref="workspaceTrigger"
+        class="workspace-switch nav-item"
+        :class="{ selected }"
+        data-shell-menu-trigger
+        aria-haspopup="menu"
+        :aria-expanded="menuOpen"
+        aria-controls="workspace-menu"
+        @click="emit('toggleWorkspace')"
+        @keydown.up.prevent="!menuOpen && emit('toggleWorkspace')"
+      >
+        <span class="workspace-avatar">{{ workspaceName[0] }}</span
+        ><span class="workspace-switch-name">{{ workspaceName }}</span
+        ><Icon name="down" class="push-right" :size="14" /></button
       ><button
         ref="helpTrigger"
         class="icon-button"
