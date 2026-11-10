@@ -630,6 +630,9 @@ type reviewPass struct {
 // keep extends the scoring lease once leaseRenewal has passed, while the
 // study is still where it was read and still leased.
 func (p *reviewPass) keep(ctx context.Context) error {
+	if p.card.ID == uuid.Nil {
+		return nil // a pass that reviews no study holds no lease
+	}
 	now := p.e.now()
 	if now.Sub(p.renewed) < leaseRenewal {
 		return nil
@@ -719,7 +722,7 @@ func lookupErr(err error) error {
 // applyScore does: a study that left the column, or a column decided
 // meanwhile, is left alone. It says whether a column now waits to start.
 func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res review.Result, rerr error) (bool, error) {
-	moved := false
+	moved, finished := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
@@ -757,7 +760,6 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": res.Decision, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		finished := false
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
 		switch {
@@ -805,5 +807,8 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		moved = next.State == board.Working
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": res.Decision})
 	})
+	if err == nil && finished {
+		e.goReport("check report", ws, in.card.ID, e.checkReport)
+	}
 	return moved, err
 }

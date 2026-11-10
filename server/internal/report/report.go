@@ -49,6 +49,10 @@ type Node struct {
 	RunID   *uuid.UUID      `json:"run_id"`
 	Agent   string          `json:"agent"` // the producing run's agent name, "" when none
 	Column  string          `json:"column"`
+
+	// ContentType is an output's recorded media type: it says whether the
+	// output is a figure or a table.
+	ContentType string `json:"content_type,omitempty"`
 }
 
 type Edge struct {
@@ -187,10 +191,13 @@ func Build(in Input) Report {
 		if r.Kind != "output" {
 			continue
 		}
-		name := records.Body[struct{ Name string }](r).Name
+		body := records.Body[struct {
+			Name        string `json:"name"`
+			ContentType string `json:"content_type"`
+		}](r)
 		n := b.recNode(r, "output")
 		// ponytail: two outputs saved under one name share a node, the newest kept.
-		n.ID, n.Label = "out:"+name, name
+		n.ID, n.Label, n.ContentType = "out:"+body.Name, body.Name, body.ContentType
 		b.add(n, r.Key)
 		if r.AgentRunID != nil && b.has("run:"+r.AgentRunID.String()) {
 			b.edge("run:"+r.AgentRunID.String(), n.ID, "produced")

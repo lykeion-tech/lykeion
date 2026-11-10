@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/records"
+	"lykeion/server/internal/report"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
@@ -398,7 +400,8 @@ func TestFinishQueuesReportRunOnFinalRunsRuntime(t *testing.T) {
 		t.Fatalf("report run prompt %q skill %q", r.Prompt, r.Skill)
 	}
 	b, ok := l.reportBuild(t, c.ID)
-	if !ok || b.Status != "queued" || b.ChecksStatus != "pending" || b.AgentRunID == nil || *b.AgentRunID != r.ID {
+	// The finish kicked the server's checks once it committed.
+	if !ok || b.Status != "queued" || b.ChecksStatus != "done" || b.AgentRunID == nil || *b.AgentRunID != r.ID {
 		t.Fatalf("report build %+v (found %v)", b, ok)
 	}
 }
@@ -462,7 +465,7 @@ func TestFinishQueuesNoReportRunForWorkflowOrStopped(t *testing.T) {
 			t.Fatalf("state %s", got.State)
 		}
 		b, ok := l.reportBuild(t, c.ID)
-		if !ok || b.Status != "skipped" || b.ChecksStatus != "pending" || b.AgentRunID != nil {
+		if !ok || b.Status != "skipped" || b.ChecksStatus != "done" || b.AgentRunID != nil {
 			t.Fatalf("report build %+v (found %v)", b, ok)
 		}
 		if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
@@ -579,5 +582,213 @@ func TestFinishSurvivesAReportRunThatCannotBeQueued(t *testing.T) {
 	}
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
 		t.Fatalf("%d report runs", n)
+	}
+}
+
+// studyReport builds c's report as it stands.
+func (l *lab) studyReport(t *testing.T, c db.Card) report.Report {
+	t.Helper()
+	var in report.Input
+	l.in(t, func(tx *store.Tx) (err error) {
+		in, err = report.Load(context.Background(), tx, l.card(t, c.ID))
+		return err
+	})
+	return report.Build(in)
+}
+
+// settleReport records hand as the report run's hand-in, completes the run
+// and delivers its settlement.
+func (l *lab) settleReport(t *testing.T, run db.AgentRun, status string, hand any) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := json.Marshal(hand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(ctx, tx, service.Writer{Card: *run.CardID, AgentRun: run.ID, Column: run.BoardColumn, Role: run.Role, Round: run.Round},
+			"hand_in", map[string]any{"agent_run_id": run.ID, "attempt": run.Attempt, "hand_in": json.RawMessage(raw)})
+		return err
+	})
+	if err := l.env.Owner.QueryRow(ctx, "UPDATE agent_run SET status = $2, completed_at = now() WHERE id = $1 RETURNING status",
+		run.ID, status).Scan(&run.Status); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.OnSettlement(ctx, service.Settlement{ID: run.ID, AgentRun: run}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// reportRows counts the report's concepts, facts and links.
+func (l *lab) reportRows(t *testing.T, card uuid.UUID) [3]int {
+	return [3]int{l.count(t, "SELECT count(*) FROM report_concept WHERE card_id = $1", card),
+		l.count(t, "SELECT count(*) FROM report_fact WHERE card_id = $1", card),
+		l.count(t, "SELECT count(*) FROM report_link WHERE card_id = $1", card)}
+}
+
+// judgedStudy finishes a study and settles its report run with two facts
+// about its question, one Jev rejects, and a link from the hand-in's first
+// word to the question.
+func (l *lab) judgedStudy(t *testing.T) db.Card {
+	t.Helper()
+	c, _ := l.finishedStudy(t)
+	rep := l.studyReport(t, c)
+	if rep.HandIn == nil || rep.Question == "" {
+		t.Fatalf("no hand-in or question in %+v", rep)
+	}
+	phrase := strings.Fields(rep.HandIn.Text)[0]
+	l.jev(t, 200, levels(nil)).byState = func(state string) float64 {
+		if strings.Contains(state, "q associated_with r") {
+			return 0.3
+		}
+		return 0.9
+	}
+	l.settleReport(t, l.latestRun(t, c.ID, "reporter"), "completed", handin.ReportHandIn{Status: "done",
+		Concepts: []handin.ReportConcept{{Key: "q", Label: "Q", Type: "other"}, {Key: "r", Label: "R", Type: "other"}},
+		Facts: []handin.ReportFact{{Subject: "q", Relation: "mentioned_in", Object: "question", Quote: rep.Question, SourceNode: "question"},
+			{Subject: "q", Relation: "associated_with", Object: "r", Quote: rep.Question, SourceNode: "question"}},
+		Links: []handin.ReportLink{{Phrase: phrase, Occurrence: 1, Node: "question"}}})
+	return c
+}
+
+func TestJudgeReportStoresAcceptedRows(t *testing.T) {
+	l := newLab(t)
+	c := l.judgedStudy(t)
+	b, _ := l.reportBuild(t, c.ID)
+	if b.Status != "done" || b.FinishedAt == nil {
+		t.Fatalf("build %+v", b)
+	}
+	if got := l.reportRows(t, c.ID); got != [3]int{1, 1, 1} {
+		t.Fatalf("concepts, facts, links = %v, want 1 1 1", got)
+	}
+	var key, relation string
+	var p float64
+	if err := l.env.Owner.QueryRow(context.Background(), `SELECT c.key, f.relation, f.p FROM report_concept c JOIN report_fact f ON f.card_id = c.card_id
+		WHERE c.card_id = $1`, c.ID).Scan(&key, &relation, &p); err != nil {
+		t.Fatal(err)
+	}
+	if key != "q" || relation != "mentioned_in" || p != 0.9 {
+		t.Fatalf("kept %s %s %v", key, relation, p)
+	}
+}
+
+func TestJudgeReportIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c := l.judgedStudy(t)
+	first := l.reportRows(t, c.ID)
+	if _, err := l.env.Owner.Exec(ctx, "UPDATE report_build SET status = 'judging' WHERE card_id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.judgeReport(ctx, l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if again := l.reportRows(t, c.ID); again != first || first == [3]int{} {
+		t.Fatalf("rows %v after judging again, %v before", again, first)
+	}
+	if b, _ := l.reportBuild(t, c.ID); b.Status != "done" {
+		t.Fatalf("status %s", b.Status)
+	}
+}
+
+func TestJudgeReportFailedRunStoresNothing(t *testing.T) {
+	l := newLab(t)
+	c, _ := l.finishedStudy(t)
+	before, _ := l.reportBuild(t, c.ID)
+	reason := "the evidence is empty"
+	l.settleReport(t, l.latestRun(t, c.ID, "reporter"), "completed", handin.ReportHandIn{Status: "could_not_do", Reason: &reason})
+	b, _ := l.reportBuild(t, c.ID)
+	if b.Status != "failed" || b.ChecksStatus != before.ChecksStatus {
+		t.Fatalf("build %+v, checks before %s", b, before.ChecksStatus)
+	}
+	if got := l.reportRows(t, c.ID); got != [3]int{} {
+		t.Fatalf("rows %v", got)
+	}
+}
+
+func TestCheckReportWithoutJev(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c, _ := l.finishedStudy(t)
+	if b, _ := l.reportBuild(t, c.ID); b.ChecksStatus != "done" {
+		t.Fatalf("checks %s after the finish, want done", b.ChecksStatus)
+	}
+	if _, err := l.env.Owner.Exec(ctx, "UPDATE report_build SET checks_status = 'pending' WHERE card_id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.e.Jev = nil
+	if err := l.e.checkReport(ctx, l.ws, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := l.reportBuild(t, c.ID); b.ChecksStatus != "unavailable" {
+		t.Fatalf("checks %s", b.ChecksStatus)
+	}
+	if n := l.count(t, "SELECT count(*) FROM report_check WHERE card_id = $1", c.ID); n != 0 {
+		t.Fatalf("%d checks", n)
+	}
+}
+
+func TestResumeCancelsReportRunWhoseRuntimeIsGone(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	c, _ := l.finishedStudy(t)
+	r := l.latestRun(t, c.ID, "reporter")
+	if err := l.e.resumeReports(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.latestRun(t, c.ID, "reporter"); got.Status != "queued" {
+		t.Fatalf("a pinned queued run was %s", got.Status)
+	}
+	if _, err := l.env.Owner.Exec(ctx, "UPDATE agent_run SET pinned_runtime_id = NULL WHERE id = $1", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.resumeReports(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.latestRun(t, c.ID, "reporter"); got.Status != "cancelled" {
+		t.Fatalf("run %s, want cancelled", got.Status)
+	}
+	if b, _ := l.reportBuild(t, c.ID); b.Status != "failed" {
+		t.Fatalf("build %s, want failed", b.Status)
+	}
+}
+
+func TestReportBuildsToResumeQueued(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	a := l.register(t, "d1", "claude")
+	mk := func(runSQL string) uuid.UUID {
+		c := l.study(t, "validation", true, nil)
+		r := l.reportRun(t, c, a["claude"])
+		if runSQL != "" {
+			if _, err := l.env.Owner.Exec(ctx, "UPDATE agent_run SET "+runSQL+" WHERE id = $1", r.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		l.in(t, func(tx *store.Tx) error {
+			_, err := tx.Q.InsertReportBuild(ctx, db.InsertReportBuildParams{WorkspaceID: l.ws, CardID: c.ID, AgentRunID: &r.ID, Status: "queued", ChecksStatus: "done"})
+			return err
+		})
+		return c.ID
+	}
+	waiting := mk("")
+	unpinned := mk("pinned_runtime_id = NULL")
+	settledOld := mk("status = 'completed', completed_at = now() - interval '5 minutes'")
+	settledNew := mk("status = 'completed', completed_at = now()")
+	rows, err := l.st.Global().ReportBuildsToResume(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]bool{}
+	for _, r := range rows {
+		got[r.CardID] = r.Judging
+	}
+	for name, want := range map[string]struct {
+		id uuid.UUID
+		in bool
+	}{"waiting": {waiting, false}, "unpinned": {unpinned, true}, "settled long ago": {settledOld, true}, "settled just now": {settledNew, false}} {
+		if j, in := got[want.id]; in != want.in || in && !j {
+			t.Errorf("%s: resumable=%v judging=%v, want %v", name, in, j, want.in)
+		}
 	}
 }

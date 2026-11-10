@@ -34,6 +34,7 @@ type jevStub struct {
 	status   int
 	score    func(instructions string) float64
 	noul     func(instructions string) float64
+	byState  func(state string) float64 // when set, answers every noul question by the request's state
 	requests []jevRequest
 	maxState int    // above this many bytes of state, answer as Jev does when a request is too long
 	choose   string // the choice answered when it is among the options
@@ -81,7 +82,7 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 		}
 		s.mu.Lock()
 		s.requests = append(s.requests, req)
-		noul := s.noul
+		noul, byState := s.noul, s.byState
 		s.mu.Unlock()
 		if s.status != 200 {
 			http.Error(w, "unavailable", s.status)
@@ -98,6 +99,9 @@ func (l *lab) jev(t *testing.T, status int, score func(string) float64) *jevStub
 				p := 0.9
 				if noul != nil {
 					p = noul(q.Instructions)
+				}
+				if byState != nil {
+					p = byState(req.State)
 				}
 				answers[id] = map[string]any{"type": "noul", "noul": p}
 			case "choice":

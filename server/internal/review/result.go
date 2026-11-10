@@ -85,10 +85,13 @@ func stored(p float64) float64 {
 	return math.Round(p*1000) / 1000
 }
 
+// PassP is the probability of yes at which a Jev check passes.
+const PassP = 0.70
+
 // StatusOf maps Jev's probability of yes to a status.
 func StatusOf(p float64) string {
 	switch {
-	case p >= 0.70:
+	case p >= PassP:
 		return Pass
 	case p < 0.35:
 		return Fail

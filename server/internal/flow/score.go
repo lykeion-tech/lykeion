@@ -604,7 +604,7 @@ func evidence(summary string, cited []db.Record, budget int) string {
 // left the column, or a column scored meanwhile, is left alone. It says
 // whether a column now waits to start.
 func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answers map[string]jev.ScoreAnswer, jerr error) (bool, error) {
-	moved := false
+	moved, finished := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
@@ -651,7 +651,6 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": verdict, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		finished := false
 		weak := weakCriterion(lowest.Text, lowestLevel)
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
@@ -686,6 +685,9 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		moved = next.State == board.Working
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": verdict})
 	})
+	if err == nil && finished {
+		e.goReport("check report", ws, in.card.ID, e.checkReport)
+	}
 	return moved, err
 }
 

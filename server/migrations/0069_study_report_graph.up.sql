@@ -107,18 +107,24 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
   WHERE agent_run.id = want.id AND agent_run.queue_reason IS DISTINCT FROM want.reason
 $$;
 
--- Builds a restart left unfinished, across workspaces: judging with a run that
--- settled two minutes ago (or whose run row is gone), or checks still pending
--- two minutes after the build began.
+-- Builds a restart left unfinished, across workspaces: queued or judging with
+-- a run that settled two minutes ago (or whose run row is gone), or still
+-- queued on a runtime that was deleted, which no machine can claim; or checks
+-- still pending two minutes after the build began. judging says the build
+-- needs judging.
 CREATE FUNCTION report_builds_to_resume() RETURNS TABLE (workspace_id uuid, card_id uuid, judging boolean)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT b.workspace_id, b.card_id, b.status = 'judging'
-  FROM report_build b
-  LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id
-  WHERE (b.status = 'judging' AND ((b.agent_run_id IS NULL AND b.created_at < now() - interval '2 minutes')
-          OR (r.status IN ('completed', 'failed', 'cancelled') AND r.completed_at < now() - interval '2 minutes')))
-    OR (b.checks_status = 'pending' AND b.created_at < now() - interval '2 minutes')
-  ORDER BY b.created_at
+  SELECT s.workspace_id, s.card_id, s.judging FROM (
+    SELECT b.workspace_id, b.card_id, b.created_at,
+      COALESCE(b.status IN ('queued', 'judging') AND (
+        (b.agent_run_id IS NULL AND b.created_at < now() - interval '2 minutes')
+        OR (r.status IN ('completed', 'failed', 'cancelled') AND r.completed_at < now() - interval '2 minutes')
+        OR (r.status = 'queued' AND r.pinned_runtime_id IS NULL)), false) AS judging,
+      b.checks_status = 'pending' AND b.created_at < now() - interval '2 minutes' AS checks
+    FROM report_build b
+    LEFT JOIN agent_run r ON r.id = b.agent_run_id AND r.workspace_id = b.workspace_id) s
+  WHERE s.judging OR s.checks
+  ORDER BY s.created_at
 $$;
 REVOKE ALL ON FUNCTION report_builds_to_resume() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION report_builds_to_resume() TO lykeion_app;

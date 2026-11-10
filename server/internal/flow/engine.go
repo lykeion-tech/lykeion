@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +41,8 @@ type Engine struct {
 	// RatingDraw says whether a finished Team column is offered for rating;
 	// nil draws one in ratingChance.
 	RatingDraw func() bool
+
+	reporting sync.Map // the report work in flight, by kind and study
 }
 
 // ErrPackUnavailable wraps a failure to load a card's Team.
@@ -50,10 +53,15 @@ var errNoAgent = errors.New("no agent works this column")
 // OnSettlement is wired to service.AgentRuns' durable settlement: a settled
 // run may let its study move on, by its lead's hand-in or failure (see
 // afterRun). An error leaves the settlement pending, so it is delivered
-// again. A card-less run moves nothing.
+// again. A card-less run moves nothing; a settled report run has its
+// hand-in judged.
 func (e *Engine) OnSettlement(ctx context.Context, n service.Settlement) error {
 	t := n.AgentRun
 	if t.CardID == nil {
+		return nil
+	}
+	if t.Kind == "report" {
+		e.goReport("judge report", t.WorkspaceID, *t.CardID, e.judgeReport)
 		return nil
 	}
 	if err := e.afterRun(ctx, t); err != nil {
@@ -79,14 +87,17 @@ func (e *Engine) Kick(ws, card uuid.UUID) {
 }
 
 // Tick marks queued runs whose owner is offline, expires and reminds due
-// decisions, and kicks every working study in a column with nothing in
-// flight or a settled run to act on.
+// decisions, resumes unfinished report builds, and kicks every working study
+// in a column with nothing in flight or a settled run to act on.
 func (e *Engine) Tick(ctx context.Context) error {
 	if err := e.Store.Global().MarkQueueOffline(ctx); err != nil {
 		slog.Error("mark queue offline", "err", err)
 	}
 	if err := e.sweepDecisions(ctx, e.now()); err != nil {
 		slog.Error("sweep decisions", "err", err)
+	}
+	if err := e.resumeReports(ctx); err != nil {
+		slog.Error("resume reports", "err", err)
 	}
 	cands, err := e.Store.Global().BoardCandidates(ctx)
 	if err != nil {
