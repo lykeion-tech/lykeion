@@ -392,13 +392,12 @@ func (e *Engine) outputImage(ctx context.Context, r db.Record, format string) (*
 }
 
 // producingScript is the code of the run records of output's agent run that
-// name the file, or, when none does, of all that run's run records, cut to
-// review.MaxState.
+// name the file, cut to review.MaxState, or "" when none does.
 func producingScript(recs []db.Record, output db.Record, name string) string {
 	if output.AgentRunID == nil {
 		return ""
 	}
-	var named, all []string
+	var named []string
 	for _, r := range recs {
 		if r.Kind != "run" || r.SupersededAt != nil || r.AgentRunID == nil || *r.AgentRunID != *output.AgentRunID {
 			continue
@@ -411,14 +410,10 @@ func producingScript(recs []db.Record, output db.Record, name string) string {
 		if b.Path != "" {
 			code = b.Path + "\n" + code
 		}
-		all = append(all, code)
 		if strings.Contains(code, path.Base(name)) {
 			named = append(named, code)
 		}
 	}
-	if len(named) > 0 {
-		all = named
-	}
-	s, _ := Excerpt(strings.Join(all, "\n\n"), review.MaxState)
+	s, _ := Excerpt(strings.Join(named, "\n\n"), review.MaxState)
 	return s
 }

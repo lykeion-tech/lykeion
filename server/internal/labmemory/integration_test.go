@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -595,5 +596,24 @@ func TestReadMaintenanceRequiresInternalScopedTransaction(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+func TestReporterHandInIsNeverALabFact(t *testing.T) {
+	f := setup(t)
+	rec := uuid.New()
+	f.exec(`INSERT INTO record(id,workspace_id,card_id,board_column,round,kind,role,key,body) VALUES($1,$2,$3,'validation',1,'hand_in','reporter','h1','{"hand_in":{"status":"done"}}')`, rec, f.ws, f.study)
+	fact, err := f.read(Ref{Kind: "study", ID: f.study})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(fact.Links, Ref{Kind: "record", ID: rec}) || !slices.Contains(fact.Links, Ref{Kind: "record", ID: f.record}) {
+		t.Fatalf("study links %v", fact.Links)
+	}
+	if _, err := f.read(Ref{Kind: "record", ID: rec}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the reporter hand-in was readable: %v", err)
+	}
+	tf := newTools(t, f, nil)
+	if s := tf.call("links", map[string]any{"ref": Ref{Kind: "study", ID: f.study}.String()}, false); strings.Contains(s, rec.String()) || !strings.Contains(s, f.record.String()) {
+		t.Fatal(s)
 	}
 }

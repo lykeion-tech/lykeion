@@ -820,6 +820,8 @@ func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
 		rec("o3", "output", "", other, map[string]any{"name": "none.pdf", "content_type": "application/pdf"}),
 		rec("r1", "run", "", maker, map[string]any{"tool": "run_script", "path": "plot.py", "script": "import pylab; pylab.savefig('fig.pdf')"}),
 		rec("r2", "run", "", maker, map[string]any{"tool": "run_code", "code": "print('unrelated')"}),
+		// A script of none.pdf's run that never names it is not its producing script.
+		rec("r3", "run", "", other, map[string]any{"tool": "run_code", "code": "print('other')"}),
 	}}
 	rep := report.Report{Nodes: []report.Node{
 		{ID: "out:plot.png", Kind: "output", ContentType: "image/png"},

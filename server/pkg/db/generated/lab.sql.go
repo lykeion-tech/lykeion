@@ -214,7 +214,7 @@ func (q *Queries) LabAsker(ctx context.Context, arg LabAskerParams) (bool, error
 const labFact = `-- name: LabFact :one
 WITH readable_records AS NOT MATERIALIZED (
  SELECT r.id, r.workspace_id, r.card_id, r.board_column, r.round, r.kind, r.role, r.key, r.body, r.blob_key, r.agent_run_id, r.superseded_at, r.created_at FROM record r
- WHERE r.workspace_id=$1::uuid AND
+ WHERE r.workspace_id=$1::uuid AND r.role <> 'reporter' AND
  (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
    SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
    AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
@@ -272,7 +272,9 @@ type LabFactRow struct {
 }
 
 // All relations are explicitly workspace-scoped in addition to RLS. These are
-// lab facts only: no Coresearch relation or run transcript is read.
+// lab facts only: no Coresearch relation or run transcript is read. A report
+// run's raw hand-in (role reporter) holds proposals Jev may have rejected, so
+// it is never a lab fact; only the judged report is, as report:<card id>.
 // Shared citation baseline: assigned Team id/name/stage/column are visible in
 // the study directory to every member, regardless of definition visibility.
 // Only active shipped/workspace-shared Team definitions enter memory. No
@@ -417,7 +419,7 @@ const labStudyLinks = `-- name: LabStudyLinks :many
 SELECT link.kind::text AS kind, link.id::uuid AS id FROM (
  SELECT kind, id FROM (SELECT 'record'::text AS kind,r.id FROM record r
    WHERE r.workspace_id = $1 AND r.card_id = $2
-   AND (r.id,'record'::text) > ($3::uuid,$4::text)
+   AND (r.id,'record'::text) > ($3::uuid,$4::text) AND r.role <> 'reporter'
    AND (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
      SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
      AND a.record_key=r.key AND a.kind='file' AND a.blob_key=a.workspace_id::text||'/attachments/'||a.id::text
