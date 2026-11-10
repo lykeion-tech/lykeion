@@ -73,6 +73,8 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
 <template>
   <section class="study-report" aria-label="Study report">
     <div class="report-main" :class="{ 'beside-pane': paneOpen && !paneFocused }">
+      <!-- The page has no header of its own until the report loads. -->
+      <h1 v-if="!report" class="sr-only">Study report</h1>
       <p v-if="noReport" class="report-empty">This study has no report.</p>
       <p v-else-if="query.isError.value" class="inline-error" role="alert">
         {{ query.error.value?.message }}
@@ -146,6 +148,14 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
 </template>
 
 <style scoped>
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .study-report {
   position: relative;
   display: flex;

@@ -71,7 +71,7 @@ function report(): StudyReport {
         status: 'invalid',
         reasons: ['No control.'],
       }),
-      node({ id: 'obj:o1', kind: 'objection', label: 'overreach', status: 'pass' }),
+      node({ id: 'obj:o1', kind: 'objection', label: 'overreach', status: 'upheld' }),
       node({ id: 'doubt:grounding:r1', kind: 'doubt', label: 'doi:10.1/a', status: 'unclear' }),
     ],
     edges: [
@@ -172,4 +172,23 @@ it('the checks summary has words for screen readers', () => {
   const checks = sectionFor(report(), 'rec:r5').folds.find((f) => f.title === 'Checks · evidence')!;
   expect(checks.summary).toBe('✓ 1 · ◐ 0 · ○ 0');
   expect(checks.srSummary).toBe('1 supported, 0 unclear, 0 unsupported');
+});
+
+it('objections read Upheld or Not upheld, never a finding status', () => {
+  const r = report();
+  expect(sectionFor(r, 'obj:o1').status).toEqual({ icon: '○', word: 'Upheld', srText: 'Upheld' });
+  r.nodes = r.nodes.map((n) => (n.id === 'obj:o1' ? { ...n, status: 'not_upheld' } : n));
+  expect(sectionFor(r, 'obj:o1').status).toEqual({
+    icon: '✓',
+    word: 'Not upheld',
+    srText: 'Not upheld',
+  });
+});
+
+it('a doubt whose item passed reads "Passed", not "Supported"', () => {
+  const r = report();
+  r.nodes = r.nodes.map((n) => (n.kind === 'doubt' ? { ...n, status: 'pass' } : n));
+  expect(sectionFor(r, 'doubt:grounding:r1').status.word).toBe('Passed');
+  r.nodes = r.nodes.map((n) => (n.kind === 'doubt' ? { ...n, status: 'fail' } : n));
+  expect(sectionFor(r, 'doubt:grounding:r1').status.word).toBe('Failed');
 });

@@ -208,11 +208,13 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
   for (const [, , shown] of kinds)
     await expect(list.getByText(shown, { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
-  for (const i of [3, 0]) {
-    await list.getByText(kinds[i]![2], { exact: true }).click();
-    await expect(shownStudy(page, name)).toBeVisible();
-    await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
-  }
+  await list.getByText(kinds[0]![2], { exact: true }).click();
+  await expect(shownStudy(page, name)).toBeVisible();
+  await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
+  // A Done card opens its study's page.
+  await page.goto('/#/decisions');
+  await list.getByText(kinds[3]![2], { exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#/studies/${card.id}$`));
 });
 
 test('the Decisions sidebar groups items under Reports, Questions for you, Problems and My decisions', async ({

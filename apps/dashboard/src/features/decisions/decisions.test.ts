@@ -21,7 +21,11 @@ const rows = ref<DecisionItem[]>([]);
 const cards = ref<any[]>([]);
 const decisionsLoading = ref(false);
 const decisionsError = ref<Error | null>(null);
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
+const replace = vi.fn();
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ params: {} }),
+  useRouter: () => ({ replace: (...args: unknown[]) => replace(...args) }),
+}));
 vi.mock('../../api/queries', () => ({
   useDecisionCount: () => ({ data: count }),
   useDecisions: () => ({ data: rows, error: decisionsError, isLoading: decisionsLoading }),
@@ -43,6 +47,7 @@ afterEach(() => {
   Object.assign(decisionFilters, { type: 'all', date: 'all', from: '', to: '' });
   api.mockReset();
   invalidateQueries.mockReset();
+  replace.mockReset();
   count.value = { open: 3, due_soon: 0 };
   me.value = { id: 'me' };
   rows.value = [];
@@ -261,6 +266,21 @@ it('shows an agent question with its options and only its addressee reads it', a
   mount(DecisionsView, { itemId: 'd2' });
   await new Promise((r) => setTimeout(r));
   expect(api).not.toHaveBeenCalled();
+});
+
+it('a Done card opens its study page after its read receipt', async () => {
+  api.mockResolvedValue(undefined);
+  rows.value = [item({ kind: 'done', text: 'Study #4 is done.' })];
+  mount(DecisionsView, { itemId: 'd1' });
+  await new Promise((r) => setTimeout(r));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/read');
+  expect(replace).toHaveBeenCalledWith('/studies/c1');
+
+  replace.mockReset();
+  rows.value = [item({ id: 'd2' })];
+  mount(DecisionsView, { itemId: 'd2' });
+  await new Promise((r) => setTimeout(r));
+  expect(replace).not.toHaveBeenCalled();
 });
 
 it('shows the study context and a link to its activity without embedding its sidebar', () => {

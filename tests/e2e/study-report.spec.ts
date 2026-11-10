@@ -12,7 +12,7 @@ const SUMMARY = `The study found that glucose raises insulin secretion.\n\n${'Ea
 // finish path, so the owner's report item is seeded the way it raises it.
 async function finishedStudy(
   request: APIRequestContext,
-  opts: { summary?: boolean; workflow?: string } = {},
+  opts: { summary?: boolean; workflow?: string; raised?: boolean } = {},
 ) {
   const title = `Report study ${Date.now()}`;
   const study = await newStudy(request, 'Does glucose raise insulin secretion?', {
@@ -99,12 +99,13 @@ async function finishedStudy(
   if (opts.summary !== false)
     validation.push({ kind: 'summary', key: 's1', body: { text: SUMMARY }, run: true });
   await step('validation', validation, opts.workflow ? { workflow: opts.workflow } : {});
-  await labInbox(
-    request,
-    study.id,
-    opts.workflow ? 'done' : 'study_report',
-    `Study #${study.number}'s report is ready.`,
-  );
+  if (opts.raised !== false)
+    await labInbox(
+      request,
+      study.id,
+      opts.workflow ? 'done' : 'study_report',
+      `Study #${study.number}'s report is ready.`,
+    );
   return { ...study, title };
 }
 
@@ -295,9 +296,23 @@ test('a Workflow study has a Done card and no report link', async ({ page }) => 
   const study = await finishedStudy(page.request, { workflow: 'demo-workflow' });
   const item = await itemFor(page.request, study.id);
   expect(item.kind).toBe('done');
-  await page.goto(`/#/decisions/${item.id}`);
-  await expect(page.locator('article.activity-card h2')).toHaveText(study.title);
+  // The Done card opens the study page.
+  await page.goto('/#/decisions');
+  await page
+    .getByRole('navigation', { name: 'Decisions' })
+    .locator(`a[href="#/decisions/${item.id}"]`)
+    .click();
+  await expect(page).toHaveURL(new RegExp(`#/studies/${study.id}$`));
+  await expect(page.getByRole('heading', { name: study.title, level: 1 })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Hand-in report' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Go to the report' })).toHaveCount(0);
+  await page.goto(`/#/decisions/report/${study.id}`);
+  await expect(page.getByText('This study has no report.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Study report', level: 1 })).toBeAttached();
+});
+
+test('a study that finished before reports shipped has no report', async ({ page }) => {
+  const study = await finishedStudy(page.request, { raised: false });
   await page.goto(`/#/studies/${study.id}`);
   await expect(page.getByRole('heading', { name: study.title, level: 1 })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go to the report' })).toHaveCount(0);

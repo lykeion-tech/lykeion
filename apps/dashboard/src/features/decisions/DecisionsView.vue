@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { useRouter } from 'vue-router';
 import Icon from '../../ui/Icon.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ManualDecisionControls from './ManualDecisionControls.vue';
@@ -74,6 +75,17 @@ watch(
     } catch (e) {
       if (current()) error.value = (e as Error).message;
     }
+  },
+  { immediate: true },
+);
+
+// A Done card has no report: it opens its study's page. The read receipt above
+// goes out first.
+const router = useRouter();
+watch(
+  () => display.value,
+  (item) => {
+    if (item?.kind === 'done' && item.card_id) void router.replace('/studies/' + item.card_id);
   },
   { immediate: true },
 );

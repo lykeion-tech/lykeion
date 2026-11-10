@@ -72,7 +72,8 @@ export interface ReportNode {
   kind: ReportNodeKind;
   label: string;
   // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses:
-  // kept|rejected; review items: pass|unclear|fail; otherwise ''.
+  // kept|rejected; objections: upheld|not_upheld; papers, datasets and
+  // doubts: pass|unclear|fail; otherwise ''.
   status: string;
   reasons: string[];
   quote: string;
@@ -216,6 +217,8 @@ export interface Card {
     record_key?: string;
   }[];
   services: { name: string }[];
+  // A finished study that raised a report; only the single-study payload carries it.
+  has_report?: boolean;
   // What every Grounding source must meet, as the researcher wrote them.
 }
 

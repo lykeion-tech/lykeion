@@ -702,7 +702,7 @@ function pin() {
             </div>
           </template>
           <RouterLink
-            v-if="c.state === 'done' && !c.ending && !c.workflow"
+            v-if="c.has_report"
             class="report-link"
             :to="'/decisions/report/' + id"
             >Go to the report</RouterLink

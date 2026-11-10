@@ -29,11 +29,17 @@ const statuses: Record<string, [Status['icon'], string]> = {
   pass: ['✓', 'Supported'],
   unclear: ['◐', 'Unclear'],
   fail: ['○', 'Unsupported'],
+  // An upheld objection is a problem Jev confirmed in the finding it targets.
+  upheld: ['○', 'Upheld'],
+  not_upheld: ['✓', 'Not upheld'],
 };
+// A doubt is a review item, not a claim: its pass or fail says nothing about support.
+const doubtWords: Record<string, string> = { pass: 'Passed', fail: 'Failed' };
 
-export function statusOf(status: string): Status {
+export function statusOf(status: string, kind?: string): Status {
   const [icon, word] = statuses[status] ?? ['', ''];
-  return { icon, word, srText: word };
+  const w = (kind === 'doubt' && doubtWords[status]) || word;
+  return { icon, word: w, srText: w };
 }
 
 export const kindName = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
@@ -226,7 +232,7 @@ export function sectionFor(report: StudyReport, nodeId: string) {
       folds.push(linkFold('Hypotheses', out(node.id, 'tests')));
       break;
   }
-  return { node, status: statusOf(node.status), folds };
+  return { node, status: statusOf(node.status, node.kind), folds };
 }
 
 export function overviewOf(report: StudyReport) {

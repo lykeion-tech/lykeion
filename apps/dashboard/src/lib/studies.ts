@@ -433,9 +433,6 @@ export function flowView(recs: StudyRecord[]): FlowView {
   return out;
 }
 
-// An Inbox item in the words the researcher reads, or null when the server's
-// sentence is to be shown as it is. The criterion and the need are lifted out
-// of the server's sentence (see the Go functions that write them).
 // How many studies have an agent at work, and how many have a run waiting
 // on a machine; a run queued for a free slot is neither.
 export function boardActivity(

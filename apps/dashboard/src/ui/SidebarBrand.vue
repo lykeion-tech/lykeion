@@ -19,7 +19,7 @@ const waiting = computed(() => (count.data.value?.open ?? 0) > 0);
 </script>
 <template>
   <div class="sidebar-brand">
-    <RouterLink to="/studies" class="brand-home" title="Go to Studies"
+    <RouterLink to="/studies" class="brand-home" title="Go to Studies" aria-label="Go to Studies"
       ><LykeionWordmark
     /></RouterLink>
     <div class="brand-switch">

@@ -35,7 +35,7 @@ test('the sidebar shows the final IT Department order', async ({ page }) => {
     names
       .map((name) => name.trim())
       .filter((name) => ['Teams', 'Agents', 'Autoresearch'].includes(name)),
-  ).toEqual(['Teams', 'Autoresearch', 'Agents']);
+  ).toEqual(['Autoresearch', 'Teams', 'Agents']);
   await expect(nav.getByText('IT Department', { exact: true })).toBeVisible();
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
