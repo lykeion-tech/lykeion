@@ -399,5 +399,6 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
     .getByRole('button', { name: new RegExp(`Insulin is mentioned in ${H1}`) })
     .click();
   await expect(pane(page)).toContainText('Insulin was measured by ELISA.');
+  await expect(pane(page)).toContainText('evidence 90%');
   await page.screenshot({ path: `${shots}/study-report-links.png`, fullPage: true });
 });

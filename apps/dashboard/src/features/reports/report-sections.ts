@@ -12,6 +12,8 @@ export type Row =
       label: string;
       status?: 'pass' | 'unclear' | 'fail';
       pct?: number;
+      // Replaces the bare "N%" beside the bar when set.
+      pctText?: string;
       detail: DetailBlock[];
     }
   | { kind: 'link'; nodeId: string; label: string };
@@ -87,7 +89,16 @@ const choiceWords: Record<string, string> = {
   unrelated: 'Unrelated',
 };
 const noveltyWords = { new: 'New', confirms: 'Confirms', contradicts: 'Contradicts' };
-const notChecked = 'Not checked: no recorded text describes this output.';
+// Mirrors the server's outputKind: only figures and tables are ever checked.
+function checkable(contentType = ''): boolean {
+  const mt = contentType.split(';')[0]!.trim().toLowerCase();
+  return (
+    mt.startsWith('image/') ||
+    mt === 'application/pdf' ||
+    mt === 'text/csv' ||
+    mt === 'text/tab-separated-values'
+  );
+}
 
 const reasonRow = (reason: string, node: ReportNode): Row => ({
   kind: 'detail',
@@ -138,10 +149,14 @@ export function sectionFor(report: StudyReport, nodeId: string) {
   const notCheckedRow = (output: string): Row => ({
     kind: 'detail',
     label: `${labelOf(output)} · Not checked`,
-    detail: [{ label: 'Jev', text: notChecked }],
+    detail: [{ label: 'Jev', text: 'Not checked.' }],
   });
-  // Outputs are only called unchecked once Jev's checks are in.
-  const checksIn = report.checks === 'ready';
+  // A figure or table is only called unchecked once Jev's checks are in;
+  // other outputs are never checked.
+  const uncheckedOutput = (finding: ReportNode, output: string) =>
+    report.checks === 'ready' &&
+    checkable(byId.get(output)?.content_type) &&
+    !outputCheck(finding, output);
   const linkFold = (title: string, ids: string[]): Fold => {
     const rows = links(ids);
     return { title, summary: rows.length ? String(rows.length) : 'None recorded', rows };
@@ -203,11 +218,9 @@ export function sectionFor(report: StudyReport, nodeId: string) {
       const evidence = node.checks.filter((c) => !c.id.startsWith('novelty:'));
       const by = (s: string) => evidence.filter((c) => c.status === s).length;
       const isOutputCheck = (c: ReviewCheck) => /^(figure|table):/.test(c.id);
-      const unchecked = checksIn
-        ? unique(into(node.id, 'supports')).filter(
-            (id) => byId.get(id)?.kind === 'output' && !outputCheck(node, id),
-          )
-        : [];
+      const unchecked = unique(into(node.id, 'supports')).filter(
+        (id) => byId.get(id)?.kind === 'output' && uncheckedOutput(node, id),
+      );
       folds.push({
         title: 'Checks · evidence',
         summary: `✓ ${by('pass')} · ◐ ${by('unclear')} · ○ ${by('fail')}`,
@@ -227,7 +240,8 @@ export function sectionFor(report: StudyReport, nodeId: string) {
             const paper = c.id.slice('novelty:'.length);
             const [first = '', ...abstract] = (c.detail ?? '').split('\n');
             const choice = first.replace(/^choice: /, '');
-            const word = choiceWords[choice] ?? choice;
+            // An unclear answer is shown, but never as settled.
+            const word = `${choiceWords[choice] ?? choice}${c.status === 'unclear' ? ' (unclear)' : ''}`;
             const row = checkRow(c);
             return {
               ...row,
@@ -306,7 +320,11 @@ export function sectionFor(report: StudyReport, nodeId: string) {
         const check = outputCheck(byId.get(id)!, node.id);
         return [
           ...linkTo(id),
-          ...(check ? [outputRow(check)] : checksIn ? [notCheckedRow(node.id)] : []),
+          ...(check
+            ? [outputRow(check)]
+            : uncheckedOutput(byId.get(id)!, node.id)
+              ? [notCheckedRow(node.id)]
+              : []),
         ];
       });
       folds.push({
@@ -328,6 +346,7 @@ export function sectionFor(report: StudyReport, nodeId: string) {
             f.relation === 'mentioned_in' ? labelOf(f.object) : conceptLabel(f.object)
           }`,
           pct: pct(f.p),
+          pctText: `evidence ${pct(f.p)}%`,
           detail: [
             { label: 'Quote', text: f.quote },
             {

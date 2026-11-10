@@ -153,7 +153,9 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
                       background: row.status ? colorOf(row.status) : 'var(--muted)',
                     }"
                 /></span>
-                <span v-if="row.pct !== undefined" class="type-caption">{{ row.pct }}%</span>
+                <span v-if="row.pct !== undefined" class="type-caption">{{
+                  row.pctText ?? `${row.pct}%`
+                }}</span>
               </button>
               <dl v-if="openRows.has(`${f}:${r}`)" class="row-detail">
                 <template v-for="(block, b) in row.detail" :key="b">
@@ -266,7 +268,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
 }
 .check-row {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) minmax(45px, 100px) 36px;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(45px, 100px) minmax(36px, auto);
   gap: 8px;
   align-items: center;
   width: 100%;

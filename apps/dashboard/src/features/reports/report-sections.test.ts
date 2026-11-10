@@ -267,6 +267,7 @@ it('concept section lists judged facts with quotes', () => {
   ]);
   const first = rows[0]!;
   expect(first.kind === 'detail' && first.pct).toBe(91);
+  expect(first.kind === 'detail' && first.pctText).toBe('evidence 91%');
   expect(first.kind === 'detail' && first.detail).toEqual([
     { label: 'Quote', text: 'Insulin was measured by ELISA.' },
     { label: 'From', text: 'Sleep helps', nodeId: 'rec:r5' },
@@ -315,9 +316,7 @@ it('figure check row says it is judged from text', () => {
   expect(shown.kind === 'detail' && shown.detail[0]!.text).toBe('Judged from the image.');
   // The table has no check, and says so.
   const table = checks.find((c) => c.label.startsWith('table.csv'))!;
-  expect(table.kind === 'detail' && table.detail[0]!.text).toBe(
-    'Not checked: no recorded text describes this output.',
-  );
+  expect(table.kind === 'detail' && table.detail[0]!.text).toBe('Not checked.');
   // The output's own section shows Jev's check for the finding it supports.
   const supports = sectionFor(r, 'out:plot.png').folds.find((f) => f.title === 'Supports')!;
   expect(supports.rows.map((x) => x.label)).toEqual(['Sleep helps', 'Figure · plot.png']);
@@ -357,4 +356,52 @@ it('pending extras notice names the machine', () => {
   r.extras = 'ready';
   r.checks = 'ready';
   expect(noticesOf(r)).toEqual([]);
+});
+
+it('only figures and tables are ever called not checked', () => {
+  const r = judged();
+  r.nodes.push(
+    node({
+      id: 'out:data.json',
+      kind: 'output',
+      label: 'data.json',
+      content_type: 'application/json',
+    }),
+    node({ id: 'out:fig.pdf', kind: 'output', label: 'fig.pdf', content_type: 'application/pdf' }),
+    node({ id: 'out:fig.svg', kind: 'output', label: 'fig.svg', content_type: 'image/svg+xml' }),
+    node({
+      id: 'out:t.tsv',
+      kind: 'output',
+      label: 't.tsv',
+      content_type: 'Text/Tab-Separated-Values; charset=utf-8',
+    }),
+  );
+  for (const id of ['out:data.json', 'out:fig.pdf', 'out:fig.svg', 'out:t.tsv'])
+    r.edges.push({ from: id, to: 'rec:r5', kind: 'supports' });
+  const labels = sectionFor(r, 'rec:r5').folds[0]!.rows.map((row) => row.label);
+  expect(labels.filter((l) => l.endsWith('· Not checked'))).toEqual([
+    'table.csv · Not checked',
+    'fig.pdf · Not checked',
+    'fig.svg · Not checked',
+    't.tsv · Not checked',
+  ]);
+  expect(sectionFor(r, 'out:data.json').folds[0]!.rows.map((row) => row.label)).toEqual([
+    'Sleep helps',
+  ]);
+  // Before Jev's checks are in, nothing is called unchecked.
+  r.checks = 'pending';
+  expect(
+    sectionFor(r, 'rec:r5').folds[0]!.rows.some((row) => row.label.endsWith('Not checked')),
+  ).toBe(false);
+});
+
+it('an unclear novelty answer is marked unclear', () => {
+  const r = judged();
+  const novelty = r.nodes
+    .find((n) => n.id === 'rec:r5')!
+    .checks.find((c) => c.id.startsWith('novelty:'))!;
+  novelty.status = 'unclear';
+  novelty.p = 0.6;
+  const fold = sectionFor(r, 'rec:r5').folds.find((f) => f.title === 'Novelty')!;
+  expect(fold.rows[0]!.label).toBe('doi:10.1/a · Contradicts (unclear)');
 });
