@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -65,6 +66,12 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 	for _, n := range rep.Nodes {
 		nodes[n.ID] = n
 	}
+	concepts := map[string]handin.ReportConcept{}
+	for _, c := range p.Concepts {
+		if _, ok := concepts[c.Key]; !ok {
+			concepts[c.Key] = c
+		}
+	}
 	var j Judged
 	asked := 0
 	seen := map[handin.ReportFact]bool{}
@@ -77,8 +84,16 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 		seen[f] = true
 		asked++
-		item := f.Subject + " " + f.Relation + " " + f.Object
-		ps, err := a.Noul(ctx, review.ItemState("Report", item, []string{f.Quote, nodes[f.SourceNode].Quote}, review.MaxState),
+		subject, object := concepts[f.Subject], concepts[f.Object]
+		item := subject.Label + " " + strings.ReplaceAll(f.Relation, "_", " ") + " "
+		evidence := []string{f.Quote, nodes[f.SourceNode].Quote, conceptText(subject)}
+		if f.Relation == "mentioned_in" {
+			item += nodes[f.Object].Label
+		} else {
+			item += object.Label
+			evidence = append(evidence, conceptText(object))
+		}
+		ps, err := a.Noul(ctx, review.ItemState("Report", item, evidence, review.MaxState),
 			map[string]string{"holds": factQuestion})
 		if err != nil {
 			return Judged{}, err
@@ -117,6 +132,11 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 	}
 	return j, nil
+}
+
+// conceptText is what Jev reads of a concept: its label and type.
+func conceptText(c handin.ReportConcept) string {
+	return "Concept " + c.Label + ", of type " + c.Type + "."
 }
 
 // sentence is the sentence of text holding bytes start to end.
@@ -190,6 +210,9 @@ func CheckFindings(ctx context.Context, a ImageAsker, rep Report, ev Evidence) (
 	var out []FindingCheck
 	for _, ask := range asks[:min(len(asks), CheckQuestions)] {
 		c, err := ask()
+		if errors.Is(err, errNoCheck) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -202,25 +225,44 @@ func CheckFindings(ctx context.Context, a ImageAsker, rep Report, ev Evidence) (
 // when there is nothing to judge it from.
 func outputAsk(ctx context.Context, a ImageAsker, f, o Node, ev Evidence) func() (FindingCheck, error) {
 	kind := outputKind(o.ContentType)
+	if im, ok := ev.Images[o.ID]; ok && kind == "image" {
+		fallback := textAsk(ctx, a, f, o, ev, "figure")
+		return func() (FindingCheck, error) {
+			c := FindingCheck{Node: f.ID, CheckID: "figure:" + o.ID, Basis: "image", Question: imageFigureQuestion}
+			ref := uuid.NewString()
+			state := review.ItemState("Report", f.Quote, nil, review.MaxState) + "\nThe figure is the image " + ref + ".\n"
+			ps, err := a.NoulImages(ctx, state, map[string]string{"matches": c.Question}, map[string]jev.Image{ref: im})
+			switch {
+			case errors.Is(err, jev.ErrRefused) || errors.Is(err, jev.ErrTooLong):
+				if fallback == nil {
+					return FindingCheck{}, errNoCheck
+				}
+				return fallback()
+			case err != nil:
+				return FindingCheck{}, err
+			}
+			c.P = ps["matches"]
+			c.Status = review.StatusOf(c.P)
+			return c, nil
+		}
+	}
+	if kind == "image" {
+		kind = "figure"
+	}
+	return textAsk(ctx, a, f, o, ev, kind)
+}
+
+// errNoCheck is an output that, once Jev refused its image, has nothing
+// else to be judged from.
+var errNoCheck = errors.New("no check")
+
+// textAsk is the question about output o's support for finding f judged
+// from its saved text, or a figure's producing script, or nil when there is
+// nothing to judge it from.
+func textAsk(ctx context.Context, a ImageAsker, f, o Node, ev Evidence, kind string) func() (FindingCheck, error) {
 	c := FindingCheck{Node: f.ID, CheckID: "figure:" + o.ID}
 	var evidence string
 	switch kind {
-	case "image":
-		if im, ok := ev.Images[o.ID]; ok {
-			c.Basis, c.Question = "image", imageFigureQuestion
-			return func() (FindingCheck, error) {
-				ref := uuid.NewString()
-				state := review.ItemState("Report", f.Quote, nil, review.MaxState) + "\nThe figure is the image " + ref + ".\n"
-				ps, err := a.NoulImages(ctx, state, map[string]string{"matches": c.Question}, map[string]jev.Image{ref: im})
-				if err != nil {
-					return FindingCheck{}, err
-				}
-				c.P = ps["matches"]
-				c.Status = status(c.P)
-				return c, nil
-			}
-		}
-		fallthrough
 	case "figure":
 		switch {
 		case ev.Texts[o.ID] != "":
@@ -244,7 +286,7 @@ func outputAsk(ctx context.Context, a ImageAsker, f, o Node, ev Evidence) func()
 			return FindingCheck{}, err
 		}
 		c.P, c.Evidence = ps["matches"], cut(evidence)
-		c.Status = status(c.P)
+		c.Status = review.StatusOf(c.P)
 		return c, nil
 	}
 }
@@ -293,18 +335,6 @@ func ImageFormat(contentType string) string {
 		return "png"
 	}
 	return "jpeg"
-}
-
-// status is pass when Jev's yes reaches the pass threshold, fail when its no
-// does, and unclear otherwise.
-func status(p float64) string {
-	switch {
-	case p >= review.PassP:
-		return review.Pass
-	case 1-p >= review.PassP:
-		return review.Fail
-	}
-	return review.Unclear
 }
 
 // cut is the text a check keeps, cut as a fence cuts it.

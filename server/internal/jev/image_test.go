@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"image"
+	"image/color"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -88,5 +89,34 @@ func TestImagesOnlyGoWithTheirHeader(t *testing.T) {
 	}
 	if _, err := c.NoulImages(ctx, "no reference", map[string]string{"q": "yes?"}, map[string]Image{ref: {Format: "png", Data: data}}); err == nil || len(got) != 2 {
 		t.Fatal("an image the state does not name was sent")
+	}
+}
+
+func TestFitImageCompositesTransparencyOntoWhite(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 400, 400)) // every pixel transparent black
+	src.Set(0, 0, color.NRGBA{R: 255, A: 128})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatal(err)
+	}
+	im, err := FitImage(buf.Bytes(), "png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := png.Decode(bytes.NewReader(im.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := color.NRGBAModel.Convert(out.At(200, 200)).(color.NRGBA); c != (color.NRGBA{255, 255, 255, 255}) {
+		t.Fatalf("a transparent pixel became %v, not white", c)
+	}
+	if c := color.NRGBAModel.Convert(out.At(0, 0)).(color.NRGBA); c.R != 255 || c.G < 126 || c.G > 128 || c.A != 255 {
+		t.Fatalf("half-transparent red became %v, not opaque pink", c)
+	}
+}
+
+func TestFitImageRefusesHugeImages(t *testing.T) {
+	if _, err := FitImage(pngOf(t, 4097, 4096), "png"); err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("a 4097x4096 image was decoded: %v", err)
 	}
 }

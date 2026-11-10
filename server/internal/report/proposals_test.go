@@ -25,9 +25,12 @@ func f(q, node string) handin.ReportFact {
 }
 
 func TestGroundKeepsVerbatimQuote(t *testing.T) {
-	p := Ground(repWith("BRCA1 increases\n risk", ""), hin([]handin.ReportFact{f("brca1  INCREASES risk", "question")}, nil))
+	p := Ground(repWith("So BRCA1 increases\n risk.", ""), hin([]handin.ReportFact{f("brca1  INCREASES risk", "question")}, nil))
 	if len(p.Facts) != 1 || len(p.Concepts) != 2 {
 		t.Fatalf("%+v", p)
+	}
+	if p.Facts[0].Quote != "BRCA1 increases\n risk" {
+		t.Fatalf("kept quote %q, not the source's own text", p.Facts[0].Quote)
 	}
 }
 

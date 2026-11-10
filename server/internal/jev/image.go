@@ -19,8 +19,12 @@ const (
 	MaxImageSide   = 1568
 	MaxImageBytes  = 16 << 20
 	maxBody        = 32 << 20
-	maxImageSource = 64 << 20 // ponytail: pixels decoded at most, to bound memory; raise if real figures need more
+	maxImageSource = 4096 * 4096 // pixels decoded at most, to bound memory
 )
+
+// fitting bounds how many images are decoded at once, so concurrent report
+// checks cannot each hold a full decoded image.
+var fitting = make(chan struct{}, 2)
 
 // Image is one picture Jev looks at, encoded as format ("png" or "jpg").
 type Image struct {
@@ -31,8 +35,9 @@ type Image struct {
 // FitImage decodes a PNG or JPEG whose decoded format is one of want, and
 // re-encodes it as a PNG Jev accepts: scaled, aspect kept, so each side is
 // within MinImageSide..MaxImageSide, and padded with white along its short
-// side when it is too long and narrow to fit by scaling alone. Re-encoding
-// drops metadata; no EXIF rotation is applied.
+// side when it is too long and narrow to fit by scaling alone. Transparent
+// pixels are composited onto white. Re-encoding drops metadata; no EXIF
+// rotation is applied.
 func FitImage(raw []byte, want ...string) (Image, error) {
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
@@ -44,6 +49,8 @@ func FitImage(raw []byte, want ...string) (Image, error) {
 	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width*cfg.Height > maxImageSource {
 		return Image{}, fmt.Errorf("jev: image of %dx%d pixels is out of range", cfg.Width, cfg.Height)
 	}
+	fitting <- struct{}{}
+	defer func() { <-fitting }()
 	src, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return Image{}, err
@@ -77,7 +84,8 @@ func scaled(n int, s float64) int {
 }
 
 // resize draws src into r of dst, each pixel the average of the source
-// pixels it covers (or the nearest one, when enlarging).
+// pixels it covers (or the nearest one, when enlarging), composited onto
+// white so the result is opaque.
 func resize(dst *image.NRGBA, r image.Rectangle, src image.Image) {
 	b := src.Bounds()
 	fx, fy := float64(b.Dx())/float64(r.Dx()), float64(b.Dy())/float64(r.Dy())
@@ -87,14 +95,16 @@ func resize(dst *image.NRGBA, r image.Rectangle, src image.Image) {
 		for x := 0; x < r.Dx(); x++ {
 			x0 := b.Min.X + int(float64(x)*fx)
 			x1 := min(b.Max.X, max(x0+1, b.Min.X+int(float64(x+1)*fx)))
-			var sr, sg, sb, sa, n uint64
+			var sr, sg, sb, n uint64
 			for yy := y0; yy < y1; yy++ {
 				for xx := x0; xx < x1; xx++ {
-					c := color.NRGBA64Model.Convert(src.At(xx, yy)).(color.NRGBA64)
-					sr, sg, sb, sa, n = sr+uint64(c.R), sg+uint64(c.G), sb+uint64(c.B), sa+uint64(c.A), n+1
+					// Premultiplied colour plus white times the uncovered part.
+					cr, cg, cb, ca := src.At(xx, yy).RGBA()
+					w := uint64(0xffff - ca)
+					sr, sg, sb, n = sr+uint64(cr)+w, sg+uint64(cg)+w, sb+uint64(cb)+w, n+1
 				}
 			}
-			dst.Set(r.Min.X+x, r.Min.Y+y, color.NRGBA64{R: uint16(sr / n), G: uint16(sg / n), B: uint16(sb / n), A: uint16(sa / n)})
+			dst.Set(r.Min.X+x, r.Min.Y+y, color.NRGBA64{R: uint16(sr / n), G: uint16(sg / n), B: uint16(sb / n), A: 0xffff})
 		}
 	}
 }

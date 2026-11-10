@@ -3,6 +3,8 @@ package report
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"lykeion/server/internal/handin"
 )
@@ -24,8 +26,43 @@ type Proposals struct {
 
 func normalize(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
 
+// find is the part of src that q matches, ignoring case and runs of
+// whitespace, as src spells it.
+func find(src, q string) (string, bool) {
+	nq := normalize(q)
+	if nq == "" {
+		return "", false
+	}
+	// norm is src normalized; from and to are, for each of its bytes, the
+	// bytes of src it came from.
+	var norm []byte
+	var from, to []int
+	gap := false
+	for i, r := range src {
+		if unicode.IsSpace(r) {
+			gap = len(norm) > 0
+			continue
+		}
+		if gap {
+			norm, from, to, gap = append(norm, ' '), append(from, i), append(to, i), false
+		}
+		l := string(unicode.ToLower(r))
+		_, w := utf8.DecodeRuneInString(src[i:])
+		for range len(l) {
+			from, to = append(from, i), append(to, i+w)
+		}
+		norm = append(norm, l...)
+	}
+	k := strings.Index(string(norm), nq)
+	if k < 0 {
+		return "", false
+	}
+	return src[from[k]:to[k+len(nq)-1]], true
+}
+
 // Ground keeps a proposal only when its quote or phrase is in the study's
-// own recorded text and everything it names exists.
+// own recorded text and everything it names exists. A kept fact's quote is
+// that text as the study spells it, not as the agent wrote it.
 func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	var p Proposals
 	nodes := map[string]Node{}
@@ -39,11 +76,17 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	used := map[string]bool{}
 	for _, f := range h.Facts {
 		n, ok := nodes[f.SourceNode]
-		q := normalize(f.Quote)
-		if !ok || q == "" || !keys[f.Subject] ||
-			!strings.Contains(normalize(n.Quote), q) && !strings.Contains(normalize(n.Label), q) {
+		if !ok || !keys[f.Subject] {
 			continue
 		}
+		q, found := find(n.Quote, f.Quote)
+		if !found {
+			q, found = find(n.Label, f.Quote)
+		}
+		if !found {
+			continue
+		}
+		f.Quote = q
 		if f.Relation == "mentioned_in" {
 			if _, ok := nodes[f.Object]; !ok {
 				continue

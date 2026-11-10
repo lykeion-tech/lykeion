@@ -2,18 +2,21 @@ package report
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
+	"lykeion/server/internal/review"
 )
 
 // fakeJev answers Noul with p(state) and Choice with choice at choiceP, and
 // keeps every state it was asked about.
 type fakeJev struct {
 	p       func(state string) float64
+	imgErr  error // what NoulImages fails with, if anything
 	choice  string
 	choiceP float64
 	states  []string
@@ -24,6 +27,9 @@ type fakeJev struct {
 
 func (f *fakeJev) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (map[string]float64, error) {
 	out, err := f.Noul(ctx, state, qs)
+	if f.imgErr != nil {
+		out, err = nil, f.imgErr
+	}
 	f.images[len(f.images)-1], f.kinds[len(f.kinds)-1] = images, "image"
 	return out, err
 }
@@ -66,7 +72,7 @@ func judgeFixture() (Report, Proposals) {
 func TestJudgeKeepsOnlyAccepted(t *testing.T) {
 	rep, p := judgeFixture()
 	f := &fakeJev{p: func(s string) float64 {
-		if strings.Contains(s, "il6 increases infl") {
+		if strings.Contains(s, "IL6 increases Inflammation") {
 			return 0.95
 		}
 		return 0.4
@@ -288,5 +294,59 @@ func TestCheckFindingsStopsAtItsBudgetFiguresFirst(t *testing.T) {
 		if (i < 5) != (k == "noul") {
 			t.Fatalf("ask %d was %s; tables come before novelty", i, k)
 		}
+	}
+}
+
+func TestJudgeReadsConceptLabelsAndTypes(t *testing.T) {
+	rep, p := judgeFixture()
+	p.Concepts[0].Label = "Cures cancer"
+	p.Facts = append(p.Facts[:1], handin.ReportFact{Subject: "tnf", Relation: "mentioned_in", Object: "rec:a2", Quote: "TNF", SourceNode: "rec:a2"})
+	f := &fakeJev{p: func(string) float64 { return 0.9 }}
+	if _, err := Judge(context.Background(), f, rep, p); err != nil {
+		t.Fatal(err)
+	}
+	if !fencedContains(f.states[0], "Cures cancer increases Inflammation") ||
+		!fencedContains(f.states[0], "Concept Cures cancer, of type protein.") || !fencedContains(f.states[0], "Concept Inflammation, of type disease.") {
+		t.Fatalf("the fact was not judged by its concepts' labels and types:\n%s", f.states[0])
+	}
+	if !fencedContains(f.states[1], "TNF mentioned in arxiv:2") || !fencedContains(f.states[1], "Concept TNF, of type protein.") {
+		t.Fatalf("a mentioned_in fact was not judged by its node's label:\n%s", f.states[1])
+	}
+}
+
+func TestCheckFindingsFallsBackWhenTheImageIsRefused(t *testing.T) {
+	im := map[string]jev.Image{"out:plot.png": {Format: "png", Data: []byte("fitted")}}
+	refused := fmt.Errorf("asking Jev: %w", jev.ErrRefused)
+	f := &fakeJev{p: func(string) float64 { return 0.9 }, imgErr: refused}
+	cs, err := CheckFindings(context.Background(), f, findingsFixture(), Evidence{Images: im,
+		Texts: map[string]string{"out:plot.png": "A bar plot of IL6.", "out:data.csv": "a,b\n1,2\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 2 || cs[0].CheckID != "figure:out:plot.png" || cs[0].Basis != "text" || cs[1].CheckID != "table:out:data.csv" {
+		t.Fatalf("checks %+v", cs)
+	}
+	f = &fakeJev{p: func(string) float64 { return 0.9 }, imgErr: refused}
+	cs, err = CheckFindings(context.Background(), f, findingsFixture(), Evidence{Images: im, Texts: map[string]string{"out:data.csv": "a,b\n1,2\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].CheckID != "table:out:data.csv" {
+		t.Fatalf("a refused image with nothing else was checked: %+v", cs)
+	}
+	f = &fakeJev{p: func(string) float64 { return 0.9 }, imgErr: errors.New("jev down")}
+	if _, err := CheckFindings(context.Background(), f, findingsFixture(), Evidence{Images: im}); err == nil {
+		t.Fatal("an unavailable Jev did not fail the pass")
+	}
+}
+
+func TestCheckFindingsStatusMatchesStageReview(t *testing.T) {
+	f := &fakeJev{p: func(string) float64 { return 0.32 }}
+	cs, err := CheckFindings(context.Background(), f, findingsFixture(), Evidence{Texts: map[string]string{"out:data.csv": "a,b\n1,2\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].Status != review.StatusOf(0.32) {
+		t.Fatalf("p 0.32 gave %+v; stage review says %s", cs, review.StatusOf(0.32))
 	}
 }
