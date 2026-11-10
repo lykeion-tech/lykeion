@@ -74,6 +74,9 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		if !o.Coresearch {
 			args = append(args, "--ignore-user-config")
 		}
+	} else if o.NoTools {
+		// A run with no tools reads none of the person's config.toml either.
+		args = append(args, "--strict-config", "--ignore-user-config")
 	}
 	if o.Lab || o.NoTools {
 		for _, feature := range codexToolFeatures {
@@ -110,7 +113,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 			args = append(args, "--disable", feature)
 		}
 	}
-	if clash := personalClash(personal, o); !o.Coresearch && !o.Lab && (clash != "" || personal.Unreadable) {
+	if clash := personalClash(personal, o); !o.Coresearch && !o.Lab && !o.NoTools && (clash != "" || personal.Unreadable) {
 		// -c deep-merges into a personal entry of the same name, so its headers
 		// would reach Lykeion's server. Only ignoring config.toml lets ours win.
 		// Personal servers are not re-supplied: their secrets would sit in argv.
@@ -126,7 +129,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 				return nil, err
 			}
 		}
-	} else if !o.Coresearch && !o.Lab {
+	} else if !o.Coresearch && !o.Lab && !o.NoTools {
 		if override, err := codexPersonalMCPOff(personal); err != nil {
 			cleanup(true)
 			return nil, err

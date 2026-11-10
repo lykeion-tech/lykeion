@@ -42,7 +42,9 @@ UPDATE agent SET deleted_at = now(), archived_at = COALESCE(archived_at, now()),
 WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL;
 
 -- name: AgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND status IN ('queued', 'dispatched', 'running'));
+-- A study's report run is attributed to the agent but runs on its own frozen
+-- prompt and CLI, so it never holds the agent.
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'));
 
 -- name: AgentUses :many
 -- The studies still working with an agent (Blocked ones and mixed Autoresearch

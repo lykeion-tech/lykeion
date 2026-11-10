@@ -91,6 +91,11 @@ func TestDeleteTeamBlockedByAutoresearchAndActiveAgentRun(t *testing.T) {
 	if code := s.call(t, "DELETE", "/api/teams/"+id, a, w.ID, nil, nil); code != 409 {
 		t.Fatalf("delete Team with active agent run: %d", code)
 	}
+	// A study's report run does not hold its agent.
+	s.mustUpdate(t, `UPDATE agent_run SET kind = 'report', role = 'reporter' WHERE agent_id = $1`, agent)
+	if code := s.call(t, "DELETE", "/api/teams/"+id, a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("delete Team whose agent has only a report run: %d", code)
+	}
 }
 
 func TestDeleteTeamRequiresVisibility(t *testing.T) {

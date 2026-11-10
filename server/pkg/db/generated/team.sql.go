@@ -181,7 +181,7 @@ func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]Store
 }
 
 const teamAgentHasLiveRuns = `-- name: TeamAgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running'))
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'))
 `
 
 type TeamAgentHasLiveRunsParams struct {
@@ -189,6 +189,8 @@ type TeamAgentHasLiveRunsParams struct {
 	AgentID     *uuid.UUID `json:"agent_id"`
 }
 
+// A study's report run is attributed to the agent but runs on its own frozen
+// prompt and CLI, so it never holds the agent.
 func (q *Queries) TeamAgentHasLiveRuns(ctx context.Context, arg TeamAgentHasLiveRunsParams) (bool, error) {
 	row := q.db.QueryRow(ctx, teamAgentHasLiveRuns, arg.WorkspaceID, arg.AgentID)
 	var exists bool

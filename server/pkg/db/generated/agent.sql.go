@@ -30,7 +30,7 @@ func (q *Queries) AgentHarnessForHistory(ctx context.Context, arg AgentHarnessFo
 }
 
 const agentHasLiveRuns = `-- name: AgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running'))
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'))
 `
 
 type AgentHasLiveRunsParams struct {
@@ -38,6 +38,8 @@ type AgentHasLiveRunsParams struct {
 	AgentID     *uuid.UUID `json:"agent_id"`
 }
 
+// A study's report run is attributed to the agent but runs on its own frozen
+// prompt and CLI, so it never holds the agent.
 func (q *Queries) AgentHasLiveRuns(ctx context.Context, arg AgentHasLiveRunsParams) (bool, error) {
 	row := q.db.QueryRow(ctx, agentHasLiveRuns, arg.WorkspaceID, arg.AgentID)
 	var exists bool

@@ -17,20 +17,7 @@ import (
 // own tools, its door serves no tool, and it gets no study folder.
 func TestReportRunHasNoTools(t *testing.T) {
 	ctx := context.Background()
-	f := fixture(t)
-	_, err := f.env.Owner.Exec(ctx, "DELETE FROM agent_run WHERE id=$1", f.id)
-	must(t, err)
-	id, err := daemonID(f.cfg.StateDir, f.cfg.Server)
-	must(t, err)
-	rts, err := f.runs.Register(ctx, f.user, f.ws, id, f.cfg.Device, []string{"claude"}, nil, agent.Platform{})
-	must(t, err)
-	must(t, f.runs.Store.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
-		r, err := tx.Q.InsertReportAgentRun(ctx, db.InsertReportAgentRunParams{WorkspaceID: f.ws, CardID: f.card, BoardColumn: "grounding", Round: 1,
-			Harness: "claude", PinnedRuntimeID: &rts[0].ID, Prompt: "brief", Skill: "# Reporter"})
-		f.id = r.ID
-		return err
-	}))
-	f.handInOutput = `{"status":"done","reason":null,"concepts":[],"facts":[],"links":[]}`
+	f := reportRunFixture(t)
 	var tools []string
 	calls, paths, failed := handInRun(t, f, func(o agent.ExecOptions) {
 		if o.Lab || !o.ReadOnly || !o.NoTools || len(o.ReadDirs) != 0 || o.DoorURL == "" {
@@ -66,5 +53,47 @@ func TestReportRunHasNoTools(t *testing.T) {
 	must(t, f.env.Owner.QueryRow(ctx, "SELECT count(*) FROM record WHERE agent_run_id = $1 AND kind = 'hand_in'", f.id).Scan(&n))
 	if n != 1 {
 		t.Fatalf("%d hand-in records, want 1", n)
+	}
+}
+
+// reportRunFixture is a daemon fixture whose one run is a queued report run
+// pinned to the daemon's Claude runtime.
+func reportRunFixture(t *testing.T) *daemonFixture {
+	ctx := context.Background()
+	f := fixture(t)
+	_, err := f.env.Owner.Exec(ctx, "DELETE FROM agent_run WHERE id=$1", f.id)
+	must(t, err)
+	id, err := daemonID(f.cfg.StateDir, f.cfg.Server)
+	must(t, err)
+	rts, err := f.runs.Register(ctx, f.user, f.ws, id, f.cfg.Device, []string{"claude"}, nil, agent.Platform{})
+	must(t, err)
+	must(t, f.runs.Store.InWorkspace(ctx, f.ws, f.user, func(tx *store.Tx) error {
+		r, err := tx.Q.InsertReportAgentRun(ctx, db.InsertReportAgentRunParams{WorkspaceID: f.ws, CardID: f.card, BoardColumn: "grounding", Round: 1,
+			Harness: "claude", PinnedRuntimeID: &rts[0].ID, Prompt: "brief", Skill: "# Reporter"})
+		f.id = r.ID
+		return err
+	}))
+	f.handInOutput = `{"status":"done","reason":null,"concepts":[],"facts":[],"links":[]}`
+	return f
+}
+
+// A report run is policed by the lab fence: even Claude's own file tools,
+// which a study run may use, stop it. Its CLI gets no run token or server.
+func TestReportRunUsesTheLabFence(t *testing.T) {
+	f := reportRunFixture(t)
+	var stopped error
+	handInRun(t, f, func(o agent.ExecOptions) {
+		for _, e := range o.Env {
+			if strings.HasPrefix(e, "LYK_TOKEN=") || strings.HasPrefix(e, "LYK_SERVER=") {
+				t.Errorf("the report run's CLI env holds %s", e)
+			}
+		}
+		stopped = o.OnMessage(agent.Message{Type: "tool_use", Tool: "Read"})
+	}, nil)
+	if stopped == nil {
+		t.Fatal("a report run's Read call passed the fence")
+	}
+	if s := f.status(t); s == "completed" {
+		t.Fatalf("a fenced report run completed")
 	}
 }

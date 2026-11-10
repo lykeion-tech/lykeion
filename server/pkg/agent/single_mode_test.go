@@ -240,7 +240,7 @@ func TestNoToolsArgs(t *testing.T) {
 		want, never []string
 	}{
 		{"claude", []string{"--tools\nStructuredOutput\n", "Edit(//**)\nBash\n", "--permission-mode\ndontAsk\n"}, []string{"--restricted"}},
-		{"codex", []string{"-s\nread-only\n", "--disable\nshell_tool\n", "--disable\nunified_exec\n", "--disable\ncode_mode\n"}, []string{"danger-full-access"}},
+		{"codex", []string{"-s\nread-only\n", "--disable\nshell_tool\n", "--disable\nunified_exec\n", "--disable\ncode_mode\n", "--strict-config\n", "--ignore-user-config\n"}, []string{"danger-full-access"}},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
 			args := filepath.Join(t.TempDir(), "args")

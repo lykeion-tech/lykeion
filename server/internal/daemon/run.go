@@ -252,8 +252,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// shell can read it from its MCP config or environment, and a transcript
 	// is read by the whole workspace.
 	var doorToken []byte
+	// A report run, like a lab question, may call nothing but its answer.
+	report := c.AgentRun.Kind == "report"
 	fence := agent.Fenced
-	if lab {
+	if lab || report {
 		fence = agent.LabFenced
 	}
 	sink := func(m agent.Message) error {
@@ -286,7 +288,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// through it, in the sandbox, so the CLI's environment holds none of the
 	// study's interpreters or folders, which the study's code may have planted.
 	// A report run reads only its brief: no study folder, no tools.
-	report := c.AgentRun.Kind == "report"
 	var study *envs.Study
 	if d.bases != nil && !report {
 		// A study's runs share its add-on folders. A run on no card keeps its

@@ -14,7 +14,9 @@ SELECT EXISTS (SELECT 1 FROM card c LEFT JOIN card_team t ON t.workspace_id = c.
   OR EXISTS (SELECT 1 FROM autoresearch_team WHERE workspace_id = @workspace_id AND pack_id = @pack_id);
 
 -- name: TeamAgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND status IN ('queued', 'dispatched', 'running'));
+-- A study's report run is attributed to the agent but runs on its own frozen
+-- prompt and CLI, so it never holds the agent.
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'));
 
 -- name: AgentBelongsToOtherTeam :one
 SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND pack_id <> @pack_id);
