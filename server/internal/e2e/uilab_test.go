@@ -419,6 +419,8 @@ func TestUILab(t *testing.T) {
 			BlockKind string `json:"block_kind"`
 			Redos     int    `json:"redos"`
 			Round     int    `json:"round"`
+			ScopeFrom string `json:"scope_from"`
+			Workflow  string `json:"workflow"`
 			Records   []struct {
 				Kind string         `json:"kind"`
 				Key  string         `json:"key"`
@@ -429,9 +431,11 @@ func TestUILab(t *testing.T) {
 			http.Error(w, "column, state and round are required", http.StatusBadRequest)
 			return
 		}
-		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = $2, scope_from = $2, scope_to = $2,
-			state = $3, block_kind = $4, redos = $5, round = $6, flag = '' WHERE id = $1`,
-			r.PathValue("card"), in.Column, in.State, in.BlockKind, in.Redos, in.Round)
+		// scope_from, when given, keeps the earlier columns in the study's range;
+		// workflow, when given, makes it a Workflow study.
+		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = $2, scope_from = COALESCE(NULLIF($7, ''), $2), scope_to = $2,
+			state = $3, block_kind = $4, redos = $5, round = $6, flag = '', workflow = COALESCE(NULLIF($8, ''), workflow) WHERE id = $1`,
+			r.PathValue("card"), in.Column, in.State, in.BlockKind, in.Redos, in.Round, in.ScopeFrom, in.Workflow)
 		if err != nil || tag.RowsAffected() != 1 {
 			http.Error(w, "no such card", http.StatusNotFound)
 			return

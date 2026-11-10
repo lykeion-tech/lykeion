@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
@@ -16,6 +16,7 @@ import { useCards, useDecisions, useMe } from '../../api/queries';
 import { agentDecisionParts, decisionKindOf, inboxTitle, isMachineWait, timeAgo } from '../../lib/studies';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
+const StudyReport = defineAsyncComponent(() => import('../reports/StudyReport.vue'));
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
 const open = useDecisions(false);
@@ -78,7 +79,8 @@ watch(
 );
 </script>
 <template>
-  <section class="resources resource-decisions">
+  <StudyReport v-if="display?.kind === 'study_report' && display.card_id" :card-id="display.card_id" />
+  <section v-else class="resources resource-decisions">
     <main class="decision-activity">
       <DecisionFilters />
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>

@@ -49,6 +49,8 @@ function onKey(e: KeyboardEvent) {
   background: var(--fill-raised);
   color: var(--text);
   cursor: pointer;
+  /* Vue Flow turns pointer events off on nodes it can neither select nor drag. */
+  pointer-events: all;
 }
 .report-node:hover {
   background: var(--hover);

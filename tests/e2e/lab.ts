@@ -207,6 +207,8 @@ export async function labFlow(
     block_kind?: string;
     redos?: number;
     round?: number;
+    scope_from?: string;
+    workflow?: string;
     records?: FlowRecord[];
   },
 ) {

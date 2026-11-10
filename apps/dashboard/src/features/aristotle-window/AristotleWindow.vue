@@ -246,6 +246,10 @@ function toggle() {
 }
 defineExpose({
   toggle,
+  // Shows the window without moving focus; an open window stays as it is.
+  open: () => {
+    open.value = true;
+  },
   modelMenu: () => {
     const opener = document.activeElement as HTMLElement | null;
     if (!open.value) toggle();

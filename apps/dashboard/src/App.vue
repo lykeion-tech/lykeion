@@ -28,6 +28,7 @@ import { useAristotle } from './features/coresearch/aristotle';
 import ConversationRail from './features/coresearch/ConversationRail.vue';
 import SidebarBrand, { brandSwitches } from './ui/SidebarBrand.vue';
 import AristotleWindow from './features/aristotle-window/AristotleWindow.vue';
+import { shownReport } from './features/reports/shown-report';
 import DecisionRail from './features/decisions/DecisionRail.vue';
 const labWindow = ref<InstanceType<typeof AristotleWindow>>();
 const route = useRoute();
@@ -175,6 +176,16 @@ const heading = computed(() =>
   current.value === 'teams' ? 'Teams' : (route.meta.title ?? 'Studies'),
 );
 const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
+// Arriving at a study's report opens Aristotle once, with the study as its
+// context; closing it holds until the next arrival.
+let reportOpened = '';
+watch([() => shownReport.value?.id ?? '', labWindow], ([id, win]) => {
+  if (!id) reportOpened = '';
+  else if (win && reportOpened !== id) {
+    reportOpened = id;
+    win.open();
+  }
+});
 const tabTitle = computed(() =>
   shownCard.value
     ? `${workspace.data.value?.display_prefix ?? ''}-${shownCard.value.number}: ${studyDisplayTitle(shownCard.value.title)}`
@@ -709,8 +720,8 @@ onUnmounted(() => {
       ref="labWindow"
       :key="workspaceId + ':' + me.data.value.id"
       :user-id="me.data.value.id"
-      :study-id="cardId"
-      :study-title="shownCard ? studyDisplayTitle(shownCard.title) : undefined"
+      :study-id="cardId || shownReport?.id"
+      :study-title="shownCard ? studyDisplayTitle(shownCard.title) : shownReport?.title"
     />
     <CreateStudy
       v-if="composer.open"

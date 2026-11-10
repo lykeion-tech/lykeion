@@ -34,9 +34,11 @@ const colors: Record<Status['icon'], string> = {
 const colorOf = (status: string) => colors[statusOf(status).icon];
 
 // Back retraces the nodes visited from this pane or the graph; reaching the
-// overview starts the path again.
+// overview starts the path again. Focus follows into the pane only when the
+// move started here, so a keyboard user in the graph stays on their node.
 const path = ref<string[]>([]);
 let goingBack = false;
+let fromPane = false;
 const labelOf = (id: string) => props.report.nodes.find((n) => n.id === id)?.label ?? id;
 const openFolds = reactive(new Set<string>());
 const openRows = reactive(new Set<string>());
@@ -51,17 +53,21 @@ watch(
     else if (goingBack) path.value = path.value.slice(0, -1);
     else if (before) path.value = [...path.value, before];
     goingBack = false;
-    void nextTick(() => (now ? selectedEl.value : overviewEl.value)?.focus());
+    if (fromPane) void nextTick(() => (now ? selectedEl.value : overviewEl.value)?.focus());
+    fromPane = false;
   },
 );
+// A parent that ignores the select never fires the watch; don't let the
+// flags outlive this move.
+function go(id: string | null, back = false) {
+  goingBack = back;
+  fromPane = true;
+  emit('select', id);
+  void nextTick(() => (goingBack = fromPane = false));
+}
 function back() {
   const to = path.value.at(-1);
-  if (!to) return;
-  goingBack = true;
-  emit('select', to);
-  // A parent that ignores the select never fires the watch; don't let the
-  // next forward move be taken for a step back.
-  void nextTick(() => (goingBack = false));
+  if (to) go(to, true);
 }
 const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key) : set.add(key));
 </script>
@@ -86,7 +92,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
         <button v-if="path.length" class="text-button" @click="back">
           ← Back to {{ labelOf(path.at(-1)!) }}
         </button>
-        <button class="text-button" @click="emit('select', null)">Back to the overview</button>
+        <button class="text-button" @click="go(null)">Back to the overview</button>
       </nav>
       <section ref="selectedEl" tabindex="-1" class="selected-check" aria-label="Selected">
         <div class="selected-title">
@@ -120,7 +126,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
         <template v-if="openFolds.has(fold.title)">
           <p v-if="!fold.rows.length" class="type-caption fold-empty">None recorded</p>
           <template v-for="(row, r) in fold.rows" :key="`${f}:${r}`">
-            <button v-if="row.kind === 'link'" class="row-link" @click="emit('select', row.nodeId)">
+            <button v-if="row.kind === 'link'" class="row-link" @click="go(row.nodeId)">
               {{ row.label }}
             </button>
             <template v-else>

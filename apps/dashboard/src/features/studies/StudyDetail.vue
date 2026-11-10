@@ -701,6 +701,12 @@ function pin() {
               </span>
             </div>
           </template>
+          <RouterLink
+            v-if="c.state === 'done' && !c.ending && !c.workflow"
+            class="report-link"
+            :to="'/decisions/report/' + id"
+            >Go to the report</RouterLink
+          >
           <section
             v-if="generatedFiles.length"
             class="generated-files"
@@ -1172,6 +1178,15 @@ function pin() {
 .study-heading .back-study {
   width: 20px;
   margin-left: -8px;
+}
+.report-link {
+  display: inline-block;
+  margin: 8px 0;
+  font-size: 14px;
+  color: var(--primary-text);
+}
+.report-link:hover {
+  text-decoration: underline;
 }
 .transcript-scroll {
   flex: 1;
