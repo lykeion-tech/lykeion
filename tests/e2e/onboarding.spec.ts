@@ -307,3 +307,42 @@ for (const phase of ['create', 'list'] as const) {
     }
   });
 }
+
+test('every step is wide and keeps Aristotle centred over the content', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await newcomer(page, 'centred');
+  const check = async () => {
+    const art = (await page.locator('.guide .aristotle-art').boundingBox())!;
+    const name = (await page.locator('.guide > div').boundingBox())!;
+    const content = (await page.locator('.content').boundingBox())!;
+    expect(content.width).toBe(760);
+    const centre = content.x + content.width / 2;
+    expect(Math.abs((art.x + name.x + name.width) / 2 - centre)).toBeLessThan(2);
+    expect(Math.abs(centre - 720)).toBeGreaterThan(50);
+  };
+  await check();
+  const oneLine = async () => {
+    const hero = page.getByRole('heading', { name: 'A lab for your next discovery.' });
+    const box = (await hero.boundingBox())!;
+    expect(box.height).toBeLessThan(50);
+    expect(await hero.evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true);
+  };
+  await oneLine();
+  await page.setViewportSize({ width: 375, height: 800 });
+  await oneLine();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await check();
+  await page.getByRole('textbox', { name: 'Workspace name' }).fill('Centred lab');
+  await page.getByRole('textbox', { name: 'Card prefix' }).fill('CTR');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  for (const heading of ['Skills', 'Connectors', 'Machines']) {
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await check();
+    if (heading === 'Connectors') {
+      await expect(page.locator('.onboarding-card').first()).toBeVisible();
+      await expect(page.locator('.onboarding-card .availability')).toHaveCount(0);
+    }
+    if (heading !== 'Machines') await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  }
+});

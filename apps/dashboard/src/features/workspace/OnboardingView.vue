@@ -209,7 +209,7 @@ async function logOut() {
       >
         <template v-if="step === 'Welcome'">
           <small class="muted">Welcome to Lykeion</small>
-          <h2 class="hero">A lab for your<br />next discovery.</h2>
+          <h2 class="hero">A lab for your next discovery.</h2>
           <p class="sub">
             Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace: you
             set the questions, agents carry out the work.
@@ -385,11 +385,6 @@ async function logOut() {
                 <p>{{ connector.purpose }}</p>
                 <small v-if="!connector.enabled">{{ connector.reason }}</small>
               </div>
-              <span
-                class="availability"
-                :class="{ ready: connector.enabled }"
-                aria-hidden="true"
-              ></span>
             </article>
             <article
               v-for="connector in customConnectors.data.value ?? []"
@@ -541,7 +536,7 @@ async function logOut() {
 }
 .content {
   flex: 1;
-  width: min(100%, 552px);
+  width: min(100%, 760px);
   margin: 0 auto;
   min-height: 0;
   overflow: auto;
@@ -557,6 +552,7 @@ async function logOut() {
 .content .hero {
   font-size: 34px;
   line-height: 1.15;
+  white-space: nowrap;
 }
 .centered {
   text-align: center;
@@ -686,7 +682,7 @@ async function logOut() {
   gap: 8px;
 }
 .actions .button.primary {
-  width: min(100% - 32px, 504px);
+  width: min(100% - 32px, 712px);
   justify-content: center;
 }
 .content .inline-error {
@@ -724,29 +720,6 @@ async function logOut() {
   font-size: 13px;
   color: var(--muted);
   margin-top: 6px;
-}
-.availability {
-  width: 28px;
-  height: 16px;
-  flex: none;
-  border-radius: 10px;
-  background: var(--border);
-  margin-top: 3px;
-  padding: 2px;
-}
-.availability::after {
-  content: '';
-  display: block;
-  height: 12px;
-  width: 12px;
-  background: var(--surface);
-  border-radius: 50%;
-}
-.availability.ready {
-  background: var(--primary);
-}
-.availability.ready::after {
-  margin-left: 12px;
 }
 @media (max-width: 900px) {
   .rail {
@@ -796,7 +769,7 @@ async function logOut() {
     padding: 20px 12px 12px;
   }
   .content .hero {
-    font-size: 28px;
+    font-size: min(28px, 5.8vw);
   }
   .actions {
     flex: none;
