@@ -17,6 +17,13 @@ type Codex struct{ Bin string }
 
 const codexCredFile = "auth.json"
 
+// codexToolFeatures and codexToolSettings turn off Codex's own tools: its
+// shell, code mode, skills, images, plans and questions.
+var (
+	codexToolFeatures = []string{"shell_tool", "unified_exec", "skill_search", "image_generation", "view_image", "goals", "sleep_tool", "tool_suggest", "code_mode", "code_mode_host", "request_permissions_tool", "browser_use"}
+	codexToolSettings = []string{"skills.bundled.enabled=false", "skills.include_instructions=false", "project_doc_max_bytes=0", "orchestrator.skills.enabled=false", "orchestrator.mcp.enabled=false", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false"}
+)
+
 func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Session, error) {
 	bin := c.Bin
 	if bin == "" {
@@ -50,7 +57,7 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 	// Codex's own web search answers from OpenAI's side, past the sources
 	// server that every cited source must come through, so it is off.
 	sandbox := "danger-full-access"
-	if o.Lab {
+	if o.Lab || o.NoTools {
 		sandbox = "read-only"
 	}
 	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", sandbox, "-c", `web_search="disabled"`}
@@ -67,10 +74,12 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		if !o.Coresearch {
 			args = append(args, "--ignore-user-config")
 		}
-		for _, feature := range []string{"shell_tool", "unified_exec", "skill_search", "image_generation", "view_image", "goals", "sleep_tool", "tool_suggest", "code_mode", "code_mode_host", "request_permissions_tool", "browser_use"} {
+	}
+	if o.Lab || o.NoTools {
+		for _, feature := range codexToolFeatures {
 			args = append(args, "--disable", feature)
 		}
-		for _, setting := range []string{"skills.bundled.enabled=false", "skills.include_instructions=false", "project_doc_max_bytes=0", "orchestrator.skills.enabled=false", "orchestrator.mcp.enabled=false", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false"} {
+		for _, setting := range codexToolSettings {
 			args = append(args, "-c", setting)
 		}
 	}

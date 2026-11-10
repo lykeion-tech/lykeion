@@ -559,3 +559,25 @@ func TestReportRunDoesNotAdvanceStudy(t *testing.T) {
 		t.Fatalf("%d runs after the report run, want %d", n, runsBefore)
 	}
 }
+
+// A report run that can't be queued leaves the study finished, its reports
+// raised, and its build skipped.
+func TestFinishSurvivesAReportRunThatCannotBeQueued(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	if _, err := l.env.Owner.Exec(ctx, `CREATE FUNCTION refuse_report() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'no report runs'; END $$;
+		CREATE TRIGGER refuse_report BEFORE INSERT ON agent_run FOR EACH ROW WHEN (NEW.kind = 'report') EXECUTE FUNCTION refuse_report();`); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := l.finishedStudy(t)
+	if items := l.inbox(t, c.ID, "study_report"); len(items) != 1 {
+		t.Fatalf("study_report items: %v", items)
+	}
+	b, ok := l.reportBuild(t, c.ID)
+	if !ok || b.Status != "skipped" || b.AgentRunID != nil {
+		t.Fatalf("report build %+v (found %v)", b, ok)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'report'", c.ID); n != 0 {
+		t.Fatalf("%d report runs", n)
+	}
+}

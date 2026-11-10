@@ -227,6 +227,9 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (sess
 		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
 	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfgArg, "--strict-mcp-config", "--settings", settings})
+	if o.NoTools && !o.Lab {
+		args = append(args, "--tools", "StructuredOutput")
+	}
 	if o.Lab {
 		// Retain the CLI restrictions, while recognizing that managed settings
 		// may override configuration and hooks outside these command-line controls.

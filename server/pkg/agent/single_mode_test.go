@@ -231,3 +231,36 @@ func seedClaudeTranscript(t *testing.T, id string) string {
 	}
 	return id
 }
+
+// A run with no tools keeps only Claude's structured answer, and Codex's
+// shell and code mode are off in a read-only sandbox.
+func TestNoToolsArgs(t *testing.T) {
+	for _, c := range []struct {
+		harness     string
+		want, never []string
+	}{
+		{"claude", []string{"--tools\nStructuredOutput\n", "Edit(//**)\nBash\n", "--permission-mode\ndontAsk\n"}, []string{"--restricted"}},
+		{"codex", []string{"-s\nread-only\n", "--disable\nshell_tool\n", "--disable\nunified_exec\n", "--disable\ncode_mode\n"}, []string{"danger-full-access"}},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
+			args := filepath.Join(t.TempDir(), "args")
+			b, _ := New(c.harness, script(t, `printf '%s\n' "$@" > '`+args+`'; echo '{"type":"result","is_error":false}'`))
+			s, err := b.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Model: "m", ReadOnly: true, NoTools: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, s)
+			got, _ := os.ReadFile(args)
+			for _, w := range c.want {
+				if !strings.Contains(string(got), w) {
+					t.Errorf("no %q in\n%s", w, got)
+				}
+			}
+			for _, n := range c.never {
+				if strings.Contains(string(got), n) {
+					t.Errorf("%q in\n%s", n, got)
+				}
+			}
+		})
+	}
+}

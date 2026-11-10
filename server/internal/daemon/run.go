@@ -285,8 +285,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	// The study's add-on folders are the door's alone: code runs only
 	// through it, in the sandbox, so the CLI's environment holds none of the
 	// study's interpreters or folders, which the study's code may have planted.
+	// A report run reads only its brief: no study folder, no tools.
+	report := c.AgentRun.Kind == "report"
 	var study *envs.Study
-	if d.bases != nil {
+	if d.bases != nil && !report {
 		// A study's runs share its add-on folders. A run on no card keeps its
 		// own beside them, never in its run folder: code may write the run
 		// folder, and a link it left there would be the next run's folder.
@@ -312,7 +314,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer services.Stop()
-	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab, Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
+	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab || report, NoTools: report, Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
 	if c.OutputSchema == "" {
 		opts.MCPToken = c.Token
 	}
@@ -347,7 +349,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Lab: lab, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{Lab: lab, NoTools: report, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)

@@ -3,6 +3,8 @@ package flow
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"slices"
 
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/report"
@@ -34,32 +36,39 @@ func (e *Engine) finishStudy(ctx context.Context, tx *store.Tx, c db.Card) error
 
 // queueReport queues the report run on the runtime and CLI that ran the
 // study's final run: its newest completed leading run. A study with no such
-// run gets a skipped build, and only the server's checks.
+// run, or whose run can't be queued, gets a skipped build and only the
+// server's checks; queueing never undoes the study's finish.
 func (e *Engine) queueReport(ctx context.Context, tx *store.Tx, c db.Card) error {
-	runs, err := tx.Q.StudyCompletedRoleRuns(ctx, db.StudyCompletedRoleRunsParams{WorkspaceID: tx.WS, CardID: c.ID})
-	if err != nil {
-		return err
-	}
 	build := db.InsertReportBuildParams{WorkspaceID: tx.WS, CardID: c.ID, Status: "skipped", ChecksStatus: "pending"}
-	for _, final := range runs {
-		if !handin.Leads(final.Role) {
-			continue
-		}
-		in, err := report.Load(ctx, tx, c)
+	var queued *db.AgentRun
+	err := tx.Savepoint(ctx, func(sp *store.Tx) error {
+		runs, err := sp.Q.StudyCompletedRoleRuns(ctx, db.StudyCompletedRoleRunsParams{WorkspaceID: sp.WS, CardID: c.ID})
 		if err != nil {
 			return err
 		}
-		run, err := tx.Q.InsertReportAgentRun(ctx, db.InsertReportAgentRunParams{WorkspaceID: tx.WS, CardID: c.ID, AgentID: final.AgentID,
+		i := slices.IndexFunc(runs, func(r db.AgentRun) bool { return handin.Leads(r.Role) })
+		if i < 0 {
+			return nil
+		}
+		final := runs[i]
+		in, err := report.Load(ctx, sp, c)
+		if err != nil {
+			return err
+		}
+		run, err := sp.Q.InsertReportAgentRun(ctx, db.InsertReportAgentRunParams{WorkspaceID: sp.WS, CardID: c.ID, AgentID: final.AgentID,
 			BoardColumn: final.BoardColumn, Round: final.Round, Harness: final.Harness, PinnedRuntimeID: final.RuntimeID,
 			Prompt: report.Prompt(report.Build(in)), Skill: reportSkill()})
 		if err != nil {
 			return err
 		}
-		if err := e.AgentRuns.NotifyQueued(ctx, tx, run); err != nil {
-			return err
-		}
-		build.AgentRunID, build.Status = &run.ID, "queued"
-		break
+		queued = &run
+		return e.AgentRuns.NotifyQueued(ctx, sp, run)
+	})
+	switch {
+	case err != nil:
+		slog.Error("queue report run", "card", c.ID, "err", err)
+	case queued != nil:
+		build.AgentRunID, build.Status = &queued.ID, "queued"
 	}
 	_, err = tx.Q.InsertReportBuild(ctx, build)
 	return err

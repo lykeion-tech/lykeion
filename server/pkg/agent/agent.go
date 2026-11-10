@@ -53,6 +53,9 @@ type ExecOptions struct {
 	// ReadOnly lets the CLI's own tools read, but not write files or run
 	// commands that change anything.
 	ReadOnly bool
+	// NoTools leaves the CLI none of its own tools but its structured
+	// answer: the run reads only its prompt. It goes with ReadOnly.
+	NoTools bool
 	// ReadDirs are folders besides Dir that a writable run's CLI may read
 	// without asking: the study's add-on folder and the language bases.
 	ReadDirs []string
