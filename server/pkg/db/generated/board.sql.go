@@ -562,14 +562,15 @@ func (q *Queries) MoveLaboratoryWaits(ctx context.Context, arg MoveLaboratoryWai
 const offlineRuntimesWithQueuedRuns = `-- name: OfflineRuntimesWithQueuedRuns :many
 SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
 FROM runtime r
-JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
+JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun', 'report')
   AND (t.harness = r.harness OR t.kind = 'rerun')
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) AS la(id, owner_id, runtime_id, name) ON true
 WHERE r.workspace_id = $1 AND r.status = 'offline'
   AND ((la.id IS NOT NULL AND (r.id = la.runtime_id
       OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id))))
-    OR (la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))
+    OR (t.kind = 'report' AND r.id = t.pinned_runtime_id)
+    OR (t.kind <> 'report' AND la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))
 GROUP BY r.id
 `
 
@@ -819,7 +820,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -896,6 +897,7 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.AttachmentSnapshot,
 			&i.LabChatID,
 			&i.LabPurpose,
+			&i.PinnedRuntimeID,
 		); err != nil {
 			return nil, err
 		}

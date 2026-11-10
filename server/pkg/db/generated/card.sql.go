@@ -52,7 +52,7 @@ func (q *Queries) BindCommentReservations(ctx context.Context, arg BindCommentRe
 }
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('attempt', rc.attempt, 'failure_reason', COALESCE(rc.result->>'failure_reason', ''),
@@ -135,6 +135,7 @@ type CardAgentRunsRow struct {
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 	LabPurpose            string          `json:"lab_purpose"`
+	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
 	AgentName             *string         `json:"agent_name"`
 	LatestText            string          `json:"latest_text"`
 	LastActivityAt        *time.Time      `json:"last_activity_at"`
@@ -212,6 +213,7 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.AttachmentSnapshot,
 			&i.LabChatID,
 			&i.LabPurpose,
+			&i.PinnedRuntimeID,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,

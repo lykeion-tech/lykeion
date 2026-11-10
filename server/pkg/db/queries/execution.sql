@@ -57,7 +57,7 @@ WHERE id = (
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) la ON true
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
- AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle')))
+ AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle','report')))
     -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
     AND (t.harness = r.harness OR t.kind = 'rerun') AND r.status = 'online' AND r.unhealthy_reason IS NULL
     -- a turn frozen to a model runs on a runtime whose CLI lists it; when none
@@ -85,6 +85,8 @@ WHERE id = (
            OR EXISTS (SELECT 1 FROM runtime_share s WHERE s.runtime_id = r.id AND s.user_id = c.owner_id)))))))))
       -- an autoresearch agent run has no card and runs on its requester's runtimes
       OR (t.kind = 'autoresearch' AND t.requester_id = r.owner_id AND t.responsible_user_id = r.owner_id)
+      -- a report run goes to the one runtime that ran the study's final run, even after the study is done
+      OR (t.kind = 'report' AND r.id = t.pinned_runtime_id AND t.responsible_user_id = c.owner_id AND c.ending = '')
       OR (t.kind='aristotle' AND r.last_seen_at>now()-interval '60 seconds' AND t.requester_id=r.owner_id AND t.responsible_user_id=r.owner_id
           AND EXISTS(SELECT 1 FROM lab_chat lc JOIN member m ON m.workspace_id=lc.workspace_id AND m.user_id=lc.owner_id
                      WHERE lc.workspace_id=t.workspace_id AND lc.id=t.lab_chat_id AND lc.owner_id=r.owner_id

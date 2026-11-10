@@ -94,6 +94,7 @@ type AgentRun struct {
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 	LabPurpose            string          `json:"lab_purpose"`
+	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -873,6 +874,57 @@ type Record struct {
 	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
 	SupersededAt *time.Time      `json:"superseded_at"`
 	CreatedAt    time.Time       `json:"created_at"`
+}
+
+type ReportBuild struct {
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	CardID       uuid.UUID  `json:"card_id"`
+	AgentRunID   *uuid.UUID `json:"agent_run_id"`
+	Status       string     `json:"status"`
+	ChecksStatus string     `json:"checks_status"`
+	CreatedAt    time.Time  `json:"created_at"`
+	FinishedAt   *time.Time `json:"finished_at"`
+}
+
+type ReportCheck struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	NodeID      string    `json:"node_id"`
+	CheckID     string    `json:"check_id"`
+	Question    string    `json:"question"`
+	Choice      string    `json:"choice"`
+	P           float64   `json:"p"`
+	Status      string    `json:"status"`
+	Evidence    string    `json:"evidence"`
+}
+
+type ReportConcept struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Key         string    `json:"key"`
+	Label       string    `json:"label"`
+	Type        string    `json:"type"`
+}
+
+type ReportFact struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Subject     string    `json:"subject"`
+	Relation    string    `json:"relation"`
+	Object      string    `json:"object"`
+	Quote       string    `json:"quote"`
+	SourceNode  string    `json:"source_node"`
+	P           float64   `json:"p"`
+}
+
+type ReportLink struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	StartByte   int32     `json:"start_byte"`
+	EndByte     int32     `json:"end_byte"`
+	NodeID      string    `json:"node_id"`
+	P           float64   `json:"p"`
 }
 
 type Research struct {
