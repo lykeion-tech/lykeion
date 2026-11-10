@@ -1,4 +1,4 @@
-import { computed, toValue, watch, type MaybeRefOrGetter } from 'vue';
+import { computed, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from './client';
 import { keys } from './keys';
@@ -30,6 +30,7 @@ import type {
   RunMessage,
   Runtime,
   StudyRecord,
+  StudyReport,
   Token,
   Workspace,
 } from './types';
@@ -120,6 +121,12 @@ export const useCardReview = (id: MaybeRefOrGetter<string>) =>
     queryFn: async () =>
       (await api<{ columns: ReviewColumn[] }>('GET', `/api/cards/${toValue(id)}/review`)).columns,
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
+export const useStudyReport = (cardId: Ref<string | undefined>) =>
+  useQuery({
+    queryKey: computed(() => keys.studyReport(ws.value, cardId.value ?? '')),
+    queryFn: () => api<StudyReport>('GET', `/api/cards/${cardId.value}/report`),
+    enabled: computed(() => inWorkspace.value && Boolean(cardId.value)),
   });
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);

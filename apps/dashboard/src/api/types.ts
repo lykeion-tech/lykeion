@@ -55,6 +55,70 @@ export interface ReviewCheck {
   status: CheckStatus;
   warning?: boolean;
 }
+// A finished study's report: the graph of its argument, built by the server
+// from recorded rows only.
+export type ReportNodeKind =
+  | 'question'
+  | 'paper'
+  | 'dataset'
+  | 'hypothesis'
+  | 'experiment'
+  | 'output'
+  | 'finding'
+  | 'objection'
+  | 'doubt';
+export interface ReportNode {
+  id: string;
+  kind: ReportNodeKind;
+  label: string;
+  // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses:
+  // kept|rejected; review items: pass|unclear|fail; otherwise ''.
+  status: string;
+  reasons: string[];
+  quote: string;
+  checks: ReviewCheck[];
+  rerun?: unknown;
+  run_id: string | null;
+  agent: string;
+  column: string;
+}
+export interface ReportEdge {
+  from: string;
+  to: string;
+  kind:
+    | 'tests'
+    | 'grounds'
+    | 'tested_by'
+    | 'produced'
+    | 'supports'
+    | 'challenges'
+    | 'contradicts'
+    | 'uses';
+}
+export interface ReportHandIn {
+  text: string;
+  agent_name: string;
+  run_id: string;
+  at: string;
+}
+export interface ReportSteering {
+  kind: 'comment' | 'decision';
+  author: string;
+  text: string;
+  at: string;
+}
+export interface StudyReport {
+  card_id: string;
+  number: number;
+  title: string;
+  question: string;
+  stages: string[];
+  finished_at: string;
+  hand_in: ReportHandIn | null;
+  nodes: ReportNode[];
+  edges: ReportEdge[];
+  steering: ReportSteering[];
+}
 export interface ReviewItem {
   key: string;
   kind: string;
@@ -799,5 +863,9 @@ export interface LabChart {
 export interface Laboratory {
   id: string;
   name: string;
-  rooms: { stage: LabChartRoom['stage']; team: string; agents: { name: string; role: 'leader' | 'member' | 'auditor' }[] }[];
+  rooms: {
+    stage: LabChartRoom['stage'];
+    team: string;
+    agents: { name: string; role: 'leader' | 'member' | 'auditor' }[];
+  }[];
 }

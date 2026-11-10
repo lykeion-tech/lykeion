@@ -57,6 +57,7 @@ export const keys = {
   cards: (ws: string) => ['ws', ws, 'cards'] as const,
   card: (ws: string, id: string) => ['ws', ws, 'card', id, 'detail'] as const,
   recordsAll: (ws: string, id: string) => ['ws', ws, 'card', id, 'records'] as const,
+  studyReport: (ws: string, cardId: string) => ['ws', ws, 'card', cardId, 'report'] as const,
   records: (ws: string, id: string, column: string) =>
     ['ws', ws, 'card', id, 'records', column] as const,
   comments: (ws: string, id: string) => ['ws', ws, 'card', id, 'comments'] as const,
