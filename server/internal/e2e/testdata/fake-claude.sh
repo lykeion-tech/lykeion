@@ -23,12 +23,13 @@ role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ (role|on Lykeio
 # skill, the MCP config and the command line, from the scratch folder the CLI
 # runs in.
 if [ -n "$LYK_TEST_CAPTURE" ]; then
-  cp CLAUDE.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
-  # The MCP config reaches the CLI only as the --mcp-config argument.
+  # The MCP config reaches the CLI only as the --mcp-config argument, and
+  # the role only as --append-system-prompt-file.
   mcp=""
   prev=""
   for a in "$@"; do
     [ "$prev" = "--mcp-config" ] && mcp=$a
+    [ "$prev" = "--append-system-prompt-file" ] && cp "$a" "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
     prev=$a
   done
   [ -n "$mcp" ] && cp "$mcp" "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null

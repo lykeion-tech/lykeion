@@ -191,7 +191,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 
 	files := c
 	files.Attachments = c.Rerun.Attachments
-	if err := d.placeAttachments(runCtx, files, dir); err != nil {
+	if _, err := d.placeAttachments(runCtx, files, dir); err != nil {
 		fail(err)
 		if retryableControlLoss(err) {
 			r.FailureReason = agent.ReasonRuntimeOffline

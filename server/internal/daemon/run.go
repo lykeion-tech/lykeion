@@ -157,12 +157,6 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	prompt := c.AgentRun.Prompt
-	if c.AgentRun.Skill != "" {
-		if err := os.WriteFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), []byte(c.AgentRun.Skill), 0600); err != nil {
-			fail(err)
-			return nil
-		}
-	}
 	backend, err := d.cfg.NewBackend(c.AgentRun.Harness, d.cfg.Harnesses[c.AgentRun.Harness])
 	if err != nil {
 		fail(err)
@@ -202,12 +196,23 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	// The run's token fetches the files, so this follows the start; the CLI
 	// never starts with only some of them.
-	if err = d.placeAttachments(ctx, c, dir); err != nil {
+	archives, err := d.placeAttachments(ctx, c, dir)
+	if err != nil {
 		fail(err)
 		if retryableControlLoss(err) {
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
 		return nil
+	}
+	// A lab question carries its role in the prompt. Codex reads the role
+	// from AGENTS.md in its folder; Claude reads no CLAUDE.md in a run, so its
+	// adapter hands the role over as a system prompt.
+	role := c.AgentRun.Skill + archives
+	if role != "" && c.AgentRun.Harness != "claude" {
+		if err = os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(role), 0600); err != nil {
+			fail(err)
+			return nil
+		}
 	}
 	// Reserve this directory before the sandbox is built, including when the
 	// study has no initial files: live comments may add read-only files later.
@@ -316,6 +321,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	}
 	defer services.Stop()
 	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab || report, NoTools: report, Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
+	if c.AgentRun.Harness == "claude" && !lab {
+		opts.Instructions = role
+	}
 	if c.OutputSchema == "" {
 		opts.MCPToken = c.Token
 	}
@@ -665,17 +673,19 @@ func (d *daemon) placeCommentAttachments(ctx context.Context, token, dir string,
 // denies writing, while
 // bubblewrap's read-only mount keeps a link from leaving it, so code can't
 // reach the cached file through another name.
-func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) error {
+// It returns the note that maps each unpacked archive to its folder, for the
+// run's role.
+func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) (string, error) {
 	if len(c.Attachments) == 0 {
-		return nil
+		return "", nil
 	}
 	cache := filepath.Join(d.cfg.StateDir, "cache", "attachments")
 	if err := os.MkdirAll(cache, 0o700); err != nil {
-		return fmt.Errorf("attached files: %w", err)
+		return "", fmt.Errorf("attached files: %w", err)
 	}
 	into := filepath.Join(dir, "attachments")
 	if err := os.Mkdir(into, 0o700); err != nil {
-		return fmt.Errorf("attached files: %w", err)
+		return "", fmt.Errorf("attached files: %w", err)
 	}
 	// The server bounds a file's download; the daemon's client timeout would
 	// cut a large one short.
@@ -688,22 +698,17 @@ func (d *daemon) placeAttachments(ctx context.Context, c claimed, dir string) er
 	for _, a := range c.Attachments {
 		folder, err := placeAttachment(ctx, api, cache, into, a, names)
 		if err != nil {
-			return fmt.Errorf("attached file %q: %w", a.DiskName, err)
+			return "", fmt.Errorf("attached file %q: %w", a.DiskName, err)
 		}
 		if folder != "" {
 			names = append(names, folder)
 			mappings = append(mappings, fmt.Sprintf("- %q is unpacked at %q.", "attachments/"+a.DiskName, "attachments/"+folder+"/"))
 		}
 	}
-	if len(mappings) != 0 {
-		f, err := os.OpenFile(filepath.Join(dir, roleFile(c.AgentRun.Harness)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(f, "\n\nArchive attachments (read-only):\n%s\n", strings.Join(mappings, "\n"))
-		return errors.Join(err, f.Close())
+	if len(mappings) == 0 {
+		return "", nil
 	}
-	return nil
+	return "\n\nArchive attachments (read-only):\n" + strings.Join(mappings, "\n") + "\n", nil
 }
 
 func placeAttachment(ctx context.Context, api *apiclient.Client, cache, into string, a service.ClaimedAttachment, names []string) (string, error) {
@@ -1221,15 +1226,6 @@ func skillsNote(skills []toolroute.RoutedSkill) string {
 		names[i] = "`" + agent.PinnedName(s.Name) + "` (the Team calls it " + s.Name + ")"
 	}
 	return "\n\nYour skills are installed under these names: " + strings.Join(names, ", ") + ". Use one when its task comes up."
-}
-
-// roleFile is the instructions file the harness's CLI loads from its working
-// folder on its own, so a run's role reaches it before the first turn.
-func roleFile(harness string) string {
-	if harness == "claude" {
-		return "CLAUDE.md"
-	}
-	return "AGENTS.md"
 }
 
 // guestDoorOptions excludes CLI-only authentication from connectors and code.

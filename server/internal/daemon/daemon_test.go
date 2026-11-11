@@ -276,7 +276,7 @@ func stopDaemon(t *testing.T, cancel context.CancelFunc, done <-chan error) {
 func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	f := fixture(t)
 	var role []byte
-	f.atRunEnd(func(dir string) { role, _ = os.ReadFile(filepath.Join(dir, "CLAUDE.md")) })
+	f.atRunEnd(func(dir string) { role, _ = os.ReadFile(filepath.Join(dir, ".cli-home", "role.md")) })
 	cancel, done := startDaemon(t, f.cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
@@ -1399,7 +1399,7 @@ func attachmentPlacement(t *testing.T, files []service.ClaimedAttachment, data m
 		t.Cleanup(func() { _ = agent.RemoveTree(dir) })
 		c := claimed{Attachments: files}
 		c.AgentRun.Harness = "claude"
-		err := d.placeAttachments(t.Context(), c, dir)
+		_, err := d.placeAttachments(t.Context(), c, dir)
 		return dir, err
 	}
 	return d, place, &downloads
@@ -1470,11 +1470,11 @@ func TestArchiveFoldersDoNotReplaceAttachments(t *testing.T) {
 		claims = append(claims, a)
 		data[a.ID] = bodies[i]
 	}
-	_, place, _ := attachmentPlacement(t, claims, data)
+	d, _, _ := attachmentPlacement(t, claims, data)
 	for run := 0; run < 2; run++ {
-		dir, err := place()
-		must(t, err)
-		instructions, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+		dir := t.TempDir()
+		t.Cleanup(func() { _ = agent.RemoveTree(dir) })
+		instructions, err := d.placeAttachments(t.Context(), claimed{Attachments: claims}, dir)
 		must(t, err)
 		for i, name := range names {
 			raw, err := os.ReadFile(filepath.Join(dir, "attachments", name))

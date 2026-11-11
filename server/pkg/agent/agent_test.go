@@ -1434,3 +1434,44 @@ echo '{"type":"result","is_error":false}'`)
 		t.Fatalf("repeated MCP reads failed: %v", result.Err)
 	}
 }
+
+// claudeMdExcludes keeps every CLAUDE.md out, so a run's role reaches the CLI
+// as an appended system prompt read from a file the agent's tools can't
+// reach, and the exclusion stays.
+func TestClaudeRunGetsItsRoleAsSystemPrompt(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	role := filepath.Join(t.TempDir(), "role")
+	s, err := Claude{Bin: script(t, `printf '%s\n' "$@" > `+args+`; while [ "$#" -gt 0 ]; do if [ "$1" = --append-system-prompt-file ]; then shift; cat "$1" > `+strconv.Quote(role)+`; break; fi; shift; done`)}.Execute(context.Background(), "p",
+		ExecOptions{Sandbox: testSandbox, Dir: t.TempDir(), Instructions: "You lead the ROLE-MARKER Team."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	a, _ := os.ReadFile(args)
+	argv := strings.Split(strings.TrimSuffix(string(a), "\n"), "\n")
+	if got, _ := os.ReadFile(role); string(got) != "You lead the ROLE-MARKER Team." {
+		t.Fatalf("role %q; claude ran with\n%s", got, a)
+	}
+	if i := slices.Index(argv, "--append-system-prompt-file"); i < 0 || !strings.Contains(argv[i+1], "/.cli-home/") {
+		t.Fatalf("role file outside the CLI's own home: %s", a)
+	}
+	if strings.Contains(string(a), "ROLE-MARKER") {
+		t.Fatalf("role text in argv: %s", a)
+	}
+	var settings struct {
+		ClaudeMdExcludes []string `json:"claudeMdExcludes"`
+	}
+	if i := slices.Index(argv, "--settings"); i < 0 || json.Unmarshal([]byte(argv[i+1]), &settings) != nil || !slices.Equal(settings.ClaudeMdExcludes, []string{"**"}) {
+		t.Fatalf("settings: %s", a)
+	}
+
+	// A run without a role gets no system prompt flag.
+	s, err = Claude{Bin: script(t, `printf '%s\n' "$@" > `+args)}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, s)
+	if a, _ = os.ReadFile(args); strings.Contains(string(a), "--append-system-prompt") {
+		t.Fatalf("roleless run got a system prompt: %s", a)
+	}
+}

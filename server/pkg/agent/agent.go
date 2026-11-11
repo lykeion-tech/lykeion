@@ -65,6 +65,9 @@ type ExecOptions struct {
 	// OutputSchema, when set, is a JSON Schema the CLI holds its final
 	// answer to; Result.Output carries that answer.
 	OutputSchema string
+	// Instructions is the run's role. Claude, which reads no CLAUDE.md in a
+	// run, gets it as an appended system prompt; Codex reads its AGENTS.md.
+	Instructions string
 	// MaxTurns, when positive, caps Claude's agentic turns.
 	MaxTurns int
 	// Input, when set, carries messages for Claude's running turn: each one
