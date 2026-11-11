@@ -12,14 +12,17 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/report"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/testutil"
@@ -877,5 +880,72 @@ func TestReportConceptTypeIsOneOfTheHandInsTypes(t *testing.T) {
 	}
 	if err := insert("chemical"); err == nil {
 		t.Fatal("a concept of type chemical was stored")
+	}
+}
+
+// flakySources is stubSources whose lookup of down fails until it has been
+// tried fails times, and always fails for broken.
+type flakySources struct {
+	stubSources
+	down, broken string
+	fails, tries int
+}
+
+func (s *flakySources) Paper(ctx context.Context, id string) (sources.Hit, error) {
+	if id == s.broken {
+		return sources.Hit{}, errors.New("sources down")
+	}
+	if id == s.down {
+		if s.tries++; s.tries <= s.fails {
+			return sources.Hit{}, errors.New("sources busy")
+		}
+	}
+	return s.stubSources.Paper(ctx, id)
+}
+
+func TestReportNoveltyJudgedOnlyAgainstEachPapersOwnAbstract(t *testing.T) {
+	ctx := context.Background()
+	l := newLab(t)
+	l.jev(t, 200, levels(nil))
+	src := &flakySources{stubSources: stubSources{missing: map[string]bool{paperB: true}}, down: paperA, fails: 1, broken: paperB2}
+	l.e.Sources = src
+	l.e.Retry = func() *jev.Retry {
+		return &jev.Retry{Waits: []time.Duration{time.Millisecond}, Max: time.Second, Sleep: func(context.Context, time.Duration) error { return nil }}
+	}
+	rec := func(key, kind string, body map[string]any) db.Record {
+		b, _ := json.Marshal(body)
+		return db.Record{Key: key, Kind: kind, Body: b}
+	}
+	in := report.Input{Records: []db.Record{
+		// The call each paper was fetched in also answered with another paper's abstract.
+		rec("c1", "call", map[string]any{"tool": "search_literature"}),
+		rec("p1", "paper", map[string]any{"id": paperA, "text": "A", "cites": []string{"c1"}}),
+		rec("p2", "paper", map[string]any{"id": paperB, "text": "B", "cites": []string{"c1"}}),
+		rec("p3", "paper", map[string]any{"id": paperB2, "text": "B2", "cites": []string{"c1"}}),
+	}}
+	rep := report.Report{Nodes: []report.Node{
+		{ID: "rec:p1", Kind: "paper", Label: paperA},
+		{ID: "rec:p2", Kind: "paper", Label: paperB},
+		{ID: "rec:p3", Kind: "paper", Label: paperB2},
+		{ID: "rec:f1", Kind: "finding", Quote: "IL6 rises"},
+	}}
+	ev, err := l.e.reportEvidence(ctx, in, rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ev.Texts["paper:rec:p1"]; got != "Abstract of "+paperA {
+		t.Fatalf("paper evidence %q, want only its own abstract", got)
+	}
+	for _, id := range []string{"paper:rec:p2", "paper:rec:p3"} {
+		if s, ok := ev.Texts[id]; ok {
+			t.Fatalf("%s has evidence %q though its abstract was not found", id, s)
+		}
+	}
+	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 1 || checks[0].CheckID != "novelty:rec:p1" || checks[0].Evidence != "Abstract of "+paperA {
+		t.Fatalf("checks %+v, want one novelty check on rec:p1's abstract", checks)
 	}
 }

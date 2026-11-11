@@ -17,6 +17,7 @@ import (
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/report"
 	"lykeion/server/internal/review"
+	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -339,25 +340,42 @@ func (e *Engine) reportEvidence(ctx context.Context, in report.Input, rep report
 			ev.Scripts[id] = s
 		}
 	}
-	sources := map[string][]db.Record{}
+	if e.Sources == nil {
+		return ev, nil
+	}
+	retry := e.retry()
 	for _, n := range rep.Nodes {
 		if n.Kind != "paper" {
 			continue
 		}
-		for _, k := range records.Body[review.PaperBody](byKey[strings.TrimPrefix(n.ID, "rec:")]).Cites {
-			if r, ok := byKey[recordKey(k)]; ok {
-				sources["paper:"+n.ID] = append(sources["paper:"+n.ID], r)
-			}
+		id := records.Body[review.PaperBody](byKey[strings.TrimPrefix(n.ID, "rec:")]).ID
+		if abstract := e.paperAbstract(ctx, retry, id); abstract != "" {
+			ev.Texts["paper:"+n.ID] = abstract
 		}
 	}
-	papers, err := e.sourceTexts(ctx, sources)
-	if err != nil {
-		return ev, err
-	}
-	for k, v := range papers {
-		ev.Texts[k] = v
-	}
 	return ev, nil
+}
+
+// paperAbstract is the abstract the sources server holds for paper id,
+// asked again as stage review asks Jev again. It is "" when the paper or its
+// abstract cannot be found, so that paper is judged against nothing else.
+func (e *Engine) paperAbstract(ctx context.Context, retry *jev.Retry, id string) string {
+	if id == "" {
+		return ""
+	}
+	var h sources.Hit
+	err := retry.Do(ctx, func() (err error) {
+		h, err = e.Sources.Paper(ctx, id)
+		if errors.Is(err, sources.ErrNotFound) {
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		slog.Warn("report novelty: paper lookup failed", "paper", id, "err", err)
+		return ""
+	}
+	return strings.TrimSpace(h.Abstract)
 }
 
 // outputImage is output r's image fitted for Jev, or nil when it is gone, too
