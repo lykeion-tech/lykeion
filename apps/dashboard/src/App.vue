@@ -179,11 +179,18 @@ const heading = computed(() =>
 );
 const shownCard = computed(() => cards.data.value?.find((c) => c.id === cardId.value));
 // Arriving at a study's report opens Aristotle once, with the report as its
-// context; closing it holds until the next arrival.
+// context; closing it holds until the next arrival. Leaving the report
+// collapses the window again if the report was what opened it.
 let reportOpened = '';
+let openedByReport = false;
 watch([() => shownReport.value?.id ?? '', labWindow], ([id, win]) => {
-  if (!id) reportOpened = '';
-  else if (win && reportOpened !== id) {
+  if (!id) {
+    if (openedByReport) win?.close();
+    openedByReport = false;
+    reportOpened = '';
+  } else if (win && reportOpened !== id) {
+    // Moving from one report to another keeps what the first one decided.
+    if (!reportOpened) openedByReport = !win.isOpen();
     reportOpened = id;
     win.open();
   }

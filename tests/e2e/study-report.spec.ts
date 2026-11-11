@@ -296,6 +296,39 @@ test('report page opens Aristotle with the report as context', async ({ page }) 
   expect([202, 409]).toContain(response.status());
 });
 
+test('leaving the report collapses the Aristotle window it opened', async ({ page }) => {
+  const study = await finishedStudy(page.request);
+  await page.goto(`/#/decisions/report/${study.id}`);
+  const window = page.locator('section.lab-window');
+  const fab = page.getByRole('button', { name: 'Ask Aristotle', exact: true });
+  await expect(window).toBeVisible();
+  // Another screen in the same tab.
+  await page.getByRole('link', { name: 'Go to Studies' }).click();
+  await expect(page).toHaveURL(/#\/studies$/);
+  await expect(window).toHaveCount(0);
+  await expect(fab).toBeVisible();
+  // Coming back opens it again, and a new workspace tab collapses it too.
+  await page.goto(`/#/decisions/report/${study.id}`);
+  await expect(window).toBeVisible();
+  await page.getByRole('button', { name: 'New tab' }).click();
+  await expect(window).toHaveCount(0);
+  await expect(fab).toBeVisible();
+});
+
+test('leaving the report leaves alone an Aristotle window that was already open', async ({
+  page,
+}) => {
+  const study = await finishedStudy(page.request);
+  await page.goto('/#/studies');
+  const window = page.locator('section.lab-window');
+  await page.getByRole('button', { name: 'Ask Aristotle', exact: true }).click();
+  await expect(window).toBeVisible();
+  await page.goto(`/#/decisions/report/${study.id}`);
+  await expect(window.locator('.chip')).toHaveText(`This study: ${study.title}`);
+  await page.goto('/#/studies');
+  await expect(window).toBeVisible();
+});
+
 test('a non-participant opens the report by URL and has no Decisions item', async ({
   page,
   browser,

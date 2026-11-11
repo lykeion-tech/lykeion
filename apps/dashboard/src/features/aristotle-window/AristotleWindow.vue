@@ -250,6 +250,14 @@ defineExpose({
   open: () => {
     open.value = true;
   },
+  isOpen: () => open.value,
+  // Collapses the window without moving focus, for when the page that opened
+  // it is left.
+  close: () => {
+    open.value = false;
+    menu.value = '';
+    focused.value = false;
+  },
   modelMenu: () => {
     const opener = document.activeElement as HTMLElement | null;
     if (!open.value) toggle();
