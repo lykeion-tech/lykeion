@@ -312,9 +312,55 @@ func TestJudgeReadsConceptLabelsAndTypes(t *testing.T) {
 	if strings.Contains(evidence, "protein") || strings.Contains(evidence, "disease") || strings.Contains(evidence, "Concept") {
 		t.Fatalf("the model's concept types were fenced as evidence:\n%s", f.states[0])
 	}
+}
+
+func TestJudgeNamesAMentionedInNodeByItsLabel(t *testing.T) {
+	rep, p := judgeFixture()
+	rep.Nodes = append(rep.Nodes, Node{ID: "out:plot.png", Kind: "output", Label: "plot.png"})
+	p.Facts = []handin.ReportFact{
+		{Subject: "tnf", Relation: "mentioned_in", Object: "rec:a2", Quote: "TNF", SourceNode: "rec:a2"},
+		{Subject: "il6", Relation: "mentioned_in", Object: "out:plot.png", Quote: "IL6", SourceNode: "rec:a1"},
+	}
+	f := &fakeJev{p: func(string) float64 { return 0.9 }}
+	if _, err := Judge(context.Background(), f, rep, p); err != nil {
+		t.Fatal(err)
+	}
+	item, evidence, _ := strings.Cut(f.states[0], "Evidence 1:")
+	if !fencedContains(item, "TNF (protein) is mentioned in paper \"arxiv:2\"\n") || strings.Contains(item, "rec:a2") {
+		t.Fatalf("a mentioned_in fact did not name its node by kind and label:\n%s", f.states[0])
+	}
+	if !fencedContains(evidence, "TNF\n") || !fencedContains(evidence, "paper \"arxiv:2\": TNF decreases weight.\n") || strings.Contains(evidence, "protein") {
+		t.Fatalf("the evidence is not the fact's quote and the node's recorded text:\n%s", f.states[0])
+	}
 	item, evidence, _ = strings.Cut(f.states[1], "Evidence 1:")
-	if !fencedContains(item, "TNF (protein) mentioned in arxiv:2\n") || strings.Contains(evidence, "protein") {
-		t.Fatalf("a mentioned_in fact was not judged by its node's untyped label:\n%s", f.states[1])
+	if !fencedContains(item, "IL6 (protein) is mentioned in output \"plot.png\"\n") {
+		t.Fatalf("item:\n%s", f.states[1])
+	}
+	// The output has no quote, so its label stands in; the fact's own source is quoted too.
+	if !fencedContains(evidence, "output \"plot.png\": plot.png\n") || !fencedContains(evidence, "IL6 increases inflammation in mice.") {
+		t.Fatalf("an unquoted node's label is not its evidence:\n%s", f.states[1])
+	}
+}
+
+func TestJudgeAsksALinkAsAQuestionAboutItsNode(t *testing.T) {
+	rep, p := judgeFixture()
+	rep.Nodes = append(rep.Nodes, Node{ID: "out:plot.png", Kind: "output", Label: "plot.png"})
+	p.Facts = nil
+	p.Links = []Span{{Start: 14, End: 17, Node: "rec:a1", Phrase: "IL6"}, {Start: 25, End: 37, Node: "out:plot.png", Phrase: "It was clear"}}
+	f := &fakeJev{p: func(string) float64 { return 0.9 }}
+	if _, err := Judge(context.Background(), f, rep, p); err != nil {
+		t.Fatal(err)
+	}
+	item, evidence, _ := strings.Cut(f.states[0], "Evidence 1:")
+	if !fencedContains(item, "Does 'IL6' in this sentence refer to paper 'arxiv:1'?\nWe found that IL6 rises.\n") {
+		t.Fatalf("the link is not asked as a question with its sentence:\n%s", f.states[0])
+	}
+	if !fencedContains(evidence, "paper\narxiv:1\nIL6 increases inflammation in mice.\n") {
+		t.Fatalf("the evidence is not the node's kind, label and quote:\n%s", f.states[0])
+	}
+	_, evidence, _ = strings.Cut(f.states[1], "Evidence 1:")
+	if !fencedContains(evidence, "output\nplot.png\n") || strings.Count(evidence, "plot.png") != 1 {
+		t.Fatalf("an unquoted node's evidence is not its kind and label:\n%s", f.states[1])
 	}
 }
 

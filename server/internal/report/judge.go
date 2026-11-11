@@ -26,7 +26,7 @@ const (
 
 const (
 	factQuestion         = "Does the evidence state that the item holds? Answer yes only if the quoted evidence says so."
-	linkQuestion         = "Does the phrase refer to this item?"
+	linkQuestion         = "Given the evidence about the node, is the answer to the item's question yes?"
 	imageFigureQuestion  = "Does this figure show what the claim says?"
 	textFigureQuestion   = "Does this figure, as its recorded text describes it, show what the claim says?"
 	scriptFigureQuestion = "Does this figure, as the script that produced it describes it, show what the claim says?"
@@ -84,14 +84,20 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 		seen[f] = true
 		asked++
-		subject, object := concepts[f.Subject], concepts[f.Object]
-		item := conceptText(subject) + " " + strings.ReplaceAll(f.Relation, "_", " ") + " "
-		if f.Relation == "mentioned_in" {
-			item += nodes[f.Object].Label
-		} else {
-			item += conceptText(object)
-		}
+		subject := conceptText(concepts[f.Subject])
+		item := subject + " " + strings.ReplaceAll(f.Relation, "_", " ") + " " + conceptText(concepts[f.Object])
 		evidence := []string{f.Quote, nodes[f.SourceNode].Quote}
+		if f.Relation == "mentioned_in" {
+			// The node is named by its kind and label, never its id, and its
+			// own recorded text, under that same name, stands beside the
+			// fact's quote.
+			n := nodes[f.Object]
+			item = fmt.Sprintf("%s is mentioned in %s %q", subject, n.Kind, n.Label)
+			evidence = []string{f.Quote, fmt.Sprintf("%s %q: %s", n.Kind, n.Label, nodeText(n))}
+			if f.SourceNode != f.Object {
+				evidence = append(evidence, nodes[f.SourceNode].Quote)
+			}
+		}
 		ps, err := a.Noul(ctx, review.ItemState("Report", item, evidence, review.MaxState),
 			map[string]string{"holds": factQuestion})
 		if err != nil {
@@ -107,8 +113,12 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 		asked++
 		n := nodes[s.Node]
-		item := s.Phrase + "\n" + sentence(rep.HandIn.Text, s.Start, s.End)
-		ps, err := a.Noul(ctx, review.ItemState("Report", item, []string{n.Kind + "\n" + n.Label + "\n" + n.Quote}, review.MaxState),
+		item := fmt.Sprintf("Does '%s' in this sentence refer to %s '%s'?\n%s", s.Phrase, n.Kind, n.Label, sentence(rep.HandIn.Text, s.Start, s.End))
+		about := n.Kind + "\n" + n.Label
+		if n.Quote != "" {
+			about += "\n" + n.Quote
+		}
+		ps, err := a.Noul(ctx, review.ItemState("Report", item, []string{about}, review.MaxState),
 			map[string]string{"refers": linkQuestion})
 		if err != nil {
 			return Judged{}, err
@@ -137,6 +147,15 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 // as part of the judged item, never as evidence.
 func conceptText(c handin.ReportConcept) string {
 	return c.Label + " (" + c.Type + ")"
+}
+
+// nodeText is a node's own recorded text: its quote, or its label when it
+// has none.
+func nodeText(n Node) string {
+	if n.Quote != "" {
+		return n.Quote
+	}
+	return n.Label
 }
 
 // sentence is the sentence of text holding bytes start to end.
