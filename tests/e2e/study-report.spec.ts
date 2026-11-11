@@ -341,8 +341,9 @@ test('a study that finished before reports shipped has no report', async ({ page
 test('clicking a hand-in link selects its node and opens its section', async ({ page }) => {
   const study = await finishedStudy(page.request);
   // The report is the server's, with judged concepts and links laid over it.
-  // The hand-in is Markdown; a linked phrase may sit inside bold text.
-  const text = `Résumé — β-cells 🧪: **${H1}**.\n\nInsulin was measured by \`ELISA\`.`;
+  // The hand-in is Markdown; a linked phrase may sit inside bold text. Links
+  // point only at Grounding sources.
+  const text = `Résumé — β-cells 🧪: ${H1}, as **${PAPER}** reports.\n\nInsulin was measured by \`ELISA\`.`;
   let withLinks = false;
   const bytes = (s: string) => new TextEncoder().encode(s).length;
   const at = (s: string) => bytes(text.slice(0, text.indexOf(s)));
@@ -351,6 +352,7 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
     const finding = report.nodes.find(
       (n: { kind: string; label: string }) => n.kind === 'finding' && n.label === H1,
     );
+    const paper = report.nodes.find((n: { kind: string }) => n.kind === 'paper');
     report.hand_in.text = text;
     report.nodes.push({
       ...finding,
@@ -376,15 +378,7 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
     report.edges.push({ from: 'concept:insulin', to: finding.id, kind: 'mentioned_in' });
     report.links = !withLinks
       ? []
-      : [
-          { start: at(H1), end: at(H1) + bytes(H1), node: finding.id, p: 0.9 },
-          {
-            start: at('Insulin'),
-            end: at('Insulin') + bytes('Insulin'),
-            node: 'concept:insulin',
-            p: 0.9,
-          },
-        ];
+      : [{ start: at(PAPER), end: at(PAPER) + bytes(PAPER), node: paper.id, p: 0.9 }];
     report.extras = 'pending';
     report.checks = 'unavailable';
     report.machine = 'lab-mac';
@@ -393,11 +387,11 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
   await page.goto(`/#/decisions/report/${study.id}`);
   const handIn = page.getByRole('region', { name: 'Hand-in report' });
   const body = handIn.locator('.markdown-body');
-  await expect(body.locator('strong')).toHaveText(H1);
+  await expect(body.locator('strong')).toHaveText(PAPER);
   const plain = await body.evaluate((e) => e.textContent);
   withLinks = true;
   await page.reload();
-  await expect(body.locator('strong button.ref')).toHaveText(H1);
+  await expect(body.locator('strong button.ref')).toHaveText(PAPER);
   // The hand-in still reads as Markdown, and linking changes no text.
   await expect(body.locator('code')).toHaveText('ELISA');
   expect(await body.evaluate((e) => e.textContent)).toBe(plain);
@@ -408,15 +402,16 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
   await expect(page.getByRole('list', { name: 'Legend' })).toContainText('Concept');
   await expect(graph(page).getByRole('button', { name: 'Concept: Insulin' })).toBeVisible();
 
-  const link = handIn.getByRole('button', { name: `${H1}, Finding: ${H1}` });
+  await expect(body.locator('button.ref')).toHaveCount(1);
+  const link = handIn.getByRole('button', { name: `${PAPER}, Paper: ${PAPER}` });
   await link.focus();
   await page.keyboard.press('Enter');
   await expect(link).toHaveAttribute('aria-pressed', 'true');
   const selected = pane(page).getByRole('region', { name: 'Selected' });
-  await expect(selected).toContainText(H1);
-  await expect(selected).toContainText('Finding');
+  await expect(selected).toContainText(PAPER);
+  await expect(selected).toContainText('Paper');
 
-  await handIn.getByRole('button', { name: 'Insulin, Concept: Insulin' }).click();
+  await graph(page).getByRole('button', { name: 'Concept: Insulin' }).click();
   await expect(selected).toContainText('Insulin');
   await expect(selected).toContainText('Protein');
   await pane(page)

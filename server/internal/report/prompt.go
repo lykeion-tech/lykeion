@@ -19,7 +19,7 @@ func Prompt(rep Report) string {
 	task := fmt.Sprintf("\nTask: propose concepts, facts and links about this study's own text.\n"+
 		"- A concept is something the text names, with a short key, a label and one type: %s.\n"+
 		"- A fact states subject, relation, object about concepts, with a quote copied word for word from one node's text and that node's id as source_node. Give at most %d concepts and %d facts; each quote is at most %d bytes.\n"+
-		"- A link makes the occurrence-th (from 1) appearance of a phrase copied word for word from the study's hand-in point to a node id. Give at most %d links; each phrase is at most %d bytes.\n"+
+		"- A link makes the occurrence-th (from 1) appearance of a phrase copied word for word from the study's hand-in point to a node id. A link may point only at a paper or dataset node. Give at most %d links; each phrase is at most %d bytes.\n"+
 		"- Use only node ids listed above. When there is nothing to propose, hand in empty lists.\n"+
 		"mentioned_in is the only relation whose object is a node id; every other relation links two concept keys. The relations are: %s.\n",
 		strings.Join(handin.ReportConceptTypes, ", "), handin.MaxReportConcepts, handin.MaxReportFacts, handin.MaxQuoteBytes,

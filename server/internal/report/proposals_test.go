@@ -7,7 +7,7 @@ import (
 )
 
 func repWith(quote, text string) Report {
-	r := Report{Nodes: []Node{{ID: "question", Quote: quote, Label: "Q"}, {ID: "rec:1", Label: "L"}}}
+	r := Report{Nodes: []Node{{ID: "question", Kind: "question", Quote: quote, Label: "Q"}, {ID: "rec:1", Kind: "paper", Label: "L"}}}
 	if text != "" {
 		r.HandIn = &HandIn{Text: text}
 	}
@@ -73,8 +73,20 @@ func TestGroundLinksOccurrenceAndOverlap(t *testing.T) {
 	p = Ground(repWith("", text), hin(nil, []handin.ReportLink{
 		{Phrase: "drug X and", Occurrence: 1, Node: "rec:1"}, {Phrase: "the drug X", Occurrence: 1, Node: "question"}, {Phrase: "drug X", Occurrence: 2, Node: "rec:1"},
 		{Phrase: "drug X", Occurrence: 3, Node: "rec:1"}, {Phrase: "drug x", Occurrence: 1, Node: "rec:1"}, {Phrase: "drug X", Occurrence: 1, Node: "ghost"}}))
-	if len(p.Links) != 2 || p.Links[0].Start != 0 || p.Links[1].Start != 15 {
+	// "the drug X" points at the question, so it is dropped and "drug X and" is kept.
+	if len(p.Links) != 2 || p.Links[0].Start != 4 || p.Links[1].Start != 15 {
 		t.Fatalf("%+v", p.Links)
+	}
+}
+
+func TestGroundKeepsOnlyLinksToGroundingSources(t *testing.T) {
+	rep := repWith("", "the drug X raises Y in mice")
+	rep.Nodes = append(rep.Nodes, Node{ID: "rec:h", Kind: "hypothesis", Label: "H"}, Node{ID: "rec:d", Kind: "dataset", Label: "GSE1"})
+	p := Ground(rep, hin(nil, []handin.ReportLink{
+		{Phrase: "the drug X", Occurrence: 1, Node: "question"}, {Phrase: "raises Y", Occurrence: 1, Node: "rec:h"},
+		{Phrase: "in mice", Occurrence: 1, Node: "rec:1"}, {Phrase: "drug X", Occurrence: 1, Node: "rec:d"}}))
+	if len(p.Links) != 2 || p.Links[0].Node != "rec:d" || p.Links[1].Node != "rec:1" {
+		t.Fatalf("links %+v, want only the dataset's and the paper's", p.Links)
 	}
 }
 

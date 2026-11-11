@@ -538,6 +538,16 @@ func (b *builder) has(id string) bool {
 	return ok
 }
 
+// linkable says whether id is a node a hand-in link may point at.
+func (b *builder) linkable(id string) bool {
+	for _, n := range b.nodes {
+		if n.ID == id {
+			return Linkable(n.Kind)
+		}
+	}
+	return false
+}
+
 func (b *builder) edge(from, to, kind string) {
 	e := Edge{From: from, To: to, Kind: kind}
 	if !slices.Contains(b.edges, e) {
@@ -636,15 +646,15 @@ func (b *builder) concepts() {
 	}
 }
 
-// links are the recorded links that lie inside the hand-in and name a node,
-// by start.
+// links are the recorded links that lie inside the hand-in and name a paper
+// or dataset node, by start.
 func (b *builder) links(h *HandIn) []Link {
 	out := []Link{}
 	if h == nil {
 		return out
 	}
 	for _, l := range b.in.Links {
-		if l.StartByte >= 0 && l.StartByte < l.EndByte && int(l.EndByte) <= len(h.Text) && b.has(l.NodeID) {
+		if l.StartByte >= 0 && l.StartByte < l.EndByte && int(l.EndByte) <= len(h.Text) && b.linkable(l.NodeID) {
 			out = append(out, Link{int(l.StartByte), int(l.EndByte), l.NodeID, l.P})
 		}
 	}

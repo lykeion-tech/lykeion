@@ -402,7 +402,7 @@ func TestBuildLinksSortedAndInsideHandIn(t *testing.T) {
 	s := judgedStudy() // hand-in "X raises Y, as found." is 21 bytes
 	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
 	s.in.Links = []db.ReportLink{
-		{StartByte: 12, EndByte: 21, NodeID: "rec:r2", P: 0.8},
+		{StartByte: 12, EndByte: 21, NodeID: "rec:r1", P: 0.8},
 		{StartByte: 0, EndByte: 9, NodeID: "rec:r1", P: 0.9},
 		{StartByte: 15, EndByte: 99, NodeID: "rec:r1", P: 0.9},    // past the end
 		{StartByte: 3, EndByte: 3, NodeID: "rec:r1", P: 0.9},      // empty
@@ -411,5 +411,19 @@ func TestBuildLinksSortedAndInsideHandIn(t *testing.T) {
 	r := Build(s.in)
 	if len(r.Links) != 2 || r.Links[0] != (Link{0, 9, "rec:r1", 0.9}) || r.Links[1].Start != 12 {
 		t.Fatalf("links %+v", r.Links)
+	}
+}
+
+func TestBuildKeepsOnlyLinksToGroundingSources(t *testing.T) {
+	s := judgedStudy() // rec:r1 is a paper, rec:r2 a finding
+	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
+	s.in.Links = []db.ReportLink{
+		{StartByte: 0, EndByte: 9, NodeID: "rec:r2", P: 0.9},
+		{StartByte: 12, EndByte: 21, NodeID: "rec:r1", P: 0.8},
+		{StartByte: 10, EndByte: 11, NodeID: "question", P: 0.9},
+	}
+	r := Build(s.in)
+	if len(r.Links) != 1 || r.Links[0] != (Link{12, 21, "rec:r1", 0.8}) {
+		t.Fatalf("links %+v, want only the paper's", r.Links)
 	}
 }

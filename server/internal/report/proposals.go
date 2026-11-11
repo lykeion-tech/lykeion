@@ -110,7 +110,7 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	}
 	text := rep.HandIn.Text
 	for _, l := range h.Links {
-		if _, ok := nodes[l.Node]; !ok || l.Phrase == "" || l.Occurrence < 1 {
+		if n, ok := nodes[l.Node]; !ok || !Linkable(n.Kind) || l.Phrase == "" || l.Occurrence < 1 {
 			continue
 		}
 		at, from := -1, 0
@@ -138,3 +138,7 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	p.Links = kept
 	return p
 }
+
+// Linkable says whether a hand-in link may point at a node of kind: only the
+// study's Grounding sources, its papers and datasets, may be linked.
+func Linkable(kind string) bool { return kind == "paper" || kind == "dataset" }

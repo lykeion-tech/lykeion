@@ -48,6 +48,9 @@ func TestReportPromptFencesEvidence(t *testing.T) {
 	if strings.Contains(p, email) {
 		t.Errorf("the prompt contains the commenter's email")
 	}
+	if !strings.Contains(outside, "A link may point only at a paper or dataset node") {
+		t.Errorf("the task does not limit links to Grounding sources")
+	}
 	for _, s := range append(handin.ReportRelations, handin.ReportConceptTypes...) {
 		if !strings.Contains(outside, s) {
 			t.Errorf("the task does not name %q", s)

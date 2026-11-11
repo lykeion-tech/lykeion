@@ -21,6 +21,7 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/report"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
@@ -633,15 +634,34 @@ func (l *lab) reportRows(t *testing.T, card uuid.UUID) [3]int {
 		l.count(t, "SELECT count(*) FROM report_link WHERE card_id = $1", card)}
 }
 
-// judgedStudy finishes a study and settles its report run with two facts
-// about its question, one Jev rejects, and a link from the hand-in's first
-// word to the question.
+// judgedStudy finishes a study with a Grounding paper and settles its report
+// run with two facts about its question, one Jev rejects, and links from the
+// hand-in's first word to the paper and, never kept, to the question.
 func (l *lab) judgedStudy(t *testing.T) db.Card {
 	t.Helper()
-	c, _ := l.finishedStudy(t)
+	c, lead := l.finishedStudy(t)
+	// A Grounding paper, the only kind of node besides datasets a link may
+	// name, in a study whose scope now starts at Grounding.
+	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE card SET scope_from = 'grounding' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	l.in(t, func(tx *store.Tx) error {
+		_, err := records.WriteAs(context.Background(), tx, service.Writer{Card: c.ID, AgentRun: lead.ID, Column: "grounding", Role: "leader", Round: 1},
+			"paper", review.PaperBody{ID: "arxiv:2101.00001", Text: "A paper."})
+		return err
+	})
 	rep := l.studyReport(t, c)
 	if rep.HandIn == nil || rep.Question == "" {
 		t.Fatalf("no hand-in or question in %+v", rep)
+	}
+	paper := ""
+	for _, n := range rep.Nodes {
+		if n.Kind == "paper" {
+			paper = n.ID
+		}
+	}
+	if paper == "" {
+		t.Fatalf("no paper node in %+v", rep.Nodes)
 	}
 	phrase := strings.Fields(rep.HandIn.Text)[0]
 	l.jev(t, 200, levels(nil)).byState = func(state string) float64 {
@@ -654,7 +674,7 @@ func (l *lab) judgedStudy(t *testing.T) db.Card {
 		Concepts: []handin.ReportConcept{{Key: "q", Label: "Q", Type: "other"}, {Key: "r", Label: "R", Type: "other"}},
 		Facts: []handin.ReportFact{{Subject: "q", Relation: "mentioned_in", Object: "question", Quote: rep.Question, SourceNode: "question"},
 			{Subject: "q", Relation: "associated_with", Object: "r", Quote: rep.Question, SourceNode: "question"}},
-		Links: []handin.ReportLink{{Phrase: phrase, Occurrence: 1, Node: "question"}}})
+		Links: []handin.ReportLink{{Phrase: phrase, Occurrence: 1, Node: paper}, {Phrase: phrase, Occurrence: 1, Node: "question"}}})
 	return c
 }
 
@@ -676,6 +696,13 @@ func TestJudgeReportStoresAcceptedRows(t *testing.T) {
 	}
 	if key != "q" || relation != "mentioned_in" || p != 0.9 {
 		t.Fatalf("kept %s %s %v", key, relation, p)
+	}
+	var node string
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT node_id FROM report_link WHERE card_id = $1", c.ID).Scan(&node); err != nil {
+		t.Fatal(err)
+	}
+	if node == "question" {
+		t.Fatalf("kept the link to the question, not the paper")
 	}
 }
 
