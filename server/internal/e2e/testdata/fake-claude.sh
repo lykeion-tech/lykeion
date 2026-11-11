@@ -6,7 +6,7 @@
 # Claude Code it reports its version and schema flag, answers the daemon's
 # preflight hello, and, given a schema, ends with a structured answer.
 case "$1" in
-  --version) echo "2.1.0 (Claude Code)"; exit 0 ;;
+  --version) echo "2.1.69 (Claude Code)"; exit 0 ;;
   --help) echo "  --json-schema <schema>  JSON Schema"; exit 0 ;;
 esac
 case "$*" in

@@ -435,9 +435,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		prompt = launchComments.Prompt + skillsNote(c.Skills)
 	}
 	// A report run's Codex reads no AGENTS.md, so, like a lab question, it
-	// gets its role at the head of its prompt. Re-asks resume the session
-	// that already holds it.
-	if report && role != "" && c.AgentRun.Harness != "claude" {
+	// gets its role at the head of the prompt that starts its session. A
+	// resumed session, and every re-ask, already holds it.
+	roleInPrompt := report && role != "" && c.AgentRun.Harness != "claude"
+	if roleInPrompt && opts.Resume == "" {
 		prompt = role + "\n\n" + prompt
 	}
 	ackComments := func() error {
@@ -504,6 +505,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	if cont != nil && opts.Resume != "" && res.ResumeRefused && streamErr == nil && sinkErr == nil && runCtx.Err() == nil {
 		if err = note("the CLI refused to resume session " + opts.Resume + "; starting a fresh session"); err == nil {
 			opts.Resume, opts.ClaudeBaseline = "", nil
+			if roleInPrompt {
+				prompt = role + "\n\n" + prompt
+			}
 			if res, streamErr, launchErr = execute(); launchErr != nil {
 				fail(launchErr)
 				final.Err = launchErr

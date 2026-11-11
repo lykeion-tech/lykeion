@@ -1,7 +1,7 @@
 #!/bin/sh
 # A probe never reads prompts, reports work, or creates a resumable session.
 case "$1" in
-  --version) echo '2.1.0 (Claude Code)'; exit 0 ;;
+  --version) echo '2.1.69 (Claude Code)'; exit 0 ;;
   --help) echo '  --json-schema <schema>  JSON Schema'; exit 0 ;;
 esac
 # Naming is an independent, tool-free conversation. Its fixture never invokes

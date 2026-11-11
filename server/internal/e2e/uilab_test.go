@@ -691,7 +691,7 @@ func TestUIFakeClaudeVersionHasNoRunEffects(t *testing.T) {
 	cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	out, err := cmd.CombinedOutput()
 	must(t, err)
-	if strings.TrimSpace(string(out)) != "2.1.0 (Claude Code)" {
+	if strings.TrimSpace(string(out)) != "2.1.69 (Claude Code)" {
 		t.Fatalf("version output %q", out)
 	}
 	entries, err := os.ReadDir(home)
