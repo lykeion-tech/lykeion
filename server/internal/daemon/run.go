@@ -434,6 +434,12 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		prompt = launchComments.Prompt + skillsNote(c.Skills)
 	}
+	// A report run's Codex reads no AGENTS.md, so, like a lab question, it
+	// gets its role at the head of its prompt. Re-asks resume the session
+	// that already holds it.
+	if report && role != "" && c.AgentRun.Harness != "claude" {
+		prompt = role + "\n\n" + prompt
+	}
 	ackComments := func() error {
 		if len(launchComments.CommentIDs) == 0 {
 			return nil
