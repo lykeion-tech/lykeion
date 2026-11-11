@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, toRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
 import { ApiError } from '../../api/client';
 import { useStudyReport } from '../../api/queries';
 import { studyDisplayTitle } from '../../lib/studies';
@@ -129,6 +129,14 @@ function selectRef(id: string) {
 
 const paneOpen = ref(false);
 const paneFocused = ref(false);
+// The pane has a close button of its own once it is maximized or, on a narrow
+// screen, an overlay (the same 980px line SurfacePane uses); the page's toggle
+// would then sit on top of it, so it steps aside.
+const narrow = ref(typeof window !== 'undefined' && window.innerWidth <= 980);
+const measure = () => (narrow.value = window.innerWidth <= 980);
+onMounted(() => window.addEventListener('resize', measure));
+onUnmounted(() => window.removeEventListener('resize', measure));
+const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narrow.value)));
 </script>
 
 <template>
@@ -178,7 +186,7 @@ const paneFocused = ref(false);
       </template>
     </div>
     <button
-      v-if="report"
+      v-if="report && showToggle"
       class="icon-button report-pane-toggle"
       :aria-pressed="paneOpen"
       aria-label="Toggle report pane"

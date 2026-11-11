@@ -9,6 +9,15 @@ const emit = defineEmits<{
 </script>
 <template>
   <div class="rail-actions">
+    <button
+      type="button"
+      class="nav-item palette-trigger"
+      :aria-label="searchLabel"
+      aria-keyshortcuts="Meta+K Control+K"
+      @click="emit('search')"
+    >
+      <Icon name="search" :size="16" />Search…<kbd class="push-right">⌘K</kbd>
+    </button>
     <!-- Captured, so a listener that takes the click over sees it before the
          router's own handler prevents the default. -->
     <RouterLink
@@ -19,15 +28,6 @@ const emit = defineEmits<{
       @click.capture="emit('new', $event)"
       ><Icon name="plus" :size="16" />New</RouterLink
     >
-    <button
-      type="button"
-      class="nav-item palette-trigger"
-      :aria-label="searchLabel"
-      aria-keyshortcuts="Meta+K Control+K"
-      @click="emit('search')"
-    >
-      <Icon name="search" :size="16" />Search…<kbd class="push-right">⌘K</kbd>
-    </button>
   </div>
 </template>
 <style scoped>

@@ -185,6 +185,15 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
   await expect(right.getByRole('button', { name: 'Report', exact: true })).toHaveCount(0);
   await expect(right.getByRole('heading', { name: 'Report', exact: true })).toHaveCount(0);
   await expect(right.getByRole('button', { name: 'Maximize pane' })).toBeVisible();
+  // One toggle at a time: the page's while the pane floats, the pane's own once it is maximized.
+  const pageToggle = page.getByRole('button', { name: 'Toggle report pane' });
+  await expect(pageToggle).toBeVisible();
+  await expect(right.getByRole('button', { name: 'Close pane' })).toHaveCount(0);
+  await right.getByRole('button', { name: 'Maximize pane' }).click();
+  await expect(pageToggle).toHaveCount(0);
+  await expect(right.getByRole('button', { name: 'Close pane' })).toBeVisible();
+  await right.getByRole('button', { name: 'Restore pane size' }).click();
+  await expect(pageToggle).toBeVisible();
 });
 
 test('clicking a finding opens its section and every row is inspectable', async ({ page }) => {
