@@ -100,7 +100,7 @@ func TestGroundLinksOnlyPlainProse(t *testing.T) {
 		{"inside bold", "See **Smith 2020** here.", "Smith 2020", true},
 		{"less than", "Significant at p < 0.05 overall.", "p < 0.05", true},
 		{"underscore inside a word", "We used TCGA_BRCA data.", "TCGA_BRCA", true},
-		{"after an escaped backtick", "A \\` mark, then Smith 2020 here.", "Smith 2020", true},
+		{"after an escaped backtick", "A \\` mark, then Smith 2020 `x` here.", "Smith 2020", true},
 		{"lazy continuation line", "Intro line\n    Smith 2020 continues.", "Smith 2020", true},
 		{"crosses bold marks", "See **Smith** 2020 here.", "**Smith** 2020", false},
 		{"code span", "See `Smith 2020` here.", "Smith 2020", false},
@@ -113,11 +113,12 @@ func TestGroundLinksOnlyPlainProse(t *testing.T) {
 		{"link text", "See [Smith 2020](https://x.org/a).", "Smith 2020", false},
 		{"link destination", "See [the paper](#smith2020) now.", "smith2020", false},
 		{"url", "Read https://smith2020.example/x today.", "smith2020", false},
-		{"www", "Read www.smith2020.example today.", "smith2020", false},
+		{"www stays plain, as the page leaves it", "Read www.smith2020.example today.", "smith2020", true},
 		{"email", "Mail smith2020@lab.example now.", "smith2020", false},
 		{"doi with prefix", "Cited as doi:10.1038/smith2020 here.", "smith2020", false},
 		{"bare doi", "Cited as 10.1038/smith2020 here.", "smith2020", false},
-		{"bare domain", "Data at smith2020.org today.", "smith2020", false},
+		{"bare domain stays plain, as the page leaves it", "Data at smith2020.org today.", "smith2020", true},
+		{"et.al stays plain", "As Smith et.al found.", "Smith", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

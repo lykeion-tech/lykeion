@@ -147,11 +147,11 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 }
 
 // Patterns of text the page's Markdown renderer turns into links of its own:
-// DOIs as its doi_links rule finds them, URLs, emails, and bare domains.
+// DOIs as its doi_links rule finds them, URLs and emails. Its linkify runs
+// without fuzzy links, so bare domains and www. stay plain text there too.
 var autoLinks = regexp.MustCompile(`(?i)\b(?:doi:\s*)?10\.\d{4,9}/[-._;()/:a-z0-9]+` +
-	`|(?:\b[a-z][a-z0-9+.-]*:)?//\S+|\bwww\.\S+|\bmailto:\S+` +
-	`|[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+` +
-	`|\b(?:[a-z0-9-]+\.)+(?:biz|com|edu|gov|net|org|pro|web|xxx|aero|asia|coop|info|museum|name|shop|[a-z]{2})\b(?:[/?#]\S*)?`)
+	`|(?:\b[a-z][a-z0-9+.-]*:)?//\S+|\bmailto:\S+` +
+	`|[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+`)
 
 // Markdown links and images, with their text and destination, and the lines
 // that define a reference link.
