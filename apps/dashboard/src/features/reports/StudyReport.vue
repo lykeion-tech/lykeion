@@ -8,7 +8,7 @@ import SurfacePane from '../../ui/SurfacePane.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ReportGraph from './ReportGraph.vue';
 import ReportPane from './ReportPane.vue';
-import { handInSegments, kindName, noticesOf } from './report-sections';
+import { handInPhrases, kindName, noticesOf, placeLinks } from './report-sections';
 import { shownReport } from './shown-report';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
@@ -66,13 +66,65 @@ watch(handInBody, (el) => {
 onUnmounted(() => observer?.disconnect());
 
 const notices = computed(() => (report.value ? noticesOf(report.value) : []));
-// With links, the hand-in is shown as its raw text so each link covers
-// exactly the bytes it was judged on; without, it reads as Markdown.
-const segments = computed(() => {
+// The hand-in reads as Markdown. Each judged link is found again in the
+// rendered text by its phrase and occurrence, and wrapped as a button only
+// where the phrase lies whole in one text node outside code and links;
+// otherwise it stays plain. Wrapping never changes the text.
+const phrases = computed(() => {
   const r = report.value;
-  return r?.hand_in && r.links.length ? handInSegments(r.hand_in.text, r.links) : null;
+  return r?.hand_in && r.links.length ? handInPhrases(r.hand_in.text, r.links) : [];
 });
+const linksKey = computed(() => JSON.stringify(phrases.value));
 const nodeOf = (id: string) => report.value?.nodes.find((n) => n.id === id);
+function linkHandIn(body: HTMLElement) {
+  const md = body.querySelector<HTMLElement>('.markdown-body, .recorded-text-fallback');
+  if (!md || md.querySelector('button.ref') || !phrases.value.length) return;
+  const walker = document.createTreeWalker(md, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  while (walker.nextNode()) texts.push(walker.currentNode as Text);
+  const cuts = placeLinks(
+    texts.map((t) => ({
+      text: t.data,
+      linkable: !t.parentElement?.closest('code, pre, a, button'),
+    })),
+    phrases.value,
+  );
+  // Later cuts first, so earlier offsets in the same text node stay valid.
+  cuts.sort((a, b) => a.index - b.index || b.start - a.start);
+  for (const c of cuts) {
+    const n = nodeOf(c.node);
+    if (!n) continue;
+    const t = texts[c.index]!;
+    t.splitText(c.end);
+    const phrase = t.splitText(c.start);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ref';
+    button.dataset.node = c.node;
+    button.setAttribute('aria-label', `${phrase.data}, ${kindName(n.kind)}: ${n.label}`);
+    button.setAttribute('aria-pressed', String(selected.value === c.node));
+    phrase.replaceWith(button);
+    button.append(phrase);
+  }
+}
+let linker: MutationObserver | undefined;
+watch(handInBody, (el) => {
+  linker?.disconnect();
+  if (!el) return;
+  // The Markdown renders after it loads; link it whenever its text appears.
+  linker = new MutationObserver(() => linkHandIn(el));
+  linker.observe(el, { childList: true, subtree: true });
+  linkHandIn(el);
+});
+onUnmounted(() => linker?.disconnect());
+watch(selected, (id) => {
+  for (const b of handInBody.value?.querySelectorAll<HTMLElement>('button.ref') ?? [])
+    b.setAttribute('aria-pressed', String(b.dataset.node === id));
+});
+function clickRef(e: MouseEvent) {
+  const b = (e.target as Element).closest<HTMLElement>('button.ref[data-node]');
+  if (b?.dataset.node) selectRef(b.dataset.node);
+}
 function selectRef(id: string) {
   selected.value = id;
   paneOpen.value = true;
@@ -123,20 +175,9 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
           <template v-if="report.hand_in">
             <p class="type-caption hand-in-by">{{ handInBy }}</p>
             <div class="hand-in-text" :class="{ folded: overflows && !expanded }">
-              <div v-if="segments" ref="handInBody" class="hand-in-plain">
-                <template v-for="(seg, i) in segments" :key="i"
-                  ><button
-                    v-if="seg.node && nodeOf(seg.node)"
-                    type="button"
-                    class="ref"
-                    :aria-label="`${seg.text}, ${kindName(nodeOf(seg.node)!.kind)}: ${nodeOf(seg.node)!.label}`"
-                    :aria-pressed="selected === seg.node"
-                    @click="selectRef(seg.node)"
-                    v-text="seg.text"
-                  /><template v-else>{{ seg.text }}</template></template
-                >
+              <div ref="handInBody" @click="clickRef">
+                <RecordedMarkdown :key="linksKey" :content="report.hand_in.text" />
               </div>
-              <div v-else ref="handInBody"><RecordedMarkdown :content="report.hand_in.text" /></div>
             </div>
             <button
               v-if="overflows"
@@ -266,10 +307,7 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
   mask-image: linear-gradient(to bottom, #000 75%, transparent);
 }
-.hand-in-plain {
-  white-space: pre-wrap;
-}
-.hand-in-plain .ref {
+.hand-in-text :deep(.ref) {
   display: inline;
   padding: 0;
   font: inherit;
@@ -280,11 +318,11 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   text-underline-offset: 3px;
   border-radius: 3px;
 }
-.hand-in-plain .ref:hover,
-.hand-in-plain .ref[aria-pressed='true'] {
+.hand-in-text :deep(.ref:hover),
+.hand-in-text :deep(.ref[aria-pressed='true']) {
   background: var(--hover);
 }
-.hand-in-plain .ref:focus-visible {
+.hand-in-text :deep(.ref:focus-visible) {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }

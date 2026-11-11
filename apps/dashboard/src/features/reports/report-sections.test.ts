@@ -1,6 +1,13 @@
 import { expect, it } from 'vitest';
 import type { ReportNode, StudyReport } from '../../api/types';
-import { handInSegments, noticesOf, overviewOf, sectionFor } from './report-sections';
+import {
+  handInPhrases,
+  handInSegments,
+  noticesOf,
+  overviewOf,
+  placeLinks,
+  sectionFor,
+} from './report-sections';
 
 const node = (n: Partial<ReportNode> & Pick<ReportNode, 'id' | 'kind'>): ReportNode => ({
   label: n.id,
@@ -404,4 +411,47 @@ it('an unclear novelty answer is marked unclear', () => {
   novelty.p = 0.6;
   const fold = sectionFor(r, 'rec:r5').folds.find((f) => f.title === 'Novelty')!;
   expect(fold.rows[0]!.label).toBe('doi:10.1/a · Contradicts (unclear)');
+});
+
+// A link over phrase's occurrence-th match in text, as the server stores it.
+function linkAt(text: string, phrase: string, occurrence: number, node: string) {
+  let at = -1;
+  for (let i = 0; i <= occurrence; i++) at = text.indexOf(phrase, at + 1);
+  const bytes = (s: string) => new TextEncoder().encode(s).length;
+  const start = bytes(text.slice(0, at));
+  return { start, end: start + bytes(phrase), node, p: 0.9 };
+}
+// The text nodes of a rendered hand-in, all linkable unless named.
+const rendered = (...texts: string[]) =>
+  texts.map((text) => ({ text: text.replace(/^`|`$/g, ''), linkable: !text.startsWith('`') }));
+
+it('links a phrase inside bold text of the rendered hand-in', () => {
+  const text = 'We saw that **IL6 rises fast** today.';
+  const phrases = handInPhrases(text, [linkAt(text, 'IL6 rises', 0, 'rec:r5')]);
+  expect(phrases).toEqual([{ phrase: 'IL6 rises', occurrence: 0, node: 'rec:r5' }]);
+  expect(placeLinks(rendered('We saw that ', 'IL6 rises fast', ' today.'), phrases)).toEqual([
+    { index: 1, start: 0, end: 9, node: 'rec:r5' },
+  ]);
+});
+
+it('leaves a phrase that spans formatting, or sits in code, plain', () => {
+  const text = 'We saw that **IL6 rises** in `IL6 code`.';
+  const phrases = handInPhrases(text, [
+    linkAt(text, 'that **IL6', 0, 'rec:r5'),
+    linkAt(text, 'IL6 code', 0, 'rec:r2'),
+  ]);
+  expect(phrases.map((p) => p.phrase)).toEqual(['that **IL6', 'IL6 code']);
+  // "that **IL6" is not in the rendered text at all; "that IL6" would cross nodes.
+  const nodes = rendered('We saw that ', 'IL6 rises', ' in ', '`IL6 code`', '.');
+  expect(placeLinks(nodes, phrases)).toEqual([]);
+  expect(placeLinks(nodes, [{ phrase: 'that IL6', occurrence: 0, node: 'rec:r5' }])).toEqual([]);
+});
+
+it('links the same occurrence of a repeated phrase', () => {
+  const text = 'IL6 up. Then *IL6* down, and IL6 again.';
+  const phrases = handInPhrases(text, [linkAt(text, 'IL6', 1, 'concept:il6')]);
+  expect(phrases).toEqual([{ phrase: 'IL6', occurrence: 1, node: 'concept:il6' }]);
+  expect(placeLinks(rendered('IL6 up. Then ', 'IL6', ' down, and IL6 again.'), phrases)).toEqual([
+    { index: 1, start: 0, end: 3, node: 'concept:il6' },
+  ]);
 });

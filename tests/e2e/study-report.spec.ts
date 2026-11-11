@@ -341,7 +341,9 @@ test('a study that finished before reports shipped has no report', async ({ page
 test('clicking a hand-in link selects its node and opens its section', async ({ page }) => {
   const study = await finishedStudy(page.request);
   // The report is the server's, with judged concepts and links laid over it.
-  const text = `Résumé — β-cells 🧪: ${H1}.\n\nInsulin was measured by ELISA.`;
+  // The hand-in is Markdown; a linked phrase may sit inside bold text.
+  const text = `Résumé — β-cells 🧪: **${H1}**.\n\nInsulin was measured by \`ELISA\`.`;
+  let withLinks = false;
   const bytes = (s: string) => new TextEncoder().encode(s).length;
   const at = (s: string) => bytes(text.slice(0, text.indexOf(s)));
   await page.route(`**/api/cards/${study.id}/report`, async (route) => {
@@ -372,15 +374,17 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
       ],
     });
     report.edges.push({ from: 'concept:insulin', to: finding.id, kind: 'mentioned_in' });
-    report.links = [
-      { start: at(H1), end: at(H1) + bytes(H1), node: finding.id, p: 0.9 },
-      {
-        start: at('Insulin'),
-        end: at('Insulin') + bytes('Insulin'),
-        node: 'concept:insulin',
-        p: 0.9,
-      },
-    ];
+    report.links = !withLinks
+      ? []
+      : [
+          { start: at(H1), end: at(H1) + bytes(H1), node: finding.id, p: 0.9 },
+          {
+            start: at('Insulin'),
+            end: at('Insulin') + bytes('Insulin'),
+            node: 'concept:insulin',
+            p: 0.9,
+          },
+        ];
     report.extras = 'pending';
     report.checks = 'unavailable';
     report.machine = 'lab-mac';
@@ -388,10 +392,15 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
   });
   await page.goto(`/#/decisions/report/${study.id}`);
   const handIn = page.getByRole('region', { name: 'Hand-in report' });
-  const body = handIn.locator('.hand-in-plain');
-  await expect(body).toBeVisible();
-  // Linking changes no text.
-  expect(await body.evaluate((e) => e.textContent)).toBe(text);
+  const body = handIn.locator('.markdown-body');
+  await expect(body.locator('strong')).toHaveText(H1);
+  const plain = await body.evaluate((e) => e.textContent);
+  withLinks = true;
+  await page.reload();
+  await expect(body.locator('strong button.ref')).toHaveText(H1);
+  // The hand-in still reads as Markdown, and linking changes no text.
+  await expect(body.locator('code')).toHaveText('ELISA');
+  expect(await body.evaluate((e) => e.textContent)).toBe(plain);
   await expect(page.getByText('Concepts and links are waiting for lab-mac.')).toBeVisible();
   await expect(
     page.getByText("Jev could not judge this report's figure, table and novelty checks."),
