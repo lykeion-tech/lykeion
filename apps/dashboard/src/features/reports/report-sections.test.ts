@@ -428,7 +428,7 @@ const rendered = (...texts: string[]) =>
 it('links a phrase inside bold text of the rendered hand-in', () => {
   const text = 'We saw that **IL6 rises fast** today.';
   const phrases = handInPhrases(text, [linkAt(text, 'IL6 rises', 0, 'rec:r5')]);
-  expect(phrases).toEqual([{ phrase: 'IL6 rises', occurrence: 0, node: 'rec:r5' }]);
+  expect(phrases).toEqual([{ phrase: 'IL6 rises', occurrence: 0, count: 1, node: 'rec:r5' }]);
   expect(placeLinks(rendered('We saw that ', 'IL6 rises fast', ' today.'), phrases)).toEqual([
     { index: 1, start: 0, end: 9, node: 'rec:r5' },
   ]);
@@ -444,14 +444,34 @@ it('leaves a phrase that spans formatting, or sits in code, plain', () => {
   // "that **IL6" is not in the rendered text at all; "that IL6" would cross nodes.
   const nodes = rendered('We saw that ', 'IL6 rises', ' in ', '`IL6 code`', '.');
   expect(placeLinks(nodes, phrases)).toEqual([]);
-  expect(placeLinks(nodes, [{ phrase: 'that IL6', occurrence: 0, node: 'rec:r5' }])).toEqual([]);
+  expect(
+    placeLinks(nodes, [{ phrase: 'that IL6', occurrence: 0, count: 1, node: 'rec:r5' }]),
+  ).toEqual([]);
 });
 
 it('links the same occurrence of a repeated phrase', () => {
   const text = 'IL6 up. Then *IL6* down, and IL6 again.';
   const phrases = handInPhrases(text, [linkAt(text, 'IL6', 1, 'concept:il6')]);
-  expect(phrases).toEqual([{ phrase: 'IL6', occurrence: 1, node: 'concept:il6' }]);
+  expect(phrases).toEqual([{ phrase: 'IL6', occurrence: 1, count: 3, node: 'concept:il6' }]);
   expect(placeLinks(rendered('IL6 up. Then ', 'IL6', ' down, and IL6 again.'), phrases)).toEqual([
     { index: 1, start: 0, end: 3, node: 'concept:il6' },
+  ]);
+});
+
+it('leaves a phrase plain when the source and the rendered text count it differently', () => {
+  // The link target holds a hidden "IL6", so the source's second match is
+  // the rendered text's first.
+  const text = '[data](u/IL6) IL6 rises. IL6 falls.';
+  const phrases = handInPhrases(text, [linkAt(text, 'IL6', 1, 'concept:il6')]);
+  expect(phrases).toEqual([{ phrase: 'IL6', occurrence: 1, count: 3, node: 'concept:il6' }]);
+  const nodes = [
+    { text: 'data', linkable: false },
+    { text: ' IL6 rises. IL6 falls.', linkable: true },
+  ];
+  expect(placeLinks(nodes, phrases)).toEqual([]);
+  // The same link in a source that renders unchanged is wrapped where it was.
+  const same = 'data IL6 rises. IL6 falls.';
+  expect(placeLinks(nodes, handInPhrases(same, [linkAt(same, 'IL6', 0, 'concept:il6')]))).toEqual([
+    { index: 1, start: 1, end: 4, node: 'concept:il6' },
   ]);
 });

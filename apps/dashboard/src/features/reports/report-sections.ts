@@ -440,23 +440,22 @@ export function handInSegments(
   return out;
 }
 
-// A hand-in link as the rendered hand-in can find it: its phrase, and which
-// occurrence of the phrase it is, counted from 0 without overlaps.
+// A hand-in link as the rendered hand-in can find it: its phrase, which
+// occurrence of the phrase it is, and how many there are in the source, all
+// counted without overlaps.
 export interface HandInPhrase {
   phrase: string;
   occurrence: number;
+  count: number;
   node: string;
 }
 
-// nth is where the occurrence-th non-overlapping match of phrase starts in
-// text, or -1.
-function nth(text: string, phrase: string, occurrence: number): number {
-  let at = -1;
-  for (let i = 0, from = 0; i <= occurrence; i++, from = at + phrase.length) {
-    at = text.indexOf(phrase, from);
-    if (at < 0) return -1;
-  }
-  return at;
+// matches are where phrase's non-overlapping matches start in text.
+function matches(text: string, phrase: string): number[] {
+  const out: number[] = [];
+  for (let at = text.indexOf(phrase); at >= 0; at = text.indexOf(phrase, at + phrase.length))
+    out.push(at);
+  return out;
 }
 
 // handInPhrases names each link of the hand-in source by its phrase and
@@ -466,11 +465,10 @@ export function handInPhrases(text: string, links: ReportLink[]): HandInPhrase[]
   let at = 0;
   for (const seg of handInSegments(text, links)) {
     if (seg.node && seg.text) {
-      let occurrence = 0;
-      while (nth(text, seg.text, occurrence) >= 0 && nth(text, seg.text, occurrence) < at)
-        occurrence++;
-      if (nth(text, seg.text, occurrence) === at)
-        out.push({ phrase: seg.text, occurrence, node: seg.node });
+      const all = matches(text, seg.text);
+      const occurrence = all.indexOf(at);
+      if (occurrence >= 0)
+        out.push({ phrase: seg.text, occurrence, count: all.length, node: seg.node });
     }
     at += seg.text.length;
   }
@@ -479,33 +477,25 @@ export function handInPhrases(text: string, links: ReportLink[]): HandInPhrase[]
 
 // placeLinks finds each phrase's occurrence in the rendered hand-in, given
 // as its text nodes in order, and says where to wrap it: which text node and
-// the offsets inside it. A phrase is wrapped only when that occurrence lies
-// whole inside one linkable text node and overlaps no other link; otherwise
+// the offsets inside it. Only matches inside one linkable text node count.
+// The Markdown syntax, link targets and escapes of the source can add or hide
+// matches, so a phrase is wrapped only when the rendered text holds as many
+// matches as the source does, and its own overlaps no other link; otherwise
 // it stays plain, and the text is never changed.
 export function placeLinks(
   texts: { text: string; linkable: boolean }[],
   phrases: HandInPhrase[],
 ): { index: number; start: number; end: number; node: string }[] {
-  const all = texts.map((t) => t.text).join('');
-  const starts: number[] = [];
-  let sum = 0;
-  for (const t of texts) {
-    starts.push(sum);
-    sum += t.text.length;
-  }
   const out: { index: number; start: number; end: number; node: string }[] = [];
   for (const p of phrases) {
-    const from = nth(all, p.phrase, p.occurrence);
-    if (from < 0) continue;
-    const to = from + p.phrase.length;
-    let index = 0;
-    while (index + 1 < starts.length && starts[index + 1]! <= from) index++;
-    const t = texts[index]!;
-    if (!t.linkable || to > starts[index]! + t.text.length) continue;
-    const start = from - starts[index]!;
-    const end = to - starts[index]!;
-    if (out.some((o) => o.index === index && o.start < end && start < o.end)) continue;
-    out.push({ index, start, end, node: p.node });
+    const found = texts.flatMap((t, index) =>
+      t.linkable ? matches(t.text, p.phrase).map((start) => ({ index, start })) : [],
+    );
+    const m = found[p.occurrence];
+    if (found.length !== p.count || !m) continue;
+    const end = m.start + p.phrase.length;
+    if (out.some((o) => o.index === m.index && o.start < end && m.start < o.end)) continue;
+    out.push({ index: m.index, start: m.start, end, node: p.node });
   }
   return out;
 }

@@ -23,6 +23,7 @@ type fakeJev struct {
 	asks    int
 	images  []map[string]jev.Image // the images each ask showed, nil for none
 	kinds   []string               // "noul", "image" or "choice", one per ask
+	asked   []map[string]string    // each Noul's questions
 }
 
 func (f *fakeJev) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (map[string]float64, error) {
@@ -37,6 +38,7 @@ func (f *fakeJev) NoulImages(ctx context.Context, state string, qs map[string]st
 func (f *fakeJev) Noul(_ context.Context, state string, qs map[string]string) (map[string]float64, error) {
 	f.asks++
 	f.states, f.images, f.kinds = append(f.states, state), append(f.images, nil), append(f.kinds, "noul")
+	f.asked = append(f.asked, qs)
 	out := map[string]float64{}
 	for k := range qs {
 		out[k] = f.p(state)
@@ -352,8 +354,13 @@ func TestJudgeAsksALinkAsAQuestionAboutItsNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, evidence, _ := strings.Cut(f.states[0], "Evidence 1:")
-	if !fencedContains(item, "Does 'IL6' in this sentence refer to paper 'arxiv:1'?\nWe found that IL6 rises.\n") {
+	if !fencedContains(item, "Does \"IL6\" in this sentence refer to paper \"arxiv:1\"?\nWe found that IL6 rises.\n") {
 		t.Fatalf("the link is not asked as a question with its sentence:\n%s", f.states[0])
+	}
+	// The question Jev answers stands on its own; it never defers to the
+	// agent-written item.
+	if q := f.asked[0]["refers"]; q != "Does the quoted phrase, in the item's sentence, refer to the node the evidence describes?" {
+		t.Fatalf("link question %q", q)
 	}
 	if !fencedContains(evidence, "paper\narxiv:1\nIL6 increases inflammation in mice.\n") {
 		t.Fatalf("the evidence is not the node's kind, label and quote:\n%s", f.states[0])

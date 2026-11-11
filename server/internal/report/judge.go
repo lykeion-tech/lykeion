@@ -26,7 +26,7 @@ const (
 
 const (
 	factQuestion         = "Does the evidence state that the item holds? Answer yes only if the quoted evidence says so."
-	linkQuestion         = "Given the evidence about the node, is the answer to the item's question yes?"
+	linkQuestion         = "Does the quoted phrase, in the item's sentence, refer to the node the evidence describes?"
 	imageFigureQuestion  = "Does this figure show what the claim says?"
 	textFigureQuestion   = "Does this figure, as its recorded text describes it, show what the claim says?"
 	scriptFigureQuestion = "Does this figure, as the script that produced it describes it, show what the claim says?"
@@ -113,7 +113,7 @@ func Judge(ctx context.Context, a review.Asker, rep Report, p Proposals) (Judged
 		}
 		asked++
 		n := nodes[s.Node]
-		item := fmt.Sprintf("Does '%s' in this sentence refer to %s '%s'?\n%s", s.Phrase, n.Kind, n.Label, sentence(rep.HandIn.Text, s.Start, s.End))
+		item := fmt.Sprintf("Does %q in this sentence refer to %s %q?\n%s", s.Phrase, n.Kind, n.Label, sentence(rep.HandIn.Text, s.Start, s.End))
 		about := n.Kind + "\n" + n.Label
 		if n.Quote != "" {
 			about += "\n" + n.Quote
