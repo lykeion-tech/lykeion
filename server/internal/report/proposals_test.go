@@ -1,6 +1,8 @@
 package report
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"lykeion/server/internal/handin"
@@ -87,6 +89,35 @@ func TestGroundKeepsOnlyLinksToGroundingSources(t *testing.T) {
 		{Phrase: "in mice", Occurrence: 1, Node: "rec:1"}, {Phrase: "drug X", Occurrence: 1, Node: "rec:d"}}))
 	if len(p.Links) != 2 || p.Links[0].Node != "rec:d" || p.Links[1].Node != "rec:1" {
 		t.Fatalf("links %+v, want only the dataset's and the paper's", p.Links)
+	}
+}
+
+func TestGroundLinksOnlyPlainProse(t *testing.T) {
+	text := "See **Smith 2020** and `Smith 2020` and https://doi.org/Smith-2020 and [Smith 2020](u) and **Smith** 2020.\n```\nSmith 2020\n```\nPlain Smith 2020."
+	rep := repWith("", text)
+	var links []handin.ReportLink
+	for i := 1; i <= 7; i++ {
+		links = append(links, handin.ReportLink{Phrase: "Smith 2020", Occurrence: i, Node: "rec:1"})
+	}
+	links = append(links, handin.ReportLink{Phrase: "**Smith** 2020", Occurrence: 1, Node: "rec:1"})
+	p := Ground(rep, hin(nil, links))
+	var at []int
+	for _, l := range p.Links {
+		at = append(at, l.Start)
+	}
+	want := []int{strings.Index(text, "Smith 2020"), strings.LastIndex(text, "Smith 2020")}
+	if !slices.Equal(at, want) {
+		t.Fatalf("link starts %v, want %v: only the bold phrase and the plain one", at, want)
+	}
+}
+
+func TestGroundLinksNoPhraseInsideAURL(t *testing.T) {
+	text := "Read https://doi.org/10.1/smith2020 or www.smith2020.org, then smith2020 alone."
+	p := Ground(repWith("", text), hin(nil, []handin.ReportLink{
+		{Phrase: "smith2020", Occurrence: 1, Node: "rec:1"}, {Phrase: "smith2020", Occurrence: 2, Node: "rec:1"},
+		{Phrase: "smith2020", Occurrence: 3, Node: "rec:1"}}))
+	if len(p.Links) != 1 || p.Links[0].Start != strings.LastIndex(text, "smith2020") {
+		t.Fatalf("links %+v, want only the bare smith2020", p.Links)
 	}
 }
 

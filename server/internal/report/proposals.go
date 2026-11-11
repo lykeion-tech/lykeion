@@ -123,7 +123,7 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 			at = from + j
 			from = at + 1
 		}
-		if at >= 0 {
+		if at >= 0 && plainProse(text, at, at+len(l.Phrase)) {
 			p.Links = append(p.Links, Span{Start: at, End: at + len(l.Phrase), Node: l.Node, Phrase: l.Phrase})
 		}
 	}
@@ -137,6 +137,38 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	}
 	p.Links = kept
 	return p
+}
+
+// plainProse says whether the hand-in's Markdown shows text[start:end] as one
+// run of ordinary text, which is the only place the report page can make a
+// phrase clickable. A phrase that carries Markdown marks, or sits in a code
+// span, a fenced block, a link's text or a URL, is not, so Jev is never asked
+// about it.
+func plainProse(text string, start, end int) bool {
+	if strings.ContainsAny(text[start:end], "*_`[]<>") {
+		return false
+	}
+	lineStart := strings.LastIndexByte(text[:start], '\n') + 1
+	line := text[lineStart:start]
+	if strings.Count(line, "`")%2 == 1 {
+		return false
+	}
+	if open := strings.LastIndexByte(line, '['); open > strings.LastIndexByte(line, ']') {
+		return false
+	}
+	fences := 0
+	for _, l := range strings.Split(text[:lineStart], "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			fences++
+		}
+	}
+	if fences%2 == 1 {
+		return false
+	}
+	from := strings.LastIndexAny(text[:start], " \t\n") + 1
+	to := end + strings.IndexAny(text[end:]+" ", " \t\n")
+	token := text[from:to]
+	return !strings.Contains(token, "://") && !strings.HasPrefix(token, "www.") && !strings.Contains(token, "@")
 }
 
 // Linkable says whether a hand-in link may point at a node of kind: only the
