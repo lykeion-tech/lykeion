@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -287,6 +288,9 @@ func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
 	return tx.Emit(ctx, "laboratory.installed", nil, store.System, map[string]any{"reset": reset})
 }
 
+// builtInEmoji is the set a new built-in agent's icon is drawn from.
+var builtInEmoji = []string{"🦊", "🦁", "🐼", "🐸", "🐴", "🐝", "🐛", "🦋", "🐞", "🕷️", "🐢", "🐍", "🐙", "🐬", "🐯"}
+
 // installMember makes the shared agent for one Team member and returns the
 // names, as their owners knew them, of the merged copies whose customisations
 // the reset dropped.
@@ -302,9 +306,12 @@ func installMember(ctx context.Context, tx *store.Tx, owner uuid.UUID, p db.Fiel
 		return nil, err
 	}
 	var keep db.Agent
+	// Only an agent made here gets an icon; a merged copy is reset to none.
+	avatar := ""
 	if i := slices.IndexFunc(copies, func(a db.Agent) bool { return a.DeletedAt == nil && a.TeamDeletedAt == nil }); i >= 0 {
 		keep = copies[i]
 	} else {
+		avatar = "emoji:" + builtInEmoji[rand.IntN(len(builtInEmoji))]
 		name, err := freeName(ctx, tx, base)
 		if err != nil {
 			return nil, err
@@ -315,7 +322,7 @@ func installMember(ctx context.Context, tx *store.Tx, owner uuid.UUID, p db.Fiel
 		}
 	}
 	apply := func(name string) error {
-		_, err := tx.Q.MakeLaboratoryAgent(ctx, db.MakeLaboratoryAgentParams{WorkspaceID: tx.WS, ID: keep.ID, Name: name,
+		_, err := tx.Q.MakeLaboratoryAgent(ctx, db.MakeLaboratoryAgentParams{WorkspaceID: tx.WS, ID: keep.ID, Name: name, AvatarUrl: avatar,
 			Description: mem.Role, Instructions: mem.Agent.Instructions, Harness: harness, Model: model, OwnerID: owner, Stage: p.Stage})
 		return err
 	}

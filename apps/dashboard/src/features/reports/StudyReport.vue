@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, toRef, watch } from 'vue';
 import { ApiError } from '../../api/client';
 import { useStudyReport } from '../../api/queries';
-import { columnName, studyDisplayTitle } from '../../lib/studies';
+import { studyDisplayTitle } from '../../lib/studies';
 import Icon from '../../ui/Icon.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
@@ -41,16 +41,13 @@ onUnmounted(() => {
   if (shownReport.value?.id === props.cardId) shownReport.value = null;
 });
 
-const finished = computed(() => {
-  const d = new Date(report.value?.finished_at ?? '');
-  return d.getFullYear() > 1 ? d.toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
-});
-const stages = computed(() => (report.value?.stages ?? []).map(columnName).join(' → '));
+// The agent name reads "member · Team"; only the Team is shown.
 const handInBy = computed(() => {
   const h = report.value?.hand_in;
   if (!h) return '';
-  const run = h.run_id && !/^[0-]+$/.test(h.run_id) ? `run ${h.run_id.slice(0, 8)}` : '';
-  return [h.agent_name, run, new Date(h.at).toLocaleString()].filter(Boolean).join(' · ');
+  return [h.agent_name.split(' · ').slice(1).join(' · ') || h.agent_name, new Date(h.at).toLocaleString()]
+    .filter(Boolean)
+    .join(' · ');
 });
 
 // The hand-in folds to 260px; the button shows only when the text is taller.
@@ -130,7 +127,7 @@ function selectRef(id: string) {
   paneOpen.value = true;
 }
 
-const paneOpen = ref(typeof window === 'undefined' || window.innerWidth > 980);
+const paneOpen = ref(false);
 const paneActive = ref<string | null>('report');
 const paneFocused = ref(false);
 const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
@@ -153,22 +150,7 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
         <header class="report-header">
           <div class="report-heading">
             <h1>#{{ report.number }} {{ studyDisplayTitle(report.title) }}</h1>
-            <p class="type-caption">
-              <span v-if="finished">Finished {{ finished }}</span>
-              <span v-if="stages">{{ stages }}</span>
-            </p>
           </div>
-          <RouterLink class="report-study-link" :to="'/studies/' + cardId"
-            >Open the study</RouterLink
-          >
-          <button
-            class="icon-button"
-            :aria-pressed="paneOpen"
-            aria-label="Toggle report pane"
-            @click="paneOpen = !paneOpen"
-          >
-            <Icon name="panel" />
-          </button>
         </header>
         <section class="hand-in" aria-label="Hand-in report">
           <h2>Hand-in report</h2>
@@ -198,6 +180,15 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
         </div>
       </template>
     </div>
+    <button
+      v-if="report"
+      class="icon-button report-pane-toggle"
+      :aria-pressed="paneOpen"
+      aria-label="Toggle report pane"
+      @click="paneOpen = !paneOpen"
+    >
+      <Icon name="panel" />
+    </button>
     <SurfacePane
       v-if="report"
       v-model:open="paneOpen"
@@ -249,6 +240,7 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   }
 }
 .report-header {
+  padding-right: 40px;
   display: flex;
   align-items: flex-start;
   gap: 16px;
@@ -271,14 +263,11 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   margin: 4px 0 0;
   color: var(--muted);
 }
-.report-study-link {
-  flex: none;
-  font-size: 13px;
-  color: var(--primary-text);
-  line-height: 28px;
-}
-.report-study-link:hover {
-  text-decoration: underline;
+.report-pane-toggle {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  z-index: 5;
 }
 .hand-in {
   border: 1px solid var(--border);

@@ -476,10 +476,10 @@ describe('Aristotle UI', () => {
     expect.soft(textOf(root)).not.toContain('Projects');
     const links = all(root).filter((n) => n.tag === 'a');
     expect(links.map((n) => n.props.href)).toEqual([
-      '/coresearch',
       '/coresearch/new',
       '/coresearch/conversations/welcome',
     ]);
+    expect(textOf(root)).not.toContain('Chat');
     expect(byLabel(root, 'New conversation').props.href).toBe('/coresearch/new');
     expect(textOf(root)).toContain('Getting started with Aristotle');
     expect(textOf(root)).toContain('Lab');

@@ -74,7 +74,7 @@ ORDER BY a.created_at, a.id;
 
 -- name: MakeLaboratoryAgent :one
 UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model,
-  visibility = 'workspace', owner_id = @owner_id, laboratory = 'built-in', stage = @stage, avatar_url = '', conversation_starters = '[]'::jsonb,
+  visibility = 'workspace', owner_id = @owner_id, laboratory = 'built-in', stage = @stage, avatar_url = @avatar_url, conversation_starters = '[]'::jsonb,
   archived_at = NULL, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id RETURNING *;
 

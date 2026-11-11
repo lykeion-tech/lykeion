@@ -68,7 +68,7 @@ const waiting = computed(() => (count.data.value?.open ?? 0) > 0);
 }
 .brand-switch {
   display: flex;
-  gap: 2px;
+  gap: 5px;
   padding: 2px;
   border-radius: 8px;
   background: var(--hover);
@@ -81,6 +81,15 @@ const waiting = computed(() => (count.data.value?.open ?? 0) > 0);
   height: 24px;
   border-radius: 6px;
   color: var(--muted);
+}
+.brand-switch-item + .brand-switch-item::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--border);
 }
 .brand-switch-item:hover {
   color: var(--text);

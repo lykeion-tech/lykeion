@@ -89,3 +89,13 @@ export function paletteSelection(
   const index = next.findIndex((entry) => entry.id === chosen);
   return index < 0 ? 0 : index;
 }
+
+// Every whitespace-separated word of the query must appear in the text.
+export function matchesWords(text: string, query: string) {
+  const haystack = text.toLowerCase();
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => haystack.includes(word));
+}

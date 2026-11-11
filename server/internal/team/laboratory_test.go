@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -426,5 +427,23 @@ func TestOwnerLeavingKeepsLaboratory(t *testing.T) {
 	}
 	if n := l.count(t, `SELECT count(*) FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND archived_at IS NULL`, l.ws); n != 18 {
 		t.Fatalf("%d live laboratory agents after the owner left, want 18", n)
+	}
+}
+
+func TestInstallLaboratoryGivesEachNewAgentAnIconFromTheSet(t *testing.T) {
+	l := newShippedLab(t)
+	l.install(t)
+	n := 0
+	for _, a := range l.agents(t) {
+		if a.Laboratory == "" {
+			continue
+		}
+		n++
+		if g, ok := strings.CutPrefix(a.AvatarUrl, "emoji:"); !ok || !slices.Contains(builtInEmoji, g) {
+			t.Errorf("%s has icon %q", a.Name, a.AvatarUrl)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no laboratory agents installed")
 	}
 }

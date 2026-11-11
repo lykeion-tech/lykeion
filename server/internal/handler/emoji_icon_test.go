@@ -124,3 +124,11 @@ func TestAgentAndTeamEmojiIcons(t *testing.T) {
 		t.Fatalf("read reset Team icon: %d %+v", c, read)
 	}
 }
+
+func TestBuiltInEmojiSetIsAccepted(t *testing.T) {
+	for _, g := range strings.Fields("🦊 🦁 🐼 🐸 🐴 🐝 🐛 🦋 🐞 🕷️ 🐢 🐍 🐙 🐬 🐯") {
+		if !validEmojiAvatar("emoji:" + g) {
+			t.Errorf("rejected %q", g)
+		}
+	}
+}

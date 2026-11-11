@@ -6,6 +6,8 @@ import { decisionFilters, matchesDecisionFilters } from './decisionFilters';
 import { workspaceId } from '../../api/session';
 import { manualDeadlineLabel } from './manualDecisionDraft';
 import Icon from '../../ui/Icon.vue';
+import RailActions from '../../ui/RailActions.vue';
+import { matchesWords } from '../../lib/search';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { useCards, useDecisions, useMe } from '../../api/queries';
@@ -29,16 +31,24 @@ const cards = useCards();
 const me = useMe();
 const error = ref('');
 const archivedExpanded = ref(false);
+const query = ref('');
 const shown = computed(() => {
   const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
   return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 });
+const searched = computed(() =>
+  query.value.trim()
+    ? shown.value.filter((item) =>
+        matchesWords([titleOf(item), line(item), item.text, item.context].filter(Boolean).join(' '), query.value),
+      )
+    : shown.value,
+);
 const groups = computed(() => [
   ...decisionGroups.map((group) => ({
     ...group,
-    items: shown.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
+    items: searched.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
   })),
-  { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
+  { id: 'archived', label: 'Archived', items: searched.value.filter((item) => !!item.archived_at) },
 ].filter((group) => group.items.length));
 const listError = computed(() => open.error.value ?? past.error.value);
 const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
@@ -79,10 +89,12 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 <template>
   <aside class="sidebar decision-rail">
     <slot name="brand" />
-    <header>
-      <span class="rail-title">Decisions</span>
-      <RouterLink to="/decisions/new" class="icon-button add-decision" aria-label="Add decision" title="Add decision"><Icon name="plus" :size="16" /></RouterLink>
-    </header>
+    <RailActions
+      v-model="query"
+      new-to="/decisions/new"
+      new-label="Add decision"
+      search-label="Search decisions"
+    />
     <nav aria-label="Decisions">
       <p v-if="listError || error" role="alert" class="inline-error">
         {{ (listError ?? { message: error }).message }}
@@ -94,7 +106,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
           <Icon :name="archivedExpanded ? 'down' : 'right'" :size="12" />{{ group.label }}
         </button>
       </h2>
-      <div v-for="item in group.id === 'archived' && !archivedExpanded ? [] : group.items" :key="item.id" class="decision-row-wrap">
+      <div v-for="item in group.id === 'archived' && !archivedExpanded && !query.trim() ? [] : group.items" :key="item.id" class="decision-row-wrap">
         <RouterLink
           :to="'/decisions/' + item.id"
           class="decision-row"
@@ -127,8 +139,8 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
         </span>
       </div>
       </template>
-      <p v-if="!shown.length" class="decision-empty">
-        {{ decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
+      <p v-if="!searched.length" class="decision-empty">
+        {{ query.trim() ? 'No decisions match your search' : decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
       </p>
     </nav>
     <slot name="footer" />
@@ -138,19 +150,6 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 .decision-rail {
   padding: 0 10px;
   overflow: hidden;
-}
-.decision-rail header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  flex: none;
-  padding: 0 8px;
-  margin-bottom: 8px;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--text);
 }
 .decision-rail nav {
   flex: 1;
@@ -208,8 +207,6 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   color: var(--muted);
   padding: 8px;
 }
-.add-decision { margin-left: auto; }
-.rail-title { font-weight: 700; }
 .decision-group-title {
   margin: 0 0 4px;
   color: var(--muted);

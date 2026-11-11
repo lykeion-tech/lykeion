@@ -588,9 +588,9 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 
 const makeLaboratoryAgent = `-- name: MakeLaboratoryAgent :one
 UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5,
-  visibility = 'workspace', owner_id = $6, laboratory = 'built-in', stage = $7, avatar_url = '', conversation_starters = '[]'::jsonb,
+  visibility = 'workspace', owner_id = $6, laboratory = 'built-in', stage = $7, avatar_url = $8, conversation_starters = '[]'::jsonb,
   archived_at = NULL, updated_at = now()
-WHERE workspace_id = $8 AND id = $9 RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+WHERE workspace_id = $9 AND id = $10 RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
 `
 
 type MakeLaboratoryAgentParams struct {
@@ -601,6 +601,7 @@ type MakeLaboratoryAgentParams struct {
 	Model        string    `json:"model"`
 	OwnerID      uuid.UUID `json:"owner_id"`
 	Stage        string    `json:"stage"`
+	AvatarUrl    string    `json:"avatar_url"`
 	WorkspaceID  uuid.UUID `json:"workspace_id"`
 	ID           uuid.UUID `json:"id"`
 }
@@ -614,6 +615,7 @@ func (q *Queries) MakeLaboratoryAgent(ctx context.Context, arg MakeLaboratoryAge
 		arg.Model,
 		arg.OwnerID,
 		arg.Stage,
+		arg.AvatarUrl,
 		arg.WorkspaceID,
 		arg.ID,
 	)

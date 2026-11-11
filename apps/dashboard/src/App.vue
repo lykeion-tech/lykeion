@@ -561,12 +561,9 @@ onUnmounted(() => {
     >
       <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
         <span class="profile-menu-avatar">{{
-          (me.data.value?.name || me.data.value?.email || '?')[0]?.toUpperCase()
+          (me.data.value?.email || '?')[0]?.toUpperCase()
         }}</span
-        ><span
-          >{{ me.data.value?.name || me.data.value?.email
-          }}<small>{{ me.data.value?.email }}</small></span
-        >
+        ><span>{{ me.data.value?.email }}</span>
       </button>
       <button role="menuitem" @click="go('settings')">
         <Icon name="settings" :size="16" />Settings
@@ -853,12 +850,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.workspace-profile small {
-  display: block;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 18px;
-}
 .profile-menu-avatar {
   width: 24px;
   height: 24px;
@@ -1027,7 +1018,7 @@ onUnmounted(() => {
 /* Sits in the brand row's left gap, left of the wordmark. */
 .sidebar-toggle {
   position: fixed;
-  top: 62px;
+  top: 60px;
   left: 10px;
   z-index: 40;
   width: 28px;

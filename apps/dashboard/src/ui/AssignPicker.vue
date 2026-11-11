@@ -265,7 +265,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           /></span>
           <Icon
             v-else-if="name && !buttonLabel && assignee?.type === 'team'"
-            name="network"
+            name="team"
             :size="14"
           />
           <Icon
@@ -340,7 +340,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
             <span class="availability-icon"
               ><AvatarDisplay v-if="t.avatar_url" :value="t.avatar_url.slice(6)" :size="14" /><Icon
                 v-else
-                name="network"
+                name="team"
                 :size="14" /><span
                 v-if="teamOnline(t)"
                 class="availability-dot"
