@@ -976,3 +976,12 @@ func TestReportNoveltyJudgedOnlyAgainstEachPapersOwnAbstract(t *testing.T) {
 		t.Fatalf("checks %+v, want one novelty check on rec:p1's abstract", checks)
 	}
 }
+
+func TestReportSkillNamesWhatCantBeLinked(t *testing.T) {
+	for _, s := range []string{"must carry no Markdown marks", "never cross formatting",
+		"DOIs, URLs, domains, emails and a Markdown link's text can't be linked"} {
+		if !strings.Contains(reportSkill(), s) {
+			t.Errorf("the report skill's link rule does not say %q", s)
+		}
+	}
+}

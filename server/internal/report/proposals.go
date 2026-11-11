@@ -1,6 +1,8 @@
 package report
 
 import (
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -109,21 +111,26 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 		return p
 	}
 	text := rep.HandIn.Text
+	mask := notPlain(text)
 	for _, l := range h.Links {
 		if n, ok := nodes[l.Node]; !ok || !Linkable(n.Kind) || l.Phrase == "" || l.Occurrence < 1 {
 			continue
 		}
-		at, from := -1, 0
-		for i := 0; i < l.Occurrence; i++ {
-			j := strings.Index(text[from:], l.Phrase)
-			if j < 0 {
-				at = -1
+		// The page finds a phrase by counting its copies, so one copy it
+		// can't link means it links none of them.
+		var copies []int
+		plain := true
+		for at := strings.Index(text, l.Phrase); at >= 0 && plain; {
+			copies = append(copies, at)
+			plain = !slices.Contains(mask[at:at+len(l.Phrase)], true)
+			next := strings.Index(text[at+len(l.Phrase):], l.Phrase)
+			if next < 0 {
 				break
 			}
-			at = from + j
-			from = at + 1
+			at += len(l.Phrase) + next
 		}
-		if at >= 0 && plainProse(text, at, at+len(l.Phrase)) {
+		if plain && l.Occurrence <= len(copies) {
+			at := copies[l.Occurrence-1]
 			p.Links = append(p.Links, Span{Start: at, End: at + len(l.Phrase), Node: l.Node, Phrase: l.Phrase})
 		}
 	}
@@ -139,36 +146,144 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	return p
 }
 
-// plainProse says whether the hand-in's Markdown shows text[start:end] as one
-// run of ordinary text, which is the only place the report page can make a
-// phrase clickable. A phrase that carries Markdown marks, or sits in a code
-// span, a fenced block, a link's text or a URL, is not, so Jev is never asked
-// about it.
-func plainProse(text string, start, end int) bool {
-	if strings.ContainsAny(text[start:end], "*_`[]<>") {
-		return false
-	}
-	lineStart := strings.LastIndexByte(text[:start], '\n') + 1
-	line := text[lineStart:start]
-	if strings.Count(line, "`")%2 == 1 {
-		return false
-	}
-	if open := strings.LastIndexByte(line, '['); open > strings.LastIndexByte(line, ']') {
-		return false
-	}
-	fences := 0
-	for _, l := range strings.Split(text[:lineStart], "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), "```") {
-			fences++
+// Patterns of text the page's Markdown renderer turns into links of its own:
+// DOIs as its doi_links rule finds them, URLs, emails, and bare domains.
+var autoLinks = regexp.MustCompile(`(?i)\b(?:doi:\s*)?10\.\d{4,9}/[-._;()/:a-z0-9]+` +
+	`|(?:\b[a-z][a-z0-9+.-]*:)?//\S+|\bwww\.\S+|\bmailto:\S+` +
+	`|[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+` +
+	`|\b(?:[a-z0-9-]+\.)+(?:biz|com|edu|gov|net|org|pro|web|xxx|aero|asia|coop|info|museum|name|shop|[a-z]{2})\b(?:[/?#]\S*)?`)
+
+// Markdown links and images, with their text and destination, and the lines
+// that define a reference link.
+var mdLinks = regexp.MustCompile(`!?\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])?|(?m)^ {0,3}\[[^\]]+\]:.*$`)
+
+// notPlain marks each byte of the hand-in's Markdown that the report page
+// can't make part of a clickable phrase: Markdown marks, line breaks, code
+// blocks and spans, link text and destinations, and whatever the page turns
+// into a link itself.
+//
+// ponytail: line rules and regexes shaped like markdown-it, not a parser. List
+// items' code, HTML entities and setext headings aren't modelled, and in
+// doubt a byte is marked; port the renderer's parser if that drops too much.
+func notPlain(text string) []bool {
+	mask := make([]bool, len(text))
+	set := func(a, b int) {
+		for i := a; i < b; i++ {
+			mask[i] = true
 		}
 	}
-	if fences%2 == 1 {
-		return false
+	// Block pass: fenced and indented code are marked whole; the paragraphs
+	// and headings left are where a code span can open and close.
+	var blocks [][2]int
+	fence, para, at := "", -1, 0
+	flush := func(end int) {
+		if para >= 0 {
+			blocks, para = append(blocks, [2]int{para, end}), -1
+		}
 	}
-	from := strings.LastIndexAny(text[:start], " \t\n") + 1
-	to := end + strings.IndexAny(text[end:]+" ", " \t\n")
-	token := text[from:to]
-	return !strings.Contains(token, "://") && !strings.HasPrefix(token, "www.") && !strings.Contains(token, "@")
+	for _, line := range strings.SplitAfter(text, "\n") {
+		start, end := at, at+len(line)
+		at = end
+		body := strings.TrimRight(line, "\r\n")
+		trimmed := strings.TrimLeft(body, " \t")
+		col := 0
+		for _, c := range body[:len(body)-len(trimmed)] {
+			if c == '\t' {
+				col += 4 - col%4
+			} else {
+				col++
+			}
+		}
+		if fence != "" {
+			set(start, end)
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, fence[:1]))
+			if col < 4 && run >= len(fence) && strings.TrimSpace(trimmed[run:]) == "" {
+				fence = ""
+			}
+			continue
+		}
+		if col < 4 && trimmed != "" && (trimmed[0] == '`' || trimmed[0] == '~') {
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, trimmed[:1]))
+			if run >= 3 && !(trimmed[0] == '`' && strings.Contains(trimmed[run:], "`")) {
+				flush(start)
+				set(start, end)
+				fence = trimmed[:run]
+				continue
+			}
+		}
+		switch {
+		case trimmed == "":
+			flush(start)
+		case col >= 4 && para < 0:
+			set(start, end)
+		case strings.HasPrefix(trimmed, "#"):
+			flush(start)
+			blocks = append(blocks, [2]int{start, end})
+		case para < 0:
+			para = start
+		}
+	}
+	flush(len(text))
+	// A run of n backticks that isn't escaped opens a code span closed by
+	// the next run of exactly n in the same block.
+	for _, b := range blocks {
+		s := text[b[0]:b[1]]
+		for i := 0; i < len(s); {
+			if s[i] != '`' {
+				i++
+				continue
+			}
+			n := len(s[i:]) - len(strings.TrimLeft(s[i:], "`"))
+			if slashes := len(s[:i]) - len(strings.TrimRight(s[:i], "\\")); slashes%2 == 1 {
+				i++
+				continue
+			}
+			end := -1
+			for j := i + n; j < len(s); {
+				k := strings.IndexByte(s[j:], '`')
+				if k < 0 {
+					break
+				}
+				j += k
+				m := len(s[j:]) - len(strings.TrimLeft(s[j:], "`"))
+				if m == n {
+					end = j + m
+					break
+				}
+				j += m
+			}
+			if end < 0 {
+				i += n
+				continue
+			}
+			set(b[0]+i, b[0]+end)
+			i = end
+		}
+	}
+	for _, re := range []*regexp.Regexp{mdLinks, autoLinks} {
+		for _, m := range re.FindAllStringIndex(text, -1) {
+			set(m[0], m[1])
+		}
+	}
+	word := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '*', '`', '[', ']', '\\', '\n', '\r':
+			mask[i] = true
+		case '~':
+			mask[i] = i+1 < len(text) && text[i+1] == '~' || i > 0 && text[i-1] == '~'
+		case '_':
+			// An underscore run between two letters or digits is literal.
+			j := i + len(text[i:]) - len(strings.TrimLeft(text[i:], "_"))
+			before, _ := utf8.DecodeLastRuneInString(text[:i])
+			after, _ := utf8.DecodeRuneInString(text[j:])
+			if !word(before) || !word(after) {
+				set(i, j)
+			}
+			i = j - 1
+		}
+	}
+	return mask
 }
 
 // Linkable says whether a hand-in link may point at a node of kind: only the

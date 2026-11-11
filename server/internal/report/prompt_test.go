@@ -51,8 +51,12 @@ func TestReportPromptFencesEvidence(t *testing.T) {
 	if !strings.Contains(outside, "A link may point only at a paper or dataset node") {
 		t.Errorf("the task does not limit links to Grounding sources")
 	}
-	if !strings.Contains(outside, "Take each link phrase from the hand-in's plain prose") {
-		t.Errorf("the task does not ask for link phrases from plain prose")
+	for _, s := range []string{"Take each link phrase from the hand-in's plain prose",
+		"must carry no Markdown marks", "never cross formatting",
+		"DOIs, URLs, domains, emails and a Markdown link's text can't be linked"} {
+		if !strings.Contains(outside, s) {
+			t.Errorf("the task's link rule does not say %q", s)
+		}
 	}
 	for _, s := range append(handin.ReportRelations, handin.ReportConceptTypes...) {
 		if !strings.Contains(outside, s) {

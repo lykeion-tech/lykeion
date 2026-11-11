@@ -1,7 +1,6 @@
 package report
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -93,31 +92,50 @@ func TestGroundKeepsOnlyLinksToGroundingSources(t *testing.T) {
 }
 
 func TestGroundLinksOnlyPlainProse(t *testing.T) {
-	text := "See **Smith 2020** and `Smith 2020` and https://doi.org/Smith-2020 and [Smith 2020](u) and **Smith** 2020.\n```\nSmith 2020\n```\nPlain Smith 2020."
-	rep := repWith("", text)
-	var links []handin.ReportLink
-	for i := 1; i <= 7; i++ {
-		links = append(links, handin.ReportLink{Phrase: "Smith 2020", Occurrence: i, Node: "rec:1"})
+	cases := []struct {
+		name, text, phrase string
+		keep               bool
+	}{
+		{"plain", "Plain Smith 2020 here.", "Smith 2020", true},
+		{"inside bold", "See **Smith 2020** here.", "Smith 2020", true},
+		{"less than", "Significant at p < 0.05 overall.", "p < 0.05", true},
+		{"underscore inside a word", "We used TCGA_BRCA data.", "TCGA_BRCA", true},
+		{"after an escaped backtick", "A \\` mark, then Smith 2020 here.", "Smith 2020", true},
+		{"lazy continuation line", "Intro line\n    Smith 2020 continues.", "Smith 2020", true},
+		{"crosses bold marks", "See **Smith** 2020 here.", "**Smith** 2020", false},
+		{"code span", "See `Smith 2020` here.", "Smith 2020", false},
+		{"one plain copy, one code copy", "Smith 2020 found it; see `Smith 2020`.", "Smith 2020", false},
+		{"code span across a soft break", "See `code\nSmith 2020` here.", "Smith 2020", false},
+		{"fenced block", "Before.\n```\nSmith 2020\n```\nAfter.", "Smith 2020", false},
+		{"tilde fence", "Before.\n~~~\nSmith 2020\n~~~\nAfter.", "Smith 2020", false},
+		{"nested longer fence", "Before.\n````\n```\nSmith 2020\n```\n````\nAfter.", "Smith 2020", false},
+		{"indented code block", "Intro.\n\n    Smith 2020\n\nAfter.", "Smith 2020", false},
+		{"link text", "See [Smith 2020](https://x.org/a).", "Smith 2020", false},
+		{"link destination", "See [the paper](#smith2020) now.", "smith2020", false},
+		{"url", "Read https://smith2020.example/x today.", "smith2020", false},
+		{"www", "Read www.smith2020.example today.", "smith2020", false},
+		{"email", "Mail smith2020@lab.example now.", "smith2020", false},
+		{"doi with prefix", "Cited as doi:10.1038/smith2020 here.", "smith2020", false},
+		{"bare doi", "Cited as 10.1038/smith2020 here.", "smith2020", false},
+		{"bare domain", "Data at smith2020.org today.", "smith2020", false},
 	}
-	links = append(links, handin.ReportLink{Phrase: "**Smith** 2020", Occurrence: 1, Node: "rec:1"})
-	p := Ground(rep, hin(nil, links))
-	var at []int
-	for _, l := range p.Links {
-		at = append(at, l.Start)
-	}
-	want := []int{strings.Index(text, "Smith 2020"), strings.LastIndex(text, "Smith 2020")}
-	if !slices.Equal(at, want) {
-		t.Fatalf("link starts %v, want %v: only the bold phrase and the plain one", at, want)
-	}
-}
-
-func TestGroundLinksNoPhraseInsideAURL(t *testing.T) {
-	text := "Read https://doi.org/10.1/smith2020 or www.smith2020.org, then smith2020 alone."
-	p := Ground(repWith("", text), hin(nil, []handin.ReportLink{
-		{Phrase: "smith2020", Occurrence: 1, Node: "rec:1"}, {Phrase: "smith2020", Occurrence: 2, Node: "rec:1"},
-		{Phrase: "smith2020", Occurrence: 3, Node: "rec:1"}}))
-	if len(p.Links) != 1 || p.Links[0].Start != strings.LastIndex(text, "smith2020") {
-		t.Fatalf("links %+v, want only the bare smith2020", p.Links)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := Ground(repWith("", c.text), hin(nil, []handin.ReportLink{{Phrase: c.phrase, Occurrence: 1, Node: "rec:1"}}))
+			if !c.keep {
+				if len(p.Links) != 0 {
+					t.Fatalf("kept %+v in %q, want it dropped", p.Links, c.text)
+				}
+				return
+			}
+			at := strings.Index(c.text, c.phrase)
+			if at < 0 {
+				t.Fatalf("bad case: %q not in %q", c.phrase, c.text)
+			}
+			if len(p.Links) != 1 || p.Links[0].Start != at {
+				t.Fatalf("links %+v in %q, want one at %d", p.Links, c.text, at)
+			}
+		})
 	}
 }
 
