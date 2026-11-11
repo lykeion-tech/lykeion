@@ -200,7 +200,7 @@ async function create() {
       </header>
       <div class="team-editor-body hide-scrollbar">
         <div class="team-identity">
-          <div class="team-avatar" aria-hidden="true"><Icon name="network" :size="24" /></div>
+          <div class="team-avatar" aria-hidden="true"><Icon name="team" :size="24" /></div>
           <div class="team-identity-fields">
             <label for="team-name">Name</label>
             <input

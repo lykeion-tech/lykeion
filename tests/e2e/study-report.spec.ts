@@ -119,6 +119,11 @@ async function itemFor(request: APIRequestContext, cardId: string) {
 
 const graph = (page: Page) => page.locator('.report-graph');
 const pane = (page: Page) => page.getByRole('region', { name: 'Report section' });
+// The right pane starts closed; its toggle opens it onto the report's sections.
+const openPane = async (page: Page) => {
+  await page.getByRole('button', { name: 'Toggle report pane' }).click();
+  await expect(pane(page)).toBeVisible();
+};
 
 test("a finished study's report opens from Decisions with its hand-in, graph and pane", async ({
   page,
@@ -134,13 +139,6 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
   await expect(
     page.getByRole('heading', { name: `#${study.number} ${study.title}` }),
   ).toBeVisible();
-  await expect(
-    page.getByText('Grounding → Hypotheses → Experimentation → Validation'),
-  ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open the study' })).toHaveAttribute(
-    'href',
-    `#/studies/${study.id}`,
-  );
   const handIn = page.getByRole('region', { name: 'Hand-in report' });
   await expect(handIn).toContainText('The study found that glucose raises insulin secretion.');
   await expect(handIn).toContainText('end-of-hand-in');
@@ -155,11 +153,13 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
       headers: { 'X-Workspace-ID': await labWorkspace(page.request) },
     })
   ).json();
-  // The hand-in names the run that wrote it.
+  // The hand-in says when it was written, under the report's title.
   expect(report.hand_in.run_id).toMatch(/^[0-9a-f-]{36}$/);
-  await expect(handIn.locator('.hand-in-by')).toContainText(
-    `run ${report.hand_in.run_id.slice(0, 8)}`,
-  );
+  const by = page.locator('.report-heading .hand-in-by');
+  const when = await page.evaluate((at) => new Date(at).toLocaleString(), report.hand_in.at);
+  await expect(by).toHaveText(new RegExp(when.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  await expect(handIn.locator('.hand-in-by')).toHaveCount(0);
+  await expect(handIn.getByRole('heading', { name: 'Hand-in report' })).toHaveCount(0);
   // The page's own heading is the only one; the shell adds none.
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   const nodes = graph(page).getByRole('button');
@@ -174,8 +174,17 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
     'Objection: unmatched control',
   ])
     await expect(graph(page).getByRole('button', { name: label, exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Right pane' })).toHaveCount(0);
+  await openPane(page);
   await expect(pane(page).getByRole('heading', { name: 'Overview' })).toBeVisible();
   await expect(pane(page)).toContainText('Findings supported1');
+  // The pane is the report and nothing else: no chooser, no tab, no way back to one.
+  const right = page.getByRole('complementary', { name: 'Right pane' });
+  await expect(right.getByText('Open a surface')).toHaveCount(0);
+  await expect(right.getByRole('button', { name: 'Back to surfaces' })).toHaveCount(0);
+  await expect(right.getByRole('button', { name: 'Report', exact: true })).toHaveCount(0);
+  await expect(right.getByRole('heading', { name: 'Report', exact: true })).toHaveCount(0);
+  await expect(right.getByRole('button', { name: 'Maximize pane' })).toBeVisible();
 });
 
 test('clicking a finding opens its section and every row is inspectable', async ({ page }) => {
@@ -184,9 +193,11 @@ test('clicking a finding opens its section and every row is inspectable', async 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     `#${study.number} ${study.title}`,
   );
+  // The open pane floats over the graph, so the node is chosen before it opens.
   await graph(page)
     .getByRole('button', { name: `Finding: ${H2}`, exact: true })
     .click();
+  await openPane(page);
   const selected = pane(page).getByRole('region', { name: 'Selected' });
   await expect(selected).toContainText('Supported with caveats');
   await pane(page)
@@ -216,6 +227,7 @@ test('clicking a finding opens its section and every row is inspectable', async 
 test('nodes work from the keyboard', async ({ page }) => {
   const study = await finishedStudy(page.request);
   await page.goto(`/#/decisions/report/${study.id}`);
+  await openPane(page);
   await page.getByRole('button', { name: 'Show the full hand-in' }).focus();
   await page.keyboard.press('Tab');
   const question = graph(page).getByRole('button', { name: /^Question: / });

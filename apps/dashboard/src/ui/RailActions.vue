@@ -2,46 +2,37 @@
 import Icon from './Icon.vue';
 
 defineProps<{ newTo: string; newLabel: string; searchLabel: string }>();
-const query = defineModel<string>({ default: '' });
 const emit = defineEmits<{
   new: [event: MouseEvent];
+  search: [];
 }>();
 </script>
 <template>
   <div class="rail-actions">
+    <!-- Captured, so a listener that takes the click over sees it before the
+         router's own handler prevents the default. -->
     <RouterLink
       :to="newTo"
       class="nav-item"
       :aria-label="newLabel"
       exact-active-class="selected"
-      @click="emit('new', $event)"
+      @click.capture="emit('new', $event)"
       ><Icon name="plus" :size="16" />New</RouterLink
     >
-    <label class="nav-item rail-search">
-      <Icon name="search" :size="16" />
-      <input v-model="query" type="search" placeholder="Search" :aria-label="searchLabel" />
-    </label>
+    <button
+      type="button"
+      class="nav-item palette-trigger"
+      :aria-label="searchLabel"
+      aria-keyshortcuts="Meta+K Control+K"
+      @click="emit('search')"
+    >
+      <Icon name="search" :size="16" />Search…<kbd class="push-right">⌘K</kbd>
+    </button>
   </div>
 </template>
 <style scoped>
 .rail-actions {
   flex: none;
   margin-bottom: 8px;
-}
-.rail-search {
-  cursor: text;
-}
-.rail-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  color: var(--text);
-  outline: none;
-}
-.rail-search:focus-within {
-  background: var(--hover);
 }
 </style>

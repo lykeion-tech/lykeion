@@ -288,7 +288,7 @@ func InstallLaboratory(ctx context.Context, tx *store.Tx) error {
 	return tx.Emit(ctx, "laboratory.installed", nil, store.System, map[string]any{"reset": reset})
 }
 
-// builtInEmoji is the set a new built-in agent's icon is drawn from.
+// builtInEmoji is the set a built-in agent's icon is drawn from.
 var builtInEmoji = []string{"🦊", "🦁", "🐼", "🐸", "🐴", "🐝", "🐛", "🦋", "🐞", "🕷️", "🐢", "🐍", "🐙", "🐬", "🐯"}
 
 // installMember makes the shared agent for one Team member and returns the
@@ -306,12 +306,12 @@ func installMember(ctx context.Context, tx *store.Tx, owner uuid.UUID, p db.Fiel
 		return nil, err
 	}
 	var keep db.Agent
-	// Only an agent made here gets an icon; a merged copy is reset to none.
-	avatar := ""
+	// Every shared agent gets an icon from the set, a converted private copy
+	// included, so no built-in agent shows a bare initial.
+	avatar := "emoji:" + builtInEmoji[rand.IntN(len(builtInEmoji))]
 	if i := slices.IndexFunc(copies, func(a db.Agent) bool { return a.DeletedAt == nil && a.TeamDeletedAt == nil }); i >= 0 {
 		keep = copies[i]
 	} else {
-		avatar = "emoji:" + builtInEmoji[rand.IntN(len(builtInEmoji))]
 		name, err := freeName(ctx, tx, base)
 		if err != nil {
 			return nil, err

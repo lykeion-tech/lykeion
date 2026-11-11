@@ -2,64 +2,31 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { decisionFilters, matchesDecisionFilters } from './decisionFilters';
-import { workspaceId } from '../../api/session';
+import { decisionFilters } from './decisionFilters';
+import { useDecisionRows } from './decisionRows';
 import { manualDeadlineLabel } from './manualDecisionDraft';
 import Icon from '../../ui/Icon.vue';
 import RailActions from '../../ui/RailActions.vue';
-import { matchesWords } from '../../lib/search';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
-import { useCards, useDecisions, useMe } from '../../api/queries';
+import { useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
-import {
-  agentDecisionParts,
-  decideByLabel,
-  decisionGroupOf,
-  decisionGroups,
-  decisionKindOf,
-  inboxText,
-  inboxTitle,
-  timeAgo,
-} from '../../lib/studies';
+import { decideByLabel, decisionGroupOf, decisionGroups, timeAgo } from '../../lib/studies';
 
+const emit = defineEmits<{ search: [] }>();
 const route = useRoute();
 const client = useQueryClient();
-const open = useDecisions(false);
-const past = useDecisions(true);
-const cards = useCards();
 const me = useMe();
+const { shown, kindOf, titleOf, line, error: listError } = useDecisionRows();
 const error = ref('');
 const archivedExpanded = ref(false);
-const query = ref('');
-const shown = computed(() => {
-  const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
-  return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-});
-const searched = computed(() =>
-  query.value.trim()
-    ? shown.value.filter((item) =>
-        matchesWords([titleOf(item), line(item), item.text, item.context].filter(Boolean).join(' '), query.value),
-      )
-    : shown.value,
-);
 const groups = computed(() => [
   ...decisionGroups.map((group) => ({
     ...group,
-    items: searched.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
+    items: shown.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
   })),
-  { id: 'archived', label: 'Archived', items: searched.value.filter((item) => !!item.archived_at) },
+  { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
 ].filter((group) => group.items.length));
-const listError = computed(() => open.error.value ?? past.error.value);
-const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
-const titleOf = (item: DecisionItem) =>
-  item.kind === 'manual_decision' ? item.title ?? '' : item.kind === 'agent_decision'
-    ? agentDecisionParts(item.text).title
-    : inboxTitle(item, cards.data.value?.find((card) => card.id === item.card_id)?.title);
-const line = (item: DecisionItem) =>
-  item.kind === 'manual_decision' ? item.context || 'Private note' : item.kind === 'agent_decision'
-    ? agentDecisionParts(item.text).body || kindOf(item).label
-    : (inboxText(item, titleOf(item)) ?? `${kindOf(item).label}: ${item.text}`);
 const decideByText = (item: DecisionItem) =>
   item.decide_by === 'date' ? (item.decide_by_date ?? '') : (decideByLabel[item.decide_by] ?? '');
 // Only the item's addressee has it unread; others who can see it never do.
@@ -90,10 +57,10 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   <aside class="sidebar decision-rail">
     <slot name="brand" />
     <RailActions
-      v-model="query"
       new-to="/decisions/new"
       new-label="Add decision"
       search-label="Search decisions"
+      @search="emit('search')"
     />
     <nav aria-label="Decisions">
       <p v-if="listError || error" role="alert" class="inline-error">
@@ -106,7 +73,7 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
           <Icon :name="archivedExpanded ? 'down' : 'right'" :size="12" />{{ group.label }}
         </button>
       </h2>
-      <div v-for="item in group.id === 'archived' && !archivedExpanded && !query.trim() ? [] : group.items" :key="item.id" class="decision-row-wrap">
+      <div v-for="item in group.id === 'archived' && !archivedExpanded ? [] : group.items" :key="item.id" class="decision-row-wrap">
         <RouterLink
           :to="'/decisions/' + item.id"
           class="decision-row"
@@ -139,8 +106,8 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
         </span>
       </div>
       </template>
-      <p v-if="!searched.length" class="decision-empty">
-        {{ query.trim() ? 'No decisions match your search' : decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
+      <p v-if="!shown.length" class="decision-empty">
+        {{ decisionFilters.type !== 'all' || decisionFilters.date !== 'all' ? 'No decisions match these filters' : 'No decisions yet' }}
       </p>
     </nav>
     <slot name="footer" />

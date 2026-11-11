@@ -9,7 +9,6 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { guardResourceDrafts } from '../../state/resource-draft';
 import RailActions from '../../ui/RailActions.vue';
-import { matchesWords } from '../../lib/search';
 import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import { useAgents } from '../../api/queries';
 const state = useAristotle();
@@ -17,12 +16,8 @@ const agents = useAgents();
 const router = useRouter(),
   route = useRoute(),
   client = useQueryClient();
-const query = ref('');
-const shown = computed(() =>
-  (state.conversations.data.value ?? []).filter(
-    (c) => !query.value.trim() || matchesWords(`${c.title} ${c.preview ?? ''}`, query.value),
-  ),
-);
+const emit = defineEmits<{ search: [] }>();
+const shown = computed(() => state.conversations.data.value ?? []);
 const deleting = ref(''),
   deleteError = ref('');
 async function deleteConversation(c: Conversation) {
@@ -78,14 +73,13 @@ async function startDraft(event: MouseEvent) {
   <aside class="sidebar conversation-rail" aria-label="Chat">
     <slot name="brand" />
     <RailActions
-      v-model="query"
       new-to="/coresearch/new"
       new-label="New conversation"
       search-label="Search conversations"
       @new="startDraft"
+      @search="emit('search')"
     />
     <nav>
-      <p v-if="query && !shown.length" class="rail-empty">No conversations match</p>
       <div
         v-for="c in shown"
         :key="c.shared ? `shared:${c.project_id}` : c.id"
@@ -205,11 +199,6 @@ async function startDraft(event: MouseEvent) {
   font-size: 13px;
   color: var(--muted);
   margin-top: 5px;
-}
-.rail-empty {
-  font-size: 13px;
-  color: var(--muted);
-  padding: 8px;
 }
 .conversation-link:hover,
 .conversation-link.selected {

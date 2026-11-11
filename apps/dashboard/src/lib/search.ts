@@ -7,15 +7,19 @@ export function matchesQuery(text: string, query: string) {
 
 export interface PaletteEntry {
   id: string;
-  kind: 'research' | 'study';
+  kind: 'research' | 'study' | 'conversation' | 'decision';
   label: string;
   title: string;
   subtitle: string;
   path: string;
-  updated: string;
+  updated?: string;
   research?: string;
   stage?: string;
   state?: string;
+  // Text a query may match besides the label.
+  search?: string;
+  // Preview rows for an entry that is not a study or research.
+  rows?: { label: string; value: string }[];
 }
 
 export function paletteEntries(
@@ -69,7 +73,13 @@ export function rankPaletteEntries(entries: PaletteEntry[], query: string): Pale
   const normalized = query.trim().toLowerCase();
   if (!normalized) return entries;
   return entries
-    .map((entry) => ({ entry, score: matchScore(entry.label.toLowerCase(), normalized) }))
+    .map((entry) => ({
+      entry,
+      score: Math.max(
+        matchScore(entry.label.toLowerCase(), normalized),
+        entry.search && matchesWords(entry.search, normalized) ? 5 : 0,
+      ),
+    }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score)
     .map(({ entry }) => entry);

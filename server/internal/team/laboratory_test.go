@@ -447,3 +447,22 @@ func TestInstallLaboratoryGivesEachNewAgentAnIconFromTheSet(t *testing.T) {
 		t.Fatal("no laboratory agents installed")
 	}
 }
+
+func TestInstallLaboratoryGivesAConvertedCopyAnIcon(t *testing.T) {
+	l := newShippedLab(t)
+	l.addCopies(t, l.owner, "d-owner")
+	l.install(t)
+	n := 0
+	for _, a := range l.agents(t) {
+		if a.Laboratory == "" {
+			continue
+		}
+		n++
+		if g, ok := strings.CutPrefix(a.AvatarUrl, "emoji:"); !ok || !slices.Contains(builtInEmoji, g) {
+			t.Errorf("%s has icon %q", a.Name, a.AvatarUrl)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no laboratory agents installed")
+	}
+}

@@ -66,6 +66,25 @@ describe('workspace search palette', () => {
     ]);
     expect(rankPaletteEntries(entries, 'unfindable')).toEqual([]);
   });
+  it('finds an entry by its extra search text, below a label match', () => {
+    const entry = (id: string, label: string, search?: string) => ({
+      id,
+      kind: 'conversation' as const,
+      label,
+      title: label,
+      subtitle: '',
+      path: `/c/${id}`,
+      search,
+    });
+    const entries = [
+      entry('a', 'Weekly notes', 'Weekly notes ask about the insulin protocol'),
+      entry('b', 'Insulin plan', 'Insulin plan'),
+      entry('c', 'Unrelated', 'Unrelated chat'),
+    ];
+    expect(rankPaletteEntries(entries, 'insulin protocol').map((e) => e.id)).toEqual(['a']);
+    expect(rankPaletteEntries(entries, 'insulin').map((e) => e.id)).toEqual(['b', 'a']);
+    expect(rankPaletteEntries(entries, 'nothing like it')).toEqual([]);
+  });
   it('keeps a row someone chose through a refresh, otherwise follows the top', () => {
     const before = rankPaletteEntries(paletteEntries(researches, studies, 'LAB'), '');
     const added = { id: 's4', title: 'A new study', number: 4, research_id: null } as Card;

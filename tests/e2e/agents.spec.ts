@@ -294,3 +294,34 @@ test('supported backend selectors persist provider labels', async ({ page }) => 
     expect(saved.harness).toBe(harness);
   }
 });
+
+test('the Agents list shows a built-in agent with the emoji icon it was given, as the new-study picker does', async ({
+  page,
+}) => {
+  const { headers } = await inFixture(page);
+  const made = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Built-in icon check', harness: 'claude', stage: 'experimentation' },
+  });
+  expect(made.status()).toBe(201);
+  const plain = await made.json();
+  await page.route('**/api/agents', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    const list = (await response.json()) as Array<Record<string, unknown>>;
+    await route.fulfill({
+      response,
+      json: list.map((a) =>
+        a.id === plain.id
+          ? { ...a, source: 'built_in', built_in_key: 'icon-check', avatar_url: 'emoji:🦊' }
+          : a,
+      ),
+    });
+  });
+  await page.goto('/#/agents');
+  const row = page.getByRole('row', { name: /Built-in icon check/ });
+  await expect(row.locator('.avatar .avatar-emoji')).toHaveText('🦊');
+  await expect(row.locator('.avatar > svg')).toHaveCount(0);
+  // A refetch in flight when the test ends must not reach the handler.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});

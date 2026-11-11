@@ -35,6 +35,7 @@ const icon = computed(() =>
     'file',
     'chart',
     'network',
+    'team',
     'monitor',
     'users',
     'folder',

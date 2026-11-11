@@ -128,9 +128,7 @@ function selectRef(id: string) {
 }
 
 const paneOpen = ref(false);
-const paneActive = ref<string | null>('report');
 const paneFocused = ref(false);
-const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
 </script>
 
 <template>
@@ -150,12 +148,11 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
         <header class="report-header">
           <div class="report-heading">
             <h1>#{{ report.number }} {{ studyDisplayTitle(report.title) }}</h1>
+            <p v-if="report.hand_in" class="type-caption hand-in-by">{{ handInBy }}</p>
           </div>
         </header>
         <section class="hand-in" aria-label="Hand-in report">
-          <h2>Hand-in report</h2>
           <template v-if="report.hand_in">
-            <p class="type-caption hand-in-by">{{ handInBy }}</p>
             <div class="hand-in-text" :class="{ folded: overflows && !expanded }">
               <div ref="handInBody" @click="clickRef">
                 <RecordedMarkdown :key="linksKey" :content="report.hand_in.text" />
@@ -192,11 +189,12 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
     <SurfacePane
       v-if="report"
       v-model:open="paneOpen"
-      v-model:active="paneActive"
       v-model:focused="paneFocused"
       floating
+      single
       hide-title
-      :surfaces="surfaces"
+      :active="null"
+      :surfaces="[]"
       width-key="lykeion.report-pane-width"
     >
       <ReportPane
@@ -275,14 +273,8 @@ const surfaces = [{ id: 'report', label: 'Report', icon: 'network' }];
   background: var(--surface);
   padding: 16px 20px;
 }
-.hand-in h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-.hand-in-by,
 .hand-in-none {
-  margin: 4px 0 10px;
+  margin: 0;
   color: var(--muted);
 }
 .hand-in-text {

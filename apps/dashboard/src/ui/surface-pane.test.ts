@@ -420,3 +420,29 @@ it('renders the requested floating pane without changing its full-screen view', 
   app.unmount();
   Object.assign(globalThis, { window: oldWindow });
 });
+
+it('shows a single-view pane straight away, with no chooser and no way back to one', async () => {
+  const oldWindow = globalThis.window;
+  Object.assign(globalThis, {
+    window: { innerWidth: 1200, addEventListener() {}, removeEventListener() {} },
+  });
+  const app = createTreeApp({
+    render: () =>
+      h(
+        SurfacePane,
+        { open: true, active: null, focused: false, surfaces: [], single: true, hideTitle: true },
+        { default: () => h('p', 'The only view') },
+      ),
+  });
+  const root = node('root');
+  app.mount(root);
+  await nextTick();
+  expect(textOf(root)).toContain('The only view');
+  expect(textOf(root)).not.toContain('Open a surface');
+  const labels = all(root).map((n) => n.props['aria-label']);
+  expect(labels).not.toContain('Back to surfaces');
+  expect(labels).toContain('Maximize pane');
+  expect(all(root).some((n) => n.props.role === 'separator')).toBe(true);
+  app.unmount();
+  Object.assign(globalThis, { window: oldWindow });
+});

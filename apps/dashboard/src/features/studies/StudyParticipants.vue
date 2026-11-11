@@ -37,6 +37,10 @@ const ownedAgents = computed(() =>
 const activeRuntime = computed(() =>
   props.runtimes.find((item) => item.id === active.value?.runtime_id),
 );
+// The machine the agent ran on is up and healthy.
+const available = computed(
+  () => activeRuntime.value?.status === 'online' && !activeRuntime.value.unhealthy_reason,
+);
 const capabilities = useQuery({
   queryKey: computed(() => ['ws', workspaceId.value, 'agent-capabilities', selected.value]),
   queryFn: () =>
@@ -161,13 +165,9 @@ function runtime(run: AgentRun) {
         >
         <div class="profile-identity">
           <strong>{{ label(active) }}</strong>
-          <div class="muted">
-            {{
-              activeRuntime?.status === 'online'
-                ? '● Online'
-                : activeRuntime
-                  ? '● Offline'
-                  : 'Status unavailable'
+          <div class="muted participant-status">
+            <span class="status-dot" :class="{ inactive: !available }" aria-hidden="true" />{{
+              available ? 'Active' : 'Inactive'
             }}
           </div>
         </div>
@@ -244,6 +244,25 @@ function runtime(run: AgentRun) {
   background: var(--surface);
   box-shadow: 0 8px 24px #0002;
   font-size: 13px;
+  font-weight: 400;
+}
+.participant-details strong {
+  font-weight: 400;
+}
+.participant-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #39a35a;
+}
+.status-dot.inactive {
+  background: var(--error);
 }
 .participant-profile {
   display: flex;

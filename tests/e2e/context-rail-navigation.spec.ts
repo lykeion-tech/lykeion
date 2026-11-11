@@ -44,15 +44,17 @@ test('opening Coresearch or Decisions shows its history while manual navigation 
   await expect(chat(page)).toBeVisible();
 });
 
-test('the Chat and Decisions headers line up with the sidebar search row', async ({ page }) => {
+test('the Chat and Decisions action rows line up with the sidebar search row', async ({ page }) => {
   await page.goto('/#/studies');
-  const search = (await navigation(page).getByRole('button', { name: 'Search' }).boundingBox())!;
+  const first = (await navigation(page).locator('.quick-actions .nav-item').first().boundingBox())!;
   await toggle(page, 'Coresearch').click();
-  const chatHead = (await chat(page).locator('header').boundingBox())!;
-  expect(Math.abs(chatHead.y - search.y)).toBeLessThan(1);
+  const chatRow = (await chat(page).locator('.rail-actions .nav-item').first().boundingBox())!;
+  expect(Math.abs(chatRow.y - first.y)).toBeLessThan(1);
+  expect(Math.abs(chatRow.height - first.height)).toBeLessThan(1);
   await toggle(page, 'Decisions').click();
-  const decisionsHead = (await decisions(page).locator('header').boundingBox())!;
-  expect(Math.abs(decisionsHead.y - search.y)).toBeLessThan(1);
+  const decisionsRow = (await decisions(page).locator('.rail-actions .nav-item').first().boundingBox())!;
+  expect(Math.abs(decisionsRow.y - first.y)).toBeLessThan(1);
+  expect(Math.abs(decisionsRow.height - first.height)).toBeLessThan(1);
 });
 
 test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top and the Lab menu at the bottom', async ({

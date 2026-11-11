@@ -10,6 +10,8 @@ import { studyDisplayTitle } from './lib/studies';
 import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
 import CommandPalette from './ui/CommandPalette.vue';
+import ConversationSearch from './features/coresearch/ConversationSearch.vue';
+import DecisionSearch from './features/decisions/DecisionSearch.vue';
 import CreateStudy from './features/studies/CreateStudy.vue';
 import { api, ApiError } from './api/client';
 import { selectWorkspace, workspaceId } from './api/session';
@@ -232,6 +234,17 @@ const helpPopup = ref<HTMLElement>();
 const sidebarFooter = ref<InstanceType<typeof SidebarFooter>>();
 const feedback = ref(false);
 const paletteOpen = ref(false);
+// A rail that lists conversations or decisions searches those; every other
+// view searches researches and studies.
+const paletteScope = computed(() =>
+  railView.value !== 'context'
+    ? 'studies'
+    : inboxShell.value
+      ? 'decisions'
+      : aristotleShell.value
+        ? 'conversations'
+        : 'studies',
+);
 function openSearch() {
   workspaceMenu.value = false;
   help.value = false;
@@ -512,7 +525,7 @@ onUnmounted(() => {
         @toggle-help="toggleHelp"
       />
     </div>
-    <ConversationRail v-else-if="aristotleShell && railView === 'context'">
+    <ConversationRail v-else-if="aristotleShell && railView === 'context'" @search="openSearch">
       <template #brand>
         <SidebarBrand
           :current="current"
@@ -531,7 +544,7 @@ onUnmounted(() => {
         />
       </template>
     </ConversationRail>
-    <DecisionRail v-if="inboxShell" v-show="railView === 'context'">
+    <DecisionRail v-if="inboxShell" v-show="railView === 'context'" @search="openSearch">
       <template #brand>
         <SidebarBrand
           :current="current"
@@ -753,7 +766,11 @@ onUnmounted(() => {
       <div class="shell-menu-divider" />
       <small class="shell-version">Frontend version 0.1.0</small>
     </div>
-    <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
+    <template v-if="paletteOpen">
+      <ConversationSearch v-if="paletteScope === 'conversations'" @close="paletteOpen = false" />
+      <DecisionSearch v-else-if="paletteScope === 'decisions'" @close="paletteOpen = false" />
+      <CommandPalette v-else @close="paletteOpen = false" />
+    </template>
     <Modal v-if="feedback" title="Feedback" @close="feedback = false"
       ><form class="feedback-form" @submit.prevent="copyFeedback">
         <header>
@@ -841,7 +858,7 @@ onUnmounted(() => {
 }
 .workspace-popup > .workspace-profile {
   height: 44px;
-  padding: 4px 12px;
+  padding: 4px 6px;
   gap: 12px;
 }
 .workspace-profile > span:last-child {

@@ -16,6 +16,8 @@ const props = withDefaults(
     restoreWidth?: boolean;
     maximizable?: boolean;
     floating?: boolean;
+    // The pane has one view and no chooser: its content shows straight away.
+    single?: boolean;
   }>(),
   { restoreWidth: true, maximizable: true },
 );
@@ -201,7 +203,7 @@ function cancelSlide(element: Element) {
       aria-label="Right pane"
     >
       <div
-        v-if="active && !focused"
+        v-if="(active || single) && !focused"
         class="surface-separator"
         role="separator"
         tabindex="0"
@@ -215,7 +217,7 @@ function cancelSlide(element: Element) {
       />
       <header class="surface-header">
         <button
-          v-if="active"
+          v-if="active && !single"
           class="surface-icon"
           aria-label="Back to surfaces"
           @click="showChooser"
@@ -225,7 +227,7 @@ function cancelSlide(element: Element) {
         <span v-if="!hideTitle" class="surface-title">{{ title }}</span>
         <span class="surface-spacer" />
         <button
-          v-if="active && maximizable"
+          v-if="(active || single) && maximizable"
           class="surface-icon"
           :aria-label="focused ? 'Restore pane size' : 'Maximize pane'"
           :aria-pressed="focused"
@@ -243,7 +245,7 @@ function cancelSlide(element: Element) {
         </button>
       </header>
       <div class="surface-body">
-        <div v-if="!active" class="surface-chooser">
+        <div v-if="!active && !single" class="surface-chooser">
           <h2>Open a surface</h2>
           <button
             v-for="item in surfaces"

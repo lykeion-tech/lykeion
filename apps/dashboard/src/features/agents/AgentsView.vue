@@ -272,17 +272,13 @@ async function save() {
           ><span class="agent-cell" role="cell"
             ><span class="avatar"
               ><AvatarDisplay
-                v-if="a.built_in_key === 'aristotle' && a.avatar_url"
+                v-if="a.avatar_url"
                 :value="a.avatar_url.slice(6)"
                 :size="20"
               /><Aristotle v-else-if="a.built_in_key === 'aristotle'" still /><Icon
                 v-else-if="a.source === 'built_in' || a.built_in_key"
                 name="bot"
                 :size="18"
-              /><AvatarDisplay
-                v-else-if="a.avatar_url"
-                :value="a.avatar_url.slice(6)"
-                :size="20"
               /><template v-else>{{ agentDisplayName(a.name)[0] }}</template>
               <span v-if="!a.archived_at" class="avatar-active-dot" :class="{ inactive: !agentAvailable(a) }" role="img" :aria-label="agentAvailable(a) ? 'Active' : 'Inactive'" :title="agentAvailable(a) ? 'Active' : 'Inactive'"></span></span
             ><span

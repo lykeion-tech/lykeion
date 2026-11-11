@@ -57,7 +57,9 @@ test('Teams shows the empty state when nothing is shipped or uploaded', async ({
   const empty = page.locator('.directory-empty');
   await expect(empty.getByRole('heading', { name: 'No Teams yet' })).toBeVisible();
   await expect(empty).toContainText('A Team is the agents that work each stage of your studies.');
-  await expect(empty.locator(':scope > svg')).toHaveClass(/lucide-network/);
+  // The Team icon: a square with two eyes in front of another, not the network icon.
+  await expect(empty.locator(':scope > svg')).not.toHaveClass(/lucide-network/);
+  await expect(empty.locator(':scope > svg circle')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
   await empty.getByRole('link', { name: 'New Team' }).click();
   await expect(page.getByRole('dialog', { name: 'Create Team' })).toBeVisible();

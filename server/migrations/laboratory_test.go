@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -141,5 +142,48 @@ func TestRuntimeDeletionUnbinds(t *testing.T) {
 	}
 	if bound != nil || harness != "claude" {
 		t.Fatalf("after deletion: runtime %v harness %q", bound, harness)
+	}
+}
+
+func TestMigrationGivesBuiltInAgentsWithoutAnIconOne(t *testing.T) {
+	env := testutil.Setup(t)
+	u, ws, _ := seedWorkspace(t, env)
+	ins := `INSERT INTO agent (workspace_id, name, harness, owner_id, stage, visibility, laboratory, avatar_url) VALUES ($1, $2, 'claude', $3, $4, $5, $6, $7) RETURNING id`
+	var bare, kept, plain uuid.UUID
+	for _, row := range []struct {
+		id                                 *uuid.UUID
+		name, stage, visibility, lab, icon string
+	}{
+		{&bare, "bare", "grounding", "workspace", "built-in", ""},
+		{&kept, "kept", "grounding", "workspace", "built-in", "emoji:🦁"},
+		{&plain, "plain", "", "private", "", ""},
+	} {
+		if err := env.Owner.QueryRow(t.Context(), ins, ws, row.name, u, row.stage, row.visibility, row.lab, row.icon).Scan(row.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	up, err := fs.ReadFile(migrations.FS, "0070_builtin_agent_icons.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(t.Context(), string(up)); err != nil {
+		t.Fatal(err)
+	}
+	icon := func(id uuid.UUID) string {
+		var got string
+		if err := env.Owner.QueryRow(t.Context(), `SELECT avatar_url FROM agent WHERE id = $1`, id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	set := "🦊 🦁 🐼 🐸 🐴 🐝 🐛 🦋 🐞 🕷️ 🐢 🐍 🐙 🐬 🐯"
+	if g, ok := strings.CutPrefix(icon(bare), "emoji:"); !ok || !strings.Contains(" "+set+" ", " "+g+" ") {
+		t.Errorf("built-in agent without an icon got %q", icon(bare))
+	}
+	if got := icon(kept); got != "emoji:🦁" {
+		t.Errorf("built-in agent's own icon changed to %q", got)
+	}
+	if got := icon(plain); got != "" {
+		t.Errorf("a person's agent got icon %q", got)
 	}
 }

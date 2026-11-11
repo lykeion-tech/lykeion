@@ -122,13 +122,13 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     await expect(page.getByRole('button', { name: new RegExp(person.workspace) })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(person.workspace) }).click();
     const menu = page.getByRole('menu', { name: 'Workspace' });
-    await expect(menu.getByRole('menuitem', { name: new RegExp(person.name) })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: person.email })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: new RegExp(person.workspace) })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(
       workspaceIds[index],
     );
     if (index === 1) {
-      await expect(menu.getByRole('menuitem', { name: /Return lab|Rae Return/ })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ })).toHaveCount(0);
       await page.screenshot({
         path: 'test-results/ui-lab/task11-account-switch.png',
         fullPage: true,
@@ -287,7 +287,8 @@ test('the workspace menu names the workspace and logs out', async ({ page }) => 
   await page.goto('/#/studies');
   await page.getByRole('button', { name: /Beta-cell lab/ }).click();
   const menu = page.getByRole('menu', { name: 'Workspace' });
-  await expect(menu.getByRole('menuitem', { name: /Ana Ruiz/ })).toBeVisible();
+  const me = (await (await page.request.get('/api/me')).json()) as { email: string };
+  await expect(menu.getByRole('menuitem', { name: me.email })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Beta-cell lab/ })).toBeVisible();
   await page.screenshot({ path: 'test-results/ui-lab/task11-workspace-menu.png', fullPage: true });
   const signedOutRead = page.waitForResponse(
