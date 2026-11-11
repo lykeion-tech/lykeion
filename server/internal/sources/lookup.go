@@ -68,6 +68,17 @@ func (l Lookup) Paper(ctx context.Context, id string) (Hit, error) {
 	if err == nil && (l.Exclude.Match(id) || l.Exclude.Hides(d.Hit)) {
 		return Hit{}, fmt.Errorf("paper %s: %w", id, ErrNotFound)
 	}
+	// Europe PMC often has no abstract for an older paper that OpenAlex has
+	// by its DOI. The OpenAlex record is the same paper, so its exclusion
+	// holds too; an OpenAlex that can't answer leaves the abstract empty.
+	if err == nil && d.Abstract == "" && d.DOI != "" && strings.HasPrefix(id, "pmid:") {
+		if oa, oaErr := l.OpenAlex.Get(ctx, "doi:"+d.DOI); oaErr == nil {
+			if l.Exclude.Hides(oa.Hit) {
+				return Hit{}, fmt.Errorf("paper %s: %w", id, ErrNotFound)
+			}
+			d.Abstract = oa.Abstract
+		}
+	}
 	return d.Hit, err
 }
 
