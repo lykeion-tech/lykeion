@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 // The brand row's toggle sits on every rail; clicking the selected item again
 // swaps that rail and the main navigation.
@@ -55,6 +55,38 @@ test('the Chat and Decisions action rows line up with the sidebar search row', a
   const decisionsRow = (await decisions(page).locator('.rail-actions .nav-item').first().boundingBox())!;
   expect(Math.abs(decisionsRow.y - first.y)).toBeLessThan(1);
   expect(Math.abs(decisionsRow.height - first.height)).toBeLessThan(1);
+});
+
+test("the rails' New row has the home sidebar's icon and C shortcut, and C starts a new item", async ({
+  page,
+}) => {
+  await page.goto('/#/studies');
+  const icon = (row: Locator) => row.locator('svg').first().evaluate((svg) => svg.innerHTML);
+  const homeNew = navigation(page).getByRole('button', { name: 'New', exact: true });
+  const homeIcon = await icon(homeNew);
+  await expect(homeNew.locator('kbd')).toHaveText('C');
+
+  await toggle(page, 'Decisions').click();
+  const add = decisions(page).getByRole('link', { name: 'Add decision' });
+  await expect(add.locator('kbd')).toHaveText('C');
+  await expect(add).toHaveAttribute('aria-keyshortcuts', 'C');
+  expect(await icon(add)).toBe(homeIcon);
+  await page.keyboard.press('c');
+  await expect(page).toHaveURL(/#\/decisions\/new$/);
+
+  await toggle(page, 'Coresearch').click();
+  await expect(page).toHaveURL(/#\/coresearch\/conversations\//);
+  const fresh = chat(page).getByRole('link', { name: 'New conversation' });
+  await expect(fresh.locator('kbd')).toHaveText('C');
+  expect(await icon(fresh)).toBe(homeIcon);
+  await page.keyboard.press('c');
+  await expect(page).toHaveURL(/#\/coresearch\/new$/);
+
+  // Away from the rails, C still starts a study.
+  await swap(page);
+  await page.goto('/#/studies');
+  await page.keyboard.press('c');
+  await expect(page.getByRole('dialog')).toBeVisible();
 });
 
 test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top and the Lab menu at the bottom', async ({

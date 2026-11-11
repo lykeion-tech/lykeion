@@ -11,6 +11,7 @@ import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
 import CommandPalette from './ui/CommandPalette.vue';
 import ConversationSearch from './features/coresearch/ConversationSearch.vue';
+import { startConversationDraft } from './features/coresearch/aristotle';
 import DecisionSearch from './features/decisions/DecisionSearch.vue';
 import CreateStudy from './features/studies/CreateStudy.vue';
 import { api, ApiError } from './api/client';
@@ -233,6 +234,14 @@ const { composer, openComposer: openStudyCreate, closeComposer } = useStudyCompo
 function openCreate() {
   openStudyCreate();
 }
+// C does what the open rail's New row does: a new conversation, a new
+// decision, or, anywhere else, a new study.
+function createHere() {
+  if (railView.value === 'context' && inboxShell.value) void router.push('/decisions/new');
+  else if (railView.value === 'context' && aristotleShell.value)
+    void startConversationDraft(router);
+  else openCreate();
+}
 const workspaceMenu = ref(false);
 const help = ref(false);
 const desktop = Boolean(window.lykeionDesktop);
@@ -453,7 +462,7 @@ function key(event: KeyboardEvent) {
     !document.querySelector('dialog[open]')
   ) {
     event.preventDefault();
-    openCreate();
+    createHere();
   }
   if (event.key === 'Escape') {
     workspaceMenu.value = false;

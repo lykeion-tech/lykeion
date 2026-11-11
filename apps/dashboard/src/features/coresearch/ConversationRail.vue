@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { Trash2 } from '@lucide/vue';
-import { useAristotle, newComposerDraft, type Conversation } from './aristotle';
-import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router';
+import { useAristotle, startConversationDraft, type Conversation } from './aristotle';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
@@ -65,8 +65,7 @@ async function startDraft(event: MouseEvent) {
     !event.altKey;
   if (!plain) return;
   event.preventDefault();
-  const result = await router.push('/coresearch/new');
-  if (!result || isNavigationFailure(result, NavigationFailureType.duplicated)) newComposerDraft();
+  await startConversationDraft(router);
 }
 </script>
 <template>

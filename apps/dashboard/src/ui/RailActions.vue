@@ -25,8 +25,9 @@ const emit = defineEmits<{
       class="nav-item"
       :aria-label="newLabel"
       exact-active-class="selected"
+      aria-keyshortcuts="C"
       @click.capture="emit('new', $event)"
-      ><Icon name="plus" :size="16" />New</RouterLink
+      ><Icon name="edit" :size="16" />New<kbd class="push-right">C</kbd></RouterLink
     >
   </div>
 </template>
