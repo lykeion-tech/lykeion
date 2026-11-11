@@ -71,10 +71,10 @@ func TestGroundLinksOccurrenceAndOverlap(t *testing.T) {
 		t.Fatalf("%+v", p.Links)
 	}
 	p = Ground(repWith("", text), hin(nil, []handin.ReportLink{
-		{Phrase: "drug X and", Occurrence: 1, Node: "rec:1"}, {Phrase: "the drug X", Occurrence: 1, Node: "question"}, {Phrase: "drug X", Occurrence: 2, Node: "rec:1"},
+		{Phrase: "drug X and", Occurrence: 1, Node: "rec:1"}, {Phrase: "the drug X", Occurrence: 1, Node: "rec:1"}, {Phrase: "drug X", Occurrence: 2, Node: "rec:1"},
 		{Phrase: "drug X", Occurrence: 3, Node: "rec:1"}, {Phrase: "drug x", Occurrence: 1, Node: "rec:1"}, {Phrase: "drug X", Occurrence: 1, Node: "ghost"}}))
-	// "the drug X" points at the question, so it is dropped and "drug X and" is kept.
-	if len(p.Links) != 2 || p.Links[0].Start != 4 || p.Links[1].Start != 15 {
+	// "the drug X" starts first, so the overlapping "drug X and" is dropped.
+	if len(p.Links) != 2 || p.Links[0].Start != 0 || p.Links[1].Start != 15 {
 		t.Fatalf("%+v", p.Links)
 	}
 }
