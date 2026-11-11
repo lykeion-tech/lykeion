@@ -1720,12 +1720,12 @@ describe('study right-pane surfaces', () => {
       const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
       (maximize.props.onClick as () => void)();
       await nextTick();
-      const main = () => t.nodes().find((n) => n.props.class === 'task-main')!;
-      expect(main().props.hidden).toBe(true);
+      const restore = () => t.nodes().find((n) => n.props['aria-label'] === 'Restore pane size');
+      expect(restore()?.props['aria-pressed']).toBe(true);
       citation.value = 'comment:source';
       await nextTick();
       await nextTick();
-      expect(main().props.hidden).toBe(true);
+      expect(restore()?.props['aria-pressed']).toBe(true);
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Cited source')).toBe(false);
     } finally {
       t.unmount();

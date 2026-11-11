@@ -547,7 +547,6 @@ async function stop() {
       <div
         class="task-main aristotle-conversation"
         data-column="conversation"
-        :hidden="paneMode === 'focus'"
       >
         <header v-if="!isDraft" class="aristotle-header">
           <ChatAgentAvatar
@@ -871,9 +870,6 @@ async function stop() {
   flex-direction: column;
   min-width: 0;
 }
-.aristotle-conversation[hidden] {
-  display: none;
-}
 </style>
 
 <style scoped>
@@ -885,9 +881,6 @@ async function stop() {
 .experiment-surface-layout > .task-main {
   min-width: 0;
   flex: 1;
-}
-.experiment-surface-layout > .task-main[hidden] {
-  display: none !important;
 }
 .experiment-surface-layout :deep(.surface-pane) {
   min-height: 0;

@@ -540,7 +540,7 @@ function pin() {
     ]"
     aria-label="Study"
   >
-    <div class="task-main" :hidden="showMeta && paneFocused">
+    <div class="task-main">
       <header class="study-heading">
         <button
           v-if="!embedded"
@@ -985,9 +985,6 @@ function pin() {
 .surface-content > h2 {
   font-size: 16px;
   margin: 0 0 12px;
-}
-.task-main[hidden] {
-  display: none;
 }
 .property-menu-anchor {
   position: relative;

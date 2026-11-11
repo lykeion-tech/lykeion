@@ -140,7 +140,7 @@ async function openTranscriptFile(item: TranscriptFile) {
           class="task-columns experiment-surface-layout"
           :data-pane-mode="paneMode"
         >
-          <div class="task-main" data-column="conversation" :hidden="paneMode === 'focus'">
+          <div class="task-main" data-column="conversation">
             <div class="task-stage-row">
               <button
                 type="button"
@@ -311,9 +311,6 @@ async function openTranscriptFile(item: TranscriptFile) {
 .experiment-surface-layout > .task-main {
   min-width: 0;
   flex: 1;
-}
-.experiment-surface-layout > .task-main[hidden] {
-  display: none !important;
 }
 .experiment-surface-layout :deep(.surface-pane) {
   min-height: 0;
