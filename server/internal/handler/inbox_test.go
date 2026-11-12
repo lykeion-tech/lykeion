@@ -67,10 +67,11 @@ func TestStoppingAStudyResolvesItsItemsAskingForAPerson(t *testing.T) {
 		t.Fatalf("stop: %d", code)
 	}
 	// The other card's items are untouched; the informational ones stay open until read.
-	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,done,done,no_tool,no_tool,scoring_unavailable,study_report,study_report" {
+	// Scoring retries are the server's own and never show in Decisions.
+	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,done,done,no_tool,no_tool,study_report,study_report" {
 		t.Fatalf("open: %s", got)
 	}
-	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "blocked,scoring_unavailable" {
+	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "blocked" {
 		t.Fatalf("archived: %s", got)
 	}
 	var resolved int
@@ -87,11 +88,15 @@ func TestReadingAnInformationalItemResolvesIt(t *testing.T) {
 	c := s.idleCard(t, a, w.ID, "q")
 	ids := s.seedInbox(t, w.ID, c.ID, s.userID(t, a))
 	for _, kind := range inboxKindsSeeded {
-		if code := s.call(t, "POST", "/api/decisions/"+ids[kind]+"/read", a, w.ID, nil, nil); code != 204 {
+		want := 204
+		if kind == "scoring_unavailable" {
+			want = 404
+		}
+		if code := s.call(t, "POST", "/api/decisions/"+ids[kind]+"/read", a, w.ID, nil, nil); code != want {
 			t.Fatalf("read %s: %d", kind, code)
 		}
 	}
-	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,scoring_unavailable" {
+	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked" {
 		t.Fatalf("open: %s", got)
 	}
 	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "done,no_tool,study_report" {
@@ -126,7 +131,7 @@ func TestReadingResolvedBlockingItemsDoesNotResolveThemAgain(t *testing.T) {
 		t.Fatalf("stop: %d", code)
 	}
 	var before []inboxRow
-	if code := s.call(t, "GET", "/api/decisions?view=history", recipient, w.ID, nil, &before); code != 200 || len(before) != 2 {
+	if code := s.call(t, "GET", "/api/decisions?view=history", recipient, w.ID, nil, &before); code != 200 || len(before) != 1 {
 		t.Fatalf("archive after stop: %d %+v", code, before)
 	}
 	for _, item := range before {

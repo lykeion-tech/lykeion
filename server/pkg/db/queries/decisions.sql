@@ -9,7 +9,7 @@ SELECT sqlc.embed(i),
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id
-  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts')
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
   AND (i.kind <> 'waiting_for_machine' OR jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
   AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
     OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
@@ -27,7 +27,7 @@ SELECT sqlc.embed(i),
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.id = @id AND i.workspace_id = @workspace_id
-  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts')
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
   AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
     OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)));
 
@@ -35,7 +35,7 @@ WHERE i.id = @id AND i.workspace_id = @workspace_id
 -- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id
-  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts')
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
   AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
     OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL

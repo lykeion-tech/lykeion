@@ -258,7 +258,7 @@ var (
 // blocks it. A column reviewed item by item goes to reviewColumn instead, and
 // Validation to reviewValidation. Jev
 // is asked with no transaction open. When Jev cannot be reached the study
-// stays where it is, its owner hears once, and the next pass retries.
+// stays where it is and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 	in, ok, err := e.readScoring(ctx, ws, card)
 	if err != nil || !ok {
@@ -311,8 +311,8 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
 			return err
 		}
-		// With no key nothing can change until the lab adds one; its owner
-		// has already heard.
+		// With no key nothing can change until the lab adds one, and the
+		// open item says this study has already tried.
 		if e.Jev == nil {
 			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
 			if err != nil || open > 0 {
@@ -691,8 +691,8 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 	return moved, err
 }
 
-// scoringUnavailable leaves the study where it is and tells its owner once;
-// the next pass retries.
+// scoringUnavailable leaves the study where it is and records that once, in
+// an item Decisions does not show; the next pass retries.
 func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
 	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
 	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})

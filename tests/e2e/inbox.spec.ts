@@ -195,25 +195,28 @@ test('each new Inbox kind reads and opens its study', async ({ page }) => {
       `An agent on study #${card.number}'s Grounding column found no skill or connector that fits what it needed: a mass-spec parser`,
       `${name}'s agent found no skill or connector for: a mass-spec parser`,
     ],
-    [
-      'scoring_unavailable',
-      `Scoring is unavailable for study #${card.number}.`,
-      `${name} couldn't be scored; Lykeion will retry`,
-    ],
     ['done', `Study #${card.number} is done.`, `${name} is done`],
   ];
   for (const [kind, text] of kinds) await labInbox(page.request, card.id, kind, text);
+  // Scoring retries are the server's own and never become a decision.
+  await labInbox(
+    page.request,
+    card.id,
+    'scoring_unavailable',
+    `Scoring is unavailable for study #${card.number}.`,
+  );
   await page.goto('/#/decisions');
   const list = page.getByRole('navigation', { name: 'Decisions' });
   for (const [, , shown] of kinds)
     await expect(list.getByText(shown, { exact: true })).toBeVisible();
+  await expect(list.getByText(`${name} couldn't be scored; Lykeion will retry`)).toHaveCount(0);
   await page.screenshot({ path: 'test-results/teams-scoring/inbox-kinds.png', fullPage: true });
   await list.getByText(kinds[0]![2], { exact: true }).click();
   await expect(shownStudy(page, name)).toBeVisible();
   await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
   // A Done card opens its study's page.
   await page.goto('/#/decisions');
-  await list.getByText(kinds[3]![2], { exact: true }).click();
+  await list.getByText(kinds[2]![2], { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`#/studies/${card.id}$`));
 });
 
