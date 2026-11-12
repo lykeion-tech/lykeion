@@ -754,6 +754,60 @@ func TestCoresearchClaimLeaseFencesAndRecoversLostClaim(t *testing.T) {
 		t.Fatalf("expired generation accepted %d", code)
 	}
 }
+
+func TestCoresearchClaimReturnsOnlyCommittedWorkspaceWork(t *testing.T) {
+	for _, deferred := range []bool{false, true} {
+		t.Run(fmt.Sprintf("deferred=%t", deferred), func(t *testing.T) {
+			s, a, _, outsider, firstWS, firstProject := csFixture(t)
+			secondWS := s.workspace(t, a, "claim-failure").ID
+			foreignWS := s.workspace(t, outsider, "foreign-claim").ID
+			var secondProject csProject
+			if code := s.call(t, "POST", csProjects, a, secondWS, map[string]string{"name": "Other"}, &secondProject); code != 201 {
+				t.Fatalf("second project: %d", code)
+			}
+			var foreignProject csProject
+			if code := s.call(t, "POST", csProjects, outsider, foreignWS, map[string]string{"name": "Foreign"}, &foreignProject); code != 201 {
+				t.Fatal(code)
+			}
+			firstPath, _ := csChat(t, s, a, firstWS, firstProject.ID)
+			secondPath, _ := csChat(t, s, a, secondWS, secondProject.ID)
+			foreignPath, _ := csChat(t, s, outsider, foreignWS, foreignProject.ID)
+			var firstCell, secondCell db.CoresearchCell
+			if code := s.call(t, "POST", firstPath+"/cells", a, firstWS, map[string]string{"kernel": "python3", "source": "first"}, &firstCell); code != 201 {
+				t.Fatal(code)
+			}
+			if code := s.call(t, "POST", secondPath+"/cells", a, secondWS, map[string]string{"kernel": "python3", "source": "second"}, &secondCell); code != 201 {
+				t.Fatal(code)
+			}
+			if code := s.call(t, "POST", foreignPath+"/cells", outsider, foreignWS, map[string]string{"kernel": "python3", "source": "private"}, nil); code != 201 {
+				t.Fatal(code)
+			}
+			firstRef := csRegister(t, s, a, firstWS, "work", "claude")
+			secondRef := csRegister(t, s, a, secondWS, "work", "claude")
+			foreignRef := csRegister(t, s, outsider, foreignWS, "work", "claude")
+			trigger := "CREATE TRIGGER reject_claim BEFORE UPDATE ON coresearch_cell"
+			if deferred {
+				trigger = "CREATE CONSTRAINT TRIGGER reject_claim AFTER UPDATE ON coresearch_cell DEFERRABLE INITIALLY DEFERRED"
+			}
+			_, err := s.Env.Owner.Exec(t.Context(), fmt.Sprintf(`CREATE FUNCTION reject_claim_for_workspace() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.workspace_id = '%s'::uuid THEN RAISE EXCEPTION 'injected claim failure'; END IF; RETURN NEW; END $$; %s FOR EACH ROW EXECUTE FUNCTION reject_claim_for_workspace()`, secondWS, trigger))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got coresearch.Work
+			code := s.call(t, "POST", "/api/daemon/coresearch/claim", s.personalToken(t, a), "", map[string]any{"daemon_id": "work", "runtimes": []service.RuntimeRef{firstRef, secondRef, foreignRef}}, &got)
+			if code != 200 || len(got.Cells) != 1 || got.Cells[0].ID != firstCell.ID || got.Cells[0].ClaimToken == uuid.Nil {
+				t.Fatalf("claim returned %d: %+v", code, got)
+			}
+			var status string
+			if err := s.Env.Owner.QueryRow(t.Context(), "SELECT status FROM coresearch_cell WHERE id=$1", secondCell.ID).Scan(&status); err != nil || status != "queued" {
+				t.Fatalf("failed workspace work was not rolled back: status=%q err=%v", status, err)
+			}
+			if code := s.call(t, "POST", "/api/daemon/coresearch/claim", s.personalToken(t, a), "", map[string]any{"daemon_id": "work", "runtimes": []service.RuntimeRef{secondRef}}, nil); code != 500 {
+				t.Fatalf("failure without committed work returned %d", code)
+			}
+		})
+	}
+}
 func TestCoresearchCellFinishAcknowledgesIdenticalReceipt(t *testing.T) {
 	s, a, _, _, ws, p := csFixture(t)
 	path, _ := csChat(t, s, a, ws, p.ID)

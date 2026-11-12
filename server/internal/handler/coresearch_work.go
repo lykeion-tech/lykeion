@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"io"
+	"log/slog"
 	"lykeion/server/internal/compute"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/middleware"
@@ -368,11 +369,13 @@ func (h *H) daemonCoresearchClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := coresearch.EmptyWork()
+	var claimErr error
 	groups := map[uuid.UUID][]uuid.UUID{}
 	for _, ref := range in.Runtimes {
 		groups[ref.WorkspaceID] = append(groups[ref.WorkspaceID], ref.RuntimeID)
 	}
 	for ws, ids := range groups {
+		var got coresearch.Work
 		e := h.Store.InWorkspace(r.Context(), ws, user(r), func(tx *store.Tx) error {
 			if _, e := tx.Q.LockWorkspaceForMutation(r.Context(), ws); e != nil {
 				return e
@@ -380,20 +383,28 @@ func (h *H) daemonCoresearchClaim(w http.ResponseWriter, r *http.Request) {
 			if _, e := tx.Q.LockMember(r.Context(), db.LockMemberParams{WorkspaceID: ws, UserID: user(r)}); e != nil {
 				return e
 			}
-			got, e := coresearch.Claim(r.Context(), tx, user(r), in.DaemonID, ids)
-			out.Builds = append(out.Builds, got.Builds...)
-			out.Cells = append(out.Cells, got.Cells...)
-			out.Runs = append(out.Runs, got.Runs...)
-			out.Setups = append(out.Setups, got.Setups...)
-			out.Controls = append(out.Controls, got.Controls...)
+			var e error
+			got, e = coresearch.Claim(r.Context(), tx, user(r), in.DaemonID, ids)
 			return e
 		})
 		if errors.Is(e, pgx.ErrNoRows) {
 			continue
 		}
-		if !coresearchAnswer(w, r, e) {
-			return
+		if e != nil {
+			if claimErr == nil {
+				claimErr = e
+			}
+			slog.Error("Coresearch workspace claim failed", "workspace", ws, "err", e)
+			continue
 		}
+		out.Builds = append(out.Builds, got.Builds...)
+		out.Cells = append(out.Cells, got.Cells...)
+		out.Runs = append(out.Runs, got.Runs...)
+		out.Setups = append(out.Setups, got.Setups...)
+		out.Controls = append(out.Controls, got.Controls...)
+	}
+	if len(out.Builds)+len(out.Cells)+len(out.Runs)+len(out.Setups)+len(out.Controls) == 0 && !coresearchAnswer(w, r, claimErr) {
+		return
 	}
 	writeJSON(w, 200, out)
 }
