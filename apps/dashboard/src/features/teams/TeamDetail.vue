@@ -30,7 +30,6 @@ import { workspaceId } from '../../api/session';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
 import TeamMemberProfile from './TeamMemberProfile.vue';
-import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import '../coresearch/l2.css';
 import { useStudyComposer } from '../../state/study-composer';
 const props = defineProps<{ id: string }>();
@@ -227,34 +226,6 @@ const busy = ref(false),
   created = ref<number | null>(null);
 const iconBusy = ref(false);
 let visit = 0;
-const memberCLIBusy = ref(false);
-const memberCLIError = ref('');
-async function changeMemberCLI(harness: string) {
-  const member = selected.value?.member;
-  const agent = member && detail.data.value?.my_agents?.[member.name];
-  if (!member || !agent || memberCLIBusy.value) return;
-  if (harness === agent.harness) return;
-  const model = member.agent.models?.[harness] ?? '';
-  const ws = workspaceId.value;
-  const teamID = props.id;
-  const ownVisit = visit;
-  memberCLIBusy.value = true;
-  memberCLIError.value = '';
-  try {
-    await api('PATCH', `/api/agents/${agent.id}`, { harness, model }, undefined, { workspace: ws });
-    await Promise.all([
-      client.invalidateQueries({ queryKey: keys.team(ws, teamID) }),
-      client.invalidateQueries({ queryKey: keys.agents(ws) }),
-      client.invalidateQueries({ queryKey: keys.packs(ws) }),
-    ]);
-  } catch (e) {
-    if (ownVisit === visit) {
-      memberCLIError.value = (e as Error).message;
-    }
-  } finally {
-    if (ownVisit === visit) memberCLIBusy.value = false;
-  }
-}
 watch([workspaceId, () => props.id], () => {
   visit++;
   skillMember.value = null;
@@ -272,8 +243,6 @@ watch([workspaceId, () => props.id], () => {
   copyBusy.value = false;
   copyError.value = '';
   iconBusy.value = false;
-  memberCLIBusy.value = false;
-  memberCLIError.value = '';
   settingsBusy.value = false;
   settingsError.value = '';
 });
@@ -403,8 +372,6 @@ function tabKey(event: KeyboardEvent, index: number) {
               <p class="agent-meta">
                 <span><Icon name="network" :size="13" />{{ stage(manifest.stage) }}</span
                 ><span v-if="harnesses"><Icon name="monitor" :size="13" />{{ harnesses }}</span
-                ><span v-if="displayDomain"
-                  ><Icon name="circle" :size="13" />{{ displayDomain }}</span
                 ><span><Icon name="bot" :size="13" />{{ people.length }} agents</span>
               </p>
             </div>
@@ -503,43 +470,12 @@ function tabKey(event: KeyboardEvent, index: number) {
             :member="selected.member"
             :role="selected.role"
             :editable-skills="canEditTeam"
+            :agent-id="detail.data.value?.my_agents?.[selected.member.name]?.id"
             @edit-skills="
               skillsError = '';
               skillMember = selected.member;
             "
           />
-          <div class="inspector-harness">
-            <span>CLI</span>
-            <div
-              v-if="builtIn && detail.data.value?.my_agents?.[selected.member.name]"
-              class="coresearch team-cli-picker"
-            >
-              <ModelSwitcher
-                :cli="detail.data.value.my_agents[selected.member.name]!.harness"
-                :model-value="detail.data.value.my_agents[selected.member.name]!.model"
-                :models="[]"
-                :clis="
-                  Object.keys(
-                    selected.member.agent.models ?? { [selected.member.agent.harness ?? '']: '' },
-                  )
-                "
-                :disabled="memberCLIBusy"
-                cli-only
-                @update:cli="changeMemberCLI"
-              />
-            </div>
-            <p v-else-if="builtIn">Connect a machine to set up your Team agents.</p>
-            <p v-else>
-              {{
-                Object.keys(
-                  selected.member.agent.models ?? { [selected.member.agent.harness ?? '']: '' },
-                )
-                  .map(backendLabel)
-                  .join(' or ')
-              }}
-            </p>
-            <p v-if="memberCLIError" role="alert">{{ memberCLIError }}</p>
-          </div>
         </aside>
       </div>
       <section
@@ -909,27 +845,6 @@ function tabKey(event: KeyboardEvent, index: number) {
   color: var(--text);
   font-size: 14px;
   font-weight: 600;
-}
-.inspector-harness {
-  padding-top: 16px;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.inspector-harness span {
-  color: var(--muted);
-}
-.inspector-harness p {
-  margin-top: 6px;
-}
-.team-cli-picker {
-  width: 100%;
-  height: auto;
-  margin-top: 6px;
-  background: transparent;
-}
-.team-cli-picker :deep(.cli-menu--with-cli) {
-  width: max-content;
-  max-width: calc(100vw - 32px);
 }
 @container (max-width: 1000px) {
   .team-studio {

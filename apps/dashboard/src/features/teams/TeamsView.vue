@@ -8,6 +8,7 @@ import { workspaceId } from '../../api/session';
 import { useMe, useRuntimes, useTeams } from '../../api/queries';
 import type { StoreTeam } from '../../api/types';
 import { matchesQuery } from '../../lib/search';
+import { timeAgo } from '../../lib/studies';
 
 const search = ref('');
 const newestFirst = ref(true);
@@ -178,10 +179,12 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
         <thead>
           <tr>
             <th scope="col">Name</th>
-            <th scope="col">Domain</th>
             <th scope="col">Stage</th>
             <th scope="col">Agents</th>
-            <th scope="col"><span class="directory-last-value">Source</span></th>
+            <th scope="col">Source</th>
+            <th scope="col" :aria-sort="newestFirst ? 'descending' : 'ascending'">
+              <span class="directory-last-value">Last updated</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -206,13 +209,11 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                 ></RouterLink
               >
             </td>
-            <td>{{ teamDomain(t.source, t.stage, t.domain) || '—' }}</td>
             <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.manifest.members.length + 2 }}</td>
+            <td>{{ t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added' }}</td>
             <td>
-              <span class="directory-last-value">{{
-                t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added'
-              }}</span>
+              <span class="directory-last-value">{{ timeAgo(t.created_at) }}</span>
             </td>
           </tr>
         </tbody>

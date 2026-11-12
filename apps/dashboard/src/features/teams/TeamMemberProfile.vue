@@ -3,11 +3,13 @@ import type { TeamMember } from '../../api/types';
 import { backendLabel } from '../../lib/backends';
 import Icon from '../../ui/Icon.vue';
 import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
 const props = defineProps<{
   member: TeamMember;
   role?: string;
   card?: boolean;
   editableSkills?: boolean;
+  agentId?: string;
 }>();
 const emit = defineEmits<{ editSkills: [] }>();
 // A member that names a model per harness runs on whichever the researcher has.
@@ -31,6 +33,9 @@ const harnesses = computed(() =>
         <small v-if="card" class="member-backend">{{ harnesses }}</small>
         <p v-if="!card">{{ member.role }}</p>
       </div>
+      <RouterLink v-if="agentId" :to="`/agents/${agentId}`" class="details-link"
+        >Details →</RouterLink
+      >
     </div>
     <p v-if="card" class="member-role">{{ member.role }}</p>
     <p v-if="member.skills?.length" class="member-capabilities">
@@ -67,6 +72,12 @@ const harnesses = computed(() =>
   font-weight: 400;
   color: var(--muted);
   margin-bottom: 14px;
+}
+.details-link {
+  margin-left: auto;
+  align-self: flex-start;
+  color: var(--primary-text);
+  white-space: nowrap;
 }
 .member-identity {
   display: flex;
