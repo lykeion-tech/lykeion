@@ -160,6 +160,8 @@ const experimentLayout = ref<HTMLElement>();
 const experimentWidth = useElementWidth(experimentLayout);
 const activePane = ref<string | null>(null),
   paneMode = ref<'closed' | 'split' | 'focus'>('closed'),
+  // Kept while the pane is closed, so it closes at its own size and reopens as it was.
+  paneFocused = ref(false),
   activeFile = ref<FileRow>(),
   activeFileVersion = ref<number>();
 let paneKey = '';
@@ -180,6 +182,7 @@ watch(
         ? `lykeion.experiment-pane-open:${workspace}:${user}:${conversationId}`
         : '';
     paneMode.value = paneKey && readText(paneKey, 'session') === 'true' ? 'split' : 'closed';
+    paneFocused.value = false;
     activePane.value = null;
     activeFile.value = undefined;
     restoringPane = false;
@@ -204,8 +207,12 @@ const experimentSurfaces = [
   { id: 'compute', label: 'Compute', icon: 'monitor' },
 ];
 async function toggleSurfaces() {
-  if (paneMode.value === 'closed') paneMode.value = 'split';
+  if (paneMode.value === 'closed') paneMode.value = paneFocused.value ? 'focus' : 'split';
   else await closePane();
+}
+function setPaneFocused(focused: boolean) {
+  paneFocused.value = focused;
+  paneMode.value = focused ? 'focus' : 'split';
 }
 async function closePane() {
   if (activePane.value === 'files' && !(await guardResourceDrafts())) return;
@@ -221,7 +228,7 @@ async function openTranscriptFile(item: TranscriptFile) {
   activeFile.value = item.file;
   activeFileVersion.value = item.version.n;
   activePane.value = 'files';
-  if (paneMode.value === 'closed') paneMode.value = 'split';
+  if (paneMode.value === 'closed') paneMode.value = paneFocused.value ? 'focus' : 'split';
 }
 
 const historyUnavailable = computed(
@@ -544,10 +551,7 @@ async function stop() {
       class="task-columns experiment-surface-layout"
       :data-pane-mode="paneMode"
     >
-      <div
-        class="task-main aristotle-conversation"
-        data-column="conversation"
-      >
+      <div class="task-main aristotle-conversation" data-column="conversation">
         <header v-if="!isDraft" class="aristotle-header">
           <ChatAgentAvatar
             :agent="agent"
@@ -566,7 +570,9 @@ async function stop() {
             v-if="experiment && paneMode !== 'focus'"
             type="button"
             class="experiment-toggle"
-            :aria-label="paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'"
+            :aria-label="
+              paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'
+            "
             :aria-pressed="paneMode !== 'closed'"
             @click="toggleSurfaces"
           >
@@ -790,7 +796,7 @@ async function stop() {
         hide-title
         :open="paneMode !== 'closed'"
         :active="activePane"
-        :focused="paneMode === 'focus'"
+        :focused="paneFocused"
         :surfaces="experimentSurfaces"
         :default-width="240"
         :restore-width="false"
@@ -799,7 +805,7 @@ async function stop() {
         width-key="lykeion.experiment-pane-width"
         @update:open="closePane"
         @update:active="selectPane"
-        @update:focused="paneMode = $event ? 'focus' : 'split'"
+        @update:focused="setPaneFocused"
       >
         <template #default>
           <div class="task-rightpane-card">

@@ -129,7 +129,6 @@ it('keeps the open file when the current conversation refreshes', async () => {
   );
   await settle();
   expect(all(root).some((n) => n.props['data-testid'] === 'artifact-pane')).toBe(true);
-
 });
 it('opens an Experiment inspector beside the conversation rail with Notebook Files Compute and no Runs', async () => {
   const { root, settle } = await mount();
@@ -220,6 +219,25 @@ it('opens the Experiment chooser with one surface at a time', async () => {
   expect(all(root).find((n) => n.props['aria-label'] === 'Open experiment surfaces')).toBeTruthy();
 });
 
+it('keeps a maximized Experiment pane maximized while it closes and when it reopens', async () => {
+  const { root, settle } = await mount();
+  const click = async (label: string) => {
+    const target = all(root).find(
+      (n) => n.tag === 'button' && (n.props['aria-label'] === label || textOf(n).trim() === label),
+    );
+    expect(target, label).toBeTruthy();
+    (target!.props.onClick as () => void)();
+    await settle();
+  };
+  await click('Open experiment surfaces');
+  await click('Notebook');
+  await click('Maximize pane');
+  await click('Close pane');
+  expect(all(root).some((n) => n.props['aria-label'] === 'Restore pane size')).toBe(false);
+  await click('Open experiment surfaces');
+  expect(all(root).some((n) => n.props['aria-label'] === 'Restore pane size')).toBe(true);
+});
+
 it('uses an overlay for a narrow Experiment container in a wide window', async () => {
   vi.stubGlobal(
     'ResizeObserver',
@@ -295,5 +313,7 @@ it('keeps file preview actions in the pane', async () => {
     (n) => n.tag === 'button' && n.props['aria-label'] === 'Open file in tab',
   );
   expect(open).toBeUndefined();
-  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Edit content')).toBe(false);
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Edit content')).toBe(
+    false,
+  );
 });
