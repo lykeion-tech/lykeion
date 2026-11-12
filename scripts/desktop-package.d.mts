@@ -15,6 +15,10 @@ export function debianMaintainer(
 export function verifyGoBuild(info: string, commit: string, goos: string, goarch: string): void;
 export function verifyBundledBinary(built: string, bundled: string): void;
 export function safeBuildEnvironment(input: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+export function macSigningOptions(
+  platform: string,
+  input: NodeJS.ProcessEnv,
+): { identity: string; keychainProfile?: string; keychain?: string } | undefined;
 export function extractTrackedSnapshot(repo: string, destination: string): void;
 export function replaceOutput(source: string, output: string): void;
 export function verifyArchive(
