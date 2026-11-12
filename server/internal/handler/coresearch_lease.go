@@ -11,12 +11,16 @@ import (
 )
 
 func coresearchClaim(r *http.Request, token *uuid.UUID, expires *time.Time, status string, receipt *string, terminal bool) error {
+	return coresearchClaimAt(r, token, expires, status, receipt, terminal, time.Now())
+}
+
+func coresearchClaimAt(r *http.Request, token *uuid.UUID, expires *time.Time, status string, receipt *string, terminal bool, now time.Time) error {
 	supplied, err := uuid.Parse(r.URL.Query().Get("claim_token"))
 	if err != nil || token == nil || supplied != *token {
 		return service.ErrConflict
 	}
 	if status == "running" {
-		if expires == nil || !expires.After(time.Now()) {
+		if expires == nil || !expires.After(now) {
 			return service.ErrConflict
 		}
 		return nil

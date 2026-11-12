@@ -102,6 +102,42 @@ func TestRunNeedsReadyEnvironment(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestRejectedRecordedLeaseCannotStartProcessOrPinPython(t *testing.T) {
+	f, _, s, _ := newRecordedFixture(t, "")
+	previous := f.d.api.HTTP.Transport
+	var reports []map[string]string
+	f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet && (strings.Contains(r.URL.Path, "/runs/") || strings.Contains(r.URL.Path, "/setups/")) && strings.HasSuffix(r.URL.Path, "/status") {
+			return &http.Response{StatusCode: http.StatusConflict, Body: io.NopCloser(strings.NewReader("expired claim")), Header: http.Header{}}, nil
+		}
+		if strings.Contains(r.URL.Path, "/setups/") && strings.HasSuffix(r.URL.Path, "/finish") {
+			var body map[string]string
+			must(t, json.NewDecoder(r.Body).Decode(&body))
+			reports = append(reports, body)
+			return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
+		}
+		return previous.RoundTrip(r)
+	})
+	sentinel := filepath.Join(t.TempDir(), "started")
+	run := f.d.recordedRunner(f.work, "runs", uuid.New(), s, sandbox.Policy{}, t.TempDir(), 0, nil)
+	if _, err := run(t.Context(), nil, s.Dir, "/bin/sh", "-c", `touch "$1"`, "sh", sentinel); err == nil {
+		t.Fatal("expired claim started a process")
+	}
+	if _, err := os.Stat(sentinel); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("process sentinel exists: %v", err)
+	}
+	v := "3.12"
+	err := f.d.dispatchCoresearchSetup(t.Context(), coresearch.ClaimedSetup{WorkContext: f.work, ID: uuid.New(), Python: &v})
+	if err == nil || s.RecordedPython() != "" {
+		t.Fatalf("setup err=%v version=%q", err, s.RecordedPython())
+	}
+	for _, report := range reports {
+		if report["status"] == "running" || report["python_version"] != "" {
+			t.Fatalf("setup changed version: %v", report)
+		}
+	}
+}
 func TestRunFolderRemoved(t *testing.T) {
 	f := newCoreFixture(t)
 	c := coresearch.ClaimedRun{WorkContext: f.work, ID: uuid.New(), Script: coresearch.FileRef{Path: "script.py"}}

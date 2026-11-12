@@ -928,3 +928,159 @@ func TestCoresearchHeartbeatKeepsOwnerAndTokenBoundary(t *testing.T) {
 		t.Fatal(expiry, e)
 	}
 }
+
+func TestCoresearchRunningStatusRequiresLiveClaimLease(t *testing.T) {
+	s, a, b, _, ws, p := csFixture(t)
+	path, chat := csChat(t, s, a, ws, p.ID)
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, nil); code != 201 {
+		t.Fatalf("cell: %d", code)
+	}
+	if code, _ := csUpload(t, s, a, ws, p.ID, "main.py", 0, false, []byte("print(1)")); code != 201 {
+		t.Fatalf("upload: %d", code)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs", a, ws, map[string]any{"chat_id": chat.ID, "script": "main.py"}, nil); code != 201 {
+		t.Fatalf("run: %d", code)
+	}
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/environment", a, ws, map[string]any{"chat_id": chat.ID, "python": "3.13"}, nil); code != 201 {
+		t.Fatalf("setup: %d", code)
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 || len(work.Runs) != 1 || len(work.Setups) != 1 {
+		t.Fatalf("claimed: %+v", work)
+	}
+	items := []struct {
+		kind, table string
+		id, token   uuid.UUID
+	}{
+		{"cells", "coresearch_cell", work.Cells[0].ID, work.Cells[0].ClaimToken},
+		{"runs", "coresearch_run", work.Runs[0].ID, work.Runs[0].ClaimToken},
+		{"setups", "coresearch_setup", work.Setups[0].ID, work.Setups[0].ClaimToken},
+	}
+	for _, item := range items {
+		t.Run(item.kind, func(t *testing.T) {
+			url := "/api/daemon/coresearch/" + item.kind + "/" + item.id.String() + "/status?daemon_id=work&claim_token=" + item.token.String()
+			var before, after time.Time
+			if err := s.Env.Owner.QueryRow(t.Context(), "SELECT lease_expires_at FROM "+item.table+" WHERE id=$1", item.id).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]string
+			if code := s.call(t, "GET", url, s.personalToken(t, a), ws, nil, &body); code != 200 || body["status"] != "running" {
+				t.Fatalf("live: %d %v", code, body)
+			}
+			if err := s.Env.Owner.QueryRow(t.Context(), "SELECT lease_expires_at FROM "+item.table+" WHERE id=$1", item.id).Scan(&after); err != nil || !before.Equal(after) {
+				t.Fatalf("GET renewed lease: %v %v %v", before, after, err)
+			}
+			if code := s.call(t, "GET", strings.Replace(url, item.token.String(), uuid.NewString(), 1), s.personalToken(t, a), ws, nil, nil); code != 409 {
+				t.Fatalf("wrong token: %d", code)
+			}
+			if code := s.call(t, "GET", url, s.personalToken(t, b), ws, nil, nil); code != 404 {
+				t.Fatalf("foreign owner: %d", code)
+			}
+			if code := s.call(t, "GET", strings.Replace(url, "daemon_id=work", "daemon_id=foreign", 1), s.personalToken(t, a), ws, nil, nil); code != 404 {
+				t.Fatalf("foreign daemon: %d", code)
+			}
+			if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE "+item.table+" SET claim_token=NULL WHERE id=$1", item.id); err != nil {
+				t.Fatal(err)
+			}
+			if code := s.call(t, "GET", url, s.personalToken(t, a), ws, nil, nil); code != 409 {
+				t.Fatalf("nil token: %d", code)
+			}
+			if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE "+item.table+" SET claim_token=$2 WHERE id=$1", item.id, item.token); err != nil {
+				t.Fatal(err)
+			}
+			for _, expiry := range []string{"now()-interval '1 second'", "NULL"} {
+				if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE "+item.table+" SET lease_expires_at="+expiry+" WHERE id=$1", item.id); err != nil {
+					t.Fatal(err)
+				}
+				if code := s.call(t, "GET", url, s.personalToken(t, a), ws, nil, nil); code != 409 {
+					t.Errorf("running with expiry %s: %d", expiry, code)
+				}
+			}
+			for _, status := range []string{"cancelled", "ok"} {
+				if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE "+item.table+" SET status=$2, lease_expires_at=NULL WHERE id=$1", item.id, status); err != nil {
+					t.Fatal(err)
+				}
+				body = nil
+				if code := s.call(t, "GET", url, s.personalToken(t, a), ws, nil, &body); code != 200 || body["status"] != status {
+					t.Fatalf("terminal %s: %d %v", status, code, body)
+				}
+				if code := s.call(t, "GET", strings.Replace(url, item.token.String(), uuid.NewString(), 1), s.personalToken(t, a), ws, nil, nil); code != 409 {
+					t.Fatalf("terminal wrong token: %d", code)
+				}
+			}
+		})
+	}
+}
+
+func TestCoresearchRunningStatusUsesDatabaseClockAfterLock(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, nil); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	cell := work.Cells[0]
+	token := s.personalToken(t, a)
+	blocker, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err := blocker.Exec(t.Context(), "SELECT id FROM workspace WHERE id=$1 FOR UPDATE", ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '2 seconds' WHERE id=$1", cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/status?daemon_id=work&claim_token=" + cell.ClaimToken.String()
+	done := make(chan int, 1)
+	go func() {
+		req, err := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+		if err != nil {
+			done <- 0
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			done <- 0
+			return
+		}
+		defer resp.Body.Close()
+		done <- resp.StatusCode
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	blocked := false
+	for time.Now().Before(deadline) {
+		if err := s.Env.Owner.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE $1)", "%FROM workspace WHERE id =%FOR UPDATE%").Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked {
+		t.Fatal("status request never reached workspace lock")
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "SELECT pg_sleep(2.1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := blocker.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != http.StatusConflict {
+			t.Fatalf("expired while waiting for lock: %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("status request did not finish")
+	}
+}

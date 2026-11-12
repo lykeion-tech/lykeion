@@ -704,10 +704,21 @@ func (h *H) daemonCoresearchStatus(w http.ResponseWriter, r *http.Request) {
 		if err != nil || token == nil || supplied != *token {
 			return service.ErrConflict
 		}
+		if r.Method == "GET" && status == "running" {
+			now, err := tx.CoresearchClock(r.Context())
+			if err != nil {
+				return err
+			}
+			if e := coresearchClaimAt(r, token, expires, status, nil, false, now); e != nil {
+				return e
+			}
+		}
 		if r.Method == "POST" {
 			if e := coresearchClaim(r, token, expires, status, nil, false); e != nil {
 				return e
 			}
+		}
+		if r.Method == "POST" {
 			var n int64
 			switch kind {
 			case "cells":
