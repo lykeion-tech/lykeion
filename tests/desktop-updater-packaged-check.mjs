@@ -22,6 +22,9 @@ try {
   if (downloadProbe) {
     cpSync(path.join(root, 'tests/fixtures/desktop-held-stream.cjs'), path.join(input, 'desktop-held-stream.cjs'));
     cpSync(path.join(root, 'tests/fixtures/desktop-fake-stream-helper.cjs'), path.join(privateDir, 'fake-helper.cjs'));
+    execFileSync('go', ['test', '-c', '-o', path.join(privateDir, 'go-stream-probe'), './internal/desktopupdate'], {
+      cwd: path.join(root, 'server'), env: { ...process.env, GOFLAGS: '', GOWORK: 'off', GOCACHE: '/tmp/lykeion-desktop-go-cache' }, timeout: 30000, stdio: 'ignore',
+    });
   }
   await buildDesktopUpdater(root, path.join(input, 'electron-updater.cjs'));
   const app = path.join(temp, 'Electron.app');
@@ -41,7 +44,8 @@ try {
   assert.equal(result.code, 0, `fixture terminated: ${JSON.stringify(result)}, result: ${JSON.stringify(observed)}`);
   assert.deepEqual(observed, downloadProbe ? {
     badSignatureRejected: true, signatureSelfCheck: true, badBearerRejected: true,
-    remoteBlocked: true, guards: true, redirectBlocked: true, singleFlight: true, canceled: true, badStreamsNeverComplete: true, exactBytes: true,
+    remoteBlocked: true, guards: true, redirectBlocked: true, singleFlight: true, canceled: true, badStreamsNeverComplete: true,
+    realGoInvalidRejected: true, realGoLivenessClosed: true, realGoMutationRejected: true, realGoCancelReaped: true, exactBytes: true,
     tamperNotNotified: true, eventBeforeRecheck: true, noNativeInstall: true, exactRequests: true, noSecretLogs: true, packaged: true, cleanupDone: true, failed: false,
   } : {
     packaged: true, adapter: true, executor: true, autoDownload: false,

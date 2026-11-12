@@ -14,6 +14,8 @@ app.whenReady().then(async () => {
   let server;
   let updater;
   let failure = false;
+  const children = new Set();
+  const track = (child) => { children.add(child); child.once('close', () => children.delete(child)); return child; };
   const observed = {};
   const checkpoint = (phase) => fs.writeFileSync(report, JSON.stringify({ phase }));
   try {
@@ -144,15 +146,27 @@ app.whenReady().then(async () => {
     checkpoint('retry');
     let failedSafely = true;
     const prepareHeld = async (mode) => {
-      const child = spawn(process.env.LYK_TEST_NODE, [path.join(root, 'fake-helper.cjs'), mode], {
+      const child = track(spawn(process.env.LYK_TEST_NODE, [path.join(root, 'fake-helper.cjs'), mode], {
         env: { PATH: '/usr/bin:/bin', HOME: root }, stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      }));
       const session = await openHeldStream(child, new AbortController().signal);
       if (session.descriptor.size !== bytes.length || session.descriptor.sha256 !== sha256 || session.descriptor.sha512 !== sha512) throw Error('fixture descriptor mismatch');
       heldTransfer = undefined;
       activeCancellation = undefined;
       pendingCancellation = false;
       return session;
+    };
+    const spawnGo = (mode) => {
+      const home = path.join(root, `go-${mode}`);
+      fs.mkdirSync(home, { mode: 0o700 });
+      const marker = path.join(home, 'ready');
+      const child = track(spawn(path.join(root, 'go-stream-probe'), ['-test.run=^TestPackagedStreamChild$'], {
+        env: { PATH: '/usr/bin:/bin', HOME: home, LYK_TEST_PACKAGED_STREAM: mode, LYK_TEST_PACKAGED_HOME: home, LYK_TEST_PACKAGED_READY: marker },
+        stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
+      }));
+      // FD3's peer stays open and silent until child termination.
+      child.stdio[3].resume();
+      return { child, marker };
     };
     for (const mode of ['bad', 'missing', 'extra', 'exit', 'mutation']) {
       phase = mode;
@@ -170,8 +184,58 @@ app.whenReady().then(async () => {
       if (!rejected || transfer !== false || nativeFeed !== 0 || nativeCheck !== 0 || nativeInstall !== 0 || eventsBeforeRecheck !== 0) failedSafely = false;
     }
     observed.badStreamsNeverComplete = failedSafely;
+    {
+      const { child } = spawnGo('invalid');
+      observed.realGoInvalidRejected = await openHeldStream(child, new AbortController().signal).then(() => false, () => true);
+    }
+    {
+      const { child, marker } = spawnGo('liveness');
+      const waiting = openHeldStream(child, new AbortController().signal).then(() => false, () => true);
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      if (!fs.existsSync(marker)) { child.kill('SIGKILL'); throw Error('fixture liveness did not start'); }
+      child.stdio[3].destroy();
+      observed.realGoLivenessClosed = await waiting;
+    }
+    {
+      const { child } = spawnGo('mutation');
+      heldSession = await openHeldStream(child, new AbortController().signal);
+      heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
+      const invalid = await updater.checkForUpdates();
+      if (!invalid?.downloadPromise) throw Error('fixture mutation download not started');
+      activeCancellation = invalid.cancellationToken;
+      if (pendingCancellation) activeCancellation?.cancel();
+      const rejected = await invalid.downloadPromise.then(() => false, () => true);
+      const transfer = await heldTransfer;
+      observed.realGoMutationRejected = rejected && transfer === false && nativeFeed === 0 && eventsBeforeRecheck === 0;
+    }
+    {
+      const { child, marker } = spawnGo('blocked-stream');
+      const controller = new AbortController();
+      heldSession = await openHeldStream(child, controller.signal);
+      heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
+      const pending = await updater.checkForUpdates();
+      if (!pending?.downloadPromise) throw Error('fixture blocked download not started');
+      activeCancellation = pending.cancellationToken;
+      if (pendingCancellation) activeCancellation?.cancel();
+      const rejected = pending.downloadPromise.then(() => false, () => true);
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      if (!fs.existsSync(marker)) { controller.abort(); throw Error('fixture stream did not block'); }
+      controller.abort();
+      await heldSession.stop();
+      const rejectedValue = await rejected;
+      const transferValue = await heldTransfer;
+      const childStopped = child.exitCode !== null || child.signalCode !== null;
+      observed.realGoCancelReaped = rejectedValue && transferValue === false && nativeFeed === 0 && eventsBeforeRecheck === 0 && childStopped;
+    }
     phase = 'success';
-    heldSession = await prepareHeld('good');
+    {
+      const { child } = spawnGo('good');
+      heldSession = await openHeldStream(child, new AbortController().signal);
+      heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
+      if (heldSession.descriptor.size !== bytes.length || heldSession.descriptor.sha256 !== sha256 || heldSession.descriptor.sha512 !== sha512) throw Error('fixture Go descriptor mismatch');
+    }
     const result = await updater.checkForUpdates();
     checkpoint('retry-download');
     if (!result?.isUpdateAvailable || !result.downloadPromise) throw Error('fixture retry not started');
@@ -193,7 +257,7 @@ app.whenReady().then(async () => {
     observed.exactBytes = matches(pending) && verifiedNotifications === 1;
     observed.eventBeforeRecheck = eventsBeforeRecheck === 1;
     observed.noNativeInstall = nativeCheck === 0 && nativeInstall === 0 && nativeFeed === 1;
-    observed.exactRequests = requests - authorized === 1 && authorized >= 15 && authorized <= 20;
+    observed.exactRequests = requests - authorized === 1 && authorized >= 19 && authorized <= 24;
     observed.noSecretLogs = logs.every((line) => !line.includes(token));
     observed.packaged = app.isPackaged;
     if (Object.values(observed).some((x) => x !== true)) throw Error('fixture assertion failed');
@@ -201,6 +265,13 @@ app.whenReady().then(async () => {
     failure = true;
   } finally {
     checkpoint('cleanup');
+    const childStops = [...children].map((child) => new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve(true);
+      const timer = setTimeout(() => resolve(false), 2000);
+      child.once('close', () => { clearTimeout(timer); resolve(true); });
+      child.kill('SIGKILL');
+    }));
+    const childrenClosed = (await Promise.all(childStops)).every(Boolean);
     const closeLocal = async (listener) => {
       if (!listener?.listening) return true;
       return await new Promise((resolve) => {
@@ -211,7 +282,7 @@ app.whenReady().then(async () => {
     };
     const closedUpdater = await closeLocal(updater?.server);
     const closedFeed = await closeLocal(server);
-    observed.cleanupDone = closedUpdater && closedFeed;
+    observed.cleanupDone = childrenClosed && closedUpdater && closedFeed;
     if (!observed.cleanupDone) failure = true;
     fs.writeFileSync(report, JSON.stringify({ ...observed, failed: failure }));
     app.exit(failure ? 1 : 0);

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -267,4 +268,106 @@ func TestSessionProcessDeathReleasesCacheLock(t *testing.T) {
 	if strings.Contains(stderr.String(), home) {
 		t.Fatal("session leaked private path")
 	}
+}
+
+// Test-only executable path: real liveness, pipes, signed metadata and cache
+// session with ephemeral trust and an in-memory transport. Production gates are untouched.
+func TestPackagedStreamChild(t *testing.T) {
+	mode := os.Getenv("LYK_TEST_PACKAGED_STREAM")
+	if mode == "" {
+		return
+	}
+	home, err := filepath.EvalSymlinks(os.Getenv("LYK_TEST_PACKAGED_HOME"))
+	if err != nil {
+		os.Exit(61)
+	}
+	ctx, closeLive, err := startLiveness(context.Background(), 3, int(os.Stdin.Fd()), int(os.Stdout.Fd()))
+	if err != nil {
+		os.Exit(62)
+	}
+	pipes, err := openStreamPipes(ctx, os.Stdin, os.Stdout)
+	if err != nil {
+		closeLive()
+		os.Exit(63)
+	}
+	cache, err := openLockedCache(ctx, home, uint32(os.Geteuid()))
+	if err != nil {
+		pipes.close()
+		closeLive()
+		os.Exit(64)
+	}
+	content := []byte("small verified fixture artifact")
+	sum := sha256.Sum256(content)
+	now := time.Now()
+	arch, filename := "arm64", "Lykeion-1.2.3-arm64-mac.zip"
+	if runtime.GOARCH == "amd64" {
+		arch, filename = "x64", "Lykeion-1.2.3-mac.zip"
+	}
+	envelope, key := signedEnvelope(t, []any{1, "stable", 7, "1.2.3", now.Unix(), now.Add(time.Hour).Unix(), "darwin", arch, filename, len(content), hex.EncodeToString(sum[:])})
+	if mode == "invalid" {
+		envelope[len(envelope)/2] ^= 1
+	}
+	requests := 0
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests++
+		if mode == "liveness" && requests == 1 {
+			_ = os.WriteFile(os.Getenv("LYK_TEST_PACKAGED_READY"), []byte("ready"), 0600)
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
+		body := content
+		if requests == 1 {
+			body = envelope
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)), Request: r}, nil
+	})
+	output := io.Writer(pipes.output)
+	if mode == "mutation" {
+		artifact := filepath.Join(home, ".config", "lyk", "profiles", "desktop-updates-v1", "artifact-"+hex.EncodeToString(sum[:]))
+		output = &sessionMutatingPipe{output: pipes.output, artifact: artifact, size: len(content)}
+	}
+	if mode == "blocked-stream" {
+		output = &sessionBlockingPipe{ctx: ctx, output: pipes.output, marker: os.Getenv("LYK_TEST_PACKAGED_READY")}
+	}
+	err = cache.checkAndStreamWithLimits(ctx, []ed25519.PublicKey{key}, "darwin", arch, "1.0.0", transport, 4096, 1<<20, &deadlineInput{ctx: ctx, file: pipes.input}, output)
+	cache.close()
+	pipes.close()
+	closeLive()
+	if err != nil {
+		os.Exit(65)
+	}
+	os.Exit(0)
+}
+
+type sessionBlockingPipe struct {
+	ctx    context.Context
+	output io.Writer
+	marker string
+	calls  int
+}
+
+func (w *sessionBlockingPipe) Write(p []byte) (int, error) {
+	w.calls++
+	if w.calls == 1 {
+		return w.output.Write(p)
+	}
+	_ = os.WriteFile(w.marker, []byte("ready"), 0600)
+	<-w.ctx.Done()
+	return 0, w.ctx.Err()
+}
+
+type sessionMutatingPipe struct {
+	output   io.Writer
+	artifact string
+	size     int
+	mutated  bool
+}
+
+func (w *sessionMutatingPipe) Write(p []byte) (int, error) {
+	n, err := w.output.Write(p)
+	if !w.mutated {
+		w.mutated = true
+		_ = os.WriteFile(w.artifact, bytes.Repeat([]byte{'X'}, w.size), 0600)
+	}
+	return n, err
 }
