@@ -262,10 +262,13 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 			if env != "" {
 				envptr = &env
 			}
-			if _, e = tx.Q.FinishCoresearchRun(r.Context(), db.FinishCoresearchRunParams{WorkspaceID: tx.WS, ID: run.ID, Status: status, EnvSha: envptr, Facts: b, ReceiptSha: &digest}); e != nil {
+			if _, e = tx.Q.FinishCoresearchRun(r.Context(), db.FinishCoresearchRunParams{WorkspaceID: tx.WS, ID: run.ID, Status: status, EnvSha: envptr, Facts: b, ReceiptSha: &digest, ClaimToken: run.ClaimToken}); e != nil {
+				return coresearchFenceError(e)
+			}
+			if e := coresearch.Changed(r.Context(), tx, "run", c, run.ID); e != nil {
 				return e
 			}
-			return coresearch.Changed(r.Context(), tx, "run", c, run.ID)
+			return coresearchFenceAfterWrite(r, tx, "run", run.ID, run.ClaimToken)
 		})
 	})
 	if coresearchAnswer(w, r, e) {

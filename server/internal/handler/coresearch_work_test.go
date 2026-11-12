@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/service"
@@ -1122,5 +1124,184 @@ func TestCoresearchHeartbeatSQLRejectsLeaseExpiredDuringTransaction(t *testing.T
 	}
 	if n != 0 {
 		t.Fatalf("expired lease was renewed: %d", n)
+	}
+}
+
+func TestCoresearchCellFinishSQLRejectsExpiredClaim(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, nil); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	cell := work.Cells[0]
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	digest := "test"
+	_, err = db.New(tx).FinishCoresearchCell(t.Context(), db.FinishCoresearchCellParams{WorkspaceID: cell.WorkspaceID, ID: cell.ID, Status: "ok", Outputs: json.RawMessage(`[]`), ReceiptSha: &digest, ClaimToken: &cell.ClaimToken})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("expired finish error = %v, want no rows", err)
+	}
+	if _, err = tx.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id=$1", cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	wrong := uuid.New()
+	params := db.FinishCoresearchCellParams{WorkspaceID: cell.WorkspaceID, ID: cell.ID, Status: "ok", Outputs: json.RawMessage(`[]`), ReceiptSha: &digest, ClaimToken: &wrong}
+	if _, err = db.New(tx).FinishCoresearchCell(t.Context(), params); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("wrong token error = %v, want no rows", err)
+	}
+	params.ClaimToken = &cell.ClaimToken
+	if _, err = db.New(tx).FinishCoresearchCell(t.Context(), params); err != nil {
+		t.Fatalf("live matching claim: %v", err)
+	}
+}
+
+func TestCoresearchSetupLeaseExpiryRollsBackReservation(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	_, c := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var setup db.CoresearchSetup
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/environment", a, ws, map[string]any{"chat_id": c.ID}, &setup); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Setups) != 1 {
+		t.Fatal(work)
+	}
+	_, err := s.Env.Owner.Exec(t.Context(), `CREATE FUNCTION test_delay_setup_pin() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.3); RETURN NEW; END $$;
+ CREATE TRIGGER test_delay_setup_pin BEFORE UPDATE OF python_version ON coresearch_project FOR EACH ROW EXECUTE FUNCTION test_delay_setup_pin()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"running", "ok"} {
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_setup SET lease_expires_at=clock_timestamp()+interval '1 second' WHERE id=$1", setup.ID); err != nil {
+			t.Fatal(err)
+		}
+		url := "/api/daemon/coresearch/setups/" + setup.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Setups[0].ClaimToken.String()
+		if code := s.call(t, "POST", url, s.personalToken(t, a), ws, map[string]string{"status": status, "python_version": "3.12"}, nil); code != 409 {
+			t.Fatalf("%s: status %d", status, code)
+		}
+		var version *string
+		var state string
+		if err := s.Env.Owner.QueryRow(t.Context(), "SELECT p.python_version,s.status FROM coresearch_project p JOIN coresearch_setup s ON s.project_id=p.id WHERE s.id=$1", setup.ID).Scan(&version, &state); err != nil {
+			t.Fatal(err)
+		}
+		if version != nil || state != "running" {
+			t.Fatalf("%s: pin=%v state=%s", status, version, state)
+		}
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_setup SET lease_expires_at=clock_timestamp()+interval '30 seconds' WHERE id=$1", setup.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	url := s.URL + "/api/daemon/coresearch/setups/" + setup.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Setups[0].ClaimToken.String()
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(`{"status":"ok","python_version":"3.12"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.personalToken(t, a))
+	req.Header.Set("X-Workspace-ID", ws)
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		done <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	sleeping := false
+	for time.Now().Before(deadline) {
+		if err := s.Env.Owner.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event='PgSleep' AND query LIKE '%UPDATE coresearch_project SET python_version%')").Scan(&sleeping); err != nil {
+			t.Fatal(err)
+		}
+		if sleeping {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !sleeping {
+		t.Fatal("request never entered reservation trigger")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled request error: %v", err)
+	}
+
+	// Wait for the cancelled transaction to release the project lock.
+	checkTx, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkTx.Exec(t.Context(), "SELECT id FROM coresearch_project WHERE id=$1 FOR UPDATE", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkTx.Rollback(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var version *string
+	var state string
+	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT p.python_version,s.status FROM coresearch_project p JOIN coresearch_setup s ON s.project_id=p.id WHERE s.id=$1", setup.ID).Scan(&version, &state); err != nil {
+		t.Fatal(err)
+	}
+	if version != nil || state != "running" {
+		t.Fatalf("cancelled: pin=%v state=%s", version, state)
+	}
+
+}
+
+func TestCoresearchRunLeaseExpiryRollsBackOutput(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	_, c := csChat(t, s, a, ws, p.ID)
+	csUpload(t, s, a, ws, p.ID, "main.py", 0, false, []byte("1"))
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var run db.CoresearchRun
+	if code := s.call(t, "POST", csProjects+"/"+p.ID+"/runs", a, ws, map[string]any{"chat_id": c.ID, "script": "main.py"}, &run); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Runs) != 1 {
+		t.Fatal(work)
+	}
+	_, err := s.Env.Owner.Exec(t.Context(), `CREATE FUNCTION test_delay_run_output() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.run_id IS NOT NULL THEN PERFORM pg_sleep(1.3); END IF; RETURN NEW; END $$;
+ CREATE TRIGGER test_delay_run_output BEFORE INSERT ON coresearch_file_version FOR EACH ROW EXECUTE FUNCTION test_delay_run_output()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_run SET lease_expires_at=clock_timestamp()+interval '1 second' WHERE id=$1", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte("unique expired output")
+	code := csFinishRun(t, s, s.personalToken(t, a), ws, run.ID.String(), map[string]any{"status": "ok", "env_sha": strings.Repeat("a", 64)}, map[string][]byte{"late.txt": output})
+	if code != 409 {
+		t.Fatalf("finish status %d", code)
+	}
+	var n int
+	var state string
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT status,(SELECT count(*) FROM coresearch_file_version WHERE run_id=$1) FROM coresearch_run WHERE id=$1", run.ID).Scan(&state, &n); err != nil {
+		t.Fatal(err)
+	}
+	if state != "running" || n != 0 {
+		t.Fatalf("state=%s versions=%d", state, n)
+	}
+	sum := sha256.Sum256(output)
+	reader, err := s.H.Blobs.Get(t.Context(), coresearch.BlobKey(uuid.MustParse(ws), hex.EncodeToString(sum[:])))
+	if reader != nil {
+		reader.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("output blob retained: %v", err)
 	}
 }

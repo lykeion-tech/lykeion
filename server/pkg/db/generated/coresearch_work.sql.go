@@ -816,23 +816,42 @@ func (q *Queries) ExpireCoresearchWork(ctx context.Context) ([]ExpireCoresearchW
 	return items, nil
 }
 
+const fenceCoresearchSetup = `-- name: FenceCoresearchSetup :execrows
+UPDATE coresearch_setup SET status=status WHERE workspace_id= $1 AND id= $2 AND status='running' AND claim_token= $3 AND lease_expires_at>clock_timestamp()
+`
+
+type FenceCoresearchSetupParams struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+	ClaimToken  *uuid.UUID `json:"claim_token"`
+}
+
+func (q *Queries) FenceCoresearchSetup(ctx context.Context, arg FenceCoresearchSetupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, fenceCoresearchSetup, arg.WorkspaceID, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const finishCoresearchBuild = `-- name: FinishCoresearchBuild :one
-UPDATE coresearch_build SET status= $1,pdf_blob=$2,pdf_size= $3,log_size= $4,synctex_size= $5,log_blob=$6,synctex_blob=$7,pages=$8,failure_reason=$9,receipt_sha= $10,finished_at=now() WHERE workspace_id= $11 AND id= $12 AND status='running' RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+UPDATE coresearch_build SET status= $1,pdf_blob=$2,pdf_size= $3,log_size= $4,synctex_size= $5,log_blob=$6,synctex_blob=$7,pages=$8,failure_reason=$9,receipt_sha= $10,finished_at=now() WHERE workspace_id= $11 AND id= $12 AND status='running' AND claim_token= $13 AND lease_expires_at>clock_timestamp() RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
 `
 
 type FinishCoresearchBuildParams struct {
-	Status        string    `json:"status"`
-	PdfBlob       *string   `json:"pdf_blob"`
-	PdfSize       int64     `json:"pdf_size"`
-	LogSize       int64     `json:"log_size"`
-	SynctexSize   int64     `json:"synctex_size"`
-	LogBlob       *string   `json:"log_blob"`
-	SynctexBlob   *string   `json:"synctex_blob"`
-	Pages         *int32    `json:"pages"`
-	FailureReason *string   `json:"failure_reason"`
-	ReceiptSha    *string   `json:"receipt_sha"`
-	WorkspaceID   uuid.UUID `json:"workspace_id"`
-	ID            uuid.UUID `json:"id"`
+	Status        string     `json:"status"`
+	PdfBlob       *string    `json:"pdf_blob"`
+	PdfSize       int64      `json:"pdf_size"`
+	LogSize       int64      `json:"log_size"`
+	SynctexSize   int64      `json:"synctex_size"`
+	LogBlob       *string    `json:"log_blob"`
+	SynctexBlob   *string    `json:"synctex_blob"`
+	Pages         *int32     `json:"pages"`
+	FailureReason *string    `json:"failure_reason"`
+	ReceiptSha    *string    `json:"receipt_sha"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id"`
+	ID            uuid.UUID  `json:"id"`
+	ClaimToken    *uuid.UUID `json:"claim_token"`
 }
 
 func (q *Queries) FinishCoresearchBuild(ctx context.Context, arg FinishCoresearchBuildParams) (CoresearchBuild, error) {
@@ -849,6 +868,7 @@ func (q *Queries) FinishCoresearchBuild(ctx context.Context, arg FinishCoresearc
 		arg.ReceiptSha,
 		arg.WorkspaceID,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	var i CoresearchBuild
 	err := row.Scan(
@@ -880,7 +900,7 @@ func (q *Queries) FinishCoresearchBuild(ctx context.Context, arg FinishCoresearc
 }
 
 const finishCoresearchCell = `-- name: FinishCoresearchCell :one
-UPDATE coresearch_cell SET status= $1,execution_count=$2,outputs=$3,outputs_blob=$4,finished_at=now(),receipt_sha= $5 WHERE workspace_id= $6 AND id= $7 AND status='running' RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
+UPDATE coresearch_cell SET status= $1,execution_count=$2,outputs=$3,outputs_blob=$4,finished_at=now(),receipt_sha= $5 WHERE workspace_id= $6 AND id= $7 AND status='running' AND claim_token= $8 AND lease_expires_at>clock_timestamp() RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
 
 type FinishCoresearchCellParams struct {
@@ -891,6 +911,7 @@ type FinishCoresearchCellParams struct {
 	ReceiptSha     *string         `json:"receipt_sha"`
 	WorkspaceID    uuid.UUID       `json:"workspace_id"`
 	ID             uuid.UUID       `json:"id"`
+	ClaimToken     *uuid.UUID      `json:"claim_token"`
 }
 
 func (q *Queries) FinishCoresearchCell(ctx context.Context, arg FinishCoresearchCellParams) (CoresearchCell, error) {
@@ -902,6 +923,7 @@ func (q *Queries) FinishCoresearchCell(ctx context.Context, arg FinishCoresearch
 		arg.ReceiptSha,
 		arg.WorkspaceID,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	var i CoresearchCell
 	err := row.Scan(
@@ -930,7 +952,7 @@ func (q *Queries) FinishCoresearchCell(ctx context.Context, arg FinishCoresearch
 }
 
 const finishCoresearchRun = `-- name: FinishCoresearchRun :one
-UPDATE coresearch_run SET status= $1,env_sha=$2,facts= $3,finished_at=now(),receipt_sha= $4 WHERE workspace_id= $5 AND id= $6 AND status='running' RETURNING id, workspace_id, project_id, key, chat_id, script_file_id, script_n, inputs, seed, env_sha, status, facts, rerun_of, requested_by, agent_run_id, created_at, finished_at, failure_reason, claimed_daemon_id, expected_env_sha, claim_token, lease_expires_at, receipt_sha
+UPDATE coresearch_run SET status= $1,env_sha=$2,facts= $3,finished_at=now(),receipt_sha= $4 WHERE workspace_id= $5 AND id= $6 AND status='running' AND claim_token= $7 AND lease_expires_at>clock_timestamp() RETURNING id, workspace_id, project_id, key, chat_id, script_file_id, script_n, inputs, seed, env_sha, status, facts, rerun_of, requested_by, agent_run_id, created_at, finished_at, failure_reason, claimed_daemon_id, expected_env_sha, claim_token, lease_expires_at, receipt_sha
 `
 
 type FinishCoresearchRunParams struct {
@@ -940,6 +962,7 @@ type FinishCoresearchRunParams struct {
 	ReceiptSha  *string         `json:"receipt_sha"`
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	ID          uuid.UUID       `json:"id"`
+	ClaimToken  *uuid.UUID      `json:"claim_token"`
 }
 
 func (q *Queries) FinishCoresearchRun(ctx context.Context, arg FinishCoresearchRunParams) (CoresearchRun, error) {
@@ -950,6 +973,7 @@ func (q *Queries) FinishCoresearchRun(ctx context.Context, arg FinishCoresearchR
 		arg.ReceiptSha,
 		arg.WorkspaceID,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	var i CoresearchRun
 	err := row.Scan(
@@ -981,15 +1005,16 @@ func (q *Queries) FinishCoresearchRun(ctx context.Context, arg FinishCoresearchR
 }
 
 const finishCoresearchSetup = `-- name: FinishCoresearchSetup :one
-UPDATE coresearch_setup SET status= $1,log= $2,finished_at=now(),receipt_sha= $3 WHERE workspace_id= $4 AND id= $5 AND status='running' RETURNING id, workspace_id, project_id, chat_id, python, conda, status, log, requested_by, created_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
+UPDATE coresearch_setup SET status= $1,log= $2,finished_at=now(),receipt_sha= $3 WHERE workspace_id= $4 AND id= $5 AND status='running' AND claim_token= $6 AND lease_expires_at>clock_timestamp() RETURNING id, workspace_id, project_id, chat_id, python, conda, status, log, requested_by, created_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
 
 type FinishCoresearchSetupParams struct {
-	Status      string    `json:"status"`
-	Log         string    `json:"log"`
-	ReceiptSha  *string   `json:"receipt_sha"`
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
+	Status      string     `json:"status"`
+	Log         string     `json:"log"`
+	ReceiptSha  *string    `json:"receipt_sha"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+	ClaimToken  *uuid.UUID `json:"claim_token"`
 }
 
 func (q *Queries) FinishCoresearchSetup(ctx context.Context, arg FinishCoresearchSetupParams) (CoresearchSetup, error) {
@@ -999,6 +1024,7 @@ func (q *Queries) FinishCoresearchSetup(ctx context.Context, arg FinishCoresearc
 		arg.ReceiptSha,
 		arg.WorkspaceID,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	var i CoresearchSetup
 	err := row.Scan(
@@ -1831,32 +1857,40 @@ func (q *Queries) SetCoresearchRunBuild(ctx context.Context, arg SetCoresearchRu
 	return err
 }
 
-const startCoresearchBuild = `-- name: StartCoresearchBuild :exec
-UPDATE coresearch_build SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running'
+const startCoresearchBuild = `-- name: StartCoresearchBuild :execrows
+UPDATE coresearch_build SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running' AND claim_token= $3 AND lease_expires_at>clock_timestamp()
 `
 
 type StartCoresearchBuildParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+	ClaimToken  *uuid.UUID `json:"claim_token"`
 }
 
-func (q *Queries) StartCoresearchBuild(ctx context.Context, arg StartCoresearchBuildParams) error {
-	_, err := q.db.Exec(ctx, startCoresearchBuild, arg.WorkspaceID, arg.ID)
-	return err
+func (q *Queries) StartCoresearchBuild(ctx context.Context, arg StartCoresearchBuildParams) (int64, error) {
+	result, err := q.db.Exec(ctx, startCoresearchBuild, arg.WorkspaceID, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const startCoresearchCell = `-- name: StartCoresearchCell :exec
-UPDATE coresearch_cell SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running'
+const startCoresearchCell = `-- name: StartCoresearchCell :execrows
+UPDATE coresearch_cell SET started_at=coalesce(started_at,now()) WHERE workspace_id= $1 AND id= $2 AND status='running' AND claim_token= $3 AND lease_expires_at>clock_timestamp()
 `
 
 type StartCoresearchCellParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	ID          uuid.UUID  `json:"id"`
+	ClaimToken  *uuid.UUID `json:"claim_token"`
 }
 
-func (q *Queries) StartCoresearchCell(ctx context.Context, arg StartCoresearchCellParams) error {
-	_, err := q.db.Exec(ctx, startCoresearchCell, arg.WorkspaceID, arg.ID)
-	return err
+func (q *Queries) StartCoresearchCell(ctx context.Context, arg StartCoresearchCellParams) (int64, error) {
+	result, err := q.db.Exec(ctx, startCoresearchCell, arg.WorkspaceID, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const supersedeCoresearchBuild = `-- name: SupersedeCoresearchBuild :one

@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"net/http"
@@ -39,4 +41,31 @@ func coresearchReceipt(v any) string {
 	b, _ := json.Marshal(v)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func coresearchFenceError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return service.ErrConflict
+	}
+	return err
+}
+func coresearchFenceRows(n int64, err error) error {
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return service.ErrConflict
+	}
+	return nil
+}
+
+func coresearchFenceAfterWrite(r *http.Request, tx *store.Tx, kind string, id uuid.UUID, token *uuid.UUID) error {
+	live, err := tx.CoresearchClaimStillLive(r.Context(), kind, id, token)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return service.ErrConflict
+	}
+	return nil
 }

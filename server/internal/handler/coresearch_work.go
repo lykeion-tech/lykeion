@@ -459,6 +459,7 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 	finish := strings.HasSuffix(r.URL.Path, "/finish")
 	var blob *string
 	var receipt *string
+	var claim *uuid.UUID
 	var c db.CoresearchChat
 	check := func(tx *store.Tx, daemon string) error {
 		cell, e := tx.Q.GetCoresearchCell(r.Context(), db.GetCoresearchCellParams{WorkspaceID: tx.WS, ID: id})
@@ -473,6 +474,7 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			return pgx.ErrNoRows
 		}
 		receipt = cell.ReceiptSha
+		claim = cell.ClaimToken
 		return coresearchClaim(r, tx, cell.ClaimToken, cell.LeaseExpiresAt, cell.Status, cell.ReceiptSha, finish)
 	}
 	e = h.coresearchDaemonTx(r, check)
@@ -526,16 +528,23 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 			if !finish {
-				return tx.Q.StartCoresearchCell(r.Context(), db.StartCoresearchCellParams{WorkspaceID: tx.WS, ID: id})
+				n, e := tx.Q.StartCoresearchCell(r.Context(), db.StartCoresearchCellParams{WorkspaceID: tx.WS, ID: id, ClaimToken: claim})
+				if e = coresearchFenceRows(n, e); e != nil {
+					return e
+				}
+				return coresearchFenceAfterWrite(r, tx, "cell", id, claim)
 			}
 			outputs := json.RawMessage(in.Outputs)
 			if blob != nil {
 				outputs = nil
 			}
-			if _, e := tx.Q.FinishCoresearchCell(r.Context(), db.FinishCoresearchCellParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, ExecutionCount: in.ExecutionCount, Outputs: outputs, OutputsBlob: blob, ReceiptSha: &digest}); e != nil {
+			if _, e := tx.Q.FinishCoresearchCell(r.Context(), db.FinishCoresearchCellParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, ExecutionCount: in.ExecutionCount, Outputs: outputs, OutputsBlob: blob, ReceiptSha: &digest, ClaimToken: claim}); e != nil {
+				return coresearchFenceError(e)
+			}
+			if e := coresearch.Changed(r.Context(), tx, "cell", c, id); e != nil {
 				return e
 			}
-			return coresearch.Changed(r.Context(), tx, "cell", c, id)
+			return coresearchFenceAfterWrite(r, tx, "cell", id, claim)
 		})
 	}
 	if finish {
@@ -598,11 +607,19 @@ func (h *H) daemonCoresearchSetup(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if in.Status != "running" {
-			if _, e = tx.Q.FinishCoresearchSetup(r.Context(), db.FinishCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, Log: in.Log, ReceiptSha: &digest}); e != nil {
+			if _, e = tx.Q.FinishCoresearchSetup(r.Context(), db.FinishCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, Log: in.Log, ReceiptSha: &digest, ClaimToken: s.ClaimToken}); e != nil {
+				return coresearchFenceError(e)
+			}
+		} else {
+			n, e := tx.Q.FenceCoresearchSetup(r.Context(), db.FenceCoresearchSetupParams{WorkspaceID: tx.WS, ID: id, ClaimToken: s.ClaimToken})
+			if e = coresearchFenceRows(n, e); e != nil {
 				return e
 			}
 		}
-		return coresearch.Changed(r.Context(), tx, "setup", c, id)
+		if e := coresearch.Changed(r.Context(), tx, "setup", c, id); e != nil {
+			return e
+		}
+		return coresearchFenceAfterWrite(r, tx, "setup", id, s.ClaimToken)
 	})
 	if coresearchAnswer(w, r, e) {
 		w.WriteHeader(204)

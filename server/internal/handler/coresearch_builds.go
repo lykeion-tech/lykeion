@@ -201,7 +201,11 @@ func (h *H) daemonCoresearchBuild(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "POST" {
 			if strings.HasSuffix(r.URL.Path, "/start") {
-				return tx.Q.StartCoresearchBuild(r.Context(), db.StartCoresearchBuildParams{WorkspaceID: tx.WS, ID: id})
+				n, e := tx.Q.StartCoresearchBuild(r.Context(), db.StartCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, ClaimToken: b.ClaimToken})
+				if e = coresearchFenceRows(n, e); e != nil {
+					return e
+				}
+				return coresearchFenceAfterWrite(r, tx, "build", id, b.ClaimToken)
 			}
 			n, e := tx.Q.HeartbeatCoresearchBuild(r.Context(), db.HeartbeatCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, ClaimToken: b.ClaimToken})
 			if e != nil {
@@ -328,7 +332,7 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 			if meta.Reason != "" {
 				reason = &meta.Reason
 			}
-			params := db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: meta.Status, PdfSize: outputs["pdf"].size, LogSize: outputs["log"].size, SynctexSize: outputs["synctex"].size, PdfBlob: keys["pdf"], LogBlob: keys["log"], SynctexBlob: keys["synctex"], Pages: &meta.Pages, FailureReason: reason, ReceiptSha: &digest}
+			params := db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: meta.Status, PdfSize: outputs["pdf"].size, LogSize: outputs["log"].size, SynctexSize: outputs["synctex"].size, PdfBlob: keys["pdf"], LogBlob: keys["log"], SynctexBlob: keys["synctex"], Pages: &meta.Pages, FailureReason: reason, ReceiptSha: &digest, ClaimToken: b.ClaimToken}
 			var row db.CoresearchBuild
 			e := tx.Savepoint(r.Context(), func(candidate *store.Tx) error {
 				var e error
@@ -346,12 +350,12 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 				return nil
 			})
 			if errors.Is(e, coresearch.ErrQuota) {
-				quotaFailure = true
 				reason := "project_quota_exceeded"
-				row, e = tx.Q.FinishCoresearchBuild(r.Context(), db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: "failed", FailureReason: &reason, ReceiptSha: &digest})
+				row, e = tx.Q.FinishCoresearchBuild(r.Context(), db.FinishCoresearchBuildParams{WorkspaceID: tx.WS, ID: id, Status: "failed", FailureReason: &reason, ReceiptSha: &digest, ClaimToken: b.ClaimToken})
+				quotaFailure = e == nil
 			}
 			if e != nil {
-				return e
+				return coresearchFenceError(e)
 			}
 			if row.Status == "ok" {
 				_, e = tx.Q.InsertBuildVersion(r.Context(), db.InsertBuildVersionParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Title: fmt.Sprintf("Build %d", b.Seq), ByUserID: &b.RequestedBy, BuildID: &b.ID, Files: b.Sources})
@@ -359,8 +363,14 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 					return e
 				}
 			}
-			return coresearch.BuildChanged(r.Context(), tx, row)
+			if e := coresearch.BuildChanged(r.Context(), tx, row); e != nil {
+				return e
+			}
+			return coresearchFenceAfterWrite(r, tx, "build", id, b.ClaimToken)
 		})
+		if err != nil {
+			quotaFailure = false
+		}
 		// The terminal failure is committed. Signal WithBlobs to remove only
 		// unreferenced candidate artifacts, including a prior failed deletion,
 		// before acknowledging delivery.

@@ -694,3 +694,91 @@ func derefString(s *string) string {
 	}
 	return *s
 }
+
+func TestBuildQuotaExpiryRollsBackCandidate(t *testing.T) {
+	s, a, _, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	var b db.CoresearchBuild
+	if code := s.call(t, "POST", root+"/builds", a, ws, nil, &b); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 {
+		t.Fatal(work)
+	}
+	_, err := s.Env.Owner.Exec(t.Context(), `CREATE FUNCTION test_delay_build_finish() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status <> 'running' THEN PERFORM pg_sleep(1.3); END IF; RETURN NEW; END $$;
+ CREATE TRIGGER test_delay_build_finish BEFORE UPDATE ON coresearch_build FOR EACH ROW EXECUTE FUNCTION test_delay_build_finish()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_build SET lease_expires_at=clock_timestamp()+interval '1 second' WHERE id=$1", b.ID); err != nil {
+		t.Fatal(err)
+	}
+	old := coresearch.MaxProjectBytes
+	defer func() { coresearch.MaxProjectBytes = old }()
+	coresearch.MaxProjectBytes = 10
+	if code := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); code != 409 {
+		t.Fatalf("finish status %d", code)
+	}
+	var status string
+	var n int
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT status,(SELECT count(*) FROM coresearch_version WHERE build_id=$1) FROM coresearch_build WHERE id=$1", b.ID).Scan(&status, &n); err != nil {
+		t.Fatal(err)
+	}
+	if status != "running" || n != 0 {
+		t.Fatalf("status=%s versions=%d", status, n)
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte("test pdf")))
+	rc, err := s.H.Blobs.Get(t.Context(), coresearch.BlobKey(uuid.MustParse(ws), sum))
+	if rc != nil {
+		rc.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("artifact retained: %v", err)
+	}
+}
+
+func TestBuildFinishExpiryDuringWriteRollsBackCandidate(t *testing.T) {
+	s, a, _, ws, p, _ := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	ref := csRegister(t, s, a, ws, "own", "claude")
+	var b db.CoresearchBuild
+	if code := s.call(t, "POST", root+"/builds", a, ws, nil, &b); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "own", ref)
+	if len(work.Builds) != 1 {
+		t.Fatal(work)
+	}
+	_, err := s.Env.Owner.Exec(t.Context(), `CREATE FUNCTION test_delay_build_finish() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status <> 'running' THEN PERFORM pg_sleep(1.3); END IF; RETURN NEW; END $$;
+ CREATE TRIGGER test_delay_build_finish BEFORE UPDATE ON coresearch_build FOR EACH ROW EXECUTE FUNCTION test_delay_build_finish()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_build SET lease_expires_at=clock_timestamp()+interval '1 second' WHERE id=$1", b.ID); err != nil {
+		t.Fatal(err)
+	}
+	old := coresearch.MaxProjectBytes
+	defer func() { coresearch.MaxProjectBytes = old }()
+	coresearch.MaxProjectBytes = 1000000
+	if code := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); code != 409 {
+		t.Fatalf("finish status %d", code)
+	}
+	var status string
+	var n int
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT status,(SELECT count(*) FROM coresearch_version WHERE build_id=$1) FROM coresearch_build WHERE id=$1", b.ID).Scan(&status, &n); err != nil {
+		t.Fatal(err)
+	}
+	if status != "running" || n != 0 {
+		t.Fatalf("status=%s versions=%d", status, n)
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte("test pdf")))
+	rc, err := s.H.Blobs.Get(t.Context(), coresearch.BlobKey(uuid.MustParse(ws), sum))
+	if rc != nil {
+		rc.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("artifact retained: %v", err)
+	}
+}
