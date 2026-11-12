@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func fakeCLI(t *testing.T, name, body string) string {
 }
 
 const (
-	claudeProbes = `case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
+	claudeProbes = `case "$1" in --version) echo "2.1.69 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
 `
 	// isolatedHello checks the hello runs as a study run does: in the
 	// sandbox, with the door as its MCP server and no person's token.
@@ -68,7 +69,8 @@ func TestPreflightOrder(t *testing.T) {
 	}{
 		{"missing", "claude", "", true, true, agent.ReasonCLIMissing},
 		{"no version", "claude", "exit 1\n", true, true, agent.ReasonCLIMissing},
-		{"too old", "claude", `case "$1" in --version) echo 1.0.0; exit 0;; --help) echo "  --print"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
+		{"too old", "claude", `case "$1" in --version) echo 2.1.69; exit 0;; --help) echo "  --print"; exit 0;; esac` + "\n", true, true, agent.ReasonCLITooOld},
+		{"claude without the role flag", "claude", strings.Replace(claudeProbes, "2.1.69", "2.1.68", 1), true, true, agent.ReasonCLITooOld},
 		{"sandbox", "claude", claudeProbes, true, true, agent.ReasonSandbox},
 		{"door", "claude", claudeProbes, false, true, agent.ReasonDoor},
 		{"signed out", "claude", claudeProbes + "IFS= read -r first\necho 'Not logged in · Please run /login' >&2\nexit 1\n", false, false, agent.ReasonSignIn},
@@ -353,5 +355,19 @@ func TestPreflightRechecksSoonWhileASelfClearingCauseHolds(t *testing.T) {
 				t.Fatalf("%d checks in 400ms", n)
 			}
 		})
+	}
+}
+
+// Claude Code hands a run its role with --append-system-prompt-file, which
+// it has from 2.1.69 on.
+func TestClaudeTooOld(t *testing.T) {
+	for v, old := range map[string]bool{
+		"2.1.68 (Claude Code)": true, "2.0.99": true, "1.9.100 (Claude Code)": true,
+		"2.1.69 (Claude Code)": false, "2.1.70": false, "2.2.0": false, "2.10.1 (Claude Code)": false, "3.0.0": false,
+		"v2.1.317 (Claude Code)": false, "Claude Code": false,
+	} {
+		if got := claudeTooOld(v); got != old {
+			t.Errorf("claudeTooOld(%q) = %v, want %v", v, got, old)
+		}
 	}
 }

@@ -249,7 +249,8 @@ describe('Starting a study with a Workflow', () => {
     c.setQueryData(keys.researches('w'), []);
     c.setQueryData(keys.teams('w', '', ''), []);
     c.setQueryData(keys.agents('w'), [
-      { id: 'a1', name: 'Solo agent', visibility: 'workspace', owner_id: 'u1', archived_at: null },
+      { id: 'a1', name: 'Solo agent', visibility: 'workspace', owner_id: 'u1', archived_at: null, stage: 'experimentation' },
+      { id: 'a2', name: 'Ground agent', visibility: 'workspace', owner_id: 'u1', archived_at: null, stage: 'grounding' },
     ]);
     c.setQueryData(keys.members('w'), []);
     for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
@@ -400,6 +401,34 @@ describe('Starting a study with a Workflow', () => {
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
       expect(body.scope).toEqual({ from: 'experimentation', to: 'experimentation' });
       expect(body).not.toHaveProperty('grounding_criteria');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('a workflow study offers only Experimentation agents', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mountStudy(CreateStudy, { workflow: 'b', assignee: { type: 'agent', id: 'a1' } });
+    try {
+      await t.click(/^Assignee/);
+      expect(t.text()).toContain('Solo agent');
+      expect(t.text()).not.toContain('Ground agent');
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('a workflow study drops a preset agent of another stage', async () => {
+    vi.stubGlobal('fetch', posting());
+    const kept = await mountStudy(CreateStudy, { workflow: 'b', assignee: { type: 'agent', id: 'a1' } });
+    try {
+      expect(kept.text()).toContain('Solo agent');
+    } finally {
+      kept.unmount();
+    }
+    const t = await mountStudy(CreateStudy, { workflow: 'b', assignee: { type: 'agent', id: 'a2' } });
+    try {
+      expect(t.text()).not.toContain('Ground agent');
     } finally {
       t.unmount();
     }

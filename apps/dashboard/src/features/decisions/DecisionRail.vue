@@ -2,49 +2,31 @@
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
-import { decisionFilters, matchesDecisionFilters } from './decisionFilters';
-import { workspaceId } from '../../api/session';
+import { decisionFilters } from './decisionFilters';
+import { useDecisionRows } from './decisionRows';
 import { manualDeadlineLabel } from './manualDecisionDraft';
 import Icon from '../../ui/Icon.vue';
+import RailActions from '../../ui/RailActions.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
-import { useCards, useDecisions, useMe } from '../../api/queries';
+import { useMe } from '../../api/queries';
 import type { DecisionItem } from '../../api/types';
-import {
-  agentDecisionParts,
-  decideByLabel,
-  decisionKindOf,
-  inboxText,
-  inboxTitle,
-  timeAgo,
-} from '../../lib/studies';
+import { decideByLabel, decisionGroupOf, decisionGroups, timeAgo } from '../../lib/studies';
 
+const emit = defineEmits<{ search: [] }>();
 const route = useRoute();
 const client = useQueryClient();
-const open = useDecisions(false);
-const past = useDecisions(true);
-const cards = useCards();
 const me = useMe();
+const { shown, kindOf, titleOf, line, error: listError } = useDecisionRows();
 const error = ref('');
 const archivedExpanded = ref(false);
-const shown = computed(() => {
-  const items = new Map([...(open.data.value ?? []), ...(past.data.value ?? [])].map((item) => [item.id, item]));
-  return [...items.values()].filter((item) => item.workspace_id === workspaceId.value && (item.kind !== 'manual_decision' || (item.user_id === me.data.value?.id && !open.error.value && !past.error.value)) && matchesDecisionFilters(item)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-});
 const groups = computed(() => [
-  { id: 'current', label: '', items: shown.value.filter((item) => !item.archived_at) },
+  ...decisionGroups.map((group) => ({
+    ...group,
+    items: shown.value.filter((item) => !item.archived_at && decisionGroupOf(item.kind) === group.id),
+  })),
   { id: 'archived', label: 'Archived', items: shown.value.filter((item) => !!item.archived_at) },
 ].filter((group) => group.items.length));
-const listError = computed(() => open.error.value ?? past.error.value);
-const kindOf = (item: DecisionItem) => decisionKindOf(item.kind);
-const titleOf = (item: DecisionItem) =>
-  item.kind === 'manual_decision' ? item.title ?? '' : item.kind === 'agent_decision'
-    ? agentDecisionParts(item.text).title
-    : inboxTitle(item, cards.data.value?.find((card) => card.id === item.card_id)?.title);
-const line = (item: DecisionItem) =>
-  item.kind === 'manual_decision' ? item.context || 'Private note' : item.kind === 'agent_decision'
-    ? agentDecisionParts(item.text).body || kindOf(item).label
-    : (inboxText(item, titleOf(item)) ?? `${kindOf(item).label}: ${item.text}`);
 const decideByText = (item: DecisionItem) =>
   item.decide_by === 'date' ? (item.decide_by_date ?? '') : (decideByLabel[item.decide_by] ?? '');
 // Only the item's addressee has it unread; others who can see it never do.
@@ -73,17 +55,21 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 </script>
 <template>
   <aside class="sidebar decision-rail">
-    <header>
-      <span class="rail-title">Decisions</span>
-      <RouterLink to="/decisions/new" class="icon-button add-decision" aria-label="Add decision" title="Add decision"><Icon name="plus" :size="16" /></RouterLink>
-    </header>
+    <slot name="brand" />
+    <RailActions
+      new-to="/decisions/new"
+      new-label="Add decision"
+      search-label="Search decisions"
+      @search="emit('search')"
+    />
     <nav aria-label="Decisions">
       <p v-if="listError || error" role="alert" class="inline-error">
         {{ (listError ?? { message: error }).message }}
       </p>
       <template v-for="group in groups" :key="group.id">
-      <h2 v-if="group.label" class="decision-group-title">
-        <button class="archive-toggle" :aria-expanded="archivedExpanded" @click="archivedExpanded = !archivedExpanded">
+      <h2 class="decision-group-title">
+        <template v-if="group.id !== 'archived'">{{ group.label }}</template>
+        <button v-else class="archive-toggle" :aria-expanded="archivedExpanded" @click="archivedExpanded = !archivedExpanded">
           <Icon :name="archivedExpanded ? 'down' : 'right'" :size="12" />{{ group.label }}
         </button>
       </h2>
@@ -131,19 +117,6 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
 .decision-rail {
   padding: 0 10px;
   overflow: hidden;
-}
-.decision-rail header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  flex: none;
-  padding: 0 8px;
-  margin-bottom: 8px;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--text);
 }
 .decision-rail nav {
   flex: 1;
@@ -201,14 +174,13 @@ const post = (item: DecisionItem, verb: 'archive' | 'revive') =>
   color: var(--muted);
   padding: 8px;
 }
-.add-decision { margin-left: auto; }
-.rail-title { font-weight: 700; }
 .decision-group-title {
   margin: 0 0 4px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
 }
+.decision-group-title:not(:has(.archive-toggle)) { padding: 4px 10px; }
 .archive-toggle {
   display: flex;
   align-items: center;

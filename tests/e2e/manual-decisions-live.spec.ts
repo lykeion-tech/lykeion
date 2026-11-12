@@ -50,9 +50,12 @@ test('real members and admin cannot see another member’s manual notes', async 
     await expect(p.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
       'Private live acceptance note',
     );
-    expect((await (await creator.request.get('/api/decisions', { headers })).json()).length).toBe(
-      0,
-    );
+    // Other specs' study decisions share this workspace; only manual notes are in question.
+    expect(
+      (await (await creator.request.get('/api/decisions', { headers })).json()).filter(
+        (row: any) => row.kind === 'manual_decision',
+      ),
+    ).toHaveLength(0);
     const posted = p.waitForResponse(
       (r) => r.url().endsWith('/api/decisions/manual') && r.request().method() === 'POST',
     );
@@ -81,9 +84,19 @@ test('real members and admin cannot see another member’s manual notes', async 
           expect(text).not.toContain(unlinkedID);
           expect(text).not.toContain('Private live acceptance');
         }
+        // The open count is the member's answerable study decisions, never counting the note.
+        const open = await (await context.request.get('/api/decisions', { headers })).json();
         expect(
           (await (await context.request.get('/api/decisions/count', { headers })).json()).open,
-        ).toBe(0);
+        ).toBe(
+          open.filter(
+            (row: any) =>
+              row.kind !== 'manual_decision' &&
+              row.can_answer &&
+              row.status === 'open' &&
+              !row.archived_at,
+          ).length,
+        );
         expect(
           (await context.request.post(`/api/decisions/${note.id}/resolve`, { headers })).status(),
         ).toBe(404);
@@ -123,15 +136,13 @@ test('real members and admin cannot see another member’s manual notes', async 
       ),
     ).toHaveLength(2);
     await privateAcrossAccounts();
-    // This member has no machine. Its real offline response must preserve the form.
+    // This member has no machine, so the AI builder cannot start; a blank note still saves.
     await p.goto('/#/decisions/new');
     await p.getByRole('button', { name: /Create with AI/ }).click();
-    await p
-      .getByRole('textbox', { name: 'Question', exact: true })
-      .fill('Draft a private reminder');
-    await p.getByRole('button', { name: 'Ask', exact: true }).click();
-    await expect(p.getByRole('alert').filter({ hasText: /offline|machine/i })).toBeVisible();
-    await p.getByRole('button', { name: 'Minimize', exact: true }).click();
+    const setup = p.getByRole('dialog', { name: 'Choose a machine' });
+    await expect(setup.getByRole('button', { name: 'Start conversation' })).toBeDisabled();
+    await setup.getByRole('button', { name: 'Cancel' }).click();
+    await p.getByRole('button', { name: /Start blank/ }).click();
     await p
       .getByRole('textbox', { name: 'Title', exact: true })
       .fill('Preserved offline live draft');

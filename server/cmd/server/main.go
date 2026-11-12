@@ -41,6 +41,7 @@ import (
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	"lykeion/server/migrations"
 )
 
@@ -160,10 +161,13 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	for _, id := range ids {
 		err := st.InWorkspace(ctx, id, uuid.Nil, func(tx *store.Tx) error {
-			return pack.InstallShipped(ctx, tx, blobs, pack.Shipped())
+			if err := pack.InstallShipped(ctx, tx, blobs, pack.Shipped()); err != nil {
+				return err
+			}
+			return team.InstallLaboratory(ctx, tx)
 		})
 		if err != nil {
-			return fmt.Errorf("install shipped Teams in %s: %w", id, err)
+			return fmt.Errorf("install shipped Teams and laboratory in %s: %w", id, err)
 		}
 	}
 	publicURL := strings.TrimRight(getenv("PUBLIC_URL"), "/")

@@ -15,7 +15,9 @@ import (
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -93,8 +95,13 @@ func (h *H) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
+		// Laboratory is the built-in one when empty.
+		Laboratory string `json:"laboratory"`
 	}
-	if err := readJSON(r, &in); err != nil || strings.TrimSpace(in.Name) == "" || !slugRe.MatchString(in.Slug) {
+	if err := readJSON(r, &in); err == nil && in.Laboratory != "" && in.Laboratory != "built-in" {
+		writeErr(w, 400, "unknown laboratory")
+		return
+	} else if err != nil || strings.TrimSpace(in.Name) == "" || !slugRe.MatchString(in.Slug) {
 		writeErr(w, 400, "name and a lowercase slug (letters, digits, hyphens) are required")
 		return
 	}
@@ -110,6 +117,9 @@ func (h *H) createWorkspace(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if err := pack.InstallShipped(r.Context(), tx, h.Blobs, h.Shipped); err != nil {
+			return err
+		}
+		if err := team.InstallLaboratory(r.Context(), tx); err != nil {
 			return err
 		}
 		return tx.Emit(r.Context(), "workspace.created", nil, store.User(user), map[string]string{"name": in.Name, "slug": in.Slug})
@@ -307,6 +317,9 @@ func (h *H) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		if n == 0 {
 			return pgx.ErrNoRows
 		}
+		if err := service.KeepLaboratoryOwned(r.Context(), tx); err != nil {
+			return err
+		}
 		return tx.Emit(r.Context(), "member.role_changed", nil, store.User(user), map[string]string{"user_id": target.String(), "role": in.Role})
 	})
 	if err != nil {
@@ -373,6 +386,9 @@ func (h *H) remove(w http.ResponseWriter, r *http.Request, target uuid.UUID) {
 			if err := tx.Emit(r.Context(), "research.updated", nil, store.User(user), map[string]any{"research_id": p.ID}); err != nil {
 				return err
 			}
+		}
+		if err := service.KeepLaboratoryOwned(r.Context(), tx); err != nil {
+			return err
 		}
 		agents, err := tx.Q.ArchiveOwnedAgents(r.Context(), db.ArchiveOwnedAgentsParams{WorkspaceID: ws, OwnerID: target})
 		if err != nil {

@@ -276,7 +276,7 @@ func stopDaemon(t *testing.T, cancel context.CancelFunc, done <-chan error) {
 func TestDaemonRunsQueuedAgentWithIsolatedRoleToken(t *testing.T) {
 	f := fixture(t)
 	var role []byte
-	f.atRunEnd(func(dir string) { role, _ = os.ReadFile(filepath.Join(dir, "CLAUDE.md")) })
+	f.atRunEnd(func(dir string) { role, _ = os.ReadFile(filepath.Join(dir, ".cli-home", "role.md")) })
 	cancel, done := startDaemon(t, f.cfg)
 	waitFor(t, func() bool { return f.status(t) == "completed" })
 	stopDaemon(t, cancel, done)
@@ -1354,6 +1354,10 @@ func (f *daemonFixture) attach(t *testing.T, diskName, data string) {
 		_, err := tx.Q.LinkAttachment(ctx, db.LinkAttachmentParams{ID: id, CardID: &f.card, DiskName: diskName, RecordKey: "c1"})
 		return err
 	}))
+	// A run sees the files its study had when the run was made; the fixture's
+	// first run stands for one made after this file was attached.
+	_, err := f.env.Owner.Exec(ctx, "UPDATE agent_run SET attachment_snapshot=array_append(attachment_snapshot, $1) WHERE id=$2", id, f.id)
+	must(t, err)
 }
 
 func zipAttachment(t *testing.T, name, body string) string {
@@ -1395,7 +1399,7 @@ func attachmentPlacement(t *testing.T, files []service.ClaimedAttachment, data m
 		t.Cleanup(func() { _ = agent.RemoveTree(dir) })
 		c := claimed{Attachments: files}
 		c.AgentRun.Harness = "claude"
-		err := d.placeAttachments(t.Context(), c, dir)
+		_, err := d.placeAttachments(t.Context(), c, dir)
 		return dir, err
 	}
 	return d, place, &downloads
@@ -1466,11 +1470,11 @@ func TestArchiveFoldersDoNotReplaceAttachments(t *testing.T) {
 		claims = append(claims, a)
 		data[a.ID] = bodies[i]
 	}
-	_, place, _ := attachmentPlacement(t, claims, data)
+	d, _, _ := attachmentPlacement(t, claims, data)
 	for run := 0; run < 2; run++ {
-		dir, err := place()
-		must(t, err)
-		instructions, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+		dir := t.TempDir()
+		t.Cleanup(func() { _ = agent.RemoveTree(dir) })
+		instructions, err := d.placeAttachments(t.Context(), claimed{Attachments: claims}, dir)
 		must(t, err)
 		for i, name := range names {
 			raw, err := os.ReadFile(filepath.Join(dir, "attachments", name))

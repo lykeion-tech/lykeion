@@ -32,7 +32,7 @@ func (s *server) inboxKinds(t *testing.T, tok, ws, query string) string {
 
 // inboxKindsSeeded are the Inbox kinds a study raises; seedInbox gives a
 // card one item of each.
-var inboxKindsSeeded = []string{"blocked", "scoring_unavailable", "done", "middle_score", "no_tool"}
+var inboxKindsSeeded = []string{"blocked", "scoring_unavailable", "done", "study_report", "no_tool"}
 
 // seedInbox gives a card one item of every kind and returns their ids by kind.
 func (s *server) seedInbox(t *testing.T, ws, cardID, owner string) map[string]string {
@@ -67,10 +67,11 @@ func TestStoppingAStudyResolvesItsItemsAskingForAPerson(t *testing.T) {
 		t.Fatalf("stop: %d", code)
 	}
 	// The other card's items are untouched; the informational ones stay open until read.
-	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,done,done,middle_score,middle_score,no_tool,no_tool,scoring_unavailable" {
+	// Scoring retries are the server's own and never show in Decisions.
+	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,done,done,no_tool,no_tool,study_report,study_report" {
 		t.Fatalf("open: %s", got)
 	}
-	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "blocked,scoring_unavailable" {
+	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "blocked" {
 		t.Fatalf("archived: %s", got)
 	}
 	var resolved int
@@ -87,17 +88,21 @@ func TestReadingAnInformationalItemResolvesIt(t *testing.T) {
 	c := s.idleCard(t, a, w.ID, "q")
 	ids := s.seedInbox(t, w.ID, c.ID, s.userID(t, a))
 	for _, kind := range inboxKindsSeeded {
-		if code := s.call(t, "POST", "/api/decisions/"+ids[kind]+"/read", a, w.ID, nil, nil); code != 204 {
+		want := 204
+		if kind == "scoring_unavailable" {
+			want = 404
+		}
+		if code := s.call(t, "POST", "/api/decisions/"+ids[kind]+"/read", a, w.ID, nil, nil); code != want {
 			t.Fatalf("read %s: %d", kind, code)
 		}
 	}
-	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked,scoring_unavailable" {
+	if got := s.inboxKinds(t, a, w.ID, ""); got != "blocked" {
 		t.Fatalf("open: %s", got)
 	}
-	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "done,middle_score,no_tool" {
+	if got := s.inboxKinds(t, a, w.ID, "?view=history"); got != "done,no_tool,study_report" {
 		t.Fatalf("archived: %s", got)
 	}
-	for _, kind := range []string{"done", "middle_score", "no_tool"} {
+	for _, kind := range []string{"done", "study_report", "no_tool"} {
 		var resolved int
 		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE card_id = $1 AND type = 'inbox.resolved' AND payload->>'inbox_item_id' = $2`, c.ID, ids[kind]).Scan(&resolved); err != nil || resolved != 1 {
 			t.Fatalf("%s inbox.resolved events: %d %v", kind, resolved, err)
@@ -126,7 +131,7 @@ func TestReadingResolvedBlockingItemsDoesNotResolveThemAgain(t *testing.T) {
 		t.Fatalf("stop: %d", code)
 	}
 	var before []inboxRow
-	if code := s.call(t, "GET", "/api/decisions?view=history", recipient, w.ID, nil, &before); code != 200 || len(before) != 2 {
+	if code := s.call(t, "GET", "/api/decisions?view=history", recipient, w.ID, nil, &before); code != 200 || len(before) != 1 {
 		t.Fatalf("archive after stop: %d %+v", code, before)
 	}
 	for _, item := range before {

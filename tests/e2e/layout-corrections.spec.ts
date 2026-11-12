@@ -24,7 +24,9 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   const content = (await main.boundingBox())!;
   const separator = (await splitter.boundingBox())!;
   expect(content.x).toBeCloseTo(rail.x + rail.width, 0);
-  expect(properties.x).toBeCloseTo(content.x + content.width, 0);
+  // the pane floats over the study's right edge, inset 8px, without squeezing it
+  expect(properties.x + properties.width).toBeCloseTo(content.x + content.width - 8, 0);
+  expect(properties.x).toBeGreaterThan(content.x);
   // the resizer straddles the pane's left edge
   expect(Math.abs(separator.x + separator.width / 2 - properties.x)).toBeLessThanOrEqual(1);
   expect(
@@ -58,8 +60,10 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await expect(page.locator('.sidebar')).toBeHidden();
   const open = (await main.boundingBox())!;
   expect(open.x).toBeLessThan(20);
-  expect((await meta.boundingBox())!.x).toBeGreaterThanOrEqual(open.x + open.width - 1);
-  await page.getByRole('button', { name: 'Close pane', exact: true }).click();
+  const floated = (await meta.boundingBox())!;
+  expect(floated.x + floated.width).toBeCloseTo(open.x + open.width - 8, 0);
+  // the floating pane closes from the study's own details toggle
+  await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
   await expect(meta).toHaveCount(0);
   await expect(splitter).toHaveCount(0);
   expect((await main.boundingBox())!.x).toBeLessThan(20);
@@ -141,13 +145,11 @@ test('Agents and Projects create from scoped title actions with decorative plus 
   await expect(page.locator('.directory-toolbar')).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/agents-header-plus-1920.png` });
   await create.click();
-  await expect(page).toHaveURL(/#\/agents\/new$/);
-  await page.getByRole('button', { name: /Start blank/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'New agent', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
   await dialog
     .getByRole('textbox', { name: 'Agent name', exact: true })
     .fill('Header-created agent');
-  await dialog.getByRole('button', { name: 'Create agent', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page).toHaveURL(/#\/agents\/[a-f0-9-]+$/);
   await expect(
     page.getByRole('heading', { name: 'Header-created agent', exact: true }),

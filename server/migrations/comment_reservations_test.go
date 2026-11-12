@@ -61,15 +61,18 @@ func TestQueuedLegacyCommentReceiptBecomesReservation(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			env := testutil.Setup(t)
 			ctx := t.Context()
-			down, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.down.sql")
-			if err != nil {
-				t.Fatal(err)
+			read := func(name string) []byte {
+				b, err := fs.ReadFile(migrations.FS, name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return b
 			}
-			up, err := fs.ReadFile(migrations.FS, "0063_comment_reservations.up.sql")
+			// Comment attachments build on the reservation migration, so they
+			// come off first and go back on after it.
+			down, up := read("0063_comment_reservations.down.sql"), read("0063_comment_reservations.up.sql")
+			_, err := env.Owner.Exec(ctx, string(read("0065_comment_attachments.down.sql"))+"\n"+string(down))
 			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err = env.Owner.Exec(ctx, string(down)); err != nil {
 				t.Fatal(err)
 			}
 			user, ws, card := seedWorkspace(t, env)
@@ -83,7 +86,7 @@ func TestQueuedLegacyCommentReceiptBecomesReservation(t *testing.T) {
 			if _, err = env.Owner.Exec(ctx, `INSERT INTO record(workspace_id,card_id,board_column,round,kind,role,body,agent_run_id) VALUES($1,$2,'grounding',1,'comment_delivery','leader',jsonb_build_object('comment_id',$3::text,'how','next_run'),$4)`, ws, card, comment, run); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = env.Owner.Exec(ctx, string(up)); err != nil {
+			if _, err = env.Owner.Exec(ctx, string(up)+"\n"+string(read("0065_comment_attachments.up.sql"))); err != nil {
 				t.Fatal(err)
 			}
 			var pending, retained int

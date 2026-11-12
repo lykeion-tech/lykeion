@@ -295,7 +295,7 @@ small {
   min-height: 0;
   overflow-y: auto;
 }
-.sidebar > .workspace-switch,
+.sidebar > .sidebar-brand,
 .sidebar > .quick-actions,
 .sidebar > .sidebar-bottom {
   flex-shrink: 0;
@@ -333,9 +333,6 @@ small {
   place-items: center;
   font-size: 12px;
   font-weight: 500;
-}
-.quick-actions {
-  margin-top: 8px;
 }
 .shortcuts {
   display: flex;
@@ -379,8 +376,14 @@ kbd {
   align-items: center;
   margin-top: 2px;
 }
-.settings-line > a {
+.settings-line > .workspace-switch {
   flex: 1;
+  min-width: 0;
+}
+.workspace-switch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sidebar-handle {
   position: absolute;
@@ -1266,15 +1269,12 @@ kbd {
   padding: 62px 8px 8px 0;
 }
 .sidebar {
-  flex-basis: 224px;
+  flex-basis: 262px;
   padding: 0 10px 0;
 }
 .workspace-switch {
   height: 32px;
   margin-top: 0;
-}
-.quick-actions {
-  margin-top: 12px;
 }
 .nav-item {
   padding: 6px 8px;
@@ -1308,7 +1308,7 @@ kbd {
 }
 .sidebar-handle,
 .desktop .sidebar-handle {
-  left: 219px;
+  left: 257px;
   top: 62px;
   height: calc(100% - 62px);
   width: 5px;
@@ -1382,11 +1382,11 @@ kbd {
 }
 @media (max-width: 1000px) {
   .sidebar {
-    flex-basis: 224px;
+    flex-basis: 262px;
     padding: 0 10px;
   }
   .sidebar-handle {
-    left: 219px;
+    left: 257px;
   }
   .study-toolbar {
     flex-wrap: nowrap;

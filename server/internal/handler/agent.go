@@ -12,8 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -55,13 +57,21 @@ func validateAgent(a db.Agent) error {
 	return nil
 }
 
+// refuseLaboratory answers 403 for any change to a laboratory agent.
+func refuseLaboratory(a db.Agent) error {
+	if a.Laboratory != "" {
+		return team.ErrLaboratoryReadOnly
+	}
+	return nil
+}
+
 func agentFail(w http.ResponseWriter, r *http.Request, err error, out any, status int) {
 	var bad cardInputError
 	var busy conflict
 	switch {
 	case errors.As(err, &busy):
 		writeErr(w, 409, busy.Error())
-	case errors.Is(err, errAgentForbidden):
+	case errors.Is(err, errAgentForbidden), errors.Is(err, team.ErrLaboratoryReadOnly):
 		writeErr(w, 403, err.Error())
 	case errors.Is(err, errAgentArchived), errors.Is(err, errAgentBuiltinArchive):
 		writeErr(w, 409, err.Error())
@@ -123,6 +133,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 		Model                string          `json:"model"`
 		Visibility           string          `json:"visibility"`
 		BuiltInKey           string          `json:"built_in_key"`
+		Stage                string          `json:"stage"`
 		ConversationStarters json.RawMessage `json:"conversation_starters"`
 	}
 	if err := readJSON(r, &in); err != nil {
@@ -131,6 +142,10 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.BuiltInKey != "" {
 		writeErr(w, 400, "built-in identity cannot be created")
+		return
+	}
+	if board.StageIndex(in.Stage) < 0 {
+		writeErr(w, 400, "choose a stage for this agent")
 		return
 	}
 	if len(in.ConversationStarters) > 0 {
@@ -153,7 +168,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	var out db.Agent
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters})
+		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, Stage: in.Stage, ConversationStarters: a.ConversationStarters})
 		if err != nil {
 			return err
 		}
@@ -192,6 +207,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		Model                *string         `json:"model"`
 		Visibility           *string         `json:"visibility"`
 		BuiltInKey           *string         `json:"built_in_key"`
+		Stage                *string         `json:"stage"`
 		AvatarURL            *string         `json:"avatar_url"`
 		ConversationStarters json.RawMessage `json:"conversation_starters"`
 	}
@@ -203,7 +219,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "built-in identity is immutable")
 		return
 	}
-	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && in.AvatarURL == nil && len(in.ConversationStarters) == 0 {
+	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && in.AvatarURL == nil && in.Stage == nil && len(in.ConversationStarters) == 0 {
 		writeErr(w, 400, "nothing to change")
 		return
 	}
@@ -224,6 +240,9 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
 			return errAgentForbidden
+		}
+		if err := refuseLaboratory(a); err != nil {
+			return err
 		}
 		if a.ArchivedAt != nil {
 			return errAgentArchived
@@ -270,10 +289,19 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 			}
 			a.AvatarUrl = *in.AvatarURL
 		}
+		if in.Stage != nil {
+			if a.BuiltInKey == "aristotle" {
+				return cardInputError("Aristotle has no stage")
+			}
+			if board.StageIndex(*in.Stage) < 0 {
+				return cardInputError("choose a stage for this agent")
+			}
+			a.Stage = *in.Stage
+		}
 		if err := validateAgent(a); err != nil {
 			return err
 		}
-		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters, AvatarUrl: a.AvatarUrl})
+		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters, AvatarUrl: a.AvatarUrl, Stage: a.Stage})
 		if err != nil {
 			return err
 		}
@@ -304,6 +332,9 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
 			return errAgentForbidden
+		}
+		if err := refuseLaboratory(a); err != nil {
+			return err
 		}
 		if a.BuiltInKey != "" {
 			return errAgentBuiltinArchive
@@ -344,6 +375,9 @@ func (h *H) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
 			return errAgentForbidden
+		}
+		if err := refuseLaboratory(a); err != nil {
+			return err
 		}
 		if a.BuiltInKey != "" {
 			return conflict("built-in agents cannot be deleted")

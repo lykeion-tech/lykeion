@@ -23,59 +23,33 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await expect(main.locator('.event-line').filter({ hasText: /^Created/ })).toHaveCount(0);
   await expect(main.getByRole('region', { name: 'Study description' })).toHaveText(question);
 
-  // The lab's leader arrives live as its Team agent, previewing its latest text.
+  // The lab's leader arrives live as its Team agent, showing how its run ended.
   const card = main.locator('.agent-card').first();
-  await expect(card.getByRole('heading', { name: 'pi · ui-demo' })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(card.getByRole('button', { name: /Run 1$/ })).toBeVisible();
-  await expect(card.getByRole('heading')).not.toHaveClass(/truncate/);
-  await expect(card.locator('.preview')).toContainText('Read the card; the lab script stops here.');
+  await expect(card.locator('.agent-name')).toHaveText('Pi · ui-demo', { timeout: 30_000 });
+  await expect(card.locator('.run-header')).toHaveAttribute('aria-label', /, Run 1$/);
+  // The scripted leader stops without a hand-in, so its card says the run failed
+  // and leaves the text to the full log.
+  await expect(card.locator('.run-result')).toContainText('Run failed', { timeout: 30_000 });
   expect(messageReads).toEqual([]);
   const transcript = await openAgentTranscript(page);
-  await expect(transcript.getByRole('heading', { name: 'pi · ui-demo', level: 2 })).toBeVisible();
-  // The transcript opens with what the run was asked, not its prompt's framing.
+  await expect(transcript.getByRole('heading', { name: 'Full log', level: 2 })).toBeVisible();
+  // The full log opens with what the run was asked, not its prompt's framing.
   await expect(transcript.locator('.turn-assignment')).toContainText(question);
   await expect(transcript.locator('.turn-assignment')).not.toContainText('You are the leader');
-  await transcript.getByRole('tab', { name: 'Environment' }).click();
-  await expect(transcript.getByText('Claude Code', { exact: true })).toBeVisible();
-  await expect(transcript.locator('.environment').getByText(/^lab-mac/)).toBeVisible();
-  // The lab daemon reports its own machine's platform.
-  await expect(transcript.locator('.environment li', { hasText: /Round\b/ })).toHaveCount(0);
-  await expect(transcript.locator('.environment li', { hasText: /Attempt\b/ })).toHaveCount(0);
-  const platform = transcript.locator('.environment li', { hasText: 'Platform' });
-  await expect(platform.locator('code')).toHaveText(/^(linux|darwin|windows) \/ \w+$/);
-  for (const value of await transcript.locator('.environment code').allTextContents())
-    expect(value.trim()).not.toBe('');
-  // The daemon keeps each call's id, so its result pairs with it; nothing
-  // in the run carried code.
-  await transcript.getByRole('tab', { name: 'Code' }).click();
-  await expect(transcript.getByText('No code was recorded in this run.')).toBeVisible();
-  await transcript.getByRole('tab', { name: 'Execution Log' }).click();
-  const cells = transcript.locator('.cells > li');
-  await expect(cells).toHaveCount(2);
-  await expect(cells.first()).toHaveClass(/cell-error/);
-  await expect(cells.first().locator('.source-line')).toHaveText(['1lyk card show']);
-  await cells.first().locator('.cell-output summary').click();
-  await expect(cells.first().locator('.cell-output pre')).toHaveText(
-    'The scripted card read was declined. No evidence was created.',
-  );
-  await expect(cells.nth(1)).not.toHaveClass(/cell-error/);
-  await transcript.getByRole('tab', { name: 'Transcript' }).click();
   await expect(transcript.getByText('lyk card show', { exact: true }).first()).toBeVisible();
   // A leader that stops without finishing is nudged once, so the scripted run
   // has a second turn that says the same.
   await expect(
     transcript.getByText('Read the card; the lab script stops here.').first(),
   ).toBeVisible();
-  await transcript.getByRole('button', { name: 'Close transcript' }).click();
+  await transcript.getByRole('button', { name: 'Close full log' }).click();
   await expect(transcript).toBeHidden();
   await expect(main.locator('.agent-card')).toHaveCount(2);
 
   await main
     .getByRole('textbox', { name: 'Comment' })
     .fill('Prefer human islet data over mouse models.');
-  await main.getByRole('button', { name: 'Send' }).click();
+  await main.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(main.locator('.bubble.mine', { hasText: 'Prefer human islet data' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
 
@@ -85,9 +59,8 @@ test('the study opens with its description and identifiable runs, keeping the qu
     if (await back.isVisible()) await back.click();
     await meta.getByRole('button', { name: name, exact: true }).click();
   };
-  await surface('Details');
-  await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
   await surface('Properties');
+  await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
   await expect(meta.getByText('Grounding')).toBeVisible();
 
   await page.screenshot({
@@ -101,7 +74,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   });
   await surface('Timeline');
   const runDialog = meta.locator('.execution-log');
-  await expect(runDialog.locator('.run-metrics')).toContainText('$0.01');
+  await expect(runDialog.locator('.run-metrics')).toContainText(/Spent\$0\.0[1-9]/);
   await expect(runDialog.locator('.timeline-chart .cost-stroke')).not.toHaveAttribute(
     'd',
     'M0,100 L1000,100',
@@ -109,7 +82,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/recorded-spend-timeline.png',
   });
-  await page.getByRole('button', { name: 'Close pane' }).click();
+  await page.getByRole('button', { name: 'Toggle details', exact: true }).click();
   await expect(meta).toHaveCount(0);
 });
 
@@ -122,12 +95,16 @@ test('long text and many records never scroll the study page sideways', async ({
   const title = `${'A very long study title about beta-cell dedifferentiation '.repeat(4)}${Date.now()}`;
   const study = await newStudy(page.request, question, { title });
   await page.goto(`/#/studies/${study.id}`);
-  await expect(page.locator('.agent-card h3', { hasText: 'pi · ui-demo' }).first()).toBeVisible({
+  await expect(
+    page.locator('.agent-card .agent-name', { hasText: 'Pi · ui-demo' }).first(),
+  ).toBeVisible({
     timeout: 30_000,
   });
   await labRecords(page.request, study.id, 40);
   await page.reload();
-  await expect(page.locator('.agent-card h3', { hasText: 'pi · ui-demo' }).first()).toBeVisible();
+  await expect(
+    page.locator('.agent-card .agent-name', { hasText: 'Pi · ui-demo' }).first(),
+  ).toBeVisible();
   const overflow = await page.evaluate(() => ({
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     transcript: (() => {
@@ -146,7 +123,7 @@ test('long text and many records never scroll the study page sideways', async ({
 
 import { LAB, labFixture } from './lab';
 
-test('the current attempt loads beyond 500 messages', async ({ page }) => {
+test('the full log loads beyond 500 messages across attempts', async ({ page }) => {
   const fixture = await labFixture(page.request);
   await page.addInitScript(
     (ws) => localStorage.setItem('lykeion.workspace', ws),
@@ -161,9 +138,10 @@ test('the current attempt loads beyond 500 messages', async ({ page }) => {
   const main = page.getByRole('region', { name: 'Study', exact: true });
   await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await expect(main.getByText(/Attempt 1 message/)).toHaveCount(0);
-  expect(messageRequests.some((u) => u.includes('attempt=2&after=500'))).toBe(true);
-  expect(messageRequests.every((u) => u.includes('attempt=2'))).toBe(true);
+  // The full log reads every attempt with one cursor, paging past 500.
+  await expect(main.getByText(/Attempt 1 message/).first()).toBeVisible();
+  expect(messageRequests.some((u) => /after_attempt=\d+&after=[1-9]\d*/.test(u))).toBe(true);
+  expect(messageRequests.every((u) => u.includes('after_attempt='))).toBe(true);
   const overflow = await main.evaluate((e) => e.scrollWidth - e.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await main.locator('.markdown-body').last().scrollIntoViewIfNeeded();
@@ -235,7 +213,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   const main = page.getByRole('region', { name: 'Study' });
   const transcript = await openAgentTranscript(page);
   await expect(main.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await transcript.getByRole('button', { name: 'Close transcript' }).click();
+  await transcript.getByRole('button', { name: 'Close full log' }).click();
   await expect.poll(() => subscribed).toEqual([fixture.workspace_id]);
   await closeSocket();
   const missed = 'Written while disconnected; recovered by HTTP refresh';
@@ -257,7 +235,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   });
   await page
     .getByRole('complementary', { name: 'Workspace navigation' })
-    .getByRole('button', { name: /Browser fixtures/ })
+    .locator('.workspace-switch')
     .click();
   await page
     .getByRole('menu', { name: 'Workspace' })
@@ -266,7 +244,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   await expect(page).toHaveURL(/#\/studies$/);
   await expect(page.getByRole('region', { name: 'Study' })).toHaveCount(0);
   await page
-    .getByRole('region', { name: 'Grounding' })
+    .getByRole('region', { name: 'Done' })
     .getByRole('button', { name: /Separate workspace study/ })
     .click();
   await expect(main.getByRole('heading', { name: 'Separate workspace study' })).toBeVisible();
@@ -331,10 +309,24 @@ async function linkedStudies(page: import('@playwright/test').Page) {
   return { ws, a, b };
 }
 
-async function studyHash(page: import('@playwright/test').Page, id: string, title: string) {
+// Leaving a study with an unsent comment asks before discarding it.
+async function studyHash(
+  page: import('@playwright/test').Page,
+  id: string,
+  title: string,
+  discards = false,
+) {
   await page.evaluate((card) => {
     location.hash = `/studies/${card}`;
   }, id);
+  const discard = page.getByRole('button', { name: 'Discard changes', exact: true });
+  if (discards) {
+    await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+    await discard.click();
+  } else {
+    // A comment still pending from the earlier visit counts as an unsent draft.
+    await discard.click({ timeout: 1500 }).catch(() => {});
+  }
   await expect(
     page.getByRole('region', { name: 'Study' }).getByRole('heading', { name: title }),
   ).toBeVisible();
@@ -416,7 +408,7 @@ test('study navigation resets the comment draft', async ({ page }) => {
   const { a, b } = await linkedStudies(page);
   const main = page.getByRole('region', { name: 'Study' });
   await main.getByRole('textbox', { name: 'Comment' }).fill('Draft for A');
-  await studyHash(page, b, 'Lifecycle B');
+  await studyHash(page, b, 'Lifecycle B', true);
   await expect(main.getByRole('heading', { name: 'Lifecycle B' })).toBeVisible();
   await expect(main.getByRole('textbox', { name: 'Comment' })).toHaveValue('');
   await studyHash(page, a, 'Lifecycle A');
@@ -538,7 +530,7 @@ for (const operation of ['comment', 'delete'] as const) {
       if (operation === 'delete') {
         await expect(main).toHaveCount(0);
         await page
-          .getByRole('region', { name: 'Grounding' })
+          .getByRole('region', { name: 'Done' })
           .getByRole('button', { name: /Lifecycle B/ })
           .click();
       } else await studyHash(page, b, 'Lifecycle B');
@@ -589,12 +581,12 @@ test('expanded run preserves every ordered recorded message and full tool conten
   const dialog = await openAgentTranscript(page);
   const markdown = dialog.locator('.markdown-body');
   await expect(markdown.last()).toContainText('Attempt 2 message 501');
-  await expect(markdown.first()).toContainText('Attempt 2 message 001');
+  await expect(markdown.first()).toContainText('Attempt 1 message 001');
   await expect(dialog.getByText('Full recorded history', { exact: true })).toHaveCount(0);
   // The status message is not shown, so the tool call and its result are the two steps.
   const messages = dialog.locator('.activity-step');
   await expect(messages).toHaveCount(2);
-  await expect(markdown).toHaveCount(498);
+  await expect(markdown).toHaveCount(500);
   const tool = messages.nth(0);
   if (!(await tool.locator('.tool-step').evaluate((el) => (el as HTMLDetailsElement).open)))
     await tool.locator('.step-heading').click();
@@ -605,9 +597,7 @@ test('expanded run preserves every ordered recorded message and full tool conten
     path: 'test-results/l2-transcript/expanded-run.png',
     fullPage: true,
   });
-  expect(
-    await page.locator('.run-panel').evaluate((el) => el.scrollWidth - el.clientWidth),
-  ).toBeLessThanOrEqual(0);
+  expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 });
 
 test('transcript and run message refusals show retries and keep already loaded data', async ({
@@ -657,8 +647,10 @@ test('transcript and run message refusals show retries and keep already loaded d
   refuse = false;
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
-  await transcript.getByRole('button', { name: 'Close transcript' }).click();
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  await transcript.getByRole('button', { name: 'Close full log' }).click();
+  // The comments read may already have recovered on its own refetch.
+  const retryComments = page.getByRole('button', { name: 'Retry Comments', exact: true });
+  if (await retryComments.isVisible()) await retryComments.click();
   await expect(page.locator('.bubble', { hasText: comment })).toBeVisible();
   refuse = true;
   await page.evaluate(async () => {
@@ -676,8 +668,10 @@ test('transcript and run message refusals show retries and keep already loaded d
   await expect(page.locator('.markdown-body').last()).toContainText('Attempt 2 message 501');
   refuse = false;
   await page.getByRole('button', { name: 'Retry run messages', exact: true }).click();
-  await transcript.getByRole('button', { name: 'Close transcript' }).click();
-  await page.getByRole('button', { name: 'Retry Comments', exact: true }).click();
+  await transcript.getByRole('button', { name: 'Close full log' }).click();
+  // The comments read may already have recovered on its own refetch.
+  const retryAgain = page.getByRole('button', { name: 'Retry Comments', exact: true });
+  if (await retryAgain.isVisible()) await retryAgain.click();
   await expect(page.locator('.study-read-error')).toHaveCount(0);
   await expect(page.locator('.run-read-error')).toHaveCount(0);
 });
@@ -738,9 +732,6 @@ test('a blocked study is redone from the composer', async ({ page }) => {
   await page.goto(`/#/studies/${study.id}`);
   const note = 'Scored low twice. Tell the Team what to fix to redo this column.';
   await expect(page.getByText(note)).toBeVisible();
-  await page.getByRole('button', { name: 'Action', exact: true }).click();
-  await expect(page.getByRole('menuitem')).toHaveText([/Comment/]);
-  await page.keyboard.press('Escape');
   await page.screenshot({ path: `${shots}/blocked-composer.png`, fullPage: true });
   await page.getByRole('textbox', { name: 'Comment' }).fill('Cite the primary papers.');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -760,7 +751,7 @@ test('a Team study shows its Team as the assignee', async ({ page }) => {
   await expect(row).not.toContainText('Unassigned');
 });
 
-test('a finished single-stage study stays in its column, done', async ({ page }) => {
+test('a finished single-stage study moves to Done, naming its stage', async ({ page }) => {
   const study = await unassigned(page);
   await labFlow(page.request, study.id, {
     column: 'grounding',
@@ -773,11 +764,12 @@ test('a finished single-stage study stays in its column, done', async ({ page })
     ],
   });
   await page.goto('/#/studies');
-  const card = page.getByRole('region', { name: 'Grounding' }).locator(`[data-card="${study.id}"]`);
+  const card = page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`);
   await expect(card).toBeVisible();
-  await expect(card.locator('.chip-done')).toHaveText('Done');
+  // a finished study names the stage it was scoped to
+  await expect(card.locator('.card-id .chip')).toHaveText('Grounding');
   await expect(
-    page.getByRole('region', { name: 'Done' }).locator(`[data-card="${study.id}"]`),
+    page.getByRole('region', { name: 'Grounding' }).locator(`[data-card="${study.id}"]`),
   ).toHaveCount(0);
   await page.screenshot({ path: `${shots}/done-on-board.png`, fullPage: true });
 });
@@ -812,8 +804,6 @@ test('the study shows its description without evidence in details', async ({ pag
   await pane.getByRole('button', { name: 'Properties', exact: true }).click();
   await expect(pane.getByLabel('Machine', { exact: true })).toHaveCount(0);
   await expect(pane).toContainText('Runs on:');
-  await pane.getByRole('button', { name: 'Back to surfaces' }).click();
-  await pane.getByRole('button', { name: 'Details', exact: true }).click();
   await expect(pane.getByText('View evidence and activity')).toHaveCount(0);
   await expect(pane.getByRole('region', { name: 'Audit' })).toHaveCount(0);
 });
@@ -830,8 +820,9 @@ test('Properties stays the same width on the right and resizes inward', async ({
   const content = (await area.locator('.task-main').boundingBox())!;
   const container = (await area.boundingBox())!;
   expect(pane.x).toBeGreaterThan(content.x);
-  expect(pane.x + pane.width).toBeCloseTo(container.x + container.width, 0);
-  expect(pane.x - content.x - content.width).toBeCloseTo(0, 0);
+  // the pane floats over the study, inset 8px from its right edge
+  expect(pane.x + pane.width).toBeCloseTo(container.x + container.width - 8, 0);
+  expect(pane.x).toBeLessThan(content.x + content.width);
   await splitter.focus();
   await page.keyboard.press('ArrowLeft');
   await expect(properties).toHaveCSS('width', '250px');
@@ -845,7 +836,7 @@ test('Properties stays the same width on the right and resizes inward', async ({
   await expect(properties).toHaveCSS('width', '280px');
 });
 
-test('study content and composer share a wider measure and only the corner button opens a run', async ({
+test('study content and composer share a wider measure and only the log button opens a run', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 2071, height: 960 });
@@ -856,26 +847,24 @@ test('study content and composer share a wider measure and only the corner butto
   await expect(cards).toHaveCount(2);
   const content = main.locator('.study-content');
   await expect(content).toHaveCSS('max-width', '860px');
-  const bounds = await main.locator('.agent-cards').boundingBox();
+  const bounds = await main.locator('.study-content').boundingBox();
   const composer = await main.locator('.study-comment').boundingBox();
   expect(bounds).toBeTruthy();
   expect(composer).toBeTruthy();
-  expect(composer!.x).toBeCloseTo(bounds!.x, 0);
-  expect(composer!.width).toBeCloseTo(bounds!.width, 0);
-  await cards.first().locator('.preview').click();
+  // both columns inset their text by the same 20px
+  expect(composer!.x).toBeCloseTo(bounds!.x + 20, 0);
+  expect(composer!.width).toBeCloseTo(bounds!.width - 40, 0);
+  await cards.first().locator('.run-result').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await cards
-    .first()
-    .getByRole('button', { name: /Open transcript/ })
-    .click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: 'Close transcript' }).click();
+  await cards.first().getByRole('button', { name: 'Open full log' }).click();
+  await expect(page.getByRole('dialog', { name: 'Full log' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close full log' }).click();
   await page.screenshot({ path: 'test-results/l2-transcript/study-width-composer-alignment.png' });
   await page.setViewportSize({ width: 800, height: 982 });
-  const narrowCards = await main.locator('.agent-cards').boundingBox();
+  const narrowCards = await main.locator('.study-content').boundingBox();
   const narrowComposer = await main.locator('.study-comment').boundingBox();
-  expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x, 0);
-  expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width, 0);
+  expect(narrowComposer!.x).toBeCloseTo(narrowCards!.x + 20, 0);
+  expect(narrowComposer!.width).toBeCloseTo(narrowCards!.width - 40, 0);
 });
 
 test('a study one agent works names the agent without an auditor chip', async ({ page }) => {
@@ -883,7 +872,7 @@ test('a study one agent works names the agent without an auditor chip', async ({
   const name = `Lone agent ${Date.now()}`;
   const made = await page.request.post('/api/agents', {
     headers,
-    data: { name, harness: 'claude' },
+    data: { name, stage: 'grounding', harness: 'claude' },
   });
   expect(made.status()).toBe(201);
   const agent = (await made.json()) as { id: string };

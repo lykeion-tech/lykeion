@@ -18,6 +18,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/labmemory"
+	"lykeion/server/internal/report"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
@@ -138,13 +139,58 @@ func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, agent
 }
 
 // checkStudyAgent refuses an agent the creator may not assign.
-func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID) error {
+// An empty from skips the stage check, for a draft whose stages the agent picks.
+func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID, from, to string) error {
 	refused := cardInputError("you can't start a study with this agent")
 	var inputErr cardInputError
 	if err := checkAssignee(r, tx, ws, creator, "agent", id); errors.As(err, &inputErr) {
 		return refused
 	} else if err != nil {
 		return err
+	}
+	if from == "" {
+		return nil
+	}
+	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	if err != nil {
+		return err
+	}
+	return checkAgentStage(a, from, to)
+}
+
+// checkAgentStage refuses an agent with no stage, or a scope beyond its stage.
+func checkAgentStage(a db.Agent, from, to string) error {
+	if err := board.CheckAgentStage(a.Stage, from, to); err != nil {
+		return cardInputError(err.Error())
+	}
+	return nil
+}
+
+// checkAutoresearchStage holds an Autoresearch's agent to its own stage: all of
+// the scope for a lone agent, each column no Team covers for a filler.
+func checkAutoresearchStage(r *http.Request, tx *store.Tx, ws uuid.UUID, a *assigneeIn, from, to string) error {
+	var id *uuid.UUID
+	if a.Type == "agent" {
+		id = a.ID
+	} else {
+		id = a.AgentID
+	}
+	if id == nil {
+		return nil
+	}
+	ag, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: *id})
+	if err != nil {
+		return err
+	}
+	if a.Type == "agent" {
+		return checkAgentStage(ag, from, to)
+	}
+	for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
+		if _, covered := a.Teams[col]; !covered {
+			if err := checkAgentStage(ag, col, col); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -285,6 +331,8 @@ type studyView struct {
 	// Attachments are the files attached at creation, never their storage.
 	Attachments []attachmentView  `json:"attachments"`
 	Services    []serviceNameView `json:"services"`
+	// HasReport says the study page links to a report.
+	HasReport bool `json:"has_report"`
 }
 
 type serviceNameView struct {
@@ -304,6 +352,9 @@ func viewOf(r *http.Request, tx *store.Tx, c db.Card) (studyView, error) {
 	var err error
 	v.StartDate, err = tx.StudyStartDate(r.Context(), c.ID)
 	if err != nil {
+		return v, err
+	}
+	if v.HasReport, err = report.Has(r.Context(), tx, c); err != nil {
 		return v, err
 	}
 	files, err := tx.Q.CardAttachments(r.Context(), db.CardAttachmentsParams{WorkspaceID: c.WorkspaceID, CardID: &c.ID})
@@ -447,7 +498,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		assignee := "team"
 		if agent != nil {
 			assignee = "agent"
-			if err := checkStudyAgent(r, tx, ws, user, *agent); err != nil {
+			if err := checkStudyAgent(r, tx, ws, user, *agent, from, to); err != nil {
 				return err
 			}
 		} else {

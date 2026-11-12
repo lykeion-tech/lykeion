@@ -53,6 +53,9 @@ type ExecOptions struct {
 	// ReadOnly lets the CLI's own tools read, but not write files or run
 	// commands that change anything.
 	ReadOnly bool
+	// NoTools leaves the CLI none of its own tools but its structured
+	// answer: the run reads only its prompt. It goes with ReadOnly.
+	NoTools bool
 	// ReadDirs are folders besides Dir that a writable run's CLI may read
 	// without asking: the study's add-on folder and the language bases.
 	ReadDirs []string
@@ -62,6 +65,9 @@ type ExecOptions struct {
 	// OutputSchema, when set, is a JSON Schema the CLI holds its final
 	// answer to; Result.Output carries that answer.
 	OutputSchema string
+	// Instructions is the run's role. Claude, which reads no CLAUDE.md in a
+	// run, gets it as an appended system prompt; Codex reads its AGENTS.md.
+	Instructions string
 	// MaxTurns, when positive, caps Claude's agentic turns.
 	MaxTurns int
 	// Input, when set, carries messages for Claude's running turn: each one

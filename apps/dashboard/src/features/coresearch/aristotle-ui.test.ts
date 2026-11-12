@@ -5,7 +5,6 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import AristotleChat from './AristotleChat.vue';
 import AgentDetail from '../agents/AgentDetail.vue';
-import RailFabs from './RailFabs.vue';
 import ConversationRail from './ConversationRail.vue';
 import SidebarFooter from '../../ui/SidebarFooter.vue';
 import { keys } from '../../api/keys';
@@ -104,7 +103,7 @@ async function mount(
   const app = createTreeApp({
     render: () =>
       rail
-        ? h(ConversationRail, null, { footer: () => h(SidebarFooter) })
+        ? h(ConversationRail, null, { footer: () => h(SidebarFooter, { userName: 'Lab', workspaceName: 'Lab' }) })
         : settings
           ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
           : router.currentRoute.value.path.startsWith('/coresearch')
@@ -458,7 +457,8 @@ describe('Aristotle UI', () => {
     const retry = all(root).find((n) => n.tag === 'button' && textOf(n) === 'Retry')!;
     await (retry.props.onClick as () => Promise<void>)();
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    const historyCalls = fetch.mock.calls.filter((c) => String(c[0]).endsWith('/messages'));
+    expect(historyCalls).toHaveLength(2);
     expect(all(root).some((n) => n.props.innerHTML === 'Existing research history')).toBe(true);
     expect(textOf(root)).not.toContain('History unavailable');
     expect(textOf(root)).not.toContain('Welcome to Coresearch');
@@ -476,14 +476,14 @@ describe('Aristotle UI', () => {
     expect.soft(textOf(root)).not.toContain('Projects');
     const links = all(root).filter((n) => n.tag === 'a');
     expect(links.map((n) => n.props.href)).toEqual([
-      '/coresearch',
       '/coresearch/new',
       '/coresearch/conversations/welcome',
-      '/settings',
     ]);
+    expect(textOf(root)).not.toContain('Chat');
     expect(byLabel(root, 'New conversation').props.href).toBe('/coresearch/new');
     expect(textOf(root)).toContain('Getting started with Aristotle');
-    expect(textOf(root)).toContain('Settings');
+    expect(textOf(root)).toContain('Lab');
+    expect(byLabel(root, 'Help')).toBeDefined();
   });
   it.each(['experiment', 'cowrite'])(
     'preserves an existing starter alongside a separate %s run',
@@ -835,28 +835,5 @@ describe('Aristotle UI', () => {
       mode: 'cowrite',
       body: expect.stringContaining('write a research paper'),
     });
-  });
-  it('provides mutually exclusive rail controls with accessible labels', () => {
-    const change = vi.fn();
-    const app = createTreeApp({ render: () => h(RailFabs, { view: 'context', onChange: change }) });
-    const root = node('root');
-    app.mount(root);
-    expect(byLabel(root, 'Show conversations').props['aria-pressed']).toBe(true);
-    expect(byLabel(root, 'Show navigation').props['aria-pressed']).toBe(false);
-    (byLabel(root, 'Show navigation').props.onClick as () => void)();
-    expect(change).toHaveBeenCalledWith('nav');
-    app.unmount();
-  });
-  it('uses the chat icon for Cowrite session details', () => {
-    const app = createTreeApp({ render: () => h(RailFabs, { view: 'context', session: true }) });
-    const root = node('root');
-    app.mount(root);
-    const button = byLabel(root, 'Show session details');
-    expect(
-      all(button).some(
-        (n) => n.tag === 'svg' && String(n.props.class).includes('lucide-message-square'),
-      ),
-    ).toBe(true);
-    app.unmount();
   });
 });

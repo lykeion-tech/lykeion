@@ -209,7 +209,7 @@ func (q *Queries) DeleteOwnedCoresearchProject(ctx context.Context, id uuid.UUID
 const ensureAristotle = `-- name: EnsureAristotle :one
 INSERT INTO agent(workspace_id,owner_id,name,description,instructions,harness,model,visibility,built_in_key)
 VALUES(app_workspace(),app_user(),'Aristotle','Your personal research partner.','Help the researcher ground questions in evidence, design reproducible experiments, and review findings. Ask clarifying questions, distinguish evidence from uncertainty, and do not start background work.','claude','','private','aristotle')
-ON CONFLICT(workspace_id,owner_id,built_in_key) WHERE built_in_key<>'' DO UPDATE SET built_in_key=excluded.built_in_key RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at
+ON CONFLICT(workspace_id,owner_id,built_in_key) WHERE built_in_key<>'' DO UPDATE SET built_in_key=excluded.built_in_key RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
 `
 
 func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
@@ -233,6 +233,9 @@ func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
 		&i.AvatarUrl,
 		&i.TeamDeletedAt,
 		&i.DeletedAt,
+		&i.Stage,
+		&i.Laboratory,
+		&i.RuntimeID,
 	)
 	return i, err
 }
@@ -495,7 +498,7 @@ func (q *Queries) MarkConversationProject(ctx context.Context, id uuid.UUID) err
 }
 
 const setAristotleRunModel = `-- name: SetAristotleRunModel :one
-UPDATE agent_run SET requested_model= $1 WHERE workspace_id=app_workspace() AND id= $2 AND kind='coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose
+UPDATE agent_run SET requested_model= $1 WHERE workspace_id=app_workspace() AND id= $2 AND kind='coresearch' RETURNING id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id
 `
 
 type SetAristotleRunModelParams struct {
@@ -558,6 +561,7 @@ func (q *Queries) SetAristotleRunModel(ctx context.Context, arg SetAristotleRunM
 		&i.AttachmentSnapshot,
 		&i.LabChatID,
 		&i.LabPurpose,
+		&i.PinnedRuntimeID,
 	)
 	return i, err
 }

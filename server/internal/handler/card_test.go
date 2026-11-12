@@ -557,11 +557,11 @@ func TestAOneAgentStudyStartsAtOnce(t *testing.T) {
 	agent := s.newAgent(t, a, w.ID, "solo", "claude")
 	var c studyJSON
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q", "assignee": map[string]any{"type": "agent", "id": agent},
-		"scope": map[string]string{"from": "grounding", "to": "grounding"}}, &c); code != 201 {
+		"scope": s.stageScope(t, agent)}, &c); code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND assignee_type = 'agent' AND assignee_id = $2 AND board_column = 'grounding'", c.ID, agent); n != 1 {
-		t.Fatalf("the study is not assigned to the agent in Grounding: %+v", c)
+	if n := s.count(t, "SELECT count(*) FROM card WHERE id = $1 AND assignee_type = 'agent' AND assignee_id = $2 AND board_column = 'experimentation'", c.ID, agent); n != 1 {
+		t.Fatalf("the study is not assigned to the agent in Experimentation: %+v", c)
 	}
 	if n := s.count(t, "SELECT count(*) FROM card_team WHERE card_id = $1", c.ID); n != 0 {
 		t.Fatalf("%d Teams on a one-agent study", n)
@@ -572,12 +572,9 @@ func TestAOneAgentStudyStartsAtOnce(t *testing.T) {
 	if n := s.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND status = 'queued' AND role = 'agent' AND agent_id = $2", c.ID, agent); n != 1 {
 		t.Fatal("the queued run is not the agent's")
 	}
-	var whole studyJSON
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "assignee": map[string]any{"type": "agent", "id": agent}}, &whole); code != 201 {
-		t.Fatalf("create without scope: %d", code)
-	}
-	if whole.ScopeFrom != "grounding" || whole.ScopeTo != board.Stages[len(board.Stages)-1] {
-		t.Fatalf("scope %s→%s", whole.ScopeFrom, whole.ScopeTo)
+	var whole map[string]any
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "q2", "assignee": map[string]any{"type": "agent", "id": agent}}, &whole); code != 400 || whole["error"] != "this agent works only on Experimentation" {
+		t.Fatalf("create without scope: %d %v", code, whole)
 	}
 }
 
@@ -627,7 +624,7 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 		t.Fatalf("archive: %d", code)
 	}
 	var private struct{ ID string }
-	if code := s.call(t, "POST", "/api/agents", b, w.ID, map[string]string{"name": "mine", "harness": "claude", "visibility": "private"}, &private); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", b, w.ID, map[string]string{"stage": "experimentation", "name": "mine", "harness": "claude", "visibility": "private"}, &private); code != 201 {
 		t.Fatalf("private agent: %d", code)
 	}
 	aristotle := s.newAgent(t, a, w.ID, "ari", "claude")
@@ -653,12 +650,12 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "team copy solo", "assignee": map[string]any{"type": "agent", "id": copyID}, "scope": grounding}, nil); code != 201 {
 		t.Errorf("a Team member's copy as a solo agent: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "built-in solo", "assignee": map[string]any{"type": "agent", "id": aristotle}, "scope": grounding}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "built-in solo", "assignee": map[string]any{"type": "agent", "id": aristotle}, "scope": s.stageScope(t, aristotle)}, nil); code != 201 {
 		t.Errorf("a built-in agent as a solo agent: %d", code)
 	}
 	shared := s.newAgent(t, b, w.ID, "shared", "claude")
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "shared", "assignee": map[string]any{"type": "agent", "id": shared},
-		"scope": grounding}, nil); code != 201 {
+		"scope": s.stageScope(t, shared)}, nil); code != 201 {
 		t.Fatalf("a colleague's workspace agent: %d", code)
 	}
 }

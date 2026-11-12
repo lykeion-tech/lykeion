@@ -84,11 +84,11 @@ VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
 `
 
 type InsertTeamAgentParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	PackID      uuid.UUID `json:"pack_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	Member      string    `json:"member"`
-	AgentID     uuid.UUID `json:"agent_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	PackID      uuid.UUID  `json:"pack_id"`
+	UserID      *uuid.UUID `json:"user_id"`
+	Member      string     `json:"member"`
+	AgentID     uuid.UUID  `json:"agent_id"`
 }
 
 func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams) error {
@@ -104,7 +104,7 @@ func (q *Queries) InsertTeamAgent(ctx context.Context, arg InsertTeamAgentParams
 
 const storeTeams = `-- name: StoreTeams :many
 SELECT DISTINCT ON (p.name) p.id, p.workspace_id, p.name, p.version, p.sha256, p.manifest, p.blob_key, p.source, p.uploaded_by, p.created_at, p.domain, p.stage, p.avatar_url, p.deleted_at, p.visibility, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
-  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = $1))::bool AS added
+  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND (t.user_id = $1::uuid OR t.user_id IS NULL)))::bool AS added
 FROM field_pack p
 WHERE p.workspace_id = $2 AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = $1 OR p.visibility = 'workspace')
   AND ($3::text = '' OR p.domain = $3) AND ($4::text = '' OR p.stage = $4)
@@ -181,7 +181,7 @@ func (q *Queries) StoreTeams(ctx context.Context, arg StoreTeamsParams) ([]Store
 }
 
 const teamAgentHasLiveRuns = `-- name: TeamAgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND status IN ('queued', 'dispatched', 'running'))
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = $1 AND agent_id = $2 AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'))
 `
 
 type TeamAgentHasLiveRunsParams struct {
@@ -189,6 +189,8 @@ type TeamAgentHasLiveRunsParams struct {
 	AgentID     *uuid.UUID `json:"agent_id"`
 }
 
+// A study's report run is attributed to the agent but runs on its own frozen
+// prompt and CLI, so it never holds the agent.
 func (q *Queries) TeamAgentHasLiveRuns(ctx context.Context, arg TeamAgentHasLiveRunsParams) (bool, error) {
 	row := q.db.QueryRow(ctx, teamAgentHasLiveRuns, arg.WorkspaceID, arg.AgentID)
 	var exists bool
@@ -226,7 +228,7 @@ func (q *Queries) TeamAgentIDs(ctx context.Context, arg TeamAgentIDsParams) ([]u
 }
 
 const teamAgentsFor = `-- name: TeamAgentsFor :many
-SELECT workspace_id, pack_id, user_id, member, agent_id FROM team_agent WHERE workspace_id = $1 AND pack_id = $2 AND user_id = $3 ORDER BY member
+SELECT workspace_id, pack_id, user_id, member, agent_id FROM team_agent WHERE workspace_id = $1 AND pack_id = $2 AND (user_id = $3::uuid OR user_id IS NULL) ORDER BY member
 `
 
 type TeamAgentsForParams struct {

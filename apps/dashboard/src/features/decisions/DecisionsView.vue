@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { useRouter } from 'vue-router';
 import Icon from '../../ui/Icon.vue';
-import AutoresearchRunDialog from '../autoresearch/AutoresearchRunDialog.vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ManualDecisionControls from './ManualDecisionControls.vue';
 import DecisionOptions from './DecisionOptions.vue';
 import DecisionMeta from './DecisionMeta.vue';
@@ -13,9 +14,10 @@ import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { useCards, useDecisions, useMe } from '../../api/queries';
-import type { DecisionItem } from '../../api/types';
 import { agentDecisionParts, decisionKindOf, inboxTitle, isMachineWait, timeAgo } from '../../lib/studies';
 
+const RecordedMarkdown = lazyRecordedMarkdown();
+const StudyReport = defineAsyncComponent(() => import('../reports/StudyReport.vue'));
 const props = defineProps<{ itemId?: string }>();
 const client = useQueryClient();
 const open = useDecisions(false);
@@ -25,8 +27,7 @@ const cards = useCards();
 const selected = computed(() =>
   [...(open.data.value ?? []), ...(resolved.data.value ?? [])].find((i) => i.id === props.itemId && i.workspace_id === workspaceId.value && (i.kind !== 'manual_decision' || (i.user_id === me.data.value?.id && !open.error.value && !resolved.error.value))),
 );
-const selectedReport = ref<DecisionItem>();
-const display = computed(() => selected.value ?? selectedReport.value);
+const display = selected;
 const filteredOut = computed(() => !!display.value && !matchesDecisionFilters(display.value));
 const study = computed(() => cards.data.value?.find((card) => card.id === display.value?.card_id));
 const question = computed(() => {
@@ -36,33 +37,6 @@ const question = computed(() => {
   if (item.kind === 'agent_decision') return agentDecisionParts(item.text);
   return { title: study.value?.title || (item.card_id ? inboxTitle(item) : decisionKindOf(item.kind).label), body: item.text };
 });
-const reportOpen = ref(false);
-let reportVisit = '';
-// A read receipt moves the item between lists without changing the open run.
-watch(
-  [workspaceId, () => props.itemId, () => selected.value],
-  ([workspace, itemId, item]) => {
-    const visit = `${workspace}:${itemId}`;
-    if (visit !== reportVisit) {
-      reportVisit = visit;
-      selectedReport.value = undefined;
-      reportOpen.value = false;
-    }
-    if (
-      !item ||
-      item.workspace_id !== workspace ||
-      item.id !== itemId ||
-      item.kind !== 'autoresearch_report' ||
-      !item.autoresearch_run_id
-    )
-      return;
-    const previous = selectedReport.value;
-    selectedReport.value = item;
-    if (previous?.id !== item.id || previous.autoresearch_run_id !== item.autoresearch_run_id)
-      reportOpen.value = true;
-  },
-  { immediate: true, flush: 'sync' },
-);
 const error = ref('');
 let generation = 0;
 watch(
@@ -104,9 +78,21 @@ watch(
   },
   { immediate: true },
 );
+
+// A Done card has no report: it opens its study's page. The read receipt above
+// goes out first.
+const router = useRouter();
+watch(
+  () => display.value,
+  (item) => {
+    if (item?.kind === 'done' && item.card_id) void router.replace('/studies/' + item.card_id);
+  },
+  { immediate: true },
+);
 </script>
 <template>
-  <section class="resources resource-decisions">
+  <StudyReport v-if="display?.kind === 'study_report' && display.card_id" :card-id="display.card_id" />
+  <section v-else class="resources resource-decisions">
     <main class="decision-activity">
       <DecisionFilters />
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
@@ -121,14 +107,13 @@ watch(
               </div>
             </div>
             <h2>{{ question.title }}</h2>
-            <p v-if="question.body && !isMachineWait(display)" class="question-body">{{ question.body }}</p>
-            <p v-if="study?.question && study.question !== question.body" class="study-context">{{ study.question }}</p>
+            <div v-if="question.body && !isMachineWait(display)" class="question-body"><RecordedMarkdown :content="question.body" /></div>
+            <div v-if="study?.question && study.question !== question.body" class="study-context"><RecordedMarkdown :content="study.question" /></div>
             <ManualDecisionControls v-if="display.kind === 'manual_decision'" :key="display.id" :item="display" />
             <DecisionOptions v-else-if="display.options?.length || display.question_set?.questions?.length" :key="display.id" :item="display" />
             <MachineWait v-if="isMachineWait(display)" :key="display.id" :item="display" />
           </div>
           <DecisionMeta v-if="display.kind !== 'manual_decision' && (display.options?.length || display.question_set?.questions?.length)" :item="display" />
-          <button v-if="selectedReport" class="button report-button" @click="reportOpen = true">Open report</button>
         </div>
       </article>
       <div v-else class="conversation-empty">
@@ -140,8 +125,6 @@ watch(
         <p v-else>Decision not found or no longer available.</p>
       </div>
     </main>
-    <AutoresearchRunDialog v-if="reportOpen && selectedReport?.autoresearch_run_id"
-      :key="workspaceId + ':' + selectedReport.autoresearch_run_id" :run-id="selectedReport.autoresearch_run_id" @close="reportOpen = false" />
   </section>
 </template>
 <style scoped src="../../ui/resources.css"></style>
@@ -152,12 +135,11 @@ watch(
 .card-body { display:flex; flex-direction:column; gap:14px; padding:20px; }
 .question-panel { display:flex; flex-direction:column; gap:14px; padding:20px; border:1px solid color-mix(in srgb, var(--primary) 45%, var(--border)); border-radius:8px; background:color-mix(in srgb, var(--surface) 94%, var(--primary)); }
 .card-body h2 { font-size:20px; line-height:1.35; font-weight:650; margin:0; }
-.question-body, .study-context { font-size:14px; line-height:1.65; white-space:pre-wrap; }
+.question-body, .study-context { font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
 .study-context { color:var(--muted); }
 .status-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .status-actions { display:flex; align-items:center; gap:16px; margin-left:auto; }
 .status-pill { display:inline-flex; padding:4px 8px; border:1px solid var(--primary); border-radius:5px; color:var(--primary-text); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-.report-button { align-self:flex-start; }
 .study-link { font-size:13px; color:var(--primary-text); }
 .study-link:hover { text-decoration:underline; }
 .conversation-empty { min-height:300px; }

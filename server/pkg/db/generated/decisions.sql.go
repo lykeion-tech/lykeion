@@ -184,11 +184,12 @@ func (q *Queries) CloseManualDecision(ctx context.Context, arg CloseManualDecisi
 const countDecisions = `-- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $1
-  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
-  AND (i.kind = 'manual_decision' OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  AND (i.kind IN ('manual_decision','study_report') OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($3::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid))))
 `
 
@@ -494,12 +495,13 @@ func (q *Queries) ExpireDecision(ctx context.Context, arg ExpireDecisionParams) 
 
 const getDecision = `-- name: GetDecision :one
 SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
-  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind NOT IN ('manual_decision','study_report') AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.id = $3 AND i.workspace_id = $4
-  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
 `
 
 type GetDecisionParams struct {
@@ -688,13 +690,14 @@ func (q *Queries) InsertManualDecision(ctx context.Context, arg InsertManualDeci
 const listDecisions = `-- name: ListDecisions :many
 
 SELECT i.id, i.workspace_id, i.card_id, i.user_id, i.kind, i.text, i.read_at, i.created_at, i.resolved_at, i.autoresearch_run_id, i.runtime_id, i.cause, i.options, i.default_option, i.status, i.expires_at, i.reminded_at, i.chosen_option, i.guidance, i.decided_by, i.decided_at, i.raised_by, i.raised_run_id, i.from_member, i.decision_kind, i.decide_by, i.decide_by_date, i.snoozed_until, i.kept, i.archived_at, i.touched_at, i.question_set, i.answers, i.title, i.context, i.deadline,
-  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind NOT IN ('manual_decision','study_report') AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND ($1::bool OR c.owner_id = $2::uuid OR (i.card_id IS NULL AND i.user_id = $2::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = $3
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
   AND (i.kind <> 'waiting_for_machine' OR jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
-  AND ((i.kind = 'manual_decision' AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = $2::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = $2::uuid)))
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT $4::bool)
 ORDER BY
   CASE WHEN $4::bool THEN NULL ELSE i.snoozed_until > now() END NULLS FIRST,
@@ -838,10 +841,10 @@ func (q *Queries) LockDecision(ctx context.Context, arg LockDecisionParams) (Inb
 
 const markDecisionRead = `-- name: MarkDecisionRead :one
 UPDATE inbox_item SET read_at = COALESCE(read_at, now()), touched_at = now(),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
-  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND status = 'open' THEN 'dismissed' ELSE status END
+  resolved_at = CASE WHEN kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+  status = CASE WHEN kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') AND status = 'open' THEN 'dismissed' ELSE status END
 WHERE id = $1 AND workspace_id = $2 AND user_id = $3
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') AND resolved_at IS NULL))
 RETURNING id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline
 `
 

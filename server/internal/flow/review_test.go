@@ -1053,13 +1053,8 @@ func TestPassedWithOpenDoubts(t *testing.T) {
 	if got.BoardColumn != "hypotheses" || !strings.Contains(got.HandoffNote, "Unclear in Grounding") {
 		t.Fatalf("after an unclear review: %s %q", got.BoardColumn, got.HandoffNote)
 	}
-	items := l.inbox(t, c.ID, "open_doubts")
-	if len(items) != 1 {
+	if items := l.inbox(t, c.ID, "open_doubts"); len(items) != 0 {
 		t.Fatalf("open_doubts items: %q", items)
-	}
-	prefix := fmt.Sprintf("Study #%d passed Grounding with open doubts: %s (", c.Number, paperA)
-	if !strings.HasPrefix(items[0], prefix) || !strings.Contains(items[0], "52%") || !strings.Contains(items[0], "; "+paperB+" (") {
-		t.Fatalf("open_doubts text: %q", items[0])
 	}
 }
 

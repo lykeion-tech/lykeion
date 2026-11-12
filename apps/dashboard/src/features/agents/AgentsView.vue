@@ -15,7 +15,7 @@ import ModelSwitcher from '../coresearch/cowrite/ModelSwitcher.vue';
 import '../coresearch/l2.css';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
-import { timeAgo } from '../../lib/studies';
+import { columnName, stages, timeAgo } from '../../lib/studies';
 import { agentDisplayName, agentNameWithoutCli } from '../../lib/agent-name';
 import { agentAvailable as isAgentAvailable } from './availability';
 const props = defineProps<{ create?: boolean }>();
@@ -43,6 +43,7 @@ const empty = () => ({
   instructions: '',
   harness: 'claude',
   model: '',
+  stage: 'grounding' as string,
   visibility: 'workspace' as 'workspace' | 'private',
 });
 const draft = ref(empty());
@@ -256,8 +257,8 @@ async function save() {
       </div>
       <div v-if="list.data.value?.length" class="agent-table" role="table" aria-label="Agents">
         <div class="agent-row agent-head" role="row">
-          <span role="columnheader">Name</span><span role="columnheader">Owner</span><span role="columnheader">Source</span
-          ><span role="columnheader">Harness</span
+          <span role="columnheader">Name</span><span role="columnheader">Owner</span
+          ><span role="columnheader">Stage</span><span role="columnheader">Harness</span
           ><span role="columnheader" aria-sort="descending"
             ><span class="directory-last-value">Last updated</span></span
           >
@@ -271,17 +272,13 @@ async function save() {
           ><span class="agent-cell" role="cell"
             ><span class="avatar"
               ><AvatarDisplay
-                v-if="a.built_in_key === 'aristotle' && a.avatar_url"
+                v-if="a.avatar_url"
                 :value="a.avatar_url.slice(6)"
                 :size="20"
               /><Aristotle v-else-if="a.built_in_key === 'aristotle'" still /><Icon
                 v-else-if="a.source === 'built_in' || a.built_in_key"
                 name="bot"
                 :size="18"
-              /><AvatarDisplay
-                v-else-if="a.avatar_url"
-                :value="a.avatar_url.slice(6)"
-                :size="20"
               /><template v-else>{{ agentDisplayName(a.name)[0] }}</template>
               <span v-if="!a.archived_at" class="avatar-active-dot" :class="{ inactive: !agentAvailable(a) }" role="img" :aria-label="agentAvailable(a) ? 'Active' : 'Inactive'" :title="agentAvailable(a) ? 'Active' : 'Inactive'"></span></span
             ><span
@@ -305,13 +302,18 @@ async function save() {
               :title="owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member'"
               >{{ owner(a.owner_id)?.name || owner(a.owner_id)?.email || 'Former member' }}</span
             ></span
-          ><span role="cell">{{
-            a.source === 'built_in' || a.built_in_key
-              ? 'Built-in'
-              : a.source === 'custom'
-                ? 'Custom'
-                : '—'
-          }}</span
+          ><span role="cell"
+            ><template v-if="a.stage">{{ columnName(a.stage) }}</template
+            ><template v-else
+              >No stage<button
+                v-if="!a.laboratory && a.built_in_key !== 'aristotle'"
+                type="button"
+                class="text-button agent-choose-stage"
+                @click.prevent.stop="router.push({ path: '/agents/' + a.id, query: { tab: 'settings', field: 'stage' } })"
+              >
+                Choose a stage
+              </button></template
+            ></span
           ><span role="cell">{{ backendLabel(a.harness) }}</span
           ><span role="cell"
             ><span class="directory-last-value">{{ timeAgo(a.updated_at) }}</span></span
@@ -345,6 +347,7 @@ async function save() {
             <label :class="{ selected: draft.visibility === 'private' }"><input v-model="draft.visibility" type="radio" value="private" /><span><b>Private</b><small>Only you can assign</small></span></label>
           </div>
         </fieldset>
+        <label>Stage<select v-model="draft.stage" required aria-label="Agent stage"><option v-for="s in stages" :key="s" :value="s">{{ columnName(s) }}</option></select></label>
         <div class="new-agent-model-field">
           <span>Harness</span>
           <div class="coresearch new-agent-model-picker">
@@ -360,7 +363,7 @@ async function save() {
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
         <footer>
           <button type="button" class="button" :disabled="busy" @click="closeEditor">Cancel</button>
-          <button class="button primary" :disabled="busy || !draft.name.trim()">Create</button>
+          <button class="button primary" :disabled="busy || !draft.name.trim() || !draft.stage">Create</button>
         </footer>
       </form>
     </Modal>

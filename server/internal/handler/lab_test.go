@@ -225,6 +225,31 @@ func TestAskContextOnlyUsesAccessibleStudyAndRecordRefs(t *testing.T) {
 	}
 }
 
+func TestAskContextAcceptsAReportOnlyWhenTheStudyHasOne(t *testing.T) {
+	s, a, _, _, ws, _ := csFixture(t)
+	csRegister(t, s, a, ws, "mine", "claude")
+	path := labChats + "/" + newLabChat(t, s, a, ws) + "/questions"
+	card := s.idleCard(t, a, ws, "lab")
+	ask := func(ref string) int {
+		return s.call(t, "POST", path, a, ws, map[string]string{"text": "Read context", "context_ref": ref, "harness": "claude"}, nil)
+	}
+	if code := ask("report:" + card.ID); code != 400 {
+		t.Fatal("a study with no report", code)
+	}
+	s.mustUpdate(t, `UPDATE card SET state = 'done' WHERE id = $1`, card.ID)
+	s.mustUpdate(t, `INSERT INTO inbox_item (workspace_id, card_id, user_id, kind, text) SELECT workspace_id, id, owner_id, 'study_report', 'ready' FROM card WHERE id = $1`, card.ID)
+	if code := ask("report:" + card.ID + "#question"); code != 400 {
+		t.Fatal("a report node", code)
+	}
+	if code := ask("report:" + card.ID); code != 202 {
+		t.Fatal(code)
+	}
+	var ref string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT context_ref FROM lab_message WHERE kind = 'question' AND context_ref IS NOT NULL`).Scan(&ref); err != nil || ref != "report:"+card.ID {
+		t.Fatal(ref, err)
+	}
+}
+
 func TestLabRunCanBeClaimedByFreshFallback(t *testing.T) {
 	s, a, _, _, ws, _ := csFixture(t)
 	stale := csRegister(t, s, a, ws, "stale-advertiser", "claude")

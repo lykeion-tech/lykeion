@@ -52,3 +52,30 @@ it('opens the saved output belonging to this run', async () => {
   client.clear();
   workspaceId.value = '';
 });
+
+it('leaves the question for the researcher out of the run report', async () => {
+  const client = new QueryClient();
+  const root = node('root');
+  const app = createTreeApp({
+    render: () =>
+      h(StudyHandIn, {
+        role: 'leader',
+        column: 'grounding',
+        handIn: {
+          answer: 'No topic given.',
+          status: 'ask',
+          decision: { title: 'What research question?', options: [{ id: 'give_topic' }] },
+          reason: 'A topic is needed.',
+        },
+      }),
+  });
+  app.use(VueQueryPlugin, { queryClient: client });
+  app.mount(root);
+  await nextTick();
+  const text = textOf(root);
+  expect(text).toContain('A topic is needed.');
+  expect(text).not.toContain('What research question?');
+  expect(text).not.toContain('give_topic');
+  app.unmount();
+  client.clear();
+});

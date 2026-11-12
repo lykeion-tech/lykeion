@@ -6,7 +6,7 @@
 # Claude Code it reports its version and schema flag, answers the daemon's
 # preflight hello, and, given a schema, ends with a structured answer.
 case "$1" in
-  --version) echo "2.1.0 (Claude Code)"; exit 0 ;;
+  --version) echo "2.1.69 (Claude Code)"; exit 0 ;;
   --help) echo "  --json-schema <schema>  JSON Schema"; exit 0 ;;
 esac
 case "$*" in
@@ -23,8 +23,16 @@ role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ (role|on Lykeio
 # skill, the MCP config and the command line, from the scratch folder the CLI
 # runs in.
 if [ -n "$LYK_TEST_CAPTURE" ]; then
-  cp CLAUDE.md "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
-  cp .lyk-mcp.json "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
+  # The MCP config reaches the CLI only as the --mcp-config argument, and
+  # the role only as --append-system-prompt-file.
+  mcp=""
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--mcp-config" ] && mcp=$a
+    [ "$prev" = "--append-system-prompt-file" ] && cp "$a" "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
+    prev=$a
+  done
+  [ -n "$mcp" ] && cp "$mcp" "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
   printf '%s\n' "$@" > "$LYK_TEST_CAPTURE/$role.args"
 fi
 exec 3>&1

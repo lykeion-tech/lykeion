@@ -1,7 +1,7 @@
 #!/bin/sh
 # A probe never reads prompts, reports work, or creates a resumable session.
 case "$1" in
-  --version) echo '2.1.0 (Claude Code)'; exit 0 ;;
+  --version) echo '2.1.69 (Claude Code)'; exit 0 ;;
   --help) echo '  --json-schema <schema>  JSON Schema'; exit 0 ;;
 esac
 # Naming is an independent, tool-free conversation. Its fixture never invokes
@@ -13,7 +13,6 @@ for option in "$@"; do
     while IFS= read -r prompt; do
       count=$((count+1))
       case "$prompt" in
-        *'execute_python_cell'*'execute_shell_cell'*) title='1. Print transcript check\n2. Print second step line\n3. Inspect the study record\n4. Record the failed run outcome' ;;
         *'lyk card show'*'lyk result failed'*) title='1. Inspect the study record\n2. Record the failed run outcome' ;;
         *'lyk result failed'*) title='1. Record the failed run outcome' ;;
         *) title='1. Inspect the study record' ;;
@@ -40,30 +39,22 @@ case "$prompt" in
 esac
 case "$prompt" in
   *"You are the autoresearch role"*)
-    {
+    # The final answer is the hand-in: its report is the text below as one JSON string.
+    report=$({
       printf '# Fresh daemon report\n\n'
       i=1
       while [ "$i" -le 100 ]; do
-        printf 'Recorded fixture paragraph %s preserves the full report from real daemon execution through the report command.\n\n' "$i"
+        printf 'Recorded fixture paragraph %s preserves the full report from real daemon execution through the hand-in.\n\n' "$i"
         i=$((i+1))
       done
       printf '<script>window.reportExecuted = true</script>\n\n![inert image](https://example.com/tracker.png)\n\nend-of-real-daemon-report\n'
-    } | lyk report >/dev/null || exit 1
+    } | awk '{printf "%s\\n", $0}')
     d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
     mkdir -p "$d" && : > "$d/s.jsonl"
-    echo '{"type":"result","is_error":false,"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
+    printf '%s\n' '{"type":"result","is_error":false,"structured_output":{"status":"done","answer":"Fresh daemon report","reason":null,"report":"'"$report"'","new_studies":[],"decision":null},"total_cost_usd":0.01,"session_id":"s","modelUsage":{"m":{"inputTokens":1,"outputTokens":1,"costUSD":0.01}}}'
     exit 0 ;;
 esac
 
-case "$prompt" in
-  *"Notebook cell transcript fixture"*)
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"nb1","name":"mcp__notebook__execute_python_cell","input":{"code":"print(\"transcript UI check\")\nprint(42)","human_description":"Print transcript check","execution_count":3}}]}}'
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_result","tool_use_id":"nb1","content":"transcript UI check\n42","is_error":false}]}}'
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"nb2","name":"mcp__notebook__execute_shell_cell","input":{"code":"printf \"second step\\n\"","human_description":"Print second step line"}}]}}'
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_result","tool_use_id":"nb2","content":"second step","is_error":false}]}}'
-    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Both recorded cells printed their lines."}]}}'
-    ;;
-esac
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"## Recorded observations\n\nThe lab reads **recorded evidence** before deciding what follows.\n\n- Inspect the current study\n- Keep source identity intact\n\nSee [the documentation](https://example.com/research) and literal citation [1]."}]}}'
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"lyk card show"}}]}}'
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Recorded lab reasoning remains collapsed by default."}]}}'

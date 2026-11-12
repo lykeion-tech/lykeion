@@ -85,7 +85,7 @@ func TestClaudeStreamInputIsEscapedNDJSON(t *testing.T) {
 IFS= read -r first; printf '%s' "$first" > '`+captured+`'
 echo '{"type":"result","is_error":false}'
 cat >/dev/null`)
-	prompt := strings.Repeat("Line with \"quotes\", \\ slashes,\nnewlines and   separators.\n", 80000)
+	prompt := strings.Repeat("Line with \"quotes\", \\ slashes,\nnewlines and  separators.\n", 80000)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	s, err := (Claude{Bin: bin}).Execute(ctx, prompt, ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})

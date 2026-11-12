@@ -5,7 +5,7 @@ import { installFilesFixture } from './coresearch-files-fixture';
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
   await installAristotleFixture(page);
   await page.goto('/#/coresearch');
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await page
     .getByRole('complementary', { name: 'Workspace navigation' })
     .getByRole('button', { name: 'New', exact: true })
@@ -67,7 +67,7 @@ test('Experiment project routes use only the conversation rail and three surface
     'Compute',
   ]);
   await expect(page.getByText('Runs', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close pane', exact: true }).click();
+  await page.getByRole('button', { name: 'Close experiment surfaces', exact: true }).click();
   await surfaces.click();
   await page.getByRole('button', { name: 'Compute', exact: true }).click();
   await expect(page.getByRole('tabpanel', { name: 'Compute' })).toBeVisible();

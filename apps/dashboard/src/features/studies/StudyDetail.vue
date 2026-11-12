@@ -12,6 +12,7 @@ import {
   watch,
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { Square } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
@@ -60,6 +61,8 @@ import {
   columnName,
   endLabel,
   stateLabel,
+  stopReason,
+  stoppedReason,
   studyNumber,
   studyActivity,
   groupStudyActivity,
@@ -70,6 +73,7 @@ import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
 import { composerAvailability, deliveryLine } from './comment-delivery';
+const typesafeIcon = `${import.meta.env.BASE_URL}brand/typesafe.png`;
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -202,16 +206,22 @@ const me = useMe();
 const { pins, togglePin } = usePins();
 
 const c = computed(() => card.data.value);
+const agentsWorking = computed(
+  () =>
+    c.value?.state === 'working' &&
+    !!cards.data.value?.find((item) => item.id === c.value!.id)?.agent_running,
+);
 const propertyStateLabel = computed(() => {
   const current = c.value;
   if (!current) return '';
-  if (
-    current.state === 'working' &&
-    !cards.data.value?.find((item) => item.id === current.id)?.agent_running
-  )
-    return '';
+  if (current.state === 'working' && !agentsWorking.value) return '';
   return stateLabel(current);
 });
+// While agents work on an empty composer, Send becomes Stop; typing brings
+// Send back so a comment can still steer them.
+const showStop = computed(
+  () => agentsWorking.value && !comment.value.trim() && !commentFiles.items.value.length,
+);
 const services = computed(() => c.value?.services ?? []);
 const creator = computed(
   () =>
@@ -480,6 +490,27 @@ async function send() {
     if (scope.current()) busy.value = false;
   }
 }
+// Stopping ends the study for good, so it asks first.
+async function stop() {
+  if (busy.value || !c.value) return;
+  if (!confirm(`Stop ${number.value}? Ended studies are never reopened.`)) return;
+  const scope = mutationScope();
+  const reason = stopReason(comment.value);
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('POST', `/api/cards/${scope.id}/stop`, { reason }, undefined, {
+      workspace: scope.workspace,
+    });
+    if (!scope.current()) return;
+    await client.invalidateQueries({ queryKey: ['ws', scope.workspace, 'card', scope.id] });
+    if (scope.current()) await client.invalidateQueries({ queryKey: keys.cards(scope.workspace) });
+  } catch (e) {
+    if (scope.current()) error.value = (e as Error).message;
+  } finally {
+    if (scope.current()) busy.value = false;
+  }
+}
 async function cancelComment(id: string) {
   if (cancellingComment.value) return;
   const scope = mutationScope();
@@ -510,7 +541,7 @@ function pin() {
     ]"
     aria-label="Study"
   >
-    <div class="task-main" :hidden="showMeta && paneFocused">
+    <div class="task-main">
       <header class="study-heading">
         <button
           v-if="!embedded"
@@ -530,6 +561,7 @@ function pin() {
             <Icon name="tag" />
           </button>
           <button
+            v-if="!(showMeta && paneFocused)"
             class="icon-button study-pane-toggle"
             :aria-pressed="showMeta"
             aria-label="Toggle details"
@@ -654,7 +686,7 @@ function pin() {
               @open-output="previewOutput"
             />
             <div v-else-if="entry.kind === 'jev'" class="jev-card">
-              <span class="avatar jev-avatar" aria-hidden="true">J</span>
+              <img class="avatar jev-avatar" :src="typesafeIcon" alt="" />
               <span class="jev-text">
                 {{ entry.text.slice(0, entry.text.lastIndexOf(' · ')) }} ·
                 <button
@@ -671,6 +703,12 @@ function pin() {
               </span>
             </div>
           </template>
+          <RouterLink
+            v-if="c.has_report"
+            class="report-link"
+            :to="'/decisions/report/' + id"
+            >Go to the report</RouterLink
+          >
           <section
             v-if="generatedFiles.length"
             class="generated-files"
@@ -723,6 +761,17 @@ function pin() {
                 @remove="commentFiles.remove"
               />
               <button
+                v-if="showStop"
+                type="button"
+                class="round-send"
+                aria-label="Stop study"
+                :disabled="busy"
+                @click="stop"
+              >
+                <Square :size="10" fill="currentColor" />
+              </button>
+              <button
+                v-else
                 class="round-send"
                 type="submit"
                 :disabled="
@@ -781,6 +830,7 @@ function pin() {
               }}</span>
             </div>
           </div>
+          <p v-if="stoppedReason(c)" class="ending-reason">{{ stoppedReason(c) }}</p>
           <div class="property-row">
             <small>Assignee</small
             ><span class="avatar property-avatar property-icon">{{
@@ -937,9 +987,6 @@ function pin() {
 .surface-content > h2 {
   font-size: 16px;
   margin: 0 0 12px;
-}
-.task-main[hidden] {
-  display: none;
 }
 .property-menu-anchor {
   position: relative;
@@ -1131,6 +1178,15 @@ function pin() {
   width: 20px;
   margin-left: -8px;
 }
+.report-link {
+  display: inline-block;
+  margin: 8px 0;
+  font-size: 14px;
+  color: var(--primary-text);
+}
+.report-link:hover {
+  text-decoration: underline;
+}
 .transcript-scroll {
   flex: 1;
   min-height: 0;
@@ -1261,14 +1317,17 @@ function pin() {
   color: var(--muted);
   font-size: 13px;
 }
+.study-meta .ending-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .study-comment .round-send {
   width: 26px;
   height: 26px;
   padding: 0;
-}
-.study-comment .round-send.stop-control {
-  background: var(--primary-text);
-  color: #000;
 }
 .composer-scroll-alignment {
   flex: none;
@@ -1648,7 +1707,7 @@ function pin() {
   font-size: 14px;
 }
 .jev-avatar {
-  font-weight: 600;
+  object-fit: cover;
 }
 .jev-text {
   min-width: 0;

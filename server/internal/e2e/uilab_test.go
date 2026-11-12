@@ -419,28 +419,45 @@ func TestUILab(t *testing.T) {
 			BlockKind string `json:"block_kind"`
 			Redos     int    `json:"redos"`
 			Round     int    `json:"round"`
+			ScopeFrom string `json:"scope_from"`
+			Workflow  string `json:"workflow"`
 			Records   []struct {
 				Kind string         `json:"kind"`
 				Key  string         `json:"key"`
 				Body map[string]any `json:"body"`
+				// Run gives the record a finished agent run of its own.
+				Run bool `json:"run"`
 			} `json:"records"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Column == "" || in.Round < 1 {
 			http.Error(w, "column, state and round are required", http.StatusBadRequest)
 			return
 		}
-		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = $2, scope_from = $2, scope_to = $2,
-			state = $3, block_kind = $4, redos = $5, round = $6, flag = '' WHERE id = $1`,
-			r.PathValue("card"), in.Column, in.State, in.BlockKind, in.Redos, in.Round)
+		// scope_from, when given, keeps the earlier columns in the study's range;
+		// workflow, when given, makes it a Workflow study.
+		tag, err := env.Owner.Exec(r.Context(), `UPDATE card SET board_column = $2, scope_from = COALESCE(NULLIF($7, ''), $2), scope_to = $2,
+			state = $3, block_kind = $4, redos = $5, round = $6, flag = '', workflow = COALESCE(NULLIF($8, ''), workflow) WHERE id = $1`,
+			r.PathValue("card"), in.Column, in.State, in.BlockKind, in.Redos, in.Round, in.ScopeFrom, in.Workflow)
 		if err != nil || tag.RowsAffected() != 1 {
 			http.Error(w, "no such card", http.StatusNotFound)
 			return
 		}
 		for _, rec := range in.Records {
 			body, _ := json.Marshal(rec.Body)
-			if _, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body)
-				SELECT workspace_id, id, board_column, round, $2, 'server', $3, $4::jsonb FROM card WHERE id = $1`,
-				r.PathValue("card"), rec.Kind, rec.Key, string(body)); err != nil {
+			var run *uuid.UUID
+			if rec.Run {
+				var id uuid.UUID
+				if err := env.Owner.QueryRow(r.Context(), `INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status, completed_at)
+					SELECT workspace_id, id, owner_id, board_column, round, 'leader', 'claude', 'lab hand-in', 'completed', now() FROM card WHERE id = $1 RETURNING id`,
+					r.PathValue("card")).Scan(&id); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				run = &id
+			}
+			if _, err := env.Owner.Exec(r.Context(), `INSERT INTO record (workspace_id, card_id, board_column, round, kind, role, key, body, agent_run_id)
+				SELECT workspace_id, id, board_column, round, $2, 'server', $3, $4::jsonb, $5 FROM card WHERE id = $1`,
+				r.PathValue("card"), rec.Kind, rec.Key, string(body), run); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -674,7 +691,7 @@ func TestUIFakeClaudeVersionHasNoRunEffects(t *testing.T) {
 	cmd.Env = append(os.Environ(), "HOME="+home, "CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	out, err := cmd.CombinedOutput()
 	must(t, err)
-	if strings.TrimSpace(string(out)) != "2.1.0 (Claude Code)" {
+	if strings.TrimSpace(string(out)) != "2.1.69 (Claude Code)" {
 		t.Fatalf("version output %q", out)
 	}
 	entries, err := os.ReadDir(home)

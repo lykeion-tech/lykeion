@@ -51,7 +51,7 @@ func TestNewHarnessesAgentRegistryCreateUpdate(t *testing.T) {
 		t.Run(h, func(t *testing.T) {
 			var created struct{ ID, Harness string }
 			t.Run("create", func(t *testing.T) {
-				if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": h, "harness": h}, &created); code != 201 {
+				if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": h, "harness": h}, &created); code != 201 {
 					t.Fatalf("create %s: %d", h, code)
 				}
 				var got struct{ Harness string }
@@ -62,7 +62,7 @@ func TestNewHarnessesAgentRegistryCreateUpdate(t *testing.T) {
 			t.Run("update", func(t *testing.T) {
 				var got struct{ Harness string }
 				var baseline struct{ ID string }
-				if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": h + "-updated", "harness": "claude"}, &baseline); code != 201 {
+				if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": h + "-updated", "harness": "claude"}, &baseline); code != 201 {
 					t.Fatal(code)
 				}
 				if code := s.call(t, "PATCH", "/api/agents/"+baseline.ID, a, w.ID, map[string]string{"harness": h}, nil); code != 200 {
@@ -80,7 +80,7 @@ func TestNewHarnessesAgentRegistryCreateUpdate(t *testing.T) {
 			})
 		})
 	}
-	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "unknown", "harness": "gemini"}, nil); code != 400 {
+	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": "unknown", "harness": "gemini"}, nil); code != 400 {
 		t.Fatalf("unknown create: %d", code)
 	}
 }
@@ -91,11 +91,11 @@ func TestRemovedHarnessRejected(t *testing.T) {
 	w := s.workspace(t, a, "removed")
 	tok := s.personalToken(t, a)
 	var baseline struct{ ID string }
-	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "supported", "harness": "claude"}, &baseline); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": "supported", "harness": "claude"}, &baseline); code != 201 {
 		t.Fatal(code)
 	}
 	for _, harness := range []string{"cursor", "antigravity"} {
-		if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": harness, "harness": harness}, nil); code != 400 {
+		if code := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": harness, "harness": harness}, nil); code != 400 {
 			t.Fatalf("create %s: %d", harness, code)
 		}
 		if code := s.call(t, "PATCH", "/api/agents/"+baseline.ID, a, w.ID, map[string]string{"harness": harness}, nil); code != 400 {

@@ -94,7 +94,7 @@ func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationPara
 }
 
 const createWorkspace = `-- name: CreateWorkspace :one
-INSERT INTO workspace (id, slug, name) VALUES ($1, $2, $3) RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
+INSERT INTO workspace (id, slug, name) VALUES ($1, $2, $3) RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob, laboratory
 `
 
 type CreateWorkspaceParams struct {
@@ -117,6 +117,7 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.ResearchContext,
 		&i.CardPrefix,
 		&i.LogoBlob,
+		&i.Laboratory,
 	)
 	return i, err
 }
@@ -152,7 +153,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (Member, e
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob FROM workspace WHERE id = $1
+SELECT id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob, laboratory FROM workspace WHERE id = $1
 `
 
 func (q *Queries) GetWorkspace(ctx context.Context, id uuid.UUID) (Workspace, error) {
@@ -169,6 +170,7 @@ func (q *Queries) GetWorkspace(ctx context.Context, id uuid.UUID) (Workspace, er
 		&i.ResearchContext,
 		&i.CardPrefix,
 		&i.LogoBlob,
+		&i.Laboratory,
 	)
 	return i, err
 }
@@ -396,7 +398,7 @@ func (q *Queries) RemoveMember(ctx context.Context, arg RemoveMemberParams) (int
 }
 
 const renameWorkspace = `-- name: RenameWorkspace :one
-UPDATE workspace SET name = $1 WHERE id = $2 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
+UPDATE workspace SET name = $1 WHERE id = $2 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob, laboratory
 `
 
 type RenameWorkspaceParams struct {
@@ -418,6 +420,7 @@ func (q *Queries) RenameWorkspace(ctx context.Context, arg RenameWorkspaceParams
 		&i.ResearchContext,
 		&i.CardPrefix,
 		&i.LogoBlob,
+		&i.Laboratory,
 	)
 	return i, err
 }
@@ -482,7 +485,7 @@ func (q *Queries) SetWorkspaceLogo(ctx context.Context, arg SetWorkspaceLogoPara
 
 const updateWorkspace = `-- name: UpdateWorkspace :one
 UPDATE workspace SET name = $1, description = $2, research_context = $3, card_prefix = $4
-WHERE id = $5 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob
+WHERE id = $5 RETURNING id, slug, name, settings, card_counter, created_at, description, research_context, card_prefix, logo_blob, laboratory
 `
 
 type UpdateWorkspaceParams struct {
@@ -513,6 +516,7 @@ func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams
 		&i.ResearchContext,
 		&i.CardPrefix,
 		&i.LogoBlob,
+		&i.Laboratory,
 	)
 	return i, err
 }

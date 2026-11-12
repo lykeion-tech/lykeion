@@ -53,21 +53,10 @@ const scoringLease = 10 * time.Minute
 
 var errNoJev = errors.New("the lab has no TypeSafe key")
 
-// The Inbox sentences below are read back by the dashboard (inboxText in
-// lib/studies.ts), which lifts the quoted criterion out of a middle score;
-// the other kinds it words itself. Change them together.
+// weakCriterion names the criterion a blocked study scored lowest on, as its
+// Decisions item says it.
 func weakCriterion(text string, level float64) string {
 	return fmt.Sprintf("“%s” (level %s of 5)", text, strconv.FormatFloat(level, 'g', 3, 64))
-}
-
-// middleScoreText says whether the study went on to the next column or
-// finished; the dashboard tells the two apart by "and the study finished".
-func middleScoreText(number int32, column, weak string, finished bool) string {
-	end := ""
-	if finished {
-		end = " and the study finished"
-	}
-	return fmt.Sprintf("Study #%d's %s column scored in the middle%s; its weakest criterion was %s.", number, title(column), end, weak)
 }
 
 func blockedText(number int32, column, weak string) string {
@@ -113,10 +102,6 @@ func allWithdrawnText(column string, reasons []string) string {
 		noun = map[string]string{"items": "item", "hypotheses": "hypothesis", "verdicts and flagged errors": "verdict or flagged error"}[noun]
 	}
 	return fmt.Sprintf("The Team withdrew all %d %s: %s. %s Comment with guidance to redo the column, or close the study as a negative result.", len(reasons), noun, strings.TrimRight(strings.Join(reasons, "; "), "."), left)
-}
-
-func openDoubtsText(number int32, column string, doubts []string) string {
-	return fmt.Sprintf("Study #%d passed %s with open doubts: %s", number, title(column), strings.Join(doubts, "; "))
 }
 
 func doneText(number int32, column string) string {
@@ -273,7 +258,7 @@ var (
 // blocks it. A column reviewed item by item goes to reviewColumn instead, and
 // Validation to reviewValidation. Jev
 // is asked with no transaction open. When Jev cannot be reached the study
-// stays where it is, its owner hears once, and the next pass retries.
+// stays where it is and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 	in, ok, err := e.readScoring(ctx, ws, card)
 	if err != nil || !ok {
@@ -326,8 +311,8 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
 			return err
 		}
-		// With no key nothing can change until the lab adds one; its owner
-		// has already heard.
+		// With no key nothing can change until the lab adds one, and the
+		// open item says this study has already tried.
 		if e.Jev == nil {
 			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
 			if err != nil || open > 0 {
@@ -619,7 +604,7 @@ func evidence(summary string, cited []db.Record, budget int) string {
 // left the column, or a column scored meanwhile, is left alone. It says
 // whether a column now waits to start.
 func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answers map[string]jev.ScoreAnswer, jerr error) (bool, error) {
-	moved := false
+	moved, finished := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
@@ -666,7 +651,6 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": verdict, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		var items []board.Item
 		weak := weakCriterion(lowest.Text, lowestLevel)
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
@@ -683,32 +667,32 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		default:
 			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
-			if verdict == "middle" {
-				items = append(items, board.Item{Kind: "middle_score", Text: middleScoreText(c.Number, c.BoardColumn, weak, last)})
-			}
 			if i := board.StageIndex(c.BoardColumn); !last {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 			} else {
 				next.State = "done"
-				items = append(items, board.Item{Kind: "done", Text: doneText(c.Number, c.BoardColumn)})
+				finished = true
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
 			return err
 		}
-		for _, it := range items {
-			if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+		if finished {
+			if err := e.finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}
 		moved = next.State == board.Working
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": verdict})
 	})
+	if err == nil && finished {
+		e.goReport("check report", ws, in.card.ID, e.checkReport)
+	}
 	return moved, err
 }
 
-// scoringUnavailable leaves the study where it is and tells its owner once;
-// the next pass retries.
+// scoringUnavailable leaves the study where it is and records that once, in
+// an item Decisions does not show; the next pass retries.
 func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
 	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
 	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})

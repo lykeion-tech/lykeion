@@ -132,6 +132,11 @@ func (s *HandIns) SubmitWithEnvironment(ctx context.Context, user uuid.UUID, ref
 			probs, err = s.autoresearch(ctx, tx, t.ID, raw)
 			return err
 		}
+		if k == Report {
+			var err error
+			probs, err = submitReport(ctx, tx, t, raw, messageSeq)
+			return err
+		}
 		if t.CardID == nil {
 			probs = []string{"not yet supported"}
 			return nil
@@ -235,6 +240,31 @@ func (s *HandIns) SubmitWithEnvironment(ctx context.Context, user uuid.UUID, ref
 		return nil, service.ErrConflict
 	}
 	return probs, err
+}
+
+// submitReport records a report run's hand-in as the run's hand_in record and
+// writes nothing else: its study is finished, and the report reads the
+// hand-in once the run settles. The attempt's hand-in, once kept, is accepted
+// again and writes nothing.
+func submitReport(ctx context.Context, tx *store.Tx, t db.AgentRun, raw json.RawMessage, messageSeq int32) ([]string, error) {
+	recs, err := tx.Q.AgentRunRecords(ctx, db.AgentRunRecordsParams{WorkspaceID: tx.WS, AgentRunID: &t.ID})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range recs {
+		if r.Kind == "hand_in" && records.Body[handInBody](r).Attempt == t.Attempt {
+			return nil, nil
+		}
+	}
+	if t.Status != "running" {
+		return nil, service.ErrConflict
+	}
+	if _, probs := ParseReport(raw); len(probs) > 0 {
+		return probs, nil
+	}
+	w := service.Writer{Card: *t.CardID, AgentRun: t.ID, Column: t.BoardColumn, Role: t.Role, Round: t.Round}
+	_, err = records.WriteAs(ctx, tx, w, "hand_in", handInBody{AgentRunID: t.ID, Attempt: t.Attempt, HandIn: raw, MessageSeq: messageSeq})
+	return nil, err
 }
 
 // delegatedEnvironmentFailure verifies the exact member ticket and its current attested hand-in.

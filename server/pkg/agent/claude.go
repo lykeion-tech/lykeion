@@ -227,6 +227,9 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (sess
 		settings = `{"disableAllHooks":true,"claudeMdExcludes":["**"]}`
 	}
 	args := slices.Concat([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", mode, "--allowedTools"}, tools, []string{"--mcp-config", cfgArg, "--strict-mcp-config", "--settings", settings})
+	if o.NoTools && !o.Lab {
+		args = append(args, "--tools", "StructuredOutput")
+	}
 	if o.Lab {
 		// Retain the CLI restrictions, while recognizing that managed settings
 		// may override configuration and hooks outside these command-line controls.
@@ -239,6 +242,17 @@ func (c Claude) execute(ctx context.Context, prompt string, o ExecOptions) (sess
 			cleanup(true)
 			return nil, err
 		}
+	}
+	if o.Instructions != "" {
+		// claudeMdExcludes keeps the run's own CLAUDE.md out too, so the role
+		// arrives as a system prompt. A file keeps a long role clear of argv
+		// limits; the CLI's home is out of the agent's file tools' reach.
+		role := filepath.Join(home, "role.md")
+		if err = writeClaudeSnapshot(role, []byte(o.Instructions)); err != nil {
+			cleanup(true)
+			return nil, err
+		}
+		args = append(args, "--append-system-prompt-file", role)
 	}
 	if o.Model != "" && (!o.Coresearch || o.Aristotle) {
 		args = append(args, "--model", o.Model)

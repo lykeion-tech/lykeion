@@ -35,14 +35,15 @@ test('the sidebar shows the final IT Department order', async ({ page }) => {
     names
       .map((name) => name.trim())
       .filter((name) => ['Teams', 'Agents', 'Autoresearch'].includes(name)),
-  ).toEqual(['Teams', 'Autoresearch', 'Agents']);
+  ).toEqual(['Autoresearch', 'Teams', 'Agents']);
   await expect(nav.getByText('IT Department', { exact: true })).toBeVisible();
   await nav.getByRole('link', { name: 'Teams', exact: true }).click();
   await expect(page).toHaveURL(/#\/teams$/);
   await expect(page.getByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg')).toHaveClass(
-    /lucide-network/,
-  );
+  // The team glyph: a back square and a front square with two eyes.
+  const glyph = nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg');
+  await expect(glyph.locator('circle')).toHaveCount(2);
+  await expect(glyph).not.toHaveClass(/lucide-network/);
   await expect(page.locator('#page-header-count')).toBeEmpty();
   await expect(page.locator('.page-header')).toHaveCSS('height', '58px');
   await expect(page.locator('.page-header h1')).toHaveCSS('font-size', '20px');
@@ -56,7 +57,9 @@ test('Teams shows the empty state when nothing is shipped or uploaded', async ({
   const empty = page.locator('.directory-empty');
   await expect(empty.getByRole('heading', { name: 'No Teams yet' })).toBeVisible();
   await expect(empty).toContainText('A Team is the agents that work each stage of your studies.');
-  await expect(empty.locator(':scope > svg')).toHaveClass(/lucide-network/);
+  // The Team icon: a square with two eyes in front of another, not the network icon.
+  await expect(empty.locator(':scope > svg')).not.toHaveClass(/lucide-network/);
+  await expect(empty.locator(':scope > svg circle')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
   await empty.getByRole('link', { name: 'New Team' }).click();
   await expect(page.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
@@ -152,7 +155,13 @@ async function formAgents(page: Page) {
       await (
         await page.request.post('/api/agents', {
           headers,
-          data: { name: `${name} ${Date.now()}`, harness, model, instructions: `${name} works` },
+          data: {
+            name: `${name} ${Date.now()}`,
+            stage: 'experimentation',
+            harness,
+            model,
+            instructions: `${name} works`,
+          },
         })
       ).json()
     ).name as string;
@@ -259,7 +268,7 @@ test('Team slots show the supported agent backends', async ({ page }) => {
   ]) {
     const response = await page.request.post('/api/agents', {
       headers: { 'X-Workspace-ID': ws },
-      data: { name: `Team ${label}`, harness },
+      data: { name: `Team ${label}`, stage: 'experimentation', harness },
     });
     expect(response.status()).toBe(201);
     agents.push({ id: (await response.json()).id, label: label! });

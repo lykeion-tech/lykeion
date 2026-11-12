@@ -55,10 +55,9 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/timeline.png',
   });
-  await openSurface(page, 'Details');
-  await inspector.getByRole('button', { name: 'Details', exact: true }).click();
+  await openSurface(page, 'Properties');
+  await expect(inspector.locator('.details-body')).toBeVisible();
   await expect(inspector.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0);
-  await inspector.getByRole('button', { name: 'Details', exact: true }).click();
   await page.screenshot({
     path: '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-2-artifacts/inspector.png',
   });
@@ -77,13 +76,13 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await expect(rail).toBeVisible();
   await rail.focus();
   await page.keyboard.press('Home');
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '200px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '219px');
   const box = (await rail.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + 60);
   await page.mouse.down();
   await page.mouse.move(box.x + 62, box.y + 60);
   await page.mouse.up();
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '279px');
   const pane = page.locator('aside[aria-label="Right pane"]');
   await openSurface(page, 'Properties');
   const inspector = page.getByRole('separator', { name: 'Resize right pane' });
@@ -99,11 +98,11 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.goto('/#/projects');
   await page.goto(`/#/studies/${f.card_id}`);
   await page.reload();
-  await expect(page.locator('.sidebar')).toHaveCSS('width', '260px');
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '279px');
   await expect(pane).toHaveCSS('width', '240px');
 });
 
-test('Execution log and Details independently disclose; Runs keeps recorded costs and attempt timing honest', async ({
+test('Execution log and Properties details show directly; Runs keeps recorded costs and attempt timing honest', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -111,10 +110,8 @@ test('Execution log and Details independently disclose; Runs keeps recorded cost
   await page.goto(`/#/studies/${f.card_id}`);
   const meta = await openSurface(page, 'Timeline');
   await expect(meta.locator('.execution-log .run-metrics')).toBeVisible();
-  await openSurface(page, 'Details');
+  await openSurface(page, 'Properties');
   await expect(meta.locator('.details-body')).toBeVisible();
-  await meta.getByRole('button', { name: 'Details', exact: true }).click();
-  await expect(meta.locator('.details-body')).toHaveCount(0);
   await openSurface(page, 'Timeline');
   const dialog = meta.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
@@ -159,13 +156,9 @@ test('Project creation/edit and agent profiles use canonical writes and old/curr
   ).json();
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
-  await page.getByRole('button', { name: /Start blank/ }).click();
-  const agentDialog = page.getByRole('dialog', { name: 'New agent', exact: true });
+  const agentDialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
   await agentDialog.getByRole('textbox', { name: 'Agent name' }).fill('Evidence curator');
-  await agentDialog
-    .getByRole('textbox', { name: 'Agent instructions' })
-    .fill('Keep recorded sources traceable.');
-  await agentDialog.getByRole('button', { name: 'Create agent', exact: true }).click();
+  await agentDialog.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Evidence curator', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#\/agents\/[0-9a-f-]+$/);
   await page.getByRole('tab', { name: 'Settings' }).click();
@@ -276,20 +269,27 @@ for (const kind of ['researches', 'agents'] as const) {
     });
     const label = kind === 'researches' ? 'Project' : 'agent';
     await page.getByRole('button', { name: 'New ' + label, exact: true }).click();
-    if (kind === 'agents') await page.getByRole('button', { name: /Start blank/ }).click();
-    const dialog = page.getByRole('dialog', { name: 'New ' + label, exact: true });
+    const dialog = page.getByRole('dialog', {
+      name: kind === 'researches' ? 'New Project' : 'Create Agent',
+      exact: true,
+    });
     const name = 'Held ' + kind + ' creation';
     await dialog
       .getByRole('textbox', { name: kind === 'researches' ? 'Project name' : 'Agent name' })
       .fill(name);
-    await dialog.getByRole('button', { name: 'Create ' + label, exact: true }).click();
+    await dialog
+      .getByRole('button', {
+        name: kind === 'researches' ? 'Create Project' : 'Create',
+        exact: true,
+      })
+      .click();
     await held;
     const canonical = await (await page.request.get('/api/' + kind, { headers })).json();
     expect(canonical.some((item: { name: string }) => item.name === name)).toBe(true);
     if (kind === 'agents') {
       await page.locator('.workspace-switch').click();
       await page.getByRole('menuitem', { name: other.name }).click();
-      await expect(page.locator('.workspace-switch')).toContainText(other.name);
+      await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(other.name);
       expect(other.id).not.toBe(f.workspace_id);
     } else await page.goto('/#/studies/' + f.card_id);
     release();

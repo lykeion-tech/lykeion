@@ -596,6 +596,8 @@ describe('Daemon settings mounted section', () => {
         defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
       });
       client.setQueryData(keys.workspaces, []);
+      client.setQueryData(keys.laboratories, []);
+      client.setQueryData(keys.me, { id: 'alice', name: 'Alice' });
       const router = createRouter({
         history: createMemoryHistory(),
         routes: [{ path: '/:p(.*)*', component: { render: () => null } }],

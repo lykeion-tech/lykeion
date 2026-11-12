@@ -20,6 +20,16 @@ const has = (type: string, key: readonly unknown[], card: string | null = 'c1') 
   expect(invalidationsFor('w1', ev(type, card))).toContainEqual(key);
 
 describe('event to query map', () => {
+  it('refreshes the Lab Chart on run, agent, runtime, decision and member events', () => {
+    for (const type of ['agent_run.queued', 'agent.updated', 'laboratory.installed', 'decision.opened', 'member.joined'])
+      has(type, keys.labChart('w1'));
+    for (const type of ['runtime.updated', 'runtime.online', 'runtime.deleted'])
+      has(type, keys.labChart('w1'));
+    for (const type of ['agent_run.usage_updated', 'agent_run.settled'])
+      expect(invalidationsFor('w1', ev(type))).not.toContainEqual(keys.labChart('w1'));
+    expect(invalidationsFor('w1', ev('card.moved'))).not.toContainEqual(keys.labChart('w1'));
+  });
+
   it('refreshes projects and studies when a project is deleted', () => {
     const event = { ...ev('research.deleted', null), payload: { research_id: 'p1' } };
     expect(invalidationsFor('w1', event)).toContainEqual(keys.researches('w1'));

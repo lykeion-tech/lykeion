@@ -54,6 +54,102 @@ export interface ReviewCheck {
   p?: number;
   status: CheckStatus;
   warning?: boolean;
+  // Report checks: what Jev judged from.
+  basis?: 'image' | 'text' | 'script';
+}
+// A finished study's report: the graph of its argument, built by the server
+// from recorded rows only.
+export type ReportNodeKind =
+  | 'question'
+  | 'paper'
+  | 'dataset'
+  | 'hypothesis'
+  | 'experiment'
+  | 'output'
+  | 'finding'
+  | 'objection'
+  | 'doubt'
+  | 'concept';
+export interface ReportFact {
+  subject: string;
+  relation: string;
+  object: string;
+  quote: string;
+  source_node: string;
+  p: number;
+}
+export interface ReportLink {
+  start: number;
+  end: number;
+  node: string;
+  p: number;
+}
+export interface ReportNode {
+  id: string;
+  kind: ReportNodeKind;
+  label: string;
+  // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses:
+  // kept|rejected; objections: upheld|not_upheld; papers, datasets and
+  // doubts: pass|unclear|fail; otherwise ''.
+  status: string;
+  reasons: string[];
+  quote: string;
+  checks: ReviewCheck[];
+  rerun?: unknown;
+  run_id: string | null;
+  agent: string;
+  column: string;
+  content_type?: string;
+  facts?: ReportFact[];
+  novelty?: 'contradicts' | 'confirms' | 'new';
+}
+export interface ReportEdge {
+  from: string;
+  to: string;
+  kind:
+    | 'tests'
+    | 'grounds'
+    | 'tested_by'
+    | 'produced'
+    | 'supports'
+    | 'challenges'
+    | 'contradicts'
+    | 'uses'
+    | 'is_a'
+    | 'part_of'
+    | 'associated_with'
+    | 'increases'
+    | 'decreases'
+    | 'measured_by'
+    | 'mentioned_in';
+}
+export interface ReportHandIn {
+  text: string;
+  agent_name: string;
+  run_id: string;
+  at: string;
+}
+export interface ReportSteering {
+  kind: 'comment' | 'decision';
+  author: string;
+  text: string;
+  at: string;
+}
+export interface StudyReport {
+  card_id: string;
+  number: number;
+  title: string;
+  question: string;
+  stages: string[];
+  finished_at: string;
+  hand_in: ReportHandIn | null;
+  nodes: ReportNode[];
+  edges: ReportEdge[];
+  steering: ReportSteering[];
+  links: ReportLink[];
+  extras: 'pending' | 'ready' | 'none';
+  checks: 'pending' | 'ready' | 'unavailable' | 'none';
+  machine: string;
 }
 export interface ReviewItem {
   key: string;
@@ -152,6 +248,8 @@ export interface Card {
     record_key?: string;
   }[];
   services: { name: string }[];
+  // A finished study that raised a report; only the single-study payload carries it.
+  has_report?: boolean;
   // What every Grounding source must meet, as the researcher wrote them.
 }
 
@@ -214,6 +312,8 @@ export interface AgentRun {
   board_column: Column;
   round: number;
   role: string;
+  // role for a study's stage runs; report for the run that builds its report.
+  kind?: string;
   harness: string;
   status: 'queued' | 'dispatched' | 'running' | 'completed' | 'failed' | 'cancelled';
   queue_reason: string | null;
@@ -277,16 +377,14 @@ export interface DecisionItem {
   kind:
     | 'manual_decision'
     | 'agent_decision'
-    | 'autoresearch_card'
-    | 'autoresearch_report'
-    | 'middle_score'
     | 'blocked'
     | 'no_tool'
     | 'scoring_unavailable'
     | 'waiting_for_machine'
     | 'machine_offline'
     | 'needs_decision'
-    | 'open_doubts'
+    | 'study_report'
+    | 'autoresearch_failed'
     | 'done';
   text: string;
   // What the item asks for, for a needs_decision; null on other kinds.
@@ -442,6 +540,9 @@ export interface AgentDefinition {
   instructions: string;
   harness: 'claude' | 'codex';
   model: string;
+  stage: '' | 'grounding' | 'hypotheses' | 'experimentation' | 'validation';
+  laboratory: '' | 'built-in';
+  runtime_id: string | null;
   visibility: 'workspace' | 'private';
   owner_id: string;
   archived_at: string | null;
@@ -762,4 +863,45 @@ export interface LabMessage {
   statements: LabStatement[];
   evidence: LabRef[];
   created_at: string;
+}
+
+export interface LabChartAgent {
+  id: string;
+  name: string;
+  emoji: string;
+  role: 'leader' | 'member' | 'auditor';
+  source: 'laboratory' | 'researcher';
+  status: 'idle' | 'working' | 'needs_you';
+  /** When the current status began. */
+  since: string | null;
+  studies: { id: string; title: string }[];
+  machine: string | null;
+  cli: 'claude' | 'codex' | null;
+  /** "the researchers", "<Stage> leader", or "nobody: checks <Stage> independently". */
+  reports_to: string;
+}
+export interface LabChartRoom {
+  stage: 'grounding' | 'hypotheses' | 'experimentation' | 'validation';
+  team: string;
+  agents: LabChartAgent[];
+}
+export interface LabChartPerson {
+  user_id: string;
+  name: string;
+  role: string;
+  open_decisions: number;
+}
+export interface LabChart {
+  rooms: LabChartRoom[];
+  people: LabChartPerson[];
+  ticker: { at: string; text: string } | null;
+}
+export interface Laboratory {
+  id: string;
+  name: string;
+  rooms: {
+    stage: LabChartRoom['stage'];
+    team: string;
+    agents: { name: string; role: 'leader' | 'member' | 'auditor' }[];
+  }[];
 }

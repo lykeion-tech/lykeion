@@ -1,20 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import { Trash2 } from '@lucide/vue';
-import { useAristotle, newComposerDraft, type Conversation } from './aristotle';
-import {
-  isNavigationFailure,
-  NavigationFailureType,
-  useRoute,
-  useRouter,
-  type NavigationFailure,
-} from 'vue-router';
+import { useAristotle, startConversationDraft, type Conversation } from './aristotle';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { guardResourceDrafts } from '../../state/resource-draft';
-import Icon from '../../ui/Icon.vue';
+import RailActions from '../../ui/RailActions.vue';
 import ChatAgentAvatar from './ChatAgentAvatar.vue';
 import { useAgents } from '../../api/queries';
 const state = useAristotle();
@@ -22,6 +16,8 @@ const agents = useAgents();
 const router = useRouter(),
   route = useRoute(),
   client = useQueryClient();
+const emit = defineEmits<{ search: [] }>();
+const shown = computed(() => state.conversations.data.value ?? []);
 const deleting = ref(''),
   deleteError = ref('');
 async function deleteConversation(c: Conversation) {
@@ -59,10 +55,7 @@ async function deleteConversation(c: Conversation) {
     deleting.value = '';
   }
 }
-async function startDraft(
-  event: MouseEvent,
-  navigate: (event: MouseEvent) => Promise<void | NavigationFailure>,
-) {
+async function startDraft(event: MouseEvent) {
   const plain =
     !event.defaultPrevented &&
     event.button === 0 &&
@@ -70,30 +63,24 @@ async function startDraft(
     !event.ctrlKey &&
     !event.shiftKey &&
     !event.altKey;
-  const result = await navigate(event);
-  if (plain && (!result || isNavigationFailure(result, NavigationFailureType.duplicated)))
-    newComposerDraft();
+  if (!plain) return;
+  event.preventDefault();
+  await startConversationDraft(router);
 }
 </script>
 <template>
   <aside class="sidebar conversation-rail" aria-label="Chat">
-    <header>
-      <RouterLink to="/coresearch">Chat</RouterLink
-      ><RouterLink v-slot="{ href, navigate, isActive, isExactActive }" to="/coresearch/new" custom>
-        <a
-          :href="href"
-          aria-label="New conversation"
-          class="icon-button"
-          :class="{ 'router-link-active': isActive, 'router-link-exact-active': isExactActive }"
-          :aria-current="isExactActive ? 'page' : undefined"
-          @click="startDraft($event, navigate)"
-          ><Icon name="plus" :size="16"
-        /></a>
-      </RouterLink>
-    </header>
+    <slot name="brand" />
+    <RailActions
+      new-to="/coresearch/new"
+      new-label="New conversation"
+      search-label="Search conversations"
+      @new="startDraft"
+      @search="emit('search')"
+    />
     <nav>
       <div
-        v-for="c in state.conversations.data.value ?? []"
+        v-for="c in shown"
         :key="c.shared ? `shared:${c.project_id}` : c.id"
         class="conversation-item"
       >
@@ -151,22 +138,6 @@ async function startDraft(
   padding: 0 10px;
   overflow: hidden;
   position: relative;
-}
-.conversation-rail header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--text);
-  height: 32px;
-  line-height: 20px;
-  flex: none;
-  padding: 0 8px;
-  margin-bottom: 8px;
-}
-.conversation-rail header > a:first-child {
-  font-size: 14px;
-  font-weight: 700;
 }
 .conversation-rail > nav {
   flex: 1;

@@ -29,11 +29,12 @@ SELECT * FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_i
 
 -- A member's run of a column's round that has not ended: queued, dispatched
 -- or running. Members are every role but the leader, the auditor, a study's
--- single agent and Validation's system runs, the objector and the rerun.
+-- single agent, Validation's system runs (the objector and the rerun) and
+-- a finished study's report run.
 -- name: InFlightMemberRun :one
 SELECT id FROM agent_run WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND board_column = @board_column AND round = @round
-  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun') AND status IN ('queued', 'dispatched', 'running')
+  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun', 'reporter') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1;
 
 -- The live records each agent run of a round wrote itself, so the engine can tell
@@ -193,9 +194,32 @@ WHERE workspace_id = @workspace_id AND runtime_id = @runtime_id AND kind = 'wait
 -- name: OfflineRuntimesWithQueuedRuns :many
 SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
 FROM runtime r
-JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
+JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun', 'report')
   AND (t.harness = r.harness OR t.kind = 'rerun')
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
-  AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
+-- a laboratory agent's runs wait for its bound runtime (a rerun for that
+-- runtime's machine), as the claim sends them there
+LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) AS la(id, owner_id, runtime_id, name) ON true
 WHERE r.workspace_id = @workspace_id AND r.status = 'offline'
+  AND ((t.kind <> 'report' AND la.id IS NOT NULL AND (r.id = la.runtime_id
+      OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id))))
+    OR (t.kind = 'report' AND r.id = t.pinned_runtime_id)
+    OR (t.kind <> 'report' AND la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))
 GROUP BY r.id;
+
+-- One open notice per unbound laboratory agent (cause names it), for the
+-- workspace owner who binds it.
+-- name: UpsertLaboratoryWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, cause)
+SELECT @workspace_id, @user_id, 'waiting_for_machine', @text, @cause::text
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine'
+  AND runtime_id IS NULL AND cause = @cause::text AND resolved_at IS NULL);
+
+-- name: ResolveLaboratoryWait :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
+WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause = @cause::text AND resolved_at IS NULL;
+
+-- name: MoveLaboratoryWaits :exec
+UPDATE inbox_item SET user_id = @user_id, touched_at = now()
+WHERE workspace_id = @workspace_id AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause LIKE 'unbound:%'
+  AND resolved_at IS NULL AND user_id <> @user_id;

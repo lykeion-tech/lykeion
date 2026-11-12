@@ -349,7 +349,7 @@ for (const action of ['invite', 'role', 'revoke', 'remove'] as const) {
             // A workspace switch resets the old view before opening its next dialog.
             await page
               .getByRole('complementary', { name: 'Workspace navigation' })
-              .getByRole('button', { name: /Beta-cell lab/ })
+              .locator('.workspace-switch')
               .click();
             await page
               .getByRole('menu', { name: 'Workspace' })

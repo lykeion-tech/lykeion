@@ -179,17 +179,29 @@ func TestReopenedAndPrivateEventsDoNotTrigger(t *testing.T) {
 
 func TestMigrationSeedsExistingCardsAtCutover(t *testing.T) {
 	f := setup(t)
+	// Later migrations build on lab_chat, so they come off before 0052 and go
+	// back on after it.
+	later := []string{"0053_lab_chat_deletion", "0054_manual_decisions", "0055_manual_decision_drafts", "0056_manual_draft_archives", "0057_manual_draft_application", "0058_project_delete", "0059_decision_builder_machine", "0060_decision_draft_receipt"}
+	apply := func(name string) {
+		sql, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.exec(string(sql))
+	}
+	for i := len(later) - 1; i >= 0; i-- {
+		apply(later[i] + ".down.sql")
+	}
 	for _, direction := range []string{"down", "up"} {
 		if direction == "up" {
 			f.exec(`UPDATE card SET board_column='experimentation' WHERE id=$1`, f.card)
 			// Historical moves happened before lessons began and must never be replayed backwards.
 			f.emit("card.steered", `{"column":"hypotheses"}`)
 		}
-		sql, err := migrations.FS.ReadFile("0052_aristotle." + direction + ".sql")
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.exec(string(sql))
+		apply("0052_aristotle." + direction + ".sql")
+	}
+	for _, name := range later {
+		apply(name + ".up.sql")
 	}
 	f.tick()
 	if f.count(`SELECT count(*) FROM lesson_job`) != 0 {

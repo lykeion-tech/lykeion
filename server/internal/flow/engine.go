@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ import (
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
+	"lykeion/server/internal/team"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -39,6 +41,8 @@ type Engine struct {
 	// RatingDraw says whether a finished Team column is offered for rating;
 	// nil draws one in ratingChance.
 	RatingDraw func() bool
+
+	reporting sync.Map // the report work in flight, by kind and study
 }
 
 // ErrPackUnavailable wraps a failure to load a card's Team.
@@ -49,10 +53,15 @@ var errNoAgent = errors.New("no agent works this column")
 // OnSettlement is wired to service.AgentRuns' durable settlement: a settled
 // run may let its study move on, by its lead's hand-in or failure (see
 // afterRun). An error leaves the settlement pending, so it is delivered
-// again. A card-less run moves nothing.
+// again. A card-less run moves nothing; a settled report run has its
+// hand-in judged.
 func (e *Engine) OnSettlement(ctx context.Context, n service.Settlement) error {
 	t := n.AgentRun
 	if t.CardID == nil {
+		return nil
+	}
+	if t.Kind == "report" {
+		e.goReport("judge report", t.WorkspaceID, *t.CardID, e.judgeReport)
 		return nil
 	}
 	if err := e.afterRun(ctx, t); err != nil {
@@ -78,14 +87,17 @@ func (e *Engine) Kick(ws, card uuid.UUID) {
 }
 
 // Tick marks queued runs whose owner is offline, expires and reminds due
-// decisions, and kicks every working study in a column with nothing in
-// flight or a settled run to act on.
+// decisions, resumes unfinished report builds, and kicks every working study
+// in a column with nothing in flight or a settled run to act on.
 func (e *Engine) Tick(ctx context.Context) error {
 	if err := e.Store.Global().MarkQueueOffline(ctx); err != nil {
 		slog.Error("mark queue offline", "err", err)
 	}
 	if err := e.sweepDecisions(ctx, e.now()); err != nil {
 		slog.Error("sweep decisions", "err", err)
+	}
+	if err := e.resumeReports(ctx); err != nil {
+		slog.Error("resume reports", "err", err)
 	}
 	cands, err := e.Store.Global().BoardCandidates(ctx)
 	if err != nil {
@@ -159,7 +171,8 @@ func columnTeam(ctx context.Context, tx *store.Tx, card uuid.UUID, column string
 	return packID, &m, nil
 }
 
-// teamAgent is the study owner's own agent for one member of a Team.
+// teamAgent is the study owner's agent for one member of a Team: their own
+// copy, or the workspace's shared laboratory agent.
 func teamAgent(ctx context.Context, tx *store.Tx, packID, owner uuid.UUID, member string) (db.Agent, error) {
 	a, err := tx.Q.GetTeamAgent(ctx, db.GetTeamAgentParams{WorkspaceID: tx.WS, PackID: packID, UserID: owner, Member: member})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -287,6 +300,23 @@ func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, 
 			}
 		}
 		harness, model = studyCLI(role, *c.StudyCli, *c.AuditorCli, member.Agent)
+	}
+	// A laboratory agent runs on its bound runtime's CLI, whatever the study
+	// chose; unbound, it keeps its own CLI and its run waits.
+	if a.Laboratory != "" {
+		harness, model = a.Harness, a.Model
+		if a.RuntimeID != nil {
+			rt, err := tx.Q.GetRuntime(ctx, db.GetRuntimeParams{WorkspaceID: tx.WS, ID: *a.RuntimeID})
+			if err != nil {
+				return db.AgentRun{}, err
+			}
+			def, err := team.LaboratoryDef(ctx, tx, a.ID)
+			if err != nil {
+				return db.AgentRun{}, err
+			}
+			harness = rt.Harness
+			model, _ = team.ModelFor(def, rt.Harness)
+		}
 	}
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: harness, Model: model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,

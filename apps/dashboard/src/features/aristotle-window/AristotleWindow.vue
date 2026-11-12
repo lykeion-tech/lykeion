@@ -16,7 +16,7 @@ import LabContextPicker from './LabContextPicker.vue';
 import RunStatus from '../runs/RunStatus.vue';
 import { parseManualDecisionProposal, type ManualDecisionDraft, type ManualDecisionTurn } from '../decisions/manualDecisionDraft';
 
-const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
+const props = defineProps<{ userId: string; studyId?: string; studyTitle?: string; reportContext?: boolean; draftChat?: string; appliedMessageId?: string | null; manualDraftBusy?: boolean; readonly?: boolean; manualDraft?: ManualDecisionDraft; submitManualQuestion?: (turn: ManualDecisionTurn) => Promise<void> }>();
 const emit = defineEmits<{ manualProposal: [value: { messageId: string; draft: ManualDecisionDraft; input: ManualDecisionDraft }] }>();
 const drafting = computed(() => !!props.draftChat);
 const open = ref(!!props.draftChat),
@@ -140,7 +140,7 @@ watch([turns, () => messages.isSuccess.value, () => messages.isFetching.value, (
 }, { immediate: true });
 const currentStudy = computed(() =>
   !drafting.value && props.studyId && props.studyTitle
-    ? { ref: 'study:' + props.studyId, title: 'This study: ' + props.studyTitle }
+    ? { ref: (props.reportContext ? 'report:' : 'study:') + props.studyId, title: 'This study: ' + props.studyTitle }
     : null,
 );
 const picked = ref<{ ref: string; title: string } | null>(),
@@ -182,7 +182,7 @@ function chooseModel(id: string, cli: 'claude' | 'codex' = harness.value) {
   composer.value?.focus();
 }
 const menuBox = ref<HTMLElement>();
-const menuStyle = ref<{ top?: string; bottom?: string; maxHeight?: string }>({});
+const menuStyle = ref<{ top?: string; bottom?: string; maxHeight?: string; right?: string }>({});
 let menuOpener: HTMLElement | null = null;
 function placeMenu() {
   const host = panel.value;
@@ -201,6 +201,10 @@ function placeMenu() {
           maxHeight: Math.max(0, Math.min(300, above)) + 'px',
         }
       : { top: a.bottom - p.top + gap + 'px', maxHeight: Math.max(0, Math.min(300, below)) + 'px' };
+  if (menu.value === 'model' && !clis.value.length && menuBox.value) {
+    const width = menuBox.value.getBoundingClientRect().width;
+    menuStyle.value.right = Math.max(margin, Math.min(p.width - width - margin, p.right - a.left - a.width / 2 - width / 2)) + 'px';
+  }
 }
 function closeMenu(restore = false) {
   menu.value = '';
@@ -242,6 +246,18 @@ function toggle() {
 }
 defineExpose({
   toggle,
+  // Shows the window without moving focus; an open window stays as it is.
+  open: () => {
+    open.value = true;
+  },
+  isOpen: () => open.value,
+  // Collapses the window without moving focus, for when the page that opened
+  // it is left.
+  close: () => {
+    open.value = false;
+    menu.value = '';
+    focused.value = false;
+  },
   modelMenu: () => {
     const opener = document.activeElement as HTMLElement | null;
     if (!open.value) toggle();
@@ -551,7 +567,7 @@ onUnmounted(() => {
         <ArrowUp :size="17" />
       </button>
     </form>
-    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context', 'chat-menu': menu === 'chats' }" ref="menuBox" tabindex="-1" :style="menuStyle">
+    <div v-if="menu" class="menu" :class="{ 'context-menu': menu === 'context', 'chat-menu': menu === 'chats', 'empty-model-menu': menu === 'model' && !clis.length }" ref="menuBox" tabindex="-1" :style="menuStyle">
       <template v-if="menu === 'options'">
         <button
           @click="
@@ -600,14 +616,13 @@ onUnmounted(() => {
         </button>
       </template>
       <template v-else-if="menu === 'model'">
-        <small>Your machines · Select model</small>
         <button v-for="cli in clis" :key="cli" @click="chooseModel('', cli)">
           {{ cli === 'claude' ? 'Claude Code' : 'Codex' }} · Default {{ harness === cli && !model ? '✓' : '' }}
         </button>
         <button v-for="m in models" :key="m.value" @click="chooseModel(m.value)">
           {{ m.label || m.value }} {{ m.value === model ? '✓' : '' }}
         </button>
-        <RouterLink v-if="!clis.length" to="/machines">Connect a machine</RouterLink>
+        <RouterLink v-if="!clis.length" to="/machines">Connect machine</RouterLink>
       </template>
       <LabContextPicker v-else @pick="pick" />
     </div>
@@ -868,11 +883,15 @@ header {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 5px 20px color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 5px 20px rgb(0 0 0 / 16%);
 }
 .menu.context-menu {
   right: auto;
   left: 10px;
+}
+.menu.empty-model-menu {
+  width: max-content;
+  max-width: min(270px, calc(100% - 20px));
 }
 .menu.chat-menu {
   right: auto;

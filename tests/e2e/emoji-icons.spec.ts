@@ -6,7 +6,7 @@ test('Agent and Team emoji persist after reload and appear in their lists', asyn
   const headers = { 'X-Workspace-ID': fixture.workspace_id };
   const created = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Emoji researcher', harness: 'claude', visibility: 'workspace' },
+    data: { name: 'Emoji researcher', stage: 'experimentation', harness: 'claude', visibility: 'workspace' },
   });
   expect(created.status()).toBe(201);
   const agent = await created.json();

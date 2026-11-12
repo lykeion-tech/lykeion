@@ -131,7 +131,7 @@ func (h *H) saveAgentCapabilities(w http.ResponseWriter, r *http.Request) {
 		if a.OwnerID != user && !agentAdmin(r) {
 			return errAgentForbidden
 		}
-		return nil
+		return refuseLaboratory(a)
 	})
 	if err != nil {
 		agentFail(w, r, err, nil, 0)

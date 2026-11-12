@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	"lykeion/server/internal/flow"
 	"lykeion/server/internal/service"
+	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
 	"testing"
 )
@@ -131,9 +132,23 @@ func TestChangingTheMachineResumesTheCancelledStep(t *testing.T) {
 	for _, rt := range runtimes {
 		refs = append(refs, service.RuntimeRef{WorkspaceID: rt.WorkspaceID, RuntimeID: rt.ID})
 	}
+	// The leader is a laboratory agent: the study's machine doesn't choose
+	// where it runs, its bound machine does.
 	claims, err := f.s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(guestID), refs, 1)
-	if err != nil || len(claims) != 1 || claims[0].AgentRun.CardID == nil || claims[0].AgentRun.CardID.String() != c.ID {
+	if err != nil || len(claims) != 0 {
 		t.Fatalf("own-machine claim %+v %v", claims, err)
+	}
+	var leader string
+	if err := f.s.Env.Owner.QueryRow(t.Context(), "SELECT agent_id::text FROM agent_run WHERE card_id=$1 AND status='queued' AND role='leader'", c.ID).Scan(&leader); err != nil {
+		t.Fatal(err)
+	}
+	if code := f.s.call(t, "PUT", "/api/agents/"+leader+"/runtime", f.jwt, f.ws, map[string]any{"runtime_id": f.rt}, nil); code != 200 {
+		t.Fatal(code)
+	}
+	ref := service.RuntimeRef{WorkspaceID: uuid.MustParse(f.ws), RuntimeID: uuid.MustParse(f.rt)}
+	claims, err = f.s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(f.s.userID(t, f.jwt)), []service.RuntimeRef{ref}, 1, service.ClaimOptions{GuestIsolation: agent.GuestIsolationProtocol})
+	if err != nil || len(claims) != 1 || claims[0].AgentRun.CardID == nil || claims[0].AgentRun.CardID.String() != c.ID {
+		t.Fatalf("bound-machine claim %+v %v", claims, err)
 	}
 }
 

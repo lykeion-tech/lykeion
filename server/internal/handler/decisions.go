@@ -66,7 +66,7 @@ func (h *H) countDecisions(w http.ResponseWriter, r *http.Request) {
 }
 
 // readResolves are the Inbox kinds that only inform: reading one resolves it.
-var readResolves = []string{"done", "middle_score", "no_tool", "autoresearch_card", "autoresearch_report", "open_doubts"}
+var readResolves = []string{"done", "study_report", "no_tool", "autoresearch_failed"}
 
 // readDecision records that the item's addressee read it. Anyone else who
 // can see the item may open it too; their read changes nothing.

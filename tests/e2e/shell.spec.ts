@@ -4,35 +4,34 @@ import { labCode, labSignIn } from './lab';
 test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
-  await expect(nav.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
+  await expect(nav.locator('.workspace-switch')).toHaveAccessibleDescription('Beta-cell lab');
   for (const name of [
     'New',
-    'Inbox',
     'Studies',
+    'My Studies',
     'Teams',
+    'Workflows',
     'Projects',
     'Autoresearch',
     'Agents',
     'Coresearch',
     'Colleagues',
-    'Settings',
   ])
     await expect(
       nav
         .getByRole('link', { name, exact: true })
         .or(nav.getByRole('button', { name, exact: true })),
     ).toBeVisible();
-  for (const name of ['Skills', 'Connectors', 'Machines', 'Updates', 'Search...'])
+  await expect(nav.getByRole('link', { name: 'Decisions', exact: true })).toBeVisible();
+  // Lykeion and Settings live in the Lab menu at the bottom.
+  for (const name of ['Lykeion', 'Settings'])
+    await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
+  for (const name of ['Inbox', 'Skills', 'Connectors', 'Machines', 'Updates', 'Search...'])
     await expect(nav.getByText(name, { exact: true })).toHaveCount(0);
-  const groups = nav.locator('.nav-group');
-  await expect(groups.nth(0).getByRole('link')).toHaveText(['Inbox', 'My Studies']);
-  await expect(groups.nth(1).getByRole('link')).toHaveText([
-    'Studies',
-    'Projects',
-    'Coresearch',
-    'Colleagues',
-  ]);
-  await expect(groups.nth(2).getByRole('link')).toHaveText(['Teams', 'Autoresearch', 'Agents']);
+  const groups = nav.locator('.nav-group:not(.pinned-study-group)');
+  await expect(groups.nth(0).getByRole('link')).toHaveText(['Autoresearch', 'My Studies']);
+  await expect(groups.nth(1).getByRole('link')).toHaveText(['Studies', 'Projects', 'Colleagues']);
+  await expect(groups.nth(2).getByRole('link')).toHaveText(['Teams', 'Workflows', 'Agents']);
   await expect(page.getByRole('button', { name: 'Open Aristotle' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/ui-lab/task11-shell.png', fullPage: true });
 });
@@ -120,16 +119,17 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     await page.getByRole('textbox', { name: 'Digit 1' }).click();
     await page.keyboard.type(await labCode(page.request, person.email));
     await expect(page).toHaveURL(/#\/studies$/);
-    await expect(page.getByRole('button', { name: new RegExp(person.workspace) })).toBeVisible();
-    await page.getByRole('button', { name: new RegExp(person.workspace) }).click();
+    const footer = page.locator('.workspace-switch:visible');
+    await expect(footer).toHaveAccessibleDescription(person.workspace);
+    await footer.click();
     const menu = page.getByRole('menu', { name: 'Workspace' });
-    await expect(menu.getByRole('menuitem', { name: new RegExp(person.name) })).toBeVisible();
+    await expect(menu.getByText(person.email, { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: new RegExp(person.workspace) })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(
       workspaceIds[index],
     );
     if (index === 1) {
-      await expect(menu.getByRole('menuitem', { name: /Return lab|Rae Return/ })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ })).toHaveCount(0);
       await page.screenshot({
         path: 'test-results/ui-lab/task11-account-switch.png',
         fullPage: true,
@@ -214,7 +214,9 @@ for (const failedRead of [
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
       finishRetry();
       await expect(alert).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
+      await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+        'Beta-cell lab',
+      );
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toBeVisible();
     } finally {
       finishRetry();
@@ -254,7 +256,9 @@ test('a real invitation returns through email sign-in and joins the invited work
   await expect(page).toHaveURL(/#\/onboarding$/);
   await page.getByRole('button', { name: "I've done this before" }).click();
   await expect(page).toHaveURL(/#\/studies$/);
-  await expect(page.getByRole('button', { name: /Invitation lab/ })).toBeVisible();
+  await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+    'Invitation lab',
+  );
   expect(await page.evaluate(() => sessionStorage.getItem('lykeion.invite'))).toBe('');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(workspace.id);
   const memberships = await page.request.get('/api/workspaces');
@@ -286,9 +290,15 @@ test('Google sign-in targets the shipped backend route', async ({ browser }) => 
 
 test('the workspace menu names the workspace and logs out', async ({ page }) => {
   await page.goto('/#/studies');
-  await page.getByRole('button', { name: /Beta-cell lab/ }).click();
+  await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+    'Beta-cell lab',
+  );
+  await page.locator('.workspace-switch:visible').click();
   const menu = page.getByRole('menu', { name: 'Workspace' });
-  await expect(menu.getByRole('menuitem', { name: /Ana Ruiz/ })).toBeVisible();
+  const me = (await (await page.request.get('/api/me')).json()) as { email: string };
+  // The email heads the menu as text; it is not a menu item.
+  await expect(menu.getByText(me.email, { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: me.email })).toHaveCount(0);
   await expect(menu.getByRole('menuitem', { name: /Beta-cell lab/ })).toBeVisible();
   await page.screenshot({ path: 'test-results/ui-lab/task11-workspace-menu.png', fullPage: true });
   const signedOutRead = page.waitForResponse(
@@ -367,7 +377,7 @@ test('every new workspace tab is named Studies, including when Studies is alread
     await expect(tabs.getByRole('tab')).toHaveCount(before + 1);
     await expect(tabs.getByRole('tab', { selected: true })).toHaveAccessibleName('Studies');
     const title = tabs.getByRole('tab', { selected: true }).locator('span');
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await expect(tabs.getByRole('tab', { name: 'Tasks', exact: true })).toHaveCount(0);
   }
 });
@@ -376,20 +386,27 @@ test('short workspace tab titles remain readable', async ({ page }) => {
   const tabs = page.getByRole('tablist', { name: 'Workspace tabs' });
   await page.goto('/#/studies');
   await page.getByRole('button', { name: 'New tab', exact: true }).click();
-  for (const [path, name] of [['studies', 'Studies'], ['coresearch', 'Coresearch'], ['workflows', 'Workflows']]) {
+  for (const [path, name] of [
+    ['studies', 'Studies'],
+    ['coresearch', 'Coresearch'],
+    ['workflows', 'Workflows'],
+  ]) {
     await page.goto(`/#/${path}`);
     const tab = tabs.getByRole('tab', { selected: true });
     await expect(tab).toHaveAccessibleName(name);
     const title = tab.locator('span');
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     const container = tab.locator('..');
     await container.hover();
     const close = container.getByRole('button', { name: 'Close tab' });
     await expect(close).toBeVisible();
-    await expect.poll(async () => {
-      const labelRect = await title.boundingBox(), closeRect = await close.boundingBox();
-      return !!labelRect && !!closeRect && labelRect.x + labelRect.width <= closeRect.x;
-    }).toBe(true);
-    await expect.poll(() => title.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect
+      .poll(async () => {
+        const labelRect = await title.boundingBox(),
+          closeRect = await close.boundingBox();
+        return !!labelRect && !!closeRect && labelRect.x + labelRect.width <= closeRect.x;
+      })
+      .toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   }
 });

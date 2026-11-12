@@ -384,7 +384,7 @@ function tabKey(event: KeyboardEvent, index: number) {
               :value="detail.data.value?.avatar_url || ''"
               :editable="canEditTeam"
               :busy="iconBusy"
-              fallback="network"
+              fallback="team"
               @select="saveIcon"
             />
             <div class="team-heading">

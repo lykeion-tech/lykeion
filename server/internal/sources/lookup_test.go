@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func TestLookupPaperIDs(t *testing.T) {
 			case "arxiv":
 				fmt.Fprint(w, `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2106.01234v2</id><published>2021-06-01</published><title>AX paper</title><summary>abs</summary></entry></feed>`)
 			case "epmc":
-				fmt.Fprint(w, `{"resultList":{"result":[{"id":"12345","source":"MED","title":"EPMC paper","doi":"10.2/y","pmid":"12345"}]}}`)
+				fmt.Fprint(w, `{"resultList":{"result":[{"id":"12345","source":"MED","title":"EPMC paper","doi":"10.2/y","pmid":"12345","abstractText":"abs"}]}}`)
 			}
 		}
 	}
@@ -221,5 +222,77 @@ func TestLookupKeepsExcludedPapersBack(t *testing.T) {
 		if h, err := l.Paper(ctx, id); !errors.Is(err, ErrNotFound) || h.ID != "" {
 			t.Errorf("%s, excluded: %+v %v, want not found", id, h, err)
 		}
+	}
+}
+
+// Europe PMC often holds no abstract for an older paper that OpenAlex has by
+// its DOI; a PMID lookup takes OpenAlex's abstract and keeps the rest.
+func TestLookupPaperPMIDTakesAbstractFromDOI(t *testing.T) {
+	var oaCalls []string
+	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		oaCalls = append(oaCalls, r.URL.RequestURI())
+		fmt.Fprint(w, `{"id":"https://openalex.org/W9","title":"Dentinogenesis in the incisors of scorbutic guinea pigs","doi":"https://doi.org/10.2/y","abstract_inverted_index":{"Teeth":[0],"grow.":[1]}}`)
+	}))
+	defer oa.Close()
+	abstract := ""
+	ep := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"resultList":{"result":[{"id":"12345","source":"MED","title":"EPMC paper","doi":"10.2/y","pmid":"12345","pubYear":"1966","abstractText":%q}]}}`, abstract)
+	}))
+	defer ep.Close()
+	l := Lookup{OpenAlex: OpenAlex{Base: oa.URL, HTTP: oa.Client()}, EuropePMC: EuropePMC{Base: ep.URL, HTTP: ep.Client()}}
+	h, err := l.Paper(t.Context(), "pmid:12345")
+	if err != nil || h.Abstract != "Teeth grow." || h.ID != "europepmc:MED:12345" || h.Title != "EPMC paper" || h.DOI != "10.2/y" || h.PMID != "12345" || h.Year != 1966 {
+		t.Fatalf("no abstract: %+v %v", h, err)
+	}
+	if len(oaCalls) != 1 || oaCalls[0] != "/works/doi:10.2%2Fy" {
+		t.Fatalf("OpenAlex asked %v", oaCalls)
+	}
+
+	abstract = "Europe PMC's own abstract."
+	oaCalls = nil
+	h, err = l.Paper(t.Context(), "pmid:12345")
+	if err != nil || h.Abstract != abstract || len(oaCalls) != 0 {
+		t.Fatalf("with an abstract: %+v %v; OpenAlex asked %v", h, err, oaCalls)
+	}
+
+	// The OpenAlex record is the same paper, so its exclusion holds too.
+	abstract = ""
+	l.Exclude = excluded(t, "Dentinogenesis in the incisors of scorbutic guinea pigs")
+	if _, err = l.Paper(t.Context(), "pmid:12345"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("excluded paper: %v", err)
+	}
+}
+
+// An OpenAlex that fails or times out leaves a PMID paper's abstract empty
+// and the Europe PMC hit standing.
+func TestLookupPaperPMIDKeepsHitWhenOpenAlexFails(t *testing.T) {
+	ep := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"resultList":{"result":[{"id":"12345","source":"MED","title":"EPMC paper","doi":"10.2/y","pmid":"12345","pubYear":"1966"}]}}`)
+	}))
+	defer ep.Close()
+	for name, handler := range map[string]http.HandlerFunc{
+		"500": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) },
+		"timeout": func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+			oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); handler(w, r) }))
+			defer oa.Close()
+			client := oa.Client()
+			client.Timeout = 100 * time.Millisecond
+			l := Lookup{OpenAlex: OpenAlex{Base: oa.URL, HTTP: client}, EuropePMC: EuropePMC{Base: ep.URL, HTTP: ep.Client()}}
+			h, err := l.Paper(t.Context(), "pmid:12345")
+			if err != nil || h.Abstract != "" || h.ID != "europepmc:MED:12345" || h.Title != "EPMC paper" || h.DOI != "10.2/y" {
+				t.Fatalf("hit %+v, err %v", h, err)
+			}
+			if calls.Load() == 0 {
+				t.Fatal("OpenAlex was never asked")
+			}
+		})
 	}
 }

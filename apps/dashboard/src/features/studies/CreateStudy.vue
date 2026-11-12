@@ -94,6 +94,8 @@ const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : nul
 function initialRange(): Range {
   const a = props.assignee;
   const columns = a?.type === 'team' ? Object.keys(a.teams) : [];
+  const own = a?.type === 'agent' ? agents.data.value?.find((x) => x.id === a.id)?.stage : '';
+  if (own) return { from: own, to: own };
   return columns.length === 1 && a?.type === 'team' && !a.agent_id
     ? { from: columns[0]!, to: columns[0]! }
     : { from: 'grounding', to: 'validation' };
@@ -112,6 +114,16 @@ watch(range, (r) => {
 });
 // The Workflow needs one agent, so a Team picked before it is dropped.
 if (workflowSlug.value && assignee.value?.type !== 'agent') assignee.value = null;
+// A Workflow runs on Experimentation, so an agent of another stage is dropped.
+watch(
+  [assignee, () => agents.data.value],
+  ([a, list]) => {
+    if (!workflowSlug.value || a?.type !== 'agent') return;
+    const stage = list?.find((x) => x.id === a.id)?.stage;
+    if (stage !== undefined && stage !== workflowRange.from) assignee.value = null;
+  },
+  { immediate: true },
+);
 function dropWorkflow() {
   workflowSlug.value = '';
   range.value = initialRange();

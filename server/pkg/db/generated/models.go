@@ -30,6 +30,9 @@ type Agent struct {
 	AvatarUrl            string          `json:"avatar_url"`
 	TeamDeletedAt        *time.Time      `json:"team_deleted_at"`
 	DeletedAt            *time.Time      `json:"deleted_at"`
+	Stage                string          `json:"stage"`
+	Laboratory           string          `json:"laboratory"`
+	RuntimeID            *uuid.UUID      `json:"runtime_id"`
 }
 
 type AgentCapability struct {
@@ -91,6 +94,7 @@ type AgentRun struct {
 	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
 	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
 	LabPurpose            string          `json:"lab_purpose"`
+	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -872,6 +876,58 @@ type Record struct {
 	CreatedAt    time.Time       `json:"created_at"`
 }
 
+type ReportBuild struct {
+	WorkspaceID  uuid.UUID  `json:"workspace_id"`
+	CardID       uuid.UUID  `json:"card_id"`
+	AgentRunID   *uuid.UUID `json:"agent_run_id"`
+	Status       string     `json:"status"`
+	ChecksStatus string     `json:"checks_status"`
+	CreatedAt    time.Time  `json:"created_at"`
+	FinishedAt   *time.Time `json:"finished_at"`
+}
+
+type ReportCheck struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	NodeID      string    `json:"node_id"`
+	CheckID     string    `json:"check_id"`
+	Question    string    `json:"question"`
+	Choice      string    `json:"choice"`
+	P           float64   `json:"p"`
+	Status      string    `json:"status"`
+	Evidence    string    `json:"evidence"`
+	Basis       string    `json:"basis"`
+}
+
+type ReportConcept struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Key         string    `json:"key"`
+	Label       string    `json:"label"`
+	Type        string    `json:"type"`
+}
+
+type ReportFact struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Subject     string    `json:"subject"`
+	Relation    string    `json:"relation"`
+	Object      string    `json:"object"`
+	Quote       string    `json:"quote"`
+	SourceNode  string    `json:"source_node"`
+	P           float64   `json:"p"`
+}
+
+type ReportLink struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	StartByte   int32     `json:"start_byte"`
+	EndByte     int32     `json:"end_byte"`
+	NodeID      string    `json:"node_id"`
+	P           float64   `json:"p"`
+}
+
 type Research struct {
 	ID          uuid.UUID  `json:"id"`
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
@@ -984,11 +1040,11 @@ type StudyReaction struct {
 }
 
 type TeamAgent struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	PackID      uuid.UUID `json:"pack_id"`
-	UserID      uuid.UUID `json:"user_id"`
-	Member      string    `json:"member"`
-	AgentID     uuid.UUID `json:"agent_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	PackID      uuid.UUID  `json:"pack_id"`
+	UserID      *uuid.UUID `json:"user_id"`
+	Member      string     `json:"member"`
+	AgentID     uuid.UUID  `json:"agent_id"`
 }
 
 type TeamRating struct {
@@ -1048,6 +1104,7 @@ type Workspace struct {
 	ResearchContext string          `json:"research_context"`
 	CardPrefix      string          `json:"card_prefix"`
 	LogoBlob        string          `json:"logo_blob"`
+	Laboratory      string          `json:"laboratory"`
 }
 
 type WorkspaceAvailability struct {

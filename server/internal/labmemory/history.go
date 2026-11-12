@@ -183,7 +183,11 @@ func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, err
 		return nil, false, nil
 	}
 	visible := map[string]string{}
+	opened := map[string]bool{}
 	for _, e := range evidence {
+		if e.Via == "read" {
+			opened[e.Ref] = true
+		}
 		ok, err := current(e.answerCite)
 		if !ok || err != nil {
 			return nil, false, err
@@ -199,6 +203,17 @@ func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, err
 			return nil, false, nil
 		}
 		for _, c := range s.Cites {
+			if ref, e := ParseRef(c.Ref); e == nil && ref.Node != "" && c.Version != "" {
+				// A report node stands on its report, or the node itself,
+				// having been read and on the node's own current projection.
+				if !opened[ref.Base().String()] && !opened[c.Ref] {
+					return nil, false, nil
+				}
+				if ok, err := current(c); !ok || err != nil {
+					return nil, false, err
+				}
+				continue
+			}
 			if c.Version == "" || visible[c.Ref] != c.Version {
 				return nil, false, nil
 			}

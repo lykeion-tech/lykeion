@@ -192,7 +192,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                   ><AvatarDisplay
                     v-if="t.avatar_url"
                     :value="t.avatar_url.slice(6)"
-                    :size="18" /><Icon v-else name="network" :size="18" />
+                    :size="18" /><Icon v-else name="team" :size="18" />
                   <span
                     class="availability-dot"
                     :class="{ inactive: !teamOnline(t) }"
@@ -225,7 +225,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
       v-if="teams.isSuccess.value && !search && !teams.data.value?.length"
       class="directory-empty"
     >
-      <Icon name="network" :size="30" />
+      <Icon name="team" :size="30" />
       <h2>No Teams yet</h2>
       <p>A Team is the agents that work each stage of your studies.</p>
       <RouterLink to="/teams/new" class="button"

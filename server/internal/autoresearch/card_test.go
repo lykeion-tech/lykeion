@@ -41,7 +41,6 @@ func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 	f := setup(t)
 	collab := f.user(t, "c@lab.org", "member")
 	sub := f.user(t, "s@lab.org", "member")
-	bystander := f.user(t, "m@lab.org", "member")
 	f.exec(t, `UPDATE "user" SET timezone = 'Europe/Copenhagen' WHERE id = $1`, collab)
 	ap := f.autoresearch(t, "create_card", "Weekly digest", "What changed in mouse liver lipidomics this week?", "Digest {{date}}")
 	f.exec(t, `INSERT INTO autoresearch_subscriber (workspace_id, autoresearch_id, user_id) VALUES ($1, $2, $3)`, f.ws, ap, sub)
@@ -56,9 +55,8 @@ func TestCreateCardOpensAStudyOwnedByTheActor(t *testing.T) {
 		c.Question != "What changed in mouse liver lipidomics this week?" {
 		t.Fatalf("card: %+v", c)
 	}
-	inbox := `SELECT count(*) FROM inbox_item WHERE kind = 'autoresearch_card' AND card_id = $1 AND autoresearch_run_id = $2 AND user_id = $3`
-	if f.count(t, inbox, c.ID, r.ID, f.owner) != 1 || f.count(t, inbox, c.ID, r.ID, sub) != 1 || f.count(t, inbox, c.ID, r.ID, bystander) != 0 {
-		t.Fatal("the Inbox items went to the wrong people")
+	if f.count(t, `SELECT count(*) FROM inbox_item WHERE kind = 'autoresearch_card' AND card_id = $1`, c.ID) != 0 {
+		t.Fatal("opening a study raised an Inbox item")
 	}
 	if f.count(t, `SELECT count(*) FROM event WHERE type = 'card.created' AND card_id = $1 AND payload->>'origin' = $2`, c.ID, Origin(ap)) != 1 ||
 		f.count(t, `SELECT count(*) FROM event WHERE type = 'autoresearch_run.running'`) != 1 {

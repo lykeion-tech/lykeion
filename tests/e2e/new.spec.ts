@@ -52,39 +52,22 @@ test.describe('new study', () => {
       await page.reload();
       await page.getByRole('button', { name: 'New', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'New study' });
-      await dialog.getByRole('button', { name: 'No deadline' }).click();
+      await dialog.getByRole('button', { name: 'More study properties' }).click();
+      await dialog.getByRole('menuitem', { name: /Set due date/ }).click();
       const calendar = dialog.getByRole('dialog', { name: 'Choose due date' });
       const color = await calendar.evaluate((element) => getComputedStyle(element).backgroundColor);
-      await dialog.getByRole('button', { name: 'No deadline' }).click();
-      await dialog.getByRole('button', { name: 'Machines', exact: true }).click();
-      const machines = dialog.getByRole('menu', { name: 'Choose machine' });
-      expect(await machines.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+      await dialog.getByRole('button', { name: 'No project' }).click();
+      const projects = dialog.getByRole('menu', { name: 'Choose project' });
+      expect(await projects.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
         color,
       );
-      await dialog.getByRole('button', { name: 'Machines', exact: true }).click();
+      await dialog.getByRole('button', { name: 'No project' }).click();
       await dialog.getByRole('button', { name: 'Assignees' }).click();
       const assignees = dialog.getByRole('menu');
       expect(await assignees.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
         color,
       );
     }
-  });
-
-  test('machine picker opens a compact menu and closes with Escape', async ({ page }) => {
-    await page.goto('/#/studies');
-    await page.getByRole('button', { name: 'New', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    const trigger = dialog.getByRole('button', { name: 'Machines', exact: true });
-    await expect(trigger.locator('svg')).toHaveCount(2);
-    await trigger.click();
-    const menu = dialog.getByRole('menu', { name: 'Choose machine' });
-    await expect(menu.getByRole('menuitemradio', { name: 'My machines' })).toBeChecked();
-    const bounds = await menu.boundingBox();
-    expect(bounds?.width).toBeLessThanOrEqual(280);
-    expect(bounds?.x).toBeGreaterThanOrEqual(0);
-    await page.keyboard.press('Escape');
-    await expect(menu).toHaveCount(0);
-    await expect(trigger).toBeFocused();
   });
 
   test('creating a study, then the duplicate check refuses a second', async ({ page }) => {
@@ -98,7 +81,8 @@ test.describe('new study', () => {
       .fill('Beta-cell ALDH1A3 in type 2 diabetes');
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
 
-    await dialog.getByRole('button', { name: 'No deadline' }).click();
+    await dialog.getByRole('button', { name: 'More study properties' }).click();
+    await dialog.getByRole('menuitem', { name: /Set due date/ }).click();
     const chosen = page.locator('.composer-calendar [aria-current="date"]');
     const day = await chosen.getAttribute('data-date');
     await chosen.click();
@@ -137,7 +121,7 @@ test.describe('new study', () => {
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill('Manual question');
     await expect(dialog.getByRole('button', { name: 'Switch to Agent' })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Assignees' }).click();
-    await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
+    await dialog.getByRole('menuitem', { name: new RegExp(agent.name) }).click();
     await dialog.getByRole('button', { name: 'Switch to Agent' }).click();
     await expect(dialog.getByText('Create with agent')).toBeVisible();
     await expect(dialog.getByLabel(`Created by agent: ${agent.name}`)).toBeVisible();
@@ -191,7 +175,7 @@ test.describe('new study', () => {
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
-    await dialog.getByRole('menuitem', { name: /^ui-hyp Built for/ }).click();
+    await dialog.getByRole('menuitem', { name: /^ui-hyp .*Built for/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: ui-hyp' })).toBeVisible();
     const stages = dialog.getByRole('button', { name: 'Stages: Hypotheses' });
     await expect(stages).toBeDisabled();
@@ -241,7 +225,9 @@ test.describe('new study', () => {
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
     await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
-    await chooseCompact(page, 'To stage', 'Hypotheses');
+    const menu = dialog.getByRole('menu', { name: 'Study stages' });
+    await menu.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
+    await menu.getByRole('menuitemcheckbox', { name: 'Experimentation' }).click();
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Hypotheses' }),
     ).toBeVisible();
@@ -336,10 +322,10 @@ test.describe('new study', () => {
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('Custom Teams', { exact: true })).toBeVisible();
     await expect(
-      menu.getByRole('menuitem', { name: /^ui-demo Built for Grounding/ }),
+      menu.getByRole('menuitem', { name: /^ui-demo .*Built for Grounding/ }),
     ).toBeVisible();
     await expect(
-      menu.getByRole('menuitem', { name: /^ui-hyp Built for Hypotheses/ }),
+      menu.getByRole('menuitem', { name: /^ui-hyp .*Built for Hypotheses/ }),
     ).toBeVisible();
     await expect(menu.getByText('Team sets', { exact: true })).toBeVisible();
     await menu.getByText('Team sets', { exact: true }).scrollIntoViewIfNeeded();
@@ -391,7 +377,7 @@ test.describe('new study', () => {
     const name = `Solo ${Date.now()}`;
     const made = await page.request.post('/api/agents', {
       headers,
-      data: { name, harness: 'claude' },
+      data: { name, stage: 'experimentation', harness: 'claude' },
     });
     expect(made.status()).toBe(201);
     return { name, id: ((await made.json()) as { id: string }).id };
@@ -405,25 +391,21 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     const menu = dialog.getByRole('menu');
     await expect(menu.getByText('Agents', { exact: true })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: 'Manage agents' })).toHaveAttribute(
-      'href',
-      '#/agents',
-    );
-    await menu.getByRole('menuitem', { name: agent.name, exact: true }).click();
+    await menu.getByRole('menuitem', { name: new RegExp(agent.name) }).click();
     await expect(dialog.locator('.assignee-note')).toHaveCount(0);
-    await expect(
-      dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
-    ).toBeEnabled();
+    // An agent works only its own stage.
+    await expect(dialog.getByRole('button', { name: 'Stages: Experimentation' })).toBeDisabled();
 
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
+    expect([study.scope_from, study.scope_to]).toEqual(['experimentation', 'experimentation']);
     expect(study.assignee_type).toBe('agent');
     expect(study.assignee_id).toBe(agent.id);
     expect(study.teams).toEqual({});
   });
 
-  test('the chips sit on one row and fold into ⋯ when narrow', async ({ page }, testInfo) => {
+  test('the chips sit on one row and stay reachable when narrow', async ({ page }, testInfo) => {
     const agent = await soloAgent(page);
     await page.setViewportSize({ width: 1280, height: 800 });
     const noScroll = async () =>
@@ -448,21 +430,19 @@ test.describe('new study', () => {
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       dialog = await composer(page);
       await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
-      await dialog.getByRole('menuitem', { name: agent.name, exact: true }).click();
+      await dialog.getByRole('menuitem', { name: new RegExp(agent.name) }).click();
       await dialog.getByRole('textbox', { name: 'Study title' }).fill('Sleep and memory');
       await expect(dialog.locator('.assignee-note')).toHaveCount(0);
       const row = dialog.getByRole('group', { name: 'Study properties' });
       for (const name of [
         `Assignee: ${agent.name}`,
-        'Stages: Grounding → Validation',
-        'Start date',
-        'Due date',
+        'Stages: Experimentation',
+        'More study properties',
         'No project',
       ])
         await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
-      await expect(row.getByRole('button', { name: 'More properties' })).toHaveCount(0);
       const tops = await row.evaluate((el) =>
-        [...el.querySelectorAll('.property-pill, .machine-trigger')].map((c) =>
+        [...el.querySelectorAll('.property-pill')].map((c) =>
           Math.round(c.getBoundingClientRect().top),
         ),
       );
@@ -476,11 +456,10 @@ test.describe('new study', () => {
     // The date and project controls remain reachable on narrow screens.
     await page.setViewportSize({ width: 600, height: 800 });
     const row = dialog.getByRole('group', { name: 'Study properties' });
-    await expect(row.getByRole('button', { name: 'Start date' })).toBeVisible();
-    await expect(row.getByRole('button', { name: 'Due date' })).toBeVisible();
     await expect(row.getByRole('button', { name: 'No project' })).toBeVisible();
     await noScroll();
-    await row.getByRole('button', { name: 'Due date' }).click();
+    await row.getByRole('button', { name: 'More study properties' }).click();
+    await row.getByRole('menuitem', { name: /Set due date/ }).click();
     await expect(page.locator('.composer-calendar')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.composer-calendar')).toHaveCount(0);

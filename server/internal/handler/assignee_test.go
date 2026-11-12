@@ -9,7 +9,7 @@ func TestNoOneReassignsAStudyButAnyoneFilesIt(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	s.call(t, "POST", "/api/invitations/"+s.invite(t, a, w.ID, "b@lab.org", "member")+"/accept", b, "", nil, nil)
 	var mine map[string]any
-	s.call(t, "POST", "/api/agents", a, w.ID, map[string]any{"name": "Ada", "harness": "codex", "visibility": "private"}, &mine)
+	s.call(t, "POST", "/api/agents", a, w.ID, map[string]any{"stage": "experimentation", "name": "Ada", "harness": "codex", "visibility": "private"}, &mine)
 	var card map[string]any
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "Why do cells age?"}, &card); code != 201 {
 		t.Fatalf("create: %d", code)

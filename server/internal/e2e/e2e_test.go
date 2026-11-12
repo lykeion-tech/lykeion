@@ -280,7 +280,7 @@ func (l *lab) config(t *testing.T, token, script string) daemon.Config {
 	// structured answer: a scoper's Grounding hand-in, or on Validation one
 	// that could not be done.
 	prelude := `#!/bin/sh
-case "$1" in --version) echo "2.1.0 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
+case "$1" in --version) echo "2.1.69 (Claude Code)"; exit 0;; --help) echo "  --json-schema <schema>  JSON Schema"; exit 0;; esac
 IFS= read -r prompt
 case "$prompt" in *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0;; esac
 case "$prompt" in *models-init*) exit 1;; esac

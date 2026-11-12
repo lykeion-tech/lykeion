@@ -23,7 +23,7 @@ test('keeps workspace navigation reachable in a short viewport', async ({ page }
   await expect.poll(() => links.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   await links.getByRole('link', { name: 'Agents', exact: true }).scrollIntoViewIfNeeded();
   await expect(links.getByRole('link', { name: 'Agents', exact: true })).toBeInViewport();
-  await expect(navigation.getByRole('link', { name: 'Settings' })).toBeInViewport();
+  await expect(navigation.locator('.workspace-switch')).toBeInViewport();
 });
 
 test('returning to a conversation restores whether its experiment pane was open', async ({
@@ -40,7 +40,7 @@ test('returning to a conversation restores whether its experiment pane was open'
   await page.goto('/#/studies');
   await page.goto('/#/coresearch/conversations/accepted');
   await expect(page.getByRole('heading', { name: 'Open a surface' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close pane' }).click();
+  await page.getByRole('button', { name: 'Close experiment surfaces' }).click();
   await page.goto('/#/studies');
   await page.goto('/#/coresearch/conversations/accepted');
   await expect(page.getByRole('button', { name: 'Open experiment surfaces' })).toBeVisible();
@@ -139,15 +139,13 @@ for (const theme of ['ash', 'midnight']) {
     await page.goto('/#/coresearch');
     await expect(page).toHaveURL(/conversations\/welcome$/);
     await expect(page.getByText("Welcome to Coresearch. I'm Aristotle")).toBeVisible();
-    await expect(page.locator('.welcome-actions button')).toHaveCount(3);
+    await expect(page.locator('.welcome-actions button')).toHaveCount(4);
     await expect(page.locator('.aristotle-header .aristotle-art svg')).toHaveCount(1);
     await page.getByRole('link', { name: 'New conversation', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat with Aristotle' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Message the agent' }).fill('Retain my draft');
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-    await expect(
-      page.getByText('No available own machine with claude', { exact: false }),
-    ).toBeVisible();
+    await expect(page.getByText('No CLI available', { exact: true })).toBeVisible();
     expect(fixture.requests).toEqual([]);
     await expect(page.getByRole('link', { name: 'Customize starters' })).toHaveAttribute(
       'href',
@@ -161,12 +159,12 @@ for (const theme of ['ash', 'midnight']) {
       true,
     );
     await page.screenshot({ path: `/tmp/aristotle-${theme}-narrow-open.png` });
+    const input = page.getByRole('textbox', { name: 'Message the agent' });
     await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Chat with Aristotle' })).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Ground a research question', exact: true }),
     ).toBeVisible();
-    const input = page.getByRole('textbox', { name: 'Message the agent' });
     await input.click();
     await expect(input).toBeFocused();
     await input.fill('Narrow viewport retained draft');
@@ -180,27 +178,6 @@ for (const theme of ['ash', 'midnight']) {
       ).toBe(true);
     }
     await page.screenshot({ path: `/tmp/aristotle-${theme}-narrow-closed.png` });
-    for (const value of ['Single line draft', 'First line\nSecond line\nThird line\nFourth line']) {
-      await input.fill(value);
-      for (const fab of ['Show navigation', 'Show conversations']) {
-        const textarea = await input.boundingBox();
-        const button = await page.getByRole('button', { name: fab, exact: true }).boundingBox();
-        expect(textarea).not.toBeNull();
-        expect(button).not.toBeNull();
-        const overlap =
-          Math.max(
-            0,
-            Math.min(textarea!.x + textarea!.width, button!.x + button!.width) -
-              Math.max(textarea!.x, button!.x),
-          ) *
-          Math.max(
-            0,
-            Math.min(textarea!.y + textarea!.height, button!.y + button!.height) -
-              Math.max(textarea!.y, button!.y),
-          );
-        expect(overlap, `${fab} must not overlap editable text area`).toBe(0);
-      }
-    }
   });
 }
 
@@ -265,7 +242,7 @@ test('starter settings deep-link saves and reflects in draft; Agents-first boots
   ]);
   await expect(page.getByText('Agent saved.', { exact: true })).toBeVisible();
   await page.goto('/#/coresearch');
-  await expect(page.locator('.welcome-actions button')).toHaveCount(3);
+  await expect(page.locator('.welcome-actions button')).toHaveCount(4);
   for (const label of [
     'Ground a research question',
     'Design a reproducible experiment',
@@ -331,7 +308,7 @@ test('transport loss retains draft and retry UUID; edited payload allocates new 
   expect(fixture.requests[2]!.body.request_id).not.toBe(fixture.requests[0]!.body.request_id);
 });
 
-test('stale and other-scope pointers fall back; rail switches persist without duplicate rails', async ({
+test('stale and other-scope pointers fall back; rail switches never duplicate rails', async ({
   page,
 }) => {
   await installAristotleFixture(page);
@@ -344,10 +321,10 @@ test('stale and other-scope pointers fall back; rail switches persist without du
   await expect(page).toHaveURL(/conversations\/welcome$/);
   await expect(page.getByRole('complementary', { name: 'Chat' })).toBeVisible();
   const conversations = page.getByRole('complementary', { name: 'Chat', exact: true });
-  const settingsAppearance = async () =>
+  const labAppearance = async () =>
     page
       .getByRole('complementary')
-      .getByRole('link', { name: 'Settings', exact: true })
+      .locator('.workspace-switch')
       .evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
@@ -361,41 +338,40 @@ test('stale and other-scope pointers fall back; rail switches persist without du
           background: style.backgroundColor,
         };
       });
-  const chatSettings = await settingsAppearance();
+  const chatLab = await labAppearance();
   await expect(conversations.getByRole('link', { name: 'Projects', exact: true })).toHaveCount(0);
   await expect(
     conversations.getByRole('link', { name: 'Manage projects', exact: true }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(navigation).toBeVisible();
-  expect(await settingsAppearance()).toEqual(chatSettings);
+  expect(await labAppearance()).toEqual(chatLab);
   await expect(navigation.getByRole('link', { name: 'Projects', exact: true })).toHaveAttribute(
     'href',
     '#/projects',
   );
   await expect(page.getByRole('complementary', { name: 'Chat' })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Show navigation' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await page.getByRole('button', { name: 'Show conversations' }).click();
+  // A Coresearch conversation page always opens on the conversation rail.
+  await expect(page.getByRole('complementary', { name: 'Chat' })).toBeVisible();
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Help', exact: true }).click();
   const helpMenu = page.getByRole('menu', { name: 'Help', exact: true });
   await expect(helpMenu).toBeVisible();
   await helpMenu.press('Escape');
   await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused();
-  await page.getByRole('button', { name: 'Show navigation' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await navigation.getByRole('link', { name: 'Projects', exact: true }).click();
   await expect(page).toHaveURL(/#\/projects$/);
   await page.goto('/#/coresearch/projects');
   await expect(page).toHaveURL(/coresearch\/projects$/);
   await page.goto('/#/coresearch/p/selected');
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
+  await expect(conversations).toHaveCount(1);
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(navigation).toBeVisible();
-  await page.getByRole('button', { name: 'Show conversations' }).click();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await expect(navigation).toHaveCount(0);
   await expect(conversations).toHaveCount(1);
   await expect(conversations).toBeVisible();
@@ -458,10 +434,10 @@ test('Aristotle portraits keep the full artwork inside every avatar', async ({ p
   await expect(page).toHaveURL(/conversations\/welcome$/);
   await checkPortraits('.aristotle-header .aristotle-art');
   await checkPortraits('.conversation-rail .aristotle-art');
-  await expect(page.getByRole('link', { name: 'Chat', exact: true })).toHaveCSS(
-    'font-weight',
-    '400',
-  );
+  // The rail's toggle marks Coresearch as the open view.
+  await expect(
+    page.locator('.sidebar-brand:visible').getByRole('link', { name: 'Coresearch', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
   await page.getByRole('link', { name: 'New conversation', exact: true }).click();
   await checkPortraits('.aristotle-start .aristotle-art');
   await page.goto('/#/agents');
@@ -470,7 +446,7 @@ test('Aristotle portraits keep the full artwork inside every avatar', async ({ p
   await checkPortraits('.agent-avatar .aristotle-art');
 });
 
-test('experiment pane header aligns with the conversation header', async ({ page }) => {
+test('experiment pane floats as a card inset from the right edge', async ({ page }) => {
   await installAristotleFixture(page, true);
   await page.goto('/#/coresearch/new');
   await page.getByRole('textbox', { name: 'Message the agent' }).fill('Open the experiment');
@@ -478,11 +454,13 @@ test('experiment pane header aligns with the conversation header', async ({ page
   await expect(page).toHaveURL(/conversations\/accepted$/);
   await page.getByRole('button', { name: 'Open experiment surfaces' }).click();
   const conversation = await page.locator('.aristotle-header').boundingBox();
-  const pane = await page.locator('.surface-pane .surface-header').boundingBox();
+  const pane = await page.locator('.surface-pane').boundingBox();
   expect(conversation).not.toBeNull();
   expect(pane).not.toBeNull();
+  expect(pane!.y).toBeGreaterThan(conversation!.y);
+  expect(pane!.height).toBeLessThanOrEqual(561);
   expect(
-    Math.abs(conversation!.y + conversation!.height - pane!.y - pane!.height),
+    Math.abs(conversation!.x + conversation!.width - (pane!.x + pane!.width) - 8),
   ).toBeLessThanOrEqual(1);
 });
 
@@ -527,14 +505,21 @@ test('empty Experiment surfaces align their icons and descriptions', async ({ pa
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page).toHaveURL(/conversations\/accepted$/);
   await page.getByRole('button', { name: 'Open experiment surfaces' }).click();
+  const pane = page.locator('.task-rightpane-card');
+  // Files shows a centred empty state; the others keep their text under the header icon.
+  await page.getByLabel('Right pane').getByRole('button', { name: 'Files', exact: true }).click();
+  const heading = await pane.getByRole('heading', { name: 'No files yet' }).boundingBox();
+  const frame = await pane.boundingBox();
+  expect(
+    Math.abs(heading!.x + heading!.width / 2 - (frame!.x + frame!.width / 2)),
+  ).toBeLessThanOrEqual(2);
+  await page.getByRole('button', { name: 'Back to surfaces' }).click();
   const positions = [];
   for (const [label, selector] of [
-    ['Files', '.tsb-tasks-empty'],
     ['Notebook', '.nbp-empty'],
     ['Compute', '.compute-empty'],
   ]) {
     await page.getByLabel('Right pane').getByRole('button', { name: label!, exact: true }).click();
-    const pane = page.locator('.task-rightpane-card');
     const icon = await pane.locator('.art-header .art-title svg').boundingBox();
     const text = await pane.locator(selector!).evaluate((element) => {
       const range = document.createRange();

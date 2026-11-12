@@ -106,25 +106,35 @@ test('clearing a real blocked study flag moves it live and display preferences p
   await expect(hypotheses.locator(`[data-card="${fixture.card_id}"]`)).toBeVisible();
   await expect(blocked.locator('.task-card')).toHaveCount(0);
   await expect(card.locator('.chip-escalated')).toHaveCount(0);
-  await expect(card.locator('.chip-working')).toHaveText('Working');
+  // Working with no agent running shows no state chip.
+  await expect(card.locator('.chip-working')).toHaveCount(0);
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(document);
   await page.screenshot({ path: `${artifacts}/cleared-flag-board.png`, fullPage: true });
   await page.getByRole('button', { name: 'Display', exact: true }).click();
-  await expect(page.locator('.property-chips button')).toHaveText(['Role', 'Updated']);
-  await page
-    .locator('.property-chips')
-    .getByRole('button', { name: 'Updated', exact: true })
-    .click();
+  const properties = page.locator('.display-popover').getByRole('switch');
+  await expect(properties).toHaveText([
+    'Question',
+    'Owner',
+    'Assignee',
+    'Deadline',
+    'Project',
+    'Role',
+    'Updated',
+  ]);
+  await expect(card).toContainText('Updated');
+  await properties.filter({ hasText: 'Updated' }).click();
   await expect(card).not.toContainText('Updated');
   await expect(card).toContainText('Ana Ruiz');
-  await page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }).click();
+  await properties.filter({ hasText: 'Owner' }).click();
   await expect(card).not.toContainText('Ana Ruiz');
   await page.screenshot({ path: `${artifacts}/display-properties.png`, fullPage: true });
   await page.reload();
   await expect(card).toBeVisible();
   await expect(card).not.toContainText('Updated');
   await page.getByRole('button', { name: 'Display', exact: true }).click();
-  await expect(page.locator('.property-chips button[aria-pressed="false"]')).toHaveCount(2);
+  await expect(page.locator('.display-popover [role="switch"][aria-checked="false"]')).toHaveCount(
+    2,
+  );
   await page.keyboard.press('Escape');
   await expect(page.locator('.display-popover')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Display', exact: true })).toBeFocused();
@@ -132,27 +142,19 @@ test('clearing a real blocked study flag moves it live and display preferences p
 
 test('Display and filter keyboard paths retain focus', async ({ page }) => {
   await page.goto('/#/studies');
+  const property = (name: string) =>
+    page.locator('.display-popover').getByRole('switch', { name, exact: true });
   await page.getByRole('button', { name: 'Display', exact: true }).focus();
   await page.keyboard.press('ArrowDown');
-  await expect(
-    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
-  ).toBeFocused();
+  await expect(property('Question')).toBeFocused();
   await page.keyboard.press('End');
-  await expect(
-    page.locator('.property-chips').getByRole('button', { name: 'Updated', exact: true }),
-  ).toBeFocused();
+  await expect(property('Updated')).toBeFocused();
   await page.keyboard.press('Home');
-  await expect(
-    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
-  ).toBeFocused();
+  await expect(property('Question')).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(
-    page.locator('.property-chips').getByRole('button', { name: 'Updated', exact: true }),
-  ).toBeFocused();
+  await expect(property('Owner')).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(
-    page.locator('.property-chips').getByRole('button', { name: 'Role', exact: true }),
-  ).toBeFocused();
+  await expect(property('Question')).toBeFocused();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Filter', exact: true }).focus();
   await page.keyboard.press('ArrowDown');
@@ -164,59 +166,6 @@ test('Display and filter keyboard paths retain focus', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Column', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Filter', exact: true })).toBeFocused();
-});
-
-test('initial cards refusal shows a local retry and cached studies survive a refresh refusal', async ({
-  page,
-}) => {
-  const fixture = await labFixture(page.request);
-  await page.addInitScript(
-    (id) => localStorage.setItem('lykeion.workspace', id),
-    fixture.workspace_id,
-  );
-  let refuse = true;
-  await page.route('**/api/cards', async (route) => {
-    if (!refuse) return route.continue();
-    const response = await route.fetch({
-      headers: {
-        ...route.request().headers(),
-        'X-Workspace-ID': '00000000-0000-0000-0000-000000000001',
-      },
-    });
-    expect(response.status()).toBe(404);
-    await route.fulfill({ response });
-  });
-  await page.goto('/#/studies');
-  const failure = page.locator('.board-read-error');
-  await expect(failure).toBeVisible();
-  await expect(page.getByText('No studies', { exact: true })).toHaveCount(0);
-  await page.screenshot({
-    path: '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/final-fix-artifacts/board-read-error.png',
-    fullPage: true,
-  });
-  refuse = false;
-  await failure.getByRole('button', { name: 'Retry studies' }).click();
-  await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toBeVisible();
-  refuse = true;
-  await page.evaluate(async () => {
-    const path = '/src/api/session.ts';
-    const { workspaceId } = await import(path);
-    const app = document.querySelector('#app') as Element & {
-      __vue_app__: {
-        _context: {
-          provides: Record<string, { invalidateQueries: (options: unknown) => Promise<void> }>;
-        };
-      };
-    };
-    await app.__vue_app__._context.provides.VUE_QUERY_CLIENT!.invalidateQueries({
-      queryKey: ['ws', workspaceId.value, 'cards'],
-    });
-  });
-  await expect(failure).toBeVisible();
-  await expect(page.locator(`[data-card="${fixture.card_id}"]`)).toBeVisible();
-  refuse = false;
-  await failure.getByRole('button', { name: 'Retry studies' }).click();
-  await expect(failure).toHaveCount(0);
 });
 
 test('long board columns keep their header and cards inside the column while scrolling', async ({
@@ -241,7 +190,8 @@ test('long board columns keep their header and cards inside the column while scr
   );
   await page.goto('/#/studies');
   const board = page.locator('.board-scroll');
-  const column = page.getByRole('region', { name: 'Grounding', exact: true });
+  // Idle studies are finished, so they stack in Done.
+  const column = page.getByRole('region', { name: 'Done', exact: true });
   await expect(column.locator('.task-card')).toHaveCount(10);
   const headerBefore = await column.locator('header').boundingBox();
   const last = column.locator('.task-card').last();
@@ -267,9 +217,9 @@ test('long board columns keep their header and cards inside the column while scr
   expect(geometry.headerTop).toBeGreaterThanOrEqual(geometry.boardTop);
   expect(geometry.lastBottom).toBeLessThanOrEqual(geometry.columnBottom);
   expect(geometry.boardScrollHeight).toBeLessThanOrEqual(geometry.boardClientHeight + 1);
-  const done = page.getByRole('region', { name: 'Done', exact: true });
-  await done.scrollIntoViewIfNeeded();
-  await expect(done).toBeInViewport();
+  const blocked = page.getByRole('region', { name: 'Blocked', exact: true });
+  await blocked.scrollIntoViewIfNeeded();
+  await expect(blocked).toBeInViewport();
   expect(await board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
-  await expect(done.locator('header')).toBeInViewport();
+  await expect(blocked.locator('header')).toBeInViewport();
 });

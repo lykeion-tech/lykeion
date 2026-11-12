@@ -21,7 +21,11 @@ const rows = ref<DecisionItem[]>([]);
 const cards = ref<any[]>([]);
 const decisionsLoading = ref(false);
 const decisionsError = ref<Error | null>(null);
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
+const replace = vi.fn();
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ params: {} }),
+  useRouter: () => ({ replace: (...args: unknown[]) => replace(...args) }),
+}));
 vi.mock('../../api/queries', () => ({
   useDecisionCount: () => ({ data: count }),
   useDecisions: () => ({ data: rows, error: decisionsError, isLoading: decisionsLoading }),
@@ -43,6 +47,7 @@ afterEach(() => {
   Object.assign(decisionFilters, { type: 'all', date: 'all', from: '', to: '' });
   api.mockReset();
   invalidateQueries.mockReset();
+  replace.mockReset();
   count.value = { open: 3, due_soon: 0 };
   me.value = { id: 'me' };
   rows.value = [];
@@ -236,10 +241,11 @@ it('marks a reminded row, offers no Archive on an open decision and shows unread
   expect(textOf(root)).toContain('Expires soon');
   expect(all(root).filter((n) => n.props.class === 'unread')).toHaveLength(1);
   const archiveButtons = buttons(root).filter((n) => n.props['aria-label'] === 'Archive decision');
-  expect(archiveButtons[0]?.props.disabled).toBe(true);
-  expect(archiveButtons[1]?.props.disabled).toBe(false);
+  // The Done row sits in the Reports group, above the open question.
+  expect(archiveButtons[0]?.props.disabled).toBe(false);
+  expect(archiveButtons[1]?.props.disabled).toBe(true);
   api.mockResolvedValue(undefined);
-  await click(archiveButtons[1]);
+  await click(archiveButtons[0]);
   expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d2/archive');
 });
 
@@ -262,6 +268,21 @@ it('shows an agent question with its options and only its addressee reads it', a
   expect(api).not.toHaveBeenCalled();
 });
 
+it('a Done card opens its study page after its read receipt', async () => {
+  api.mockResolvedValue(undefined);
+  rows.value = [item({ kind: 'done', text: 'Study #4 is done.' })];
+  mount(DecisionsView, { itemId: 'd1' });
+  await new Promise((r) => setTimeout(r));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/read');
+  expect(replace).toHaveBeenCalledWith('/studies/c1');
+
+  replace.mockReset();
+  rows.value = [item({ id: 'd2' })];
+  mount(DecisionsView, { itemId: 'd2' });
+  await new Promise((r) => setTimeout(r));
+  expect(replace).not.toHaveBeenCalled();
+});
+
 it('shows the study context and a link to its activity without embedding its sidebar', () => {
   rows.value = [item({ kind: 'agent_decision', text: 'Choose a population\n\nTwo readings.' })];
   cards.value = [{ id: 'c1', number: 4, title: 'Memory study', question: 'Does sleep help?' }];
@@ -277,16 +298,6 @@ it('renders a machine_offline item as its text', () => {
     item({ kind: 'machine_offline', card_id: null, options: null, text: 'laptop is offline' }),
   ];
   expect(textOf(mount(DecisionsView, { itemId: 'd1' }))).toContain('laptop is offline');
-});
-
-it('retains a report after the selected row leaves the capped history', async () => {
-  rows.value = [item({ kind: 'autoresearch_report', card_id: null, options: null, autoresearch_run_id: 'r1', text: 'The report is ready' })];
-  const root = mount(DecisionsView, { itemId: 'd1' });
-  await new Promise((r) => setTimeout(r));
-  rows.value = [];
-  await new Promise((r) => setTimeout(r));
-  expect(textOf(root)).toContain('The report is ready');
-  expect(buttonFor(root, 'Open report')).toBeDefined();
 });
 
 it('names a studyless machine item and does not duplicate its message', () => {

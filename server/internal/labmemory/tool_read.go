@@ -136,6 +136,11 @@ func (c toolCall) read(ctx context.Context, in readInput) (evidence, error) {
 			return evidence{}, "", errOffset
 		}
 		e := evidence{historyPin: pin(f).Version, Ref: ref.String(), Title: f.Title, Text: f.Text, Version: f.Version, Superseded: f.Superseded, Links: []string{}}
+		if ref.Kind == "report" {
+			if e.Text, err = reportPage(f.Text); err != nil {
+				return evidence{}, "", err
+			}
+		}
 		for _, link := range f.Links {
 			e.Links = append(e.Links, link.String())
 		}

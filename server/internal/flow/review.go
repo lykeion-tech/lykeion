@@ -630,6 +630,9 @@ type reviewPass struct {
 // keep extends the scoring lease once leaseRenewal has passed, while the
 // study is still where it was read and still leased.
 func (p *reviewPass) keep(ctx context.Context) error {
+	if p.card.ID == uuid.Nil {
+		return nil // a pass that reviews no study holds no lease
+	}
 	now := p.e.now()
 	if now.Sub(p.renewed) < leaseRenewal {
 		return nil
@@ -655,6 +658,21 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 	}
 	err = a.p.retry.Do(ctx, func() (err error) {
 		out, err = a.p.e.Jev.Noul(ctx, state, qs)
+		return err
+	})
+	if err != nil {
+		err = fmt.Errorf("asking Jev: %w", err)
+	}
+	return out, err
+}
+
+// NoulImages is Noul with images; only a report's figure checks show Jev images.
+func (a retryAsker) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (out map[string]float64, err error) {
+	if err := a.p.keep(ctx); err != nil {
+		return nil, fmt.Errorf("extending the scoring lease: %w", err)
+	}
+	err = a.p.retry.Do(ctx, func() (err error) {
+		out, err = a.p.e.Jev.NoulImages(ctx, state, qs, images)
 		return err
 	})
 	if err != nil {
@@ -719,7 +737,7 @@ func lookupErr(err error) error {
 // applyScore does: a study that left the column, or a column decided
 // meanwhile, is left alone. It says whether a column now waits to start.
 func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res review.Result, rerr error) (bool, error) {
-	moved := false
+	moved, finished := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
@@ -757,7 +775,6 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": res.Decision, "attempt": in.attempt}); err != nil {
 			return err
 		}
-		var items []board.Item
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: c.State,
 			BlockKind: c.BlockKind, Round: c.Round, Redos: c.Redos}
 		switch {
@@ -784,9 +801,6 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			}
 		default:
 			e.drawRatingSafely(ctx, tx, c)
-			if doubts := review.OpenDoubts(res); len(doubts) > 0 {
-				items = append(items, board.Item{Kind: "open_doubts", Text: openDoubtsText(c.Number, c.BoardColumn, doubts)})
-			}
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 				if res.Decision == review.DecideCarry {
@@ -794,19 +808,22 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 				}
 			} else {
 				next.State = "done"
-				items = append(items, board.Item{Kind: "done", Text: doneText(c.Number, c.BoardColumn)})
+				finished = true
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
 			return err
 		}
-		for _, it := range items {
-			if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: it.Kind, Text: it.Text}); err != nil {
+		if finished {
+			if err := e.finishStudy(ctx, tx, c); err != nil {
 				return err
 			}
 		}
 		moved = next.State == board.Working
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": next.BoardColumn, "state": next.State, "verdict": res.Decision})
 	})
+	if err == nil && finished {
+		e.goReport("check report", ws, in.card.ID, e.checkReport)
+	}
 	return moved, err
 }

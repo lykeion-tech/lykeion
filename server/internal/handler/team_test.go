@@ -32,7 +32,7 @@ func (s *server) storeList(t *testing.T, tok, wsID, query string) []storeRow {
 func (s *server) newAgent(t *testing.T, tok, wsID, name, harness string) string {
 	t.Helper()
 	var a struct{ ID string }
-	if c := s.call(t, "POST", "/api/agents", tok, wsID, map[string]string{"name": name, "harness": harness, "instructions": "Be " + name}, &a); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", tok, wsID, map[string]string{"name": name, "harness": harness, "instructions": "Be " + name, "stage": "experimentation"}, &a); c != 201 {
 		t.Fatalf("agent %s: %d", name, c)
 	}
 	return a.ID
@@ -270,7 +270,7 @@ func TestAnAgentICannotSeeCannotBeAMember(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	b := s.member(t, a, w.ID, "ben@lab.org", "member")
 	var secret struct{ ID string }
-	if c := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"name": "secret", "harness": "claude", "visibility": "private"}, &secret); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", a, w.ID, map[string]string{"stage": "experimentation", "name": "secret", "harness": "claude", "visibility": "private"}, &secret); c != 201 {
 		t.Fatalf("agent: %d", c)
 	}
 	aud, mem := s.newAgent(t, b, w.ID, "aud", "codex"), s.newAgent(t, b, w.ID, "mem", "claude")

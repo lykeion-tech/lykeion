@@ -121,7 +121,7 @@ func TestUnfinishedStudyDraftNotifiesOnAgentCompletion(t *testing.T) {
 	if got := reason(f.run(t, run.ID)); got != "failed/study_not_created" {
 		t.Fatalf("status: %s", got)
 	}
-	if n := f.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1 AND kind='autoresearch_report'`, run.ID); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM inbox_item WHERE autoresearch_run_id=$1 AND kind='autoresearch_failed'`, run.ID); n != 1 {
 		t.Fatalf("failure notifications: %d", n)
 	}
 }

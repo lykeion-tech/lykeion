@@ -1,7 +1,9 @@
--- The researcher's own agent for one member of a Team version.
+-- The researcher's own agent for one member of a Team version, or else the
+-- workspace's shared one.
 -- name: GetTeamAgent :one
 SELECT a.* FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
-WHERE t.workspace_id = @workspace_id AND t.pack_id = @pack_id AND t.user_id = @user_id AND t.member = @member;
+WHERE t.workspace_id = @workspace_id AND t.pack_id = @pack_id AND (t.user_id = @user_id::uuid OR t.user_id IS NULL) AND t.member = @member
+ORDER BY t.user_id NULLS LAST LIMIT 1;
 
 -- The last record number of a study: r1, r2, … across its columns and rounds,
 -- superseded ones included. Callers hold the card lock.

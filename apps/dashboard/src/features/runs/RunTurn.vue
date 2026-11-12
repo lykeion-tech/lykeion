@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, defineComponent, h, provide, ref } from 'vue';
+import { computed, provide, ref } from 'vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import RunTimeline from './RunTimeline.vue';
 import StudyHandIn from './StudyHandIn.vue';
 import { matchesAccepted, messagePreview, structuredMessage } from './study-hand-in';
@@ -16,20 +17,7 @@ import { readableAssignment, systemRun } from '../../lib/studies';
 import { durationLabel } from './run-timeline';
 
 const formattingFailed = ref(false);
-const PlainRecordedText = defineComponent({
-  props: { content: { type: String, default: '' } },
-  setup: (text) => () => h('div', { class: 'recorded-text-fallback' }, text.content),
-});
-const RecordedMarkdown = defineAsyncComponent({
-  loader: () => import('../../ui/RecordedMarkdown.vue'),
-  loadingComponent: PlainRecordedText,
-  errorComponent: PlainRecordedText,
-  delay: 0,
-  onError: (_error, _retry, fail) => {
-    formattingFailed.value = true;
-    fail();
-  },
-});
+const RecordedMarkdown = lazyRecordedMarkdown(() => (formattingFailed.value = true));
 
 const props = defineProps<{ run: AgentRun; study?: { title: string; question: string } }>();
 const emit = defineEmits<{ openOutput: [key: string] }>();

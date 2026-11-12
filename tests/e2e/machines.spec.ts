@@ -382,7 +382,7 @@ for (const outcome of ['accepted', 'refused'] as const) {
           await page.keyboard.press('Escape');
           await page
             .getByRole('complementary', { name: 'Workspace navigation' })
-            .getByRole('button', { name: /Beta-cell lab/ })
+            .locator('.workspace-switch')
             .click();
           await page
             .getByRole('menu', { name: 'Workspace' })

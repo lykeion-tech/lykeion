@@ -403,7 +403,7 @@ test('a late URL import completes only in its captured workspace', async ({ page
   await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
   await page.locator('.workspace-switch').click();
   await page.getByRole('menuitem', { name: 'Late destination', exact: false }).click();
-  await expect(page.locator('.workspace-switch')).toContainText('Late destination');
+  await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription('Late destination');
   await open(page);
   expect((await page.request.post(`${LAB}/lab/skill-source/release`)).status()).toBe(204);
   await expect

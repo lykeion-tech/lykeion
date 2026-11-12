@@ -1,18 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useQueryClient } from '@tanstack/vue-query';
-import { api, ApiError, downloadFile, PreviewTooLargeError } from '../../api/client';
+import { downloadFile, PreviewTooLargeError } from '../../api/client';
 import { workspaceId } from '../../api/session';
-import { guardResourceDrafts, registerDraftVisit } from '../../state/resource-draft';
-import {
-  keys,
-  filePath,
-  projectPath,
-  useCoresearchVersions,
-  useCoresearchContent,
-  useCoresearchFiles,
-} from './api';
-import type { FileRow, FileVersion, ProjectRow } from './types';
+import { filePath, useCoresearchVersions, useCoresearchContent, useCoresearchFiles } from './api';
+import type { FileRow, ProjectRow } from './types';
 import { boundedUnifiedDiff, DIFF_MAX_BYTES } from './diff';
 import { readFormatText } from './format-text';
 import ArtifactViewer from './viewers/ArtifactViewer.vue';
@@ -25,20 +16,12 @@ const props = defineProps<{
   inWorkspaceTab?: boolean;
 }>();
 const emit = defineEmits<{ 'update:selectedN': [number | undefined] }>();
-const client = useQueryClient(),
-  files = useCoresearchFiles(() => props.project.id);
+const files = useCoresearchFiles(() => props.project.id);
 const versions = useCoresearchVersions(
   () => props.project.id,
   () => props.file?.id ?? '',
 );
-const pin = ref<number | undefined>(props.selectedN),
-  editBase = ref<number>(),
-  draft = ref(''),
-  initial = ref(''),
-  editing = ref(false),
-  busy = ref(false),
-  error = ref(''),
-  stale = ref<{ base: number; current: number }>();
+const pin = ref<number | undefined>(props.selectedN);
 const tab = ref('preview'),
   diffing = ref(false),
   comparePin = ref<number>(),
@@ -60,7 +43,7 @@ const head = computed(() =>
     chain.value.at(-1)?.n ?? 0,
   ),
 );
-const shownN = computed(() => editBase.value ?? pin.value ?? head.value);
+const shownN = computed(() => pin.value ?? head.value);
 const version = computed(
   () =>
     chain.value.find((v) => v.n === shownN.value) ??
@@ -97,7 +80,6 @@ const compareContent = useCoresearchContent(
       : '',
   () => comparison.value?.n ?? 0,
 );
-const dirty = computed(() => editing.value && draft.value !== initial.value);
 function download() {
   if (!props.file) return;
   downloadFile(
@@ -105,16 +87,10 @@ function download() {
     workspaceId.value,
   );
 }
-registerDraftVisit({
-  dirty: () => dirty.value,
-  discard: cancel,
-  identity: () => `${workspaceId.value}:${props.project.id}:${props.file?.id}:${editBase.value}`,
-});
 watch(
   () => props.selectedN,
   (n) => {
-    if (editing.value && !dirty.value) cancel();
-    if (!editing.value) pin.value = n;
+    pin.value = n;
   },
 );
 watch(shownN, () => {
@@ -150,105 +126,7 @@ const diff = computed(() => {
   const result = boundedUnifiedDiff(oldText.value, previewText.value);
   return result.kind === 'diff' ? { text: result.text } : { message: 'Too large to compare.' };
 });
-function startEdit() {
-  if (scientificBinary.value) return;
-  editBase.value = shownN.value;
-  initial.value = previewText.value ?? '';
-  draft.value = initial.value;
-  editing.value = true;
-  error.value = '';
-  stale.value = undefined;
-}
-function cancel() {
-  editing.value = false;
-  editBase.value = undefined;
-  error.value = '';
-  stale.value = undefined;
-}
-async function reload() {
-  cancel();
-  pin.value = undefined;
-  if (props.inWorkspaceTab) emit('update:selectedN', undefined);
-  await Promise.all([versions.refetch(), files.refetch()]);
-}
-function refresh(ws: string, id: string) {
-  void client.invalidateQueries({ queryKey: keys.coresearchFiles(ws, id) });
-  void client.invalidateQueries({
-    queryKey: keys.coresearchVersions(ws, id, props.file?.id ?? ''),
-  });
-}
-async function save(force = false) {
-  if (!props.file || editBase.value === undefined || busy.value) return;
-  const ws = workspaceId.value,
-    id = props.project.id;
-  busy.value = true;
-  error.value = '';
-  try {
-    const body = new FormData();
-    body.set('path', props.file.path);
-    body.set('base', String(editBase.value));
-    if (force) body.set('force', 'true');
-    body.set(
-      'file',
-      new Blob([draft.value], { type: 'text/plain' }),
-      props.file.path.split('/').pop(),
-    );
-    const saved = await api<FileVersion>('POST', `${projectPath(id)}/files`, body, undefined, {
-      workspace: ws,
-    });
-    client.setQueryData(
-      keys.coresearchContent(ws, id, props.file.id, saved.n),
-      new Blob([draft.value]),
-    );
-    client.setQueryData<FileVersion[]>(keys.coresearchVersions(ws, id, props.file.id), (old) => [
-      saved,
-      ...(old ?? []),
-    ]);
-    cancel();
-    pin.value = undefined;
-    if (props.inWorkspaceTab) emit('update:selectedN', undefined);
-    refresh(ws, id);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409 && e.body.error === 'stale_base') {
-      stale.value = { base: Number(e.body.base), current: Number(e.body.current) };
-    } else error.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    busy.value = false;
-  }
-}
-async function restore() {
-  if (!props.file || busy.value) return;
-  const ws = workspaceId.value,
-    id = props.project.id;
-  busy.value = true;
-  error.value = '';
-  try {
-    const saved = await api<FileVersion>(
-      'POST',
-      `${filePath(id, props.file.id)}/restore`,
-      { n: shownN.value, base: head.value },
-      undefined,
-      { workspace: ws },
-    );
-    client.setQueryData<FileVersion[]>(keys.coresearchVersions(ws, id, props.file.id), (old) => [
-      saved,
-      ...(old ?? []),
-    ]);
-    pin.value = undefined;
-    if (props.inWorkspaceTab) emit('update:selectedN', undefined);
-    refresh(ws, id);
-  } catch (e) {
-    error.value =
-      e instanceof ApiError && e.body.error === 'stale_base'
-        ? `version ${e.body.base} is not the latest (${e.body.current} is)`
-        : String(e);
-  } finally {
-    busy.value = false;
-  }
-}
-async function step(n: number | undefined) {
-  if (editing.value) return;
-  if (props.inWorkspaceTab && !(await guardResourceDrafts())) return;
+function step(n: number | undefined) {
   pin.value = n;
   if (props.inWorkspaceTab) emit('update:selectedN', n);
   picker.value = false;
@@ -265,7 +143,7 @@ async function step(n: number | undefined) {
             type="button"
             class="art-icon-btn"
             aria-label="Previous version"
-            :disabled="editing || !earlier.length"
+            :disabled="!earlier.length"
             @click="step(earlier.at(-1)?.n)"
           >
             ‹</button
@@ -274,7 +152,7 @@ async function step(n: number | undefined) {
             type="button"
             class="art-icon-btn"
             aria-label="Next version"
-            :disabled="editing || shownN === head"
+            :disabled="shownN === head"
             @click="
               step(
                 chain.find((v) => v.n > shownN)?.n === head
@@ -286,8 +164,7 @@ async function step(n: number | undefined) {
             ›
           </button></span
         >
-        <template
-          v-if="previewText !== undefined && chain.length > 1 && tab === 'preview' && !editing"
+        <template v-if="previewText !== undefined && chain.length > 1 && tab === 'preview'"
           ><button
             type="button"
             class="art-icon-btn art-diff-toggle"
@@ -364,69 +241,15 @@ async function step(n: number | undefined) {
                 {{ t.label }}
               </button>
             </div>
-            <div class="viz-actions">
-              <button
-                v-if="
-                  inWorkspaceTab &&
-                  tab === 'preview' &&
-                  !editing &&
-                  !diffing &&
-                  shownN === head &&
-                  previewText !== undefined &&
-                  !partial &&
-                  !scientificBinary &&
-                  !project.archived_at
-                "
-                type="button"
-                class="quiet-action"
-                @click="startEdit"
-              >
-                Edit content</button
-              ><button
-                v-if="shownN < head && !editing && !project.archived_at"
-                type="button"
-                class="quiet-action"
-                :disabled="busy"
-                @click="restore"
-              >
-                Restore this version
-              </button>
-            </div>
           </div>
           <div class="viz-body">
             <template v-if="tab === 'preview'"
               ><div v-if="tooLarge" class="nbp-empty">This file is too large to preview.</div>
-              <div v-else-if="editing" class="artifact-editor">
-                <textarea
-                  v-model="draft"
-                  class="artifact-editor-host code-text raw-text"
-                  aria-label="File content"
-                  :disabled="busy"
-                />
-                <div class="artifact-editor-actions">
-                  <button type="button" class="btn btn--neutral" :disabled="busy" @click="cancel">
-                    Cancel
-                  </button>
-                  <button type="button" class="btn btn--primary" :disabled="busy" @click="save()">
-                    Save
-                  </button>
-                </div>
-                <div v-if="stale" role="alert" class="nbp-repl-error">
-                  version {{ stale.base }} is not the latest ({{ stale.current }} is)
-                  <div class="prov-actions">
-                    <button type="button" class="quiet-action" :disabled="busy" @click="save(true)">
-                      Save anyway</button
-                    ><button type="button" class="quiet-action" :disabled="busy" @click="reload">
-                      Reload
-                    </button>
-                  </div>
-                </div>
-              </div>
               <div v-else-if="diffing" data-testid="artifact-diff">
                 <p v-if="diff.message" class="nbp-empty">{{ diff.message }}</p>
                 <CodeBlock v-else :code="diff.text ?? ''" lang="diff" />
               </div>
-              <div v-if="!tooLarge && content.data.value" :hidden="editing || diffing">
+              <div v-if="!tooLarge && content.data.value" :hidden="diffing">
                 <ArtifactViewer
                   :key="`${file.id}:${shownN}`"
                   :blob="content.data.value"
@@ -446,30 +269,24 @@ async function step(n: number | undefined) {
               :version="version"
               :tab="tab"
             />
-            <p v-if="error" role="alert" class="nbp-repl-error">{{ error }}</p>
           </div>
-        </div>
-      </div></template
-    >
+        </div></div
+    ></template>
   </section>
 </template>
 <style scoped>
-.artifact-editor textarea {
-  display: block;
-  width: 100%;
-  min-height: 240px;
-  resize: none;
-  background: var(--surface-1);
-  color: var(--ink);
-  padding: 16px;
-  border: 1px solid var(--hairline);
-}
 .art-header {
   position: relative;
   flex-wrap: wrap;
 }
 .artifact-pane .art-title {
-  font: 700 13px/normal 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font:
+    700 13px/normal 'Inter Variable',
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
 }
 .artifact-pane .art-download,
 .artifact-pane .art-download:hover:not(:disabled) {
@@ -477,7 +294,13 @@ async function step(n: number | undefined) {
   color: var(--file-download-accent);
 }
 .artifact-pane .art-download {
-  font: 14px/normal 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font:
+    14px/normal 'Inter Variable',
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   padding: 1px 6px;
 }
 .art-compare-list {

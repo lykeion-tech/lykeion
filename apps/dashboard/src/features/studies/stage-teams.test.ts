@@ -76,6 +76,7 @@ function client() {
       name: 'Solo agent',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'hypotheses',
       archived_at: null,
     },
     {
@@ -83,6 +84,7 @@ function client() {
       name: 'Aristotle',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: null,
       built_in_key: 'aristotle',
     },
@@ -91,6 +93,7 @@ function client() {
       name: 'Team copy',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: null,
       team_member: true,
     },
@@ -99,6 +102,7 @@ function client() {
       name: 'Colleague private',
       visibility: 'private',
       owner_id: 'u2',
+      stage: 'grounding',
       archived_at: null,
     },
     {
@@ -106,6 +110,7 @@ function client() {
       name: 'Retired agent',
       visibility: 'workspace',
       owner_id: 'u1',
+      stage: 'grounding',
       archived_at: '2026-10-20T10:00:00Z',
     },
   ]);
@@ -352,6 +357,7 @@ describe('AssignPicker', () => {
             avatar_url: 'emoji:🧬',
             visibility: 'workspace',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
           },
         ]);
@@ -417,6 +423,7 @@ describe('AssignPicker', () => {
             harness: 'claude',
             visibility: 'workspace',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
           },
         ]);
@@ -497,8 +504,8 @@ describe('AssignPicker', () => {
       expect(menu).not.toContain('Manage agents');
       await p.click(/^SSolo agent$/);
       expect(p.assignee.value).toEqual({ type: 'agent', id: 'a1' });
-      expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
-      expect(p.button(/Grounding → Validation/)?.props.disabled).toBe(false);
+      expect(p.range.value).toEqual({ from: 'hypotheses', to: 'hypotheses' });
+      expect(p.button(/^Hypotheses$/)?.props.disabled).toBe(true);
     } finally {
       p.unmount();
     }
@@ -567,6 +574,7 @@ describe('new agent model picker', () => {
             name: 'Claude agent',
             harness: 'claude',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
             updated_at: '2026-01-01',
             description: '',
@@ -576,6 +584,7 @@ describe('new agent model picker', () => {
             name: 'Codex agent',
             harness: 'codex',
             owner_id: 'u1',
+            stage: 'grounding',
             archived_at: null,
             updated_at: '2026-01-01',
             description: '',
@@ -1446,7 +1455,7 @@ describe('the one-row New study window', () => {
       const posted = fetch.mock.calls.find((call) => call[0] === '/api/cards');
       const body = JSON.parse(String(posted![1]?.body));
       expect(body.assignee).toEqual({ type: 'agent', id: 'a1' });
-      expect(body.scope).toEqual({ from: 'grounding', to: 'validation' });
+      expect(body.scope).toEqual({ from: 'hypotheses', to: 'hypotheses' });
     } finally {
       t.unmount();
     }
@@ -1711,12 +1720,12 @@ describe('study right-pane surfaces', () => {
       const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
       (maximize.props.onClick as () => void)();
       await nextTick();
-      const main = () => t.nodes().find((n) => n.props.class === 'task-main')!;
-      expect(main().props.hidden).toBe(true);
+      const restore = () => t.nodes().find((n) => n.props['aria-label'] === 'Restore pane size');
+      expect(restore()?.props['aria-pressed']).toBe(true);
       citation.value = 'comment:source';
       await nextTick();
       await nextTick();
-      expect(main().props.hidden).toBe(true);
+      expect(restore()?.props['aria-pressed']).toBe(true);
       expect(t.nodes().some((n) => n.props['aria-label'] === 'Cited source')).toBe(false);
     } finally {
       t.unmount();
@@ -1726,8 +1735,9 @@ describe('study right-pane surfaces', () => {
   it('opens the chooser and shows properties, execution and files one at a time', async () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
     try {
+      const toggle = () => t.nodes().find((n) => n.props['aria-label'] === 'Toggle details');
       expect(t.text()).toContain('Open a surface');
-      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(false);
+      expect(toggle()?.props['aria-pressed']).toBe(true);
       expect(t.text()).not.toContain('Grounding criteria');
       expect(t.text()).not.toContain('Details');
       for (const label of ['Properties', 'Timeline', 'Files']) {
@@ -1753,10 +1763,10 @@ describe('study right-pane surfaces', () => {
         await nextTick();
         expect(t.text()).toContain('Open a surface');
       }
-      const close = t.nodes().find((n) => n.props['aria-label'] === 'Close pane')!;
-      (close.props.onClick as () => void)();
+      (toggle()!.props.onClick as () => void)();
       await nextTick();
-      expect(t.nodes().some((n) => n.props['aria-label'] === 'Toggle details')).toBe(true);
+      expect(toggle()?.props['aria-pressed']).toBe(false);
+      expect(t.text()).not.toContain('Open a surface');
     } finally {
       t.unmount();
     }
@@ -1825,6 +1835,8 @@ it('shows generated files at the end of activity and opens the exact output', as
             created_at: '2026-01-01',
             board_column: 'experimentation',
             round: 1,
+            role: 'agent',
+            agent_run_id: null,
           },
         ],
       );
@@ -1991,6 +2003,26 @@ it('lists each saved study output separately with its stage and run provenance',
           },
         ],
       );
+      client.setQueryData(
+        keys.runs('w', 'c'),
+        ['a', 'b'].map((id) => ({
+          id: `run-${id}`,
+          card_id: 'c',
+          board_column: id === 'a' ? 'grounding' : 'validation',
+          round: id === 'a' ? 1 : 2,
+          role: 'leader',
+          status: 'done',
+          harness: 'claude',
+          agent_name: id === 'a' ? 'Ada' : 'Babbage',
+          assignment: '',
+          answer: '',
+          latest_text: '',
+          error: '',
+          created_at: `2026-10-30T0${id === 'a' ? 9 : 10}:00:00Z`,
+        })),
+      );
+      for (const id of ['a', 'b'])
+        client.setQueryData(['ws', 'w', 'run-reactions', 'c', `run-${id}`], []);
     },
   );
   try {
@@ -2005,8 +2037,9 @@ it('lists each saved study output separately with its stage and run provenance',
     ).toHaveLength(2);
     expect(t.text()).toContain('Grounding');
     expect(t.text()).toContain('Validation');
-    expect(t.text()).toContain('run-a');
-    expect(t.text()).toContain('run-b');
+    const cards = t.nodes().filter((n) => n.tag === 'button' && n.props.class === 'file-card');
+    expect(textOf(cards[0]!)).toContain('Ada');
+    expect(textOf(cards[1]!)).toContain('Babbage');
   } finally {
     t.unmount();
   }
@@ -2046,6 +2079,11 @@ describe('a Workflow study', () => {
         (client) => {
           seedStudy(client);
           client.setQueryData(keys.workflows, { release: 'test', workflows: [] });
+          // A Workflow is worked by an Experimentation agent.
+          if (workflow)
+            client.setQueryData(keys.agents('w'), (list: { id: string }[] | undefined) =>
+              list?.map((a) => (a.id === 'a1' ? { ...a, stage: 'experimentation' } : a)),
+            );
         },
       );
       try {

@@ -111,6 +111,7 @@ var schemas = map[Kind]string{
 			"target", str(),
 			"type", enum("wrong_test", "leakage", "unit_mismatch", "missing_control", "overreach"),
 			"quote", nullStr(), "problem", str()))),
+	Report: reportSchema(),
 	Autoresearch: build(
 		"report", nullStr(),
 		"new_studies", list(object("title", str(), "question", str()))),

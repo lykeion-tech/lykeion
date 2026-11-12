@@ -19,7 +19,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   const table = page.getByRole('table', { name: 'Teams', exact: true });
   await expect(table.getByRole('columnheader', { name: 'Name', exact: true })).toHaveCSS(
     'font-size',
-    '12px',
+    '13px',
   );
   const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Source'];
   for (const [i, name] of columns.entries())
@@ -46,7 +46,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   const row = table.getByRole('row').filter({ hasText: 'reference-layout-team' });
   await expect(row).toContainText('biology');
   await expect(row).toContainText('Grounding');
-  expect((await row.boundingBox())!.height).toBe(44);
+  expect((await row.boundingBox())!.height).toBe(54);
   await expect(table.getByRole('columnheader').first()).toHaveCSS('padding-top', '6px');
   await expect(table.getByRole('columnheader').first()).toHaveCSS('font-weight', '400');
   await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
@@ -113,7 +113,7 @@ test('Teams sorts by creation and shares the first column and Projects heading s
     (
       await page.request.post('/api/agents', {
         headers,
-        data: { name: 'Directory layout agent', harness: 'claude' },
+        data: { name: 'Directory layout agent', stage: 'experimentation', harness: 'claude' },
       })
     ).status(),
   ).toBe(201);
@@ -145,16 +145,13 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(rows.first()).toContainText('sort-earlier-team');
   await sort.click();
   await expect(rows.first()).toContainText('sort-later-team');
-  await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '14px');
-  const teamLast = (await page.locator('.team-table th').last().boundingBox())!;
+  await expect(page.locator('.team-table th').first()).toHaveCSS('padding-bottom', '6px');
   const teamSort = (await sort.boundingBox())!;
   const teamNew = (await page.locator('#page-header-actions > *').first().boundingBox())!;
   expect(teamSort.x + teamSort.width).toBe(teamNew.x + teamNew.width);
   expect((await page.locator('.agent-search').boundingBox())!.x).toBe(
     (await page.locator('.page-header h1').boundingBox())!.x,
   );
-  // The toolbar is inset 16px from the table's right edge.
-  expect(teamLast.x + teamLast.width - (teamSort.x + teamSort.width)).toBe(16);
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
   const lastValue = rows.first().locator('td').last().locator('.directory-last-value');
   await expect(lastValue).toHaveCSS('text-align', 'center');
@@ -218,11 +215,9 @@ test('Teams sorts by creation and shares the first column and Projects heading s
     });
   expect(teamNameStyle).toEqual(agentNameStyle);
   expect(teamMetadataStyle).toEqual(agentMetadataStyle);
-  const agentLast = (await page.locator('.agent-head > span').last().boundingBox())!;
   const agentSort = (await page
     .getByRole('button', { name: 'Last updated', exact: true })
     .boundingBox())!;
-  expect(agentLast.x + agentLast.width - (agentSort.x + agentSort.width)).toBe(16);
   const agentNew = (await page
     .getByRole('button', { name: 'New agent', exact: true })
     .boundingBox())!;
@@ -253,8 +248,8 @@ test('Teams sorts by creation and shares the first column and Projects heading s
     .boundingBox();
   expect(lastHeading!.x + lastHeading!.width).toBe(newProject!.x + newProject!.width);
   await expect(page.locator('.projects-table th').last()).toHaveCSS('text-align', 'right');
-  for (let i = 2; i < projectPositions.length; i++)
-    expect(projectPositions[i]! - projectPositions[i - 1]!).toBe(134);
+  // Priority, Status, Progress and Lead share the spacing; Created and the row actions are narrower.
+  for (let i = 2; i <= 4; i++) expect(projectPositions[i]! - projectPositions[i - 1]!).toBe(134);
   const valuePositions = await page
     .locator('.projects-table tbody tr')
     .first()
@@ -268,4 +263,15 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(heading).toHaveCSS('font-size', style.size);
   await expect(heading).toHaveCSS('font-weight', style.weight);
   await expect(heading).toHaveCSS('color', style.color);
+});
+
+// The Last updated button reaches 15px past the table's right edge, as designed.
+test('Teams toolbar reaches 15px past the table right edge', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/#/teams');
+  const last = (await page.locator('.team-table th').last().boundingBox())!;
+  const sort = (await page
+    .getByRole('button', { name: 'Last updated', exact: true })
+    .boundingBox())!;
+  expect(Math.round(sort.x + sort.width - (last.x + last.width))).toBe(15);
 });

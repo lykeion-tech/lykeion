@@ -103,7 +103,7 @@ func TestAgentRegistryAndStudyIsolation(t *testing.T) {
 	inv := s.invite(t, a, wa.ID, "b@lab.org", "member")
 	s.call(t, "POST", "/api/invitations/"+inv+"/accept", b, "", nil, nil)
 	path := "/api/cards/" + s.idleCard(t, a, wa.ID, "How?").ID + "/properties"
-	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]any{"name": "Ada", "description": "Methods", "instructions": "Investigate", "harness": "codex", "model": "gpt-5", "visibility": "private"}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", a, wa.ID, map[string]any{"stage": "experimentation", "name": "Ada", "description": "Methods", "instructions": "Investigate", "harness": "codex", "model": "gpt-5", "visibility": "private"}, nil); code != 201 {
 		t.Fatalf("create agent: %d, want 201", code)
 	}
 	var agents []map[string]any
@@ -165,17 +165,17 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 	w := s.workspace(t, owner, "registry")
 	inv := s.invite(t, owner, w.ID, "member@lab.org", "member")
 	s.call(t, "POST", "/api/invitations/"+inv+"/accept", member, "", nil, nil)
-	for _, bad := range []map[string]any{{"name": "", "harness": "codex"}, {"name": "A", "harness": "other"}, {"name": "A", "harness": "codex", "model": "--execute"}, {"name": "A", "harness": "codex", "instructions": "x\x00y"}, {"name": "A", "harness": "codex", "visibility": "public"}, {"name": "A", "harness": "codex", "env": map[string]string{"KEY": "value"}}} {
+	for _, bad := range []map[string]any{{"stage": "experimentation", "name": "", "harness": "codex"}, {"stage": "experimentation", "name": "A", "harness": "other"}, {"stage": "experimentation", "name": "A", "harness": "codex", "model": "--execute"}, {"stage": "experimentation", "name": "A", "harness": "codex", "instructions": "x\x00y"}, {"stage": "experimentation", "name": "A", "harness": "codex", "visibility": "public"}, {"stage": "experimentation", "name": "A", "harness": "codex", "env": map[string]string{"KEY": "value"}}} {
 		if code := s.call(t, "POST", "/api/agents", owner, w.ID, bad, nil); code != 400 {
 			t.Fatalf("invalid agent %v: %d", bad, code)
 		}
 	}
 	var a map[string]any
-	if code := s.call(t, "POST", "/api/agents", member, w.ID, map[string]any{"name": "Ada", "harness": "codex", "visibility": "private"}, &a); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", member, w.ID, map[string]any{"stage": "experimentation", "name": "Ada", "harness": "codex", "visibility": "private"}, &a); code != 201 {
 		t.Fatalf("member create: %d", code)
 	}
 	id := a["id"].(string)
-	if code := s.call(t, "POST", "/api/agents", member, w.ID, map[string]any{"name": "ada", "harness": "codex"}, nil); code != 409 {
+	if code := s.call(t, "POST", "/api/agents", member, w.ID, map[string]any{"stage": "experimentation", "name": "ada", "harness": "codex"}, nil); code != 409 {
 		t.Fatalf("live name duplicate: %d", code)
 	}
 	if code := s.call(t, "GET", "/api/agents/"+id, owner, w.ID, nil, &a); code != 200 {
@@ -198,7 +198,7 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 	if code := s.call(t, "GET", "/api/agents/"+id, owner, w.ID, nil, &a); code != 200 || a["archived_at"] == nil {
 		t.Fatalf("departure archives owned agent: %d %+v", code, a)
 	}
-	if code := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"name": "Ada", "harness": "codex"}, nil); code != 201 {
+	if code := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"stage": "experimentation", "name": "Ada", "harness": "codex"}, nil); code != 201 {
 		t.Fatalf("archive frees name: %d", code)
 	}
 }

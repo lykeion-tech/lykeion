@@ -29,7 +29,6 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
     data: {
       question: `Locking skill-selection study ${Date.now()}`,
       assignee: { type: 'team', teams: { grounding: original.id } },
-
     },
   });
   expect(study.status()).toBe(201);
@@ -44,7 +43,7 @@ test('Team agent skills save in place, and not while a study uses the Team', asy
   await expect(picker).toHaveCount(0);
 });
 
-test('run header has only the agent name and Properties icons share a center line', async ({
+test('run header has only the agent name and age, and Properties icons share a center line', async ({
   page,
 }) => {
   const f = await labFixture(page.request);
@@ -60,8 +59,10 @@ test('run header has only the agent name and Properties icons share a center lin
     centers.push(box.x + box.width / 2);
   }
   expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1);
-  const agentName = await page.locator('.agent-card').first().getByRole('heading').innerText();
-  await openAgentTranscript(page);
-  await expect(page.locator('.run-dialog-title h2')).toHaveText(agentName);
-  await expect(page.locator('.run-dialog-title p')).toHaveCount(0);
+  // The run header names the agent and its age, and nothing else.
+  const header = page.locator('.agent-card').first().locator('.run-identity');
+  await expect(header.locator('.agent-name')).toHaveText(/\S/);
+  await expect(header.locator('> span')).toHaveCount(2);
+  const dialog = await openAgentTranscript(page);
+  await expect(dialog.getByRole('heading', { name: 'Full log', level: 2 })).toBeVisible();
 });

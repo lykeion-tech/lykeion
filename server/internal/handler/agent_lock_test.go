@@ -11,7 +11,7 @@ func (s *server) startStudy(t *testing.T, tok, wsID, agent, question string) str
 	t.Helper()
 	var c studyJSON
 	if code := s.call(t, "POST", "/api/cards", tok, wsID, map[string]any{"question": question, "assignee": map[string]any{"type": "agent", "id": agent},
-		"scope": map[string]string{"from": "grounding", "to": "grounding"}}, &c); code != 201 {
+		"scope": s.stageScope(t, agent)}, &c); code != 201 {
 		t.Fatalf("start study: %d", code)
 	}
 	return c.ID
@@ -74,7 +74,7 @@ func TestColleaguesStudiesAndAutoresearchesHoldASharedAgent(t *testing.T) {
 	s.mustUpdate(t, `UPDATE card SET assignee_type = 'team', assignee_id = $2 WHERE id = $1`, mixed.ID, agent)
 	var ar struct{ ID string }
 	if code := s.call(t, "POST", "/api/autoresearch", b, w.ID, map[string]any{"title": "Digest", "execution_mode": "run_only",
-		"assignee": map[string]any{"type": "agent", "id": agent}}, &ar); code != 201 {
+		"assignee": map[string]any{"type": "agent", "id": agent}, "scope": s.stageScope(t, agent)}, &ar); code != 201 {
 		t.Fatalf("autoresearch: %d", code)
 	}
 	if s.count(t, `SELECT count(*) FROM card WHERE (id = $1 AND state = 'blocked') OR (id = $2 AND assignee_type = 'team')`, blocked, mixed.ID) != 2 {

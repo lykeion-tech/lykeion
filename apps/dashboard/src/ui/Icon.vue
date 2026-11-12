@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, h } from 'vue';
 import {
   Plug,
   FolderKanban,
@@ -70,7 +70,30 @@ import {
   Code2,
 } from '@lucide/vue';
 const props = withDefaults(defineProps<{ name: string; size?: number }>(), { size: 16 });
+// Lucide copy's back square with two eyes in the front one: a team of agents.
+const Team = (p: { size?: number; strokeWidth?: number }) =>
+  h(
+    'svg',
+    {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: p.size,
+      height: p.size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': p.strokeWidth,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+    },
+    [
+      h('path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }),
+      h('rect', { x: 8, y: 8, width: 14, height: 14, rx: 2 }),
+      h('circle', { cx: 12.5, cy: 13.5, r: 1, fill: 'currentColor' }),
+      h('circle', { cx: 17.5, cy: 13.5, r: 1, fill: 'currentColor' }),
+    ],
+  );
 const icons: Record<string, unknown> = {
+  team: Team,
   tasks: ListTodo,
   zap: Zap,
   chart: ChartNoAxesColumn,

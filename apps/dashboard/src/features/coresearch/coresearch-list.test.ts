@@ -90,11 +90,16 @@ describe('Coresearch foundation', () => {
       'Nothing yet — projects you start from New land here.',
     );
   });
-  it('sidebar lists Coresearch third under Laboratory', () => {
-    const source = readFileSync('apps/dashboard/src/App.vue', 'utf8');
-    expect(
-      source.slice(source.indexOf("name: 'Laboratory'"), source.indexOf("name: 'IT Department'")),
-    ).toMatch(/id: 'studies'[\s\S]*id: 'projects'[\s\S]*id: 'coresearch'[\s\S]*id: 'colleagues'/);
+  it('sidebar keeps Coresearch in the top toggle, out of the Laboratory group', () => {
+    const app = readFileSync('apps/dashboard/src/App.vue', 'utf8');
+    const laboratory = app.slice(
+      app.indexOf("name: 'Laboratory'"),
+      app.indexOf("name: 'IT Department'"),
+    );
+    expect(laboratory).toMatch(/id: 'studies'[\s\S]*id: 'projects'[\s\S]*id: 'colleagues'/);
+    expect(laboratory).not.toContain("id: 'coresearch'");
+    const brand = readFileSync('apps/dashboard/src/ui/SidebarBrand.vue', 'utf8');
+    expect(brand).toMatch(/id: 'coresearch'[\s\S]*id: 'decisions'/);
   });
 });
 

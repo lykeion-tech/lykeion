@@ -99,9 +99,25 @@ export function endLabel(card: Card): string {
   if (card.ending === 'stopped') return 'Stopped';
   return '';
 }
+// The reason a stopped study shows in its properties; a released one's
+// reason already reads in its label.
+export function stoppedReason(card: Card): string {
+  return card.ending === 'stopped' ? card.end_reason : '';
+}
+// What Stop sends: the typed text, or a default when none was typed.
+export function stopReason(text: string): string {
+  return text.trim() || 'Stopped by user';
+}
 export function roleLabel(role: string): string {
+  // The report run's role; its runs read as the report they build.
+  if (role === 'reporter') return 'Report';
   const words = role.replace(/-/g, ' ');
   return words ? words[0]!.toUpperCase() + words.slice(1) : '';
+}
+// A run's name in the study timeline: its agent, or its role when it has
+// none. The report run carries the final run's agent but reads "Report".
+export function runLabel(run: { kind?: string; role: string; agent_name: string | null }): string {
+  return run.kind === 'report' ? 'Report' : run.agent_name || roleLabel(run.role);
 }
 // Validation's objector and rerun are runs Lykeion starts itself, with no agent.
 export function systemRun(role: string): boolean {
@@ -424,9 +440,6 @@ export function flowView(recs: StudyRecord[]): FlowView {
   return out;
 }
 
-// An Inbox item in the words the researcher reads, or null when the server's
-// sentence is to be shown as it is. The criterion and the need are lifted out
-// of the server's sentence (see the Go functions that write them).
 // How many studies have an agent at work, and how many have a run waiting
 // on a machine; a run queued for a free slot is neither.
 export function boardActivity(
@@ -443,7 +456,6 @@ export function boardActivity(
 // study, as a machine's wait has none.
 export function inboxTitle(item: { kind: DecisionItem['kind'] }, study?: string): string {
   if (study) return study;
-  if (item.kind === 'autoresearch_report') return 'Autoresearch';
   if (item.kind === 'waiting_for_machine') return 'Waiting for machine';
   return 'Study';
 }
@@ -475,18 +487,39 @@ export const decisionKindLabel: Record<string, string> = {
 const decisionKinds: Record<DecisionItem['kind'], { label: string; mark: string }> = {
   manual_decision: { label: 'Decision', mark: '?' },
   agent_decision: { label: 'Agent decision', mark: '?' },
-  autoresearch_card: { label: 'Autoresearch study', mark: '↻' },
-  autoresearch_report: { label: 'Autoresearch report', mark: '↻' },
-  middle_score: { label: 'Middle score', mark: '~' },
   blocked: { label: 'Blocked', mark: '!' },
   no_tool: { label: 'No tool', mark: '?' },
   scoring_unavailable: { label: 'Scoring unavailable', mark: '!' },
   waiting_for_machine: { label: 'Waiting for machine', mark: '!' },
   machine_offline: { label: 'Machine offline', mark: '!' },
   needs_decision: { label: 'Needs a decision', mark: '?' },
-  open_doubts: { label: 'Passed with open doubts', mark: '?' },
+  study_report: { label: 'Report', mark: '▤' },
+  autoresearch_failed: { label: "Autoresearch couldn't create the study", mark: '!' },
   done: { label: 'Done', mark: '✓' },
 };
+export type DecisionGroup = 'reports' | 'questions' | 'problems' | 'mine';
+export const decisionGroups: { id: DecisionGroup; label: string }[] = [
+  { id: 'reports', label: 'Reports' },
+  { id: 'questions', label: 'Questions for you' },
+  { id: 'problems', label: 'Problems' },
+  { id: 'mine', label: 'My decisions' },
+];
+// The rail group a kind sits under; a kind the dashboard does not know yet
+// reads as a problem.
+export function decisionGroupOf(kind: DecisionItem['kind']): DecisionGroup {
+  switch (kind) {
+    case 'study_report':
+    case 'done':
+      return 'reports';
+    case 'agent_decision':
+    case 'needs_decision':
+      return 'questions';
+    case 'manual_decision':
+      return 'mine';
+    default:
+      return 'problems';
+  }
+}
 export const decisionKindOf = (kind: string): { label: string; mark: string } =>
   (decisionKinds as Record<string, { label: string; mark: string }>)[kind] ?? {
     label: 'Decision',
@@ -558,17 +591,9 @@ export function inboxText(
   study: string,
 ): string | null {
   switch (item.kind) {
-    case 'open_doubts':
-      return `${study}: Passed with open doubts`;
     case 'needs_decision': {
       const label = item.cause ? decisionLabels[item.cause] : undefined;
       return label ? `${study}: ${label}` : null;
-    }
-    case 'middle_score': {
-      const criterion = /“([^”]+)”/.exec(item.text)?.[1];
-      if (!criterion) return null;
-      const finished = item.text.includes(' and the study finished;');
-      return `${study} ${finished ? 'finished' : 'moved on'} with a middling score: ${criterion}`;
     }
     case 'blocked': {
       // A column stopped by its agent's failed runs: the server's text names why.
@@ -584,6 +609,8 @@ export function inboxText(
     }
     case 'scoring_unavailable':
       return `${study} couldn't be scored; Lykeion will retry`;
+    case 'study_report':
+      return 'Report';
     case 'done':
       return `${study} is done`;
     default:

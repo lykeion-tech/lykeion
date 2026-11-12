@@ -47,7 +47,7 @@ func TestAutoresearchHandIn(t *testing.T) {
 	if out := send(attempt, ok); !out.Accepted {
 		t.Fatalf("%+v", out)
 	}
-	if cards() != 1 || reports() == 0 {
+	if cards() != 1 || reports() != 0 {
 		t.Fatalf("cards %d reports %d", cards(), reports())
 	}
 	n := reports()

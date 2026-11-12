@@ -52,10 +52,24 @@ func (s *server) member(t *testing.T, owner, wsID, email, role string) string {
 	return tok
 }
 
+// stageScope is the scope covering just the stage an agent works.
+func (s *server) stageScope(t *testing.T, agent string) map[string]string {
+	t.Helper()
+	var stage string
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT stage FROM agent WHERE id = $1`, agent).Scan(&stage); err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{"from": stage, "to": stage}
+}
+
 func (s *server) autoresearch(t *testing.T, tok, wsID string, in map[string]any) apView {
 	t.Helper()
 	if in["assignee"] == nil {
 		in["assignee"] = map[string]any{"type": "agent", "id": s.newAgent(t, tok, wsID, "ap-"+uuid.NewString()[:8], "claude")}
+	}
+	// A lone agent works only its own stage, so its Autoresearch covers that stage.
+	if as, ok := in["assignee"].(map[string]any); ok && as["type"] == "agent" && in["scope"] == nil {
+		in["scope"] = s.stageScope(t, as["id"].(string))
 	}
 	var ap apView
 	if code := s.call(t, "POST", "/api/autoresearch", tok, wsID, in, &ap); code != 201 {
@@ -108,7 +122,7 @@ func TestAutoresearchEditRights(t *testing.T) {
 	}
 	var c card
 	s.call(t, "GET", "/api/cards/"+*run.CardID, a, w.ID, nil, &c)
-	if c.OwnerID != s.userID(t, m) || c.BoardColumn != "grounding" {
+	if c.OwnerID != s.userID(t, m) || c.BoardColumn != "experimentation" {
 		t.Fatalf("the card belongs to the clicker: %+v", c)
 	}
 	if code := s.call(t, "POST", path+"/pause", d, w.ID, map[string]any{"reason": "holiday"}, nil); code != 200 {
@@ -275,7 +289,7 @@ func TestAutoresearchRenderedTemplateBoundary(t *testing.T) {
 		{strings.Repeat("x", 181) + "{{date}}{{date}}", 400},
 	} {
 		if code := s.call(t, "POST", "/api/autoresearch", a, w.ID, map[string]any{"title": "Digest", "execution_mode": "create_card", "title_template": tc.template,
-			"assignee": map[string]any{"type": "agent", "id": agent}}, nil); code != tc.code {
+			"assignee": map[string]any{"type": "agent", "id": agent}, "scope": s.stageScope(t, agent)}, nil); code != tc.code {
 			t.Fatalf("template %q: %d want %d", tc.template, code, tc.code)
 		}
 	}

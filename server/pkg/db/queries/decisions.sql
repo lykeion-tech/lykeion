@@ -5,13 +5,14 @@
 
 -- name: ListDecisions :many
 SELECT sqlc.embed(i),
-  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind NOT IN ('manual_decision','study_report') AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
   AND (i.kind <> 'waiting_for_machine' OR jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
-  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
   AND ((i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL) = NOT @history::bool)
 ORDER BY
   CASE WHEN @history::bool THEN NULL ELSE i.snoozed_until > now() END NULLS FIRST,
@@ -22,22 +23,24 @@ LIMIT 200;
 
 -- name: GetDecision :one
 SELECT sqlc.embed(i),
-  (i.kind <> 'manual_decision' AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  (i.kind NOT IN ('manual_decision','study_report') AND (jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid)))::bool AS may_answer
 FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.id = @id AND i.workspace_id = @workspace_id
-  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)));
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)));
 
 -- due_soon counts open items whose reminder has gone out, including manual notes.
 -- name: CountDecisions :one
 SELECT count(*) AS open, count(*) FILTER (WHERE i.reminded_at IS NOT NULL) AS due_soon FROM inbox_item i LEFT JOIN card c ON c.id = i.card_id
 WHERE i.workspace_id = @workspace_id
-  AND ((i.kind = 'manual_decision' AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
-    OR (i.kind <> 'manual_decision' AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
+  AND i.kind NOT IN ('autoresearch_card','autoresearch_report','middle_score','open_doubts','scoring_unavailable')
+  AND ((i.kind IN ('manual_decision','study_report') AND i.user_id = @viewer::uuid AND (i.card_id IS NULL OR c.id IS NOT NULL))
+    OR (i.kind NOT IN ('manual_decision','study_report') AND (i.card_id IS NOT NULL OR i.user_id = @viewer::uuid)))
   AND i.status = 'open' AND i.resolved_at IS NULL AND i.archived_at IS NULL
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= now())
-  AND (i.kind = 'manual_decision' OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
+  AND (i.kind IN ('manual_decision','study_report') OR ((jsonb_array_length(i.options) > 0 OR i.question_set IS NOT NULL)
     AND (@is_admin::bool OR c.owner_id = @viewer::uuid OR (i.card_id IS NULL AND i.user_id = @viewer::uuid))));
 
 -- name: SetDecisionTriage :exec
@@ -57,10 +60,10 @@ WHERE id = @id AND workspace_id = @workspace_id
 -- Reading an item that only informs also resolves and dismisses it.
 -- name: MarkDecisionRead :one
 UPDATE inbox_item SET read_at = COALESCE(read_at, now()), touched_at = now(),
-  resolved_at = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
-  status = CASE WHEN kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND status = 'open' THEN 'dismissed' ELSE status END
+  resolved_at = CASE WHEN kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') THEN COALESCE(resolved_at, now()) ELSE resolved_at END,
+  status = CASE WHEN kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') AND status = 'open' THEN 'dismissed' ELSE status END
 WHERE id = @id AND workspace_id = @workspace_id AND user_id = @user_id
-  AND (read_at IS NULL OR (kind IN ('done', 'middle_score', 'no_tool', 'autoresearch_card', 'autoresearch_report', 'open_doubts') AND resolved_at IS NULL))
+  AND (read_at IS NULL OR (kind IN ('done', 'study_report', 'no_tool', 'autoresearch_failed') AND resolved_at IS NULL))
 RETURNING *;
 
 -- name: LockDecision :one

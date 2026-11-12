@@ -20,32 +20,17 @@ async function inFixture(page: Page) {
   return { f, headers: { 'X-Workspace-ID': f.workspace_id } };
 }
 
-test('the Agent list shows each Agent source', async ({ page }) => {
-  const { headers } = await inFixture(page);
-  expect((await page.request.post('/api/coresearch/bootstrap', { headers })).status()).toBe(200);
-  expect(
-    (
-      await page.request.post('/api/agents', {
-        headers,
-        data: { name: 'Custom source agent', harness: 'claude' },
-      })
-    ).status(),
-  ).toBe(201);
-  await page.goto('/#/agents');
-  const table = page.getByRole('table', { name: 'Agents' });
-  await expect(table.getByRole('columnheader', { name: 'Source' })).toBeVisible();
-  await expect(table.getByRole('row').filter({ hasText: 'Aristotle' })).toContainText('Built-in');
-  await expect(table.getByRole('row').filter({ hasText: 'Custom source agent' })).toContainText(
-    'Custom',
-  );
-});
-
 test('the Agents list filters Mine, All and Archived through one compact Filter button', async ({
   page,
 }) => {
   const { headers } = await inFixture(page);
   const post = async (data: object) =>
-    (await page.request.post('/api/agents', { headers, data })).json();
+    (
+      await page.request.post('/api/agents', {
+        headers,
+        data: { stage: 'experimentation', ...data },
+      })
+    ).json();
   await post({
     name: 'Evidence curator',
     harness: 'claude',
@@ -89,19 +74,16 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   const table = page.getByRole('table', { name: 'Agents' });
   const curatorRow = table.getByRole('row').filter({ hasText: 'Evidence curator' });
   await expect(curatorRow).toContainText('Keeps sources traceable');
-  await expect(curatorRow).toContainText('Custom');
   await expect(curatorRow).toContainText('Claude Code');
   await expect(curatorRow).toContainText('You');
-  await expect(curatorRow.getByRole('cell')).toHaveCount(6);
+  await expect(curatorRow.getByRole('cell')).toHaveCount(5);
   const privateRow = table.getByRole('row').filter({ hasText: 'Private reviewer' });
-  await expect(privateRow).toContainText('Custom');
   await expect(privateRow).toContainText('Codex');
-  await expect(privateRow.getByRole('cell')).toHaveCount(6);
+  await expect(privateRow.getByRole('cell')).toHaveCount(5);
   await expect(table.getByRole('columnheader')).toHaveText([
     'Name',
-    'Status',
     'Owner',
-    'Source',
+    'Stage',
     'Harness',
     'Last updated',
   ]);
@@ -116,9 +98,8 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await menu.getByRole('menuitemradio', { name: 'Archived 1' }).click();
   await expect(menu).toHaveCount(0);
   await expect(filter).toBeFocused();
-  await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toContainText(
-    'Archived',
-  );
+  await expect(table.getByRole('row').filter({ hasText: 'Retired analyst' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'Evidence curator' })).toHaveCount(0);
   await expect(table.getByRole('row')).toHaveCount(2);
   await filter.press('ArrowDown');
   await page.keyboard.press('Home');
@@ -131,23 +112,21 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
   await expect(menu).toHaveCount(0);
 });
 
-test('New agent opens the starting-point page, and Start blank opens the form', async ({
+test('New agent opens the Create Agent form, and /agents/new opens it directly', async ({
   page,
 }) => {
   await inFixture(page);
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
-  await expect(page).toHaveURL(/#\/agents\/new$/);
-  await expect(page.getByRole('heading', { name: 'Create an agent' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'How would you like to start?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Build with AI/ })).toBeDisabled();
+  const dialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
+  await expect(dialog.getByRole('textbox', { name: 'Agent name', exact: true })).toBeVisible();
   await page.screenshot({ path: `${artifacts}/agent-create.png` });
-  await page.getByRole('button', { name: /Start blank/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'New agent', exact: true });
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/agents\/new$/);
-  await page.getByRole('link', { name: 'Back to agents' }).click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await page.goto('/#/agents/new');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(/#\/agents$/);
 });
 
@@ -155,7 +134,7 @@ test('deletes an unused agent from its detail page', async ({ page }) => {
   const { headers } = await inFixture(page);
   const response = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Agent to delete', harness: 'claude' },
+    data: { name: 'Agent to delete', stage: 'experimentation', harness: 'claude' },
   });
   expect(response.status()).toBe(201);
   const agent = await response.json();
@@ -172,7 +151,7 @@ test('starts a new study with the viewed agent selected', async ({ page }) => {
   const { headers } = await inFixture(page);
   const response = await page.request.post('/api/agents', {
     headers,
-    data: { name: 'Study agent', harness: 'claude' },
+    data: { name: 'Study agent', stage: 'experimentation', harness: 'claude' },
   });
   expect(response.status()).toBe(201);
   const agent = await response.json();
@@ -223,7 +202,12 @@ test('the agent page shows its studies and edits instructions, profile and acces
   const agent = await (
     await page.request.post('/api/agents', {
       headers,
-      data: { name: 'Methods reviewer', harness: 'claude', description: 'Reviews methods' },
+      data: {
+        name: 'Methods reviewer',
+        stage: 'experimentation',
+        harness: 'claude',
+        description: 'Reviews methods',
+      },
     })
   ).json();
   const studyId = await assignNewStudy(page, headers, agent.id);
@@ -233,9 +217,9 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await page.goto('/#/agents/' + agent.id);
   await expect(page.getByRole('heading', { name: 'Methods reviewer', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
-  await expect(page.locator('.agent-meta')).toContainText('Harness default');
-  await expect(page.locator('.agent-meta')).toContainText('Claude Code');
-  await expect(page.locator('.agent-meta')).toContainText('Workspace');
+  await expect(page.locator('.agent-inspector')).toContainText('Harness default');
+  await expect(page.locator('.agent-inspector')).toContainText('Claude Code');
+  await expect(page.locator('.agent-inspector')).toContainText('Workspace');
   await expect(page.locator('.agent-activity')).toContainText(card.title || card.question);
   await page.screenshot({ path: `${artifacts}/agent-overview.png` });
 
@@ -278,7 +262,7 @@ test('the agent page shows its studies and edits instructions, profile and acces
   await page.getByRole('radio', { name: /Only me/ }).check();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect.poll(async () => (await read()).visibility).toBe('private');
-  await expect(page.locator('.agent-meta')).toContainText('Personal');
+  await expect(page.locator('.agent-inspector')).toContainText('Personal');
 
   expect((await page.request.delete(`/api/cards/${studyId}`, { headers })).ok()).toBeTruthy();
   page.once('dialog', (d) => d.accept());
@@ -294,20 +278,50 @@ test('supported backend selectors persist provider labels', async ({ page }) => 
     ['codex', 'Codex'],
   ]) {
     await page.goto('/#/agents/new');
-    await page.getByRole('button', { name: /Start blank/ }).click();
-    const form = page.getByRole('dialog', { name: 'New agent', exact: true });
+    const form = page.getByRole('dialog', { name: 'Create Agent', exact: true });
     await form.getByRole('button', { name: /^Harness:/ }).click();
     await expect(
       form.getByRole('listbox', { name: 'Harness options' }).getByRole('option'),
     ).toHaveCount(2);
     await form.getByRole('option', { name: label!, exact: true }).click();
     await form.getByRole('textbox', { name: 'Agent name', exact: true }).fill(`${label} task16`);
-    await form.getByRole('button', { name: 'Create agent', exact: true }).click();
-    await expect(page.locator('.agent-identity')).toContainText(label!);
+    await form.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.locator('.agent-inspector')).toContainText(label!);
     await page.getByRole('tab', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('button', { name: /^Harness:/ })).toHaveText(label!);
     const id = new URL(page.url().replace('#', '')).pathname.split('/').pop();
     const saved = await (await page.request.get(`/api/agents/${id}`, { headers })).json();
     expect(saved.harness).toBe(harness);
   }
+});
+
+test('the Agents list shows a built-in agent with the emoji icon it was given, as the new-study picker does', async ({
+  page,
+}) => {
+  const { headers } = await inFixture(page);
+  const made = await page.request.post('/api/agents', {
+    headers,
+    data: { name: 'Built-in icon check', harness: 'claude', stage: 'experimentation' },
+  });
+  expect(made.status()).toBe(201);
+  const plain = await made.json();
+  await page.route('**/api/agents', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    const list = (await response.json()) as Array<Record<string, unknown>>;
+    await route.fulfill({
+      response,
+      json: list.map((a) =>
+        a.id === plain.id
+          ? { ...a, source: 'built_in', built_in_key: 'icon-check', avatar_url: 'emoji:🦊' }
+          : a,
+      ),
+    });
+  });
+  await page.goto('/#/agents');
+  const row = page.getByRole('row', { name: /Built-in icon check/ });
+  await expect(row.locator('.avatar .avatar-emoji')).toHaveText('🦊');
+  await expect(row.locator('.avatar > svg')).toHaveCount(0);
+  // A refetch in flight when the test ends must not reach the handler.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

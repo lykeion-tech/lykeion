@@ -58,12 +58,15 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
 			return err
 		}
-		if err := checkStudyAgent(r, tx, ws, user, in.AgentID); err != nil {
+		if err := checkStudyAgent(r, tx, ws, user, in.AgentID, "", ""); err != nil {
 			return err
 		}
 		agent, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: in.AgentID})
 		if err != nil {
 			return err
+		}
+		if agent.Stage == "" {
+			return cardInputError("this agent has no stage")
 		}
 		online, err := tx.Q.HasOnlineRuntime(r.Context(), db.HasOnlineRuntimeParams{WorkspaceID: ws, OwnerID: user, Harness: agent.Harness})
 		if err != nil {
@@ -79,7 +82,7 @@ func (h *H) createStudyDraft(w http.ResponseWriter, r *http.Request) {
 		}
 		typ := "agent"
 		description := "Create exactly one study from the request below. Draft a clear title and a faithful research question without inventing facts. Hand in the study as the only entry of `new_studies`, with its title and question, and say in your report that it was created. Do not perform the research yourself.\n\n" + fence.Untrusted("Researcher's request", in.Prompt)
-		ap, err := tx.Q.CreateAutoresearch(r.Context(), db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: "Study draft", Description: description, ExecutionMode: "run_only", AssigneeType: &typ, AssigneeID: &in.AgentID, ScopeFrom: "grounding", ScopeTo: "validation"})
+		ap, err := tx.Q.CreateAutoresearch(r.Context(), db.CreateAutoresearchParams{WorkspaceID: ws, OwnerID: user, Title: "Study draft", Description: description, ExecutionMode: "run_only", AssigneeType: &typ, AssigneeID: &in.AgentID, ScopeFrom: agent.Stage, ScopeTo: agent.Stage})
 		if err != nil {
 			return err
 		}

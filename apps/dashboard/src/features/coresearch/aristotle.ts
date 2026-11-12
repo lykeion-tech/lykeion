@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
+import { isNavigationFailure, NavigationFailureType, type Router } from 'vue-router';
 import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import { useMe, useAgent } from '../../api/queries';
@@ -104,6 +105,12 @@ export function clearComposerContinuation() {
 export function newComposerDraft() {
   clearComposerContinuation();
   composerGeneration.value++;
+}
+// Opens the new-conversation composer; asked again from it, it starts the
+// draft over.
+export async function startConversationDraft(router: Router) {
+  const result = await router.push('/coresearch/new');
+  if (!result || isNavigationFailure(result, NavigationFailureType.duplicated)) newComposerDraft();
 }
 export function holdComposerContinuation(value: ComposerContinuation) {
   continuation = {

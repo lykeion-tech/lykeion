@@ -517,7 +517,7 @@ func (v validating) target(label string, seed int64) ([]int, string) {
 // round decided meanwhile, is left alone. It says whether a column now
 // waits to start.
 func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, v validating, judged []review.Objection, jerr error) (bool, error) {
-	moved := false
+	moved, finished := false, false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, in.card.ID)
 		if err != nil || c.ID == uuid.Nil {
@@ -624,12 +624,15 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			Round: c.Round, Redos: c.Redos}); err != nil {
 			return err
 		}
-		if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "done",
-			Text: doneText(c.Number, c.BoardColumn)}); err != nil {
+		if err := e.finishStudy(ctx, tx, c); err != nil {
 			return err
 		}
+		finished = true
 		return tx.Emit(ctx, "card.steered", &c.ID, store.System, map[string]any{"column": c.BoardColumn, "state": "done", "verdict": res.Decision})
 	})
+	if err == nil && finished {
+		e.goReport("check report", ws, in.card.ID, e.checkReport)
+	}
 	return moved, err
 }
 

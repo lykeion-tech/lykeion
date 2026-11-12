@@ -28,7 +28,7 @@ async function ownWorkspace(request: APIRequestContext, name = 'Settings scratch
 async function selectWorkspace(page: Page, name: string) {
   await page.locator('.workspace-switch').click();
   await page.getByRole('menuitem', { name, exact: false }).last().click();
-  await expect(page.locator('.workspace-switch')).toContainText(name);
+  await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(name);
 }
 async function general(page: Page, name: string) {
   await page.goto('/#/studies');
@@ -235,7 +235,7 @@ test('an owner deletes its disposable workspace from the Danger Zone', async ({ 
     await expect(page).toHaveURL(/#\/studies$/);
     const list = await (await page.request.get('/api/workspaces')).json();
     expect(list.some((w: { id: string }) => w.id === ws.id)).toBe(false);
-    await expect(page.locator('.workspace-switch')).toContainText('Beta-cell lab');
+    await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription('Beta-cell lab');
     await page.goto('/#/settings?tab=general');
     await expect(page.getByRole('textbox', { name: 'Workspace name', exact: true })).toHaveValue(
       'Beta-cell lab',
@@ -680,7 +680,7 @@ for (const kind of ['leave', 'delete'] as const)
       await held.done;
       expect(held.status()).toBe(204);
       await expect(page).toHaveURL(/#\/settings\?tab=general$/);
-      await expect(page.locator('.workspace-switch')).toContainText(alternate.name);
+      await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(alternate.name);
       await expect(page.getByRole('textbox', { name: 'Workspace description' })).toHaveValue(
         'Keep this draft',
       );
@@ -812,15 +812,18 @@ test('many workspaces remain normally clickable in the workspace popup on a smal
     await menu
       .getByRole('menuitem', { name: new RegExp(last.name + '$') })
       .click({ timeout: 3000 });
-    await expect(page.locator('.workspace-switch')).toContainText(last.name);
+    await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(last.name);
     await page.locator('.workspace-switch').click();
     const box = await menu.boundingBox();
-    expect(box?.y).toBe(98);
+    const trigger = (await page.locator('.workspace-switch').boundingBox())!;
+    // The menu opens upward from the Lab toggle at the bottom of the sidebar.
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(trigger.y);
     expect(box?.width).toBe(224);
     expect(box!.y + box!.height).toBeLessThanOrEqual(600);
     expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     await menu.getByRole('menuitem', { name: /Popup lab 0$/ }).click();
-    await expect(page.locator('.workspace-switch')).toContainText('Popup lab 0');
+    await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription('Popup lab 0');
     await page.locator('.workspace-switch').click();
     await page.screenshot({ path: `${artifacts}/workspace-popup-small.png` });
   } finally {

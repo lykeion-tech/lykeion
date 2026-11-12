@@ -301,7 +301,7 @@ func (q *Queries) GetCardByNumber(ctx context.Context, arg GetCardByNumberParams
 const inFlightMemberRun = `-- name: InFlightMemberRun :one
 SELECT id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4
-  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun') AND status IN ('queued', 'dispatched', 'running')
+  AND role NOT IN ('', 'leader', 'auditor', 'agent', 'objector', 'rerun', 'reporter') AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at LIMIT 1
 `
 
@@ -314,7 +314,8 @@ type InFlightMemberRunParams struct {
 
 // A member's run of a column's round that has not ended: queued, dispatched
 // or running. Members are every role but the leader, the auditor, a study's
-// single agent and Validation's system runs, the objector and the rerun.
+// single agent, Validation's system runs (the objector and the rerun) and
+// a finished study's report run.
 func (q *Queries) InFlightMemberRun(ctx context.Context, arg InFlightMemberRunParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, inFlightMemberRun,
 		arg.WorkspaceID,
@@ -543,14 +544,34 @@ func (q *Queries) MarkQueueOffline(ctx context.Context) error {
 	return err
 }
 
+const moveLaboratoryWaits = `-- name: MoveLaboratoryWaits :exec
+UPDATE inbox_item SET user_id = $1, touched_at = now()
+WHERE workspace_id = $2 AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause LIKE 'unbound:%'
+  AND resolved_at IS NULL AND user_id <> $1
+`
+
+type MoveLaboratoryWaitsParams struct {
+	UserID      uuid.UUID `json:"user_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) MoveLaboratoryWaits(ctx context.Context, arg MoveLaboratoryWaitsParams) error {
+	_, err := q.db.Exec(ctx, moveLaboratoryWaits, arg.UserID, arg.WorkspaceID)
+	return err
+}
+
 const offlineRuntimesWithQueuedRuns = `-- name: OfflineRuntimesWithQueuedRuns :many
 SELECT r.id, r.owner_id, COALESCE(r.custom_name, r.device_name)::text AS machine, count(*)::int AS queued
 FROM runtime r
-JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun')
+JOIN agent_run t ON t.workspace_id = r.workspace_id AND t.status = 'queued' AND t.kind IN ('role', 'rerun', 'report')
   AND (t.harness = r.harness OR t.kind = 'rerun')
 JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
-  AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))
+LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) AS la(id, owner_id, runtime_id, name) ON true
 WHERE r.workspace_id = $1 AND r.status = 'offline'
+  AND ((t.kind <> 'report' AND la.id IS NOT NULL AND (r.id = la.runtime_id
+      OR (t.kind = 'rerun' AND r.daemon_id = (SELECT b.daemon_id FROM runtime b WHERE b.workspace_id = t.workspace_id AND b.id = la.runtime_id))))
+    OR (t.kind = 'report' AND r.id = t.pinned_runtime_id)
+    OR (t.kind <> 'report' AND la.id IS NULL AND (c.machine = r.daemon_id OR (c.machine IS NULL AND t.responsible_user_id = r.owner_id))))
 GROUP BY r.id
 `
 
@@ -563,6 +584,8 @@ type OfflineRuntimesWithQueuedRunsRow struct {
 
 // The workspace's offline machines with queued runs that only they can take,
 // and the number of those runs.
+// a laboratory agent's runs wait for its bound runtime (a rerun for that
+// runtime's machine), as the claim sends them there
 func (q *Queries) OfflineRuntimesWithQueuedRuns(ctx context.Context, workspaceID uuid.UUID) ([]OfflineRuntimesWithQueuedRunsRow, error) {
 	rows, err := q.db.Query(ctx, offlineRuntimesWithQueuedRuns, workspaceID)
 	if err != nil {
@@ -628,6 +651,21 @@ func (q *Queries) RedoCardStops(ctx context.Context, arg RedoCardStopsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const resolveLaboratoryWait = `-- name: ResolveLaboratoryWait :exec
+UPDATE inbox_item SET resolved_at = now(), status = 'dismissed', touched_at = now()
+WHERE workspace_id = $1 AND kind = 'waiting_for_machine' AND runtime_id IS NULL AND cause = $2::text AND resolved_at IS NULL
+`
+
+type ResolveLaboratoryWaitParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Cause       string    `json:"cause"`
+}
+
+func (q *Queries) ResolveLaboratoryWait(ctx context.Context, arg ResolveLaboratoryWaitParams) error {
+	_, err := q.db.Exec(ctx, resolveLaboratoryWait, arg.WorkspaceID, arg.Cause)
+	return err
 }
 
 const resolveMachineOffline = `-- name: ResolveMachineOffline :exec
@@ -783,7 +821,7 @@ func (q *Queries) RoundAgentRunRecords(ctx context.Context, arg RoundAgentRunRec
 }
 
 const roundAgentRuns = `-- name: RoundAgentRuns :many
-SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
+SELECT id, workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, status, queue_reason, runtime_id, prepare_lease_expires_at, dispatched_at, started_at, completed_at, attempt, max_attempts, session_id, continuity_scope, profile_mode, policy_digest, model, error, failure_reason, cost_usd, late_usage_at, created_at, handoff_note, input_lease_expires_at, input_fetch_expires_at, input_fetch_id, input_outcomes, addon_hash, addon_mcp, kind, requester_id, requested_model, agent_id, assignment, cancel_reason, machine_name, machine_owner_id, coresearch_chat_id, coresearch_build_id, retry_after, infra_failures, attachment_snapshot, lab_chat_id, lab_purpose, pinned_runtime_id FROM agent_run WHERE workspace_id = $1 AND card_id = $2::uuid
   AND board_column = $3 AND round = $4 ORDER BY created_at
 `
 
@@ -860,6 +898,7 @@ func (q *Queries) RoundAgentRuns(ctx context.Context, arg RoundAgentRunsParams) 
 			&i.AttachmentSnapshot,
 			&i.LabChatID,
 			&i.LabPurpose,
+			&i.PinnedRuntimeID,
 		); err != nil {
 			return nil, err
 		}
@@ -1042,6 +1081,32 @@ func (q *Queries) TryLockCard(ctx context.Context, cardID uuid.UUID) (bool, erro
 	var ok bool
 	err := row.Scan(&ok)
 	return ok, err
+}
+
+const upsertLaboratoryWait = `-- name: UpsertLaboratoryWait :exec
+INSERT INTO inbox_item (workspace_id, user_id, kind, text, cause)
+SELECT $1, $2, 'waiting_for_machine', $3, $4::text
+WHERE NOT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND kind = 'waiting_for_machine'
+  AND runtime_id IS NULL AND cause = $4::text AND resolved_at IS NULL)
+`
+
+type UpsertLaboratoryWaitParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Text        string    `json:"text"`
+	Cause       string    `json:"cause"`
+}
+
+// One open notice per unbound laboratory agent (cause names it), for the
+// workspace owner who binds it.
+func (q *Queries) UpsertLaboratoryWait(ctx context.Context, arg UpsertLaboratoryWaitParams) error {
+	_, err := q.db.Exec(ctx, upsertLaboratoryWait,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Text,
+		arg.Cause,
+	)
+	return err
 }
 
 const upsertMachineWait = `-- name: UpsertMachineWait :exec

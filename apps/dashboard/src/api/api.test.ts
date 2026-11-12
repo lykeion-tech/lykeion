@@ -583,12 +583,12 @@ describe('shared library queries and mutations', () => {
     expect(fetch.mock.calls.map(([path]) => path)).not.toContain('/api/skills/bundle%3Aaeon');
     expect(fetch.mock.calls.map(([path]) => path)).toContain('/api/skills/a%2Fb%3F%23');
   });
-  it('preserves nullable Decisions identities and resolves a report without a card', async () => {
+  it('preserves nullable Decisions identities and resolves an Autoresearch run without a card', async () => {
     const item = {
       id: 'i1',
       card_id: null,
       autoresearch_run_id: 'r1',
-      kind: 'autoresearch_report',
+      kind: 'autoresearch_failed',
     };
     const response = {
       autoresearch_id: 'a1',

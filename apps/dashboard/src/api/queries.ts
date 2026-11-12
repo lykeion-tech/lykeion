@@ -1,10 +1,12 @@
-import { computed, toValue, watch, type MaybeRefOrGetter } from 'vue';
+import { computed, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from './client';
 import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
   AgentDefinition,
+  LabChart,
+  Laboratory,
   StorageReport,
   AnalyticsReport,
   Autoresearch,
@@ -28,6 +30,7 @@ import type {
   RunMessage,
   Runtime,
   StudyRecord,
+  StudyReport,
   Token,
   Workspace,
 } from './types';
@@ -118,6 +121,18 @@ export const useCardReview = (id: MaybeRefOrGetter<string>) =>
     queryFn: async () =>
       (await api<{ columns: ReviewColumn[] }>('GET', `/api/cards/${toValue(id)}/review`)).columns,
     enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+  });
+export const useStudyReport = (cardId: Ref<string | undefined>) =>
+  useQuery({
+    queryKey: computed(() => keys.studyReport(ws.value, cardId.value ?? '')),
+    queryFn: () => api<StudyReport>('GET', `/api/cards/${cardId.value}/report`),
+    enabled: computed(() => inWorkspace.value && Boolean(cardId.value)),
+    // Concepts, links and Jev's checks arrive after the report; look again
+    // until neither is pending.
+    refetchInterval: (query) =>
+      query.state.data?.extras === 'pending' || query.state.data?.checks === 'pending'
+        ? 15_000
+        : false,
   });
 export const useComments = (id: MaybeRefOrGetter<string>) =>
   ofCard<Comment[]>(id, keys.comments, (c) => `/api/cards/${c}/comments`);
@@ -281,6 +296,14 @@ export const useAutoresearch = (id: MaybeRefOrGetter<string>) =>
   ofCard<AutoresearchDetail>(id, keys.autoresearch, (a) => `/api/autoresearch/${a}`);
 export const useAutoresearchRuns = (id: MaybeRefOrGetter<string>) =>
   ofCard<AutoresearchRun[]>(id, keys.autoresearchRuns, (a) => `/api/autoresearch/${a}/runs`);
+export const useLabChart = () =>
+  useQuery({
+    queryKey: computed(() => keys.labChart(ws.value)),
+    queryFn: ({ signal }) => api<LabChart>('GET', '/api/lab-chart', undefined, undefined, { signal }),
+    enabled: inWorkspace,
+  });
+export const useLaboratories = () =>
+  useQuery({ queryKey: keys.laboratories, queryFn: () => api<Laboratory[]>('GET', '/api/laboratories') });
 export const useAgents = () => list<AgentDefinition>(keys.agents, '/api/agents');
 export function useAgent(id: MaybeRefOrGetter<string>) {
   const client = useQueryClient();

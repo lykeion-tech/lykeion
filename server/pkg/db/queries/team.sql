@@ -3,7 +3,7 @@ INSERT INTO team_agent (workspace_id, pack_id, user_id, member, agent_id)
 VALUES (@workspace_id, @pack_id, @user_id, @member, @agent_id) ON CONFLICT DO NOTHING;
 
 -- name: TeamAgentsFor :many
-SELECT * FROM team_agent WHERE workspace_id = @workspace_id AND pack_id = @pack_id AND user_id = @user_id ORDER BY member;
+SELECT * FROM team_agent WHERE workspace_id = @workspace_id AND pack_id = @pack_id AND (user_id = @user_id::uuid OR user_id IS NULL) ORDER BY member;
 
 -- name: TeamAgentIDs :many
 SELECT DISTINCT agent_id FROM team_agent WHERE workspace_id = @workspace_id AND pack_id = @pack_id ORDER BY agent_id;
@@ -14,7 +14,9 @@ SELECT EXISTS (SELECT 1 FROM card c LEFT JOIN card_team t ON t.workspace_id = c.
   OR EXISTS (SELECT 1 FROM autoresearch_team WHERE workspace_id = @workspace_id AND pack_id = @pack_id);
 
 -- name: TeamAgentHasLiveRuns :one
-SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND status IN ('queued', 'dispatched', 'running'));
+-- A study's report run is attributed to the agent but runs on its own frozen
+-- prompt and CLI, so it never holds the agent.
+SELECT EXISTS (SELECT 1 FROM agent_run WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND kind <> 'report' AND status IN ('queued', 'dispatched', 'running'));
 
 -- name: AgentBelongsToOtherTeam :one
 SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND pack_id <> @pack_id);
@@ -35,7 +37,7 @@ SELECT EXISTS (SELECT 1 FROM agent WHERE workspace_id = @workspace_id AND archiv
 -- The store: shipped, workspace-shared, and the user's own Teams.
 -- name: StoreTeams :many
 SELECT DISTINCT ON (p.name) p.*, (p.source = 'shipped' OR EXISTS (SELECT 1 FROM team_agent t
-  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND t.user_id = @user_id))::bool AS added
+  WHERE t.workspace_id = p.workspace_id AND t.pack_id = p.id AND (t.user_id = @user_id::uuid OR t.user_id IS NULL)))::bool AS added
 FROM field_pack p
 WHERE p.workspace_id = @workspace_id AND p.deleted_at IS NULL AND (p.source = 'shipped' OR p.uploaded_by = @user_id OR p.visibility = 'workspace')
   AND (@domain::text = '' OR p.domain = @domain) AND (@stage::text = '' OR p.stage = @stage)

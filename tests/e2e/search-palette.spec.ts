@@ -80,3 +80,59 @@ test('search opens with researches and standalone and nested studies, previews a
   await expect(dialog).toHaveCSS('width', '528px');
   await expect(dialog.locator('.palette-preview')).toBeHidden();
 });
+
+test('the Coresearch and Decisions rails open the same palette over their own conversations and decisions', async ({
+  page,
+}) => {
+  const workspace = await labWorkspace(page.request);
+  const headers = { 'X-Workspace-ID': workspace };
+  const created = await page.request.post('/api/decisions/manual', {
+    headers,
+    data: { title: 'Palette rail decision', context: 'Choose the rail cohort' },
+  });
+  expect(created.status()).toBe(201);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
+
+  await page.goto('/#/studies');
+  const home = page.getByRole('button', { name: 'Search', exact: true });
+  const homeBox = (await home.boundingBox())!;
+  const dialog = page.getByRole('dialog', { name: 'Command palette' });
+  const top = page.viewportSize()!.height * 0.12;
+
+  // Decisions: the row looks like the homepage one and lists decisions with their group.
+  await page.locator('.sidebar-brand:visible').getByRole('link', { name: 'Decisions', exact: true }).click();
+  const railSearch = page.locator('.decision-rail').getByRole('button', { name: 'Search decisions' });
+  await expect(railSearch).toContainText('Search…');
+  await expect(railSearch.locator('kbd')).toHaveText('⌘K');
+  const railBox = (await railSearch.boundingBox())!;
+  expect(Math.abs(railBox.height - homeBox.height)).toBeLessThan(1);
+  await railSearch.click();
+  const input = dialog.getByRole('combobox', { name: 'Search decisions' });
+  await expect(input).toBeFocused();
+  await expect(dialog).toHaveCSS('width', '720px');
+  await expect.poll(async () => (await dialog.boundingBox())!.y).toBeCloseTo(top, 0);
+  await input.fill('rail cohort');
+  const option = dialog.getByRole('option', { name: /Palette rail decision/ });
+  await expect(option).toBeVisible();
+  await expect(dialog.getByRole('option')).toHaveCount(1);
+  await expect(dialog.locator('.palette-preview')).toContainText('Group');
+  await expect(dialog.locator('.palette-preview')).toContainText('My decisions');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/#\/decisions\/[0-9a-f-]{36}$/);
+  await expect(dialog).toHaveCount(0);
+
+  // Coresearch: the same row searches conversations, and Ctrl+K reaches it too.
+  await page.locator('.sidebar-brand:visible').getByRole('link', { name: 'Coresearch', exact: true }).click();
+  const chatSearch = page.getByRole('complementary', { name: 'Chat', exact: true }).getByRole('button', { name: 'Search conversations' });
+  await expect(chatSearch).toContainText('Search…');
+  await chatSearch.click();
+  const chatInput = dialog.getByRole('combobox', { name: 'Search conversations' });
+  await expect(chatInput).toBeFocused();
+  await expect(dialog.getByRole('listbox', { name: 'Conversations' })).toBeVisible();
+  await chatInput.fill('zz-nothing-matches-zz');
+  await expect(dialog).toContainText('No matching results');
+  await chatInput.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.keyboard.press('Control+k');
+  await expect(dialog.getByRole('combobox', { name: 'Search conversations' })).toBeFocused();
+});

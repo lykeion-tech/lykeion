@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import RecordedMarkdown from '../../ui/RecordedMarkdown.vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import { useKindRecords } from '../../api/queries';
 import StudyFileThumbnail from '../studies/StudyFileThumbnail.vue';
+
+const RecordedMarkdown = lazyRecordedMarkdown();
 
 const props = defineProps<{
   handIn: Record<string, unknown>;
@@ -45,7 +47,6 @@ const labels: Record<string, string> = {
   objections: 'Objections',
   concerns: 'Concerns',
   replies: 'Responses to review',
-  decision: 'Question for the researcher',
   reason: 'Reason',
   report: 'Report',
   new_studies: 'New studies',
@@ -58,22 +59,14 @@ const title = computed(() =>
       : `${props.column.charAt(0).toUpperCase()}${props.column.slice(1)} report`,
 );
 const stageFields: Record<string, string[]> = {
-  grounding: ['papers', 'datasets', 'no_qualifying', 'replies', 'decision', 'reason'],
-  hypotheses: ['hypotheses', 'replies', 'decision', 'reason'],
-  experimentation: ['values', 'outputs', 'replies', 'decision', 'reason'],
-  validation: [
-    'assessments',
-    'verdicts',
-    'flagged_errors',
-    'objections',
-    'replies',
-    'decision',
-    'reason',
-  ],
+  grounding: ['papers', 'datasets', 'no_qualifying', 'replies', 'reason'],
+  hypotheses: ['hypotheses', 'replies', 'reason'],
+  experimentation: ['values', 'outputs', 'replies', 'reason'],
+  validation: ['assessments', 'verdicts', 'flagged_errors', 'objections', 'replies', 'reason'],
 };
 const fields = computed(() =>
   props.role === 'auditor'
-    ? ['concerns', 'replies', 'decision', 'reason']
+    ? ['concerns', 'replies', 'reason']
     : [...(stageFields[props.column] ?? []), ...Object.keys(labels)],
 );
 const sections = computed(() =>

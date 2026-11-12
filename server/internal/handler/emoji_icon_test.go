@@ -72,7 +72,7 @@ func TestAgentAndTeamEmojiIcons(t *testing.T) {
 	w := s.workspace(t, owner, "icons")
 	colleague := s.member(t, owner, w.ID, "colleague@lab.org", "member")
 	var a map[string]any
-	if c := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"name": "Icon agent", "harness": "claude", "visibility": "workspace"}, &a); c != 201 {
+	if c := s.call(t, "POST", "/api/agents", owner, w.ID, map[string]any{"stage": "experimentation", "name": "Icon agent", "harness": "claude", "visibility": "workspace"}, &a); c != 201 {
 		t.Fatalf("create agent: %d", c)
 	}
 	path := "/api/agents/" + a["id"].(string)
@@ -122,5 +122,13 @@ func TestAgentAndTeamEmojiIcons(t *testing.T) {
 	}
 	if c := s.call(t, "GET", tpath, owner, w.ID, nil, &read); c != 200 || read["avatar_url"] != "" {
 		t.Fatalf("read reset Team icon: %d %+v", c, read)
+	}
+}
+
+func TestBuiltInEmojiSetIsAccepted(t *testing.T) {
+	for _, g := range strings.Fields("🦊 🦁 🐼 🐸 🐴 🐝 🐛 🦋 🐞 🕷️ 🐢 🐍 🐙 🐬 🐯") {
+		if !validEmojiAvatar("emoji:" + g) {
+			t.Errorf("rejected %q", g)
+		}
 	}
 }

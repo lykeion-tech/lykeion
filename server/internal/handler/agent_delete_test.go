@@ -126,3 +126,19 @@ func TestDeleteAgentBlockedByTeamMembership(t *testing.T) {
 		t.Fatal("Team member link was removed")
 	}
 }
+
+func TestAgentWithOnlyAReportRunCanChangeAndBeDeleted(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "report-run@lab.org")
+	w := s.workspace(t, a, "lab")
+	agent := s.newAgent(t, a, w.ID, "reporting", "claude")
+	card := s.startStudy(t, a, w.ID, agent, "question")
+	s.mustUpdate(t, `UPDATE card SET state = 'done' WHERE id = $1`, card)
+	s.mustUpdate(t, `INSERT INTO agent_run(workspace_id, card_id, responsible_user_id, board_column, round, role, kind, harness, prompt, status, agent_id) SELECT workspace_id, id, owner_id, 'validation', 1, 'reporter', 'report', 'claude', 'test', 'queued', $2 FROM card WHERE id = $1`, card, agent)
+	if code := s.call(t, "PATCH", "/api/agents/"+agent, a, w.ID, map[string]any{"model": "later-model"}, nil); code != 200 {
+		t.Fatalf("change the CLI of an agent whose only run is a report run: %d", code)
+	}
+	if code := s.call(t, "DELETE", "/api/agents/"+agent, a, w.ID, nil, nil); code != 200 {
+		t.Fatalf("delete an agent whose only run is a report run: %d", code)
+	}
+}

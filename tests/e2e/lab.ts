@@ -194,6 +194,8 @@ export interface FlowRecord {
   kind: string;
   key?: string;
   body: Record<string, unknown>;
+  // Gives the record a finished agent run of its own.
+  run?: boolean;
 }
 
 // Puts a study in a column and state and writes the flow's records into it:
@@ -207,6 +209,8 @@ export async function labFlow(
     block_kind?: string;
     redos?: number;
     round?: number;
+    scope_from?: string;
+    workflow?: string;
     records?: FlowRecord[];
   },
 ) {
@@ -280,7 +284,7 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
   const headers = { 'X-Workspace-ID': fixture.workspace_id };
   const agentResponse = await request.post('/api/agents', {
     headers,
-    data: { name: 'Report watcher', harness: 'claude' },
+    data: { name: 'Report watcher', stage: 'experimentation', harness: 'claude' },
   });
   expect(agentResponse.status()).toBe(201);
   const agent = await agentResponse.json();
@@ -291,7 +295,7 @@ export async function labReportAutoresearch(request: APIRequestContext, mode = '
       description: 'Read sources and report.',
       execution_mode: mode,
       assignee: { type: 'agent', id: agent.id },
-      scope: { from: 'grounding', to: 'validation' },
+      scope: { from: 'experimentation', to: 'experimentation' },
     },
   });
   expect(response.status()).toBe(201);
@@ -372,14 +376,14 @@ export async function labRealtime(page: Page) {
   };
 }
 
-// Agent runs are cards on the study page; a run's transcript opens in a dialog.
+// Agent runs are cards on the study page; a run's full log opens in a dialog.
 export async function openAgentTranscript(page: Page, index = 0) {
   await page
     .locator('.agent-card')
     .nth(index)
-    .getByRole('button', { name: /^Open transcript:/ })
+    .getByRole('button', { name: 'Open full log' })
     .click({ timeout: 30_000 });
-  const dialog = page.locator('dialog.agent-run-dialog');
+  const dialog = page.getByRole('dialog', { name: 'Full log' });
   await expect(dialog).toBeVisible();
   return dialog;
 }

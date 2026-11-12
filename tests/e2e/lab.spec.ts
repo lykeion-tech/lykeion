@@ -42,15 +42,28 @@ test('the real message API paginates beyond 500 and scopes overlapping sequences
   const end = await request.get(`${path}?attempt=2&after=501`, { headers });
   expect(end.status()).toBe(200);
   expect(await end.json()).toEqual([]);
+  // Without an attempt the messages of every attempt page in one sequence,
+  // earlier attempts first, with the cursor (after_attempt, after).
   const current = await request.get(path, { headers });
   expect(current.status()).toBe(200);
-  const currentMessages: RunMessage[] = await current.json();
-  expect(currentMessages).toHaveLength(500);
-  expect(currentMessages[0]).toMatchObject({
-    attempt: 2,
-    seq: 1,
-    content: 'Attempt 2 message 001',
+  const everything: RunMessage[] = await current.json();
+  expect(everything).toHaveLength(500);
+  expect(everything.slice(0, 3).map((m) => [m.attempt, m.seq, m.content])).toEqual([
+    [1, 1, 'Attempt 1 message 001'],
+    [1, 2, 'Attempt 1 message 002'],
+    [2, 1, 'Attempt 2 message 001'],
+  ]);
+  const last = everything[499];
+  expect([last.attempt, last.seq]).toEqual([2, 498]);
+  const rest = await request.get(`${path}?after_attempt=${last.attempt}&after=${last.seq}`, {
+    headers,
   });
+  expect(rest.status()).toBe(200);
+  expect((await rest.json()).map((m: RunMessage) => [m.attempt, m.seq])).toEqual([
+    [2, 499],
+    [2, 500],
+    [2, 501],
+  ]);
   const old = await request.get(`${path}?attempt=1`, { headers });
   expect(old.status()).toBe(200);
   const oldMessages: RunMessage[] = await old.json();

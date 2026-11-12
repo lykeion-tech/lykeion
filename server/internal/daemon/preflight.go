@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,8 +82,15 @@ var (
 // server, returns {"ok": true}. An empty reason means healthy.
 func (d *daemon) preflight(ctx context.Context, harness string) (reason string, detail string) {
 	bin := d.cfg.Harnesses[harness]
-	if bin == "" || agent.DetectVersion(ctx, bin) == "" {
+	version := ""
+	if bin != "" {
+		version = agent.DetectVersion(ctx, bin)
+	}
+	if version == "" {
 		return agent.ReasonCLIMissing, harness + " did not report its version"
+	}
+	if harness == "claude" && claudeTooOld(version) {
+		return agent.ReasonCLITooOld, "claude " + version + " is older than 2.1.69"
 	}
 	probe := schemaFlags[harness]
 	help, _ := cliOutput(ctx, bin, probe.help...)
@@ -307,4 +316,22 @@ func (d *daemon) recheck(harness, reason string) {
 	case d.rechecks <- harness:
 	default:
 	}
+}
+
+// claudeVersion is the version number in Claude Code's version line.
+var claudeVersion = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+
+// claudeTooOld says whether a Claude Code version line names a release
+// before 2.1.69, the first with --append-system-prompt-file, which hands a
+// run its role. A line with no version number is let through.
+func claudeTooOld(version string) bool {
+	m := claudeVersion.FindStringSubmatch(version)
+	if m == nil {
+		return false
+	}
+	var v [3]int
+	for i := range v {
+		v[i], _ = strconv.Atoi(m[i+1])
+	}
+	return slices.Compare(v[:], []int{2, 1, 69}) < 0
 }

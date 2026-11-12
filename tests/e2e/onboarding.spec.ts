@@ -2,7 +2,7 @@ import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'];
+const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'];
 const shots = 'test-results/ui2-task16';
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
@@ -39,7 +39,7 @@ test('five steps, Back and skips create a real workspace without a profile save'
   const [ws] = await (await page.request.get('/api/workspaces')).json();
   expect(ws).toMatchObject({ display_prefix: 'ZFISH', research_context: '' });
 });
-test('failed workspace creation stays on Workspace and retries once', async ({ page }) => {
+test('failed workspace creation stays on Laboratory and retries once', async ({ page }) => {
   await newcomer(page, 'retry');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Retry lab');
@@ -52,7 +52,7 @@ test('failed workspace creation stays on Workspace and retries once', async ({ p
   });
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
   expect(await (await page.request.get('/api/workspaces')).json()).toEqual([]);
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
@@ -94,7 +94,7 @@ test('existing-member resume preserves saved career and context and Settings sti
       (await page.request.patch('/api/me', { data: { career_stage: 'postdoc' } })).status(),
     ).toBe(200);
     await page.goto('/#/onboarding?step=workspace');
-    await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+    await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
     const writes: string[] = [];
     page.on('request', (r) => {
       if (r.method() === 'PATCH') writes.push(r.url());
@@ -121,11 +121,11 @@ test('existing-member resume preserves saved career and context and Settings sti
     await owner.close();
   }
 });
-test('bypass without a workspace resumes at the new Workspace step', async ({ page }) => {
+test('bypass without a workspace resumes at the new Laboratory step', async ({ page }) => {
   await newcomer(page, 'bypass');
   await page.getByRole('button', { name: "I've done this before" }).click();
   await expect(page).toHaveURL(/#\/onboarding\?step=workspace$/);
-  await expect(page.locator('[aria-current=step]')).toHaveText('Workspace');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
 });
 test('library pages read real shared data with four palettes and reachable responsive actions', async ({
   page,
@@ -290,14 +290,14 @@ for (const phase of ['create', 'list'] as const) {
       await controlled.goto('/#/studies');
       await controlled.locator('.workspace-switch').click();
       await controlled.getByRole('menuitem', { name: b.name, exact: false }).last().click();
-      await expect(controlled.locator('.workspace-switch')).toContainText(b.name);
+      await expect(controlled.locator('.workspace-switch')).toHaveAccessibleDescription(b.name);
       release();
       await controlled.unrouteAll({ behavior: 'wait' });
       await controlled.evaluate(
         () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
       );
       await expect(controlled).toHaveURL(/#\/studies$/);
-      await expect(controlled.locator('.workspace-switch')).toContainText(b.name);
+      await expect(controlled.locator('.workspace-switch')).toHaveAccessibleDescription(b.name);
       await expect(controlled.getByRole('heading', { name: 'Skills', exact: true })).toHaveCount(0);
     } finally {
       release();
@@ -307,3 +307,43 @@ for (const phase of ['create', 'list'] as const) {
     }
   });
 }
+
+test('every step is wide and keeps Aristotle centred over the content', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await newcomer(page, 'centred');
+  const check = async () => {
+    const art = (await page.locator('.guide .aristotle-art').boundingBox())!;
+    const name = (await page.locator('.guide > div').boundingBox())!;
+    const content = (await page.locator('.content').boundingBox())!;
+    expect(content.width).toBe(760);
+    const centre = content.x + content.width / 2;
+    expect(Math.abs((art.x + name.x + name.width) / 2 - centre)).toBeLessThan(2);
+    expect(Math.abs(centre - 720)).toBeGreaterThan(50);
+  };
+  await check();
+  const oneLine = async () => {
+    const hero = page.getByRole('heading', { name: 'A lab for your next discovery.' });
+    const box = (await hero.boundingBox())!;
+    expect(box.height).toBeLessThan(50);
+    expect(await hero.evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true);
+  };
+  await oneLine();
+  await page.setViewportSize({ width: 375, height: 800 });
+  await oneLine();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await check();
+  await page.getByRole('textbox', { name: 'Workspace name' }).fill('Centred lab');
+  await page.getByRole('textbox', { name: 'Card prefix' }).fill('CTR');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  for (const heading of ['Skills', 'Connectors', 'Machines']) {
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await check();
+    if (heading === 'Connectors') {
+      await expect(page.locator('.onboarding-card').first()).toBeVisible();
+      await expect(page.locator('.onboarding-card .availability')).toHaveCount(0);
+    }
+    if (heading !== 'Machines')
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  }
+});

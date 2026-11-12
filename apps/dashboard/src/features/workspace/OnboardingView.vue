@@ -13,8 +13,10 @@ import { daemonSessionKey } from '../../lib/daemon-session';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { notify } from '../../state/notice';
-import { useRuntimes, useWorkspaces } from '../../api/queries';
+import { useLaboratories, useMe, useRuntimes, useWorkspaces } from '../../api/queries';
 import type { Workspace } from '../../api/types';
+import LabChartScene from '../lab-chart/LabChartScene.vue';
+import { toPreviewChart } from '../lab-chart/preview';
 import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../../lib/studies';
 import { useWorkspaceTabs } from '../../state/workspace-tabs';
 
@@ -24,13 +26,25 @@ const router = useRouter();
 const client = useQueryClient();
 const workspaces = useWorkspaces();
 const runtimes = useRuntimes();
-const steps = ['Welcome', 'Workspace', 'Skills', 'Connectors', 'Machines'] as const;
+const laboratories = useLaboratories();
+const me = useMe();
+// The laboratory a new workspace starts with; the built-in one until another
+// is chosen.
+const laboratory = ref('built-in');
+const previewChart = computed(() => {
+  const lab = laboratories.data.value?.find((l) => l.id === laboratory.value);
+  return lab && me.data.value
+    ? toPreviewChart(lab, { user_id: me.data.value.id, name: me.data.value.name })
+    : null;
+});
+const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'] as const;
 type Step = (typeof steps)[number];
-const step = ref<Step>(route.query.step === 'workspace' ? 'Workspace' : 'Welcome');
+const laboratoryQuery = (value: unknown) => value === 'laboratory' || value === 'workspace';
+const step = ref<Step>(laboratoryQuery(route.query.step) ? 'Laboratory' : 'Welcome');
 watch(
   () => route.query.step,
   (value) => {
-    if (value === 'workspace') step.value = 'Workspace';
+    if (laboratoryQuery(value)) step.value = 'Laboratory';
   },
 );
 const position = computed(() => steps.indexOf(step.value));
@@ -48,7 +62,7 @@ const choice = ref<string>('new');
 watch(
   () => workspaces.data.value,
   (list) => {
-    if (list?.length && choice.value === 'new' && step.value !== 'Workspace')
+    if (list?.length && choice.value === 'new' && step.value !== 'Laboratory')
       choice.value = list[0]!.id;
   },
   { immediate: true },
@@ -101,6 +115,7 @@ const saveWorkspace = () =>
       const ws = await api<Workspace>('POST', '/api/workspaces', {
         name: name.value.trim(),
         slug: slug.value,
+        laboratory: laboratory.value,
       });
       if (!current()) return;
       id = ws.id;
@@ -199,7 +214,7 @@ async function logOut() {
       >
         <template v-if="step === 'Welcome'">
           <small class="muted">Welcome to Lykeion</small>
-          <h2 class="hero">A lab for your<br />next discovery.</h2>
+          <h2 class="hero">A lab for your next discovery.</h2>
           <p class="sub">
             Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace: you
             set the questions, agents carry out the work.
@@ -212,12 +227,12 @@ async function logOut() {
             </div>
           </div>
         </template>
-        <template v-else-if="step === 'Workspace'">
+        <template v-else-if="step === 'Laboratory'">
           <h2>
             {{
               workspaces.data.value?.length
                 ? `Continue with ${workspaces.data.value[0]!.name}, or start another.`
-                : 'Create your workspace.'
+                : 'Create your laboratory.'
             }}
           </h2>
           <p class="sub">You can belong to any number of workspaces.</p>
@@ -279,6 +294,23 @@ async function logOut() {
                 you type a prefix here.</small
               >
               <small v-if="prefixError" class="field-error">{{ prefixError }}</small>
+              <label v-for="l in laboratories.data.value ?? []" :key="l.id" class="choice-head">
+                <span class="workspace-avatar">{{ l.name[0] }}</span><b>{{ l.name }}</b>
+                <input
+                  v-model="laboratory"
+                  type="radio"
+                  name="laboratory"
+                  :value="l.id"
+                  :aria-label="l.name"
+                />
+              </label>
+              <LabChartScene
+                v-if="previewChart"
+                :chart="previewChart"
+                preview
+                height="420px"
+                :me="me.data.value?.id"
+              />
             </template>
           </div>
         </template>
@@ -358,11 +390,6 @@ async function logOut() {
                 <p>{{ connector.purpose }}</p>
                 <small v-if="!connector.enabled">{{ connector.reason }}</small>
               </div>
-              <span
-                class="availability"
-                :class="{ ready: connector.enabled }"
-                aria-hidden="true"
-              ></span>
             </article>
             <article
               v-for="connector in customConnectors.data.value ?? []"
@@ -380,12 +407,12 @@ async function logOut() {
       </section>
       <footer class="actions">
         <template v-if="step === 'Welcome'">
-          <button class="button primary" @click="step = 'Workspace'">Set up your lab</button>
+          <button class="button primary" @click="step = 'Laboratory'">Set up your lab</button>
           <button class="text-button" :disabled="busy" @click="finish">
             I've done this before
           </button>
         </template>
-        <template v-else-if="step === 'Workspace'">
+        <template v-else-if="step === 'Laboratory'">
           <button
             class="button primary"
             :disabled="busy || (choice === 'new' && !canCreate)"
@@ -514,7 +541,7 @@ async function logOut() {
 }
 .content {
   flex: 1;
-  width: min(100%, 552px);
+  width: min(100%, 760px);
   margin: 0 auto;
   min-height: 0;
   overflow: auto;
@@ -530,6 +557,7 @@ async function logOut() {
 .content .hero {
   font-size: 34px;
   line-height: 1.15;
+  white-space: nowrap;
 }
 .centered {
   text-align: center;
@@ -659,7 +687,7 @@ async function logOut() {
   gap: 8px;
 }
 .actions .button.primary {
-  width: min(100% - 32px, 504px);
+  width: min(100% - 32px, 712px);
   justify-content: center;
 }
 .content .inline-error {
@@ -697,29 +725,6 @@ async function logOut() {
   font-size: 13px;
   color: var(--muted);
   margin-top: 6px;
-}
-.availability {
-  width: 28px;
-  height: 16px;
-  flex: none;
-  border-radius: 10px;
-  background: var(--border);
-  margin-top: 3px;
-  padding: 2px;
-}
-.availability::after {
-  content: '';
-  display: block;
-  height: 12px;
-  width: 12px;
-  background: var(--surface);
-  border-radius: 50%;
-}
-.availability.ready {
-  background: var(--primary);
-}
-.availability.ready::after {
-  margin-left: 12px;
 }
 @media (max-width: 900px) {
   .rail {
@@ -769,7 +774,7 @@ async function logOut() {
     padding: 20px 12px 12px;
   }
   .content .hero {
-    font-size: 28px;
+    font-size: min(28px, 5.8vw);
   }
   .actions {
     flex: none;

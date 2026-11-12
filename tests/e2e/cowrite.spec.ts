@@ -197,7 +197,7 @@ test('the model menu stays inside a 900 px viewport', async ({ page }) => {
   await page.goto('/#/coresearch/new');
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default (recommended)',
+      name: 'CLI and model: Claude Code · Default',
       exact: true,
     })
     .click();
@@ -228,7 +228,7 @@ test('the drawer card summarises the pending proposal and reviews its hunks', as
   await expect(dialog).toBeHidden();
   await expect(card).toBeHidden();
 });
-test('the session rail carries the workspace switcher, the rail buttons and the session title tab', async ({
+test('the session rail carries the rail buttons and the session title tab, and the navigation the workspace switcher', async ({
   page,
 }) => {
   await cowriteFixture(page);
@@ -238,14 +238,14 @@ test('the session rail carries the workspace switcher, the rail buttons and the 
   await expect(page.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab')).toHaveText([
     'Paper',
   ]);
-  await expect(page.locator('.cowrite-context-rail .workspace-switch')).toContainText(
-    'Fixture lab',
-  );
-  await page.getByRole('button', { name: 'Show navigation', exact: true }).click();
-  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible();
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
+  const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
+  await expect(navigation).toBeVisible();
   await expect(rail).toBeHidden();
-  await page.getByRole('button', { name: 'Show session details', exact: true }).click();
-  await expect(rail.getByRole('tab', { name: 'Files' })).toBeVisible();
-  await page.locator('.cowrite-context-rail .workspace-switch').click();
+  await expect(navigation.locator('.workspace-switch')).toHaveAccessibleDescription('Fixture lab');
+  await navigation.locator('.workspace-switch').click();
   await expect(page.getByRole('menu', { name: 'Workspace' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar-brand:visible [aria-current=page]').click();
+  await expect(rail.getByRole('tab', { name: 'Files' })).toBeVisible();
 });

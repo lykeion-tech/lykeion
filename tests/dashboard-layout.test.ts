@@ -2,6 +2,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveConfig } from 'vite';
+import { createSSRApp, h } from 'vue';
+import { renderToString } from 'vue/server-renderer';
+import Icon from '../apps/dashboard/src/ui/Icon.vue';
 
 const src = 'apps/dashboard/src';
 
@@ -140,7 +143,6 @@ describe('the dashboard source layout', () => {
       ['views/CreateTask.vue', 'features/studies/CreateStudy.vue'],
       ['components/ColumnRating.vue', 'features/studies/ColumnRating.vue'],
       ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
-      ['components/StudyEnvironment.vue', 'features/studies/StudyEnvironment.vue'],
       ['components/ComposerCalendar.vue', 'features/studies/ComposerCalendar.vue'],
       ['lib/environment.ts', 'features/studies/environment.ts'],
       ['lib/dates.ts', 'features/studies/dates.ts'],
@@ -211,5 +213,20 @@ describe('the dashboard source layout', () => {
   it('keeps the stored keys', () => {
     expect(readFileSync(join(src, 'state/pins.ts'), 'utf8')).toContain("'lykeion.pinned-tasks'");
     expect(readFileSync(join(src, 'state/preferences.ts'), 'utf8')).toContain('taskOpen');
+  });
+});
+
+describe('the rail icons', () => {
+  const app = readFileSync(join(src, 'App.vue'), 'utf8');
+  it('gives Teams the team glyph and Lykeion the network icon before Settings', () => {
+    expect(app).toContain("{ id: 'teams', name: 'Teams', icon: 'team' }");
+    expect(app).toMatch(
+      /\{ id: 'lab-chart', name: 'Lykeion', icon: 'network' \},\s*\{ id: 'settings'/,
+    );
+  });
+  it('draws the team glyph as one rect and two filled circles', async () => {
+    const html = await renderToString(createSSRApp({ render: () => h(Icon, { name: 'team' }) }));
+    expect(html.match(/<rect/g)).toHaveLength(1);
+    expect(html.match(/<circle[^>]*fill="currentColor"/g)).toHaveLength(2);
   });
 });
