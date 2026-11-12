@@ -474,7 +474,7 @@ export interface Runtime {
   kernel: string;
   language: string;
   // Each language base on the machine ('python', 'r', 'julia'): 'ready',
-  // 'building' or 'failed: <reason>'. A base not yet tried is absent.
+  // 'building' or 'failed: <reason>'. Older daemon reports may omit a base.
   bases: Record<string, string>;
 }
 

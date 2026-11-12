@@ -596,7 +596,7 @@ func TestAStudyEnvStopsWithItsContext(t *testing.T) {
 
 func TestStatesReportBuildingAndFailure(t *testing.T) {
 	b, f := fakeBases(t)
-	if s := b.States(); len(s) != 0 {
+	if s := b.States(); len(s) != 3 || s[Python] != Failed(ErrBoundedProvisioningUnavailable) || s[R] != Failed(ErrBoundedProvisioningUnavailable) || s[Julia] != Failed(ErrBoundedProvisioningUnavailable) {
 		t.Fatalf("states before any build: %v", s)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
@@ -612,7 +612,7 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- b.buildBaseForTest(context.Background(), Python) }()
 	<-started
-	if s := b.States(); s[Python] != "building" || len(s) != 1 {
+	if s := b.States(); s[Python] != "building" || len(s) != 3 {
 		t.Fatalf("states while building: %v", s)
 	}
 	close(release)
@@ -629,7 +629,7 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
-	if s := b.States(); s[Python] != "ready" || len(s) != 1 {
+	if s := b.States(); s[Python] != "ready" || len(s) != 3 {
 		t.Fatalf("states after a rebuild: %v", s)
 	}
 }

@@ -124,6 +124,29 @@ const sandboxFailure = computed(() => {
   const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";
 });
+const unavailableBase =
+  'failed: bounded scientific environment setup is unavailable on this machine; use an existing ready environment until a supported update is available';
+const unavailableBases = computed(() => {
+  const current = machine.value;
+  if (!current || !current.online || !isOwner.value || !workspaceId.value) return [];
+  const reports = current.runtimes.filter(
+    (r) =>
+      r.owner_id === me.data.value?.id &&
+      r.workspace_id === workspaceId.value &&
+      r.status === 'online' &&
+      r.last_seen_at === current.lastSeen,
+  );
+  if (!reports.length) return [];
+  return (
+    [
+      ['python', 'Python'],
+      ['r', 'R'],
+      ['julia', 'Julia'],
+    ] as const
+  )
+    .filter(([key]) => reports.every((r) => r.bases?.[key] === unavailableBase))
+    .map(([, label]) => label);
+});
 const daemonSettings = ref<InstanceType<typeof DaemonSettings>>();
 const sharingDetails = ref(false);
 const sharingForm = ref<InstanceType<typeof MachineSharing>>();
@@ -349,6 +372,11 @@ async function remove(d: Daemon) {
               </div>
             </div>
             <p v-if="sandboxFailure" class="inline-error" role="alert">{{ sandboxFailure }}</p>
+            <p v-if="unavailableBases.length" class="inline-error" role="status">
+              Shared scientific setup for {{ unavailableBases.join(', ') }} is unavailable on this
+              machine. Existing prepared environments may remain usable; a supported update is
+              required to set up new ones.
+            </p>
             <p v-if="removalError?.id === machine.id" class="inline-error" role="alert">
               {{ removalError.message }}
             </p>
@@ -457,7 +485,12 @@ async function remove(d: Daemon) {
     </template>
     <div v-else class="inset-content">
       <section
-        v-if="me.data.value?.id && nativeSnapshot?.availability === 'available' && !registeredLocal && bridge"
+        v-if="
+          me.data.value?.id &&
+          nativeSnapshot?.availability === 'available' &&
+          !registeredLocal &&
+          bridge
+        "
         class="tool-setup"
         aria-labelledby="local-setup-heading"
       >

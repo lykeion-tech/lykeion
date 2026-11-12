@@ -308,8 +308,7 @@ func (b *Bases) setState(lang, state string) {
 	}
 }
 
-// States reports each base as "ready", "building" or "failed: <reason>". A
-// base not yet tried is absent.
+// States reports each base as "ready", "building" or "failed: <reason>".
 func (b *Bases) States() map[string]string {
 	out := map[string]string{}
 	for lang := range displayNames {
@@ -319,9 +318,14 @@ func (b *Bases) States() map[string]string {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for lang, state := range b.states {
-		if _, ready := out[lang]; !ready {
+	for lang := range displayNames {
+		if _, ready := out[lang]; ready {
+			continue
+		}
+		if state := b.states[lang]; state != "" {
 			out[lang] = state
+		} else {
+			out[lang] = Failed(ErrBoundedProvisioningUnavailable)
 		}
 	}
 	return out

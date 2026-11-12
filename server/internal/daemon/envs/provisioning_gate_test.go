@@ -98,6 +98,41 @@ func TestReadyBasesRemainUsableWithoutProvisioning(t *testing.T) {
 	}
 }
 
+func TestStatesReportsUnavailableBasesAndPreservesExistingStates(t *testing.T) {
+	b := NewBases(t.TempDir())
+	b.Fetch = func(context.Context, string, string, string) error { t.Fatal("unexpected download"); return nil }
+	b.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
+		t.Fatal("unexpected installer")
+		return nil, nil
+	}
+	if err := os.MkdirAll(b.baseDir(Python), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b.baseDir(Python), "ready"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	b.setState(R, "building")
+	b.setState(Julia, "failed: previous failure")
+	states := b.States()
+	if states[Python] != "ready" || states[R] != "building" || states[Julia] != "failed: previous failure" {
+		t.Fatalf("existing states changed: %v", states)
+	}
+	b.setState(R, "")
+	states = b.States()
+	if states[R] != Failed(ErrBoundedProvisioningUnavailable) {
+		t.Fatalf("missing R did not report unavailable: %v", states)
+	}
+	if err := os.MkdirAll(b.baseDir(R), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b.baseDir(R), "ready"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if states = b.States(); states[R] != "ready" || states[Julia] != "failed: previous failure" {
+		t.Fatalf("recovered state not reported: %v", states)
+	}
+}
+
 func TestUnavailableLeanRejectsInvalidNamesAndSymlink(t *testing.T) {
 	root := t.TempDir()
 	b := NewBases(root)

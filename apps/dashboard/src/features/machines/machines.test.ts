@@ -12,25 +12,34 @@ async function renderMachine(
   previous?: { sandbox: string; status: 'online' | 'offline' },
   unhealthyReason?: string,
   runtimeStatus: 'online' | 'offline' = 'online',
+  extra: {
+    bases?: Record<string, string>;
+    previousBases?: Record<string, string>;
+    viewer?: string;
+    owner?: string;
+    workspace?: string;
+  } = {},
 ) {
   workspaceId.value = 'w';
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } },
   });
+  client.setQueryData(keys.me, { id: extra.viewer ?? 'owner' });
   client.setQueryData(keys.runtimes('w'), [
     {
       id: 'runtime',
       daemon_id: 'daemon',
       device_name: 'Bench computer',
       custom_name: null,
-      owner_id: 'owner',
+      owner_id: extra.owner ?? 'owner',
+      workspace_id: extra.workspace ?? 'w',
       status: runtimeStatus,
       unhealthy_reason: unhealthyReason,
       harness: 'claude',
       cli_version: '1.0',
       active_runs: 0,
       last_seen_at: '2026-10-21T10:00:00Z',
-      bases: sandbox ? { sandbox } : {},
+      bases: { ...extra.bases, ...(sandbox ? { sandbox } : {}) },
     },
     ...(previous
       ? [
@@ -40,12 +49,13 @@ async function renderMachine(
             device_name: 'Bench computer',
             custom_name: null,
             owner_id: 'owner',
+            workspace_id: 'w',
             status: previous.status,
             harness: 'codex',
             cli_version: '1.0',
             active_runs: 0,
             last_seen_at: '2026-10-21T09:00:00Z',
-            bases: { sandbox: previous.sandbox },
+            bases: { ...extra.previousBases, sandbox: previous.sandbox },
           },
         ]
       : []),
@@ -113,5 +123,42 @@ describe('runtime readiness', () => {
     const html = await renderMachine(undefined, undefined, 'cli_missing');
     expect(html).toContain('Needs attention');
     expect(html).toContain('Agent CLI is missing');
+  });
+});
+
+const unavailable =
+  'failed: bounded scientific environment setup is unavailable on this machine; use an existing ready environment until a supported update is available';
+
+describe('shared scientific base availability', () => {
+  it('identifies unavailable bases while preserving other statuses', async () => {
+    const html = await renderMachine(undefined, undefined, undefined, 'online', {
+      bases: { python: 'ready', r: unavailable, julia: 'building' },
+    });
+    expect(html).toContain('Shared scientific setup for R is unavailable');
+    expect(html).not.toContain('Shared scientific setup for Python');
+  });
+  it('omits the notice for ready, building, and unrelated failures', async () => {
+    const html = await renderMachine(undefined, undefined, undefined, 'online', {
+      bases: { python: 'ready', r: 'building', julia: 'failed: other error' },
+    });
+    expect(html).not.toContain('Shared scientific setup for');
+  });
+  it('ignores historical failures after readiness recovers', async () => {
+    const html = await renderMachine(
+      undefined,
+      { sandbox: 'ready', status: 'offline' },
+      undefined,
+      'online',
+      { bases: { python: 'ready' }, previousBases: { python: unavailable } },
+    );
+    expect(html).not.toContain('Shared scientific setup for');
+  });
+  it.each([
+    ['offline', { bases: { python: unavailable } }, 'offline'],
+    ['another viewer', { bases: { python: unavailable }, viewer: 'other' }, 'online'],
+    ['another workspace', { bases: { python: unavailable }, workspace: 'other' }, 'online'],
+  ] as const)('does not show %s reports', async (_label, extra, status) => {
+    const html = await renderMachine(undefined, undefined, undefined, status, extra);
+    expect(html).not.toContain('Shared scientific setup for');
   });
 });
