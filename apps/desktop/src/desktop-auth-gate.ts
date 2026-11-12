@@ -11,6 +11,7 @@ export class DesktopAuthGate {
   private readonly mutations = new Set<number>();
   private readonly reservations = new Map<string, { id: number; path: string }>();
   private readonly drainWaiters = new Set<() => void>();
+  private readonly verificationWaiters = new Set<() => void>();
   private abandonedLogout = false;
   private recoveryEpoch = 0;
   private abandonedVerification = false;
@@ -63,6 +64,7 @@ export class DesktopAuthGate {
   acknowledgeInterruptedVerification(): boolean {
     if (!this.abandonedVerification) return false;
     this.abandonedVerification = false;
+    this.notifyVerificationWaiters();
     return true;
   }
   continueMutation(id: number, token: string, path: string): boolean {
@@ -77,6 +79,7 @@ export class DesktopAuthGate {
     this.mutations.delete(id);
     if (!this.mutations.size) this.resumingDrain = false;
     for (const resolve of this.drainWaiters) resolve();
+    this.notifyVerificationWaiters();
   }
   canFinishVerification(): boolean {
     return (
@@ -88,6 +91,31 @@ export class DesktopAuthGate {
       !this.logoutPending &&
       !this.mutations.size
     );
+  }
+  private notifyVerificationWaiters(): void {
+    if (this.canFinishVerification()) {
+      for (const resolve of this.verificationWaiters) resolve();
+    }
+  }
+  waitForVerificationReady(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.reject(new Error('Authentication reload canceled'));
+    if (this.canFinishVerification()) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        this.verificationWaiters.delete(done);
+        signal.removeEventListener('abort', abort);
+      };
+      const done = () => {
+        cleanup();
+        resolve();
+      };
+      const abort = () => {
+        cleanup();
+        reject(new Error('Authentication reload canceled'));
+      };
+      this.verificationWaiters.add(done);
+      signal.addEventListener('abort', abort, { once: true });
+    });
   }
   networkBlocked(): boolean {
     return this.abandonedLogout;
@@ -159,6 +187,7 @@ export class DesktopAuthGate {
         .then(() => {
           this.abandonedLogout = false;
           this.logoutPending = false;
+          this.notifyVerificationWaiters();
         });
       const task = this.recovery;
       void task.then(
@@ -199,10 +228,14 @@ export class DesktopAuthGate {
       const epoch = ++this.persistenceEpoch;
       void persistence.then(
         () => {
-          if (this.persistenceEpoch === epoch) this.pendingPersistence = false;
+          if (this.persistenceEpoch === epoch) {
+            this.pendingPersistence = false;
+            this.notifyVerificationWaiters();
+          }
         },
         () => {},
       );
     }
+    this.notifyVerificationWaiters();
   }
 }

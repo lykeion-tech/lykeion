@@ -19,6 +19,7 @@ import { loadDesktopWindow } from './desktop-window-recovery.js';
 import { DesktopVerification } from './desktop-verification.js';
 import { DesktopGoogleAuth } from './desktop-google-auth.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
+import { AuthenticationReload } from './desktop-auth-reload.js';
 import {
   clearAbandonedLogout,
   finalizeLogoutShutdown,
@@ -54,6 +55,8 @@ let logoutIntent: LogoutIntent | null = null;
 let verificationIntent: LogoutIntent | null = null;
 let verification: DesktopVerification | null = null;
 let currentDocument: string | null = null;
+let pendingAuthReload: AuthenticationReload | null = null;
+let pendingAuthReloadWait: AbortController | null = null;
 let googleAuth: DesktopGoogleAuth | null = null;
 let googleMutationID = Number.MIN_SAFE_INTEGER;
 let startupRecovery: Promise<void> = Promise.resolve();
@@ -72,6 +75,9 @@ async function finishLogoutRecovery(): Promise<void> {
 }
 function abandonDocumentAuthentication() {
   googleAuth?.cancel();
+  pendingAuthReloadWait?.abort();
+  pendingAuthReloadWait = null;
+  pendingAuthReload = null;
   currentDocument = null;
   authGate.abandonUnclaimed();
   if (authGate.acknowledgeInterruptedVerification())
@@ -93,6 +99,13 @@ function abandonDocumentAuthentication() {
 let quitAllowed = false;
 let quitPending = false;
 let windowRecovery: ReturnType<typeof loadDesktopWindow> | undefined;
+function resumeAuthenticationReload() {
+  if (!pendingAuthReload) return;
+  pendingAuthReloadWait?.abort();
+  const wait = new AbortController();
+  pendingAuthReloadWait = wait;
+  pendingAuthReload.resumeAfterQuit(authGate.waitForVerificationReady(wait.signal));
+}
 app.on('before-quit', (event) => {
   googleAuth?.cancel();
   if (quitAllowed || !ownsInstance) return;
@@ -117,6 +130,7 @@ app.on('before-quit', (event) => {
         daemon?.resumeAfterQuit();
         authGate.resumeAfterQuit();
         quitPending = false;
+        resumeAuthenticationReload();
         dialog.showErrorBox(
           'Lykeion could not close',
           results[0].reason instanceof Error &&
@@ -133,8 +147,10 @@ app.on('before-quit', (event) => {
         await finalizeLogoutShutdown(startupRecovery, desktopSession);
       } catch {
         daemon?.resumeAfterQuit();
-        authGate.resumeAfterQuit(finalizeLogoutShutdown(startupRecovery, desktopSession, Infinity));
+        const persistence = finalizeLogoutShutdown(startupRecovery, desktopSession, Infinity);
+        authGate.resumeAfterQuit(persistence);
         quitPending = false;
+        resumeAuthenticationReload();
         dialog.showErrorBox(
           'Lykeion could not close',
           'The sign-in session could not be safely saved. Try closing Lykeion again.',
@@ -459,7 +475,6 @@ void app.whenReady().then(async () => {
       !owner ||
       documentID !== currentDocument ||
       googleAuth ||
-      quitPending ||
       quitAllowed ||
       !trustedDesktopFrame(event, owner.webContents, apiOrigin)
     ) {
@@ -467,10 +482,24 @@ void app.whenReady().then(async () => {
       return;
     }
     event.returnValue = true;
-    setImmediate(() => {
-      if (window === owner && documentID === currentDocument && !quitPending && !quitAllowed)
-        owner.webContents.reload();
-    });
+    pendingAuthReloadWait?.abort();
+    pendingAuthReloadWait = null;
+    const pending: AuthenticationReload = new AuthenticationReload(
+      () =>
+        pendingAuthReload === pending &&
+        window === owner &&
+        documentID === currentDocument &&
+        !owner.isDestroyed() &&
+        !owner.webContents.isDestroyed(),
+      () => quitPending || quitAllowed,
+      () => authGate.canFinishVerification(),
+      () => owner.webContents.reload(),
+      setImmediate,
+      resumeAuthenticationReload,
+    );
+    pendingAuthReload = pending;
+    pending.request();
+    if (!authGate.canFinishVerification()) resumeAuthenticationReload();
   });
   ipcMain.on('lykeion:cancel-google-sign-in', (event, documentID: unknown) => {
     if (

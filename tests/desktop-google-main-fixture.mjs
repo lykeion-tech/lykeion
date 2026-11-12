@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -88,6 +88,26 @@ server.listen(0, '127.0.0.1', async () => {
       'Google button',
     );
     const before = await win.webContents.executeJavaScript('window.lykeionDesktop.requestDocument');
+    let attemptedQuit = false;
+    let failedFlush = false;
+    const cookies = win.webContents.session.cookies;
+    const flushStore = cookies.flushStore.bind(cookies);
+    dialog.showErrorBox = () => {};
+    ipcMain.prependOnceListener('lykeion:reload-after-authentication', () => {
+      cookies.flushStore = () => {
+        if (!failedFlush) {
+          failedFlush = true;
+          return Promise.reject(new Error('fixture quit flush failure'));
+        }
+        return flushStore();
+      };
+      const quit = () => {
+        attemptedQuit = true;
+        app.quit();
+      };
+      if (process.env.LYK_TEST_QUIT_BEFORE_RELOAD === '1') quit();
+      else process.nextTick(quit);
+    });
     await win.webContents.executeJavaScript(
       "[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Continue with Google')).click()",
     );
@@ -107,6 +127,8 @@ server.listen(0, '127.0.0.1', async () => {
           .catch(() => false),
       'dashboard document reload',
     );
+    assert.equal(attemptedQuit, true);
+    assert.equal(failedFlush, true);
     await until(
       async () =>
         win.webContents
@@ -142,12 +164,12 @@ server.listen(0, '127.0.0.1', async () => {
     heldResponse.writeHead(200, { 'Content-Type': 'application/json' });
     heldResponse.end(JSON.stringify({ token: 'unexpected.other.account', expires_in: 3600 }));
     await new Promise((resolve) => setTimeout(resolve, 500));
-    const cookies = await win.webContents.session.cookies.get({ name: 'lyk_session' });
-    assert.equal(cookies.length, 1);
-    assert.equal(cookies[0].value, 'fixture.jwt.token');
+    const savedCookies = await win.webContents.session.cookies.get({ name: 'lyk_session' });
+    assert.equal(savedCookies.length, 1);
+    assert.equal(savedCookies[0].value, 'fixture.jwt.token');
 
     console.log(
-      'production main Google IPC, session write, reload and interrupted exchange passed',
+      'production main Google IPC, failed quit recovery, reload and interrupted exchange passed',
     );
     win.destroy();
     await new Promise((resolve) => server.close(resolve));
