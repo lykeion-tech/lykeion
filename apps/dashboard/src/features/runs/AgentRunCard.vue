@@ -247,7 +247,7 @@ const lastActive = computed(
         ><button
           v-if="stoppable"
           type="button"
-          class="header-action"
+          class="header-action stop-run"
           :aria-label="`Stop ${name} run`"
           title="Stop run"
           :disabled="stopping"
@@ -416,17 +416,21 @@ const lastActive = computed(
   gap: 8px;
 }
 .full-log,
+.stop-run,
 :deep(.reaction-action) {
   opacity: 0;
 }
 .agent-card:hover .full-log,
 .agent-card:focus-within .full-log,
+.agent-card:hover .stop-run,
+.agent-card:focus-within .stop-run,
 .agent-card:hover :deep(.reaction-action),
 .agent-card:focus-within :deep(.reaction-action) {
   opacity: 1;
 }
 @media (hover: none) {
   .full-log,
+  .stop-run,
   :deep(.reaction-action) {
     opacity: 1;
   }
