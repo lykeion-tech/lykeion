@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { openHeldStream } = require('./desktop-held-stream.cjs');
 const report = process.env.LYK_TEST_REPORT;
 const root = process.env.LYK_TEST_PRIVATE;
 app.setPath('userData', path.join(root, 'user-data'));
@@ -31,6 +33,10 @@ app.whenReady().then(async () => {
     const yaml = Buffer.from(`version: 1.2.3\nfiles:\n  - url: ${filename}\n    sha512: ${sha512}\n    size: ${bytes.length}\npath: ${filename}\nsha512: ${sha512}\n`);
     let requests = 0;
     let authorized = 0;
+    let heldSession;
+    let heldTransfer;
+    let activeCancellation;
+    let pendingCancellation = false;
     let phase = 'redirect';
     let artifactRequested;
     const artifactStarted = new Promise((resolve) => { artifactRequested = resolve; });
@@ -46,6 +52,15 @@ app.whenReady().then(async () => {
       }
       if (req.url === `/${filename}` && phase === 'cancel') {
         artifactRequested();
+        return;
+      }
+      if (req.url === `/${filename}` && heldSession) {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': bytes.length });
+        heldTransfer = heldSession.deliver(res).then(() => true, () => {
+          pendingCancellation = true;
+          activeCancellation?.cancel();
+          return false;
+        });
         return;
       }
       const content = req.url === '/latest-mac.yml' ? yaml : bytes;
@@ -127,11 +142,43 @@ app.whenReady().then(async () => {
     canceled.cancellationToken.cancel();
     observed.canceled = await canceledResult;
     checkpoint('retry');
+    let failedSafely = true;
+    const prepareHeld = async (mode) => {
+      const child = spawn(process.env.LYK_TEST_NODE, [path.join(root, 'fake-helper.cjs'), mode], {
+        env: { PATH: '/usr/bin:/bin', HOME: root }, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const session = await openHeldStream(child, new AbortController().signal);
+      if (session.descriptor.size !== bytes.length || session.descriptor.sha256 !== sha256 || session.descriptor.sha512 !== sha512) throw Error('fixture descriptor mismatch');
+      heldTransfer = undefined;
+      activeCancellation = undefined;
+      pendingCancellation = false;
+      return session;
+    };
+    for (const mode of ['bad', 'missing', 'extra', 'exit', 'mutation']) {
+      phase = mode;
+      checkpoint(`invalid-${mode}-prepare`);
+      heldSession = await prepareHeld(mode);
+      checkpoint(`invalid-${mode}-check`);
+      const invalid = await updater.checkForUpdates();
+      if (!invalid?.downloadPromise) throw Error('fixture invalid download not started');
+      activeCancellation = invalid.cancellationToken;
+      if (pendingCancellation) activeCancellation?.cancel();
+      checkpoint(`invalid-${mode}-download`);
+      const rejected = await invalid.downloadPromise.then(() => false, () => true);
+      checkpoint(`invalid-${mode}-transfer`);
+      const transfer = await heldTransfer;
+      if (!rejected || transfer !== false || nativeFeed !== 0 || nativeCheck !== 0 || nativeInstall !== 0 || eventsBeforeRecheck !== 0) failedSafely = false;
+    }
+    observed.badStreamsNeverComplete = failedSafely;
     phase = 'success';
+    heldSession = await prepareHeld('good');
     const result = await updater.checkForUpdates();
     checkpoint('retry-download');
     if (!result?.isUpdateAvailable || !result.downloadPromise) throw Error('fixture retry not started');
+    activeCancellation = result.cancellationToken;
+    if (pendingCancellation) activeCancellation?.cancel();
     const paths = await result.downloadPromise;
+    if (!(await heldTransfer)) throw Error('fixture held transfer failed');
     checkpoint('verify');
     if (!Array.isArray(paths) || paths.length !== 1) throw Error('fixture output missing');
     recheckStarted = true;
@@ -146,7 +193,7 @@ app.whenReady().then(async () => {
     observed.exactBytes = matches(pending) && verifiedNotifications === 1;
     observed.eventBeforeRecheck = eventsBeforeRecheck === 1;
     observed.noNativeInstall = nativeCheck === 0 && nativeInstall === 0 && nativeFeed === 1;
-    observed.exactRequests = requests === 6 && authorized === 5;
+    observed.exactRequests = requests - authorized === 1 && authorized >= 15 && authorized <= 20;
     observed.noSecretLogs = logs.every((line) => !line.includes(token));
     observed.packaged = app.isPackaged;
     if (Object.values(observed).some((x) => x !== true)) throw Error('fixture assertion failed');

@@ -19,6 +19,10 @@ try {
   mkdirSync(privateDir, { mode: 0o700 });
   writeFileSync(path.join(input, 'package.json'), JSON.stringify({ name: 'lykeion-updater-fixture', version: '1.0.0', main: 'main.cjs' }));
   cpSync(path.join(root, 'tests/fixtures', downloadProbe ? 'desktop-updater-download-probe.cjs' : 'desktop-updater-packaged.cjs'), path.join(input, 'main.cjs'));
+  if (downloadProbe) {
+    cpSync(path.join(root, 'tests/fixtures/desktop-held-stream.cjs'), path.join(input, 'desktop-held-stream.cjs'));
+    cpSync(path.join(root, 'tests/fixtures/desktop-fake-stream-helper.cjs'), path.join(privateDir, 'fake-helper.cjs'));
+  }
   await buildDesktopUpdater(root, path.join(input, 'electron-updater.cjs'));
   const app = path.join(temp, 'Electron.app');
   cpSync(path.join(root, 'node_modules/electron/dist/Electron.app'), app, { recursive: true, verbatimSymlinks: true });
@@ -28,7 +32,7 @@ try {
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleExecutable', '-string', 'LykeionUpdaterFixture', path.join(app, 'Contents/Info.plist')]);
   execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'ignore' });
   const report = path.join(temp, 'result.json');
-  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: privateDir, LYK_TEST_REPORT: report, LYK_TEST_PRIVATE: privateDir, TMPDIR: temp, TMP: temp, TEMP: temp };
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: privateDir, LYK_TEST_REPORT: report, LYK_TEST_PRIVATE: privateDir, LYK_TEST_NODE: process.execPath, TMPDIR: temp, TMP: temp, TEMP: temp };
   const result = await runFixture(executable, [], env, 30_000);
   safeToRemove = !result.treeUncertain;
   assert.equal(result.timedOut, false, `fixture timed out: ${existsSync(report) ? readFileSync(report, 'utf8') : 'no report'}`);
@@ -37,7 +41,7 @@ try {
   assert.equal(result.code, 0, `fixture terminated: ${JSON.stringify(result)}, result: ${JSON.stringify(observed)}`);
   assert.deepEqual(observed, downloadProbe ? {
     badSignatureRejected: true, signatureSelfCheck: true, badBearerRejected: true,
-    remoteBlocked: true, guards: true, redirectBlocked: true, singleFlight: true, canceled: true, exactBytes: true,
+    remoteBlocked: true, guards: true, redirectBlocked: true, singleFlight: true, canceled: true, badStreamsNeverComplete: true, exactBytes: true,
     tamperNotNotified: true, eventBeforeRecheck: true, noNativeInstall: true, exactRequests: true, noSecretLogs: true, packaged: true, cleanupDone: true, failed: false,
   } : {
     packaged: true, adapter: true, executor: true, autoDownload: false,
