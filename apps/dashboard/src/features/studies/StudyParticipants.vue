@@ -190,7 +190,7 @@ function runtime(run: AgentRun) {
           <dd>{{ owner.name || owner.email }}</dd>
         </div>
         <div>
-          <dt>Skills (current)</dt>
+          <dt>Skills</dt>
           <dd>
             {{
               capabilities.isPending.value && agent
@@ -204,9 +204,6 @@ function runtime(run: AgentRun) {
           </dd>
         </div>
       </dl>
-      <div v-if="agent" class="participant-actions">
-        <RouterLink :to="`/agents/${active.agent_id}`">Settings</RouterLink>
-      </div>
     </section>
   </div>
 </template>
@@ -321,18 +318,6 @@ function runtime(run: AgentRun) {
   width: 24px;
   height: 24px;
   flex: none;
-}
-.participant-actions {
-  border-top: 1px solid var(--border);
-  margin-top: 14px;
-  padding-top: 12px;
-}
-.participant-actions a {
-  display: inline-block;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--fill-control);
 }
 dl {
   margin: 10px 0 0;
