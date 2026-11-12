@@ -2,11 +2,31 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"lykeion/server/internal/desktopupdate"
 )
+
+func desktopUpdateStreamCmd(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use: "desktop-update-stream", Hidden: true, Args: cobra.NoArgs,
+		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			input, inOK := e.in.(*os.File)
+			output, outOK := e.out.(*os.File)
+			if !inOK || !outOK {
+				return errors.New("update stream unavailable")
+			}
+			if err := desktopupdate.StreamVerified(cmd.Context(), input, output); err != nil {
+				return errors.New("update stream unavailable")
+			}
+			return nil
+		},
+	}
+}
 
 func desktopUpdateCmd(e *env) *cobra.Command {
 	return &cobra.Command{

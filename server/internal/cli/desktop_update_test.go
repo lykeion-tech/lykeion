@@ -43,3 +43,15 @@ func TestDesktopUpdateBuildInfoIsLocalAndDoesNotLoadConfig(t *testing.T) {
 		t.Fatalf("unexpected output %q", out.String())
 	}
 }
+
+func TestDesktopUpdateStreamDisabledWithoutConfiguration(t *testing.T) {
+	var out bytes.Buffer
+	command := Root(strings.NewReader("STREAM\n"), &out)
+	if found, _, err := command.Find([]string{"desktop-update-stream"}); err != nil || found.Name() != "desktop-update-stream" {
+		t.Fatal("stream command not registered")
+	}
+	command.SetArgs([]string{"desktop-update-stream"})
+	if err := command.Execute(); err == nil || out.Len() != 0 {
+		t.Fatalf("disabled stream wrote output or succeeded: %v %q", err, out.String())
+	}
+}
