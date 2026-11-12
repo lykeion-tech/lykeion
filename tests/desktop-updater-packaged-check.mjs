@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as asar from '@electron/asar';
+import ts from 'typescript';
 import { buildDesktopUpdater } from '../scripts/desktop-updater-bundle.mjs';
 import { runFixture } from '../scripts/test-desktop-electron.mjs';
 
@@ -22,6 +23,11 @@ try {
   if (downloadProbe) {
     cpSync(path.join(root, 'tests/fixtures/desktop-held-stream.cjs'), path.join(input, 'desktop-held-stream.cjs'));
     cpSync(path.join(root, 'tests/fixtures/desktop-fake-stream-helper.cjs'), path.join(privateDir, 'fake-helper.cjs'));
+    const compilerOptions = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true };
+    for (const [source, target] of [['desktop-held-stream.ts', 'production-held.cjs'], ['packaged-daemon.ts', 'packaged-daemon.js']]) {
+      const code = readFileSync(path.join(root, 'apps/desktop/src', source), 'utf8');
+      writeFileSync(path.join(input, target), ts.transpileModule(code, { compilerOptions }).outputText);
+    }
     execFileSync('go', ['test', '-c', '-o', path.join(privateDir, 'go-stream-probe'), './internal/desktopupdate'], {
       cwd: path.join(root, 'server'), env: { ...process.env, GOFLAGS: '', GOWORK: 'off', GOCACHE: '/tmp/lykeion-desktop-go-cache' }, timeout: 30000, stdio: 'ignore',
     });
@@ -45,7 +51,7 @@ try {
   assert.deepEqual(observed, downloadProbe ? {
     badSignatureRejected: true, signatureSelfCheck: true, badBearerRejected: true,
     remoteBlocked: true, guards: true, redirectBlocked: true, singleFlight: true, canceled: true, badStreamsNeverComplete: true,
-    realGoInvalidRejected: true, realGoLivenessClosed: true, realGoMutationRejected: true, realGoCancelReaped: true, exactBytes: true,
+    realGoInvalidRejected: true, realGoLivenessClosed: true, realModuleMetadataCanceled: true, realGoMutationRejected: true, realGoCancelReaped: true, exactBytes: true,
     tamperNotNotified: true, eventBeforeRecheck: true, noNativeInstall: true, exactRequests: true, noSecretLogs: true, packaged: true, cleanupDone: true, failed: false,
   } : {
     packaged: true, adapter: true, executor: true, autoDownload: false,

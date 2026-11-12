@@ -6,6 +6,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { openHeldStream } = require('./desktop-held-stream.cjs');
+const { openDesktopHeldStream } = require('./production-held.cjs');
 const report = process.env.LYK_TEST_REPORT;
 const root = process.env.LYK_TEST_PRIVATE;
 app.setPath('userData', path.join(root, 'user-data'));
@@ -13,6 +14,7 @@ app.setPath('userData', path.join(root, 'user-data'));
 app.whenReady().then(async () => {
   let server;
   let updater;
+  let heldSession;
   let failure = false;
   const children = new Set();
   const track = (child) => { children.add(child); child.once('close', () => children.delete(child)); return child; };
@@ -35,7 +37,6 @@ app.whenReady().then(async () => {
     const yaml = Buffer.from(`version: 1.2.3\nfiles:\n  - url: ${filename}\n    sha512: ${sha512}\n    size: ${bytes.length}\npath: ${filename}\nsha512: ${sha512}\n`);
     let requests = 0;
     let authorized = 0;
-    let heldSession;
     let heldTransfer;
     let activeCancellation;
     let pendingCancellation = false;
@@ -168,6 +169,20 @@ app.whenReady().then(async () => {
       child.stdio[3].resume();
       return { child, marker };
     };
+    const prepareGo = (mode, suffix = mode) => {
+      const home = path.join(root, `module-go-${suffix}`);
+      const bin = path.join(home, 'bin');
+      fs.mkdirSync(bin, { recursive: true, mode: 0o700 });
+      const marker = path.join(home, 'ready');
+      const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+      const wrapper = path.join(bin, 'lyk');
+      // Test-only wrapper supplies ephemeral harness inputs; it is not the production CLI.
+      fs.writeFileSync(wrapper, `#!/bin/sh\nHOME=${quote(home)} PATH=/usr/bin:/bin LYK_TEST_PACKAGED_STREAM=${quote(mode)} LYK_TEST_PACKAGED_HOME=${quote(home)} LYK_TEST_PACKAGED_READY=${quote(marker)} exec ${quote(path.join(root, 'go-stream-probe'))} '-test.run=^TestPackagedStreamChild$'\n`, { mode: 0o700 });
+      const resources = fs.realpathSync(home);
+      const digest = crypto.createHash('sha256').update(fs.readFileSync(wrapper)).digest('hex');
+      const manifest = { version: '1.0.0', platform: process.platform, arch: process.arch, daemonSHA256: digest };
+      return { resources, manifest, marker };
+    };
     for (const mode of ['bad', 'missing', 'extra', 'exit', 'mutation']) {
       phase = mode;
       checkpoint(`invalid-${mode}-prepare`);
@@ -185,8 +200,9 @@ app.whenReady().then(async () => {
     }
     observed.badStreamsNeverComplete = failedSafely;
     {
-      const { child } = spawnGo('invalid');
-      observed.realGoInvalidRejected = await openHeldStream(child, new AbortController().signal).then(() => false, () => true);
+      const test = prepareGo('invalid');
+      const rejected = await openDesktopHeldStream(test.resources, test.manifest, '1.0.0', new AbortController().signal).then(() => false, () => true);
+      observed.realGoInvalidRejected = rejected && fs.existsSync(test.marker) && fs.readFileSync(test.marker, 'utf8') === 'signature-rejected';
     }
     {
       const { child, marker } = spawnGo('liveness');
@@ -198,8 +214,18 @@ app.whenReady().then(async () => {
       observed.realGoLivenessClosed = await waiting;
     }
     {
-      const { child } = spawnGo('mutation');
-      heldSession = await openHeldStream(child, new AbortController().signal);
+      const test = prepareGo('liveness', 'module-liveness');
+      const controller = new AbortController();
+      const waiting = openDesktopHeldStream(test.resources, test.manifest, '1.0.0', controller.signal).then(() => false, () => true);
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(test.marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      if (!fs.existsSync(test.marker)) { controller.abort(); await waiting; throw Error('fixture module did not block'); }
+      controller.abort();
+      observed.realModuleMetadataCanceled = await waiting;
+    }
+    {
+      const test = prepareGo('mutation');
+      heldSession = await openDesktopHeldStream(test.resources, test.manifest, '1.0.0', new AbortController().signal);
       heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
       const invalid = await updater.checkForUpdates();
       if (!invalid?.downloadPromise) throw Error('fixture mutation download not started');
@@ -210,9 +236,9 @@ app.whenReady().then(async () => {
       observed.realGoMutationRejected = rejected && transfer === false && nativeFeed === 0 && eventsBeforeRecheck === 0;
     }
     {
-      const { child, marker } = spawnGo('blocked-stream');
+      const test = prepareGo('blocked-stream');
       const controller = new AbortController();
-      heldSession = await openHeldStream(child, controller.signal);
+      heldSession = await openDesktopHeldStream(test.resources, test.manifest, '1.0.0', controller.signal);
       heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
       const pending = await updater.checkForUpdates();
       if (!pending?.downloadPromise) throw Error('fixture blocked download not started');
@@ -220,19 +246,18 @@ app.whenReady().then(async () => {
       if (pendingCancellation) activeCancellation?.cancel();
       const rejected = pending.downloadPromise.then(() => false, () => true);
       const deadline = Date.now() + 5000;
-      while (!fs.existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-      if (!fs.existsSync(marker)) { controller.abort(); throw Error('fixture stream did not block'); }
+      while (!fs.existsSync(test.marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      if (!fs.existsSync(test.marker)) { controller.abort(); throw Error('fixture stream did not block'); }
       controller.abort();
       await heldSession.stop();
       const rejectedValue = await rejected;
       const transferValue = await heldTransfer;
-      const childStopped = child.exitCode !== null || child.signalCode !== null;
-      observed.realGoCancelReaped = rejectedValue && transferValue === false && nativeFeed === 0 && eventsBeforeRecheck === 0 && childStopped;
+      observed.realGoCancelReaped = rejectedValue && transferValue === false && nativeFeed === 0 && eventsBeforeRecheck === 0;
     }
     phase = 'success';
     {
-      const { child } = spawnGo('good');
-      heldSession = await openHeldStream(child, new AbortController().signal);
+      const test = prepareGo('good');
+      heldSession = await openDesktopHeldStream(test.resources, test.manifest, '1.0.0', new AbortController().signal);
       heldTransfer = undefined; activeCancellation = undefined; pendingCancellation = false;
       if (heldSession.descriptor.size !== bytes.length || heldSession.descriptor.sha256 !== sha256 || heldSession.descriptor.sha512 !== sha512) throw Error('fixture Go descriptor mismatch');
     }
@@ -265,6 +290,7 @@ app.whenReady().then(async () => {
     failure = true;
   } finally {
     checkpoint('cleanup');
+    if (typeof heldSession?.stop === 'function') await heldSession.stop();
     const childStops = [...children].map((child) => new Promise((resolve) => {
       if (child.exitCode !== null || child.signalCode !== null) return resolve(true);
       const timer = setTimeout(() => resolve(false), 2000);

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -305,11 +306,24 @@ func TestPackagedStreamChild(t *testing.T) {
 	}
 	envelope, key := signedEnvelope(t, []any{1, "stable", 7, "1.2.3", now.Unix(), now.Add(time.Hour).Unix(), "darwin", arch, filename, len(content), hex.EncodeToString(sum[:])})
 	if mode == "invalid" {
-		envelope[len(envelope)/2] ^= 1
+		wrongKey, _, keyErr := ed25519.GenerateKey(rand.Reader)
+		if keyErr != nil {
+			os.Exit(66)
+		}
+		if _, err := verifyMetadata(envelope, []ed25519.PublicKey{key}, "darwin", arch, now); err != nil {
+			os.Exit(67)
+		}
+		if _, err := verifyMetadata(envelope, []ed25519.PublicKey{wrongKey}, "darwin", arch, now); err == nil {
+			os.Exit(68)
+		}
+		key = wrongKey
 	}
 	requests := 0
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		requests++
+		if mode == "invalid" && requests == 1 {
+			_ = os.WriteFile(os.Getenv("LYK_TEST_PACKAGED_READY"), []byte("signature-rejected"), 0600)
+		}
 		if mode == "liveness" && requests == 1 {
 			_ = os.WriteFile(os.Getenv("LYK_TEST_PACKAGED_READY"), []byte("ready"), 0600)
 			<-r.Context().Done()
