@@ -132,7 +132,7 @@ describe('desktop daemon manager', () => {
       ...f.options,
       packaged: true,
       cliAvailable: async () => available,
-      authorizeBrowser: () => async (id: string) => () => browser === id,
+      authorizeBrowser: () => async (id: string | null) => () => browser === id,
     });
     const first = await manager.configureSession(session);
     expect(first.profile).toMatch(/^desktop-packaged-/);
@@ -323,6 +323,75 @@ describe('desktop daemon manager', () => {
     expect(await readFile(standalone, 'utf8')).toBe('standalone sentinel');
     expect((await preview.manager.getSnapshot()).pid).toBe(existing.pid);
     expect(preview.calls).not.toContain('daemon stop');
+  });
+  it('checks local prerequisites before daemon configuration and fences a stale or duplicate refresh', async () => {
+    const f = await fixture();
+    let document = 1;
+    const pending = deferred<string>();
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      authorizeBrowser: () => {
+        const sender = document;
+        return async () => () => sender === document;
+      },
+    });
+    f.execute.mockImplementationOnce(async () => pending.promise);
+    const first = manager.refreshPrerequisites();
+    await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+    expect(f.execute.mock.calls[0]?.[1]).toEqual(['daemon', 'prerequisites']);
+    expect(f.request).not.toHaveBeenCalled();
+    await expect(manager.refreshPrerequisites()).rejects.toThrow();
+    document++;
+    pending.resolve(JSON.stringify({ sandbox: true, claude: false, codex: true }));
+    await expect(first).rejects.toThrow();
+    f.execute.mockResolvedValue(JSON.stringify({ sandbox: false, claude: true, codex: false }));
+    await expect(manager.refreshPrerequisites()).resolves.toEqual({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+    });
+    f.execute.mockResolvedValue(
+      JSON.stringify({ sandbox: true, claude: false, codex: false, token: 'sensitive' }),
+    );
+    await expect(manager.refreshPrerequisites()).rejects.toThrow('Invalid prerequisite response');
+    expect(f.calls).toEqual([]);
+  });
+  it('checks a running owner without altering its PID, registration or credentials', async () => {
+    const f = await fixture();
+    let selected = 'alice';
+    let available = true;
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      cliAvailable: async () => available,
+      authorizeBrowser: () => async (id) => () => !id || selected === id,
+    });
+    const first = await manager.configureSession(session);
+    const previous = f.execute.getMockImplementation()!;
+    f.execute.mockImplementation((...args) =>
+      args[1][1] === 'prerequisites'
+        ? Promise.resolve(JSON.stringify({ sandbox: true, claude: false, codex: false }))
+        : previous(...args),
+    );
+    f.calls.length = 0;
+    f.request.mockClear();
+    expect(await manager.refreshPrerequisites()).toMatchObject({
+      cliAvailable: true,
+      sandbox: true,
+    });
+    expect((await manager.getSnapshot()).pid).toBe(first.pid);
+    expect(f.calls).toEqual(['daemon status --json']);
+    selected = 'bob';
+    f.execute.mockClear();
+    await expect(manager.refreshPrerequisites()).rejects.toThrow();
+    expect(f.execute).not.toHaveBeenCalled();
+    selected = 'alice';
+    available = false;
+    expect(await manager.refreshPrerequisites()).toEqual({ cliAvailable: false });
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.request).not.toHaveBeenCalled();
   });
   it('retains a verified running owner only until the next native identity mutation', async () => {
     const f = await fixture();

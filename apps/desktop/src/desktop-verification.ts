@@ -147,11 +147,11 @@ export class DesktopVerification {
       this.revision === revision &&
       this.ready() &&
       allowed();
-    return async (id: string) => {
+    return async (id: string | null) => {
       if (!current()) throw new Error('Sign in before configuring the desktop daemon');
       const owner = await this.browserIdentity();
       const authenticated = () => current() && owner.expires > Date.now();
-      if (!owner.sessionCookie || owner.id !== id || !authenticated())
+      if (!owner.sessionCookie || !owner.id || (id !== null && owner.id !== id) || !authenticated())
         throw new Error('Desktop session identity does not match account');
       return authenticated;
     };

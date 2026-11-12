@@ -1,6 +1,7 @@
 import type { DaemonPreferences, DaemonSession } from './daemon-types.js';
 import { trustedDesktopFrame } from './renderer-origin.js';
 export const daemonMethods = [
+  'refreshPrerequisites',
   'getSnapshot',
   'getPreferences',
   'setPreferences',

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"lykeion/server/internal/daemon"
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 type daemonOwner struct {
@@ -343,7 +345,27 @@ func daemonCmd(e *env) *cobra.Command {
 		}
 		return nil
 	}}
-	d.AddCommand(run, start, stop, status, logs)
+	prerequisites := &cobra.Command{
+		Use: "prerequisites", Short: "Check local agent tools and sandbox support as JSON", Args: cobra.NoArgs,
+		// This local check must also work before login or when the daemon config needs repair.
+		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+				return errors.New("local prerequisite checks require macOS or Linux")
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+			defer cancel()
+			tools := daemon.Detect()
+			confined := sandbox.Check(ctx) == nil
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return json.NewEncoder(e.out).Encode(map[string]bool{
+				"sandbox": confined, "claude": tools["claude"] != "", "codex": tools["codex"] != "",
+			})
+		},
+	}
+	d.AddCommand(run, start, stop, status, logs, prerequisites)
 	return d
 }
 

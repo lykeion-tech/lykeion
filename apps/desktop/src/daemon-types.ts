@@ -22,7 +22,11 @@ export interface DaemonSnapshot {
   workspaceCount: number | null;
   os: string | null;
 }
+export type DesktopPrerequisites =
+  | { cliAvailable: false }
+  | { cliAvailable: true; sandbox: boolean; claude: boolean; codex: boolean };
 export interface DesktopDaemonBridge {
+  refreshPrerequisites(): Promise<DesktopPrerequisites>;
   getSnapshot(): Promise<DaemonSnapshot>;
   getPreferences(): Promise<DaemonPreferences>;
   setPreferences(preferences: DaemonPreferences): Promise<DaemonPreferences>;

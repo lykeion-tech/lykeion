@@ -4,6 +4,7 @@ import type {
   DaemonSession,
   DaemonSnapshot,
   DesktopDaemonBridge,
+  DesktopPrerequisites,
 } from './daemon-types.js';
 
 const startup =
@@ -31,6 +32,8 @@ window.addEventListener(
   true,
 );
 const daemon: DesktopDaemonBridge = Object.freeze({
+  refreshPrerequisites: () =>
+    ipcRenderer.invoke('lykeion:daemon:refreshPrerequisites') as Promise<DesktopPrerequisites>,
   getSnapshot: () => ipcRenderer.invoke('lykeion:daemon:getSnapshot') as Promise<DaemonSnapshot>,
   getPreferences: () =>
     ipcRenderer.invoke('lykeion:daemon:getPreferences') as Promise<DaemonPreferences>,

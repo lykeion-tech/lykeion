@@ -7,6 +7,7 @@ import CliIcon from '../coresearch/CliIcon.vue';
 import Modal from '../../ui/Modal.vue';
 import MachineSharing from './MachineSharing.vue';
 import DaemonSettings from './DaemonSettings.vue';
+import LocalSetupCheck from './LocalSetupCheck.vue';
 import { useMe } from '../../api/queries';
 import { backendLabel } from '../../lib/backends';
 import AddComputerDialog from './AddComputerDialog.vue';
@@ -440,6 +441,14 @@ async function remove(d: Daemon) {
       </div>
     </template>
     <div v-else class="inset-content">
+      <section
+        v-if="me.data.value?.id && nativeSnapshot?.availability === 'available' && !registeredLocal && bridge"
+        class="tool-setup"
+        aria-labelledby="local-setup-heading"
+      >
+        <h3 id="local-setup-heading">Set up this computer</h3>
+        <LocalSetupCheck :account-id="me.data.value.id" />
+      </section>
       <ul v-if="daemons.length" class="machine-rows">
         <li
           v-for="d in daemons"

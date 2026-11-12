@@ -58,6 +58,12 @@ async function mount(
   };
   const bridge = {
     getSnapshot: vi.fn(async () => latestSnapshot),
+    refreshPrerequisites: vi.fn(async () => ({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+    })),
     getPreferences: vi
       .fn()
       .mockResolvedValue({ autoStart: options.autoStart ?? true, autoStop: false }),
@@ -79,7 +85,10 @@ async function mount(
       return value;
     }),
   } as unknown as DesktopDaemonBridge;
-  vi.stubGlobal('window', options.browser ? {} : { lykeionDesktop: { daemon: bridge } });
+  vi.stubGlobal(
+    'window',
+    options.browser ? {} : { lykeionDesktop: { daemon: bridge, platform: 'darwin' } },
+  );
   const id = ref<string | undefined>(options.collection ? undefined : (options.id ?? 'managed-id'));
   const own = ref(options.own ?? true);
   let queryClient: QueryClient | undefined;
@@ -169,6 +178,63 @@ async function mount(
   };
 }
 describe('Daemon settings mounted section', () => {
+  it('can check setup before any managed machine exists without starting a daemon', async () => {
+    const t = await mount({
+      machine: true,
+      empty: true,
+      collection: true,
+      snapshot: snapshot({ authenticatedUserID: null, cliAvailable: false, daemonID: null }),
+    });
+    const button = all(t.root).find((n) => n.tag === 'button' && textOf(n).includes('Check setup'));
+    expect(button).toBeDefined();
+    (button!.props.onClick as () => void)();
+    await vi.waitFor(() => expect(t.text()).toContain('Sign-in not checked'));
+    expect(t.text()).toContain('Executable found');
+    expect(t.text()).toContain('Not found');
+    expect(t.text()).toContain('Sandbox check failed');
+    expect(t.bridge.start).not.toHaveBeenCalled();
+    expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
+  it('announces interrupted checks, permits a retry, and discards results on account change', async () => {
+    const t = await mount({
+      machine: true,
+      empty: true,
+      collection: true,
+      snapshot: snapshot({ authenticatedUserID: null, daemonID: null }),
+    });
+    const button = all(t.root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Check setup'),
+    )!;
+    const click = () => (button.props.onClick as () => void)();
+    vi.mocked(t.bridge.refreshPrerequisites).mockRejectedValueOnce(new Error('offline'));
+    click();
+    await vi.waitFor(() => expect(t.text()).toContain('Setup check did not finish'));
+    vi.mocked(t.bridge.refreshPrerequisites).mockResolvedValueOnce({ cliAvailable: false });
+    click();
+    await vi.waitFor(() => expect(t.text()).toContain('runtime is missing'));
+    let complete!: () => void;
+    vi.mocked(t.bridge.refreshPrerequisites).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = () =>
+            resolve({ cliAvailable: true, sandbox: true, claude: true, codex: true });
+        }),
+    );
+    click();
+    await nextTick();
+    expect(button.props.disabled).toBe(true);
+    expect(
+      all(t.root).some(
+        (n) => n.props.role === 'status' && textOf(n).includes('Checking this computer'),
+      ),
+    ).toBe(true);
+    t.queryClient!.setQueryData(keys.me, { id: 'another-account' });
+    await nextTick();
+    complete();
+    await nextTick();
+    expect(t.text()).not.toContain('Sandbox ready');
+    expect(t.text()).not.toContain('Sign-in not checked');
+  });
   it('guides the local owner to install and sign in to supported tools before restarting detection', async () => {
     const t = await mount();
     await vi.waitFor(() => expect(t.text()).toContain('Set up an agent tool'));
@@ -216,6 +282,9 @@ describe('Daemon settings mounted section', () => {
     async (extra) => {
       const t = await mount({ snapshot: snapshot(extra) });
       await vi.waitFor(() => expect(t.text()).toContain(extra.error));
+      expect(all(t.root).some((n) => n.tag === 'button' && textOf(n).includes('Check setup'))).toBe(
+        true,
+      );
       expect(t.text()).not.toContain('select Restart above');
       expect(t.text()).not.toContain('select Start above');
     },

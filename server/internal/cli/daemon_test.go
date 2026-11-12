@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,42 @@ import (
 	"testing"
 	"time"
 )
+
+func TestDaemonPrerequisitesWithoutDaemonOrCredentials(t *testing.T) {
+	tools := t.TempDir()
+	marker := filepath.Join(tools, "executed")
+	if err := os.WriteFile(filepath.Join(tools, "codex"), []byte("#!/bin/sh\n: > \""+marker+"\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools)
+	if err := exec.Command(filepath.Join(tools, "codex")).Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(t.TempDir(), "broken-config")
+	if err := os.WriteFile(config, []byte("invalid JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LYK_CONFIG", config)
+	var out bytes.Buffer
+	cmd := Root(strings.NewReader(""), &out)
+	cmd.SetArgs([]string{"daemon", "prerequisites"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var facts map[string]bool
+	if err := json.Unmarshal(out.Bytes(), &facts); err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 3 || !facts["codex"] || facts["claude"] || facts["sandbox"] {
+		t.Fatalf("unexpected prerequisites: %v", facts)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("provider executed during discovery")
+	}
+}
 
 func TestRuntimeListAfterDaemonRegisters(t *testing.T) {
 	srv, m := serve(t)

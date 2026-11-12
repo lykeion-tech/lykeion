@@ -14,11 +14,16 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import type { DaemonPreferences, DaemonSession, DaemonSnapshot } from './daemon-types.js';
+import type {
+  DaemonPreferences,
+  DaemonSession,
+  DaemonSnapshot,
+  DesktopPrerequisites,
+} from './daemon-types.js';
 import { validPreferences, validSession } from './daemon-ipc.js';
 
 type CommandOptions = { env: NodeJS.ProcessEnv; timeout: number };
-type BrowserAuthorization = (id: string) => Promise<() => boolean>;
+type BrowserAuthorization = (id: string | null) => Promise<() => boolean>;
 type RequestOptions = { token: string; method: string; body?: unknown };
 export interface DaemonManagerOptions {
   configRoot: string;
@@ -176,6 +181,7 @@ export class DaemonManager {
   private queue: Promise<unknown> = Promise.resolve();
   private polling: ReturnType<typeof setInterval> | null = null;
   private busy = 0;
+  private refreshingPrerequisites = false;
   constructor(private readonly options: DaemonManagerOptions) {
     this.apiOrigin = origin(options.apiOrigin);
     const host = new URL(this.apiOrigin).host.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
@@ -259,6 +265,60 @@ export class DaemonManager {
       ? 'The bundled Lykeion runtime is missing or invalid. Reinstall the app.'
       : 'Development lyk is missing. Run npm run desktop:dev to build it.';
   }
+  private daemonPath() {
+    return [
+      ...(process.env.PATH?.split(path.delimiter).filter(Boolean) ?? []),
+      path.join(os.homedir(), '.local', 'bin'),
+      '/usr/local/bin',
+      ...(process.platform === 'darwin' ? ['/opt/homebrew/bin'] : []),
+    ].join(path.delimiter);
+  }
+  async refreshPrerequisites(): Promise<DesktopPrerequisites> {
+    if (!this.options.supported) throw new Error(this.unavailableMessage());
+    if (this.refreshingPrerequisites) throw new Error('A setup check is already running');
+    this.refreshingPrerequisites = true;
+    try {
+      const version = this.generation;
+      if (!this.options.packaged && !this.session) throw new Error('Sign in before checking setup');
+      const browser = await this.browserAuthorization()(this.session?.userID ?? null);
+      const current = () => this.fresh(version) && browser();
+      if (!current()) throw new Error('Desktop daemon session changed');
+      const available = await this.available();
+      if (!current()) throw new Error('Desktop daemon session changed');
+      if (!available) return { cliAvailable: false };
+      const raw = await this.execute(this.options.cliPath, ['daemon', 'prerequisites'], {
+        env: { PATH: this.daemonPath(), HOME: os.homedir(), TMPDIR: os.tmpdir() },
+        timeout: 10000,
+      });
+      if (!current()) throw new Error('Desktop daemon session changed');
+      let result: unknown;
+      try {
+        result = JSON.parse(raw);
+      } catch {
+        throw new Error('Invalid prerequisite response');
+      }
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        Object.keys(result).length !== 3 ||
+        !('sandbox' in result) ||
+        typeof result.sandbox !== 'boolean' ||
+        !('claude' in result) ||
+        typeof result.claude !== 'boolean' ||
+        !('codex' in result) ||
+        typeof result.codex !== 'boolean'
+      )
+        throw new Error('Invalid prerequisite response');
+      return {
+        cliAvailable: true,
+        sandbox: result.sandbox,
+        claude: result.claude,
+        codex: result.codex,
+      };
+    } finally {
+      this.refreshingPrerequisites = false;
+    }
+  }
   private async command(
     action: 'status' | 'start' | 'stop',
     allowed?: () => boolean,
@@ -286,12 +346,7 @@ export class DaemonManager {
       {
         env: {
           ...process.env,
-          PATH: [
-            ...(process.env.PATH?.split(path.delimiter).filter(Boolean) ?? []),
-            path.join(os.homedir(), '.local', 'bin'),
-            '/usr/local/bin',
-            ...(process.platform === 'darwin' ? ['/opt/homebrew/bin'] : []),
-          ].join(path.delimiter),
+          PATH: this.daemonPath(),
           LYK_CONFIG: this.config,
           LYK_DAEMON_PROFILE: this.profile,
           ...(runtime
