@@ -2,6 +2,8 @@
 
 Update checks and downloads are disabled in production on every platform. The staged native helper validates signed metadata and bounded downloads; it does not install updates. The desktop release gate and the separate native platform/architecture proof gates must remain closed until the requirements below are met and independently reviewed. No private key or release feed is provided by this implementation.
 
+The packaged updater is a pinned, build-time patched CommonJS bundle with its third-party notices embedded as readable comments. The patch is checked against the pinned upstream source and a syntactic module-load audit; the audit is not a proof of all possible JavaScript behavior. Release provenance depends on the isolated lockfile-verified dependency installation. The packaged updater is not imported by the production app while the gates are closed.
+
 ## Enablement requirements
 
 - Protect the exact effective-UID-derived cache root in every agent, Coresearch and service sandbox, including forged HOME/XDG and absent-root cases. Test direct helper invocation in real sandboxes without regressing static Linux LDAP/NSS users while updates are disabled. Obtain the trusted cache and lock before network access.

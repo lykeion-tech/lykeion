@@ -13,6 +13,7 @@ import { once } from 'node:events';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import * as asar from '@electron/asar';
 import { desktopUserData } from '../apps/desktop/src/desktop-user-data';
 import {
@@ -428,15 +429,17 @@ describe('desktop release packaging', () => {
       const root = path.join(temp, 'tree');
       mkdirSync(path.join(root, 'apps/desktop/out'), { recursive: true });
       mkdirSync(path.join(root, 'dist/dashboard'), { recursive: true });
-      for (const file of ['main.js', 'preload.cjs', 'desktop-user-data.js'])
+      for (const file of ['main.js', 'preload.cjs', 'desktop-user-data.js', 'electron-updater.cjs'])
         writeFileSync(path.join(root, 'apps/desktop/out', file), 'ok');
+      const hash = createHash('sha256').update('ok').digest('hex');
+      const expected = { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64', updaterSHA256: hash };
       writeFileSync(
         path.join(root, 'apps/desktop/out/desktop-hosted-origin.txt'),
         'https://lykeion.ia',
       );
       writeFileSync(
         path.join(root, 'apps/desktop/out/desktop-build.json'),
-        JSON.stringify({ version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' }),
+        JSON.stringify(expected),
       );
       writeFileSync(path.join(root, 'dist/dashboard/index.html'), 'ok');
       const archive = path.join(temp, 'app.asar');
@@ -444,17 +447,21 @@ describe('desktop release packaging', () => {
       expect(() =>
         verifyArchive(
           archive,
-          { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
+          expected,
           'https://lykeion.ia',
           asar,
         ),
       ).not.toThrow();
+      writeFileSync(path.join(root, 'apps/desktop/out/electron-updater.cjs'), 'tampered');
+      await asar.createPackage(root, archive);
+      expect(() => verifyArchive(archive, expected, 'https://lykeion.ia', asar)).toThrow('Packaged updater mismatch');
+      writeFileSync(path.join(root, 'apps/desktop/out/electron-updater.cjs'), 'ok');
       writeFileSync(path.join(root, 'dist/dashboard/private.env'), 'secret');
       await asar.createPackage(root, archive);
       expect(() =>
         verifyArchive(
           archive,
-          { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
+          expected,
           'https://lykeion.ia',
           asar,
         ),
@@ -465,7 +472,7 @@ describe('desktop release packaging', () => {
       expect(() =>
         verifyArchive(
           archive,
-          { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
+          expected,
           'https://lykeion.ia',
           asar,
         ),
@@ -476,7 +483,7 @@ describe('desktop release packaging', () => {
       expect(() =>
         verifyArchive(
           archive,
-          { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64' },
+          expected,
           'https://lykeion.ia',
           asar,
         ),

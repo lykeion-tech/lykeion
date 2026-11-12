@@ -34,7 +34,7 @@ export function extractTrackedSnapshot(repo: string, destination: string): void;
 export function replaceOutput(source: string, output: string): void;
 export function verifyArchive(
   archive: string,
-  expected: { version: string; commit: string; platform: string; arch: string },
+  expected: { version: string; commit: string; platform: string; arch: string; updaterSHA256: string },
   hostedOrigin: string,
   asar: typeof import('@electron/asar'),
 ): void;

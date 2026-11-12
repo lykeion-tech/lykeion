@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { buildDesktopUpdater } from './desktop-updater-bundle.mjs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   desktopGoEnvironment,
@@ -11,6 +12,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'apps/desktop/out');
 mkdirSync(output, { recursive: true });
+await buildDesktopUpdater(root, path.join(output, 'electron-updater.cjs'));
 function build(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options });
   if (result.error) throw result.error;

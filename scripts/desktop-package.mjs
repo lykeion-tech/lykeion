@@ -186,6 +186,7 @@ export function verifyArchive(archive, expected, hostedOrigin, asar) {
     '/apps/desktop/out/main.js',
     '/apps/desktop/out/preload.cjs',
     '/apps/desktop/out/desktop-user-data.js',
+    '/apps/desktop/out/electron-updater.cjs',
     '/apps/desktop/out/desktop-build.json',
     '/apps/desktop/out/desktop-hosted-origin.txt',
     '/dist/dashboard/index.html',
@@ -205,6 +206,12 @@ export function verifyArchive(archive, expected, hostedOrigin, asar) {
   );
   if (JSON.stringify(manifest) !== JSON.stringify(expected))
     throw new Error('Package metadata mismatch');
+  for (const [name, expectedHash] of [
+    ['electron-updater.cjs', expected.updaterSHA256],
+  ]) {
+    const actual = createHash('sha256').update(asar.extractFile(archive, `apps/desktop/out/${name}`)).digest('hex');
+    if (typeof expectedHash !== 'string' || actual !== expectedHash) throw new Error('Packaged updater mismatch');
+  }
   if (
     asar.extractFile(archive, 'apps/desktop/out/desktop-hosted-origin.txt').toString() !==
     hostedOrigin
@@ -407,6 +414,7 @@ function main() {
       platform,
       arch,
       daemonSHA256: digest(path.join(source, 'apps/desktop/out/lyk')),
+      updaterSHA256: digest(path.join(source, 'apps/desktop/out/electron-updater.cjs')),
     };
     writeFileSync(
       path.join(source, 'apps/desktop/out/desktop-build.json'),
