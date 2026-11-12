@@ -5,6 +5,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"lykeion/server/internal/accountlookup"
 )
 
 func TestDaemonPrerequisitesWithoutDaemonOrCredentials(t *testing.T) {
@@ -49,6 +52,25 @@ func TestDaemonPrerequisitesWithoutDaemonOrCredentials(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("provider executed during discovery")
+	}
+}
+
+func TestPrerequisiteFactsExposeOnlyAccountIssueCode(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		failure error
+		want    string
+	}{
+		{"ready", nil, `{"sandbox":true,"claude":true,"codex":false}`},
+		{"account lookup", fmt.Errorf("private path: %w", accountlookup.ErrUnavailable), `{"sandbox":false,"claude":true,"codex":false,"sandbox_issue":"account_lookup"}`},
+		{"other failure", errors.New("private: sensitive"), `{"sandbox":false,"claude":true,"codex":false}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := json.Marshal(prerequisiteFacts(tt.failure, map[string]string{"claude": "/fixture"}))
+			if err != nil || string(raw) != tt.want {
+				t.Fatalf("facts %s: %v", raw, err)
+			}
+		})
 	}
 }
 

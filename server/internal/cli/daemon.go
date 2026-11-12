@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"lykeion/server/internal/accountlookup"
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/daemon/sandbox"
 )
@@ -356,17 +357,30 @@ func daemonCmd(e *env) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 			defer cancel()
 			tools := daemon.Detect()
-			confined := sandbox.Check(ctx) == nil
+			sandboxErr := sandbox.Check(ctx)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			return json.NewEncoder(e.out).Encode(map[string]bool{
-				"sandbox": confined, "claude": tools["claude"] != "", "codex": tools["codex"] != "",
-			})
+			return json.NewEncoder(e.out).Encode(prerequisiteFacts(sandboxErr, tools))
 		},
 	}
 	d.AddCommand(run, start, stop, status, logs, prerequisites)
 	return d
+}
+
+type prerequisiteReport struct {
+	Sandbox      bool   `json:"sandbox"`
+	Claude       bool   `json:"claude"`
+	Codex        bool   `json:"codex"`
+	SandboxIssue string `json:"sandbox_issue,omitempty"`
+}
+
+func prerequisiteFacts(sandboxErr error, tools map[string]string) prerequisiteReport {
+	report := prerequisiteReport{Sandbox: sandboxErr == nil, Claude: tools["claude"] != "", Codex: tools["codex"] != ""}
+	if errors.Is(sandboxErr, accountlookup.ErrUnavailable) {
+		report.SandboxIssue = "account_lookup"
+	}
+	return report
 }
 
 var daemonExecutable = os.Executable

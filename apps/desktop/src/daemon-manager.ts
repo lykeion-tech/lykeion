@@ -301,13 +301,16 @@ export class DaemonManager {
       if (
         !result ||
         typeof result !== 'object' ||
-        Object.keys(result).length !== 3 ||
+        Object.keys(result).some(
+          (key) => !['sandbox', 'claude', 'codex', 'sandbox_issue'].includes(key),
+        ) ||
         !('sandbox' in result) ||
         typeof result.sandbox !== 'boolean' ||
         !('claude' in result) ||
         typeof result.claude !== 'boolean' ||
         !('codex' in result) ||
-        typeof result.codex !== 'boolean'
+        typeof result.codex !== 'boolean' ||
+        ('sandbox_issue' in result && (result.sandbox || result.sandbox_issue !== 'account_lookup'))
       )
         throw new Error('Invalid prerequisite response');
       return {
@@ -315,6 +318,7 @@ export class DaemonManager {
         sandbox: result.sandbox,
         claude: result.claude,
         codex: result.codex,
+        ...('sandbox_issue' in result ? { sandboxIssue: 'account_lookup' as const } : {}),
       };
     } finally {
       this.refreshingPrerequisites = false;

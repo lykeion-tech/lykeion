@@ -24,7 +24,13 @@ export interface DaemonSnapshot {
 }
 export type DesktopPrerequisites =
   | { cliAvailable: false }
-  | { cliAvailable: true; sandbox: boolean; claude: boolean; codex: boolean };
+  | {
+      cliAvailable: true;
+      sandbox: boolean;
+      claude: boolean;
+      codex: boolean;
+      sandboxIssue?: 'account_lookup';
+    };
 export interface DesktopDaemonBridge {
   refreshPrerequisites(): Promise<DesktopPrerequisites>;
   getSnapshot(): Promise<DaemonSnapshot>;

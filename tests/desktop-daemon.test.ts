@@ -353,6 +353,28 @@ describe('desktop daemon manager', () => {
       codex: false,
     });
     f.execute.mockResolvedValue(
+      JSON.stringify({
+        sandbox: false,
+        claude: true,
+        codex: false,
+        sandbox_issue: 'account_lookup',
+      }),
+    );
+    await expect(manager.refreshPrerequisites()).resolves.toEqual({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+      sandboxIssue: 'account_lookup',
+    });
+    for (const invalid of [
+      { sandbox: false, claude: true, codex: false, sandbox_issue: 'secret' },
+      { sandbox: true, claude: true, codex: false, sandbox_issue: 'account_lookup' },
+    ]) {
+      f.execute.mockResolvedValue(JSON.stringify(invalid));
+      await expect(manager.refreshPrerequisites()).rejects.toThrow('Invalid prerequisite response');
+    }
+    f.execute.mockResolvedValue(
       JSON.stringify({ sandbox: true, claude: false, codex: false, token: 'sensitive' }),
     );
     await expect(manager.refreshPrerequisites()).rejects.toThrow('Invalid prerequisite response');

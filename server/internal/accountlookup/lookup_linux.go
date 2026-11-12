@@ -22,7 +22,7 @@ import (
 
 const maxRecord = 8192
 
-var errLookup = errors.New("cannot resolve account through system NSS")
+var errLookup = ErrUnavailable
 
 // Current resolves the effective user through the system NSS database.
 func Current() (*user.User, error) { return LookupId(strconv.Itoa(os.Geteuid())) }

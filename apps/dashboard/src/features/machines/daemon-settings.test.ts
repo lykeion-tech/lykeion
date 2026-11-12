@@ -47,6 +47,7 @@ async function mount(
     empty?: boolean;
     collection?: boolean;
     desktopProfile?: boolean;
+    platform?: 'darwin' | 'linux';
   } = {},
 ) {
   const listeners = new Set<(s: DaemonSnapshot) => void>();
@@ -87,7 +88,9 @@ async function mount(
   } as unknown as DesktopDaemonBridge;
   vi.stubGlobal(
     'window',
-    options.browser ? {} : { lykeionDesktop: { daemon: bridge, platform: 'darwin' } },
+    options.browser
+      ? {}
+      : { lykeionDesktop: { daemon: bridge, platform: options.platform ?? 'darwin' } },
   );
   const id = ref<string | undefined>(options.collection ? undefined : (options.id ?? 'managed-id'));
   const own = ref(options.own ?? true);
@@ -245,6 +248,30 @@ describe('Daemon settings mounted section', () => {
     expect(t.text()).toContain('Sandbox check failed');
     expect(t.bridge.start).not.toHaveBeenCalled();
     expect(t.bridge.restart).not.toHaveBeenCalled();
+  });
+  it('explains account lookup failure without blaming bubblewrap', async () => {
+    const t = await mount({
+      machine: true,
+      empty: true,
+      collection: true,
+      platform: 'linux',
+      snapshot: snapshot({ authenticatedUserID: null, daemonID: null }),
+    });
+    vi.mocked(t.bridge.refreshPrerequisites).mockResolvedValueOnce({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+      sandboxIssue: 'account_lookup',
+    });
+    const button = all(t.root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Check setup'),
+    )!;
+    (button.props.onClick as () => void)();
+    await vi.waitFor(() =>
+      expect(t.text()).toContain('Lykeion could not verify your Linux account'),
+    );
+    expect(t.text()).not.toContain('bubblewrap');
   });
   it('announces interrupted checks, permits a retry, and discards results on account change', async () => {
     const t = await mount({
