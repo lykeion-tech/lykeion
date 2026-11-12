@@ -179,8 +179,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
         <thead>
           <tr>
             <th scope="col">Name</th>
-            <th scope="col">Stage</th>
             <th scope="col">Agents</th>
+            <th scope="col">Stage</th>
             <th scope="col">Source</th>
             <th scope="col" :aria-sort="newestFirst ? 'descending' : 'ascending'">
               <span class="directory-last-value">Last updated</span>
@@ -209,8 +209,8 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
                 ></RouterLink
               >
             </td>
-            <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.manifest.members.length + 2 }}</td>
+            <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
             <td>{{ t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added' }}</td>
             <td>
               <span class="directory-last-value">{{ timeAgo(t.created_at) }}</span>

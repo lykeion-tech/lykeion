@@ -21,7 +21,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     'font-size',
     '13px',
   );
-  const columns = ['Name', 'Stage', 'Agents', 'Source', 'Last updated'];
+  const columns = ['Name', 'Agents', 'Stage', 'Source', 'Last updated'];
   for (const [i, name] of columns.entries())
     await expect(table.getByRole('columnheader').nth(i)).toHaveAccessibleName(name);
   await expect(table.locator('thead')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');

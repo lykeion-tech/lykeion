@@ -668,7 +668,7 @@ describe('new agent model picker', () => {
 });
 
 describe('Teams table', () => {
-  it('lists Name, Stage, Agents, Source and Last updated, with no Domain column', async () => {
+  it('lists Name, Agents, Stage, Source and Last updated, with no Domain column', async () => {
     const t = await mount(
       TeamsView,
       () => ({}),
@@ -686,8 +686,8 @@ describe('Teams table', () => {
         .map(textOf);
       expect(headers.map((h) => h.trim())).toEqual([
         'Name',
-        'Stage',
         'Agents',
+        'Stage',
         'Source',
         'Last updated',
       ]);
