@@ -29,6 +29,22 @@ export function desktopTarget(platform, arch) {
   };
 }
 
+export function desktopBuilderArgs(target, directory, signing, signingIntermediate, maintainer) {
+  return [
+    'node_modules/electron-builder/cli.js',
+    ...target.builder,
+    ...(directory ? ['--dir'] : []),
+    ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
+    ...macBuilderSigningArgs(signing, signingIntermediate),
+    '--config.publish.provider=github',
+    '--config.publish.owner=lykeion-ia',
+    '--config.publish.repo=lykeion',
+    '--config.publish.releaseType=release',
+    '--publish',
+    'never',
+  ];
+}
+
 export function releaseOrigin(value = 'https://lykeion.ia') {
   let url;
   try {
@@ -398,14 +414,7 @@ function main() {
     );
     run(
       'node',
-      [
-        'node_modules/electron-builder/cli.js',
-        ...target.builder,
-        '--dir',
-        '--publish',
-        'never',
-        ...macBuilderSigningArgs(signing, !args.includes('--dir')),
-      ],
+      desktopBuilderArgs(target, true, signing, !args.includes('--dir')),
       { cwd: source, env },
     );
     const unpacked =
@@ -424,14 +433,7 @@ function main() {
     if (!args.includes('--dir')) {
       run(
         'node',
-        [
-          'node_modules/electron-builder/cli.js',
-          ...target.builder,
-          ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
-          ...macBuilderSigningArgs(signing, false),
-          '--publish',
-          'never',
-        ],
+        desktopBuilderArgs(target, false, signing, false, maintainer),
         { cwd: source, env },
       );
       verifyArchive(path.join(resources, 'app.asar'), manifest, hostedOrigin, asar);

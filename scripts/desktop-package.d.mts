@@ -6,6 +6,13 @@ export function desktopTarget(
   goarch: string;
   builder: string[];
 };
+export function desktopBuilderArgs(
+  target: { builder: string[] },
+  directory: boolean,
+  signing: { identity: string; keychainProfile?: string; keychain?: string } | undefined,
+  signingIntermediate?: boolean,
+  maintainer?: string,
+): string[];
 export function releaseOrigin(value?: string): string;
 export function debianMaintainer(
   platform: string,

@@ -27,6 +27,7 @@ import {
   debianMaintainer,
   macSigningOptions,
   macBuilderSigningArgs,
+  desktopBuilderArgs,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
@@ -49,11 +50,60 @@ describe('desktop release packaging', () => {
     expect(macBuilderSigningArgs(undefined, true)).toEqual([]);
     expect(macBuilderSigningArgs(undefined, false)).toEqual([]);
   });
-  it('includes the macOS update archive while keeping release publishing disabled', () => {
+  it('prepares GitHub update metadata without publishing from the packaging script', async () => {
     const config = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')).build;
     expect(config.mac.target).toContain('dmg');
     expect(config.mac.target).toContain('zip');
     expect(config.publish).toBeNull();
+    const { validateConfiguration, getConfig } = createRequire(import.meta.url)(
+      'app-builder-lib/out/util/config/config',
+    );
+    await expect(validateConfiguration(config, { isEnabled: false })).resolves.toBeUndefined();
+    const { createYargs, configureBuildCommand, normalizeOptions } = createRequire(import.meta.url)(
+      'electron-builder/out/builder',
+    );
+    const script = readFileSync(path.resolve('scripts/desktop-package.mjs'), 'utf8');
+    expect(script.match(/desktopBuilderArgs\(target, (?:true|false),/g)).toHaveLength(2);
+    for (const platform of ['darwin', 'linux']) {
+      for (const intermediate of [true, false]) {
+        const args = desktopBuilderArgs(desktopTarget(platform, 'arm64'), intermediate, undefined, undefined);
+        expect(args).toContain('--config.publish.provider=github');
+        expect(args).toContain('--config.publish.owner=lykeion-ia');
+        expect(args).toContain('--config.publish.repo=lykeion');
+        expect(args).toContain('--config.publish.releaseType=release');
+        expect(args.slice(args.indexOf('--publish'), args.indexOf('--publish') + 2)).toEqual(['--publish', 'never']);
+        const parsed = normalizeOptions(configureBuildCommand(createYargs()).parse(args.slice(1)));
+        expect(parsed.publish).toBe('never');
+        const effective = await getConfig(process.cwd(), undefined, parsed.config);
+        expect(effective.publish).toEqual({ provider: 'github', owner: 'lykeion-ia', repo: 'lykeion', releaseType: 'release' });
+        expect(effective.publish.publishAutoUpdate).not.toBe(false);
+        await expect(validateConfiguration(effective, { isEnabled: false })).resolves.toBeUndefined();
+      }
+    }
+  });
+
+  it('writes builder update metadata to disk without a publisher', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lyk-builder-metadata-'));
+    try {
+      const { writeUpdateInfoFiles } = createRequire(import.meta.url)(
+        'app-builder-lib/out/publish/updateInfoBuilder',
+      );
+      const emitted: string[] = [];
+      const metadata = path.join(dir, 'latest-mac.yml');
+      await writeUpdateInfoFiles([{
+        file: metadata,
+        arch: null,
+        publishConfiguration: { provider: 'github', owner: 'lykeion-ia', repo: 'lykeion', releaseType: 'release' },
+        info: { version: '1.2.3', files: [{ url: 'Lykeion-1.2.3-mac.zip', sha512: 'test-digest' }], path: 'Lykeion-1.2.3-mac.zip', sha512: 'test-digest' },
+        packager: {},
+      }], { emitArtifactCreated: async (event: { file: string }) => { emitted.push(event.file); } });
+      const written = readFileSync(metadata, 'utf8');
+      expect(written).toContain('version: 1.2.3');
+      expect(written).toContain('Lykeion-1.2.3-mac.zip');
+      expect(emitted).toEqual([metadata]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('requires an explicit Developer ID identity and complete notarization configuration', () => {
