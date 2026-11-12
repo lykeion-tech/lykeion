@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build darwin
 
 package desktopupdate
 
@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,9 +18,6 @@ import (
 )
 
 func TestVerifiedCacheEnforcesBudgetAndContent(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Linux storage remains disabled")
-	}
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -82,9 +78,6 @@ func (r *blockedReader) Read([]byte) (int, error) { <-r.closed; return 0, io.EOF
 func (r *blockedReader) Close() error             { r.once.Do(func() { close(r.closed) }); return nil }
 
 func TestCanceledDownloadClosesSourceAndReleasesCache(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Linux storage remains disabled")
-	}
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -126,9 +119,6 @@ func TestCanceledDownloadClosesSourceAndReleasesCache(t *testing.T) {
 }
 
 func TestDownloadRejectsClockRollbackBeforePublication(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Linux storage remains disabled")
-	}
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -167,9 +157,6 @@ func TestDownloadRejectsClockRollbackBeforePublication(t *testing.T) {
 }
 
 func TestMissingReservationFailsBeforePublication(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Linux storage remains disabled")
-	}
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -202,9 +189,6 @@ func TestMissingReservationFailsBeforePublication(t *testing.T) {
 }
 
 func TestCacheInventoryRejectsTooManyEntriesWithoutRemovingThem(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Linux storage remains disabled")
-	}
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
