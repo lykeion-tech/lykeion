@@ -1,30 +1,43 @@
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 
-describe.skipIf(process.platform !== 'darwin')('Node to Go inherited pipes', () => {
-  it('documents that Go cannot set an inherited stdin deadline on this macOS setup', async () => {
+describe.skipIf(process.platform === 'win32')('Node to Go inherited pipes', () => {
+  it('uses pollable owned descriptors for framing, deadlines and cancellation', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'lyk-go-stdio-'));
     try {
-      const source = path.join(dir, 'main.go');
       const binary = path.join(dir, 'probe');
-      writeFileSync(source, `package main
-import("encoding/json";"os";"time")
-func main(){
- readOK:=os.Stdin.SetReadDeadline(time.Now().Add(3*time.Second))==nil
- writeOK:=os.Stdout.SetWriteDeadline(time.Now().Add(3*time.Second))==nil
- if json.NewEncoder(os.Stdout).Encode(map[string]bool{"read":readOK,"write":writeOK})!=nil {os.Exit(2)}
-}`);
-      execFileSync('go', ['build', '-o', binary, source], { env: { ...process.env, GOCACHE: path.join(tmpdir(), 'lykeion-desktop-go-cache') }, timeout: 30000 });
-      const child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
-      const out: Buffer[] = [];
-      child.stdout.on('data', (chunk) => { out.push(Buffer.from(chunk)); });
-      child.stdin.end();
-      const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-      expect(code).toBe(0);
-      expect(JSON.parse(Buffer.concat(out).toString()).read).toBe(false);
+      execFileSync('go', ['test', '-c', '-o', binary, './internal/desktopupdate'], {
+        cwd: path.resolve('server'),
+        env: { ...process.env, GOCACHE: path.join(tmpdir(), 'lykeion-desktop-go-cache') }, timeout: 30000,
+      });
+      for (const mode of ['normal', 'read-timeout', 'write-timeout', 'cancel']) {
+        const child = spawn(binary, ['-test.run=^TestNodePipeChild$'], {
+          env: { ...process.env, LYK_TEST_NODE_PIPE_CHILD: mode }, stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        const chunks: Buffer[] = [];
+        let sent = false;
+        if (mode !== 'write-timeout') child.stdout.on('data', (chunk) => {
+          chunks.push(Buffer.from(chunk));
+          if (!sent && mode === 'normal' && Buffer.concat(chunks).includes(Buffer.from('READY\n'))) {
+            sent = true; child.stdin.end('STREAM\n');
+          }
+        });
+        child.stderr.resume();
+        const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+        const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
+        try {
+          const code = await new Promise<number | null>((resolve, reject) => {
+            child.once('error', reject);
+            child.once('exit', (code) => { if (mode === 'write-timeout') child.stdout.resume(); resolve(code); });
+          });
+          await closed;
+          expect(code, mode).toBe(0);
+          if (mode === 'normal') expect(Buffer.concat(chunks).toString()).toBe('READY\nDONE\n');
+        } finally { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }
+      }
     } finally { rmSync(dir, { recursive: true, force: true }); }
-  }, 35000);
+  }, 45000);
 });

@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Each gate requires separate filesystem, sandbox and release-feed acceptance.
@@ -42,11 +45,11 @@ func StreamVerified(ctx context.Context, input, output *os.File) error {
 	if !platformProofReady(runtime.GOOS, runtime.GOARCH) || ctx.Err() != nil {
 		return checkError{Unsupported}
 	}
-	stop, err := armStreamPipes(ctx, input, output)
+	pipes, err := openStreamPipes(ctx, input, output)
 	if err != nil {
 		return bad
 	}
-	defer stop()
+	defer pipes.close()
 	keys, err := parseBuildTrust(embeddedKeys, embeddedVersion)
 	if err != nil {
 		return bad
@@ -81,26 +84,107 @@ func StreamVerified(ctx context.Context, input, output *os.File) error {
 		return bad
 	}
 	defer transport.CloseIdleConnections()
-	if err := cache.checkAndStreamWithLimits(ctx, keys, runtime.GOOS, arch, embeddedVersion, transport, reserveBytes, maxCacheBytes, &deadlineInput{ctx: ctx, file: input}, output); err != nil {
+	if err := cache.checkAndStreamWithLimits(ctx, keys, runtime.GOOS, arch, embeddedVersion, transport, reserveBytes, maxCacheBytes, &deadlineInput{ctx: ctx, file: pipes.input}, pipes.output); err != nil {
 		return bad
 	}
 	return nil
 }
 
-func armStreamPipes(ctx context.Context, input, output *os.File) (func() bool, error) {
+type streamPipes struct {
+	input, output *os.File
+	stop          func() bool
+	done          chan struct{}
+	original      [2]int
+	flags         [2]int
+	identity      [2]unix.Stat_t
+	once          sync.Once
+}
+
+func (p *streamPipes) close() {
+	p.once.Do(func() {
+		if p.stop != nil && !p.stop() {
+			<-p.done
+		}
+		if p.input != nil {
+			_ = p.input.Close()
+		}
+		if p.output != nil {
+			_ = p.output.Close()
+		}
+		for i, fd := range p.original {
+			if fd >= 0 {
+				var current unix.Stat_t
+				if unix.Fstat(fd, &current) == nil && current.Dev == p.identity[i].Dev && current.Ino == p.identity[i].Ino && current.Mode == p.identity[i].Mode {
+					_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFL, p.flags[i])
+				}
+			}
+		}
+	})
+}
+
+func openStreamPipes(ctx context.Context, input, output *os.File) (*streamPipes, error) {
 	bad := checkError{Generic}
 	if ctx.Err() != nil || input == nil || output == nil {
 		return nil, bad
 	}
 	inInfo, inErr := input.Stat()
 	outInfo, outErr := output.Stat()
-	if inErr != nil || outErr != nil || inInfo.Mode()&(os.ModeNamedPipe|os.ModeSocket) == 0 || outInfo.Mode()&(os.ModeNamedPipe|os.ModeSocket) == 0 || output.SetWriteDeadline(time.Now().Add(31*time.Minute)) != nil {
+	if inErr != nil || outErr != nil || inInfo.Mode()&(os.ModeNamedPipe|os.ModeSocket) == 0 || outInfo.Mode()&(os.ModeNamedPipe|os.ModeSocket) == 0 {
 		return nil, bad
 	}
-	return context.AfterFunc(ctx, func() {
-		_ = input.SetReadDeadline(time.Now())
-		_ = output.SetWriteDeadline(time.Now())
-	}), nil
+	p := &streamPipes{original: [2]int{-1, -1}, done: make(chan struct{})}
+	fds := [2]int{int(input.Fd()), int(output.Fd())}
+	var identity [2]unix.Stat_t
+	if fds[0] == fds[1] || unix.Fstat(fds[0], &identity[0]) != nil || unix.Fstat(fds[1], &identity[1]) != nil || (identity[0].Dev == identity[1].Dev && identity[0].Ino == identity[1].Ino) {
+		return nil, bad
+	}
+	for i, fd := range fds {
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+		if err != nil {
+			p.close()
+			return nil, bad
+		}
+		if (i == 0 && flags&unix.O_ACCMODE == unix.O_WRONLY) || (i == 1 && flags&unix.O_ACCMODE == unix.O_RDONLY) {
+			p.close()
+			return nil, bad
+		}
+		dup, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
+		if err != nil {
+			p.close()
+			return nil, bad
+		}
+		p.original[i], p.flags[i], p.identity[i] = fd, flags, identity[i]
+		if unix.SetNonblock(dup, true) != nil {
+			_ = unix.Close(dup)
+			p.close()
+			return nil, bad
+		}
+		wrapped := os.NewFile(uintptr(dup), "update pipe")
+		if wrapped == nil {
+			_ = unix.Close(dup)
+			p.close()
+			return nil, bad
+		}
+		if i == 0 {
+			p.input = wrapped
+		} else {
+			p.output = wrapped
+		}
+	}
+	if p.input.SetReadDeadline(time.Now().Add(31*time.Minute)) != nil || p.output.SetWriteDeadline(time.Now().Add(31*time.Minute)) != nil {
+		p.close()
+		return nil, bad
+	}
+	p.stop = context.AfterFunc(ctx, func() {
+		defer close(p.done)
+		_ = p.input.SetReadDeadline(time.Now())
+		_ = p.output.SetWriteDeadline(time.Now())
+	})
+	if ctx.Err() != nil {
+		p.close()
+		return nil, bad
+	}
+	return p, nil
 }
 
 type deadlineInput struct {
