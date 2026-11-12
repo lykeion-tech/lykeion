@@ -24,9 +24,31 @@ import {
   verifyBundledBinary,
   replaceOutput,
   debianMaintainer,
+  macSigningOptions,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('requires an explicit Developer ID identity and complete notarization configuration', () => {
+    expect(macSigningOptions('darwin', {})).toBeUndefined();
+    const identity = 'Developer ID Application: Example (ABCD123456)';
+    expect(macSigningOptions('darwin', { LYK_MAC_SIGNING_IDENTITY: identity })).toEqual({
+      identity,
+    });
+    expect(
+      macSigningOptions('darwin', {
+        LYK_MAC_SIGNING_IDENTITY: identity,
+        APPLE_KEYCHAIN_PROFILE: 'notary',
+      }),
+    ).toEqual({ identity, keychainProfile: 'notary' });
+    for (const env of [
+      { LYK_MAC_SIGNING_IDENTITY: '-' },
+      { LYK_MAC_SIGNING_IDENTITY: 'Developer ID Installer: Example (ABCD123456)' },
+      { APPLE_KEYCHAIN_PROFILE: 'notary' },
+      { LYK_MAC_SIGNING_IDENTITY: identity, APPLE_KEYCHAIN: '/some/keychain' },
+    ])
+      expect(() => macSigningOptions('darwin', env)).toThrow();
+    expect(() => macSigningOptions('linux', { LYK_MAC_SIGNING_IDENTITY: identity })).toThrow();
+  });
   it('requires a public Debian maintainer only for Linux installer builds', () => {
     expect(debianMaintainer('darwin', [], undefined)).toBeUndefined();
     expect(debianMaintainer('linux', ['--dir'], undefined)).toBeUndefined();

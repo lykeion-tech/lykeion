@@ -62,6 +62,29 @@ export function debianMaintainer(platform, args, value) {
   return value;
 }
 
+export function macSigningOptions(platform, input) {
+  const identity = input.LYK_MAC_SIGNING_IDENTITY;
+  const profile = input.APPLE_KEYCHAIN_PROFILE;
+  const keychain = input.APPLE_KEYCHAIN;
+  const hasControl = (value) => [...value].some((char) => char.charCodeAt(0) < 32);
+  if (!identity && !profile && !keychain) return undefined;
+  if (
+    platform !== 'darwin' ||
+    typeof identity !== 'string' ||
+    !/^Developer ID Application: [^"]+ \([A-Z0-9]{10}\)$/.test(identity) ||
+    hasControl(identity) ||
+    (keychain && !profile) ||
+    (profile && hasControl(profile)) ||
+    (keychain && hasControl(keychain))
+  )
+    throw new Error('Invalid macOS signing or notarization configuration');
+  return {
+    identity,
+    ...(profile ? { keychainProfile: profile } : {}),
+    ...(keychain ? { keychain } : {}),
+  };
+}
+
 export function safeBuildEnvironment(input) {
   const env = {};
   for (const key of [
@@ -218,6 +241,9 @@ function main() {
   const target = desktopTarget(platform, arch);
   const hostedOrigin = releaseOrigin(process.env.LYK_HOSTED_API_URL);
   const maintainer = debianMaintainer(platform, args, process.env.LYK_DEB_MAINTAINER);
+  const signing = macSigningOptions(platform, process.env);
+  if (signing && process.platform !== 'darwin')
+    throw new Error('macOS signing requires a macOS host');
   const commit = revision();
   const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
   const env = safeBuildEnvironment(process.env);
@@ -243,6 +269,15 @@ function main() {
           ...env,
           LYK_HOSTED_API_URL: hostedOrigin,
           ...(maintainer ? { LYK_DEB_MAINTAINER: maintainer } : {}),
+          ...(signing
+            ? {
+                LYK_MAC_SIGNING_IDENTITY: signing.identity,
+                ...(signing.keychainProfile
+                  ? { APPLE_KEYCHAIN_PROFILE: signing.keychainProfile }
+                  : {}),
+                ...(signing.keychain ? { APPLE_KEYCHAIN: signing.keychain } : {}),
+              }
+            : {}),
         },
       },
     );
@@ -300,6 +335,32 @@ function main() {
       target.goos,
       target.goarch,
     );
+    if (signing) {
+      const identities = run('security', ['find-identity', '-v', '-p', 'codesigning'], {
+        stdio: 'pipe',
+        env,
+      });
+      if (!identities.split('\n').some((line) => line.trim().endsWith(`"${signing.identity}"`)))
+        throw new Error('The requested Developer ID Application identity is not available');
+      run(
+        'codesign',
+        [
+          '--force',
+          '--sign',
+          signing.identity,
+          '--options',
+          'runtime',
+          '--timestamp',
+          path.join(source, 'apps/desktop/out/lyk'),
+        ],
+        { env },
+      );
+      run('codesign', ['--verify', '--strict', path.join(source, 'apps/desktop/out/lyk')], { env });
+      env.CSC_NAME = signing.identity.slice('Developer ID Application: '.length);
+      env.CSC_IDENTITY_AUTO_DISCOVERY = 'true';
+      if (signing.keychainProfile) env.APPLE_KEYCHAIN_PROFILE = signing.keychainProfile;
+      if (signing.keychain) env.APPLE_KEYCHAIN = signing.keychain;
+    }
     if (revision() !== commit) throw new Error('Source changed while building desktop package');
     const manifest = {
       version,
@@ -314,7 +375,20 @@ function main() {
     );
     run(
       'node',
-      ['node_modules/electron-builder/cli.js', ...target.builder, '--dir', '--publish', 'never'],
+      [
+        'node_modules/electron-builder/cli.js',
+        ...target.builder,
+        '--dir',
+        '--publish',
+        'never',
+        ...(signing
+          ? [
+              '--config.forceCodeSigning=true',
+              '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
+              `--config.mac.notarize=${Boolean(signing.keychainProfile && args.includes('--dir'))}`,
+            ]
+          : []),
+      ],
       { cwd: source, env },
     );
     const unpacked =
@@ -337,6 +411,13 @@ function main() {
           'node_modules/electron-builder/cli.js',
           ...target.builder,
           ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
+          ...(signing
+            ? [
+                '--config.forceCodeSigning=true',
+                '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
+                `--config.mac.notarize=${Boolean(signing.keychainProfile)}`,
+              ]
+            : []),
           '--publish',
           'never',
         ],
@@ -347,6 +428,11 @@ function main() {
         path.join(source, 'apps/desktop/out/lyk'),
         path.join(resources, 'bin/lyk'),
       );
+    }
+    if (signing) {
+      const app = path.dirname(path.dirname(resources));
+      run('codesign', ['--verify', '--deep', '--strict', app], { env });
+      if (signing.keychainProfile) run('xcrun', ['stapler', 'validate', app], { env });
     }
     replaceOutput(path.join(source, 'dist/desktop-release'), output);
   } finally {
