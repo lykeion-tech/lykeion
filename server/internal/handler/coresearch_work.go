@@ -690,14 +690,18 @@ func (h *H) daemonCoresearchKernel(w http.ResponseWriter, r *http.Request) {
 		if in.Kernel != nil && (utf8.RuneCountInString(*in.Kernel) > 128 || strings.ContainsRune(*in.Kernel, 0)) {
 			return cardInputError("invalid kernel name")
 		}
+		if in.Sample != nil && !in.Sample.Valid() {
+			return cardInputError("invalid kernel sample")
+		}
+		// Stale or repeated control acknowledgements must not change kernel state.
+		if in.SeqDone > 0 && (c.KernelRequest == nil || c.KernelRequestSeq != in.SeqDone) {
+			return nil
+		}
 		// An in-flight periodic sample cannot resurrect a stopped kernel.
 		if in.State == "" && c.KernelState == "stopped" {
 			return nil
 		}
 		if in.Sample != nil {
-			if !in.Sample.Valid() {
-				return cardInputError("invalid kernel sample")
-			}
 			sample, _ := json.Marshal(struct {
 				compute.Sample
 				T time.Time `json:"t"`

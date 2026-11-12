@@ -184,6 +184,79 @@ func TestKernelRequestClearedOnlyForItsSeq(t *testing.T) {
 		}
 	}
 }
+
+func TestStaleKernelAcknowledgementDoesNotChangeState(t *testing.T) {
+	s, a, b, _, ws, p := csFixture(t)
+	path, chat := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	for _, op := range []string{"interrupt", "restart"} {
+		if code := s.call(t, "POST", path+"/kernel", a, ws, map[string]string{"op": op}, nil); code != 204 {
+			t.Fatal(code)
+		}
+	}
+	if got := csWork(t, s, a, "work", ref); len(got.Controls) != 1 || got.Controls[0].Seq != 2 {
+		t.Fatal(got)
+	}
+	url := "/api/daemon/coresearch/chats/" + chat.ID.String() + "/kernel?daemon_id=work"
+	token := s.personalToken(t, a)
+	post := func(body map[string]any) int { return s.call(t, "POST", url, token, ws, body, nil) }
+	if code := post(map[string]any{"state": "busy", "seq_done": 0, "kernel": "python3"}); code != 204 {
+		t.Fatal(code)
+	}
+	type snapshot struct {
+		state, kernel string
+		seen          time.Time
+		metrics       []byte
+		request       *string
+		seq           int64
+	}
+	read := func() snapshot {
+		var got snapshot
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT kernel_state,kernel_name,kernel_seen_at,kernel_metrics,kernel_request,kernel_request_seq FROM coresearch_chat WHERE id=$1`, chat.ID).Scan(&got.state, &got.kernel, &got.seen, &got.metrics, &got.request, &got.seq); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	before := read()
+	stale := map[string]any{"state": "stopped", "seq_done": 1, "kernel": "wrong", "sample": map[string]any{"rss": 123, "cpu": 1}}
+	if code := post(stale); code != 204 {
+		t.Fatal(code)
+	}
+	after := read()
+	if after.state != before.state || after.kernel != before.kernel || !after.seen.Equal(before.seen) || !bytes.Equal(after.metrics, before.metrics) || after.request == nil || *after.request != "restart" || after.seq != 2 {
+		t.Fatalf("stale acknowledgement changed state: before=%+v after=%+v", before, after)
+	}
+	invalid := map[string]any{"state": "stopped", "seq_done": 1, "sample": map[string]any{"rss": 1, "cpu": -1}}
+	if code := post(invalid); code != 400 {
+		t.Fatalf("invalid stale sample accepted: %d", code)
+	}
+	if code := s.call(t, "POST", url, s.personalToken(t, b), ws, map[string]any{"state": "stopped", "seq_done": 2}, nil); code == 204 {
+		t.Fatal("foreign acknowledgement accepted")
+	}
+	for _, state := range []string{"idle", "busy"} {
+		if code := post(map[string]any{"state": state, "seq_done": 0, "kernel": "python3"}); code != 204 {
+			t.Fatal(code)
+		}
+		got := read()
+		if got.state != state || got.request == nil || *got.request != "restart" {
+			t.Fatalf("ordinary report changed: %+v", got)
+		}
+	}
+	if code := post(map[string]any{"state": "idle", "seq_done": 2, "kernel": "python3"}); code != 204 {
+		t.Fatal(code)
+	}
+	before = read()
+	if before.state != "idle" || before.request != nil {
+		t.Fatalf("current acknowledgement failed: %+v", before)
+	}
+	if code := post(map[string]any{"state": "stopped", "seq_done": 2, "kernel": "wrong", "sample": map[string]any{"rss": 456, "cpu": 2}}); code != 204 {
+		t.Fatal(code)
+	}
+	after = read()
+	if after.state != before.state || after.kernel != before.kernel || !after.seen.Equal(before.seen) || !bytes.Equal(after.metrics, before.metrics) || after.request != nil {
+		t.Fatalf("duplicate acknowledgement changed state: before=%+v after=%+v", before, after)
+	}
+}
 func csRunToken(t *testing.T, s *server, a, ws, path string, ref service.RuntimeRef) string {
 	t.Helper()
 	csTurn(t, s, a, ws, path)
