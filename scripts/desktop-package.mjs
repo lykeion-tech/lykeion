@@ -85,6 +85,16 @@ export function macSigningOptions(platform, input) {
   };
 }
 
+export function macBuilderSigningArgs(signing, intermediate) {
+  if (!signing) return [];
+  if (intermediate) return ['--config.mac.identity=null'];
+  return [
+    '--config.forceCodeSigning=true',
+    '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
+    `--config.mac.notarize=${Boolean(signing.keychainProfile)}`,
+  ];
+}
+
 export function safeBuildEnvironment(input) {
   const env = {};
   for (const key of [
@@ -381,13 +391,7 @@ function main() {
         '--dir',
         '--publish',
         'never',
-        ...(signing
-          ? [
-              '--config.forceCodeSigning=true',
-              '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
-              `--config.mac.notarize=${Boolean(signing.keychainProfile && args.includes('--dir'))}`,
-            ]
-          : []),
+        ...macBuilderSigningArgs(signing, !args.includes('--dir')),
       ],
       { cwd: source, env },
     );
@@ -411,13 +415,7 @@ function main() {
           'node_modules/electron-builder/cli.js',
           ...target.builder,
           ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
-          ...(signing
-            ? [
-                '--config.forceCodeSigning=true',
-                '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
-                `--config.mac.notarize=${Boolean(signing.keychainProfile)}`,
-              ]
-            : []),
+          ...macBuilderSigningArgs(signing, false),
           '--publish',
           'never',
         ],

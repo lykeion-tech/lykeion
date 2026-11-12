@@ -19,6 +19,10 @@ export function macSigningOptions(
   platform: string,
   input: NodeJS.ProcessEnv,
 ): { identity: string; keychainProfile?: string; keychain?: string } | undefined;
+export function macBuilderSigningArgs(
+  signing: { identity: string; keychainProfile?: string; keychain?: string } | undefined,
+  intermediate: boolean,
+): string[];
 export function extractTrackedSnapshot(repo: string, destination: string): void;
 export function replaceOutput(source: string, output: string): void;
 export function verifyArchive(

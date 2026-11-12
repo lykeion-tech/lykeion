@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import * as asar from '@electron/asar';
 import { desktopUserData } from '../apps/desktop/src/desktop-user-data';
 import {
@@ -25,9 +26,29 @@ import {
   replaceOutput,
   debianMaintainer,
   macSigningOptions,
+  macBuilderSigningArgs,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('only skips signing the discarded intermediate app in a full signed build', () => {
+    const signing = {
+      identity: 'Developer ID Application: Example (ABCD123456)',
+      keychainProfile: 'notary',
+    };
+    expect(macBuilderSigningArgs(signing, true)).toEqual(['--config.mac.identity=null']);
+    const { normalizeOptions } = createRequire(import.meta.url)('electron-builder/out/builder');
+    expect(normalizeOptions({ config: { mac: { identity: 'null' } } }).config.mac.identity).toBeNull();
+    expect(macBuilderSigningArgs(signing, false)).toEqual([
+      '--config.forceCodeSigning=true',
+      '--config.mac.signIgnore=/Contents/Resources/bin/lyk$',
+      '--config.mac.notarize=true',
+    ]);
+    expect(macBuilderSigningArgs({ identity: signing.identity }, false)).toContain(
+      '--config.mac.notarize=false',
+    );
+    expect(macBuilderSigningArgs(undefined, true)).toEqual([]);
+    expect(macBuilderSigningArgs(undefined, false)).toEqual([]);
+  });
   it('includes the macOS update archive while keeping release publishing disabled', () => {
     const config = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')).build;
     expect(config.mac.target).toContain('dmg');
