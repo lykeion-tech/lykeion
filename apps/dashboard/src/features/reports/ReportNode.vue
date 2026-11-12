@@ -6,7 +6,13 @@ import { kindName } from './report-sections';
 
 const props = defineProps<{
   id: string;
-  data: { kind: ReportNodeKind; label: string; status: string; selected: boolean };
+  data: {
+    kind: ReportNodeKind;
+    label: string;
+    status: string;
+    selected: boolean;
+    hovered?: boolean;
+  };
 }>();
 const emit = defineEmits<{ select: [id: string] }>();
 // The node is one line wide; CSS adds the ellipsis, this keeps a huge label
@@ -24,7 +30,7 @@ function onKey(e: KeyboardEvent) {
 <template>
   <div
     class="report-node"
-    :class="[`kind-${data.kind}`, { rejected: data.status === 'rejected' }]"
+    :class="[`kind-${data.kind}`, { rejected: data.status === 'rejected', hovered: data.hovered }]"
     role="button"
     :tabindex="0"
     :aria-label="`${kindName(data.kind)}: ${data.label}`"
@@ -53,7 +59,8 @@ function onKey(e: KeyboardEvent) {
   /* Vue Flow turns pointer events off on nodes it can neither select nor drag. */
   pointer-events: all;
 }
-.report-node:hover {
+.report-node:hover,
+.report-node.hovered {
   background: var(--hover);
 }
 .report-node[aria-pressed='true'] {

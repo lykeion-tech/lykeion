@@ -399,6 +399,98 @@ export function overviewOf(report: StudyReport) {
   };
 }
 
+// What the report reads as in one phrase, from its findings alone.
+export function verdictOf(report: StudyReport): string {
+  const o = overviewOf(report);
+  const total = o.supported + o.caveated + o.refuted + o.inconclusive + o.invalid;
+  if (!total) return 'No findings';
+  if (o.supported === total) return 'Supported';
+  if (o.supported + o.caveated === total) return 'Supported with caveats';
+  if ((o.supported + o.caveated) * 2 > total) return 'Mostly supported';
+  if ((o.refuted + o.invalid) * 2 >= total) return 'Not supported';
+  return 'Mixed';
+}
+
+export type TabId = 'summary' | 'findings' | 'concerns' | 'sources';
+export type ListRow = {
+  id: string;
+  kind: string;
+  label: string;
+  status: string;
+  // The weakest Jev check's evidence, in percent.
+  pct?: number;
+  // Concerns: what the objection or doubt targets.
+  on?: string;
+  // Sources: how many findings lean on it.
+  cited?: number;
+};
+
+// The nodes reachable from id in at most depth edges, either direction, id excluded.
+function within(report: StudyReport, id: string, depth: number): Set<string> {
+  const seen = new Set([id]);
+  let frontier = new Set([id]);
+  for (let d = 0; d < depth; d++) {
+    const next = new Set<string>();
+    for (const e of report.edges) {
+      if (frontier.has(e.from) && !seen.has(e.to)) next.add(e.to);
+      if (frontier.has(e.to) && !seen.has(e.from)) next.add(e.from);
+    }
+    next.forEach((n) => seen.add(n));
+    frontier = next;
+  }
+  seen.delete(id);
+  return seen;
+}
+
+// The rows of the Findings, Concerns and Sources tabs: the whole report, or
+// only what lies near the focused node.
+export function tabRows(
+  report: StudyReport,
+  focus: string | null,
+): Record<Exclude<TabId, 'summary'>, ListRow[]> {
+  const labelOf = (id: string) => report.nodes.find((n) => n.id === id)?.label ?? id;
+  const near1 = focus ? within(report, focus, 1) : null;
+  const near2 = focus ? within(report, focus, 2) : null;
+  const pick = (kinds: string[], near: Set<string> | null, self: boolean) =>
+    report.nodes.filter(
+      (n) => kinds.includes(n.kind) && (!near || near.has(n.id) || (self && n.id === focus)),
+    );
+  const evidence = (n: ReportNode) => {
+    const ps = n.checks
+      .filter((c) => !c.id.startsWith('novelty:') && c.p !== undefined)
+      .map((c) => c.p!);
+    return ps.length ? Math.round(Math.min(...ps) * 100) : undefined;
+  };
+  const row = (n: ReportNode): ListRow => ({
+    id: n.id,
+    kind: n.kind,
+    label: n.label,
+    status: n.status,
+    pct: evidence(n),
+  });
+  const rank = (n: ReportNode) => (n.kind === 'finding' ? 0 : 1);
+  return {
+    findings: pick(['finding', 'hypothesis'], near2, false)
+      .sort((a, b) => rank(a) - rank(b))
+      .map(row),
+    concerns: pick(['objection', 'doubt'], near1, true).map((n) => ({
+      ...row(n),
+      on: report.edges
+        .filter((e) => e.from === n.id && e.kind === 'challenges')
+        .map((e) => labelOf(e.to))
+        .join(', '),
+    })),
+    sources: pick(['paper', 'dataset', 'output'], near2, true).map((n) => ({
+      ...row(n),
+      cited: focus
+        ? undefined
+        : [...within(report, n.id, 2)].filter(
+            (id) => report.nodes.find((x) => x.id === id)?.kind === 'finding',
+          ).length,
+    })),
+  };
+}
+
 // The notices shown above the graph while the report's judged parts are
 // missing.
 export function noticesOf(report: StudyReport): string[] {

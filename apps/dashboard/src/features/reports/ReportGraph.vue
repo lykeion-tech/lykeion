@@ -6,7 +6,11 @@ import type { StudyReport } from '../../api/types';
 import { edgeStyle, kindDot, layoutReport, legend } from './report-layout';
 import ReportNode from './ReportNode.vue';
 
-const props = defineProps<{ report: StudyReport; selected: string | null }>();
+const props = defineProps<{
+  report: StudyReport;
+  selected: string | null;
+  hovered?: string | null;
+}>();
 const emit = defineEmits<{ select: [id: string] }>();
 
 const ids = computed(() => new Set(props.report.nodes.map((n) => n.id)));
@@ -19,7 +23,13 @@ const nodes = computed<Node[]>(() =>
     id: n.id,
     type: 'report',
     position: positions.value.get(n.id)!,
-    data: { kind: n.kind, label: n.label, status: n.status, selected: n.id === props.selected },
+    data: {
+      kind: n.kind,
+      label: n.label,
+      status: n.status,
+      selected: n.id === props.selected,
+      hovered: n.id === props.hovered,
+    },
   })),
 );
 const edges = computed<Edge[]>(() =>

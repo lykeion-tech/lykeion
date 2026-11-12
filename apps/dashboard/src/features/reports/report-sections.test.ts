@@ -7,6 +7,8 @@ import {
   overviewOf,
   placeLinks,
   sectionFor,
+  tabRows,
+  verdictOf,
 } from './report-sections';
 
 const node = (n: Partial<ReportNode> & Pick<ReportNode, 'id' | 'kind'>): ReportNode => ({
@@ -474,4 +476,36 @@ it('leaves a phrase plain when the source and the rendered text count it differe
   expect(placeLinks(nodes, handInPhrases(same, [linkAt(same, 'IL6', 0, 'concept:il6')]))).toEqual([
     { index: 1, start: 1, end: 4, node: 'concept:il6' },
   ]);
+});
+
+it('verdictOf reads the findings alone', () => {
+  const r = report();
+  const finding = (id: string, status: string) => node({ id, kind: 'finding', status });
+  const with_ = (...f: ReturnType<typeof finding>[]) => ({ ...r, nodes: f });
+  expect(verdictOf(with_())).toBe('No findings');
+  expect(verdictOf(with_(finding('a', 'supported')))).toBe('Supported');
+  expect(verdictOf(with_(finding('a', 'supported'), finding('b', 'caveated')))).toBe(
+    'Supported with caveats',
+  );
+  expect(
+    verdictOf(
+      with_(finding('a', 'supported'), finding('b', 'supported'), finding('c', 'inconclusive')),
+    ),
+  ).toBe('Mostly supported');
+  expect(verdictOf(with_(finding('a', 'refuted'), finding('b', 'invalid')))).toBe('Not supported');
+  expect(
+    verdictOf(
+      with_(finding('a', 'supported'), finding('b', 'refuted'), finding('c', 'inconclusive')),
+    ),
+  ).toBe('Mixed');
+});
+
+it('tabRows lists the whole report, then only what lies near the focus', () => {
+  const r = report();
+  const all = tabRows(r, null);
+  expect(all.sources.map((x) => x.id)).toContain('rec:r1');
+  const hypothesis = r.nodes.find((n) => n.kind === 'hypothesis')!;
+  const focused = tabRows(r, hypothesis.id);
+  expect(focused.findings.some((x) => x.id === hypothesis.id)).toBe(false);
+  expect(focused.sources.length).toBeLessThanOrEqual(all.sources.length);
 });

@@ -144,10 +144,10 @@ it('Back returns to the previous node, and Back to the overview clears the selec
   press(byText(root, '← Back to Sleep helps memory'));
   await nextTick();
   expect(emitted).toEqual(['rec:r1', 'rec:r5']);
-  press(byText(root, 'Back to the overview'));
+  press(byText(root, '×'));
   await nextTick();
   expect(emitted.at(-1)).toBeNull();
-  expect(textOf(root)).toContain('Click a node to see its section');
+  expect(textOf(root)).toContain('Findings supported');
 });
 
 it('the checks summary glyphs are hidden from screen readers and read as words', async () => {
@@ -229,5 +229,26 @@ it("a fact's source is a link that selects its node", async () => {
   // The link sets its text whole (v-text), so no template space reaches it.
   expect(source.props.textContent).toBe('Sleep helps memory');
   press(source);
+  expect(emitted).toEqual(['rec:r5']);
+});
+
+it('tabs list the report, and a focused node narrows them to what touches it', async () => {
+  const { root } = pane(null);
+  await nextTick();
+  expect(textOf(byText(root, 'Findings'))).toBe('Findings2');
+  press(byText(root, 'Sources'));
+  await nextTick();
+  expect(textOf(root)).toContain('doi:10.1/a');
+  const focused = pane('rec:r5');
+  await nextTick();
+  expect(textOf(byText(focused.root, 'Findings'))).toBe('Findings1');
+});
+
+it('a row in a tab selects its node', async () => {
+  const { root, emitted } = pane(null);
+  await nextTick();
+  press(byText(root, 'Findings'));
+  await nextTick();
+  press(byText(root, 'Sleep helps memory'));
   expect(emitted).toEqual(['rec:r5']);
 });

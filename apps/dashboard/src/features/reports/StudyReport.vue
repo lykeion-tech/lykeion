@@ -20,6 +20,7 @@ const noReport = computed(
 );
 
 const selected = ref<string | null>(null);
+const hovered = ref<string | null>(null);
 const expanded = ref(false);
 watch(
   () => props.cardId,
@@ -45,7 +46,10 @@ onUnmounted(() => {
 const handInBy = computed(() => {
   const h = report.value?.hand_in;
   if (!h) return '';
-  return [h.agent_name.split(' · ').slice(1).join(' · ') || h.agent_name, new Date(h.at).toLocaleString()]
+  return [
+    h.agent_name.split(' · ').slice(1).join(' · ') || h.agent_name,
+    new Date(h.at).toLocaleString(),
+  ]
     .filter(Boolean)
     .join(' · ');
 });
@@ -181,7 +185,12 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
           {{ notice }}
         </p>
         <div class="report-graph-frame">
-          <ReportGraph :report="report" :selected="selected" @select="selected = $event" />
+          <ReportGraph
+            :report="report"
+            :selected="selected"
+            :hovered="hovered"
+            @select="selected = $event"
+          />
         </div>
       </template>
     </div>
@@ -210,6 +219,7 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
         :report="report"
         :selected="selected"
         @select="selected = $event"
+        @hover="hovered = $event"
       />
     </SurfacePane>
   </section>
