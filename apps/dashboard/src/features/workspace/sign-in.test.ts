@@ -49,5 +49,5 @@ it.each([
   app.use(VueQueryPlugin, { queryClient: new QueryClient() });
   const html = await renderToString(app);
   expect(html).toContain('Continue with email');
-  expect(html.includes('Continue with Google')).toBe(!desktop || bridge);
+  expect(html.includes('Continue with Google')).toBe(!desktop);
 });

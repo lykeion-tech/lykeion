@@ -49,8 +49,7 @@ func NewRouter(h *H) http.Handler {
 	r.Post("/auth/send-code", h.sendCode)
 	r.Post("/auth/verify-code", h.verifyCode)
 	r.Post("/auth/logout", h.logout)
-	r.Post("/auth/desktop/google/start", h.desktopGoogleStart)
-	r.Post("/auth/desktop/google/exchange", h.desktopGoogleExchange)
+	// Desktop Google handoff is disabled until the browser confirms the intended device.
 	r.Get("/auth/google", h.googleStart)
 	r.Get("/auth/google/callback", h.googleCallback)
 

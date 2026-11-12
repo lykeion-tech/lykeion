@@ -64,13 +64,8 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 	if desktopTicket != "" {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		if r.URL.Query().Get("cli_port") != "" || r.URL.Query().Get("cli_state") != "" {
-			writeErr(w, http.StatusBadRequest, "invalid sign-in request")
-			return
-		}
-		if !h.desktopGoogleBegin(w, r, desktopTicket) {
-			return
-		}
+		writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
+		return
 	}
 	port, ok := validCLIPort(r.URL.Query().Get("cli_port"))
 	if !ok {
@@ -123,11 +118,8 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	cliState := ""
 	desktopTicket := ""
 	if len(parts) == 5 {
-		if parts[1] != "" || parts[2] != "desktop" || !desktopSecret(parts[3]) {
-			writeErr(w, http.StatusBadRequest, "sign-in expired")
-			return
-		}
-		desktopTicket = parts[3]
+		writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
+		return
 	}
 	if len(parts) == 4 {
 		cliState = parts[2]

@@ -13,8 +13,8 @@ const fixtures = [
   'desktop-tls-fixture.mjs',
   'desktop-lifetime-fixture.mjs',
   'desktop-google-electron-fixture.mjs',
-  'desktop-google-main-fixture.mjs',
-  'desktop-google-quit-before-fixture.mjs',
+  // Success/restart fixtures remain in tests/ for when the desktop Google flow is secured.
+  'desktop-google-disabled-fixture.mjs',
 ];
 
 export async function runFixture(executable, args, env, timeoutMs = 120_000) {

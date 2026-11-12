@@ -17,7 +17,6 @@ import {
 import { desktopUserData } from './desktop-user-data.js';
 import { loadDesktopWindow } from './desktop-window-recovery.js';
 import { DesktopVerification } from './desktop-verification.js';
-import { DesktopGoogleAuth } from './desktop-google-auth.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
 import { AuthenticationReload } from './desktop-auth-reload.js';
 import {
@@ -57,8 +56,6 @@ let verification: DesktopVerification | null = null;
 let currentDocument: string | null = null;
 let pendingAuthReload: AuthenticationReload | null = null;
 let pendingAuthReloadWait: AbortController | null = null;
-let googleAuth: DesktopGoogleAuth | null = null;
-let googleMutationID = Number.MIN_SAFE_INTEGER;
 let startupRecovery: Promise<void> = Promise.resolve();
 const authGate = new DesktopAuthGate(() => {
   if (!logoutIntent) throw new Error('Logout recovery unavailable');
@@ -74,7 +71,6 @@ async function finishLogoutRecovery(): Promise<void> {
   });
 }
 function abandonDocumentAuthentication() {
-  googleAuth?.cancel();
   pendingAuthReloadWait?.abort();
   pendingAuthReloadWait = null;
   pendingAuthReload = null;
@@ -107,7 +103,6 @@ function resumeAuthenticationReload() {
   pendingAuthReload.resumeAfterQuit(authGate.waitForVerificationReady(wait.signal));
 }
 app.on('before-quit', (event) => {
-  googleAuth?.cancel();
   if (quitAllowed || !ownsInstance) return;
   event.preventDefault();
   if (quitPending) return;
@@ -393,7 +388,6 @@ void app.whenReady().then(async () => {
         event.returnValue = null;
         return;
       }
-      if (path === '/auth/logout') googleAuth?.cancel();
       if (path === '/auth/verify-code' && (!verificationIntent || verificationIntent.exists())) {
         event.returnValue = null;
         return;
@@ -415,66 +409,11 @@ void app.whenReady().then(async () => {
       event.returnValue = null;
     }
   });
-  ipcMain.handle('lykeion:google-sign-in', async (event, documentID: unknown) => {
-    if (
-      typeof documentID !== 'string' ||
-      documentID !== currentDocument ||
-      !window ||
-      !trustedDesktopFrame(event, window.webContents, apiOrigin) ||
-      !verificationIntent ||
-      !verification ||
-      !desktopSession ||
-      !daemon ||
-      googleAuth ||
-      verificationIntent.exists()
-    )
-      throw new Error('Google sign-in is unavailable');
-    const token = authGate.reserve('/auth/verify-code');
-    if (!token) throw new Error('Application authentication is busy');
-    const mutation = googleMutationID++;
-    try {
-      verificationIntent.mark();
-      verification.reserve(token, documentID, daemon.verificationOwner());
-      if (!authGate.continueMutation(mutation, token, '/auth/verify-code'))
-        throw new Error('Application authentication is busy');
-    } catch (error) {
-      authGate.release(token);
-      throw error;
-    }
-    const session = desktopSession;
-    const proof = verification;
-    const flow = new DesktopGoogleAuth(apiOrigin, {
-      request: fetch,
-      open: (url) => shell.openExternal(url),
-      set: (cookie) => session.cookies.set(cookie),
-      flush: () => session.cookies.flushStore(),
-      current: () =>
-        documentID === currentDocument && !quitPending && !quitAllowed && !logoutIntent?.exists(),
-      capture: async () => {
-        const cookies = await session.cookies.get({
-          url: apiOrigin + '/api/me',
-          name: 'lyk_session',
-        });
-        await proof.capture(
-          token,
-          cookies.length === 1 ? { Cookie: 'lyk_session=' + cookies[0]!.value } : {},
-        );
-      },
-    });
-    googleAuth = flow;
-    try {
-      await flow.run();
-    } finally {
-      if (googleAuth === flow) googleAuth = null;
-      authGate.finishMutation(mutation);
-    }
-  });
   ipcMain.on('lykeion:reload-after-authentication', (event, documentID: unknown) => {
     const owner = window;
     if (
       !owner ||
       documentID !== currentDocument ||
-      googleAuth ||
       quitAllowed ||
       !trustedDesktopFrame(event, owner.webContents, apiOrigin)
     ) {
@@ -500,14 +439,6 @@ void app.whenReady().then(async () => {
     pendingAuthReload = pending;
     pending.request();
     if (!authGate.canFinishVerification()) resumeAuthenticationReload();
-  });
-  ipcMain.on('lykeion:cancel-google-sign-in', (event, documentID: unknown) => {
-    if (
-      documentID === currentDocument &&
-      window &&
-      trustedDesktopFrame(event, window.webContents, apiOrigin)
-    )
-      googleAuth?.cancel();
   });
   ipcMain.handle('lykeion:read-verification', async (event, documentID: unknown) => {
     if (

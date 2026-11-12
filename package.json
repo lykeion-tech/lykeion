@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "desktop:build": "node scripts/desktop-dev.mjs --build-only",
-    "test:desktop:electron": "npm run build && node tests/desktop-electron-runner-check.mjs && node scripts/test-desktop-electron.mjs && node tests/desktop-google-restart-check.mjs",
+    "test:desktop:electron": "npm run build && node tests/desktop-electron-runner-check.mjs && node scripts/test-desktop-electron.mjs",
     "dev:stack": "node scripts/dev-stack.mjs",
     "desktop:package": "node scripts/desktop-package.mjs"
   },

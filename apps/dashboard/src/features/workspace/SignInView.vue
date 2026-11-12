@@ -10,7 +10,7 @@ const boxes = ref<HTMLInputElement[]>([]);
 const busy = ref(false);
 const error = ref('');
 const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
-const googleAvailable = !desktop || typeof window.lykeionDesktop?.googleSignIn === 'function';
+const googleAvailable = !desktop;
 const localLogoutNotice = 'Signed out on this computer. The server did not confirm sign-out.';
 
 async function send() {

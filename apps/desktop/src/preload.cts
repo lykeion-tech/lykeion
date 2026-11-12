@@ -82,9 +82,7 @@ contextBridge.exposeInMainWorld(
                   ) === true,
               }
             : {}),
-          googleSignIn: () =>
-            ipcRenderer.invoke('lykeion:google-sign-in', documentID) as Promise<void>,
-          cancelGoogleSignIn: () => ipcRenderer.send('lykeion:cancel-google-sign-in', documentID),
+          // Desktop Google sign-in is disabled pending cross-device confirmation.
           reloadAfterAuthentication: () =>
             ipcRenderer.sendSync('lykeion:reload-after-authentication', documentID) === true,
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),

@@ -13,7 +13,53 @@ import (
 	"time"
 )
 
+func TestDesktopGoogleUntrustedDeviceCannotStartSignIn(t *testing.T) {
+	s := googleServer(t, true, "desktop-phishing")
+	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	challenge := sha256.Sum256([]byte(verifier))
+	resp, err := http.Post(s.URL+"/auth/desktop/google/start", "application/json", strings.NewReader(`{"challenge":"`+base64.RawURLEncoding.EncodeToString(challenge[:])+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("attacker could access ticket endpoint: %d", resp.StatusCode)
+	}
+	ticket := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32))
+	browser, err := noRedirect.Get(s.URL + "/auth/google?desktop_ticket=" + ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Body.Close()
+	if browser.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("victim desktop handoff: %d", browser.StatusCode)
+	}
+
+	// A browser may still have a valid in-flight cookie from before disablement.
+	state := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	sig := base64.RawURLEncoding.EncodeToString(oauthSignature(s.H.JWT.Secret, state, "", "", ticket))
+	oldCookie := &http.Cookie{Name: oauthCookie, Value: state + "||desktop|" + ticket + "|" + sig}
+	old := callback(t, s, state, "good", oldCookie)
+	if old.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("old desktop callback: %d", old.StatusCode)
+	}
+	for _, cookie := range old.Cookies() {
+		if cookie.Name == "lyk_session" {
+			t.Fatal("old desktop callback set a session")
+		}
+	}
+	exchange, err := http.Post(s.URL+"/auth/desktop/google/exchange", "application/json", strings.NewReader(`{"ticket":"`+ticket+`","verifier":"`+verifier+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exchange.Body.Close()
+	if exchange.StatusCode != http.StatusNotFound {
+		t.Fatalf("old exchange endpoint: %d", exchange.StatusCode)
+	}
+}
+
 func TestDesktopGoogleVerifierBoundSingleUse(t *testing.T) {
+	t.Skip("desktop Google sign-in is disabled pending cross-device confirmation")
 	s := googleServer(t, true, "desktop-google")
 	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	challengeRaw := sha256.Sum256([]byte(verifier))
@@ -90,6 +136,7 @@ func TestDesktopGoogleVerifierBoundSingleUse(t *testing.T) {
 }
 
 func TestDesktopGooglePollingIsBoundPerVerifier(t *testing.T) {
+	t.Skip("desktop Google sign-in is disabled pending cross-device confirmation")
 	s := googleServer(t, true, "desktop-poll")
 	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	challengeRaw := sha256.Sum256([]byte(verifier))
@@ -155,6 +202,7 @@ func TestDesktopGooglePollingIsBoundPerVerifier(t *testing.T) {
 }
 
 func TestDesktopGoogleConcurrentPollLimit(t *testing.T) {
+	t.Skip("desktop Google sign-in is disabled pending cross-device confirmation")
 	s := googleServer(t, true, "desktop-concurrent")
 	verifier := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32))
 	challengeRaw := sha256.Sum256([]byte(verifier))
