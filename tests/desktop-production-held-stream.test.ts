@@ -62,7 +62,7 @@ describe.skipIf(process.platform === 'win32')('desktop held-stream module', () =
     const f = fixture(mode);
     try {
       const session = await openDesktopHeldStream(f.resources, f.manifest, '1.0.0', new AbortController().signal);
-      if (session.descriptor.state !== 'downloaded') throw Error('unexpected state');
+      if (session.descriptor.state !== 'downloaded' || !('deliver' in session)) throw Error('unexpected state');
       const output = sink(); await session.deliver(output.stream);
       expect(output.bytes().length).toBe(session.descriptor.size);
       expect(existsSync(f.marker)).toBe(true);
@@ -73,7 +73,7 @@ describe.skipIf(process.platform === 'win32')('desktop held-stream module', () =
     try {
       const run = async () => {
         const session = await openDesktopHeldStream(f.resources, f.manifest, '1.0.0', new AbortController().signal);
-        if (session.descriptor.state !== 'downloaded') throw Error('unexpected state');
+        if (session.descriptor.state !== 'downloaded' || !('deliver' in session)) throw Error('unexpected state');
         const output = sink();
         try { await session.deliver(output.stream); } finally { expect(output.bytes().length).toBeLessThan(session.descriptor.size); }
       };
@@ -84,7 +84,7 @@ describe.skipIf(process.platform === 'win32')('desktop held-stream module', () =
     const f = fixture('hang');
     try {
       const session = await openDesktopHeldStream(f.resources, f.manifest, '1.0.0', new AbortController().signal);
-      if (session.descriptor.state !== 'downloaded') throw Error('unexpected state');
+      if (session.descriptor.state !== 'downloaded' || !('deliver' in session)) throw Error('unexpected state');
       await session.stop();
     } finally { f.cleanup(); }
   });
@@ -92,7 +92,7 @@ describe.skipIf(process.platform === 'win32')('desktop held-stream module', () =
     const f = fixture('fdclose');
     try {
       const session = await openDesktopHeldStream(f.resources, f.manifest, '1.0.0', new AbortController().signal);
-      if (session.descriptor.state !== 'downloaded') throw Error('unexpected state');
+      if (session.descriptor.state !== 'downloaded' || !('deliver' in session)) throw Error('unexpected state');
       await expect(session.deliver(sink().stream)).rejects.toThrow('Update stream unavailable');
     } finally { f.cleanup(); }
   }, 5000);
@@ -100,7 +100,7 @@ describe.skipIf(process.platform === 'win32')('desktop held-stream module', () =
     const f = fixture('good');
     try {
       const session = await openDesktopHeldStream(f.resources, f.manifest, '1.0.0', new AbortController().signal);
-      if (session.descriptor.state !== 'downloaded') throw Error('unexpected state');
+      if (session.descriptor.state !== 'downloaded' || !('deliver' in session)) throw Error('unexpected state');
       let started!: () => void;
       const writing = new Promise<void>((resolve) => { started = resolve; });
       const destination = new Writable({ highWaterMark: 1, write(_chunk, _encoding, done) { started(); setTimeout(() => done(new Error('late private error')), 30); } });
