@@ -458,6 +458,8 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 	}
 	finish := strings.HasSuffix(r.URL.Path, "/finish")
 	var blob *string
+	var attempt uuid.UUID
+	var uploaded bool
 	var receipt *string
 	var claim *uuid.UUID
 	var c db.CoresearchChat
@@ -501,7 +503,15 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	finishCell := func() error {
-		if e := h.coresearchDaemonTx(r, check); e != nil {
+		if e := h.coresearchDaemonTx(r, func(tx *store.Tx, daemon string) error {
+			if e := check(tx, daemon); e != nil {
+				return e
+			}
+			if receipt == nil && finish && len(in.Outputs) > coresearch.InlineCellOutputBytes {
+				return tx.LockCoresearchCellGeneration(r.Context())
+			}
+			return nil
+		}); e != nil {
 			return e
 		}
 		if receipt != nil {
@@ -511,10 +521,16 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		if finish && len(in.Outputs) > coresearch.InlineCellOutputBytes {
-			key := c.WorkspaceID.String() + "/coresearch/cells/" + id.String() + ".json"
+			var e error
+			attempt, e = uuid.NewRandom()
+			if e != nil {
+				return e
+			}
+			key := c.WorkspaceID.String() + "/coresearch/cells/" + id.String() + "/" + attempt.String() + ".json"
 			if e := h.Blobs.Put(r.Context(), key, bytes.NewReader(in.Outputs), int64(len(in.Outputs))); e != nil {
 				return e
 			}
+			uploaded = true
 			blob = &key
 		}
 		return h.coresearchDaemonTx(r, func(tx *store.Tx, daemon string) error {
@@ -536,6 +552,9 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			}
 			outputs := json.RawMessage(in.Outputs)
 			if blob != nil {
+				if e := tx.LockCoresearchCellGeneration(r.Context()); e != nil {
+					return e
+				}
 				outputs = nil
 			}
 			if _, e := tx.Q.FinishCoresearchCell(r.Context(), db.FinishCoresearchCellParams{WorkspaceID: tx.WS, ID: id, Status: in.Status, ExecutionCount: in.ExecutionCount, Outputs: outputs, OutputsBlob: blob, ReceiptSha: &digest, ClaimToken: claim}); e != nil {
@@ -548,7 +567,31 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if finish {
-		e = coresearch.WithCellOutput(r.Context(), h.Store, c.WorkspaceID, id, finishCell)
+		e = coresearch.WithCellOutput(r.Context(), h.Store, c.WorkspaceID, id, func() error {
+			result := finishCell()
+			if result == nil || !uploaded {
+				return result
+			}
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+			defer cancel()
+			cleanupErr := h.Store.InWorkspaceReadCommitted(cleanup, c.WorkspaceID, user(r), func(tx *store.Tx) error {
+				if _, err := tx.Q.LockWorkspaceForMutation(cleanup, tx.WS); err != nil {
+					return err
+				}
+				referenced, err := tx.CoresearchCellCandidateReferenced(cleanup, id, attempt)
+				if err != nil {
+					return err
+				}
+				if referenced {
+					return nil
+				}
+				return h.Blobs.Delete(cleanup, *blob)
+			})
+			if cleanupErr != nil {
+				slog.Warn("cell output cleanup failed")
+			}
+			return result
+		})
 	} else {
 		e = finishCell()
 	}

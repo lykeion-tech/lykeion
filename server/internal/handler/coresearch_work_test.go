@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/service"
@@ -21,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1304,4 +1307,576 @@ func TestCoresearchRunLeaseExpiryRollsBackOutput(t *testing.T) {
 	if !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("output blob retained: %v", err)
 	}
+}
+
+type cellOutputProbe struct {
+	storage.Storage
+	key       string
+	afterPut  func()
+	putErr    error
+	deleteErr error
+}
+
+func (s *cellOutputProbe) Put(ctx context.Context, key string, r io.Reader, n int64) error {
+	s.key = key
+	if err := s.Storage.Put(ctx, key, r, n); err != nil {
+		return err
+	}
+	if s.afterPut != nil {
+		s.afterPut()
+	}
+	return s.putErr
+}
+func (s *cellOutputProbe) Delete(ctx context.Context, key string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	return s.Storage.Delete(ctx, key)
+}
+func TestCellFailedFinishCleansAcknowledgedGeneration(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	probe := &cellOutputProbe{Storage: s.H.Blobs}
+	probe.afterPut = func() {
+		if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", cell.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	s.H.Blobs = probe
+	url := "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	output := json.RawMessage(`"` + strings.Repeat("x", (1<<20)+1) + `"`)
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, map[string]any{"status": "ok", "outputs": output}, nil); code != 409 {
+		t.Fatalf("status %d", code)
+	}
+	if !strings.HasPrefix(probe.key, ws+"/coresearch/cells/"+cell.ID.String()+"/") {
+		t.Fatalf("non-generation key %q", probe.key)
+	}
+	rc, err := probe.Storage.Get(t.Context(), probe.key)
+	if rc != nil {
+		rc.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("orphan retained: %v", err)
+	}
+}
+
+func TestCellAmbiguousPutRetainsUniqueCandidate(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	probe := &cellOutputProbe{Storage: s.H.Blobs, putErr: errors.New("ambiguous put")}
+	s.H.Blobs = probe
+	url := "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	output := json.RawMessage(`"` + strings.Repeat("x", (1<<20)+1) + `"`)
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, map[string]any{"status": "ok", "outputs": output}, nil); code != 500 {
+		t.Fatalf("status %d", code)
+	}
+	first := probe.key
+	rc, err := probe.Storage.Get(t.Context(), first)
+	if err != nil {
+		t.Fatalf("ambiguous candidate lost: %v", err)
+	}
+	rc.Close()
+	probe.putErr = nil
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, map[string]any{"status": "ok", "outputs": output}, nil); code != 204 {
+		t.Fatalf("retry status %d", code)
+	}
+	if probe.key == first {
+		t.Fatal("retry reused ambiguous key")
+	}
+	rc, err = probe.Storage.Get(t.Context(), probe.key)
+	if err != nil {
+		t.Fatalf("successful candidate lost: %v", err)
+	}
+	rc.Close()
+}
+
+func TestCellCandidateReferenceRequiresOwner(t *testing.T) {
+	s, a, b, _, ws, p := csFixture(t)
+	csAdd(t, s, a, b, ws, p.ID, "member")
+	path, _ := csChat(t, s, a, ws, p.ID)
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "x"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	workspace := uuid.MustParse(ws)
+	attempt := uuid.New()
+	for _, tc := range []struct {
+		user    string
+		allowed bool
+	}{{a, true}, {b, false}} {
+		err := s.H.Store.InWorkspaceReadCommitted(t.Context(), workspace, uuid.MustParse(s.userID(t, tc.user)), func(tx *store.Tx) error {
+			if _, err := tx.Q.LockWorkspaceForMutation(t.Context(), workspace); err != nil {
+				return err
+			}
+			_, err := tx.CoresearchCellCandidateReferenced(t.Context(), cell.ID, attempt)
+			return err
+		})
+		if (err == nil) != tc.allowed {
+			t.Fatalf("allowed=%v error=%v", tc.allowed, err)
+		}
+	}
+}
+
+func TestCellCleanupReadCommittedSeesBlockedCommit(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	workspace := uuid.MustParse(ws)
+	attempt := uuid.New()
+	key := ws + "/coresearch/cells/" + cell.ID.String() + "/" + attempt.String() + ".json"
+	blocker, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err = blocker.Exec(t.Context(), "SELECT id FROM workspace WHERE id=$1 FOR UPDATE", ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = blocker.Exec(t.Context(), "UPDATE coresearch_cell SET outputs_blob=$1 WHERE id=$2", key, cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	config := s.H.Store.Pool.Config()
+	config.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	pool, err := pgxpool.NewWithConfig(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	st := &store.Store{Pool: pool}
+	ownerID := uuid.MustParse(s.userID(t, a))
+	done := make(chan error, 1)
+	go func() {
+		done <- st.InWorkspaceReadCommitted(t.Context(), workspace, ownerID, func(tx *store.Tx) error {
+			if _, err := tx.Q.LockWorkspaceForMutation(t.Context(), workspace); err != nil {
+				return err
+			}
+			referenced, err := tx.CoresearchCellCandidateReferenced(t.Context(), cell.ID, attempt)
+			if err != nil {
+				return err
+			}
+			if !referenced {
+				return errors.New("committed reference invisible")
+			}
+			return nil
+		})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	blocked := false
+	for time.Now().Before(deadline) {
+		if err = s.Env.Owner.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE $1)", "%FROM workspace WHERE id =%FOR UPDATE%").Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked {
+		t.Fatal("cleanup did not wait on workspace lock")
+	}
+	if err = blocker.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCellGenerationDowngradeFencesConcurrentPublisher(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	sql, err := os.ReadFile("../../migrations/0071_cell_output_generation.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(context.Background())
+	if _, err = writer.Exec(t.Context(), "SELECT enabled FROM public.coresearch_cell_generation_capability"); err != nil {
+		t.Fatal(err)
+	}
+	key := ws + "/coresearch/cells/" + cell.ID.String() + "/" + uuid.NewString() + ".json"
+	if _, err = writer.Exec(t.Context(), "UPDATE coresearch_cell SET outputs_blob=$1 WHERE id=$2", key, cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	config := s.Env.Owner.Config()
+	config.ConnConfig.RuntimeParams["default_transaction_isolation"] = "read committed"
+	downPool, err := pgxpool.NewWithConfig(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer downPool.Close()
+	done := make(chan error, 1)
+	go func() {
+		conn, e := downPool.Acquire(t.Context())
+		if e != nil {
+			done <- e
+			return
+		}
+		defer conn.Release()
+		_, e = conn.Exec(t.Context(), string(sql))
+		if e != nil {
+			_, _ = conn.Exec(context.Background(), "ROLLBACK")
+		}
+		done <- e
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	blocked := false
+	for time.Now().Before(deadline) {
+		if err = s.Env.Owner.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%DROP TABLE public.coresearch_cell_generation_capability%')").Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked {
+		t.Fatal("downgrade did not wait for publisher")
+	}
+	if err = writer.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err == nil {
+		t.Fatal("downgrade accepted published generation")
+	}
+	var enabled bool
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT enabled FROM public.coresearch_cell_generation_capability").Scan(&enabled); err != nil || !enabled {
+		t.Fatalf("capability lost: %v", err)
+	}
+}
+
+func TestCellGenerationUnavailableDoesNotUpload(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), "DROP TABLE public.coresearch_cell_generation_capability"); err != nil {
+		t.Fatal(err)
+	}
+	probe := &cellOutputProbe{Storage: s.H.Blobs}
+	s.H.Blobs = probe
+	url := "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	output := json.RawMessage(`"` + strings.Repeat("x", (1<<20)+1) + `"`)
+	if code := s.call(t, "POST", url, s.personalToken(t, a), ws, map[string]any{"status": "ok", "outputs": output}, nil); code != 500 {
+		t.Fatalf("status %d", code)
+	}
+	if probe.key != "" {
+		t.Fatalf("uploaded without capability: %s", probe.key)
+	}
+}
+
+func TestCellGenerationDowngradeIsAtomic(t *testing.T) {
+	s, _, _, _, _, _ := csFixture(t)
+	sql, err := os.ReadFile("../../migrations/0071_cell_output_generation.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr, err := s.Env.Owner.BeginTx(t.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = rr.Exec(t.Context(), string(sql)); err == nil {
+		t.Fatal("repeatable-read downgrade accepted")
+	}
+	rr.Rollback(context.Background())
+	var enabled bool
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT enabled FROM public.coresearch_cell_generation_capability").Scan(&enabled); err != nil || !enabled {
+		t.Fatalf("repeatable-read damaged capability: %v", err)
+	}
+	tx, err := s.Env.Owner.BeginTx(t.Context(), pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(t.Context(), string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Rollback(t.Context()); err != nil {
+		t.Fatalf("downgrade committed outer transaction: %v", err)
+	}
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT enabled FROM public.coresearch_cell_generation_capability").Scan(&enabled); err != nil || !enabled {
+		t.Fatalf("outer rollback lost capability: %v", err)
+	}
+}
+
+func TestCellCleanupErrorDoesNotLeakOrDelete(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	probe := &cellOutputProbe{Storage: s.H.Blobs, deleteErr: errors.New("SECRET_BACKEND_DETAIL")}
+	probe.afterPut = func() {
+		_, _ = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", cell.ID)
+	}
+	s.H.Blobs = probe
+	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	body, _ := json.Marshal(map[string]any{"status": "ok", "outputs": strings.Repeat("x", (1<<20)+1)})
+	req, _ := http.NewRequestWithContext(t.Context(), "POST", url, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+s.personalToken(t, a))
+	req.Header.Set("X-Workspace-ID", ws)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 409 || strings.Contains(string(raw), "SECRET_BACKEND_DETAIL") {
+		t.Fatalf("response %d %s", resp.StatusCode, raw)
+	}
+	rc, err := probe.Storage.Get(t.Context(), probe.key)
+	if err != nil {
+		t.Fatalf("blob lost: %v", err)
+	}
+	rc.Close()
+}
+
+func TestCellReceiptRaceAfterCapabilityRemoved(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	conn, err := s.Env.Owner.Acquire(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	sum := sha256.Sum256([]byte(ws + "/coresearch/cells/" + cell.ID.String() + ".json"))
+	lock := int64(binary.BigEndian.Uint64(sum[:8]))
+	if _, err = conn.Exec(t.Context(), "SELECT pg_advisory_lock($1)", lock); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lock)
+	output := json.RawMessage(`"` + strings.Repeat("x", (1<<20)+1) + `"`)
+	in := struct {
+		Status         string          `json:"status"`
+		ExecutionCount *int32          `json:"execution_count"`
+		Outputs        json.RawMessage `json:"outputs"`
+	}{Status: "ok", Outputs: output}
+	digest := coresearchReceipt(in)
+	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	body, _ := json.Marshal(map[string]any{"status": "ok", "outputs": output})
+	token := s.personalToken(t, a)
+	done := make(chan int, 1)
+	go func() {
+		req, _ := http.NewRequestWithContext(t.Context(), "POST", url, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws)
+		req.Header.Set("Content-Type", "application/json")
+		resp, e := http.DefaultClient.Do(req)
+		if e != nil {
+			done <- 0
+			return
+		}
+		resp.Body.Close()
+		done <- resp.StatusCode
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	blocked := false
+	for time.Now().Before(deadline) {
+		if err = s.Env.Owner.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%pg_advisory_lock%')").Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked {
+		t.Fatal("request did not wait for cell lock")
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET status='ok', receipt_sha=$1 WHERE id=$2", digest, cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "DROP TABLE public.coresearch_cell_generation_capability"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.Exec(t.Context(), "SELECT pg_advisory_unlock($1)", lock); err != nil {
+		t.Fatal(err)
+	}
+	if code := <-done; code != 204 {
+		t.Fatalf("receipt replay status %d", code)
+	}
+}
+
+type delayedCellDeleteStorage struct {
+	storage.Storage
+	once          sync.Once
+	mu            sync.Mutex
+	keys          []string
+	deleted       string
+	afterFirstPut func()
+	entered       chan struct{}
+	release       chan struct{}
+}
+
+func (s *delayedCellDeleteStorage) Put(ctx context.Context, key string, r io.Reader, n int64) error {
+	if err := s.Storage.Put(ctx, key, r, n); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.keys = append(s.keys, key)
+	s.mu.Unlock()
+	s.once.Do(s.afterFirstPut)
+	return nil
+}
+func (s *delayedCellDeleteStorage) Delete(ctx context.Context, key string) error {
+	s.mu.Lock()
+	s.deleted = key
+	s.mu.Unlock()
+	close(s.entered)
+	<-s.release
+	// Simulate a remote deletion that was already accepted despite local cancellation.
+	return s.Storage.Delete(context.Background(), key)
+}
+func TestCellDelayedDeleteAfterLockLossCannotRemoveRetry(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	var cell db.CoresearchCell
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "x", "source": "1"}, &cell); code != 201 {
+		t.Fatal(code)
+	}
+	work := csWork(t, s, a, "work", ref)
+	probe := &delayedCellDeleteStorage{Storage: s.H.Blobs, entered: make(chan struct{}), release: make(chan struct{})}
+	probe.afterFirstPut = func() {
+		_, _ = s.Env.Owner.Exec(context.Background(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", cell.ID)
+	}
+	s.H.Blobs = probe
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(probe.release) }) }
+	defer release()
+	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/finish?daemon_id=work&claim_token=" + work.Cells[0].ClaimToken.String()
+	body, _ := json.Marshal(map[string]any{"status": "ok", "outputs": strings.Repeat("x", (1<<20)+1)})
+	token := s.personalToken(t, a)
+	send := func() int {
+		ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Workspace-ID", ws)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	first := make(chan int, 1)
+	go func() { first <- send() }()
+	select {
+	case <-probe.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cleanup did not start delete")
+	}
+	// Terminate the advisory lock session and the cleanup transaction while the
+	// storage service still has an in-flight delete for the old generation.
+	rows, err := s.Env.Owner.Query(t.Context(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND datname=current_database() AND (query LIKE 'SELECT pg_advisory_lock(%' OR query LIKE 'SELECT public.coresearch_cell_candidate_referenced(%')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	killed := 0
+	for rows.Next() {
+		var ok bool
+		if err = rows.Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			killed++
+		}
+	}
+	rows.Close()
+	if killed < 2 {
+		release()
+		t.Fatalf("terminated %d lock sessions", killed)
+	}
+	if _, err = s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id=$1", cell.ID); err != nil {
+		release()
+		t.Fatal(err)
+	}
+	if code := send(); code != 204 {
+		release()
+		t.Fatalf("retry status %d", code)
+	}
+	probe.mu.Lock()
+	keys := append([]string(nil), probe.keys...)
+	probe.mu.Unlock()
+	if len(keys) != 2 || keys[0] == keys[1] {
+		release()
+		t.Fatalf("generation keys %v", keys)
+	}
+	release()
+	select {
+	case code := <-first:
+		if code != 409 {
+			t.Fatalf("first status %d", code)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("first request did not finish")
+	}
+	probe.mu.Lock()
+	deleted := probe.deleted
+	probe.mu.Unlock()
+	if deleted != keys[0] {
+		t.Fatalf("deleted %q, expected %q", deleted, keys[0])
+	}
+	old, err := probe.Storage.Get(t.Context(), keys[0])
+	if old != nil {
+		old.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("old key retained: %v", err)
+	}
+	var stored *string
+	if err = s.Env.Owner.QueryRow(t.Context(), "SELECT outputs_blob FROM coresearch_cell WHERE id=$1", cell.ID).Scan(&stored); err != nil || stored == nil || *stored != keys[1] {
+		t.Fatalf("stored output %v: %v", stored, err)
+	}
+	rc, err := probe.Storage.Get(t.Context(), keys[1])
+	if err != nil {
+		t.Fatalf("delayed delete removed retry: %v", err)
+	}
+	rc.Close()
 }

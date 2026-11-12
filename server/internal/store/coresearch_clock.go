@@ -34,3 +34,22 @@ func (t *Tx) CoresearchClaimStillLive(ctx context.Context, kind string, id uuid.
 	err := t.raw.QueryRow(ctx, query, t.WS, id, token).Scan(&live)
 	return live, err
 }
+
+func (t *Tx) CoresearchCellCandidateReferenced(ctx context.Context, cell, attempt uuid.UUID) (bool, error) {
+	var referenced bool
+	err := t.raw.QueryRow(ctx, "SELECT public.coresearch_cell_candidate_referenced($1,$2)", cell, attempt).Scan(&referenced)
+	return referenced, err
+}
+
+// LockCoresearchCellGeneration prevents schema downgrade until this publish commits.
+func (t *Tx) LockCoresearchCellGeneration(ctx context.Context) error {
+	var enabled bool
+	err := t.raw.QueryRow(ctx, "SELECT enabled FROM public.coresearch_cell_generation_capability").Scan(&enabled)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("cell output generation unavailable")
+	}
+	return nil
+}

@@ -448,13 +448,18 @@ func TestDeleteConversationCleansUnsharedBlobsAndPreservesSharedBlobs(t *testing
 	}
 
 	cellKey := ws + "/coresearch/cells/" + uuid.NewString() + ".json"
+	generationCellID := uuid.New()
+	generationKey := ws + "/coresearch/cells/" + generationCellID.String() + "/" + uuid.NewString() + ".json"
 	artifactKey := coresearch.BlobKey(uuid.MustParse(ws), strings.Repeat("a", 64))
-	for _, key := range []string{cellKey, artifactKey} {
+	for _, key := range []string{cellKey, generationKey, artifactKey} {
 		if err := s.H.Blobs.Put(t.Context(), key, strings.NewReader("artifact"), int64(len("artifact"))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_cell(workspace_id,chat_id,seq,kernel,source,status,outputs_blob) VALUES ($1,$2,1,'python3','','ok',$3)`, ws, first.Conversation.ChatID, cellKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_cell(id,workspace_id,chat_id,seq,kernel,source,status,outputs_blob) VALUES ($1,$2,$3,2,'python3','','ok',$4)`, generationCellID, ws, first.Conversation.ChatID, generationKey); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO coresearch_build(workspace_id,project_id,seq,requested_by,status,sources,pdf_blob) VALUES($1,$2,1,$3,'aborted','[]',$4)`, ws, first.Conversation.ProjectID, first.Conversation.OwnerID, artifactKey); err != nil {
@@ -463,7 +468,7 @@ func TestDeleteConversationCleansUnsharedBlobsAndPreservesSharedBlobs(t *testing
 	if code := s.call(t, "DELETE", "/api/coresearch/conversations/"+first.Conversation.ID.String(), a, ws, nil, nil); code != 204 {
 		t.Fatalf("first delete: %d", code)
 	}
-	for _, key := range []string{cellKey, artifactKey} {
+	for _, key := range []string{cellKey, generationKey, artifactKey} {
 		if rc, err := s.H.Blobs.Get(t.Context(), key); err == nil {
 			rc.Close()
 			t.Fatalf("artifact %s retained", key)

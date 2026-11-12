@@ -260,6 +260,11 @@ func (s *Store) InWorkspace(ctx context.Context, ws, user uuid.UUID, fn func(*Tx
 	return s.run(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, fn)
 }
 
+// InWorkspaceReadCommitted gives cleanup a fresh snapshot after acquiring locks.
+func (s *Store) InWorkspaceReadCommitted(ctx context.Context, ws, user uuid.UUID, fn func(*Tx) error) error {
+	return s.runWith(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, fn)
+}
+
 // InWorkspaceSnapshot is used for hand-ins that validate several related facts.
 // Concurrent changes may serialize before or after the hand-in, never between
 // its checks. A rolled-back attempt publishes no events.
