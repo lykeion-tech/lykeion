@@ -156,6 +156,9 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 	if old := s.RecordedPython(); old != "" && python != "" && old != python {
 		return "", PythonConflict(old)
 	}
+	if !s.Bases.Ready(Python) {
+		return "", missingBase(Python)
+	}
 	if err := s.checkDefaultPython(ctx); err != nil {
 		return "", err
 	}
@@ -164,9 +167,6 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 		if err := s.pin(ctx, python); err != nil {
 			return "", err
 		}
-	}
-	if !s.Bases.Ready(Python) {
-		return "", notReady(Python)
 	}
 	prefix := filepath.Join(s.Dir, "conda")
 	ready := s.condaReady()

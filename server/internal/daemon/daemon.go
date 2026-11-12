@@ -298,20 +298,6 @@ func Run(ctx context.Context, cfg Config) error {
 	d.preflightAll(ctx, true)
 	slog.Info("start preflight done", "took", time.Since(preflightStart).Round(time.Millisecond))
 	background(func() { d.preflights(ctx) })
-	if d.bases != nil {
-		// Bases build in the background; a run started before one is ready
-		// gets only the ones that are.
-		background(func() {
-			errs := d.bases.EnsureAll(ctx)
-			for _, lang := range []string{envs.Python, envs.R, envs.Julia} {
-				if errs[lang] != nil {
-					slog.Warn(lang+" environment not ready", "err", errs[lang])
-				} else {
-					slog.Info(lang + " environment ready")
-				}
-			}
-		})
-	}
 	ticker := time.NewTicker(cfg.Poll)
 	defer ticker.Stop()
 	var runErr error

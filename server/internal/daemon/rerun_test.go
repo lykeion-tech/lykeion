@@ -98,6 +98,28 @@ type rerunCase struct {
 
 type condaCall struct{ python, lock string }
 
+func TestRerunCannotBypassSharedBaseProvisioningGate(t *testing.T) {
+	for _, lang := range []string{envs.R, envs.Julia} {
+		t.Run(lang, func(t *testing.T) {
+			root := t.TempDir()
+			bases := envs.NewBases(root)
+			bases.Fetch = func(context.Context, string, string, string) error {
+				t.Fatal("rerun attempted a download")
+				return nil
+			}
+			study := envs.ForStudy(bases, t.TempDir())
+			err := (&daemon{}).rebuildLanguage(t.Context(), &Door{Study: study}, "", lang, "", "")
+			if !errors.Is(err, envs.ErrBoundedProvisioningUnavailable) {
+				t.Fatalf("rerun error = %v", err)
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("rerun changed bases: %v %v", entries, err)
+			}
+		})
+	}
+}
+
 // fakeRscript notes each command line it is given in Rscript.log beside
 // itself, and lists no installed package.
 const fakeRscript = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.log\"\n"

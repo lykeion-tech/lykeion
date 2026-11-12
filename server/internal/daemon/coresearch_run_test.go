@@ -322,6 +322,32 @@ func TestSetupReservationFailureHasNoMutation(t *testing.T) {
 	}
 }
 
+func TestSetupWithMissingBaseDoesNotPersistPython(t *testing.T) {
+	f, _, s, _ := newRecordedFixture(t, "")
+	must(t, os.Remove(filepath.Join(s.Bases.Dir, "python", "ready")))
+	var reports []map[string]string
+	previous := f.d.api.HTTP.Transport
+	f.d.api.HTTP.Transport = coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/setups/") && strings.HasSuffix(r.URL.Path, "/finish") {
+			var body map[string]string
+			must(t, json.NewDecoder(r.Body).Decode(&body))
+			reports = append(reports, body)
+			return &http.Response{StatusCode: 204, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
+		}
+		return previous.RoundTrip(r)
+	})
+	v := "3.12"
+	err := f.d.dispatchCoresearchSetup(t.Context(), coresearch.ClaimedSetup{WorkContext: f.work, ID: uuid.New(), Python: &v})
+	if !errors.Is(err, envs.ErrBoundedProvisioningUnavailable) || s.RecordedPython() != "" {
+		t.Fatalf("error=%v, version=%q", err, s.RecordedPython())
+	}
+	for _, report := range reports {
+		if report["status"] == "running" || report["python_version"] != "" {
+			t.Fatalf("persisted Python without a base: %v", report)
+		}
+	}
+}
+
 func waitRecorded(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)

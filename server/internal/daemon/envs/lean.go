@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 var leanToolchainPattern = regexp.MustCompile(`^leanprover/lean4:v[0-9A-Za-z.\-]+$`)
@@ -45,53 +44,33 @@ func (b *Bases) EnsureLeanRoot() error {
 	return nil
 }
 
-func (b *Bases) EnsureLean(ctx context.Context, toolchain, mathlib string) (dir string, err error) {
+func (b *Bases) EnsureLean(ctx context.Context, toolchain, mathlib string) (string, error) {
 	slug, err := leanPair(toolchain, mathlib)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, setupLimit)
-	defer cancel()
-	l := b.lock("lean:" + slug)
-	for !l.TryLock() {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(10 * time.Millisecond):
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	dir := filepath.Join(b.Dir, "lean", slug)
+	for _, path := range []string{filepath.Join(b.Dir, "lean"), dir} {
+		fi, e := os.Lstat(path)
+		if os.IsNotExist(e) {
+			return "", fmt.Errorf("Lean environment: %w", ErrBoundedProvisioningUnavailable)
 		}
-	}
-	defer l.Unlock()
-	if err = ctx.Err(); err != nil {
-		return "", err
-	}
-	if err = b.EnsureLeanRoot(); err != nil {
-		return "", err
-	}
-	dir = filepath.Join(b.Dir, "lean", slug)
-	if fi, e := os.Lstat(dir); e == nil && (!fi.IsDir() || fi.Mode()&os.ModeSymlink != 0) {
-		return "", errors.New("Lean pair folder is not a real directory")
+		if e != nil {
+			return "", e
+		}
+		if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("Lean pair folder is not a real directory")
+		}
 	}
 	if fi, e := os.Lstat(filepath.Join(dir, "ready")); e == nil && fi.Mode().IsRegular() {
 		return dir, nil
+	} else if e != nil && !os.IsNotExist(e) {
+		return "", e
 	}
-	if err = os.RemoveAll(dir); err != nil {
-		return "", err
-	}
-	if err = os.MkdirAll(dir, 0755); err != nil {
-		return "", err
-	}
-	defer func() {
-		if err != nil {
-			os.RemoveAll(dir)
-			dir = ""
-		}
-	}()
-	_, mathlib, _ = strings.Cut(slug, "@")
-	if err = b.buildLean(ctx, dir, toolchain, mathlib); err != nil {
-		return dir, fmt.Errorf("building the Lean base: %w", err)
-	}
-	err = os.WriteFile(filepath.Join(dir, "ready"), nil, 0644)
-	return dir, err
+	return "", fmt.Errorf("Lean environment: %w", ErrBoundedProvisioningUnavailable)
 }
 
 func (b *Bases) checkedLean(dir string) (string, error) {

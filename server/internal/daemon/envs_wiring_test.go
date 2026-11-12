@@ -222,7 +222,7 @@ func TestARunWithoutACardKeepsItsFolderOutsideItsRunFolder(t *testing.T) {
 	}
 }
 
-func TestRunsDoNotWaitForBases(t *testing.T) {
+func TestAgentOnlyStartupDoesNotProvisionBases(t *testing.T) {
 	f := fixture(t)
 	building := make(chan struct{}, 1)
 	f.cfg.Bases = &envs.Bases{Dir: t.TempDir(),
@@ -240,14 +240,14 @@ func TestRunsDoNotWaitForBases(t *testing.T) {
 	f.cfg.EnvDir = f.cfg.Bases.Dir
 	got := captureLaunches(f)
 	cancel, done := startDaemon(t, f.cfg)
-	select {
-	case <-building:
-	case <-time.After(8 * time.Second):
-		t.Fatal("bases never started building")
-	}
 	l := next(t, got)
 	waitFor(t, f.settled(t, 1))
 	stopDaemon(t, cancel, done)
+	select {
+	case <-building:
+		t.Fatal("agent-only startup attempted to provision a base")
+	default:
+	}
 	for _, k := range []string{"VIRTUAL_ENV", "R_LIBS_USER", "R_PROFILE_USER", "JULIA_PROJECT", "JULIA_DEPOT_PATH", "JUPYTER_PATH"} {
 		if v, ok := lookup(l.env, k); ok {
 			t.Fatalf("%s=%q set before any base is ready", k, v)

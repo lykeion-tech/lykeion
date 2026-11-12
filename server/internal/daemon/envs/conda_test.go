@@ -18,7 +18,7 @@ import (
 func condaStudy(t *testing.T) (*Study, *[]string) {
 	t.Helper()
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	calls := []string{}
@@ -310,7 +310,7 @@ func TestEveryLanguageRejectsFailedCondaRecovery(t *testing.T) {
 		t.Run(lang, func(t *testing.T) {
 			s, _ := condaStudy(t)
 			for _, base := range []string{R, Julia} {
-				if err := s.Bases.Ensure(context.Background(), base); err != nil {
+				if err := s.Bases.buildBaseForTest(context.Background(), base); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -18,7 +18,7 @@ const testLean = "leanprover/lean4:v4.30.0"
 func TestLeanNamesAreChecked(t *testing.T) {
 	for _, pair := range [][2]string{{"../x", ""}, {"leanprover/lean4:v4;rm", ""}, {testLean, "main;x"}, {testLean, "main"}, {"", "v4.30.0"}} {
 		b, f := fakeLeanBases(t)
-		if _, err := b.EnsureLean(context.Background(), pair[0], pair[1]); err == nil {
+		if _, err := b.buildLeanForTest(context.Background(), pair[0], pair[1]); err == nil {
 			t.Fatalf("accepted %q", pair)
 		}
 		if len(f.calls) != 0 {
@@ -26,7 +26,7 @@ func TestLeanNamesAreChecked(t *testing.T) {
 		}
 	}
 	b, _ := fakeLeanBases(t)
-	if _, err := b.EnsureLean(context.Background(), testLean, ""); err != nil {
+	if _, err := b.buildLeanForTest(context.Background(), testLean, ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -34,7 +34,7 @@ func TestLeanNamesAreChecked(t *testing.T) {
 func TestLeanPairIsBuiltOnceAndShared(t *testing.T) {
 	b, f := fakeLeanBases(t)
 	ctx := context.Background()
-	pair, err := b.EnsureLean(ctx, testLean, "")
+	pair, err := b.buildLeanForTest(ctx, testLean, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestLeanPairIsBuiltOnceAndShared(t *testing.T) {
 		t.Fatal("no build")
 	}
 	for range 2 {
-		same, err := b.EnsureLean(ctx, testLean, "v4.30.0")
+		same, err := b.buildLeanForTest(ctx, testLean, "v4.30.0")
 		if err != nil || same != pair || len(f.calls) != count {
 			t.Fatalf("not reused: %s %v calls=%v", same, err, f.calls)
 		}
@@ -120,7 +120,7 @@ func TestLeanIsBuiltOutsideTheStudySandbox(t *testing.T) {
 		t.Fatal("study runner used to build trusted base")
 		return nil, nil
 	}
-	if _, err := s.Bases.EnsureLean(context.Background(), testLean, ""); err != nil {
+	if _, err := s.Bases.buildLeanForTest(context.Background(), testLean, ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.calls) == 0 {
@@ -133,7 +133,7 @@ func TestAFailedLeanBuildLeavesNoReadyMarker(t *testing.T) {
 	b.Run = func(context.Context, []string, string, string, ...string) ([]byte, error) {
 		return nil, errors.New("failed download")
 	}
-	if _, err := b.EnsureLean(context.Background(), testLean, ""); err == nil {
+	if _, err := b.buildLeanForTest(context.Background(), testLean, ""); err == nil {
 		t.Fatal("failed build succeeded")
 	}
 	ready, _ := filepath.Glob(filepath.Join(b.Dir, "lean", "*", "ready"))
@@ -239,7 +239,7 @@ func TestMathlibDependenciesAreChecked(t *testing.T) {
 			b, f := fakeLeanBases(t)
 			dep := f.manifest["packages"].([]map[string]any)[0]
 			tt.change(dep)
-			_, err := b.EnsureLean(context.Background(), testLean, "")
+			_, err := b.buildLeanForTest(context.Background(), testLean, "")
 			if tt.name == "approved" {
 				if err != nil {
 					t.Fatal(err)
@@ -262,7 +262,7 @@ func TestLeanBuildsIgnorePersonalGit(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	b, f := fakeLeanBases(t)
-	pair, err := b.EnsureLean(context.Background(), testLean, "")
+	pair, err := b.buildLeanForTest(context.Background(), testLean, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestLeanBuildsIgnorePersonalGit(t *testing.T) {
 func TestALeanBuildChecksItsCheckouts(t *testing.T) {
 	b, f := fakeLeanBases(t)
 	f.wrongCheckout = true
-	if _, err := b.EnsureLean(context.Background(), testLean, ""); err == nil {
+	if _, err := b.buildLeanForTest(context.Background(), testLean, ""); err == nil {
 		t.Fatal("changed checkout accepted")
 	}
 	markers, _ := filepath.Glob(filepath.Join(b.Dir, "lean", "*", "ready"))
@@ -308,11 +308,11 @@ func TestLeanBuildLockHonorsDeadline(t *testing.T) {
 		return nil, errors.New("stop")
 	}
 	done := make(chan struct{})
-	go func() { defer close(done); b.EnsureLean(context.Background(), testLean, "") }()
+	go func() { defer close(done); b.buildLeanForTest(context.Background(), testLean, "") }()
 	<-started
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	_, err := b.EnsureLean(ctx, testLean, "")
+	_, err := b.buildLeanForTest(ctx, testLean, "")
 	close(release)
 	<-done
 	if !errors.Is(err, context.DeadlineExceeded) {

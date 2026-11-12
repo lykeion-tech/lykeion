@@ -29,6 +29,10 @@ const Python, R, Julia = "python", "r", "julia"
 
 var ErrNotReady = errors.New("environment not ready")
 
+// ErrBoundedProvisioningUnavailable prevents an unbounded installer from
+// consuming host storage while bounded provisioning is not implemented.
+var ErrBoundedProvisioningUnavailable = errors.New("bounded scientific environment setup is unavailable on this machine; use an existing ready environment until a supported update is available")
+
 var ErrDamaged = errors.New("the study's Python environment is damaged")
 
 var displayNames = map[string]string{Python: "Python", R: "R", Julia: "Julia"}
@@ -40,6 +44,10 @@ func (e notReady) Error() string {
 }
 func (e notReady) Unwrap() error    { return ErrNotReady }
 func (e notReady) Language() string { return string(e) }
+
+func missingBase(lang string) error {
+	return fmt.Errorf("%w; %w", notReady(lang), ErrBoundedProvisioningUnavailable)
+}
 
 type Bases struct {
 	Dir string
@@ -240,42 +248,18 @@ func (b *Bases) lock(lang string) *sync.Mutex {
 	return b.locks[lang]
 }
 
-// Ensure builds a base once. A conda prefix embeds its own absolute path, so
-// a base is built where it will live; until its ready marker is written it
-// counts as absent, and a failed or interrupted build is removed whole.
+// Ensure allows existing bases, but does not launch an unbounded installer.
 func (b *Bases) Ensure(ctx context.Context, lang string) error {
 	if _, ok := displayNames[lang]; !ok {
 		return fmt.Errorf("unknown language %q", lang)
 	}
-	l := b.lock(lang)
-	if !l.TryLock() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		for locked := false; !locked; {
-			select {
-			case <-ctx.Done():
-				ticker.Stop()
-				return ctx.Err()
-			case <-ticker.C:
-				locked = l.TryLock()
-			}
-		}
-		ticker.Stop()
-	}
-	defer l.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if b.Ready(lang) {
 		return nil
 	}
-	b.setState(lang, "building")
-	err := b.build(ctx, lang)
-	if err != nil {
-		b.setState(lang, Failed(err))
-	} else {
-		b.setState(lang, "")
-	}
-	return err
+	return fmt.Errorf("%s environment: %w", displayNames[lang], ErrBoundedProvisioningUnavailable)
 }
 
 func (b *Bases) build(ctx context.Context, lang string) error {
@@ -669,7 +653,7 @@ func (s *Study) interpreter(ctx context.Context, lang string) (string, []string,
 		return "", nil, fmt.Errorf("unknown language %q", lang)
 	}
 	if !s.Bases.Ready(lang) {
-		return "", nil, notReady(lang)
+		return "", nil, missingBase(lang)
 	}
 	if err := s.prepare(ctx); err != nil {
 		return "", nil, err

@@ -579,6 +579,9 @@ func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.Cl
 		return err
 	}
 	defer release()
+	if err = s.Bases.Ensure(setupCtx, envs.Python); err != nil {
+		return err
+	}
 	version = s.RecordedPython()
 	s.PersistPython = func(ctx context.Context, v string) error {
 		if err := d.checkRecorded(ctx, c.WorkContext, "setups", c.ID); err != nil {

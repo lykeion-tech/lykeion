@@ -118,7 +118,7 @@ func index(calls []string, sub string) int {
 
 func TestABaseIsBuiltVerifiedAndMarkedReady(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	create, export, verify := index(f.calls, "micromamba "), index(f.calls, "env export"), index(f.calls, "import numpy, pandas, scipy, matplotlib, statsmodels, ipykernel, jupyter_client")
@@ -157,7 +157,7 @@ func TestAFailedBaseBuildLeavesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.failVerify = true
-	if err := b.Ensure(context.Background(), Python); err == nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err == nil {
 		t.Fatal("want error")
 	}
 	if b.Ready(Python) {
@@ -173,7 +173,7 @@ func TestAFailedBaseBuildLeavesNothing(t *testing.T) {
 
 func TestJuliaNeedsThePythonBase(t *testing.T) {
 	b, f := fakeBases(t)
-	err := b.Ensure(context.Background(), Julia)
+	err := b.buildBaseForTest(context.Background(), Julia)
 	if err == nil || !strings.Contains(err.Error(), "Python") {
 		t.Fatalf("err %v", err)
 	}
@@ -280,7 +280,7 @@ func envValue(env []string, key string) (string, bool) {
 
 func TestAStudyEnvNamesOnlyReadyBases(t *testing.T) {
 	b, _ := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	s := newStudy(b, t.TempDir())
@@ -300,7 +300,7 @@ func TestAStudyEnvNamesOnlyReadyBases(t *testing.T) {
 		t.Fatalf("path %q", p)
 	}
 	_, _, err := s.Interpreter(R)
-	if !errors.Is(err, ErrNotReady) || err.Error() != "the R environment isn't ready on this machine" {
+	if !errors.Is(err, ErrNotReady) || !strings.Contains(err.Error(), "bounded scientific environment setup is unavailable") {
 		t.Fatalf("err %v", err)
 	}
 	name, _, err := s.Interpreter(Python)
@@ -312,7 +312,7 @@ func TestAStudyEnvNamesOnlyReadyBases(t *testing.T) {
 func TestStudiesHaveSeparateAddOnFolders(t *testing.T) {
 	b, _ := fakeBases(t)
 	for _, lang := range []string{Python, R} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -337,7 +337,7 @@ func TestStudiesHaveSeparateAddOnFolders(t *testing.T) {
 
 func TestPackagesJoinsBaseAndStudyParts(t *testing.T) {
 	b, _ := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	lock, err := os.ReadFile(filepath.Join(b.Dir, "python", "lock.txt"))
@@ -359,7 +359,7 @@ func TestAStaleBuildIsReplaced(t *testing.T) {
 	if err := os.MkdirAll(junk, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(junk); !os.IsNotExist(err) || !b.Ready(Python) {
@@ -374,7 +374,7 @@ func TestVerificationIgnoresThePersonsEnvironment(t *testing.T) {
 	t.Setenv("JULIA_LOAD_PATH", "/person/julia")
 	b, f := fakeBases(t)
 	for _, lang := range []string{Python, R, Julia} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -414,14 +414,14 @@ func TestVerificationIgnoresThePersonsEnvironment(t *testing.T) {
 
 func TestTheRBaseRegistersItsKernelThenVerifies(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), R); err == nil || !strings.Contains(err.Error(), "Python") {
+	if err := b.buildBaseForTest(context.Background(), R); err == nil || !strings.Contains(err.Error(), "Python") {
 		t.Fatalf("R without Python: %v", err)
 	}
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	f.calls, f.envs = nil, nil
-	if err := b.Ensure(context.Background(), R); err != nil {
+	if err := b.buildBaseForTest(context.Background(), R); err != nil {
 		t.Fatal(err)
 	}
 	create, export, spec, verify := index(f.calls, " create "), index(f.calls, "env export"), index(f.calls, "IRkernel::installspec"), index(f.calls, "library(IRkernel)")
@@ -446,11 +446,11 @@ func TestTheRBaseRegistersItsKernelThenVerifies(t *testing.T) {
 
 func TestAFailedJuliaBuildLeavesNothing(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	f.failJulia = true
-	if err := b.Ensure(context.Background(), Julia); err == nil {
+	if err := b.buildBaseForTest(context.Background(), Julia); err == nil {
 		t.Fatal("want error")
 	}
 	if _, err := os.Stat(filepath.Join(b.Dir, "julia")); !os.IsNotExist(err) {
@@ -463,7 +463,7 @@ func TestAFailedJuliaBuildLeavesNothing(t *testing.T) {
 
 func TestAStudyEnvWithEveryBaseReady(t *testing.T) {
 	b, _ := fakeBases(t)
-	if errs := b.EnsureAll(context.Background()); errs[Python] != nil || errs[R] != nil || errs[Julia] != nil {
+	if errs := b.buildAllForTest(context.Background()); errs[Python] != nil || errs[R] != nil || errs[Julia] != nil {
 		t.Fatal(errs)
 	}
 	lock, err := os.ReadFile(filepath.Join(b.Dir, "julia", "base", "lock.txt"))
@@ -494,7 +494,7 @@ func TestConcurrentEnsureBuildsOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := b.Ensure(context.Background(), Python); err != nil {
+			if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -513,7 +513,7 @@ func TestConcurrentEnsureBuildsOnce(t *testing.T) {
 
 func TestAFailedVenvDoesNotExportAnEnvironment(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	f.failVenv = true
@@ -528,9 +528,7 @@ func TestAFailedVenvDoesNotExportAnEnvironment(t *testing.T) {
 }
 
 func TestBasesBuildForReal(t *testing.T) {
-	if os.Getenv("LYK_TEST_ENVS") != "1" {
-		t.Skip("set LYK_TEST_ENVS=1 to build the real bases")
-	}
+	t.Skip("real base provisioning is disabled until bounded installation is available")
 	dir := os.Getenv("LYK_TEST_ENVS_DIR")
 	if dir == "" {
 		dir = t.TempDir()
@@ -539,7 +537,7 @@ func TestBasesBuildForReal(t *testing.T) {
 	ctx := context.Background()
 	for _, lang := range []string{Python, R, Julia} {
 		start := time.Now()
-		if err := b.Ensure(ctx, lang); err != nil {
+		if err := b.buildBaseForTest(ctx, lang); err != nil {
 			t.Fatalf("%s: %v", lang, err)
 		}
 		t.Logf("%s base ready in %s", lang, time.Since(start).Round(time.Second))
@@ -577,7 +575,7 @@ func TestBasesBuildForReal(t *testing.T) {
 
 func TestAStudyEnvStopsWithItsContext(t *testing.T) {
 	b, _ := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	b.Run = func(ctx context.Context, _ []string, _, _ string, _ ...string) ([]byte, error) {
@@ -612,7 +610,7 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 		return f.run(ctx, env, dir, name, args...)
 	}
 	done := make(chan error, 1)
-	go func() { done <- b.Ensure(context.Background(), Python) }()
+	go func() { done <- b.buildBaseForTest(context.Background(), Python) }()
 	<-started
 	if s := b.States(); s[Python] != "building" || len(s) != 1 {
 		t.Fatalf("states while building: %v", s)
@@ -628,7 +626,7 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 		t.Fatalf("failed state:\n got %q\nwant %q", got, want)
 	}
 	b.Run = f.run
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	if s := b.States(); s[Python] != "ready" || len(s) != 1 {
@@ -647,7 +645,7 @@ func TestEnsureCanceledWaiterDoesNotInterruptOwner(t *testing.T) {
 		return f.run(ctx, env, dir, name, args...)
 	}
 	ownerDone := make(chan error, 1)
-	go func() { ownerDone <- b.Ensure(context.Background(), Python) }()
+	go func() { ownerDone <- b.buildBaseForTest(context.Background(), Python) }()
 	var ownerOnce sync.Once
 	var ownerErr error
 	finishOwner := func() error {
@@ -671,7 +669,7 @@ func TestEnsureCanceledWaiterDoesNotInterruptOwner(t *testing.T) {
 	defer cancel()
 	waiting := &waitingContext{Context: ctx, waiting: make(chan struct{})}
 	waiterDone := make(chan error, 1)
-	go func() { waiterDone <- b.Ensure(waiting, Python) }()
+	go func() { waiterDone <- b.buildBaseForTest(waiting, Python) }()
 	select {
 	case <-waiting.waiting:
 	case <-time.After(5 * time.Second):
@@ -704,14 +702,14 @@ func TestEnsureCanceledWaiterDoesNotInterruptOwner(t *testing.T) {
 	if !b.Ready(Python) {
 		t.Fatal("owner did not publish ready base")
 	}
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatalf("ready base retry failed: %v", err)
 	}
 }
 
 func TestEnsureOtherLanguageDoesNotWaitForBusyBase(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
@@ -723,7 +721,7 @@ func TestEnsureOtherLanguageDoesNotWaitForBusyBase(t *testing.T) {
 		return f.run(ctx, env, dir, name, args...)
 	}
 	rDone := make(chan error, 1)
-	go func() { rDone <- b.Ensure(context.Background(), R) }()
+	go func() { rDone <- b.buildBaseForTest(context.Background(), R) }()
 	var rOnce sync.Once
 	var rErr error
 	finishR := func() error {
@@ -744,7 +742,7 @@ func TestEnsureOtherLanguageDoesNotWaitForBusyBase(t *testing.T) {
 		t.Fatal("R installation did not start")
 	}
 	juliaDone := make(chan error, 1)
-	go func() { juliaDone <- b.Ensure(context.Background(), Julia) }()
+	go func() { juliaDone <- b.buildBaseForTest(context.Background(), Julia) }()
 	juliaReturned := false
 	select {
 	case err := <-juliaDone:
@@ -770,12 +768,12 @@ func TestEnsureOtherLanguageDoesNotWaitForBusyBase(t *testing.T) {
 
 func TestEnsureCanceledContextDoesNotReturnReadyBase(t *testing.T) {
 	b, _ := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := b.Ensure(ctx, Python); !errors.Is(err, context.Canceled) {
+	if err := b.buildBaseForTest(ctx, Python); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled Ensure = %v, want context canceled", err)
 	}
 	if !b.Ready(Python) {
@@ -788,7 +786,7 @@ func TestAFolderWithASpaceIsRefusedBeforeAnyBuild(t *testing.T) {
 	b.Dir = filepath.Join(b.Dir, "Application Support", "envs")
 	fetched := false
 	b.Fetch = func(context.Context, string, string, string) error { fetched = true; return nil }
-	err := b.Ensure(context.Background(), Python)
+	err := b.buildBaseForTest(context.Background(), Python)
 	if err == nil || !strings.Contains(err.Error(), "must not contain spaces") || !strings.Contains(err.Error(), b.Dir) {
 		t.Fatalf("err = %v", err)
 	}
@@ -805,7 +803,7 @@ func TestAFolderWithASpaceIsRefusedBeforeAnyBuild(t *testing.T) {
 func TestAStudyWithoutARunnerPreparesNothing(t *testing.T) {
 	b, f := fakeBases(t)
 	for _, lang := range []string{Python, R, Julia} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -827,7 +825,7 @@ func TestAStudyWithoutARunnerPreparesNothing(t *testing.T) {
 // through the runner; if that fails, the answer says it couldn't be.
 func TestADamagedVenvIsRebuiltByTheRunner(t *testing.T) {
 	b, f := fakeBases(t)
-	if err := b.Ensure(context.Background(), Python); err != nil {
+	if err := b.buildBaseForTest(context.Background(), Python); err != nil {
 		t.Fatal(err)
 	}
 	s := newStudy(b, t.TempDir())
@@ -859,7 +857,7 @@ func TestADamagedVenvIsRebuiltByTheRunner(t *testing.T) {
 func TestStudyFilesAreMadeByTheRunner(t *testing.T) {
 	b, f := fakeBases(t)
 	for _, lang := range []string{Python, R, Julia} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -882,7 +880,7 @@ func TestStudyFilesAreMadeByTheRunner(t *testing.T) {
 func TestTheJuliaManifestIsReadByTheRunner(t *testing.T) {
 	b, _ := fakeBases(t)
 	for _, lang := range []string{Python, Julia} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -914,7 +912,7 @@ func TestTheRunnerGetsOnlyTheStudysEnvironment(t *testing.T) {
 	t.Setenv("LYK_DAEMON_ONLY", "daemon-secret")
 	b, f := fakeBases(t)
 	for _, lang := range []string{Python, R} {
-		if err := b.Ensure(context.Background(), lang); err != nil {
+		if err := b.buildBaseForTest(context.Background(), lang); err != nil {
 			t.Fatal(err)
 		}
 	}
