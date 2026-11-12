@@ -126,6 +126,11 @@ func tail(s string, n int) string {
 // fetch writes beside dest and renames only after the hash matches, so dest
 // never holds unverified bytes.
 func fetch(ctx context.Context, url, sum, dest string) error {
+	// This caps each direct artifact stream; package installation is separate.
+	return fetchBounded(ctx, url, sum, dest, 512<<20)
+}
+
+func fetchBounded(ctx context.Context, url, sum, dest string, limit int64) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -138,6 +143,9 @@ func fetch(ctx context.Context, url, sum, dest string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("fetch %s: %s", url, resp.Status)
 	}
+	if resp.ContentLength > limit {
+		return fmt.Errorf("fetch %s: download exceeds %d bytes", url, limit)
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -147,12 +155,15 @@ func fetch(ctx context.Context, url, sum, dest string) error {
 	}
 	defer os.Remove(tmp.Name())
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(tmp, h), resp.Body)
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, limit+1))
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		return err
+	}
+	if n > limit {
+		return fmt.Errorf("fetch %s: download exceeds %d bytes", url, limit)
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); got != sum {
 		return fmt.Errorf("fetch %s: sha256 %s, want %s", url, got, sum)

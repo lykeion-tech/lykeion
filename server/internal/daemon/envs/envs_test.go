@@ -192,6 +192,72 @@ func TestAFetchWithTheWrongHashIsRefused(t *testing.T) {
 	}
 }
 
+func TestFetchRejectsOversizedStreamWithoutReplacingExistingFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.(http.Flusher).Flush() // No Content-Length: enforce the limit while reading.
+		_, _ = w.Write([]byte("123456789"))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "artifact")
+	if err := os.WriteFile(dest, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("123456789"))
+	err := fetchBounded(context.Background(), srv.URL, hex.EncodeToString(sum[:]), dest, 8)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size error, got %v", err)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != "previous" {
+		t.Fatalf("previous artifact changed: %q, %v", got, err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("temporary download left behind: %v, %v", entries, err)
+	}
+}
+
+func TestFetchAcceptsStreamAtSizeLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("12345678"))
+	}))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "artifact")
+	sum := sha256.Sum256([]byte("12345678"))
+	if err := fetchBounded(context.Background(), srv.URL, hex.EncodeToString(sum[:]), dest, 8); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != "12345678" {
+		t.Fatalf("download: %q, %v", got, err)
+	}
+}
+
+func TestFetchRejectsOversizedDeclaredLengthBeforeReadingBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "9")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "artifact")
+	if err := os.WriteFile(dest, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := fetchBounded(ctx, srv.URL, "unused", dest, 8)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size error before reading body, got %v", err)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != "previous" {
+		t.Fatalf("previous artifact changed: %q, %v", got, err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("temporary download left behind: %v, %v", entries, err)
+	}
+}
+
 func envValue(env []string, key string) (string, bool) {
 	for _, e := range env {
 		if v, ok := strings.CutPrefix(e, key+"="); ok {
