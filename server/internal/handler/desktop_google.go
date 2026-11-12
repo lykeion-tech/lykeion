@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"html"
 	"net/http"
 	"time"
 
@@ -30,13 +31,18 @@ return redis.call('HGET',KEYS[1],'challenge')
 `)
 var completeDesktopGoogle = redis.NewScript(`
 if redis.call('HGET',KEYS[1],'state') ~= 'started' then return 0 end
-redis.call('HSET',KEYS[1],'state','complete','user',ARGV[1],'email',ARGV[2])
+redis.call('HSET',KEYS[1],'state','complete','user',ARGV[1],'email',ARGV[2],'code_hash',ARGV[3])
 return 1
 `)
 var exchangeDesktopGoogle = redis.NewScript(`
 local failures = tonumber(redis.call('GET',KEYS[2]) or '0')
 if not failures or failures >= 1000 then return {'rate'} end
-if redis.call('HGET',KEYS[1],'challenge') ~= ARGV[1] then
+local valid_verifier = redis.call('HGET',KEYS[1],'challenge') == ARGV[1]
+local valid_code = redis.call('HGET',KEYS[1],'code_hash') == ARGV[2]
+if not valid_verifier or not valid_code then
+  if valid_verifier and redis.call('HGET',KEYS[1],'state') == 'complete' then
+    if redis.call('HINCRBY',KEYS[1],'bad_codes',1) >= 5 then redis.call('DEL',KEYS[1]) end
+  end
   failures = redis.call('INCR',KEYS[2])
   if failures == 1 then redis.call('PEXPIRE',KEYS[2],3600000) end
   return {'invalid'}
@@ -87,8 +93,9 @@ func (h *H) desktopGoogleExchange(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Ticket   string `json:"ticket"`
 		Verifier string `json:"verifier"`
+		Code     string `json:"code"`
 	}
-	if readJSON(r, &input) != nil || !desktopSecret(input.Ticket) || !desktopSecret(input.Verifier) {
+	if readJSON(r, &input) != nil || !desktopSecret(input.Ticket) || !desktopSecret(input.Verifier) || !desktopSecret(input.Code) {
 		writeErr(w, 400, "invalid sign-in request")
 		return
 	}
@@ -97,7 +104,8 @@ func (h *H) desktopGoogleExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	challenge := sha256.Sum256([]byte(input.Verifier))
-	result, err := exchangeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(input.Ticket), "lyk:rl:google:desktop:exchange:ip:" + clientIP(r)}, base64.RawURLEncoding.EncodeToString(challenge[:])).StringSlice()
+	codeHash := sha256.Sum256([]byte(input.Code))
+	result, err := exchangeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(input.Ticket), "lyk:rl:google:desktop:exchange:ip:" + clientIP(r)}, base64.RawURLEncoding.EncodeToString(challenge[:]), base64.RawURLEncoding.EncodeToString(codeHash[:])).StringSlice()
 	if err != nil {
 		writeErr(w, 503, "sign-in unavailable")
 		return
@@ -132,7 +140,7 @@ func (h *H) desktopGoogleExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "sign-in unavailable")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"token": token, "expires_in": int64(h.JWT.TTL.Seconds())})
+	writeJSON(w, 200, map[string]any{"token": token, "expires_in": int64(h.JWT.TTL.Seconds()), "email": result[2]})
 }
 
 func (h *H) desktopGoogleBegin(w http.ResponseWriter, r *http.Request, ticket string) bool {
@@ -152,7 +160,14 @@ func (h *H) desktopGoogleBegin(w http.ResponseWriter, r *http.Request, ticket st
 	return true
 }
 func (h *H) desktopGoogleComplete(w http.ResponseWriter, r *http.Request, ticket string, id uuid.UUID, email string) {
-	result, err := completeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(ticket)}, id.String(), email).Int()
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "sign-in unavailable")
+		return
+	}
+	code := base64.RawURLEncoding.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(code))
+	result, err := completeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(ticket)}, id.String(), email, base64.RawURLEncoding.EncodeToString(hash[:])).Int()
 	if err != nil || result != 1 {
 		writeErr(w, 400, "sign-in expired")
 		return
@@ -160,6 +175,7 @@ func (h *H) desktopGoogleComplete(w http.ResponseWriter, r *http.Request, ticket
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!doctype html><title>Lykeion</title><p>Sign-in is complete. Return to Lykeion.</p>"))
+	_, _ = w.Write([]byte("<!doctype html><html lang=\"en\"><title>Lykeion sign-in</title><h1>Finish signing in</h1><p>Google account: " + html.EscapeString(email) + "</p><p>Paste this code only into Lykeion Desktop on this computer. Never give it to anyone or paste it into a website. If you did not start sign-in in your own app, close this page.</p><p><code id=\"desktop-code\">" + code + "</code></p><p>This code expires shortly and can be used only once.</p></html>"))
 }

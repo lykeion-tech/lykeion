@@ -592,11 +592,14 @@ it('keeps private state gated and offers cancellation while Google sign-in is pe
   const t = await privateEditor();
   try {
     const pending = held<void>();
+    const codeResult = held<boolean>();
     const reload = vi.fn();
     const cancel = vi.fn(() => pending.reject(new Error('cancelled')));
+    const submitCode = vi.fn(() => codeResult.promise);
     Object.assign(window.location, { reload });
     Object.assign(window.lykeionDesktop!, {
       googleSignIn: () => pending.promise,
+      submitGoogleCode: submitCode,
       cancelGoogleSignIn: cancel,
       reloadAfterAuthentication: () => {
         reload();
@@ -612,9 +615,26 @@ it('keeps private state gated and offers cancellation while Google sign-in is pe
     );
     expect(t.client.getQueryData(['private-a'])).toBe('one-time value');
     expect(t.native.clearSession).not.toHaveBeenCalled();
+    const input = all(t.root).find(
+      (n) => n.tag === 'input' && n.props.id === 'google-signin-code',
+    )!;
+    expect(input.props.type).toBe('password');
+    (input.props.onInput as (event: unknown) => void)({ target: { value: 'A'.repeat(43) } });
+    await nextTick();
+    const submit = all(t.root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Continue')!;
+    const submitting = (submit.props.onClick as () => Promise<void>)();
+    expect(submitCode).toHaveBeenCalledWith('A'.repeat(43));
     const button = all(t.root).find((n) => n.tag === 'button' && textOf(n) === 'Cancel sign-in')!;
+    const rejected = expect(signin).rejects.toThrow('cancelled');
     (button.props.onClick as () => void)();
-    await expect(signin).rejects.toThrow('cancelled');
+    codeResult.resolve(false);
+    await submitting;
+    expect(
+      all(t.root).some(
+        (n) => n.props.role === 'alert' && textOf(n).includes('code was not accepted'),
+      ),
+    ).toBe(false);
+    await rejected;
     expect(cancel).toHaveBeenCalledOnce();
     expect(reload).toHaveBeenCalledOnce();
     expect(t.native.clearSession).not.toHaveBeenCalled();

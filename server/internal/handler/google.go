@@ -53,6 +53,10 @@ func oauthSignature(key []byte, state, port string, cliState ...string) []byte {
 }
 
 func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
+	h.googleStartWithDesktop(w, r, false)
+}
+
+func (h *H) googleStartWithDesktop(w http.ResponseWriter, r *http.Request, allowDesktop bool) {
 	if !h.Google.Enabled() {
 		writeErr(w, http.StatusNotFound, "google sign-in is not configured")
 		return
@@ -64,8 +68,17 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 	if desktopTicket != "" {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
-		return
+		if !allowDesktop {
+			writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
+			return
+		}
+		if r.URL.Query().Get("cli_port") != "" || r.URL.Query().Get("cli_state") != "" {
+			writeErr(w, http.StatusBadRequest, "invalid sign-in request")
+			return
+		}
+		if !h.desktopGoogleBegin(w, r, desktopTicket) {
+			return
+		}
 	}
 	port, ok := validCLIPort(r.URL.Query().Get("cli_port"))
 	if !ok {
@@ -101,6 +114,10 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
+	h.googleCallbackWithDesktop(w, r, false)
+}
+
+func (h *H) googleCallbackWithDesktop(w http.ResponseWriter, r *http.Request, allowDesktop bool) {
 	if h.limited(w, r, map[string]int{"google:callback:ip:" + clientIP(r): 60}) {
 		return
 	}
@@ -118,8 +135,15 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	cliState := ""
 	desktopTicket := ""
 	if len(parts) == 5 {
-		writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
-		return
+		if !allowDesktop {
+			writeErr(w, http.StatusServiceUnavailable, "desktop Google sign-in is unavailable")
+			return
+		}
+		if parts[1] != "" || parts[2] != "desktop" || !desktopSecret(parts[3]) {
+			writeErr(w, http.StatusBadRequest, "sign-in expired")
+			return
+		}
+		desktopTicket = parts[3]
 	}
 	if len(parts) == 4 {
 		cliState = parts[2]

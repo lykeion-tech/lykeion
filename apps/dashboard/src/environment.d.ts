@@ -5,6 +5,7 @@ interface Window {
     platform: string;
     openDocumentation(): Promise<void>;
     googleSignIn?(): Promise<void>;
+    submitGoogleCode?(code: string): Promise<boolean>;
     cancelGoogleSignIn?(): void;
     reloadAfterAuthentication?(): boolean;
     cancelRequest?(id: string): void;

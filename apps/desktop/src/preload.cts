@@ -13,6 +13,8 @@ const startup =
         { id: string; verificationPending: boolean } | string | null)
     : null;
 const documentID = typeof startup === 'string' ? startup : startup?.id;
+// Disabled until the manual-code flow passes full security acceptance.
+const manualGoogleEnabled = false;
 
 window.addEventListener(
   'click',
@@ -82,7 +84,20 @@ contextBridge.exposeInMainWorld(
                   ) === true,
               }
             : {}),
-          // Desktop Google sign-in is disabled pending cross-device confirmation.
+          ...(manualGoogleEnabled
+            ? {
+                googleSignIn: () =>
+                  ipcRenderer.invoke('lykeion:google-sign-in', documentID) as Promise<void>,
+                submitGoogleCode: (code: string) =>
+                  ipcRenderer.invoke(
+                    'lykeion:submit-google-code',
+                    documentID,
+                    code,
+                  ) as Promise<boolean>,
+                cancelGoogleSignIn: () =>
+                  ipcRenderer.send('lykeion:cancel-google-sign-in', documentID),
+              }
+            : {}),
           reloadAfterAuthentication: () =>
             ipcRenderer.sendSync('lykeion:reload-after-authentication', documentID) === true,
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),

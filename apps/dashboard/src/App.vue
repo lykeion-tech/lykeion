@@ -491,7 +491,47 @@ watch(
   { immediate: true, flush: 'sync' },
 );
 function cancelGoogleSignIn() {
+  googleCodeGeneration++;
+  googleCode.value = '';
+  googleCodeBusy.value = false;
   window.lykeionDesktop?.cancelGoogleSignIn?.();
+}
+const googleCode = ref('');
+const googleCodeError = ref('');
+const googleCodeBusy = ref(false);
+let googleCodeGeneration = 0;
+const googleServer = typeof window === 'undefined' ? '' : window.location.origin;
+watch(
+  () => verification.value?.google && verification.value.stage === 'submitting',
+  (pending) => {
+    if (!pending) {
+      googleCodeGeneration++;
+      googleCode.value = '';
+      googleCodeError.value = '';
+      googleCodeBusy.value = false;
+    }
+  },
+);
+async function submitGoogleCode() {
+  if (googleCodeBusy.value) return;
+  const code = googleCode.value.trim();
+  const generation = ++googleCodeGeneration;
+  googleCode.value = '';
+  googleCodeError.value = '';
+  googleCodeBusy.value = true;
+  try {
+    if (
+      !(await window.lykeionDesktop?.submitGoogleCode?.(code)) &&
+      generation === googleCodeGeneration
+    )
+      googleCodeError.value =
+        'That code was not accepted. Check it and try again, or cancel and start again.';
+  } catch {
+    if (generation === googleCodeGeneration)
+      googleCodeError.value = 'Could not submit the code. Try again.';
+  } finally {
+    if (generation === googleCodeGeneration) googleCodeBusy.value = false;
+  }
 }
 function retryVerification() {
   const state = verification.value;
@@ -803,7 +843,24 @@ onUnmounted(() => {
         <button type="button" class="button" @click="retryVerification">Try again</button>
       </template>
       <template v-else-if="verification.stage === 'submitting' && verification.google">
-        <p>Complete sign-in in your browser. This can take up to 10 seconds.</p>
+        <p>
+          Sign in with Google in your browser, then paste the code here. Never give the code to
+          anyone or paste it into a website.
+        </p>
+        <p>Lykeion server: {{ googleServer }}</p>
+        <label for="google-signin-code">Code from your browser</label>
+        <input
+          id="google-signin-code"
+          :value="googleCode"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          @input="googleCode = ($event.target as HTMLInputElement).value"
+        />
+        <p v-if="googleCodeError" role="alert">{{ googleCodeError }}</p>
+        <button type="button" class="button" :disabled="googleCodeBusy" @click="submitGoogleCode">
+          Continue
+        </button>
         <button type="button" class="button" @click="cancelGoogleSignIn">Cancel sign-in</button>
       </template>
       <p v-else>Verifying your account…</p>

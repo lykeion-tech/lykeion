@@ -25,7 +25,9 @@ app
       }
       if (req.url === '/auth/desktop/google/exchange') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ token: resultToken, expires_in: 3600 }));
+        return res.end(
+          JSON.stringify({ token: resultToken, expires_in: 3600, email: 'user@example.org' }),
+        );
       }
       res.writeHead(404);
       res.end();
@@ -62,6 +64,7 @@ app
       const flow = new DesktopGoogleAuth(origin, {
         request: fetch,
         open: async () => {},
+        confirm: async () => true,
         set: (cookie) => jar.cookies.set(cookie),
         flush: () => jar.cookies.flushStore(),
         current: () => documentID === 'old',
@@ -71,7 +74,13 @@ app
         },
       });
       try {
-        await flow.run();
+        const pending = flow.run();
+        for (let i = 0; i < 100; i++) {
+          if (await flow.submitCode('A'.repeat(43))) break;
+          if (i === 99) throw new Error('Timed out waiting to submit code');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        await pending;
       } finally {
         gate.finishMutation(-1);
       }
