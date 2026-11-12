@@ -212,3 +212,22 @@ it('bounds a stalled quit flush and retries the same pending operation', async (
   finish();
   await expect(finalizeLogoutShutdown(Promise.resolve(), session, 100)).resolves.toBeUndefined();
 });
+
+it('can observe the original flush after quit times out until it really completes', async () => {
+  let finish!: () => void;
+  const flush = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const session = { cookies: { flushStore: flush } } as unknown as Session;
+  await expect(finalizeLogoutShutdown(Promise.resolve(), session, 10)).rejects.toThrow(
+    'did not finish',
+  );
+  const pending = finalizeLogoutShutdown(Promise.resolve(), session, Infinity);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(flush).toHaveBeenCalledOnce();
+  finish();
+  await expect(pending).resolves.toBeUndefined();
+});

@@ -180,6 +180,7 @@ export class DaemonManager {
   private quitting = false;
   private queue: Promise<unknown> = Promise.resolve();
   private polling: ReturnType<typeof setInterval> | null = null;
+  private resumePollingAfterQuit = false;
   private busy = 0;
   private refreshingPrerequisites = false;
   constructor(private readonly options: DaemonManagerOptions) {
@@ -727,6 +728,7 @@ export class DaemonManager {
     this.latestAdmission = ++this.nextAdmission;
     ++this.generation;
     if (this.polling) {
+      this.resumePollingAfterQuit = true;
       clearInterval(this.polling);
       this.polling = null;
     }
@@ -734,5 +736,12 @@ export class DaemonManager {
     await this.enqueue(async () => {
       if ((await this.loadPreferences()).autoStop) await this.stopManaged();
     });
+  }
+  resumeAfterQuit(): void {
+    this.quitting = false;
+    if (this.resumePollingAfterQuit) {
+      this.resumePollingAfterQuit = false;
+      this.startPolling();
+    }
   }
 }

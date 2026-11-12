@@ -80,6 +80,68 @@ it('bounds stalled shutdown and retries without admitting new requests', async (
   ).toBe('fulfilled');
 });
 
+it('resumes after canceled quit only after admitted authentication drains', async () => {
+  const gate = new DesktopAuthGate();
+  const token = gate.reserve('/auth/verify-code')!;
+  expect(gate.continueMutation(-1, token, '/auth/verify-code')).toBe(true);
+  expect((await gate.shutdown(async () => {}, 10))[0]?.status).toBe('rejected');
+  gate.resumeAfterQuit();
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+  expect(gate.canFinishVerification()).toBe(false);
+  gate.finishMutation(-1);
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
+it('keeps authentication fenced until failed quit cookie persistence succeeds', async () => {
+  const gate = new DesktopAuthGate();
+  await gate.shutdown(async () => {});
+  let finish!: () => void;
+  const flush = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  gate.resumeAfterQuit(flush);
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+  finish();
+  await flush;
+  await Promise.resolve();
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
+it('keeps authentication fenced when cookie persistence retry fails', async () => {
+  const gate = new DesktopAuthGate();
+  await gate.shutdown(async () => {});
+  gate.resumeAfterQuit(Promise.reject(new Error('flush failed')));
+  await Promise.resolve();
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+});
+
+it('does not clear abandoned logout when a quit is canceled', async () => {
+  const gate = new DesktopAuthGate();
+  gate.reserve('/auth/logout');
+  gate.abandonUnclaimed();
+  expect((await gate.shutdown(async () => {}, 100))[0]?.status).toBe('rejected');
+  gate.resumeAfterQuit();
+  expect(gate.networkBlocked()).toBe(true);
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+  await gate.recoverAbandonedLogout(async () => {});
+  expect(gate.reserve('/auth/verify-code')).toBeTruthy();
+});
+
+it('does not reopen a second shutdown when a previous flush finishes', async () => {
+  const gate = new DesktopAuthGate();
+  await gate.shutdown(async () => {});
+  let finish!: () => void;
+  const flush = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  gate.resumeAfterQuit(flush);
+  const nextQuit = gate.shutdown(async () => {});
+  finish();
+  await flush;
+  await nextQuit;
+  expect(gate.reserve('/auth/verify-code')).toBeNull();
+});
+
 it('invalidates abandoned logout and clears only after claimed writes finish', async () => {
   const gate = new DesktopAuthGate();
   const active = gate.reserve('/auth/verify-code')!;

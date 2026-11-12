@@ -4,6 +4,9 @@ import { randomUUID } from 'node:crypto';
 // It remains admitted across shutdown until forwarded or explicitly released.
 export class DesktopAuthGate {
   private shuttingDown = false;
+  private resumingDrain = false;
+  private pendingPersistence = false;
+  private persistenceEpoch = 0;
   private nextID = 0;
   private readonly mutations = new Set<number>();
   private readonly reservations = new Map<string, { id: number; path: string }>();
@@ -19,6 +22,8 @@ export class DesktopAuthGate {
   reserve(path: string): string | null {
     if (
       this.shuttingDown ||
+      this.resumingDrain ||
+      this.pendingPersistence ||
       this.abandonedLogout ||
       this.abandonedVerification ||
       this.logoutPending ||
@@ -70,11 +75,14 @@ export class DesktopAuthGate {
   }
   finishMutation(id: number): void {
     this.mutations.delete(id);
+    if (!this.mutations.size) this.resumingDrain = false;
     for (const resolve of this.drainWaiters) resolve();
   }
   canFinishVerification(): boolean {
     return (
       !this.shuttingDown &&
+      !this.resumingDrain &&
+      !this.pendingPersistence &&
       !this.abandonedLogout &&
       !this.abandonedVerification &&
       !this.logoutPending &&
@@ -181,5 +189,20 @@ export class DesktopAuthGate {
       }
     });
     return Promise.allSettled([finalize, Promise.resolve().then(stopDaemon)]);
+  }
+
+  resumeAfterQuit(persistence?: Promise<void>): void {
+    this.shuttingDown = false;
+    this.resumingDrain = this.mutations.size > 0;
+    if (persistence) {
+      this.pendingPersistence = true;
+      const epoch = ++this.persistenceEpoch;
+      void persistence.then(
+        () => {
+          if (this.persistenceEpoch === epoch) this.pendingPersistence = false;
+        },
+        () => {},
+      );
+    }
   }
 }

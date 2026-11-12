@@ -70,5 +70,6 @@ export async function finalizeLogoutShutdown(
       },
     );
   }
-  await waitForLogoutRecovery(pending, timeoutMs);
+  if (timeoutMs === Infinity) await pending;
+  else await waitForLogoutRecovery(pending, timeoutMs);
 }

@@ -647,6 +647,24 @@ describe('desktop daemon manager', () => {
     expect(f.calls.filter((call) => call === 'daemon start')).toHaveLength(1);
     expect(f.calls).not.toContain('daemon stop');
   });
+  it('recovers daemon controls after a canceled quit without reviving stale authority', async () => {
+    const f = await fixture();
+    const first = await f.manager.configureSession(session);
+    const previousOwner = f.manager.verificationOwner();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    f.manager.startPolling();
+    await f.manager.beforeQuit();
+    expect(previousOwner.current('alice')).toBe(false);
+    f.manager.resumeAfterQuit();
+    expect(intervals).toHaveBeenCalledTimes(2);
+    intervals.mockRestore();
+    expect(previousOwner.current('alice')).toBe(false);
+    expect(f.manager.verificationOwner().current('alice')).toBe(true);
+    expect(await f.manager.getSnapshot()).toMatchObject({ status: 'running', pid: first.pid });
+    await expect(f.manager.start()).resolves.toMatchObject({ status: 'running' });
+    expect(f.calls).not.toContain('daemon stop');
+    await f.manager.beforeQuit();
+  });
   it('does not adopt or stop a daemon reporting the default profile', async () => {
     const f = await fixture();
     const execute = f.execute.getMockImplementation()!;

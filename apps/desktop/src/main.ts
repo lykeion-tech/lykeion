@@ -114,6 +114,8 @@ app.on('before-quit', (event) => {
     )
     .then(async (results) => {
       if (results[0]?.status === 'rejected') {
+        daemon?.resumeAfterQuit();
+        authGate.resumeAfterQuit();
         quitPending = false;
         dialog.showErrorBox(
           'Lykeion could not close',
@@ -130,6 +132,8 @@ app.on('before-quit', (event) => {
       try {
         await finalizeLogoutShutdown(startupRecovery, desktopSession);
       } catch {
+        daemon?.resumeAfterQuit();
+        authGate.resumeAfterQuit(finalizeLogoutShutdown(startupRecovery, desktopSession, Infinity));
         quitPending = false;
         dialog.showErrorBox(
           'Lykeion could not close',
