@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { loadDesktopWindow } from '../apps/desktop/src/desktop-window-recovery';
 import {
   desktopEntryURL,
   desktopAssetPath,
@@ -11,6 +12,101 @@ import {
   createRequestCancellation,
   bindDesktopRequestLifetime,
 } from '../apps/desktop/src/renderer-origin';
+
+describe('bundled window recovery', () => {
+  const origin = 'https://lab.example';
+  function fixture() {
+    const contents = new EventEmitter();
+    let current = true;
+    let fail!: (error: Error) => void;
+    let choose!: (retry: boolean) => void;
+    const owner = Object.assign(new EventEmitter(), {
+      webContents: contents,
+      loadURL: vi.fn(
+        () =>
+          new Promise<void>((_, reject) => {
+            fail = reject;
+          }),
+      ),
+    });
+    const ask = vi.fn(
+      (_signal: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          choose = resolve;
+        }),
+    );
+    const recovery = loadDesktopWindow(owner as never, origin, () => current, ask);
+    return {
+      owner,
+      contents,
+      ask,
+      recovery,
+      crash: () => contents.emit('render-process-gone', {}, { reason: 'crashed' }),
+      fail: (error = new Error('entry unavailable')) => fail(error),
+      choose: (value: boolean) => choose(value),
+      replace: () => {
+        current = false;
+      },
+    };
+  }
+  it('coalesces crash and failed entry load until the user retries the fixed URL', async () => {
+    const t = fixture();
+    t.crash();
+    t.crash();
+    t.fail();
+    await Promise.resolve();
+    expect(t.ask).toHaveBeenCalledTimes(1);
+    expect(t.owner.loadURL).toHaveBeenCalledTimes(1);
+    t.choose(true);
+    await vi.waitFor(() => expect(t.owner.loadURL).toHaveBeenCalledTimes(2));
+    expect(t.owner.loadURL.mock.calls).toEqual([
+      [desktopEntryURL(origin)],
+      [desktopEntryURL(origin)],
+    ]);
+    t.fail();
+    await vi.waitFor(() => expect(t.ask).toHaveBeenCalledTimes(2));
+    t.choose(false);
+    await Promise.resolve();
+    expect(t.owner.loadURL).toHaveBeenCalledTimes(2);
+  });
+  it.each(['close', 'quit', 'replace', 'navigate'])(
+    'drops a stale Retry after %s',
+    async (action) => {
+      const t = fixture();
+      t.fail();
+      await vi.waitFor(() => expect(t.ask).toHaveBeenCalledOnce());
+      if (action === 'close') t.owner.emit('close');
+      if (action === 'quit') t.recovery.pause();
+      if (action === 'replace') t.replace();
+      if (action === 'navigate') t.contents.emit('did-navigate', {}, desktopEntryURL(origin), 200);
+      t.choose(true);
+      await Promise.resolve();
+      expect(t.owner.loadURL).toHaveBeenCalledTimes(1);
+      if (action !== 'replace') expect(t.ask.mock.calls[0]![0].aborted).toBe(true);
+    },
+  );
+  it('restores the current failure prompt after an unsuccessful quit', async () => {
+    const t = fixture();
+    t.crash();
+    t.recovery.pause();
+    t.choose(true);
+    await Promise.resolve();
+    expect(t.owner.loadURL).toHaveBeenCalledTimes(1);
+    t.recovery.resume();
+    expect(t.ask).toHaveBeenCalledTimes(2);
+    t.choose(true);
+    await vi.waitFor(() => expect(t.owner.loadURL).toHaveBeenCalledTimes(2));
+  });
+  it('ignores clean exits, aborted loads, API failures and untrusted navigation failures', async () => {
+    const t = fixture();
+    t.contents.emit('render-process-gone', {}, { reason: 'clean-exit' });
+    t.contents.emit('did-fail-load', {}, -2, 'failed', 'https://foreign.example', true);
+    t.contents.emit('did-fail-load', {}, -2, 'failed', origin + '/api/me', false);
+    t.fail(Object.assign(new Error('aborted'), { code: 'ERR_ABORTED', errno: -3 }));
+    await Promise.resolve();
+    expect(t.ask).not.toHaveBeenCalled();
+  });
+});
 
 describe('desktop renderer origin', () => {
   it('does not let an earlier redirect release the current request registration', () => {

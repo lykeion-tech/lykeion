@@ -8,7 +8,6 @@ import { installDaemonIPC, previewOrigins, validDaemonSender } from './daemon-ip
 import path from 'node:path';
 import { desktopConfigGuidance, loadDesktopConfig } from './runtime-config.js';
 import {
-  desktopEntryURL,
   desktopPartition,
   bindDesktopRequestLifetime,
   installDesktopRenderer,
@@ -16,6 +15,7 @@ import {
   validExternalURL,
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
+import { loadDesktopWindow } from './desktop-window-recovery.js';
 import { DesktopVerification } from './desktop-verification.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
 import {
@@ -88,11 +88,13 @@ function abandonDocumentAuthentication() {
 }
 let quitAllowed = false;
 let quitPending = false;
+let windowRecovery: ReturnType<typeof loadDesktopWindow> | undefined;
 app.on('before-quit', (event) => {
   if (quitAllowed || !ownsInstance) return;
   event.preventDefault();
   if (quitPending) return;
   quitPending = true;
+  windowRecovery?.pause();
   void authGate
     .shutdown(
       async () => {
@@ -115,6 +117,7 @@ app.on('before-quit', (event) => {
             ? 'Sign-in was interrupted before it was sent. You can try signing in again after reopening Lykeion.'
             : 'An authentication request did not finish. Sign-in or sign-out may not have completed. Try closing Lykeion again after the request finishes.',
         );
+        void windowRecovery?.resume();
         return;
       }
       if (results[1]?.status === 'rejected')
@@ -127,6 +130,7 @@ app.on('before-quit', (event) => {
           'Lykeion could not close',
           'The sign-in session could not be safely saved. Try closing Lykeion again.',
         );
+        void windowRecovery?.resume();
         return;
       }
       quitAllowed = true;
@@ -167,12 +171,37 @@ function createWindow() {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),
   );
-  if (developmentUrl) void window.loadURL(developmentUrl);
-  else void window.loadURL(desktopEntryURL(selectedOrigin));
+  if (developmentUrl) void owner.loadURL(developmentUrl);
+  else
+    windowRecovery = loadDesktopWindow(
+      owner,
+      selectedOrigin,
+      () =>
+        window === owner &&
+        !owner.isDestroyed() &&
+        !owner.webContents.isDestroyed() &&
+        !quitPending &&
+        !quitAllowed,
+      async (signal) => {
+        const result = await dialog.showMessageBox(owner, {
+          type: 'warning',
+          message: 'The Lykeion dashboard could not stay open.',
+          detail: 'Select Retry to reopen the dashboard in this window.',
+          buttons: ['Retry', 'Dismiss'],
+          defaultId: 0,
+          cancelId: 1,
+          signal,
+        });
+        return result.response === 0;
+      },
+    );
   window.on('closed', () => {
     if (window === owner) abandonDocumentAuthentication();
     drain();
-    if (window === owner) window = null;
+    if (window === owner) {
+      windowRecovery = undefined;
+      window = null;
+    }
   });
 }
 void app.whenReady().then(async () => {
@@ -275,7 +304,13 @@ void app.whenReady().then(async () => {
     developmentUrl ? undefined : apiOrigin,
   );
   daemon.onStatusChange((snapshot) => {
-    if (window && !window.isDestroyed()) window.webContents.send('lykeion:daemon:status', snapshot);
+    if (
+      window &&
+      !window.isDestroyed() &&
+      !window.webContents.isDestroyed() &&
+      !window.webContents.isCrashed()
+    )
+      window.webContents.send('lykeion:daemon:status', snapshot);
   });
   daemon.startPolling();
   ipcMain.handle('lykeion:open-documentation', async (event) => {

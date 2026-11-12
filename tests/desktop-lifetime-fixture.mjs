@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
+import assert from 'node:assert/strict';
 const root = process.cwd();
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyk-lifetime-'));
 app.setPath('userData', path.join(temp, 'profile'));
@@ -17,6 +18,9 @@ async function until(fn) {
 }
 app.whenReady().then(async () => {
   const route = await import('file://' + root + '/apps/desktop/out/renderer-origin.js');
+  const { loadDesktopWindow } = await import(
+    'file://' + root + '/apps/desktop/out/desktop-window-recovery.js'
+  );
   const state = {
     oldStarted: false,
     oldClosed: false,
@@ -41,6 +45,8 @@ app.whenReady().then(async () => {
       req.on('close', () => {
         state.afterClosed = true;
       });
+    } else if (req.url === '/api/recovery-cookie') {
+      res.end(req.headers.cookie?.includes('lyk_session=fixture-owner') ? 'retained' : 'missing');
     } else {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end('{"error":"unauthorized"}');
@@ -55,10 +61,11 @@ app.whenReady().then(async () => {
     );
     const cancellation = route.installDesktopRenderer(desktop, origin, temp);
     let current = null;
+    let verificationPending = false;
     ipcMain.on('lykeion:document-start', (event) => {
       event.returnValue =
         current && route.trustedDesktopFrame(event, current.webContents, origin)
-          ? cancellation.beginDocument()
+          ? { id: cancellation.beginDocument(), verificationPending }
           : null;
     });
     const make = () => {
@@ -98,7 +105,28 @@ app.whenReady().then(async () => {
       old.w.close();
       await until(() => state.oldClosed);
       const next = make();
-      await next.w.loadURL(route.desktopEntryURL(origin));
+      let decideRetry;
+      let prompts = 0;
+      const entryFile = path.join(temp, 'index.html');
+      fs.renameSync(entryFile, entryFile + '.missing');
+      loadDesktopWindow(
+        next.w,
+        origin,
+        () => current === next.w,
+        () => {
+          prompts++;
+          return new Promise((resolve) => {
+            decideRetry = resolve;
+          });
+        },
+      );
+      await until(() => !!decideRetry);
+      assert.equal(prompts, 1);
+      fs.renameSync(entryFile + '.missing', entryFile);
+      const nextLoaded = once(next.w.webContents, 'did-finish-load');
+      decideRetry(true);
+      decideRetry = undefined;
+      await nextLoaded;
       await next.w.webContents.executeJavaScript(
         `fetch('/api/new',{headers:{'X-Lykeion-Desktop-Request':window.lykeionDesktop.requestDocument+'.'+crypto.randomUUID()}}).catch(()=>{});true`,
       );
@@ -114,9 +142,45 @@ app.whenReady().then(async () => {
       old.drain();
       await new Promise((r) => setTimeout(r, 250));
       const survived = !state.afterClosed;
+      await desktop.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'fixture-owner',
+        httpOnly: true,
+      });
+      const previousDocument = await next.w.webContents.executeJavaScript(
+        "sessionStorage.removeItem('startAfterReload');window.lykeionDesktop.requestDocument",
+      );
+      verificationPending = true;
+      next.w.webContents.forcefullyCrashRenderer();
+      await until(() => state.afterClosed && !!decideRetry);
+      assert.equal(prompts, 2);
+      const recovered = once(next.w.webContents, 'did-finish-load');
+      decideRetry(true);
+      await recovered;
+      assert.equal(next.w.webContents.getURL(), route.desktopEntryURL(origin));
+      assert.equal(next.w.webContents.session, desktop);
+      const admitted = await next.w.webContents.executeJavaScript(
+        '({document:window.lykeionDesktop.requestDocument,pending:window.lykeionDesktop.verificationPending})',
+      );
+      assert.ok(admitted.document && admitted.document !== previousDocument);
+      assert.equal(admitted.pending, true);
+      assert.equal(
+        await next.w.webContents.executeJavaScript(
+          "fetch('/api/recovery-cookie').then(r=>r.text())",
+        ),
+        'retained',
+      );
       next.w.close();
       await until(() => state.afterClosed);
-      console.log(JSON.stringify({ ...state, survived, refusedPreserved }));
+      console.log(
+        JSON.stringify({
+          ...state,
+          survived,
+          refusedPreserved,
+          recoveredWithPendingVerification: admitted.pending,
+        }),
+      );
       server.close();
       fs.rmSync(temp, { recursive: true, force: true });
       app.exit(survived && refusedPreserved ? 0 : 1);
