@@ -465,12 +465,19 @@ function tabKey(event: KeyboardEvent, index: number) {
           </p>
         </div>
         <aside v-if="selected" class="team-inspector" aria-label="Agent details">
-          <h2>Agent details</h2>
+          <div class="inspector-heading">
+            <h2>Agent details</h2>
+            <RouterLink
+              v-if="detail.data.value?.my_agents?.[selected.member.name]"
+              :to="`/agents/${detail.data.value.my_agents[selected.member.name]!.id}`"
+              class="details-link"
+              >Details →</RouterLink
+            >
+          </div>
           <TeamMemberProfile
             :member="selected.member"
             :role="selected.role"
             :editable-skills="canEditTeam"
-            :agent-id="detail.data.value?.my_agents?.[selected.member.name]?.id"
             @edit-skills="
               skillsError = '';
               skillMember = selected.member;
@@ -840,6 +847,17 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .team-inspector :deep(.avatar) {
   background: var(--surface);
+}
+.inspector-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.details-link {
+  color: var(--primary-text);
+  font-size: 13px;
+  white-space: nowrap;
 }
 .team-detail-page .team-inspector h2 {
   color: var(--text);

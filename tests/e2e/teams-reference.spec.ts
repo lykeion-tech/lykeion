@@ -155,7 +155,8 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
   const lastValue = rows.first().locator('td').last().locator('.directory-last-value');
   await expect(lastValue).toHaveCSS('text-align', 'center');
-  await expect(lastValue).toHaveCSS('width', '70px');
+  await expect(lastValue).toHaveCSS('width', '80px');
+  await expect(lastValue).toHaveCSS('white-space', 'nowrap');
   const lastCell = (await rows.first().locator('td').last().boundingBox())!;
   const lastBox = (await lastValue.boundingBox())!;
   expect(lastBox.x + lastBox.width).toBe(lastCell.x + lastCell.width);

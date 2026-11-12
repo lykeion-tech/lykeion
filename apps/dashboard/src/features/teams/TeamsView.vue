@@ -287,7 +287,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
   margin-top: 12px;
 }
 .team-table tr {
-  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 95px;
+  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 100px;
   padding-right: 0;
 }
 .team-table tbody tr {
@@ -316,11 +316,13 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
 }
 .team-table .directory-last-value {
   display: inline-block;
-  width: 70px;
+  width: 80px;
   text-align: center;
+  white-space: nowrap;
 }
 .team-table-scroll {
   overflow-x: auto;
+  margin-right: calc(-1 * var(--team-scrollbar-width, 0px));
 }
 .team-table td:first-child .team-name {
   display: flex;
