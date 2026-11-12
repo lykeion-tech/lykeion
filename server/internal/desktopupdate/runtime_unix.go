@@ -45,6 +45,14 @@ func StreamVerified(ctx context.Context, input, output *os.File) error {
 	if !platformProofReady(runtime.GOOS, runtime.GOARCH) || ctx.Err() != nil {
 		return checkError{Unsupported}
 	}
+	if input == nil || output == nil {
+		return bad
+	}
+	ctx, closeLiveness, err := startLiveness(ctx, 3, int(input.Fd()), int(output.Fd()))
+	if err != nil {
+		return bad
+	}
+	defer closeLiveness()
 	pipes, err := openStreamPipes(ctx, input, output)
 	if err != nil {
 		return bad

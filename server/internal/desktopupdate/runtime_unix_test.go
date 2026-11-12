@@ -197,3 +197,87 @@ func TestNodePipeChild(t *testing.T) {
 	pipes.close()
 	os.Exit(0)
 }
+
+func TestLivenessCancelsOnPeerEOFOrData(t *testing.T) {
+	for _, mode := range []string{"eof", "data"} {
+		t.Run(mode, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			defer writer.Close()
+			ctx, closeMonitor, err := startLiveness(context.Background(), int(reader.Fd()), -1, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closeMonitor()
+			if mode == "eof" {
+				_ = writer.Close()
+			} else {
+				_, _ = writer.Write([]byte("x"))
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("peer failure did not cancel")
+			}
+		})
+	}
+}
+
+func TestLivenessRejectsInitiallyClosedOrContaminatedPeer(t *testing.T) {
+	for _, mode := range []string{"eof", "data"} {
+		t.Run(mode, func(t *testing.T) {
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			defer writer.Close()
+			if mode == "eof" {
+				_ = writer.Close()
+			} else {
+				_, _ = writer.Write([]byte("x"))
+			}
+			if _, closeMonitor, err := startLiveness(context.Background(), int(reader.Fd()), -1, -1); err == nil {
+				closeMonitor()
+				t.Fatal("accepted invalid liveness peer")
+			}
+		})
+	}
+}
+
+func TestLivenessCleanupAndAliases(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	readerFD := int(reader.Fd())
+	if _, closeMonitor, err := startLiveness(context.Background(), readerFD, readerFD, -1); err == nil {
+		closeMonitor()
+		t.Fatal("accepted stdio alias")
+	}
+	ctx, closeMonitor, err := startLiveness(context.Background(), readerFD, -1, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := unix.FcntlInt(uintptr(readerFD), unix.F_GETFD, 0)
+	if err != nil || flags&unix.FD_CLOEXEC == 0 {
+		t.Fatal("liveness FD can leak into an executed child")
+	}
+	done := make(chan struct{})
+	go func() { closeMonitor(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("liveness cleanup blocked")
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not cancel")
+	}
+}
