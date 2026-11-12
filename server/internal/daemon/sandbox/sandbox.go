@@ -517,7 +517,9 @@ func (p Policy) resolve() (resolved, error) {
 						return resolved{}, fmt.Errorf("sandbox missing hidden path %q overlaps SQLite state", raw)
 					}
 				}
-				r.hidden = append(r.hidden, missing)
+				if !slices.Contains(r.hidden, missing) {
+					r.hidden = append(r.hidden, missing)
+				}
 				continue
 			}
 		}
@@ -538,14 +540,18 @@ func (p Policy) resolve() (resolved, error) {
 					break
 				}
 			}
-			r.hidden = append(r.hidden, c)
+			if !slices.Contains(r.hidden, c) {
+				r.hidden = append(r.hidden, c)
+			}
 			continue
 		}
 		c, err = r.carve(raw, h, slices.Concat(r.write, r.readOnly))
 		if err != nil {
 			return resolved{}, err
 		}
-		r.hidden = append(r.hidden, c)
+		if !slices.Contains(r.hidden, c) {
+			r.hidden = append(r.hidden, c)
+		}
 	}
 	return r, nil
 }

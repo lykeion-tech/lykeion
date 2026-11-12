@@ -18,8 +18,6 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
-var homeSecrets = []string{".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".docker/config.json", ".kube", ".npmrc", ".pypirc", ".git-credentials"}
-
 func (d *daemon) cacheDir() string { return filepath.Join(d.cfg.Home, ".caches") }
 
 // sourcesURL is the sources server on the API this daemon reaches. The URL the
@@ -107,9 +105,7 @@ func (d *daemon) cliPolicy(runDir string, study *envs.Study, readOnly bool, cli 
 	} else {
 		p.Write = append(p.Write, folders...)
 	}
-	for _, secret := range homeSecrets {
-		p.Hidden = append(p.Hidden, filepath.Join(home, secret))
-	}
+	p.Hidden = append(p.Hidden, configpath.CredentialPaths(home)...)
 	private, err := d.privatePaths()
 	if err != nil {
 		return p, err

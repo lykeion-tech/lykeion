@@ -75,3 +75,38 @@ func TestPrivateFailsClosedWhenEffectiveUIDLookupUnavailable(t *testing.T) {
 		})
 	}
 }
+
+func TestPrivateKeepsCanonicalConfigWhenAccountAliasRetargets(t *testing.T) {
+	actual := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "account-home")
+	if err := os.Symlink(actual, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("LYK_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	lookup := func(id string) (*user.User, error) { return &user.User{Uid: id, HomeDir: alias}, nil }
+	paths, err := private(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{filepath.Join(canonical, ".config", "lyk", "config.json"), filepath.Join(canonical, ".config", "lyk", "profiles")}
+	if runtime.GOOS == "darwin" {
+		expected = append(expected, filepath.Join(canonical, "Library", "Application Support", "lyk", "config.json"), filepath.Join(canonical, "Library", "Application Support", "lyk", "profiles"))
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range expected {
+		if !slices.Contains(paths, path) {
+			t.Errorf("canonical account path omitted after alias retarget: %s", path)
+		}
+	}
+}
