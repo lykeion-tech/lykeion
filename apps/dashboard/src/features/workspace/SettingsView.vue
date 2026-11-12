@@ -54,7 +54,6 @@ const groups = computed(() =>
   [
     {
       title: 'Personal',
-      suffix: me.data.value?.email.split('@')[0] ?? '',
       items: [
         { id: 'profile', label: 'Profile', icon: 'user' },
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
@@ -66,7 +65,6 @@ const groups = computed(() =>
     },
     {
       title: workspace.data.value?.name ?? 'Workspace',
-      suffix: 'Workspace',
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'skills', label: 'Skills', icon: 'book' },
@@ -363,8 +361,7 @@ async function copySlug() {
       <section v-for="group in groups" :key="group.title">
         <header>
           <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
-          ><strong>{{ group.title }}</strong
-          ><small>{{ group.suffix }}</small>
+          ><strong>{{ group.title }}</strong>
         </header>
         <button
           v-for="item in group.items"
@@ -764,15 +761,6 @@ async function copySlug() {
 .settings-rail section header strong {
   font-size: 14px;
   font-weight: 500;
-}
-.settings-rail section header small {
-  font-size: 11px;
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  max-width: 95px;
 }
 .tiny-avatar {
   width: 16px;

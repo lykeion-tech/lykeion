@@ -289,7 +289,7 @@ for (const kind of ['researches', 'agents'] as const) {
     if (kind === 'agents') {
       await page.locator('.workspace-switch').click();
       await page.getByRole('menuitem', { name: other.name }).click();
-      await expect(page.locator('.workspace-switch')).toContainText(other.name);
+      await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(other.name);
       expect(other.id).not.toBe(f.workspace_id);
     } else await page.goto('/#/studies/' + f.card_id);
     release();

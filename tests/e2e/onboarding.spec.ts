@@ -290,14 +290,14 @@ for (const phase of ['create', 'list'] as const) {
       await controlled.goto('/#/studies');
       await controlled.locator('.workspace-switch').click();
       await controlled.getByRole('menuitem', { name: b.name, exact: false }).last().click();
-      await expect(controlled.locator('.workspace-switch')).toContainText(b.name);
+      await expect(controlled.locator('.workspace-switch')).toHaveAccessibleDescription(b.name);
       release();
       await controlled.unrouteAll({ behavior: 'wait' });
       await controlled.evaluate(
         () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
       );
       await expect(controlled).toHaveURL(/#\/studies$/);
-      await expect(controlled.locator('.workspace-switch')).toContainText(b.name);
+      await expect(controlled.locator('.workspace-switch')).toHaveAccessibleDescription(b.name);
       await expect(controlled.getByRole('heading', { name: 'Skills', exact: true })).toHaveCount(0);
     } finally {
       release();
@@ -343,6 +343,7 @@ test('every step is wide and keeps Aristotle centred over the content', async ({
       await expect(page.locator('.onboarding-card').first()).toBeVisible();
       await expect(page.locator('.onboarding-card .availability')).toHaveCount(0);
     }
-    if (heading !== 'Machines') await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    if (heading !== 'Machines')
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
   }
 });

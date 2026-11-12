@@ -73,6 +73,7 @@ import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
 import { composerAvailability, deliveryLine } from './comment-delivery';
+const typesafeIcon = `${import.meta.env.BASE_URL}brand/typesafe.png`;
 
 const PlainDescription = defineComponent({
   props: { content: { type: String, default: '' } },
@@ -560,6 +561,7 @@ function pin() {
             <Icon name="tag" />
           </button>
           <button
+            v-if="!(showMeta && paneFocused)"
             class="icon-button study-pane-toggle"
             :aria-pressed="showMeta"
             aria-label="Toggle details"
@@ -684,7 +686,7 @@ function pin() {
               @open-output="previewOutput"
             />
             <div v-else-if="entry.kind === 'jev'" class="jev-card">
-              <span class="avatar jev-avatar" aria-hidden="true">J</span>
+              <img class="avatar jev-avatar" :src="typesafeIcon" alt="" />
               <span class="jev-text">
                 {{ entry.text.slice(0, entry.text.lastIndexOf(' · ')) }} ·
                 <button
@@ -1705,7 +1707,7 @@ function pin() {
   font-size: 14px;
 }
 .jev-avatar {
-  font-weight: 600;
+  object-fit: cover;
 }
 .jev-text {
   min-width: 0;

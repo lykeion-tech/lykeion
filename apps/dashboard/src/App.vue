@@ -175,6 +175,7 @@ const destinations = [
   { id: 'settings', name: 'Settings', icon: 'settings' },
 ];
 const workspaceName = computed(() => workspace.data.value?.name ?? 'Lykeion');
+const userName = computed(() => me.data.value?.name || me.data.value?.email || '');
 const heading = computed(() =>
   current.value === 'teams' ? 'Teams' : (route.meta.title ?? 'Studies'),
 );
@@ -533,7 +534,9 @@ onUnmounted(() => {
       <SidebarFooter
         v-if="railView === 'context'"
         ref="sidebarFooter"
+        :user-name="userName"
         :workspace-name="workspaceName"
+        :avatar-url="me.data.value?.avatar_url"
         :selected="current === 'settings' || current === 'lab-chart'"
         :menu-open="workspaceMenu"
         :help-open="help"
@@ -551,7 +554,9 @@ onUnmounted(() => {
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
+          :user-name="userName"
           :workspace-name="workspaceName"
+          :avatar-url="me.data.value?.avatar_url"
           :selected="current === 'settings' || current === 'lab-chart'"
           :menu-open="workspaceMenu"
           :help-open="help"
@@ -570,7 +575,9 @@ onUnmounted(() => {
       <template #footer>
         <SidebarFooter
           ref="sidebarFooter"
+          :user-name="userName"
           :workspace-name="workspaceName"
+          :avatar-url="me.data.value?.avatar_url"
           :selected="current === 'settings' || current === 'lab-chart'"
           :menu-open="workspaceMenu"
           :help-open="help"
@@ -589,10 +596,7 @@ onUnmounted(() => {
       @keydown="popupKey($event, workspacePopup, 'workspace')"
     >
       <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
-        <span class="profile-menu-avatar">{{
-          (me.data.value?.email || '?')[0]?.toUpperCase()
-        }}</span
-        ><span>{{ me.data.value?.email }}</span>
+        <span>{{ me.data.value?.email }}</span>
       </button>
       <button role="menuitem" @click="go('settings')">
         <Icon name="settings" :size="16" />Settings
@@ -687,7 +691,9 @@ onUnmounted(() => {
       </nav>
       <SidebarFooter
         ref="sidebarFooter"
+        :user-name="userName"
         :workspace-name="workspaceName"
+        :avatar-url="me.data.value?.avatar_url"
         :selected="current === 'settings' || current === 'lab-chart'"
         :menu-open="workspaceMenu"
         :help-open="help"
@@ -882,21 +888,6 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.profile-menu-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  flex: none;
-  font-size: 13px;
-  overflow: hidden;
-}
-.profile-menu-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .workspace-menu-label {
   display: block;

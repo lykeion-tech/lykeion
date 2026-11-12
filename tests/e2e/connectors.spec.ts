@@ -354,7 +354,13 @@ test('Team picker submits only workspace identity and preserves removed referenc
   const make = async (name: string, model: string) => {
     const r = await page.request.post('/api/agents', {
       headers,
-      data: { name: name + Date.now(), stage: 'experimentation', harness: 'claude', model, instructions: 'Works' },
+      data: {
+        name: name + Date.now(),
+        stage: 'experimentation',
+        harness: 'claude',
+        model,
+        instructions: 'Works',
+      },
     });
     expect(r.status()).toBe(201);
     return r.json();
@@ -431,7 +437,9 @@ test('late connector creation stays in its captured workspace after discard', as
   await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
   await page.locator('.workspace-switch').click();
   await page.getByRole('menuitem', { name: 'Connector destination', exact: false }).click();
-  await expect(page.locator('.workspace-switch')).toContainText('Connector destination');
+  await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(
+    'Connector destination',
+  );
   release();
   await expect
     .poll(async () =>

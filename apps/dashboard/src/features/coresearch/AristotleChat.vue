@@ -563,7 +563,7 @@ async function stop() {
             ><small>Your research companion</small>
           </div>
           <button
-            v-if="experiment"
+            v-if="experiment && paneMode !== 'focus'"
             type="button"
             class="experiment-toggle"
             :aria-label="paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'"

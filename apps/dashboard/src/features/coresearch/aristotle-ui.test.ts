@@ -103,7 +103,7 @@ async function mount(
   const app = createTreeApp({
     render: () =>
       rail
-        ? h(ConversationRail, null, { footer: () => h(SidebarFooter, { workspaceName: 'Lab' }) })
+        ? h(ConversationRail, null, { footer: () => h(SidebarFooter, { userName: 'Lab', workspaceName: 'Lab' }) })
         : settings
           ? h(AgentDetail, { id: router.currentRoute.value.path.split('/')[2] || 'aristotle' })
           : router.currentRoute.value.path.startsWith('/coresearch')

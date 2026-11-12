@@ -242,7 +242,7 @@ test('the session rail carries the rail buttons and the session title tab, and t
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' });
   await expect(navigation).toBeVisible();
   await expect(rail).toBeHidden();
-  await expect(navigation.locator('.workspace-switch')).toContainText('Fixture lab');
+  await expect(navigation.locator('.workspace-switch')).toHaveAccessibleDescription('Fixture lab');
   await navigation.locator('.workspace-switch').click();
   await expect(page.getByRole('menu', { name: 'Workspace' })).toBeVisible();
   await page.keyboard.press('Escape');

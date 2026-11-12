@@ -143,6 +143,7 @@ async function openTranscriptFile(item: TranscriptFile) {
           <div class="task-main" data-column="conversation">
             <div class="task-stage-row">
               <button
+                v-if="paneMode !== 'focus'"
                 type="button"
                 class="experiment-toggle"
                 :aria-label="paneMode === 'closed' ? 'Open experiment surfaces' : 'Close experiment surfaces'"

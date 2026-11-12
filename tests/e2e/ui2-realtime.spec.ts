@@ -460,7 +460,9 @@ test('workspace switch confirms dirty discard, closes modal and ignores a late r
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.locator('.workspace-switch').click();
     await page.getByRole('menuitem', { name: 'Realtime destination', exact: false }).click();
-    await expect(page.locator('.workspace-switch')).toContainText('Realtime destination');
+    await expect(page.locator('.workspace-switch')).toHaveAccessibleDescription(
+      'Realtime destination',
+    );
     await expect(page.getByRole('dialog')).toHaveCount(0);
     release.resolve();
     await delivered.promise;
@@ -525,7 +527,9 @@ test('late real run response cannot reopen a report modal after a workspace swit
     await member.page.getByRole('button', { name: 'Close run', exact: true }).click();
     await member.page.locator('.workspace-switch').click();
     await member.page.getByRole('menuitem', { name: 'Run destination', exact: false }).click();
-    await expect(member.page.locator('.workspace-switch')).toContainText('Run destination');
+    await expect(member.page.locator('.workspace-switch')).toHaveAccessibleDescription(
+      'Run destination',
+    );
     await expect(member.page.getByRole('dialog')).toHaveCount(0);
     release.resolve();
     await delivered.promise;

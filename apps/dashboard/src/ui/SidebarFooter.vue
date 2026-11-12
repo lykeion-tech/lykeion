@@ -3,7 +3,9 @@ import { ref } from 'vue';
 import Icon from './Icon.vue';
 withDefaults(
   defineProps<{
+    userName: string;
     workspaceName: string;
+    avatarUrl?: string;
     selected?: boolean;
     menuOpen?: boolean;
     helpOpen?: boolean;
@@ -24,6 +26,7 @@ defineExpose({
       <button
         ref="workspaceTrigger"
         class="workspace-switch nav-item"
+        :title="workspaceName"
         :class="{ selected }"
         data-shell-menu-trigger
         aria-haspopup="menu"
@@ -32,8 +35,11 @@ defineExpose({
         @click="emit('toggleWorkspace')"
         @keydown.up.prevent="!menuOpen && emit('toggleWorkspace')"
       >
-        <span class="workspace-avatar">{{ workspaceName[0] }}</span
-        ><span class="workspace-switch-name">{{ workspaceName }}</span
+        <span class="workspace-avatar user-avatar"
+          ><img v-if="avatarUrl" :src="avatarUrl" alt="" /><template v-else>{{
+            (userName[0] ?? '?').toUpperCase()
+          }}</template></span
+        ><span class="workspace-switch-name">{{ userName }}</span
         ><Icon name="down" class="push-right" :size="14" /></button
       ><button
         ref="helpTrigger"
@@ -51,3 +57,13 @@ defineExpose({
     </div>
   </div>
 </template>
+<style scoped>
+.user-avatar {
+  overflow: hidden;
+}
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+</style>
