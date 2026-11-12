@@ -82,6 +82,20 @@ const machine = computed(() =>
     ? (registeredLocal.value ?? localProfile.value)
     : registeredDaemons.value.find((d) => d.id === props.machineId),
 );
+const signInProblems = computed(() => {
+  const local = registeredLocal.value;
+  if (!local || machine.value !== local || nativeSnapshot.value?.status !== 'running') return [];
+  return local.runtimes
+    .filter(
+      (r) =>
+        r.owner_id === me.data.value?.id &&
+        r.workspace_id === workspaceId.value &&
+        r.status === 'online' &&
+        r.last_seen_at === local.lastSeen &&
+        r.unhealthy_reason === 'sign_in',
+    )
+    .map((r) => r.harness);
+});
 watch(
   [registeredLocal, localRoute],
   ([local, selected]) => {
@@ -429,6 +443,7 @@ async function remove(d: Daemon) {
             :is-owner="isOwner"
             :account-id="me.data.value?.id"
             :local-profile="machine.localProfile"
+            :sign-in-problems="signInProblems"
           />
         </div>
       </template>

@@ -3,7 +3,28 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { verifying } from '../../api/auth-loss';
 import type { DesktopPrerequisites } from '../../../../desktop/src/daemon-types';
 
-const props = defineProps<{ accountId?: string }>();
+const props = defineProps<{ accountId?: string; signInProblems?: string[] }>();
+const providers = [
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    status: 'claude auth status',
+    login: 'claude auth login',
+    reference: 'https://code.claude.com/docs/en/cli-reference',
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    status: 'codex login status',
+    login: 'codex login',
+    reference: 'https://developers.openai.com/codex/cli/reference/',
+  },
+] as const;
+const reportedProblems = computed(() =>
+  verifying.value
+    ? []
+    : providers.filter((provider) => props.signInProblems?.includes(provider.id)),
+);
 const desktop = typeof window === 'undefined' ? undefined : window.lykeionDesktop;
 const bridge = desktop?.daemon;
 const supported = computed(
@@ -53,10 +74,23 @@ async function refresh() {
     guide.
   </p>
   <template v-if="supported">
+    <details>
+      <summary>Check provider sign-in in your terminal</summary>
+      <p v-for="provider in providers" :key="provider.id">
+        For {{ provider.name }}, run <code>{{ provider.status }}</code> to check or
+        <code>{{ provider.login }}</code> to sign in.
+        <a :href="provider.reference" target="_blank" rel="noopener noreferrer"
+          >{{ provider.name }} command reference</a
+        >
+      </p>
+    </details>
     <button type="button" class="button" :disabled="busy || verifying" @click="refresh">
       Check setup
     </button>
     <div role="status" aria-live="polite">
+      <p v-for="provider in reportedProblems" :key="provider.id">
+        This daemon reported a sign-in problem for {{ provider.name }}.
+      </p>
       <p v-if="busy">Checking this computer…</p>
       <p v-else-if="error">Setup check did not finish. Select Check setup to try again.</p>
       <p v-else-if="result && !result.cliAvailable">
@@ -73,12 +107,11 @@ async function refresh() {
           }}
         </p>
         <ul>
-          <li>
-            Claude Code ·
-            {{ result.claude ? 'Executable found · Sign-in not checked' : 'Not found' }}
-          </li>
-          <li>
-            Codex · {{ result.codex ? 'Executable found · Sign-in not checked' : 'Not found' }}
+          <li v-for="provider in providers" :key="provider.id">
+            {{ provider.name }} · {{ result[provider.id] ? 'Executable found' : 'Not found'
+            }}<template v-if="result[provider.id] && !signInProblems?.includes(provider.id)">
+              · Sign-in not checked</template
+            >
           </li>
         </ul>
       </template>

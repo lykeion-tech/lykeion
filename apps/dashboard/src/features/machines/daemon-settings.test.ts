@@ -178,6 +178,49 @@ async function mount(
   };
 }
 describe('Daemon settings mounted section', () => {
+  it('shows the last reported sign-in problem only for a current local owner and provider', async () => {
+    const t = await mount({ machine: true });
+    const key = keys.runtimes('lab');
+    const base = {
+      ...t.queryClient!.getQueryData<Record<string, unknown>[]>(key)![0],
+      workspace_id: 'lab',
+      daemon_id: 'managed-id',
+      owner_id: 'owner',
+      last_seen_at: '2026-10-26T10:00:00Z',
+      status: 'online',
+      unhealthy_reason: 'sign_in',
+    };
+    const publish = (claude: string | null, codex: string | null) => {
+      const extra = [
+        { owner_id: 'other' },
+        { workspace_id: 'other' },
+        { daemon_id: 'other' },
+        { status: 'offline' },
+        { last_seen_at: '2026-10-25T10:00:00Z' },
+      ];
+      t.queryClient!.setQueryData(key, [
+        { ...base, harness: 'claude', unhealthy_reason: claude },
+        { ...base, id: 'codex', harness: 'codex', unhealthy_reason: codex },
+        ...extra.map((change, i) => ({ ...base, harness: 'codex', id: 'extra-' + i, ...change })),
+      ]);
+    };
+    const claudeProblem = 'This daemon reported a sign-in problem for Claude Code.';
+    const codexProblem = 'This daemon reported a sign-in problem for Codex.';
+    publish('sign_in', null);
+    await vi.waitFor(() => expect(t.text()).toContain(claudeProblem));
+    expect(t.text()).not.toContain(codexProblem);
+    publish(null, 'sign_in');
+    await vi.waitFor(() => expect(t.text()).toContain(codexProblem));
+    expect(t.text()).not.toContain(claudeProblem);
+    publish(null, 'transient');
+    await vi.waitFor(() => expect(t.text()).not.toContain(codexProblem));
+    expect(t.text()).not.toMatch(/signed in|authenticated provider/i);
+    publish('sign_in', null);
+    await vi.waitFor(() => expect(t.text()).toContain(claudeProblem));
+    t.listener(snapshot({ authenticatedUserID: 'other' }));
+    await vi.waitFor(() => expect(t.text()).not.toContain(claudeProblem));
+    expect(t.bridge.refreshPrerequisites).not.toHaveBeenCalled();
+  });
   it('can check setup before any managed machine exists without starting a daemon', async () => {
     const t = await mount({
       machine: true,
@@ -187,6 +230,14 @@ describe('Daemon settings mounted section', () => {
     });
     const button = all(t.root).find((n) => n.tag === 'button' && textOf(n).includes('Check setup'));
     expect(button).toBeDefined();
+    for (const command of [
+      'claude auth status',
+      'claude auth login',
+      'codex login status',
+      'codex login',
+    ]) {
+      expect(all(t.root).some((n) => n.tag === 'code' && textOf(n) === command)).toBe(true);
+    }
     (button!.props.onClick as () => void)();
     await vi.waitFor(() => expect(t.text()).toContain('Sign-in not checked'));
     expect(t.text()).toContain('Executable found');

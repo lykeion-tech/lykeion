@@ -9,6 +9,7 @@ const props = defineProps<{
   isOwner: boolean;
   accountId?: string;
   localProfile?: boolean;
+  signInProblems?: string[];
 }>();
 const bridge = typeof window !== 'undefined' ? window.lykeionDesktop?.daemon : undefined;
 const snapshot = ref<DaemonSnapshot | null>(null);
@@ -199,7 +200,7 @@ defineExpose({
       aria-labelledby="tool-setup-heading"
     >
       <h3 id="tool-setup-heading">Set up an agent tool</h3>
-      <LocalSetupCheck :account-id="accountId" />
+      <LocalSetupCheck :account-id="accountId" :sign-in-problems="signInProblems" />
       <template v-if="snapshot?.cliAvailable && snapshot.status !== 'unknown'">
         <p v-if="localProfile && snapshot?.status === 'stopped'">
           After setup, select Start above to detect your tools.
