@@ -5,7 +5,6 @@ package desktopupdate
 import (
 	"context"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"lykeion/server/internal/accountlookup"
 )
 
 // Each gate requires separate filesystem, sandbox and release-feed acceptance.
@@ -75,7 +76,7 @@ func StreamVerified(ctx context.Context, input, output *os.File) error {
 	if uid <= 0 {
 		return bad
 	}
-	account, err := user.LookupId(strconv.Itoa(uid))
+	account, err := accountlookup.LookupId(strconv.Itoa(uid))
 	if err != nil || account == nil || account.Uid != strconv.Itoa(uid) || !filepath.IsAbs(account.HomeDir) || filepath.Clean(account.HomeDir) != account.HomeDir {
 		return bad
 	}
@@ -243,7 +244,7 @@ func CheckAndCache(ctx context.Context) (Result, error) {
 	if uid <= 0 {
 		return Result{}, errUnavailable
 	}
-	account, err := user.LookupId(strconv.Itoa(uid))
+	account, err := accountlookup.LookupId(strconv.Itoa(uid))
 	if err != nil || account == nil || account.Uid != strconv.Itoa(uid) || !filepath.IsAbs(account.HomeDir) || filepath.Clean(account.HomeDir) != account.HomeDir {
 		return Result{}, errUnavailable
 	}

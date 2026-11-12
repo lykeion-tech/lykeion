@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"lykeion/server/internal/accountlookup"
 )
 
 func Default() (string, error) {
@@ -30,7 +32,7 @@ func Actual() (string, error) {
 // Private includes absent names: a login can create a config during a run.
 // XDG is also protected on macOS for configurations shared with Linux tooling.
 func Private() ([]string, error) {
-	return private(user.LookupId)
+	return private(accountlookup.LookupId)
 }
 
 func private(lookup func(string) (*user.User, error)) ([]string, error) {

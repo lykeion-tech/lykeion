@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"lykeion/server/internal/accountlookup"
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/kernels"
@@ -164,7 +164,7 @@ func (d *Door) sandboxPolicy() error {
 	}
 	home := d.home
 	if home == "" {
-		u, err := user.Current()
+		u, err := accountlookup.Current()
 		if err != nil {
 			return err
 		}

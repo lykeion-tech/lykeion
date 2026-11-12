@@ -30,12 +30,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"syscall"
+
+	"lykeion/server/internal/accountlookup"
 )
 
 // Policy names the folders a sandboxed process may use. Write folders are
@@ -175,7 +176,7 @@ func (p Policy) validateNetwork() error {
 func Check(ctx context.Context) error { return check(ctx, Policy.Command) }
 
 func check(ctx context.Context, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
-	u, err := user.Current()
+	u, err := accountlookup.Current()
 	if err != nil {
 		return err
 	}
