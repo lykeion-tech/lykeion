@@ -49,6 +49,7 @@ export class DesktopVerification {
     this.attempt = { token, document, owner };
   }
   invalidate() {
+    this.revision++;
     this.attempt = undefined;
     this.receipt = undefined;
     this.readKey = undefined;
@@ -114,6 +115,12 @@ export class DesktopVerification {
       this.revision === revision &&
       this.ready();
     if (!current()) throw new Error('Account verification changed');
+    const { user, id, expires, sessionCookie } = await this.browserIdentity();
+    if (!current()) throw new Error('Account verification changed');
+    this.receipt = { key, document, id, revision, expires, sessionCookie };
+    return { receipt: key, user };
+  }
+  private async browserIdentity() {
     const url = this.origin + '/api/me';
     const cookies = await this.session.cookies.get({ url, name: 'lyk_session' });
     const res = await this.session.fetch(url, {
@@ -126,19 +133,28 @@ export class DesktopVerification {
     const user = res.status === 401 ? null : await readDesktopAuthResponse(res);
     if (res.status === 401) await res.body?.cancel();
     const id = res.status === 401 ? null : accountID(user);
-    if (!current()) throw new Error('Account verification changed');
     const expires = Math.min(
       ...cookies.map((cookie) => (cookie.expirationDate ?? Infinity) * 1000),
     );
-    this.receipt = {
-      key,
-      document,
-      id,
-      revision,
-      expires,
-      sessionCookie: !!this.rootCookie(cookies),
+    return { user, id, expires, sessionCookie: !!this.rootCookie(cookies) };
+  }
+  daemonAuthorization(allowed: () => boolean) {
+    const document = this.document();
+    const revision = this.revision;
+    const current = () =>
+      !!document &&
+      this.document() === document &&
+      this.revision === revision &&
+      this.ready() &&
+      allowed();
+    return async (id: string) => {
+      if (!current()) throw new Error('Sign in before configuring the desktop daemon');
+      const owner = await this.browserIdentity();
+      const authenticated = () => current() && owner.expires > Date.now();
+      if (!owner.sessionCookie || owner.id !== id || !authenticated())
+        throw new Error('Desktop session identity does not match account');
+      return authenticated;
     };
-    return { receipt: key, user };
   }
   matches(document: string, id: unknown, key: unknown) {
     const receipt = this.receipt;

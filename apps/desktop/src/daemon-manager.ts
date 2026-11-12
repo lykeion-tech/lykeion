@@ -18,6 +18,7 @@ import type { DaemonPreferences, DaemonSession, DaemonSnapshot } from './daemon-
 import { validPreferences, validSession } from './daemon-ipc.js';
 
 type CommandOptions = { env: NodeJS.ProcessEnv; timeout: number };
+type BrowserAuthorization = (id: string) => Promise<() => boolean>;
 type RequestOptions = { token: string; method: string; body?: unknown };
 export interface DaemonManagerOptions {
   configRoot: string;
@@ -28,6 +29,7 @@ export interface DaemonManagerOptions {
   execute?: (file: string, args: string[], options: CommandOptions) => Promise<string>;
   request?: (url: string, options: RequestOptions) => Promise<unknown>;
   cliAvailable?: () => Promise<boolean>;
+  authorizeBrowser?: () => BrowserAuthorization;
 }
 const defaults: DaemonPreferences = { autoStart: true, autoStop: false };
 export function desktopDaemonOptions(
@@ -40,7 +42,9 @@ export function desktopDaemonOptions(
 ): { supported: boolean; cliPath: string } {
   return {
     supported:
-      ownsInstance && ['darwin', 'linux'].includes(platform) && !packaged && !!developmentUrl,
+      ownsInstance &&
+      ['darwin', 'linux'].includes(platform) &&
+      (packaged ? !developmentUrl : !!developmentUrl),
     cliPath: packaged ? path.join(resourcesPath, 'bin', 'lyk') : path.join(directory, 'lyk'),
   };
 }
@@ -67,6 +71,8 @@ async function readJSON(file: string): Promise<Record<string, unknown> | null> {
     const info = await lstat(file);
     if (
       !info.isFile() ||
+      (process.geteuid && info.uid !== process.geteuid()) ||
+      info.nlink !== 1 ||
       info.isSymbolicLink() ||
       info.size > 64 * 1024 ||
       (info.mode & 0o077) !== 0
@@ -83,16 +89,22 @@ async function readJSON(file: string): Promise<Record<string, unknown> | null> {
 async function privateDirectory(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const info = await lstat(directory);
-  if (!info.isDirectory() || info.isSymbolicLink())
+  if (
+    !info.isDirectory() ||
+    info.isSymbolicLink() ||
+    (process.geteuid && info.uid !== process.geteuid())
+  )
     throw new Error('Invalid desktop profile directory');
   await chmod(directory, 0o700);
 }
-async function atomicJSON(file: string, value: unknown): Promise<void> {
+async function atomicJSON(file: string, value: unknown, allowed?: () => boolean): Promise<boolean> {
   await privateDirectory(path.dirname(file));
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
+    if (allowed && !allowed()) return false;
     await rename(temporary, file);
+    return true;
   } finally {
     await rm(temporary, { force: true });
   }
@@ -122,8 +134,14 @@ export async function requestDaemonAPI(url: string, options: RequestOptions): Pr
   });
   return readDesktopAuthResponse(response);
 }
+class RejectedDaemonCredential extends Error {}
 export async function readDesktopAuthResponse(response: Response): Promise<unknown> {
-  if (!response.ok || !response.body) throw new Error('Desktop authentication request failed');
+  if (!response.ok || !response.body) {
+    await response.body?.cancel();
+    if (response.status === 401)
+      throw new RejectedDaemonCredential('Desktop authentication request failed');
+    throw new Error('Desktop authentication request failed');
+  }
   const reader = response.body.getReader();
   let size = 0;
   const chunks: Uint8Array[] = [];
@@ -152,6 +170,8 @@ export class DaemonManager {
   private preferences: DaemonPreferences | null = null;
   private session: { userID: string } | null = null;
   private generation = 0;
+  private nextAdmission = 0;
+  private latestAdmission = 0;
   private quitting = false;
   private queue: Promise<unknown> = Promise.resolve();
   private polling: ReturnType<typeof setInterval> | null = null;
@@ -160,10 +180,13 @@ export class DaemonManager {
     this.apiOrigin = origin(options.apiOrigin);
     const host = new URL(this.apiOrigin).host.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
     const hash = createHash('sha256').update(this.apiOrigin).digest('hex').slice(0, 12);
-    this.profile = `desktop-${host}-${hash}`;
+    this.profile = `${options.packaged ? 'desktop-packaged' : 'desktop'}-${host}-${hash}`;
     this.directory = path.join(options.configRoot, 'profiles', this.profile);
     this.config = path.join(this.directory, 'config.json');
-    this.preferencesFile = path.join(options.configRoot, 'desktop-preferences.json');
+    this.preferencesFile = path.join(
+      options.configRoot,
+      options.packaged ? 'desktop-packaged-preferences.json' : 'desktop-preferences.json',
+    );
     this.execute = options.execute ?? executeDaemon;
     this.request = options.request ?? requestDaemonAPI;
   }
@@ -213,6 +236,7 @@ export class DaemonManager {
     if (!this.options.supported) return false;
     try {
       if (this.options.cliAvailable) return await this.options.cliAvailable();
+      if (this.options.packaged) return false;
       const info = await lstat(this.options.cliPath);
       if (!info.isFile() || info.isSymbolicLink()) return false;
       await access(this.options.cliPath, constants.X_OK);
@@ -235,9 +259,27 @@ export class DaemonManager {
       ? 'The bundled Lykeion runtime is missing or invalid. Reinstall the app.'
       : 'Development lyk is missing. Run npm run desktop:dev to build it.';
   }
-  private async command(action: 'status' | 'start' | 'stop'): Promise<string> {
+  private async command(
+    action: 'status' | 'start' | 'stop',
+    allowed?: () => boolean,
+  ): Promise<string> {
     await this.prepare();
-    await readJSON(this.config);
+    const config = await readJSON(this.config);
+    if (config && config.server !== this.apiOrigin)
+      throw new Error('Desktop daemon deployment mismatch');
+    if (this.options.packaged && !config) {
+      const health = await readJSON(path.join(this.directory, 'daemon.health.json'));
+      if (health && (health.profile !== this.profile || health.server_url !== this.apiOrigin))
+        throw new Error('Desktop daemon health record belongs to another deployment');
+    }
+    if (this.options.packaged) await this.requireCLI();
+    if (allowed && !allowed()) throw new Error('Desktop daemon session changed');
+    const runtime =
+      this.options.packaged && this.session
+        ? this.profile +
+          '-' +
+          createHash('sha256').update(this.session.userID).digest('hex').slice(0, 16)
+        : undefined;
     return this.execute(
       this.options.cliPath,
       ['daemon', action, ...(action === 'status' ? ['--json'] : [])],
@@ -252,6 +294,15 @@ export class DaemonManager {
           ].join(path.delimiter),
           LYK_CONFIG: this.config,
           LYK_DAEMON_PROFILE: this.profile,
+          ...(runtime
+            ? {
+                LYK_DAEMON_HOME: path.join(
+                  os.tmpdir(),
+                  'lykeion-' + process.getuid!() + '-' + runtime + '-workspaces',
+                ),
+                LYK_ENV_DIR: path.join(os.homedir(), '.lyk', 'envs-' + runtime),
+              }
+            : {}),
           LYK_DESKTOP_SAFE_STOP: action === 'stop' ? '1' : '',
         },
         timeout: action === 'start' ? 60000 : action === 'stop' ? 15000 : 5000,
@@ -284,9 +335,17 @@ export class DaemonManager {
     if (!validPreferences(preferences))
       return Promise.reject(new Error('Invalid daemon preferences'));
     const next = { ...preferences };
+    const version = this.generation;
+    const authorization = this.browserAuthorization();
     return this.enqueue(async () => {
       await this.loadPreferences();
-      await atomicJSON(this.preferencesFile, next);
+      let allowed: (() => boolean) | undefined;
+      if (this.options.packaged) {
+        await this.requireCLI();
+        allowed = await this.controlAuthorization(version, authorization);
+      }
+      if (!(await atomicJSON(this.preferencesFile, next, allowed)))
+        throw new Error('Desktop daemon session changed');
       this.preferences = next;
       return { ...next };
     });
@@ -386,10 +445,10 @@ export class DaemonManager {
       return (error as NodeJS.ErrnoException).code === 'ENOENT';
     }
   }
-  private async stopManaged(): Promise<void> {
+  private async stopManaged(allowed?: () => boolean): Promise<void> {
     await this.requireCLI();
     try {
-      await this.command('stop');
+      await this.command('stop', allowed);
     } catch {
       try {
         await lstat(path.join(this.directory, 'daemon.pid'));
@@ -412,21 +471,51 @@ export class DaemonManager {
     await rm(this.config, { force: true });
     this.session = null;
   }
-  configureSession(input: DaemonSession): Promise<DaemonSnapshot> {
+  private browserAuthorization(): BrowserAuthorization {
+    if (!this.options.packaged) return async () => () => true;
+    return (
+      this.options.authorizeBrowser?.() ??
+      (async () => {
+        throw new Error('Desktop browser authentication unavailable');
+      })
+    );
+  }
+  async configureSession(input: DaemonSession): Promise<DaemonSnapshot> {
     if (!validSession(input) || input.apiOrigin !== this.apiOrigin)
-      return Promise.reject(new Error('Invalid desktop session target'));
-    if (!this.options.supported) return Promise.reject(new Error(this.unavailableMessage()));
+      throw new Error('Invalid desktop session target');
+    if (!this.options.supported) throw new Error(this.unavailableMessage());
     const value = { ...input };
+    const admission = ++this.nextAdmission;
+    const authorization = this.browserAuthorization();
+    if (this.options.packaged) await this.requireCLI();
+    const browser = await authorization(value.userID);
+    let identity: Record<string, unknown>;
+    try {
+      identity = object(
+        await this.request(this.apiOrigin + '/api/me', {
+          token: value.sessionToken,
+          method: 'GET',
+        }),
+      );
+    } catch {
+      throw new Error('Desktop session identity verification failed');
+    }
+    if (identity.id !== value.userID || !browser())
+      throw new Error('Desktop session identity does not match account');
+    if (admission < this.latestAdmission || this.quitting) return this.getSnapshot();
+    this.latestAdmission = admission;
     const version = ++this.generation;
-    this.session = null;
+    const current = () => this.fresh(version) && browser();
+    if (this.session?.userID !== value.userID) this.session = null;
     return this.enqueue(async () => {
-      if (!this.fresh(version)) return this.snapshot();
+      if (!current()) return this.snapshot();
       await this.prepare();
       const ownerFile = path.join(this.directory, 'owner.json');
       const owner = await readJSON(ownerFile);
       const state = await readJSON(path.join(this.directory, 'daemon', 'daemon.json'));
       if ((owner && owner.userID !== value.userID) || (!owner && state)) {
-        await this.stopManaged();
+        await this.stopManaged(current);
+        if (!current()) return this.snapshot();
         await this.clearCredentials();
         const stateDirectory = path.join(this.directory, 'daemon');
         for (const name of await readdir(stateDirectory)) {
@@ -435,21 +524,7 @@ export class DaemonManager {
         }
         await rm(ownerFile, { force: true });
       }
-      if (!this.fresh(version)) return this.snapshot();
-      let identity: Record<string, unknown>;
-      try {
-        identity = object(
-          await this.request(`${this.apiOrigin}/api/me`, {
-            token: value.sessionToken,
-            method: 'GET',
-          }),
-        );
-      } catch {
-        throw new Error('Desktop session identity verification failed');
-      }
-      if (!this.fresh(version)) return this.snapshot();
-      if (identity.id !== value.userID)
-        throw new Error('Desktop session identity does not match account');
+      if (!current()) return this.snapshot();
       const cached = await readJSON(this.config);
       let token: string | null = null;
       if (
@@ -459,23 +534,24 @@ export class DaemonManager {
         cached.token.startsWith('lyk_')
       ) {
         try {
-          if (
-            object(
-              await this.request(`${this.apiOrigin}/api/me`, {
-                token: cached.token,
-                method: 'GET',
-              }),
-            ).id === value.userID
-          )
-            token = cached.token;
-        } catch {
-          /* Mint a replacement only after verifying the session identity. */
+          const identity = object(
+            await this.request(this.apiOrigin + '/api/me', { token: cached.token, method: 'GET' }),
+          );
+          if (typeof identity.id !== 'string' || !identity.id)
+            throw new Error('Invalid cached identity');
+          if (identity.id === value.userID) token = cached.token;
+        } catch (error) {
+          if (!(error instanceof RejectedDaemonCredential))
+            // eslint-disable-next-line preserve-caught-error -- upstream parse errors may contain credentials.
+            throw new Error('Could not verify the existing desktop token');
         }
       }
-      if (!this.fresh(version)) return this.snapshot();
+      if (!current()) return this.snapshot();
       if (!token) {
-        if (cached || owner?.userID === value.userID) await this.stopManaged();
-        if (!this.fresh(version)) return this.snapshot();
+        if (cached || owner?.userID === value.userID) await this.stopManaged(current);
+        if (!current()) return this.snapshot();
+        if (this.options.packaged) await this.requireCLI();
+        if (!current()) return this.snapshot();
         let minted: Record<string, unknown>;
         try {
           minted = object(
@@ -488,7 +564,7 @@ export class DaemonManager {
         } catch {
           throw new Error('Desktop token creation failed');
         }
-        if (!this.fresh(version)) return this.snapshot();
+        if (!current()) return this.snapshot();
         if (
           typeof minted.token !== 'string' ||
           !minted.token.startsWith('lyk_') ||
@@ -497,20 +573,34 @@ export class DaemonManager {
           throw new Error('Invalid desktop token response');
         token = minted.token;
       }
-      await atomicJSON(ownerFile, { userID: value.userID });
-      await atomicJSON(this.config, { server: this.apiOrigin, token, workspace: '' });
-      if (!this.fresh(version)) return this.snapshot();
+      if (this.options.packaged) await this.requireCLI();
+      if (!current()) return this.snapshot();
+      if (
+        !(await atomicJSON(ownerFile, { userID: value.userID }, current)) ||
+        !(await atomicJSON(this.config, { server: this.apiOrigin, token, workspace: '' }, current))
+      )
+        return this.snapshot();
+      if (!current()) return this.snapshot();
       this.session = { userID: value.userID };
-      if ((await this.loadPreferences()).autoStart) return this.startManaged(version);
+      if ((await this.loadPreferences()).autoStart) return this.startManaged(version, current);
       return this.snapshot();
     });
   }
   clearSession(): Promise<DaemonSnapshot> {
+    this.latestAdmission = ++this.nextAdmission;
     ++this.generation;
     this.session = null;
     if (!this.options.supported) return this.getSnapshot();
     return this.enqueue(async () => {
       const configured = await readJSON(this.config);
+      if (!configured && this.options.packaged && !(await this.available())) {
+        // Only the empty directories created by status polling can be cleared without a working CLI.
+        await this.prepare();
+        const entries = await readdir(this.directory);
+        const daemonEntries = await readdir(path.join(this.directory, 'daemon'));
+        if (entries.every((name) => name === 'daemon') && !daemonEntries.length)
+          return this.snapshot();
+      }
       if (configured || (await this.snapshot()).status !== 'stopped') await this.stopManaged();
       await this.clearCredentials();
       const cleared = await this.snapshot();
@@ -519,49 +609,55 @@ export class DaemonManager {
       return cleared;
     });
   }
-  private async startManaged(version: number): Promise<DaemonSnapshot> {
-    if (!this.session || !this.fresh(version)) return this.snapshot();
+  private async startManaged(
+    version: number,
+    allowed = () => this.fresh(version),
+  ): Promise<DaemonSnapshot> {
+    if (!this.session || !allowed()) return this.snapshot();
     await this.requireCLI();
     const current = await this.snapshot();
-    if (!this.fresh(version) || current.status === 'running' || current.status === 'starting')
-      return current;
+    if (!allowed() || current.status === 'running' || current.status === 'starting') return current;
     if (current.status !== 'stopped') throw new Error('Cannot start an unverified daemon');
     this.emit({ ...current, status: 'starting', error: null });
     try {
-      await this.command('start');
+      await this.command('start', allowed);
     } catch {
       throw new Error('Desktop daemon failed to start; check the local daemon log');
     }
-    if (!this.fresh(version)) {
-      if (!this.quitting || (await this.loadPreferences()).autoStop) await this.stopManaged();
-      return this.snapshot();
-    }
+    // A superseding clear, identity switch or auto-stop already owns teardown in the queue.
     return this.snapshot();
+  }
+  private async controlAuthorization(version: number, authorization: BrowserAuthorization) {
+    const owner = this.session;
+    if (!owner || !this.fresh(version))
+      throw new Error('Sign in before controlling the desktop daemon');
+    const browser = await authorization(owner.userID);
+    const allowed = () => this.fresh(version) && this.session === owner && browser();
+    if (!allowed()) throw new Error('Desktop daemon session changed');
+    return allowed;
   }
   start(): Promise<DaemonSnapshot> {
     const version = this.generation;
-    return this.enqueue(async () => {
-      if (!this.session || !this.fresh(version))
-        throw new Error('Sign in before starting the desktop daemon');
-      return this.startManaged(version);
-    });
+    const authorization = this.browserAuthorization();
+    return this.enqueue(async () =>
+      this.startManaged(version, await this.controlAuthorization(version, authorization)),
+    );
   }
   stop(): Promise<DaemonSnapshot> {
     const version = this.generation;
+    const authorization = this.browserAuthorization();
     return this.enqueue(async () => {
-      if (!this.session || !this.fresh(version))
-        throw new Error('Sign in before stopping the desktop daemon');
-      await this.stopManaged();
+      await this.stopManaged(await this.controlAuthorization(version, authorization));
       return this.snapshot();
     });
   }
   restart(): Promise<DaemonSnapshot> {
     const version = this.generation;
+    const authorization = this.browserAuthorization();
     return this.enqueue(async () => {
-      if (!this.session || !this.fresh(version))
-        throw new Error('Sign in before restarting the desktop daemon');
-      await this.stopManaged();
-      return this.startManaged(version);
+      const allowed = await this.controlAuthorization(version, authorization);
+      await this.stopManaged(allowed);
+      return this.startManaged(version, allowed);
     });
   }
   startPolling(): void {
@@ -573,6 +669,7 @@ export class DaemonManager {
   }
   async beforeQuit(): Promise<void> {
     this.quitting = true;
+    this.latestAdmission = ++this.nextAdmission;
     ++this.generation;
     if (this.polling) {
       clearInterval(this.polling);

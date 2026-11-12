@@ -186,8 +186,11 @@ export function verifyGoBuild(info, commit, goos, goarch) {
   }
 }
 
+function digest(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
 export function verifyBundledBinary(built, bundled) {
-  const digest = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
   if (digest(built) !== digest(bundled))
     throw new Error('Bundled daemon differs from verified build');
 }
@@ -298,7 +301,13 @@ function main() {
       target.goarch,
     );
     if (revision() !== commit) throw new Error('Source changed while building desktop package');
-    const manifest = { version, commit, platform, arch };
+    const manifest = {
+      version,
+      commit,
+      platform,
+      arch,
+      daemonSHA256: digest(path.join(source, 'apps/desktop/out/lyk')),
+    };
     writeFileSync(
       path.join(source, 'apps/desktop/out/desktop-build.json'),
       JSON.stringify(manifest),

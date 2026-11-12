@@ -342,3 +342,56 @@ it('reads a refused sign-in without an attempt and rejects stale identity reads 
     }),
   );
 });
+
+it('authenticates packaged controls from the current partition and fences admission across cookie or document changes', async () => {
+  let doc = 'first';
+  let ready = true;
+  let allowed = true;
+  const session = {
+    cookies: {
+      get: async () => [
+        {
+          name: 'lyk_session',
+          value: 'fixture',
+          domain: 'lab.test',
+          path: '/',
+          hostOnly: true,
+          httpOnly: true,
+          secure: true,
+          session: true,
+          sameSite: 'lax' as const,
+        },
+      ],
+    },
+    fetch: vi.fn(async () => Response.json({ id: 'alice' })),
+  };
+  const verification = new DesktopVerification(
+    'https://lab.test',
+    session,
+    () => doc,
+    () => ready,
+  );
+  const admitted = verification.daemonAuthorization(() => allowed);
+  await expect(admitted('bob')).rejects.toThrow();
+  const lease = await admitted('alice');
+  expect(lease()).toBe(true);
+  allowed = false;
+  expect(lease()).toBe(false);
+  allowed = true;
+  verification.cookieChanged();
+  expect(lease()).toBe(false);
+  await expect(admitted('alice')).rejects.toThrow();
+  const second = verification.daemonAuthorization(() => allowed);
+  doc = 'other';
+  await expect(second('alice')).rejects.toThrow();
+  ready = false;
+  await expect(verification.daemonAuthorization(() => true)('alice')).rejects.toThrow();
+  expect(session.fetch).toHaveBeenCalledWith(
+    'https://lab.test/api/me',
+    expect.objectContaining({
+      credentials: 'include',
+      redirect: 'error',
+      bypassCustomProtocolHandlers: true,
+    }),
+  );
+});

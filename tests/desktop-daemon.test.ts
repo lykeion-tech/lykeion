@@ -1,7 +1,22 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, writeFile, stat, symlink } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+  stat,
+  symlink,
+} from 'node:fs/promises';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
+import {
+  packagedDaemonVerifier,
+  trustedPackageAncestors,
+} from '../apps/desktop/src/packaged-daemon.js';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -94,6 +109,221 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
+  it('preserves a running owner and credentials when a different claimed identity fails authentication', async () => {
+    const f = await fixture();
+    const first = await f.manager.configureSession(session);
+    const config = path.join(f.root, 'profiles', first.profile!, 'config.json');
+    const original = await readFile(config);
+    f.calls.length = 0;
+    f.request.mockClear();
+    await expect(f.manager.configureSession({ ...session, userID: 'bob' })).rejects.toThrow(
+      'match',
+    );
+    expect(f.calls).not.toContain('daemon stop');
+    expect((await f.manager.getSnapshot()).authenticatedUserID).toBe('alice');
+    expect(await readFile(config)).toEqual(original);
+    expect(f.request.mock.calls.some(([, options]) => options.method === 'POST')).toBe(false);
+  });
+  it('requires live browser identity and a valid packaged executable before touching an owner', async () => {
+    const f = await fixture();
+    let browser = 'alice';
+    let available = true;
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      cliAvailable: async () => available,
+      authorizeBrowser: () => async (id: string) => () => browser === id,
+    });
+    const first = await manager.configureSession(session);
+    expect(first.profile).toMatch(/^desktop-packaged-/);
+    const config = path.join(f.root, 'profiles', first.profile!, 'config.json');
+    const original = await readFile(config);
+    f.calls.length = 0;
+    await expect(
+      manager.configureSession({ ...session, userID: 'bob', sessionToken: 'jwt-bob' }),
+    ).rejects.toThrow();
+    expect(f.calls).not.toContain('daemon stop');
+    browser = 'bob';
+    available = false;
+    await expect(
+      manager.configureSession({ ...session, userID: 'bob', sessionToken: 'jwt-bob' }),
+    ).rejects.toThrow('Reinstall');
+    expect(await readFile(config)).toEqual(original);
+    expect(f.calls).not.toContain('daemon stop');
+    await expect(manager.start()).rejects.toThrow();
+    expect(f.calls).not.toContain('daemon start');
+  });
+  it('leaves a running owner and token on disk when cached-token authentication is inconclusive', async () => {
+    const f = await fixture();
+    const owner = await f.manager.configureSession(session);
+    const config = path.join(f.root, 'profiles', owner.profile!, 'config.json');
+    const original = await readFile(config);
+    const authenticate = f.request.getMockImplementation()!;
+    f.request.mockImplementation((url, options) =>
+      options.token === 'lyk_alice'
+        ? Promise.reject(new Error('offline'))
+        : authenticate(url, options),
+    );
+    f.request.mockClear();
+    await expect(f.manager.configureSession(session)).rejects.toThrow();
+    expect(await readFile(config)).toEqual(original);
+    expect((await f.manager.getSnapshot()).pid).toBe(owner.pid);
+    expect(f.calls).not.toContain('daemon stop');
+    expect(f.request.mock.calls.some(([, options]) => options.method === 'POST')).toBe(false);
+  });
+  it('does not stop an admitted packaged start when only its browser document changes', async () => {
+    const f = await fixture();
+    let document = 1;
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      authorizeBrowser: () => {
+        const admitted = document;
+        return async () => () => admitted === document;
+      },
+    });
+    const running = deferred<void>();
+    const original = f.execute.getMockImplementation()!;
+    f.execute.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      if (args[1][1] === 'start') await running.promise;
+      return result;
+    });
+    const pending = manager.configureSession(session);
+    await vi.waitFor(() => expect(f.calls).toContain('daemon start'));
+    document++;
+    running.resolve();
+    await pending;
+    expect(f.calls).not.toContain('daemon stop');
+    expect((await manager.getSnapshot()).status).toBe('running');
+  });
+  it('keeps login available for an unused packaged profile without a verified CLI, but fences existing ownership', async () => {
+    const f = await fixture();
+    const manager = new DaemonManager({
+      ...f.options,
+      packaged: true,
+      cliAvailable: async () => false,
+    });
+    const unused = await manager.clearSession();
+    expect(unused.cliAvailable).toBe(false);
+    const dir = path.join(f.root, 'profiles', unused.profile!);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await writeFile(path.join(dir, 'owner.json'), JSON.stringify({ userID: 'alice' }), {
+      mode: 0o600,
+    });
+    await expect(manager.clearSession()).rejects.toThrow();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+  it('verifies the fixed packaged executable, metadata and all replaceable package components', async () => {
+    const f = await fixture();
+    const bundle = path.join(await realpath(f.root), 'Lykeion.app');
+    const resources = path.join(bundle, 'Contents', 'Resources');
+    const bin = path.join(resources, 'bin');
+    const file = path.join(bin, 'lyk');
+    await mkdir(bin, { recursive: true, mode: 0o755 });
+    await writeFile(file, 'packaged fixture', { mode: 0o755 });
+    const manifest = {
+      platform: process.platform,
+      arch: process.arch,
+      version: '0.1.0',
+      daemonSHA256: createHash('sha256').update('packaged fixture').digest('hex'),
+    };
+    const check = packagedDaemonVerifier(resources, manifest, '0.1.0');
+    expect(await check()).toBe(true);
+    expect(await packagedDaemonVerifier(resources, { ...manifest, arch: 'other' }, '0.1.0')()).toBe(
+      false,
+    );
+    expect(
+      await packagedDaemonVerifier(resources, { ...manifest, platform: 'other' }, '0.1.0')(),
+    ).toBe(false);
+    expect(await packagedDaemonVerifier(resources, manifest, 'wrong')()).toBe(false);
+    await chmod(bundle, 0o777);
+    expect(await check()).toBe(false);
+    await chmod(bundle, 0o755);
+    await chmod(file, 0o775);
+    expect(await check()).toBe(false);
+    await chmod(file, 0o755);
+    await writeFile(file, 'changed fixture');
+    expect(await check()).toBe(false);
+    await rm(file);
+    await symlink(process.execPath, file);
+    expect(await check()).toBe(false);
+  });
+  it('refuses a changed deployment config before invoking a CLI that could use its token or stop its daemon', async () => {
+    const f = await fixture();
+    const first = await f.manager.configureSession(session);
+    const config = path.join(f.root, 'profiles', first.profile!, 'config.json');
+    const foreign = JSON.stringify({ server: 'https://different.example', token: 'lyk_foreign' });
+    await writeFile(config, foreign);
+    f.calls.length = 0;
+    await expect(f.manager.clearSession()).rejects.toThrow();
+    expect(f.calls).toEqual([]);
+    expect(await readFile(config, 'utf8')).toBe(foreign);
+  });
+  it('keeps the same running daemon when same-owner configuration arrives during a start', async () => {
+    const f = await fixture();
+    const gate = deferred<void>();
+    const original = f.execute.getMockImplementation()!;
+    f.execute.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      if (args[1][1] === 'start') await gate.promise;
+      return result;
+    });
+    const first = f.manager.configureSession(session);
+    await vi.waitFor(() => expect(f.calls).toContain('daemon start'));
+    const second = f.manager.configureSession(session);
+    await vi.waitFor(() =>
+      expect(
+        f.request.mock.calls.filter(
+          ([, options]) => options.token === 'jwt-alice' && options.method === 'GET',
+        ),
+      ).toHaveLength(2),
+    );
+    gate.resolve();
+    const [one, two] = await Promise.all([first, second]);
+    expect(one.pid).toBe(two.pid);
+    expect(f.calls).not.toContain('daemon stop');
+    expect(f.calls.filter((call) => call === 'daemon start')).toHaveLength(1);
+  });
+  it.runIf(process.platform === 'darwin')(
+    'accepts the system administrator-managed Applications ancestry on macOS',
+    async () => {
+      expect(
+        await trustedPackageAncestors(
+          '/Applications',
+          '/Applications/Lykeion.app/Contents/Resources',
+          process.geteuid!(),
+        ),
+      ).toBe(true);
+    },
+  );
+  it('keeps packaged start, account switch and logout separate from preview and standalone state', async () => {
+    const preview = await fixture();
+    const runtime = await fixture();
+    const manager = new DaemonManager({
+      ...runtime.options,
+      configRoot: preview.root,
+      packaged: true,
+      authorizeBrowser: () => async () => () => true,
+    });
+    const standalone = path.join(preview.root, 'config.json');
+    await writeFile(standalone, 'standalone sentinel', { mode: 0o600 });
+    const existing = await preview.manager.configureSession(session);
+    const previewConfig = path.join(preview.root, 'profiles', existing.profile!, 'config.json');
+    const before = await readFile(previewConfig);
+    await manager.configureSession(session);
+    await manager.configureSession({ ...session, userID: 'bob', sessionToken: 'jwt-bob' });
+    const starts = runtime.execute.mock.calls.filter(([, args]) => args[1] === 'start');
+    expect(starts).toHaveLength(2);
+    expect(starts[0]![2].env.LYK_CONFIG).not.toBe(previewConfig);
+    expect(starts[0]![2].env.LYK_DAEMON_HOME).not.toBe(starts[1]![2].env.LYK_DAEMON_HOME);
+    expect(starts[0]![2].env.LYK_ENV_DIR).not.toBe(starts[1]![2].env.LYK_ENV_DIR);
+    await manager.clearSession();
+    expect(await readFile(previewConfig)).toEqual(before);
+    expect(await readFile(standalone, 'utf8')).toBe('standalone sentinel');
+    expect((await preview.manager.getSnapshot()).pid).toBe(existing.pid);
+    expect(preview.calls).not.toContain('daemon stop');
+  });
   it('retains a verified running owner only until the next native identity mutation', async () => {
     const f = await fixture();
     const running = await f.manager.configureSession(session);
@@ -148,12 +378,12 @@ describe('desktop daemon manager', () => {
       process.env.PATH = oldPath;
     }
   });
-  it('keeps packaged daemons disabled until their executable is verified', () => {
+  it('permits only supported packaged targets and trusted previews', () => {
     expect(
       desktopDaemonOptions('darwin', true, true, '/preview/out', '/app/resources', 'http://evil'),
     ).toEqual({ supported: false, cliPath: '/app/resources/bin/lyk' });
     expect(desktopDaemonOptions('linux', true, true, '/preview/out', '/app/resources')).toEqual({
-      supported: false,
+      supported: true,
       cliPath: '/app/resources/bin/lyk',
     });
     expect(desktopDaemonOptions('win32', true, true, '/preview/out', '/app/resources')).toEqual({
@@ -659,7 +889,7 @@ describe('desktop daemon manager', () => {
     await expect(
       missing.configureSession({ ...session, userID: 'bob', sessionToken: 'jwt-bob' }),
     ).rejects.toThrow('Development lyk is missing');
-    expect(f.request).not.toHaveBeenCalled();
+    expect(f.request.mock.calls.map(([url]) => url)).toEqual([origin + '/api/me']);
     expect((await missing.getSnapshot()).authenticatedUserID).toBeNull();
     expect(JSON.parse(await readFile(config, 'utf8')).token).toBe('lyk_alice');
     await writeFile(config, JSON.stringify({ server: origin, token: 'lyk_bob', workspace: '' }), {

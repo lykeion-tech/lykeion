@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
+import { packagedDaemonVerifier } from './packaged-daemon.js';
 import { DaemonManager, desktopDaemonOptions } from './daemon-manager.js';
 import { installDaemonIPC, previewOrigins, validDaemonSender } from './daemon-ipc.js';
 import path from 'node:path';
@@ -239,10 +240,24 @@ void app.whenReady().then(async () => {
       },
     );
   }
+  let packagedCLI: (() => Promise<boolean>) | undefined;
+  if (app.isPackaged) {
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(await readFile(path.join(directory, 'desktop-build.json'), 'utf8'));
+    } catch {
+      // The dashboard remains usable when the packaged runtime cannot be verified.
+    }
+    packagedCLI = packagedDaemonVerifier(process.resourcesPath, manifest, app.getVersion());
+  }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
     apiOrigin,
     packaged: app.isPackaged,
+    cliAvailable: packagedCLI,
+    authorizeBrowser: app.isPackaged
+      ? () => verification!.daemonAuthorization(() => !verificationIntent!.exists())
+      : undefined,
     ...desktopDaemonOptions(
       process.platform,
       ownsInstance,
