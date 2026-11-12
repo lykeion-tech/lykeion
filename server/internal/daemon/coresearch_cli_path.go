@@ -32,20 +32,17 @@ func coresearchCLIPath(executable string) (string, func(), error) {
 		return "", nil, err
 	}
 	destination := filepath.Join(dir, "lyk")
-	if err = os.Link(source, destination); err != nil {
-		var in *os.File
-		in, err = os.Open(source)
+	in, err := os.Open(source)
+	if err == nil {
+		var out *os.File
+		out, err = os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0500)
 		if err == nil {
-			var out *os.File
-			out, err = os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0500)
-			if err == nil {
-				_, err = io.Copy(out, in)
-				if closeErr := out.Close(); err == nil {
-					err = closeErr
-				}
+			_, err = io.Copy(out, in)
+			if closeErr := out.Close(); err == nil {
+				err = closeErr
 			}
-			_ = in.Close()
 		}
+		_ = in.Close()
 	}
 	if err != nil {
 		cleanup()

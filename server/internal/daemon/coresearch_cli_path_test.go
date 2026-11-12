@@ -44,6 +44,47 @@ func TestCoresearchCLIPathProvidesPrivateNamedExecutable(t *testing.T) {
 	}
 }
 
+func TestCoresearchCLIPathCopiesExecutable(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "daemon")
+	original := []byte("#!/bin/sh\nprintf trusted")
+	if err := os.WriteFile(source, original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dir, cleanup, err := coresearchCLIPath(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	projection := filepath.Join(dir, "lyk")
+	sourceInfo, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectionInfo, err := os.Stat(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(sourceInfo, projectionInfo) {
+		t.Fatal("projection must not be a hard link to the daemon executable")
+	}
+	if projectionInfo.Mode().Perm() != 0500 {
+		t.Fatalf("projection permissions = %o, want 0500", projectionInfo.Mode().Perm())
+	}
+	if err := os.Chmod(projection, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projection, []byte("changed"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("source changed through projection: %q", got)
+	}
+}
+
 func TestCoresearchCLIAliasUnderSandbox(t *testing.T) {
 	if err := sandbox.Check(context.Background()); err != nil {
 		t.Skipf("sandbox unavailable: %v", err)
