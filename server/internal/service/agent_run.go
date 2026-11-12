@@ -1256,7 +1256,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	}
 	// A Team pack and a package list are blobs, read only once the
 	// transaction is closed.
-	for i := range out {
+	prepare := func(i int) error {
 		if prefix, ok := rerunPackages[out[i].AgentRun.ID]; ok {
 			lists := map[string]string{}
 			for j, step := range out[i].Rerun.Steps {
@@ -1269,13 +1269,13 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					// daemon reports as an environment that could not be rebuilt.
 					rc, err := s.Blobs.Get(ctx, prefix+step.packagesSHA)
 					if err != nil && !errors.Is(err, storage.ErrNotFound) {
-						return nil, fmt.Errorf("reading a rerun's package list: %w", err)
+						return fmt.Errorf("reading a rerun's package list: %w", err)
 					}
 					if err == nil {
 						b, err := io.ReadAll(rc)
 						rc.Close()
 						if err != nil {
-							return nil, err
+							return err
 						}
 						list = string(b)
 					}
@@ -1288,7 +1288,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 			library := skill.Service{Store: s.Store, Blobs: s.Blobs}
 			skills, err := library.EnabledFolders(ctx, out[i].AgentRun.WorkspaceID, out[i].AgentRun.ResponsibleUserID)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			out[i].Skills = skills
 		} else if team, ok := teams[out[i].AgentRun.ID]; ok {
@@ -1299,7 +1299,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 			library := skill.Service{Store: s.Store, Blobs: s.Blobs}
 			skills, err := library.EnabledFolders(ctx, out[i].AgentRun.WorkspaceID, out[i].AgentRun.ResponsibleUserID)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			out[i].Skills = slices.DeleteFunc(skills, func(s toolroute.RoutedSkill) bool { return !slices.Contains(names, s.Name) })
 		}
@@ -1309,12 +1309,29 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 			if _, found := workflow.Get(slug); found {
 				var folder bytes.Buffer
 				if err := workflow.SkillTar(&folder, slug); err != nil {
-					return nil, err
+					return err
 				}
 				out[i].Skills = append(out[i].Skills, toolroute.RoutedSkill{Name: workflow.SkillName(slug), Folder: folder.Bytes()})
 			}
 		}
+		return nil
 	}
+	var prepared []Claimed
+	var firstErr error
+	for i := range out {
+		if err := prepare(i); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			slog.Warn("claimed run could not be prepared; awaiting lease recovery", "agent_run_id", out[i].AgentRun.ID, "error", err)
+			continue
+		}
+		prepared = append(prepared, out[i])
+	}
+	if len(prepared) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	out = prepared
 	return out, nil
 }
 
