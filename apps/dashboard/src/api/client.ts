@@ -113,6 +113,31 @@ export async function api<T = void>(
   }
 }
 
+export async function desktopGoogleSignIn(): Promise<void> {
+  const bridge = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+  if (!bridge?.googleSignIn || credentialChangeInProgress || verifying.value)
+    throw new Error('Application authentication is busy');
+  credentialChangeInProgress = true;
+  advanceAuthenticationEpoch();
+  const epoch = authenticationEpoch();
+  try {
+    rememberVerification({
+      epoch,
+      stage: 'submitting',
+      accepted: false,
+      wasLost: authenticationIsLost(),
+      google: true,
+    });
+    await bridge.googleSignIn();
+    if (verification.value?.epoch === epoch)
+      rememberVerification({ ...verification.value, accepted: true });
+  } finally {
+    credentialChangeInProgress = false;
+    // A fresh document permits the native same-account continuity proof.
+    if (!bridge.reloadAfterAuthentication?.()) window.location.reload();
+  }
+}
+
 async function request<T = void>(
   method: string,
   path: string,

@@ -32,10 +32,14 @@ it('does not show a prior workspace error on the sign-in screen', async () => {
   notice.value = '';
 });
 it.each([
-  ['desktop', true],
-  ['browser', false],
-])('shows usable sign-in on %s', async (_name, desktop) => {
-  vi.stubGlobal('window', desktop ? { lykeionDesktop: {} } : {});
+  ['packaged desktop', true, true],
+  ['desktop preview', true, false],
+  ['browser', false, false],
+])('shows usable sign-in on %s', async (_name, desktop, bridge) => {
+  vi.stubGlobal(
+    'window',
+    desktop ? { lykeionDesktop: bridge ? { googleSignIn: vi.fn() } : {} } : {},
+  );
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: SignInView }],
@@ -45,5 +49,5 @@ it.each([
   app.use(VueQueryPlugin, { queryClient: new QueryClient() });
   const html = await renderToString(app);
   expect(html).toContain('Continue with email');
-  expect(html.includes('Continue with Google')).toBe(!desktop);
+  expect(html.includes('Continue with Google')).toBe(!desktop || bridge);
 });

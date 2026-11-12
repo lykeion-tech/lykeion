@@ -490,6 +490,9 @@ watch(
   },
   { immediate: true, flush: 'sync' },
 );
+function cancelGoogleSignIn() {
+  window.lykeionDesktop?.cancelGoogleSignIn?.();
+}
 function retryVerification() {
   const state = verification.value;
   if (state?.stage === 'retry') verification.value = { ...state, stage: 'checking' };
@@ -799,12 +802,19 @@ onUnmounted(() => {
         <p>Could not verify your account. Try again.</p>
         <button type="button" class="button" @click="retryVerification">Try again</button>
       </template>
+      <template v-else-if="verification.stage === 'submitting' && verification.google">
+        <p>Complete sign-in in your browser. This can take up to 10 seconds.</p>
+        <button type="button" class="button" @click="cancelGoogleSignIn">Cancel sign-in</button>
+      </template>
       <p v-else>Verifying your account…</p>
     </div>
   </dialog>
   <DiscardDraftDialog />
   <div
-    v-if="verification?.resumed || accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)"
+    v-if="
+      verification?.resumed ||
+      accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)
+    "
     class="center-empty"
     role="status"
   >
@@ -834,7 +844,12 @@ onUnmounted(() => {
     }"
     :style="{ '--rail-width': rail.width.value + 'px' }"
   >
-    <WorkspaceTabs v-if="me.data.value?.id" :key="me.data.value.id" :title="tabTitle" :icon="headingIcon" />
+    <WorkspaceTabs
+      v-if="me.data.value?.id"
+      :key="me.data.value.id"
+      :title="tabTitle"
+      :icon="headingIcon"
+    />
     <!-- Outside the rails, so it stays reachable while the sidebar is hidden. -->
     <button
       class="icon-button sidebar-toggle"

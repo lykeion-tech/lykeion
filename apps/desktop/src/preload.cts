@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld(
                   ) === true,
               }
             : {}),
+          googleSignIn: () =>
+            ipcRenderer.invoke('lykeion:google-sign-in', documentID) as Promise<void>,
+          cancelGoogleSignIn: () => ipcRenderer.send('lykeion:cancel-google-sign-in', documentID),
+          reloadAfterAuthentication: () =>
+            ipcRenderer.sendSync('lykeion:reload-after-authentication', documentID) === true,
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
           reserveAuth: (path: string) =>
             ipcRenderer.sendSync('lykeion:reserve-auth', path) as string | null,

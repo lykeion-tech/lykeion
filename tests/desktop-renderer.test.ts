@@ -269,6 +269,10 @@ describe('desktop renderer origin', () => {
     expect(decision('https://lab.example/api/hostile.js', 'script')).toBe(true);
     expect(decision('https://lab.example/api/file', 'xhr')).toBe(false);
     expect(decision('https://lab.example/auth/google/callback?code=test', 'xhr')).toBe(true);
+    expect(decision('https://lab.example/auth/desktop/google/exchange', 'xhr')).toBe(true);
+    expect(decision('https://lab.example/auth/desktop/google/start', 'xhr')).toBe(true);
+    expect(decision('https://lab.example/auth/desktop%2Fgoogle/exchange', 'xhr')).toBe(true);
+    expect(decision('https://lab.example/%61uth/google/callback', 'xhr')).toBe(true);
     expect(decision('https://other.example/api/file', 'xhr')).toBe(true);
     expect(decision('https://lab.example/api/me', 'mainFrame')).toBe(true);
     expect(decision('wss://lab.example/ws', 'webSocket')).toBe(false);

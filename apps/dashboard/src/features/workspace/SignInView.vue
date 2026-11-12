@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
-import { api, ApiError } from '../../api/client';
+import { api, ApiError, desktopGoogleSignIn } from '../../api/client';
 import { notice } from '../../state/notice';
 
 const email = ref('');
@@ -10,6 +10,7 @@ const boxes = ref<HTMLInputElement[]>([]);
 const busy = ref(false);
 const error = ref('');
 const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
+const googleAvailable = !desktop || typeof window.lykeionDesktop?.googleSignIn === 'function';
 const localLogoutNotice = 'Signed out on this computer. The server did not confirm sign-out.';
 
 async function send() {
@@ -63,8 +64,20 @@ async function verify() {
   }
 }
 
-function google() {
-  window.location.href = '/auth/google';
+async function google() {
+  if (!desktop) {
+    window.location.href = '/auth/google';
+    return;
+  }
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    await desktopGoogleSignIn();
+  } catch {
+    error.value = 'Google sign-in was interrupted. Please try again.';
+  } finally {
+    busy.value = false;
+  }
 }
 </script>
 <template>
@@ -84,8 +97,8 @@ function google() {
         autofocus
       />
       <button class="button primary" :disabled="busy">Continue with email</button>
-      <div v-if="!desktop" class="or">or</div>
-      <button v-if="!desktop" type="button" class="button" @click="google">
+      <div v-if="googleAvailable" class="or">or</div>
+      <button v-if="googleAvailable" type="button" class="button" :disabled="busy" @click="google">
         Continue with Google
       </button>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>

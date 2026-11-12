@@ -8,6 +8,7 @@ type Verification = {
   accepted: boolean;
   resumed?: boolean;
   wasLost?: boolean;
+  google?: boolean;
 };
 const hintKey = 'lykeion.verification';
 const desktop = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;

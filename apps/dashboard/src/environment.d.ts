@@ -4,6 +4,9 @@ interface Window {
   lykeionDesktop?: {
     platform: string;
     openDocumentation(): Promise<void>;
+    googleSignIn?(): Promise<void>;
+    cancelGoogleSignIn?(): void;
+    reloadAfterAuthentication?(): boolean;
     cancelRequest?(id: string): void;
     requestDocument?: string;
     verificationPending?: boolean;

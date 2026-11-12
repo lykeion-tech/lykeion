@@ -147,11 +147,18 @@ export function installDesktopRenderer(
       const asset = desktopAssetPath(request.url, origin, root);
       const target = new URL(request.url);
       const selected = new URL(origin);
+      let decodedPath: string;
+      try {
+        decodedPath = decodeURIComponent(target.pathname);
+      } catch {
+        return done({ cancel: true });
+      }
       if (target.protocol === 'ws:' || target.protocol === 'wss:')
         target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
       const denied =
         target.origin !== selected.origin ||
-        target.pathname === '/auth/google/callback' ||
+        decodedPath === '/auth/google/callback' ||
+        decodedPath.startsWith('/auth/desktop/google/') ||
         (executableRequests.has(request.resourceType) && !asset);
       if (denied || !auth) return done({ cancel: denied });
       admittedEpochs.set(request.id, auth.networkEpoch());

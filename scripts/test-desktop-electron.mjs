@@ -12,6 +12,8 @@ const fixtures = [
   'desktop-logout-crash-fixture.mjs',
   'desktop-tls-fixture.mjs',
   'desktop-lifetime-fixture.mjs',
+  'desktop-google-electron-fixture.mjs',
+  'desktop-google-main-fixture.mjs',
 ];
 
 export async function runFixture(executable, args, env, timeoutMs = 120_000) {

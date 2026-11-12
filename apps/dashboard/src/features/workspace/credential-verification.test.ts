@@ -107,11 +107,12 @@ async function privateEditor(
   vi.stubGlobal('matchMedia', () => ({ matches: false }));
   const { default: App } = await import('../../App.vue');
   const auth = await import('../../api/auth-loss');
-  const { api } = await import('../../api/client');
+  const { api, desktopGoogleSignIn } = await import('../../api/client');
   const { workspaceId } = await import('../../api/session');
   const verify = held<Response>();
   const probe = vi.fn(async () => Response.json(identity('a')));
-  if (replacement && !replacement.sameOwner) probe.mockImplementation(async () => Response.json(identity('b')));
+  if (replacement && !replacement.sameOwner)
+    probe.mockImplementation(async () => Response.json(identity('b')));
   const gatedCalls: string[] = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/auth/verify-code') return verify.promise;
@@ -195,6 +196,7 @@ async function privateEditor(
   return {
     auth,
     api,
+    desktopGoogleSignIn,
     client,
     router,
     root,
@@ -345,7 +347,7 @@ it('restores quarantine in a replacement document after native clearance failed'
   a.native.clearSession.mockRejectedValueOnce(new Error('stop failed'));
   a.probe.mockResolvedValueOnce(Response.json(identity('b')));
   const verify = a.api('POST', '/auth/verify-code', {});
-  a.verify.resolve(new Response(null, {status: 204}));
+  a.verify.resolve(new Response(null, { status: 204 }));
   await verify;
   await vi.waitFor(() => expect(a.auth.verification.value?.stage).toBe('retry'));
   expect(a.finishVerification).not.toHaveBeenCalled();
@@ -361,11 +363,13 @@ it('restores quarantine in a replacement document after native clearance failed'
     await expect(b.api('GET', '/api/workspaces')).rejects.toMatchObject({ name: 'AbortError' });
     clear.resolve({});
     await vi.waitFor(() => expect(b.auth.verifying.value).toBe(false));
-    expect(b.client.getQueryData(['me'])).toMatchObject({id: 'b'});
+    expect(b.client.getQueryData(['me'])).toMatchObject({ id: 'b' });
     expect(b.router.currentRoute.value.path).toBe('/studies');
     expect(b.finishVerification).toHaveBeenCalledOnce();
     expect(b.gatedCalls).toEqual([]);
-  } finally { b.dispose(); }
+  } finally {
+    b.dispose();
+  }
 });
 
 it('does not finish a newer recovery when an older released refetch settles', async () => {
@@ -375,14 +379,16 @@ it('does not finish a newer recovery when an older released refetch settles', as
     const refetch = vi.spyOn(t.client, 'refetchQueries').mockReturnValueOnce(pending.promise);
     t.probe.mockResolvedValueOnce(Response.json(identity('b')));
     const verify = t.api('POST', '/auth/verify-code', {});
-    t.verify.resolve(new Response(null, {status: 204}));
+    t.verify.resolve(new Response(null, { status: 204 }));
     await verify;
     await vi.waitFor(() => expect(refetch).toHaveBeenCalledOnce());
     t.auth.authenticationRestored();
     pending.resolve();
     await nextTick();
     expect(t.auth.authenticationIsRestoring()).toBe(true);
-  } finally { t.dispose(); }
+  } finally {
+    t.dispose();
+  }
 });
 
 it('rejects a stale B identity when its response arrives after a newer account epoch', async () => {
@@ -577,6 +583,41 @@ it('reads the new identity after logout invalidates the cookie receipt during na
     expect(t.client.getQueryData(['me'])).toBeUndefined();
     expect(t.native.configureSession).not.toHaveBeenCalled();
     expect(t.gatedCalls).toEqual([]);
+  } finally {
+    t.dispose();
+  }
+});
+
+it('keeps private state gated and offers cancellation while Google sign-in is pending', async () => {
+  const t = await privateEditor();
+  try {
+    const pending = held<void>();
+    const reload = vi.fn();
+    const cancel = vi.fn(() => pending.reject(new Error('cancelled')));
+    Object.assign(window.location, { reload });
+    Object.assign(window.lykeionDesktop!, {
+      googleSignIn: () => pending.promise,
+      cancelGoogleSignIn: cancel,
+      reloadAfterAuthentication: () => {
+        reload();
+        return true;
+      },
+    });
+    const signin = t.desktopGoogleSignIn();
+    await vi.waitFor(() => expect(t.auth.verification.value?.google).toBe(true));
+    await vi.waitFor(() =>
+      expect(all(t.root).some((n) => n.tag === 'button' && textOf(n) === 'Cancel sign-in')).toBe(
+        true,
+      ),
+    );
+    expect(t.client.getQueryData(['private-a'])).toBe('one-time value');
+    expect(t.native.clearSession).not.toHaveBeenCalled();
+    const button = all(t.root).find((n) => n.tag === 'button' && textOf(n) === 'Cancel sign-in')!;
+    (button.props.onClick as () => void)();
+    await expect(signin).rejects.toThrow('cancelled');
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(t.native.clearSession).not.toHaveBeenCalled();
   } finally {
     t.dispose();
   }

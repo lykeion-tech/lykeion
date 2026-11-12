@@ -43,9 +43,11 @@ func oauthSignature(key []byte, state, port string, cliState ...string) []byte {
 	_, _ = mac.Write([]byte(state))
 	_, _ = mac.Write([]byte{0})
 	_, _ = mac.Write([]byte(port))
-	if len(cliState) > 0 && cliState[0] != "" {
-		_, _ = mac.Write([]byte{0})
-		_, _ = mac.Write([]byte(cliState[0]))
+	for _, part := range cliState {
+		if part != "" {
+			_, _ = mac.Write([]byte{0})
+			_, _ = mac.Write([]byte(part))
+		}
 	}
 	return mac.Sum(nil)
 }
@@ -57,6 +59,18 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.limited(w, r, map[string]int{"google:start:ip:" + clientIP(r): 30}) {
 		return
+	}
+	desktopTicket := r.URL.Query().Get("desktop_ticket")
+	if desktopTicket != "" {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		if r.URL.Query().Get("cli_port") != "" || r.URL.Query().Get("cli_state") != "" {
+			writeErr(w, http.StatusBadRequest, "invalid sign-in request")
+			return
+		}
+		if !h.desktopGoogleBegin(w, r, desktopTicket) {
+			return
+		}
 	}
 	port, ok := validCLIPort(r.URL.Query().Get("cli_port"))
 	if !ok {
@@ -79,9 +93,11 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := base64.RawURLEncoding.EncodeToString(rawState)
-	signature := base64.RawURLEncoding.EncodeToString(oauthSignature(h.JWT.Secret, state, port, cliState))
+	signature := base64.RawURLEncoding.EncodeToString(oauthSignature(h.JWT.Secret, state, port, cliState, desktopTicket))
 	cookieValue := state + "|" + port + "|" + signature
-	if cliState != "" {
+	if desktopTicket != "" {
+		cookieValue = state + "||desktop|" + desktopTicket + "|" + signature
+	} else if cliState != "" {
 		cookieValue = state + "|" + port + "|" + cliState + "|" + signature
 	}
 	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: cookieValue, Path: "/auth/google",
@@ -99,12 +115,20 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(c.Value, "|")
-	if (len(parts) != 3 && len(parts) != 4) || parts[0] == "" || parts[len(parts)-1] == "" {
+	if (len(parts) != 3 && len(parts) != 4 && len(parts) != 5) || parts[0] == "" || parts[len(parts)-1] == "" {
 		writeErr(w, http.StatusBadRequest, "sign-in expired; start again")
 		return
 	}
 	state, port := parts[0], parts[1]
 	cliState := ""
+	desktopTicket := ""
+	if len(parts) == 5 {
+		if parts[1] != "" || parts[2] != "desktop" || !desktopSecret(parts[3]) {
+			writeErr(w, http.StatusBadRequest, "sign-in expired")
+			return
+		}
+		desktopTicket = parts[3]
+	}
 	if len(parts) == 4 {
 		cliState = parts[2]
 		if cliState == "" {
@@ -117,7 +141,7 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providedSignature, err := base64.RawURLEncoding.DecodeString(parts[len(parts)-1])
-	expectedSignature := oauthSignature(h.JWT.Secret, state, port, cliState)
+	expectedSignature := oauthSignature(h.JWT.Secret, state, port, cliState, desktopTicket)
 	if err != nil || subtle.ConstantTimeCompare(providedSignature, expectedSignature) != 1 {
 		writeErr(w, http.StatusBadRequest, "state mismatch")
 		return
@@ -150,6 +174,10 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 	u, err := h.Store.Global().UpsertUserByGoogle(r.Context(), db.UpsertUserByGoogleParams{Email: gu.Email, Name: gu.Name, GoogleSub: &gu.Sub})
 	if err != nil {
 		fail(w, r, err)
+		return
+	}
+	if desktopTicket != "" {
+		h.desktopGoogleComplete(w, r, desktopTicket, u.ID, u.Email)
 		return
 	}
 	tok, err := h.JWT.Issue(u.ID, u.Email)
