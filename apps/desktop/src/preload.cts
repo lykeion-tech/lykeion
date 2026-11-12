@@ -6,6 +6,7 @@ import type {
   DesktopDaemonBridge,
   DesktopPrerequisites,
 } from './daemon-types.js';
+import type { DesktopUpdateResult } from './desktop-update.js';
 
 const startup =
   window.location.pathname === '/__lykeion_desktop__/'
@@ -100,6 +101,16 @@ contextBridge.exposeInMainWorld(
             : {}),
           reloadAfterAuthentication: () =>
             ipcRenderer.sendSync('lykeion:reload-after-authentication', documentID) === true,
+          updates: Object.freeze({
+            available: () =>
+              ipcRenderer.invoke('lykeion:update:available', documentID) as Promise<boolean>,
+            check: () =>
+              ipcRenderer.invoke(
+                'lykeion:update:check',
+                documentID,
+              ) as Promise<DesktopUpdateResult>,
+            cancel: () => ipcRenderer.invoke('lykeion:update:cancel', documentID) as Promise<void>,
+          }),
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
           reserveAuth: (path: string) =>
             ipcRenderer.sendSync('lykeion:reserve-auth', path) as string | null,

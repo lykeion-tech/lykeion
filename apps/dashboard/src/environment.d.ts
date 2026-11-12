@@ -8,6 +8,11 @@ interface Window {
     submitGoogleCode?(code: string): Promise<boolean>;
     cancelGoogleSignIn?(): void;
     reloadAfterAuthentication?(): boolean;
+    updates?: {
+      available(): Promise<boolean>;
+      check(): Promise<{ state: 'current' | 'downloaded'; version: string }>;
+      cancel(): Promise<void>;
+    };
     cancelRequest?(id: string): void;
     requestDocument?: string;
     verificationPending?: boolean;

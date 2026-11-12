@@ -1,5 +1,54 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { version } from '../../../../../package.json';
+
+const bridge = window.lykeionDesktop?.updates;
+const available = ref(false);
+const checking = ref(false);
+const message = ref('');
+let mounted = true;
+
+onMounted(async () => {
+  if (!bridge) return;
+  try {
+    const enabled = await bridge.available();
+    if (mounted) available.value = enabled;
+  } catch {
+    if (mounted) available.value = false;
+  }
+});
+
+onBeforeUnmount(() => {
+  mounted = false;
+  if (checking.value) void bridge?.cancel().catch(() => {});
+});
+
+async function checkForUpdate() {
+  if (!bridge || !available.value || checking.value) return;
+  checking.value = true;
+  message.value = 'Checking for and downloading an update…';
+  try {
+    const result = await bridge.check();
+    if (!mounted) return;
+    message.value =
+      result.state === 'current'
+        ? 'Lykeion is up to date.'
+        : `Version ${result.version} was downloaded. Installation is not available yet.`;
+  } catch {
+    if (mounted) message.value = 'The update check could not be completed. Try again later.';
+  } finally {
+    if (mounted) checking.value = false;
+  }
+}
+
+async function cancelCheck() {
+  if (!bridge || !checking.value) return;
+  try {
+    await bridge.cancel();
+  } catch {
+    /* The interrupted check reports its own outcome. */
+  }
+}
 </script>
 
 <template>
@@ -27,9 +76,17 @@ import { version } from '../../../../../package.json';
       <div class="update-row">
         <div>
           <span>Check for updates</span>
-          <p>Update checks will be available when a desktop update provider is connected.</p>
+          <p v-if="!available">
+            Update checks will be available when a desktop update provider is connected.
+          </p>
+          <p v-else aria-live="polite">
+            {{ message || 'Check for and download an update. Installation is not yet available.' }}
+          </p>
         </div>
-        <button class="button compact" disabled>Check now</button>
+        <button v-if="checking" class="button compact" @click="cancelCheck">Cancel</button>
+        <button v-else class="button compact" :disabled="!available" @click="checkForUpdate">
+          Check now
+        </button>
       </div>
     </div>
   </section>
