@@ -28,6 +28,13 @@ import {
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('includes the macOS update archive while keeping release publishing disabled', () => {
+    const config = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')).build;
+    expect(config.mac.target).toContain('dmg');
+    expect(config.mac.target).toContain('zip');
+    expect(config.publish).toBeNull();
+  });
+
   it('requires an explicit Developer ID identity and complete notarization configuration', () => {
     expect(macSigningOptions('darwin', {})).toBeUndefined();
     const identity = 'Developer ID Application: Example (ABCD123456)';

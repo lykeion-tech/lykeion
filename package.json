@@ -101,7 +101,8 @@
     "mac": {
       "icon": "apps/desktop/resources/icon.icns",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ]
     },
     "linux": {
