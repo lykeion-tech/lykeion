@@ -10,11 +10,16 @@ class DesktopConfigError extends Error {
 
 export function desktopConfigGuidance(error: unknown): string {
   if (error instanceof DesktopConfigError) {
+    const configFile = '~/.lyk/desktop.json (Windows: %USERPROFILE%\\.lyk\\desktop.json)';
+    const example = [
+      'Example: { "schemaVersion": 1, "apiUrl": "https://your-server.example" }',
+      'Use an HTTPS server origin. HTTP is allowed only for localhost, 127.0.0.1, or [::1].',
+    ].join('\n');
     if (error.kind === 'invalid')
-      return 'Correct or remove ~/.lyk/desktop.json and restart Lykeion.';
+      return `Correct or remove ${configFile} and restart Lykeion.\n\n${example}`;
     if (error.kind === 'unreadable')
-      return 'Check that ~/.lyk/desktop.json and its directory can be read, then restart Lykeion.';
-    return 'The hosted server address is missing or invalid in this release. Reinstall Lykeion or configure ~/.lyk/desktop.json.';
+      return `Check that ${configFile} and its directory can be read, then restart Lykeion.`;
+    return `The hosted server address is missing or invalid in this release. Reinstall Lykeion or configure ${configFile}, then restart Lykeion.\n\n${example}`;
   }
   return 'Unable to load the desktop server configuration. Restart Lykeion or reinstall the app.';
 }
