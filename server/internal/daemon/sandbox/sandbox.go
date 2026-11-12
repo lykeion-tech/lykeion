@@ -180,7 +180,11 @@ func check(ctx context.Context, command func(Policy, context.Context, string, ..
 	if err != nil {
 		return err
 	}
-	cmd, err := command(Policy{Home: u.HomeDir}, ctx, "true")
+	return checkHome(ctx, u.HomeDir, command)
+}
+
+func checkHome(ctx context.Context, accountHome string, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
+	cmd, err := command(Policy{Home: accountHome}, ctx, "true")
 	if err != nil {
 		return err
 	}
@@ -189,7 +193,7 @@ func check(ctx context.Context, command func(Policy, context.Context, string, ..
 	}
 	// The stand-in home lies in the person's own, where nothing but the home
 	// rule hides it: the temp folders are hidden on every platform anyway.
-	home, err := os.MkdirTemp(u.HomeDir, ".lyk-sandbox-check-")
+	home, err := os.MkdirTemp(accountHome, ".lyk-sandbox-check-")
 	if err != nil {
 		return err
 	}
@@ -198,11 +202,17 @@ func check(ctx context.Context, command func(Policy, context.Context, string, ..
 	if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
 		return err
 	}
-	if cmd, err = command(Policy{Home: home}, ctx, "cat", probe); err != nil {
+	if data, err := os.ReadFile(probe); err != nil || string(data) != "x" {
+		return errors.New("sandbox read-denial control could not read its probe")
+	}
+	script := `if ! /bin/cat /dev/null >/dev/null; then exit 72; fi; printf 'STARTED\n'; if /bin/cat "$1" >/dev/null 2>&1; then printf 'EXPOSED\n'; else printf 'DENIED\n'; fi`
+	if cmd, err = command(Policy{Home: home}, ctx, "/bin/sh", "-c", script, "sh", probe); err != nil {
 		return err
 	}
-	if cmd.Run() == nil {
-		return errors.New("sandbox started but does not confine reads")
+	cmd.Dir = "/"
+	out, err := cmd.CombinedOutput()
+	if err != nil || string(out) != "STARTED\nDENIED\n" {
+		return errors.New("sandbox read-denial probe failed or did not confine reads")
 	}
 	return nil
 }
