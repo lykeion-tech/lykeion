@@ -24,6 +24,17 @@ type fakeRun struct {
 	failVerify, failJulia, failVenv bool
 }
 
+type waitingContext struct {
+	context.Context
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func (c *waitingContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waiting) })
+	return c.Context.Done()
+}
+
 func (f *fakeRun) run(_ context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
 	line := strings.Join(append([]string{filepath.Base(name)}, args...), " ")
 	f.mu.Lock()
@@ -622,6 +633,153 @@ func TestStatesReportBuildingAndFailure(t *testing.T) {
 	}
 	if s := b.States(); s[Python] != "ready" || len(s) != 1 {
 		t.Fatalf("states after a rebuild: %v", s)
+	}
+}
+
+func TestEnsureCanceledWaiterDoesNotInterruptOwner(t *testing.T) {
+	b, f := fakeBases(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	b.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		if slicesIndex(args, "create") >= 0 {
+			close(started)
+			<-release
+		}
+		return f.run(ctx, env, dir, name, args...)
+	}
+	ownerDone := make(chan error, 1)
+	go func() { ownerDone <- b.Ensure(context.Background(), Python) }()
+	var ownerOnce sync.Once
+	var ownerErr error
+	finishOwner := func() error {
+		ownerOnce.Do(func() {
+			close(release)
+			select {
+			case ownerErr = <-ownerDone:
+			case <-time.After(5 * time.Second):
+				ownerErr = errors.New("owner did not finish after release")
+			}
+		})
+		return ownerErr
+	}
+	defer finishOwner()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("owner did not start the installation")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	waiting := &waitingContext{Context: ctx, waiting: make(chan struct{})}
+	waiterDone := make(chan error, 1)
+	go func() { waiterDone <- b.Ensure(waiting, Python) }()
+	select {
+	case <-waiting.waiting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter did not reach the contended lock")
+	}
+	cancel()
+	waiterReturned := false
+	select {
+	case err := <-waiterDone:
+		waiterReturned = true
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("waiter error = %v, want context canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("canceled waiter remained blocked behind the active installation")
+	}
+	if state := b.States()[Python]; state != "building" {
+		t.Errorf("owner state changed while waiter canceled: %q", state)
+	}
+	if err := finishOwner(); err != nil {
+		t.Fatalf("owner failed: %v", err)
+	}
+	if !waiterReturned {
+		select {
+		case <-waiterDone:
+		case <-time.After(5 * time.Second):
+			t.Error("waiter did not finish after owner release")
+		}
+	}
+	if !b.Ready(Python) {
+		t.Fatal("owner did not publish ready base")
+	}
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatalf("ready base retry failed: %v", err)
+	}
+}
+
+func TestEnsureOtherLanguageDoesNotWaitForBusyBase(t *testing.T) {
+	b, f := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	b.Run = func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+		if i := slicesIndex(args, "-p"); i >= 0 && i+1 < len(args) && args[i+1] == filepath.Join(b.Dir, R) && slicesIndex(args, "create") >= 0 {
+			close(started)
+			<-release
+		}
+		return f.run(ctx, env, dir, name, args...)
+	}
+	rDone := make(chan error, 1)
+	go func() { rDone <- b.Ensure(context.Background(), R) }()
+	var rOnce sync.Once
+	var rErr error
+	finishR := func() error {
+		rOnce.Do(func() {
+			close(release)
+			select {
+			case rErr = <-rDone:
+			case <-time.After(5 * time.Second):
+				rErr = errors.New("R installation did not finish after release")
+			}
+		})
+		return rErr
+	}
+	defer finishR()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("R installation did not start")
+	}
+	juliaDone := make(chan error, 1)
+	go func() { juliaDone <- b.Ensure(context.Background(), Julia) }()
+	juliaReturned := false
+	select {
+	case err := <-juliaDone:
+		juliaReturned = true
+		if err != nil {
+			t.Errorf("Julia build failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Julia waited for unrelated R installation")
+	}
+	rErr = finishR()
+	if !juliaReturned {
+		select {
+		case <-juliaDone:
+		case <-time.After(5 * time.Second):
+			t.Error("Julia did not finish after R release")
+		}
+	}
+	if rErr != nil {
+		t.Fatalf("R build failed: %v", rErr)
+	}
+}
+
+func TestEnsureCanceledContextDoesNotReturnReadyBase(t *testing.T) {
+	b, _ := fakeBases(t)
+	if err := b.Ensure(context.Background(), Python); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := b.Ensure(ctx, Python); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled Ensure = %v, want context canceled", err)
+	}
+	if !b.Ready(Python) {
+		t.Fatal("canceled read damaged a ready base")
 	}
 }
 

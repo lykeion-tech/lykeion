@@ -248,8 +248,23 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 		return fmt.Errorf("unknown language %q", lang)
 	}
 	l := b.lock(lang)
-	l.Lock()
+	if !l.TryLock() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		for locked := false; !locked; {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return ctx.Err()
+			case <-ticker.C:
+				locked = l.TryLock()
+			}
+		}
+		ticker.Stop()
+	}
 	defer l.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if b.Ready(lang) {
 		return nil
 	}
