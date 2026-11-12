@@ -185,7 +185,7 @@ func (h *H) authorizeBuild(r *http.Request, tx *store.Tx, daemon string, id uuid
 	if p.ArchivedAt != nil {
 		return b, pgx.ErrNoRows
 	}
-	return b, coresearchClaim(r, b.ClaimToken, b.LeaseExpiresAt, b.Status, b.ReceiptSha, terminal)
+	return b, coresearchClaim(r, tx, b.ClaimToken, b.LeaseExpiresAt, b.Status, b.ReceiptSha, terminal)
 }
 func (h *H) daemonCoresearchBuild(w http.ResponseWriter, r *http.Request) {
 	id, e := coresearchID(r, "id")

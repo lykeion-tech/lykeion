@@ -6,12 +6,17 @@ import (
 	"encoding/json"
 	"github.com/google/uuid"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/store"
 	"net/http"
 	"time"
 )
 
-func coresearchClaim(r *http.Request, token *uuid.UUID, expires *time.Time, status string, receipt *string, terminal bool) error {
-	return coresearchClaimAt(r, token, expires, status, receipt, terminal, time.Now())
+func coresearchClaim(r *http.Request, tx *store.Tx, token *uuid.UUID, expires *time.Time, status string, receipt *string, terminal bool) error {
+	now, err := tx.CoresearchClock(r.Context())
+	if err != nil {
+		return err
+	}
+	return coresearchClaimAt(r, token, expires, status, receipt, terminal, now)
 }
 
 func coresearchClaimAt(r *http.Request, token *uuid.UUID, expires *time.Time, status string, receipt *string, terminal bool, now time.Time) error {

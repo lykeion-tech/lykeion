@@ -473,7 +473,7 @@ func (h *H) daemonCoresearchCell(w http.ResponseWriter, r *http.Request) {
 			return pgx.ErrNoRows
 		}
 		receipt = cell.ReceiptSha
-		return coresearchClaim(r, cell.ClaimToken, cell.LeaseExpiresAt, cell.Status, cell.ReceiptSha, finish)
+		return coresearchClaim(r, tx, cell.ClaimToken, cell.LeaseExpiresAt, cell.Status, cell.ReceiptSha, finish)
 	}
 	e = h.coresearchDaemonTx(r, check)
 	if !coresearchAnswer(w, r, e) {
@@ -570,7 +570,7 @@ func (h *H) daemonCoresearchSetup(w http.ResponseWriter, r *http.Request) {
 		if s.ClaimedDaemonID == nil || *s.ClaimedDaemonID != d {
 			return pgx.ErrNoRows
 		}
-		if e = coresearchClaim(r, s.ClaimToken, s.LeaseExpiresAt, s.Status, s.ReceiptSha, true); e != nil {
+		if e = coresearchClaim(r, tx, s.ClaimToken, s.LeaseExpiresAt, s.Status, s.ReceiptSha, true); e != nil {
 			return e
 		}
 		if readJSON(r, &in) != nil || !slices.Contains([]string{"running", "ok", "failed"}, in.Status) || len(in.Log) > 262144 || in.PythonVersion != "" && !service.ValidPythonVersion(in.PythonVersion) || in.Status != "failed" && in.PythonVersion == "" {
@@ -714,7 +714,7 @@ func (h *H) daemonCoresearchStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if r.Method == "POST" {
-			if e := coresearchClaim(r, token, expires, status, nil, false); e != nil {
+			if e := coresearchClaim(r, tx, token, expires, status, nil, false); e != nil {
 				return e
 			}
 		}

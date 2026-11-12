@@ -42,7 +42,7 @@ WITH candidates AS MATERIALIZED (
  AND EXISTS(SELECT 1 FROM runtime r WHERE r.workspace_id=b.workspace_id AND r.id=ANY( $4::uuid[]) AND r.daemon_id= $1 AND r.owner_id=b.requested_by)
  AND NOT EXISTS(SELECT 1 FROM coresearch_build x WHERE x.project_id=b.project_id AND x.requested_by=b.requested_by AND x.status='running')
  ORDER BY b.created_at,b.id LIMIT 8 FOR UPDATE OF b SKIP LOCKED)
-UPDATE coresearch_build SET status='running',daemon_id= $1,claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
+UPDATE coresearch_build SET status='running',daemon_id= $1,claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, seq, requested_by, daemon_id, status, sources, pdf_blob, pdf_size, log_blob, log_size, synctex_blob, synctex_size, pages, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha, created_at, started_at, finished_at
 `
 
 type ClaimCoresearchBuildsParams struct {
@@ -102,7 +102,7 @@ func (q *Queries) ClaimCoresearchBuilds(ctx context.Context, arg ClaimCoresearch
 }
 
 const claimCoresearchCell = `-- name: ClaimCoresearchCell :one
-UPDATE coresearch_cell SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id=(SELECT c.id FROM coresearch_cell c WHERE c.workspace_id= $2 AND c.chat_id= $3 AND c.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.chat_id=c.chat_id AND x.status='running') ORDER BY c.seq LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
+UPDATE coresearch_cell SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id=(SELECT c.id FROM coresearch_cell c WHERE c.workspace_id= $2 AND c.chat_id= $3 AND c.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_cell x WHERE x.chat_id=c.chat_id AND x.status='running') ORDER BY c.seq LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, workspace_id, chat_id, seq, author_user_id, agent_run_id, kernel, source, status, execution_count, outputs, outputs_blob, created_at, started_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
 
 type ClaimCoresearchCellParams struct {
@@ -140,7 +140,7 @@ func (q *Queries) ClaimCoresearchCell(ctx context.Context, arg ClaimCoresearchCe
 }
 
 const claimCoresearchRuns = `-- name: ClaimCoresearchRuns :many
-WITH candidates AS MATERIALIZED (SELECT q.id FROM coresearch_run q WHERE q.workspace_id= $2 AND q.chat_id= $3 AND q.status='queued' ORDER BY q.created_at,q.id LIMIT 8 FOR UPDATE SKIP LOCKED) UPDATE coresearch_run SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, key, chat_id, script_file_id, script_n, inputs, seed, env_sha, status, facts, rerun_of, requested_by, agent_run_id, created_at, finished_at, failure_reason, claimed_daemon_id, expected_env_sha, claim_token, lease_expires_at, receipt_sha
+WITH candidates AS MATERIALIZED (SELECT q.id FROM coresearch_run q WHERE q.workspace_id= $2 AND q.chat_id= $3 AND q.status='queued' ORDER BY q.created_at,q.id LIMIT 8 FOR UPDATE SKIP LOCKED) UPDATE coresearch_run SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, key, chat_id, script_file_id, script_n, inputs, seed, env_sha, status, facts, rerun_of, requested_by, agent_run_id, created_at, finished_at, failure_reason, claimed_daemon_id, expected_env_sha, claim_token, lease_expires_at, receipt_sha
 `
 
 type ClaimCoresearchRunsParams struct {
@@ -194,7 +194,7 @@ func (q *Queries) ClaimCoresearchRuns(ctx context.Context, arg ClaimCoresearchRu
 }
 
 const claimCoresearchSetups = `-- name: ClaimCoresearchSetups :many
-WITH candidates AS MATERIALIZED (SELECT s.id FROM coresearch_setup s WHERE s.workspace_id= $2 AND s.chat_id= $3 AND s.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.project_id=s.project_id AND x.status='running') ORDER BY s.created_at,s.id LIMIT 1 FOR UPDATE SKIP LOCKED) UPDATE coresearch_setup SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, chat_id, python, conda, status, log, requested_by, created_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
+WITH candidates AS MATERIALIZED (SELECT s.id FROM coresearch_setup s WHERE s.workspace_id= $2 AND s.chat_id= $3 AND s.status='queued' AND NOT EXISTS(SELECT 1 FROM coresearch_setup x WHERE x.project_id=s.project_id AND x.status='running') ORDER BY s.created_at,s.id LIMIT 1 FOR UPDATE SKIP LOCKED) UPDATE coresearch_setup SET status='running',claimed_daemon_id= $1,claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE id IN(SELECT id FROM candidates) RETURNING id, workspace_id, project_id, chat_id, python, conda, status, log, requested_by, created_at, finished_at, failure_reason, claimed_daemon_id, claim_token, lease_expires_at, receipt_sha
 `
 
 type ClaimCoresearchSetupsParams struct {
@@ -279,7 +279,7 @@ func (q *Queries) CoresearchBlobForOwner(ctx context.Context, arg CoresearchBlob
 const coresearchBuildBlob = `-- name: CoresearchBuildBlob :one
 SELECT v.workspace_id, v.file_id, v.n, v.sha256, v.size, v.blob_key, v.author_user_id, v.agent_run_id, v.run_id, v.overrode, v.restored_from, v.created_at FROM coresearch_file_version v WHERE v.workspace_id= $1 AND v.sha256= $2 AND EXISTS(
  SELECT 1 FROM coresearch_build b JOIN coresearch_member m ON m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by
- WHERE b.workspace_id=v.workspace_id AND b.requested_by= $3 AND b.claimed_daemon_id= $4 AND b.status='running' AND b.lease_expires_at>now()
+ WHERE b.workspace_id=v.workspace_id AND b.requested_by= $3 AND b.claimed_daemon_id= $4 AND b.status='running' AND b.lease_expires_at>clock_timestamp()
  AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.sources) x WHERE (x->>'file_id')::uuid=v.file_id AND (x->>'n')::int=v.n)) LIMIT 1
 `
 
@@ -1255,7 +1255,7 @@ func (q *Queries) GetCoresearchSetup(ctx context.Context, arg GetCoresearchSetup
 }
 
 const heartbeatCoresearchBuild = `-- name: HeartbeatCoresearchBuild :execrows
-UPDATE coresearch_build SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
+UPDATE coresearch_build SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>clock_timestamp()
 `
 
 type HeartbeatCoresearchBuildParams struct {
@@ -1273,7 +1273,7 @@ func (q *Queries) HeartbeatCoresearchBuild(ctx context.Context, arg HeartbeatCor
 }
 
 const heartbeatCoresearchCell = `-- name: HeartbeatCoresearchCell :execrows
-UPDATE coresearch_cell SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
+UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>clock_timestamp()
 `
 
 type HeartbeatCoresearchCellParams struct {
@@ -1291,7 +1291,7 @@ func (q *Queries) HeartbeatCoresearchCell(ctx context.Context, arg HeartbeatCore
 }
 
 const heartbeatCoresearchRun = `-- name: HeartbeatCoresearchRun :execrows
-UPDATE coresearch_run SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
+UPDATE coresearch_run SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>clock_timestamp()
 `
 
 type HeartbeatCoresearchRunParams struct {
@@ -1309,7 +1309,7 @@ func (q *Queries) HeartbeatCoresearchRun(ctx context.Context, arg HeartbeatCores
 }
 
 const heartbeatCoresearchSetup = `-- name: HeartbeatCoresearchSetup :execrows
-UPDATE coresearch_setup SET lease_expires_at=now()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>now()
+UPDATE coresearch_setup SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE workspace_id= $1 AND id= $2 AND claim_token= $3 AND status='running' AND lease_expires_at>clock_timestamp()
 `
 
 type HeartbeatCoresearchSetupParams struct {

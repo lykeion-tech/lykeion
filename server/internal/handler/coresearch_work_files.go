@@ -92,7 +92,7 @@ func (h *H) daemonCoresearchRunFinish(w http.ResponseWriter, r *http.Request) {
 		if run.ClaimedDaemonID == nil || *run.ClaimedDaemonID != d {
 			return pgx.ErrNoRows
 		}
-		return coresearchClaim(r, run.ClaimToken, run.LeaseExpiresAt, run.Status, run.ReceiptSha, true)
+		return coresearchClaim(r, tx, run.ClaimToken, run.LeaseExpiresAt, run.Status, run.ReceiptSha, true)
 	}
 	if e = h.coresearchDaemonTx(r, check); !coresearchAnswer(w, r, e) {
 		return

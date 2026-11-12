@@ -1014,6 +1014,14 @@ func TestCoresearchRunningStatusRequiresLiveClaimLease(t *testing.T) {
 }
 
 func TestCoresearchRunningStatusUsesDatabaseClockAfterLock(t *testing.T) {
+	coresearchLeaseAfterLock(t, "GET", "status")
+}
+
+func TestCoresearchHeartbeatUsesDatabaseClockAfterLock(t *testing.T) {
+	coresearchLeaseAfterLock(t, "POST", "heartbeat")
+}
+
+func coresearchLeaseAfterLock(t *testing.T, method, endpoint string) {
 	s, a, _, _, ws, p := csFixture(t)
 	path, _ := csChat(t, s, a, ws, p.ID)
 	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, nil); code != 201 {
@@ -1037,10 +1045,10 @@ func TestCoresearchRunningStatusUsesDatabaseClockAfterLock(t *testing.T) {
 	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '2 seconds' WHERE id=$1", cell.ID); err != nil {
 		t.Fatal(err)
 	}
-	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/status?daemon_id=work&claim_token=" + cell.ClaimToken.String()
+	url := s.URL + "/api/daemon/coresearch/cells/" + cell.ID.String() + "/" + endpoint + "?daemon_id=work&claim_token=" + cell.ClaimToken.String()
 	done := make(chan int, 1)
 	go func() {
-		req, err := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+		req, err := http.NewRequestWithContext(t.Context(), method, url, nil)
 		if err != nil {
 			done <- 0
 			return
@@ -1082,5 +1090,37 @@ func TestCoresearchRunningStatusUsesDatabaseClockAfterLock(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("status request did not finish")
+	}
+}
+
+func TestCoresearchHeartbeatSQLRejectsLeaseExpiredDuringTransaction(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	if code := s.call(t, "POST", path+"/cells", a, ws, map[string]string{"kernel": "python3", "source": "1"}, nil); code != 201 {
+		t.Fatal(code)
+	}
+	ref := csRegister(t, s, a, ws, "work", "claude")
+	work := csWork(t, s, a, "work", ref)
+	if len(work.Cells) != 1 {
+		t.Fatal(work)
+	}
+	cell := work.Cells[0]
+	if _, err := s.Env.Owner.Exec(t.Context(), "UPDATE coresearch_cell SET lease_expires_at=clock_timestamp()+interval '1 second' WHERE id=$1", cell.ID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.Env.Owner.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err := tx.Exec(t.Context(), "SELECT pg_sleep(1.1)"); err != nil {
+		t.Fatal(err)
+	}
+	n, err := db.New(tx).HeartbeatCoresearchCell(t.Context(), db.HeartbeatCoresearchCellParams{WorkspaceID: cell.WorkspaceID, ID: cell.ID, ClaimToken: &cell.ClaimToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expired lease was renewed: %d", n)
 	}
 }
