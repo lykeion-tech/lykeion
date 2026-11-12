@@ -235,7 +235,7 @@ test('a real socket reconnect refreshes without replay and workspace switching i
   });
   await page
     .getByRole('complementary', { name: 'Workspace navigation' })
-    .getByRole('button', { name: /Browser fixtures/ })
+    .locator('.workspace-switch')
     .click();
   await page
     .getByRole('menu', { name: 'Workspace' })

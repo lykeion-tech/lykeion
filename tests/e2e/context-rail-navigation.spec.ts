@@ -122,7 +122,9 @@ test('the sidebar puts the wordmark and the Coresearch/Decisions toggle on top a
   await lab.click();
   const menu = page.getByRole('menu', { name: 'Workspace' });
   const items = await menu
-    .locator(':scope > button, :scope > small, :scope > .shell-menu-divider')
+    .locator(
+      ':scope > .workspace-profile, :scope > button, :scope > small, :scope > .shell-menu-divider',
+    )
     .evaluateAll((els) =>
       els.map((e) =>
         e.classList.contains('shell-menu-divider') ? '—' : (e.textContent ?? '').trim(),

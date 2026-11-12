@@ -537,7 +537,6 @@ onUnmounted(() => {
         :user-name="userName"
         :workspace-name="workspaceName"
         :avatar-url="me.data.value?.avatar_url"
-        :selected="current === 'settings' || current === 'lab-chart'"
         :menu-open="workspaceMenu"
         :help-open="help"
         @toggle-workspace="toggleWorkspace"
@@ -557,7 +556,6 @@ onUnmounted(() => {
           :user-name="userName"
           :workspace-name="workspaceName"
           :avatar-url="me.data.value?.avatar_url"
-          :selected="current === 'settings' || current === 'lab-chart'"
           :menu-open="workspaceMenu"
           :help-open="help"
           @toggle-workspace="toggleWorkspace"
@@ -578,7 +576,6 @@ onUnmounted(() => {
           :user-name="userName"
           :workspace-name="workspaceName"
           :avatar-url="me.data.value?.avatar_url"
-          :selected="current === 'settings' || current === 'lab-chart'"
           :menu-open="workspaceMenu"
           :help-open="help"
           @toggle-workspace="toggleWorkspace"
@@ -595,13 +592,23 @@ onUnmounted(() => {
       aria-label="Workspace"
       @keydown="popupKey($event, workspacePopup, 'workspace')"
     >
-      <button class="workspace-profile" role="menuitem" @click="go('settings?tab=profile')">
+      <p class="workspace-profile">
         <span>{{ me.data.value?.email }}</span>
-      </button>
-      <button role="menuitem" @click="go('settings')">
+      </p>
+      <button
+        role="menuitem"
+        :class="{ selected: current === 'settings' }"
+        :aria-current="current === 'settings' ? 'page' : undefined"
+        @click="go('settings')"
+      >
         <Icon name="settings" :size="16" />Settings
       </button>
-      <button role="menuitem" @click="go('lab-chart')">
+      <button
+        role="menuitem"
+        :class="{ selected: current === 'lab-chart' }"
+        :aria-current="current === 'lab-chart' ? 'page' : undefined"
+        @click="go('lab-chart')"
+      >
         <Icon name="network" :size="16" />Lykeion
       </button>
       <div class="shell-menu-divider" />
@@ -694,7 +701,6 @@ onUnmounted(() => {
         :user-name="userName"
         :workspace-name="workspaceName"
         :avatar-url="me.data.value?.avatar_url"
-        :selected="current === 'settings' || current === 'lab-chart'"
         :menu-open="workspaceMenu"
         :help-open="help"
         @toggle-workspace="toggleWorkspace"
@@ -863,6 +869,11 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--surface) 28%, transparent);
   outline: none;
 }
+/* The open page's item takes the grey of the rail's open section. */
+.shell-popup > button.selected {
+  background: var(--selected);
+  color: var(--text);
+}
 .shell-popup > button:disabled {
   opacity: 0.5;
 }
@@ -879,6 +890,9 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 .workspace-popup > .workspace-profile {
+  display: flex;
+  align-items: center;
+  margin: 0;
   height: 44px;
   padding: 4px 6px;
   gap: 12px;
@@ -888,6 +902,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--muted);
 }
 .workspace-menu-label {
   display: block;

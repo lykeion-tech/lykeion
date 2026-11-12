@@ -4,7 +4,7 @@ import { labCode, labSignIn } from './lab';
 test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
-  await expect(nav.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
+  await expect(nav.locator('.workspace-switch')).toHaveAccessibleDescription('Beta-cell lab');
   for (const name of [
     'New',
     'Studies',
@@ -119,10 +119,11 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     await page.getByRole('textbox', { name: 'Digit 1' }).click();
     await page.keyboard.type(await labCode(page.request, person.email));
     await expect(page).toHaveURL(/#\/studies$/);
-    await expect(page.getByRole('button', { name: new RegExp(person.workspace) })).toBeVisible();
-    await page.getByRole('button', { name: new RegExp(person.workspace) }).click();
+    const footer = page.locator('.workspace-switch:visible');
+    await expect(footer).toHaveAccessibleDescription(person.workspace);
+    await footer.click();
     const menu = page.getByRole('menu', { name: 'Workspace' });
-    await expect(menu.getByRole('menuitem', { name: person.email })).toBeVisible();
+    await expect(menu.getByText(person.email, { exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: new RegExp(person.workspace) })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(
       workspaceIds[index],
@@ -213,7 +214,9 @@ for (const failedRead of [
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
       finishRetry();
       await expect(alert).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /Beta-cell lab/ })).toBeVisible();
+      await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+        'Beta-cell lab',
+      );
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toBeVisible();
     } finally {
       finishRetry();
@@ -253,7 +256,9 @@ test('a real invitation returns through email sign-in and joins the invited work
   await expect(page).toHaveURL(/#\/onboarding$/);
   await page.getByRole('button', { name: "I've done this before" }).click();
   await expect(page).toHaveURL(/#\/studies$/);
-  await expect(page.getByRole('button', { name: /Invitation lab/ })).toBeVisible();
+  await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+    'Invitation lab',
+  );
   expect(await page.evaluate(() => sessionStorage.getItem('lykeion.invite'))).toBe('');
   expect(await page.evaluate(() => localStorage.getItem('lykeion.workspace'))).toBe(workspace.id);
   const memberships = await page.request.get('/api/workspaces');
@@ -285,10 +290,15 @@ test('Google sign-in targets the shipped backend route', async ({ browser }) => 
 
 test('the workspace menu names the workspace and logs out', async ({ page }) => {
   await page.goto('/#/studies');
-  await page.getByRole('button', { name: /Beta-cell lab/ }).click();
+  await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
+    'Beta-cell lab',
+  );
+  await page.locator('.workspace-switch:visible').click();
   const menu = page.getByRole('menu', { name: 'Workspace' });
   const me = (await (await page.request.get('/api/me')).json()) as { email: string };
-  await expect(menu.getByRole('menuitem', { name: me.email })).toBeVisible();
+  // The email heads the menu as text; it is not a menu item.
+  await expect(menu.getByText(me.email, { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: me.email })).toHaveCount(0);
   await expect(menu.getByRole('menuitem', { name: /Beta-cell lab/ })).toBeVisible();
   await page.screenshot({ path: 'test-results/ui-lab/task11-workspace-menu.png', fullPage: true });
   const signedOutRead = page.waitForResponse(

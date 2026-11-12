@@ -6,11 +6,10 @@ withDefaults(
     userName: string;
     workspaceName: string;
     avatarUrl?: string;
-    selected?: boolean;
     menuOpen?: boolean;
     helpOpen?: boolean;
   }>(),
-  { selected: false, menuOpen: false, helpOpen: false },
+  { menuOpen: false, helpOpen: false },
 );
 const emit = defineEmits<{ toggleWorkspace: []; toggleHelp: [] }>();
 const workspaceTrigger = ref<HTMLButtonElement>();
@@ -27,7 +26,6 @@ defineExpose({
         ref="workspaceTrigger"
         class="workspace-switch nav-item"
         :title="workspaceName"
-        :class="{ selected }"
         data-shell-menu-trigger
         aria-haspopup="menu"
         :aria-expanded="menuOpen"
