@@ -310,7 +310,10 @@ export class DaemonManager {
         typeof result.claude !== 'boolean' ||
         !('codex' in result) ||
         typeof result.codex !== 'boolean' ||
-        ('sandbox_issue' in result && (result.sandbox || result.sandbox_issue !== 'account_lookup'))
+        ('sandbox_issue' in result &&
+          (result.sandbox ||
+            typeof result.sandbox_issue !== 'string' ||
+            !['account_lookup', 'selected_home'].includes(result.sandbox_issue)))
       )
         throw new Error('Invalid prerequisite response');
       return {
@@ -318,7 +321,9 @@ export class DaemonManager {
         sandbox: result.sandbox,
         claude: result.claude,
         codex: result.codex,
-        ...('sandbox_issue' in result ? { sandboxIssue: 'account_lookup' as const } : {}),
+        ...('sandbox_issue' in result
+          ? { sandboxIssue: result.sandbox_issue as 'account_lookup' | 'selected_home' }
+          : {}),
       };
     } finally {
       this.refreshingPrerequisites = false;

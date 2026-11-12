@@ -103,9 +103,11 @@ async function refresh() {
           {{
             result.sandboxIssue === 'account_lookup'
               ? 'Lykeion could not verify your Linux account. Check getent and your account/NSS configuration, then check again.'
-              : desktop?.platform === 'linux'
-                ? 'Check that bubblewrap is installed and can run on this Linux system, then check again.'
-                : 'Check that macOS allows the Lykeion sandbox to run, then check again.'
+              : result.sandboxIssue === 'selected_home'
+                ? 'The selected home folder is unavailable. Check your HOME setting and folder access, then check again.'
+                : desktop?.platform === 'linux'
+                  ? 'Check that bubblewrap is installed and can run on this Linux system, then check again.'
+                  : 'Check that macOS allows the Lykeion sandbox to run, then check again.'
           }}
         </p>
         <ul>

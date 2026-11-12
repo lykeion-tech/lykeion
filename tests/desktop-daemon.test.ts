@@ -367,8 +367,24 @@ describe('desktop daemon manager', () => {
       codex: false,
       sandboxIssue: 'account_lookup',
     });
+    f.execute.mockResolvedValue(
+      JSON.stringify({
+        sandbox: false,
+        claude: true,
+        codex: false,
+        sandbox_issue: 'selected_home',
+      }),
+    );
+    await expect(manager.refreshPrerequisites()).resolves.toEqual({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+      sandboxIssue: 'selected_home',
+    });
     for (const invalid of [
       { sandbox: false, claude: true, codex: false, sandbox_issue: 'secret' },
+      { sandbox: false, claude: true, codex: false, sandbox_issue: ['selected_home'] },
       { sandbox: true, claude: true, codex: false, sandbox_issue: 'account_lookup' },
     ]) {
       f.execute.mockResolvedValue(JSON.stringify(invalid));

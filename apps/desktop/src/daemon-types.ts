@@ -29,7 +29,7 @@ export type DesktopPrerequisites =
       sandbox: boolean;
       claude: boolean;
       codex: boolean;
-      sandboxIssue?: 'account_lookup';
+      sandboxIssue?: 'account_lookup' | 'selected_home';
     };
 export interface DesktopDaemonBridge {
   refreshPrerequisites(): Promise<DesktopPrerequisites>;

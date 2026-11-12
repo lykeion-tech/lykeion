@@ -357,7 +357,7 @@ func daemonCmd(e *env) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 			defer cancel()
 			tools := daemon.Detect()
-			sandboxErr := sandbox.Check(ctx)
+			sandboxErr := sandbox.CheckForDesktop(ctx)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -379,6 +379,8 @@ func prerequisiteFacts(sandboxErr error, tools map[string]string) prerequisiteRe
 	report := prerequisiteReport{Sandbox: sandboxErr == nil, Claude: tools["claude"] != "", Codex: tools["codex"] != ""}
 	if errors.Is(sandboxErr, accountlookup.ErrUnavailable) {
 		report.SandboxIssue = "account_lookup"
+	} else if errors.Is(sandboxErr, sandbox.ErrSelectedHome) {
+		report.SandboxIssue = "selected_home"
 	}
 	return report
 }

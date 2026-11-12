@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -170,10 +171,61 @@ func (p Policy) validateNetwork() error {
 	return nil
 }
 
+// ErrSelectedHome reports that the configured HOME cannot be used by a sandbox.
+var ErrSelectedHome = errors.New("selected home folder is unavailable")
+
+// CheckSelectedHome validates the HOME used to construct owner policies.
+func CheckSelectedHome() error {
+	selected, err := os.UserHomeDir()
+	if err != nil || checkSpelling(selected) != nil {
+		return ErrSelectedHome
+	}
+	home, err := findHome(selected)
+	if err != nil || home.fi == nil || !home.fi.IsDir() || home.path == "/" {
+		return ErrSelectedHome
+	}
+	f, err := os.Open(home.path)
+	if err != nil {
+		return ErrSelectedHome
+	}
+	if err := f.Close(); err != nil {
+		return ErrSelectedHome
+	}
+	return nil
+}
+
 // Check proves the sandbox both starts and confines on this machine: true
 // runs under a policy for the person's home, and a file under a stand-in home
 // is unreadable. The error names what is missing.
 func Check(ctx context.Context) error { return check(ctx, Policy.Command) }
+
+// CheckForDesktop validates desktop prerequisites before launching its probe.
+func CheckForDesktop(ctx context.Context) error {
+	return checkDesktop(ctx, accountlookup.Current, CheckSelectedHome, Policy.Command)
+}
+
+func checkDesktop(ctx context.Context, account func() (*user.User, error), selected func() error, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	u, err := account()
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return accountlookup.ErrUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := selected(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return checkHome(ctx, u.HomeDir, command)
+}
 
 func check(ctx context.Context, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
 	u, err := accountlookup.Current()

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"lykeion/server/internal/accountlookup"
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 func TestDaemonPrerequisitesWithoutDaemonOrCredentials(t *testing.T) {
@@ -64,6 +65,7 @@ func TestPrerequisiteFactsExposeOnlyAccountIssueCode(t *testing.T) {
 		{"ready", nil, `{"sandbox":true,"claude":true,"codex":false}`},
 		{"account lookup", fmt.Errorf("private path: %w", accountlookup.ErrUnavailable), `{"sandbox":false,"claude":true,"codex":false,"sandbox_issue":"account_lookup"}`},
 		{"other failure", errors.New("private: sensitive"), `{"sandbox":false,"claude":true,"codex":false}`},
+		{"selected home", sandbox.ErrSelectedHome, `{"sandbox":false,"claude":true,"codex":false,"sandbox_issue":"selected_home"}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			raw, err := json.Marshal(prerequisiteFacts(tt.failure, map[string]string{"claude": "/fixture"}))
@@ -71,6 +73,31 @@ func TestPrerequisiteFactsExposeOnlyAccountIssueCode(t *testing.T) {
 				t.Fatalf("facts %s: %v", raw, err)
 			}
 		})
+	}
+}
+
+func TestDaemonPrerequisitesReportSelectedHomeWithoutLeakingPath(t *testing.T) {
+	if _, err := accountlookup.Current(); err != nil {
+		t.Fatalf("account lookup control failed: %v", err)
+	}
+	missing := filepath.Join(t.TempDir(), "private-missing-home")
+	t.Setenv("HOME", missing)
+	t.Setenv("PATH", t.TempDir())
+	var out bytes.Buffer
+	cmd := Root(strings.NewReader(""), &out)
+	cmd.SetArgs([]string{"daemon", "prerequisites"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var facts struct {
+		Sandbox      bool   `json:"sandbox"`
+		SandboxIssue string `json:"sandbox_issue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &facts); err != nil {
+		t.Fatal(err)
+	}
+	if facts.Sandbox || facts.SandboxIssue != "selected_home" || strings.Contains(out.String(), missing) {
+		t.Fatalf("unexpected or sensitive output: %s", out.String())
 	}
 }
 

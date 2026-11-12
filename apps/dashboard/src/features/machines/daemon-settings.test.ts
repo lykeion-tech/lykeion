@@ -273,6 +273,28 @@ describe('Daemon settings mounted section', () => {
     );
     expect(t.text()).not.toContain('bubblewrap');
   });
+  it('explains an unavailable selected home without exposing a path', async () => {
+    const t = await mount({
+      machine: true,
+      empty: true,
+      collection: true,
+      platform: 'linux',
+      snapshot: snapshot({ authenticatedUserID: null, daemonID: null }),
+    });
+    vi.mocked(t.bridge.refreshPrerequisites).mockResolvedValueOnce({
+      cliAvailable: true,
+      sandbox: false,
+      claude: true,
+      codex: false,
+      sandboxIssue: 'selected_home',
+    });
+    const button = all(t.root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Check setup'),
+    )!;
+    (button.props.onClick as () => void)();
+    await vi.waitFor(() => expect(t.text()).toContain('selected home folder is unavailable'));
+    expect(t.text()).not.toContain('bubblewrap');
+  });
   it('announces interrupted checks, permits a retry, and discards results on account change', async () => {
     const t = await mount({
       machine: true,
