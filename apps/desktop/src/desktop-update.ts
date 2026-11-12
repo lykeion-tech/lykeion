@@ -1,9 +1,9 @@
 import { trustedDesktopFrame } from './renderer-origin.js';
 
-export interface DesktopUpdateResult {
-  state: 'current' | 'downloaded';
-  version: string;
-}
+export type DesktopUpdateCategory = 'unsupported' | 'unconfigured' | 'network' | 'invalid_metadata' | 'cache_full' | 'corrupt_state' | 'generic';
+export type DesktopUpdateResult =
+  | { state: 'current' | 'downloaded'; version: string }
+  | { state: 'error'; category: DesktopUpdateCategory };
 
 type UpdateEvent = { sender: unknown; senderFrame: unknown };
 type UpdateSender = { mainFrame: { url: string } };
@@ -85,12 +85,14 @@ export class DesktopUpdateCheck {
     try {
       if (!(await this.verifyHelper()) || !current()) throw fail();
       const result = await this.runHelper(controller.signal);
-      if (
-        !current() ||
-        !result ||
+      if (!current() || !result || typeof result !== 'object') throw fail();
+      if (result.state === 'error') {
+        if (Object.keys(result).sort().join(',') !== 'category,state' ||
+          !['unsupported', 'unconfigured', 'network', 'invalid_metadata', 'cache_full', 'corrupt_state', 'generic'].includes(result.category)) throw fail();
+      } else if (
         Object.keys(result).sort().join(',') !== 'state,version' ||
         !['current', 'downloaded'].includes(result.state) ||
-        !stableVersion.test(result.version)
+        typeof result.version !== 'string' || !stableVersion.test(result.version)
       )
         throw fail();
       return result;

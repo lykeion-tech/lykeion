@@ -4,7 +4,6 @@ package desktopupdate
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -37,13 +36,13 @@ func platformProofReady(platform, arch string) bool {
 
 // CheckAndCache never installs or launches an update.
 func CheckAndCache(ctx context.Context) (Result, error) {
-	errUnavailable := errors.New("update check unavailable")
+	errUnavailable := checkError{Generic}
 	if !platformProofReady(runtime.GOOS, runtime.GOARCH) || ctx.Err() != nil {
-		return Result{}, errUnavailable
+		return Result{}, checkError{Unsupported}
 	}
 	keys, err := parseBuildTrust(embeddedKeys, embeddedVersion)
 	if err != nil {
-		return Result{}, errUnavailable
+		return Result{}, checkError{Unconfigured}
 	}
 	arch := ""
 	switch runtime.GOARCH {

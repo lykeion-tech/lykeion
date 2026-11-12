@@ -10,7 +10,7 @@ interface Window {
     reloadAfterAuthentication?(): boolean;
     updates?: {
       available(): Promise<boolean>;
-      check(): Promise<{ state: 'current' | 'downloaded'; version: string }>;
+      check(): Promise<{ state: 'current' | 'downloaded'; version: string } | { state: 'error'; category: 'unsupported' | 'unconfigured' | 'network' | 'invalid_metadata' | 'cache_full' | 'corrupt_state' | 'generic' }>;
       cancel(): Promise<void>;
     };
     cancelRequest?(id: string): void;

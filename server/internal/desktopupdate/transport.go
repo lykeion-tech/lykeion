@@ -103,6 +103,11 @@ func fetchMetadata(ctx context.Context, client *http.Client, platform, arch stri
 	req.Header.Set("Accept-Encoding", "identity")
 	response, err := client.Do(req)
 	if err != nil {
+		var networkError *net.OpError
+		var dnsError *net.DNSError
+		if ctx.Err() == nil && (errors.As(err, &networkError) || errors.As(err, &dnsError)) {
+			return nil, checkError{Network}
+		}
 		return nil, errUnavailable
 	}
 	defer response.Body.Close()

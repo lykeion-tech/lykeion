@@ -2,13 +2,25 @@ package desktopupdate
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMetadataNetworkErrorsHaveSafeCategory(t *testing.T) {
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("secret path and token")}
+	})
+	_, err := fetchMetadata(context.Background(), updateClient(transport, "desktop-stable-darwin-arm64.json"), "darwin", "arm64")
+	if ErrorCategory(err) != Network || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("network failure was not safely categorized: %v", err)
+	}
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

@@ -2,6 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { DesktopUpdateCheck, installDesktopUpdateIPC } from '../apps/desktop/src/desktop-update';
 
 describe('desktop update check', () => {
+  it('accepts only allowlisted error categories and rejects hostile helper fields', async () => {
+    let result: unknown = { state: 'error', category: 'network' };
+    const check = new DesktopUpdateCheck(() => true, () => 'doc', () => true, async () => true, async () => result as never);
+    expect(await check.check()).toEqual({ state: 'error', category: 'network' });
+    result = { state: 'error', category: 'network', detail: 'https://secret.test/?token=secret' };
+    await expect(check.check()).rejects.toThrow('Update check unavailable');
+    result = { state: 'error', category: 'secret token' };
+    await expect(check.check()).rejects.toThrow('Update check unavailable');
+  });
   it('does not inspect or execute a helper when the release gate is closed', async () => {
     const verify = vi.fn(async () => true);
     const run = vi.fn(async () => ({ state: 'current' as const, version: '1.2.3' }));

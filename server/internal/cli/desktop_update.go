@@ -17,7 +17,10 @@ func desktopUpdateCmd(e *env) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := desktopupdate.CheckAndCache(cmd.Context())
 			if err != nil {
-				return err
+				return json.NewEncoder(e.out).Encode(struct {
+					State    string                 `json:"state"`
+					Category desktopupdate.Category `json:"category"`
+				}{State: "error", Category: desktopupdate.ErrorCategory(err)})
 			}
 			return json.NewEncoder(e.out).Encode(result)
 		},

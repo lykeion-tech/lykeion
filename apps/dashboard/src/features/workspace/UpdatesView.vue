@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { version } from '../../../../../package.json';
+import { updateErrorMessage } from './update-messages';
 
 const bridge = window.lykeionDesktop?.updates;
 const available = ref(false);
 const checking = ref(false);
 const message = ref('');
 let mounted = true;
+
 
 onMounted(async () => {
   if (!bridge) return;
@@ -31,7 +33,7 @@ async function checkForUpdate() {
     const result = await bridge.check();
     if (!mounted) return;
     message.value =
-      result.state === 'current'
+      result.state === 'error' ? updateErrorMessage(result.category) : result.state === 'current'
         ? 'Lykeion is up to date.'
         : `Version ${result.version} was downloaded. Installation is not available yet.`;
   } catch {

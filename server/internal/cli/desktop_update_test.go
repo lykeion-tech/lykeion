@@ -18,10 +18,10 @@ func TestDesktopUpdateCheckIsDisabledAndDoesNotLoadConfig(t *testing.T) {
 	command := Root(strings.NewReader(""), &out)
 	command.SetArgs([]string{"desktop-update-check"})
 	err := command.Execute()
-	if err == nil || err.Error() != "update check unavailable" {
+	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	if out.Len() != 0 {
+	if strings.TrimSpace(out.String()) != `{"state":"error","category":"unsupported"}` {
 		t.Fatalf("unexpected output %q", out.String())
 	}
 }

@@ -65,7 +65,7 @@ func TestCheckAndCacheRejectsUnsafeInputWithoutArtifactFetch(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Linux storage remains disabled")
 	}
-	for _, scenario := range []string{"bad-signature", "expired", "rollback", "equivocation", "corrupt-cache", "over-budget", "current"} {
+	for _, scenario := range []string{"bad-signature", "expired", "rollback", "equivocation", "corrupt-cache", "over-budget", "insufficient-space", "current"} {
 		t.Run(scenario, func(t *testing.T) {
 			home, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
@@ -106,6 +106,9 @@ func TestCheckAndCacheRejectsUnsafeInputWithoutArtifactFetch(t *testing.T) {
 			if scenario == "over-budget" {
 				budget = 4096
 			}
+			if scenario == "insufficient-space" {
+				budget = 200000
+			}
 			current := "1.0.0"
 			if scenario == "current" {
 				current = "1.2.3"
@@ -124,6 +127,9 @@ func TestCheckAndCacheRejectsUnsafeInputWithoutArtifactFetch(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatal("unsafe check succeeded")
+			}
+			if (scenario == "over-budget" || scenario == "insufficient-space") && ErrorCategory(err) != CacheFull {
+				t.Fatalf("expected cache-full category, got %v", err)
 			}
 			if scenario == "corrupt-cache" || scenario == "over-budget" {
 				if requests != 0 {

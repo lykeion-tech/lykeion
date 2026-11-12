@@ -233,8 +233,11 @@ func (cache *lockedCache) storeArtifactLocked(ctx context.Context, m metadata, o
 		return errUnsafe
 	}
 	used, err := cache.inventory(nil)
-	if err != nil || used > budget {
+	if err != nil {
 		return errUnsafe
+	}
+	if used > budget {
+		return checkError{CacheFull}
 	}
 	if err := cache.commitHighWaterLocked(m.platform, m.arch, m.sequence, m.payloadDigest); err != nil {
 		return errUnsafe
@@ -251,8 +254,11 @@ func (cache *lockedCache) storeArtifactLocked(ctx context.Context, m metadata, o
 		}
 		return nil
 	}
-	if !errors.Is(err, unix.ENOENT) || m.size > budget-used || reserve > budget-used-m.size || 5*cacheEntryOverhead > budget-used-m.size-reserve {
+	if !errors.Is(err, unix.ENOENT) {
 		return errUnsafe
+	}
+	if m.size > budget-used || reserve > budget-used-m.size || 5*cacheEntryOverhead > budget-used-m.size-reserve {
+		return checkError{CacheFull}
 	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {

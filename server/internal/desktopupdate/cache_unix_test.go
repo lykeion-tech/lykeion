@@ -39,8 +39,8 @@ func TestVerifiedCacheEnforcesBudgetAndContent(t *testing.T) {
 		opened = true
 		return io.NopCloser(bytes.NewReader(content)), nil
 	}
-	if err := cache.storeArtifactWithLimits(context.Background(), m, open, 4096, 4096); err == nil {
-		t.Fatal("accepted over-budget cache")
+	if err := cache.storeArtifactWithLimits(context.Background(), m, open, 4096, 4096); ErrorCategory(err) != CacheFull {
+		t.Fatalf("expected cache-full error, got %v", err)
 	}
 	if opened {
 		t.Fatal("opened network source before securing storage budget")
