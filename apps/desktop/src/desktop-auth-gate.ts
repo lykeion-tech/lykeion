@@ -72,6 +72,15 @@ export class DesktopAuthGate {
     this.mutations.delete(id);
     for (const resolve of this.drainWaiters) resolve();
   }
+  canFinishVerification(): boolean {
+    return (
+      !this.shuttingDown &&
+      !this.abandonedLogout &&
+      !this.abandonedVerification &&
+      !this.logoutPending &&
+      !this.mutations.size
+    );
+  }
   networkBlocked(): boolean {
     return this.abandonedLogout;
   }

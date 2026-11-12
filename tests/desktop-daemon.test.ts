@@ -94,6 +94,29 @@ async function fixture() {
   return { root, manager, options, execute, request, calls };
 }
 describe('desktop daemon manager', () => {
+  it('retains a verified running owner only until the next native identity mutation', async () => {
+    const f = await fixture();
+    const running = await f.manager.configureSession(session);
+    const owner = f.manager.verificationOwner();
+    expect(await owner.verify('alice')).toBe(true);
+    expect(await owner.verify('bob')).toBe(false);
+    expect(f.calls).not.toContain('daemon stop');
+    expect(f.calls.filter((action) => action === 'daemon start')).toHaveLength(1);
+    expect(await f.manager.getSnapshot()).toMatchObject({
+      pid: running.pid,
+      daemonID: running.daemonID,
+      status: 'running',
+    });
+    const clearing = f.manager.clearSession();
+    expect(owner.current('alice')).toBe(false);
+    await clearing;
+  });
+  it('rejects an owner whose cached token now belongs to another account', async () => {
+    const f = await fixture();
+    await f.manager.configureSession(session);
+    f.request.mockResolvedValueOnce({ id: 'bob' });
+    expect(await f.manager.verificationOwner().verify('alice')).toBe(false);
+  });
   it('stops the verified running profile before clearing even if its config has disappeared', async () => {
     const f = await fixture();
     const snapshot = await f.manager.configureSession(session);

@@ -172,6 +172,7 @@ describe('desktop renderer origin', () => {
     expect(decision('https://lab.example/__lykeion_desktop__/assets/app.js', 'script')).toBe(false);
     expect(decision('https://lab.example/api/hostile.js', 'script')).toBe(true);
     expect(decision('https://lab.example/api/file', 'xhr')).toBe(false);
+    expect(decision('https://lab.example/auth/google/callback?code=test', 'xhr')).toBe(true);
     expect(decision('https://other.example/api/file', 'xhr')).toBe(true);
     expect(decision('https://lab.example/api/me', 'mainFrame')).toBe(true);
     expect(decision('wss://lab.example/ws', 'webSocket')).toBe(false);

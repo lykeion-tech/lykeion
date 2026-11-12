@@ -13,6 +13,8 @@ app
     const { clearAbandonedLogout } = await import('../apps/desktop/out/desktop-auth-logout.js');
     const { installDesktopRenderer, desktopEntryURL } =
       await import('../apps/desktop/out/renderer-origin.js');
+    let beforeProbe, releaseProbe;
+    const sameOwner = '77039c48-dd78-4bd8-aad3-3f9b7bd70523';
     let entered = false,
       release,
       meCookie = 'not-called',
@@ -27,6 +29,17 @@ app
     const server = createServer(async (req, res) => {
       if (req.url === '/api/me') {
         meCookie = req.headers.cookie || '';
+        if (meCookie === 'lyk_session=before' || meCookie === 'lyk_session=late') {
+          if (meCookie === 'lyk_session=before') {
+            beforeProbe = true;
+            await new Promise((resolve) => {
+              releaseProbe = resolve;
+            });
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ id: sameOwner }));
+          return;
+        }
         res.writeHead(200);
         res.end('ok');
         return;
@@ -398,14 +411,26 @@ app
       await variants.clearStorageData();
       const verifiedSession = session.fromPartition('verified-logout');
       let recoveryMarker = false;
+      const { DesktopVerification } = await import('../apps/desktop/out/desktop-verification.js');
+      let documentID = 'first';
       const verifiedGate = new DesktopAuthGate(() => {
         recoveryMarker = true;
+      });
+      const continuity = new DesktopVerification(
+        origin,
+        verifiedSession,
+        () => documentID,
+        () => verifiedGate.canFinishVerification(),
+      );
+      verifiedSession.cookies.on('changed', (_event, cookie) => {
+        if (cookie.name === 'lyk_session') continuity.cookieChanged();
       });
       const verifyLogoutCleanup = async () => {
         await clearAbandonedLogout(verifiedSession, origin);
         recoveryMarker = false;
       };
       installDesktopRenderer(verifiedSession, origin, profile, {
+        beforeVerification: (token, headers) => continuity.capture(token, headers),
         finish: (id) => verifiedGate.finishMutation(id),
         continue: (id, token, path) => verifiedGate.continueMutation(id, token, path),
         networkReady: () => verifiedGate.networkReady(),
@@ -454,6 +479,37 @@ app
       assert.equal(recoveryMarker, false);
       assert.deepEqual(await runVerifiedLogout(500, '/'), { status: 204, local: '1' });
       assert.equal((await verifiedSession.cookies.get({ name: 'lyk_session' })).length, 0);
+      holdVerification = true;
+      verificationEntered = false;
+      await verifiedSession.cookies.set({
+        url: origin,
+        name: 'lyk_session',
+        value: 'before',
+        path: '/',
+        httpOnly: true,
+      });
+      const same = verifiedGate.reserve('/auth/verify-code');
+      continuity.reserve(same, documentID, { current: () => true, verify: async () => true });
+      await verifiedWindow.webContents.executeJavaScript(
+        `window.same = fetch('/auth/verify-code', {method:'POST', headers:{'X-Lykeion-Desktop-Auth-Reservation':${JSON.stringify(same)}}}).then(r => r.status); true`,
+      );
+      for (let i = 0; i < 100 && !beforeProbe; i++) await new Promise((r) => setTimeout(r, 10));
+      assert.equal(beforeProbe, true);
+      assert.equal(verificationEntered, false);
+      releaseProbe();
+      for (let i = 0; i < 100 && !verificationEntered; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      assert.equal(verificationEntered, true);
+      releaseVerification();
+      assert.equal(await verifiedWindow.webContents.executeJavaScript('window.same'), 204);
+      await verifiedWindow.loadURL(desktopEntryURL(origin));
+      documentID = 'replacement';
+      const { receipt, user } = await continuity.read(documentID);
+      assert.equal(user.id, sameOwner);
+      assert.equal(continuity.matches(documentID, sameOwner, receipt), true);
+      assert.equal(await continuity.prepare(documentID, sameOwner), true);
+      assert.equal(continuity.canFinish(documentID, sameOwner), true);
+      await verifiedSession.clearStorageData();
       holdVerification = true;
       verificationEntered = false;
       entered = false;

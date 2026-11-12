@@ -104,6 +104,10 @@ export function createDaemonSession(options: {
     update,
     clear,
     clearForIdentityChange: () => clearSession(false),
+    retainVerifiedOwner(id: string) {
+      identity = id;
+      configured = true;
+    },
     dispose: () => {
       unsubscribe();
       unsubscribeRestored();

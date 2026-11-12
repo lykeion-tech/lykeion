@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { DesktopVerification } from '../apps/desktop/src/desktop-verification';
 import { DesktopAuthGate } from '../apps/desktop/src/desktop-auth-gate';
 
 it('persists logout before issuing its reservation and rejects storage failure', () => {
@@ -201,4 +202,143 @@ it('bounds a hung cookie cleanup without starting a conflicting retry', async ()
   finish();
   await gate.recoverAbandonedLogout(clear, 100);
   expect(gate.networkBlocked()).toBe(false);
+});
+
+it('allows retention only when the verification has drained and no logout is reserved', () => {
+  const gate = new DesktopAuthGate();
+  const verification = gate.reserve('/auth/verify-code')!;
+  expect(gate.canFinishVerification()).toBe(false);
+  gate.continueMutation(-1, verification, '/auth/verify-code');
+  gate.finishMutation(-1);
+  expect(gate.canFinishVerification()).toBe(true);
+  gate.reserve('/auth/logout');
+  expect(gate.canFinishVerification()).toBe(false);
+});
+
+it('binds retention to both browser cookies, native owner, reservation and replacement document', async () => {
+  const cookies = {
+    get: vi.fn(async () => [
+      {
+        name: 'lyk_session',
+        value: 'old',
+        path: '/',
+        domain: 'lab.test',
+        hostOnly: true,
+        httpOnly: true,
+        secure: true,
+        session: true,
+        sameSite: 'lax' as const,
+      },
+    ]),
+  };
+  let document = 'old-doc';
+  let ready = true;
+  let native = true;
+  let identity: unknown = { id: 'a' };
+  const session = { cookies, fetch: async () => Response.json(identity) };
+  const proof = new DesktopVerification(
+    'https://lab.test',
+    session,
+    () => document,
+    () => ready,
+  );
+  const verify = async () => native;
+  const probe = vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async () => Response.json(identity));
+  try {
+    for (const headers of [
+      { Cookie: 'lyk_session=forged' },
+      { Cookie: 'lyk_session=old; lyk_session=old' },
+      {},
+    ]) {
+      proof.reserve('r', document, { current: () => native, verify });
+      await proof.capture('r', headers as Record<string, string>);
+      expect(probe).not.toHaveBeenCalled();
+    }
+    proof.reserve('r', document, { current: () => native, verify });
+    await proof.capture('stale', { Cookie: 'lyk_session=old' });
+    expect(probe).not.toHaveBeenCalled();
+    await proof.capture('r', { Cookie: 'other=private; lyk_session=old' });
+    expect(probe).toHaveBeenCalledWith(
+      'https://lab.test/api/me',
+      expect.objectContaining({
+        headers: { Cookie: 'lyk_session=old' },
+        redirect: 'error',
+      }),
+    );
+    expect(await proof.prepare(document, 'a')).toBe(false);
+    document = 'new-doc';
+    identity = { id: 'b' };
+    await proof.read(document);
+    expect(await proof.prepare(document, 'a')).toBe(false);
+    identity = { id: [] };
+    await expect(proof.read(document)).rejects.toThrow();
+    expect(await proof.prepare(document, 'a')).toBe(false);
+    identity = { id: 'a' };
+    const { receipt } = await proof.read(document);
+    expect(proof.matches(document, 'a', receipt)).toBe(true);
+    expect(await proof.prepare(document, 'a')).toBe(true);
+    native = false;
+    expect(proof.canFinish(document, 'a')).toBe(false);
+    native = true;
+    ready = false;
+    expect(proof.canFinish(document, 'a')).toBe(false);
+    ready = true;
+    document = 'newer-doc';
+    expect(proof.canFinish('new-doc', 'a')).toBe(false);
+    await proof.read(document);
+    expect(await proof.prepare(document, 'a')).toBe(true);
+    proof.cookieChanged();
+    expect(proof.canFinish(document, 'a')).toBe(false);
+    expect(proof.matches(document, 'a', receipt)).toBe(false);
+    await proof.read(document);
+    expect(await proof.prepare(document, 'a')).toBe(true);
+    proof.invalidate();
+    expect(proof.canFinish(document, 'a')).toBe(false);
+    expect(await proof.prepare(document, 'a')).toBe(false);
+  } finally {
+    probe.mockRestore();
+  }
+});
+
+it('reads a refused sign-in without an attempt and rejects stale identity reads from a departed document', async () => {
+  let document = 'first';
+  let complete!: (response: Response) => void;
+  const session = {
+    cookies: { get: async () => [] },
+    fetch: vi.fn(async () => new Response(null, { status: 401 })),
+  };
+  const proof = new DesktopVerification(
+    'https://lab.test',
+    session,
+    () => document,
+    () => true,
+  );
+  session.fetch.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  const old = proof.read(document);
+  await vi.waitFor(() => expect(session.fetch).toHaveBeenCalledOnce());
+  document = 'replacement';
+  const signedOut = await proof.read(document);
+  complete(Response.json({ id: 'a' }));
+  await expect(old).rejects.toThrow('changed');
+  expect(signedOut.user).toBeNull();
+  expect(proof.matches(document, null, signedOut.receipt)).toBe(true);
+  expect(await proof.prepare(document, 'a')).toBe(false);
+  proof.invalidate();
+  expect(proof.matches(document, null, signedOut.receipt)).toBe(false);
+  expect(session.fetch).toHaveBeenCalledWith(
+    'https://lab.test/api/me',
+    expect.objectContaining({
+      bypassCustomProtocolHandlers: true,
+      credentials: 'include',
+      cache: 'no-store',
+      redirect: 'error',
+    }),
+  );
 });

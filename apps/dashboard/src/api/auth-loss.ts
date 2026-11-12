@@ -32,25 +32,38 @@ export function rememberVerification(state: Verification) {
     throw new Error('Could not save account verification state');
   verification.value = state;
 }
-export function finishVerification() {
+const verificationReceipts = new WeakMap<Verification, string>();
+export function finishVerification(id: string | null, retaining = false) {
   const bridge = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
-  if (bridge?.finishVerification && !bridge.finishVerification())
-    throw new Error('Could not complete account verification');
+  const receipt = verification.value && verificationReceipts.get(verification.value);
+  if (bridge?.finishVerification && !bridge.finishVerification(id, receipt, retaining))
+    return false;
   verification.value = undefined;
+  return true;
 }
 export const verifying = computed(() => Boolean(verification.value));
 export async function checkVerifiedIdentity(state: Verification): Promise<Me | null> {
-  const res = await fetch('/api/me', {
-    credentials: 'same-origin',
-    cache: 'no-store',
-    redirect: 'error',
-    signal: AbortSignal.timeout(15_000),
-  });
-  const user: unknown = res.ok ? await res.json() : null;
+  const bridge = typeof window !== 'undefined' ? window.lykeionDesktop : undefined;
+  let user: unknown;
+  if (bridge?.readVerification) {
+    const result = await bridge.readVerification();
+    verificationReceipts.set(state, result.receipt);
+    user = result.user;
+  } else {
+    const res = await fetch('/api/me', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok && res.status !== 401) throw new Error('Identity unavailable');
+    user = res.status === 401 ? null : await res.json();
+    if (!user && res.status !== 401) throw new Error('Invalid identity response');
+  }
   if (state !== verification.value || state.epoch !== epoch)
     throw new DOMException('Account verification was superseded.', 'AbortError');
-  if (res.status === 401) return null;
-  if (!res.ok || !user || typeof user !== 'object') throw new Error('Identity unavailable');
+  if (user === null) return null;
+  if (!user || typeof user !== 'object') throw new Error('Identity unavailable');
   const me = user as Partial<Me>;
   if (
     typeof me.id !== 'string' ||

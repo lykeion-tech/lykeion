@@ -15,6 +15,7 @@ import {
   validExternalURL,
 } from './renderer-origin.js';
 import { desktopUserData } from './desktop-user-data.js';
+import { DesktopVerification } from './desktop-verification.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
 import {
   clearAbandonedLogout,
@@ -49,6 +50,7 @@ let desktopSession: Electron.Session | null = null;
 let desktopCancellation: ReturnType<typeof installDesktopRenderer> | null = null;
 let logoutIntent: LogoutIntent | null = null;
 let verificationIntent: LogoutIntent | null = null;
+let verification: DesktopVerification | null = null;
 let currentDocument: string | null = null;
 let startupRecovery: Promise<void> = Promise.resolve();
 const authGate = new DesktopAuthGate(() => {
@@ -65,6 +67,7 @@ async function finishLogoutRecovery(): Promise<void> {
   });
 }
 function abandonDocumentAuthentication() {
+  currentDocument = null;
   authGate.abandonUnclaimed();
   if (authGate.acknowledgeInterruptedVerification())
     dialog.showErrorBox(
@@ -210,11 +213,21 @@ void app.whenReady().then(async () => {
       app.exit(1);
       return;
     }
+    verification = new DesktopVerification(
+      apiOrigin,
+      desktopSession,
+      () => currentDocument,
+      () => authGate.canFinishVerification(),
+    );
+    desktopSession.cookies.on('changed', (_event, cookie) => {
+      if (cookie.name === 'lyk_session') verification?.cookieChanged();
+    });
     desktopCancellation = installDesktopRenderer(
       desktopSession,
       apiOrigin,
       path.dirname(bundledPath),
       {
+        beforeVerification: (token, headers) => verification!.capture(token, headers),
         continue: (id, token, path) => authGate.continueMutation(id, token, path),
         networkReady: () => authGate.networkReady(),
         waitForIdentityRead: () => authGate.waitForDrain(),
@@ -313,34 +326,74 @@ void app.whenReady().then(async () => {
       if (token && path === '/auth/verify-code') {
         try {
           verificationIntent!.mark();
+          if (currentDocument && daemon)
+            verification?.reserve(token, currentDocument, daemon.verificationOwner());
         } catch (error) {
           authGate.release(token);
           throw error;
         }
       }
+      if (token && path === '/auth/logout') verification?.invalidate();
       event.returnValue = token;
     } catch {
       event.returnValue = null;
     }
   });
-  ipcMain.on('lykeion:finish-verification', (event, documentID: unknown) => {
+  ipcMain.handle('lykeion:read-verification', async (event, documentID: unknown) => {
     if (
-      !currentDocument ||
+      typeof documentID !== 'string' ||
       documentID !== currentDocument ||
       !window ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin) ||
       !verificationIntent ||
-      !trustedDesktopFrame(event, window.webContents, apiOrigin)
-    ) {
-      event.returnValue = false;
-      return;
-    }
-    try {
-      verificationIntent.clear();
-      event.returnValue = true;
-    } catch {
-      event.returnValue = false;
-    }
+      !verification
+    )
+      throw new Error('Invalid verification request');
+    await authGate.waitForDrain();
+    if (documentID !== currentDocument) throw new Error('Account verification changed');
+    // A refused reservation never created a marker. Its document can still recheck the current session.
+    if (!verificationIntent.exists()) verification.invalidate();
+    return verification.read(documentID);
   });
+  ipcMain.handle('lykeion:can-retain-verification', (event, documentID: unknown, id: unknown) => {
+    if (
+      typeof documentID !== 'string' ||
+      typeof id !== 'string' ||
+      !window ||
+      !trustedDesktopFrame(event, window.webContents, apiOrigin)
+    )
+      return false;
+    return verification?.prepare(documentID, id) ?? false;
+  });
+  ipcMain.on(
+    'lykeion:finish-verification',
+    (event, documentID: unknown, id: unknown, receipt: unknown, retaining: unknown) => {
+      if (
+        !currentDocument ||
+        documentID !== currentDocument ||
+        !window ||
+        !verificationIntent ||
+        !trustedDesktopFrame(event, window.webContents, apiOrigin)
+      ) {
+        event.returnValue = false;
+        return;
+      }
+      try {
+        if (
+          !verification?.matches(currentDocument, id, receipt) ||
+          (retaining && (typeof id !== 'string' || !verification.canFinish(currentDocument, id)))
+        ) {
+          event.returnValue = false;
+          return;
+        }
+        verificationIntent.clear();
+        verification?.invalidate();
+        event.returnValue = true;
+      } catch {
+        event.returnValue = false;
+      }
+    },
+  );
   ipcMain.on('lykeion:release-auth', (event, token: unknown) => {
     if (
       window &&

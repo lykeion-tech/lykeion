@@ -52,6 +52,7 @@ export function createRequestCancellation() {
   };
 }
 type RequestCancellation = ReturnType<typeof createRequestCancellation>;
+type NativeAuth = { url: string; beforeSend?: (headers: Record<string, string>) => Promise<void> };
 
 export function bindDesktopRequestLifetime(
   contents: WebContents,
@@ -125,6 +126,7 @@ export function installDesktopRenderer(
   root: string,
   auth?: {
     finish(id: number): void;
+    beforeVerification?(token: string, headers: Record<string, string>): Promise<void>;
     continue(id: number, token: string, path: string): boolean;
     networkReady(): Promise<void>;
     waitForIdentityRead?(): Promise<void>;
@@ -136,7 +138,7 @@ export function installDesktopRenderer(
   },
 ): RequestCancellation {
   const cancellation = createRequestCancellation();
-  const nativeAuth = new Map<string, string>();
+  const nativeAuth = new Map<string, NativeAuth>();
   const admittedEpochs = new Map<number, number>();
   let nativeAuthID = -1;
   session.webRequest.onBeforeRequest(
@@ -149,13 +151,14 @@ export function installDesktopRenderer(
         target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
       const denied =
         target.origin !== selected.origin ||
+        target.pathname === '/auth/google/callback' ||
         (executableRequests.has(request.resourceType) && !asset);
       if (denied || !auth) return done({ cancel: denied });
       admittedEpochs.set(request.id, auth.networkEpoch());
       if (
         request.resourceType === 'other' &&
         request.method === 'POST' &&
-        [...nativeAuth.values()].includes(request.url)
+        [...nativeAuth.values()].some((admitted) => admitted.url === request.url)
       )
         return done({ cancel: false });
       const ready = () => {
@@ -181,9 +184,15 @@ export function installDesktopRenderer(
       const markerKey = Object.keys(headers).find((key) => key.toLowerCase() === nativeAuthHeader);
       const token = markerKey ? headers[markerKey] : undefined;
       if (markerKey) delete headers[markerKey];
-      if (token && nativeAuth.get(token) === request.url) {
+      const admitted = token ? nativeAuth.get(token) : undefined;
+      if (token && admitted?.url === request.url) {
         nativeAuth.delete(token);
-        done({ requestHeaders: headers });
+        if (admitted.beforeSend) {
+          void admitted.beforeSend(headers).then(
+            () => done({ requestHeaders: headers }),
+            () => done({ cancel: true }),
+          );
+        } else done({ requestHeaders: headers });
         return;
       }
       const cancel = () => {
@@ -221,7 +230,17 @@ export function installDesktopRenderer(
           path === '/auth/verify-code'
             ? AbortSignal.any([request.signal, AbortSignal.timeout(15_000)])
             : request.signal;
-        return forward(session, request, cancellation, () => auth.finish(id), nativeAuth, signal);
+        return forward(
+          session,
+          request,
+          cancellation,
+          () => auth.finish(id),
+          nativeAuth,
+          signal,
+          path === '/auth/verify-code' && auth.beforeVerification
+            ? (headers) => auth.beforeVerification!(token, headers)
+            : undefined,
+        );
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), auth.logoutTimeoutMs ?? 15000);
@@ -281,8 +300,9 @@ export function forward(
   incoming: Request,
   cancellation: RequestCancellation,
   finishAuth?: () => void,
-  nativeAuth?: Map<string, string>,
+  nativeAuth?: Map<string, NativeAuth>,
   signal: AbortSignal = incoming.signal,
+  beforeSend?: NativeAuth['beforeSend'],
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -290,7 +310,7 @@ export function forward(
       return reject(new DOMException('Request aborted', 'AbortError'));
     }
     const marker = nativeAuth ? randomUUID() : undefined;
-    if (marker) nativeAuth!.set(marker, incoming.url);
+    if (marker) nativeAuth!.set(marker, { url: incoming.url, beforeSend });
     let request: ReturnType<typeof net.request>;
     try {
       request = net.request({

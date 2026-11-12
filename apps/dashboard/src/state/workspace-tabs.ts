@@ -181,6 +181,16 @@ export function useWorkspaceTabs() {
     clearAccount,
     confirmAccountSwitch,
     hasPendingSwitch,
+    canRestoreAccount: (id: string) => {
+      if (legacyUnowned || pendingSwitch || (account && account !== id)) return false;
+      if (readText('lykeion.workspace-tabs', 'session') === null) return true;
+      const saved = readJSON<{ account?: unknown; pendingSwitch?: unknown } | null>(
+        'lykeion.workspace-tabs',
+        null,
+        'session',
+      );
+      return saved?.account === id && saved.pendingSwitch === false;
+    },
     currentAccount: () => account ?? undefined,
   };
 }

@@ -7,7 +7,9 @@ interface Window {
     cancelRequest?(id: string): void;
     requestDocument?: string;
     verificationPending?: boolean;
-    finishVerification?(): boolean;
+    readVerification?(): Promise<{ user: unknown; receipt: string }>;
+    canRetainVerification?(id: string): Promise<boolean>;
+    finishVerification?(id: string | null, receipt?: string, retaining?: boolean): boolean;
     reserveAuth?(path: string): string | null;
     releaseAuth?(token: string): void;
     retryLogout?(): Promise<boolean>;

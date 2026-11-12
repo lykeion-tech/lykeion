@@ -353,6 +353,7 @@ onUnmounted(() => {
 });
 let clearingVerification = -1;
 let clearedVerification = -1;
+let staleVerification = -1;
 const verificationDialog = ref<HTMLDialogElement>();
 watch(verificationDialog, (dialog) => dialog?.showModal(), { flush: 'post' });
 watch(
@@ -370,6 +371,14 @@ watch(
     });
     const current = () =>
       active && verification.value === state && authenticationEpoch() === state.epoch;
+    const release = (id: string | null, retain = false) => {
+      if (finishVerification(id, retain)) return true;
+      // Re-read the current cookie under quarantine. Repeated churn goes to the retry dialog.
+      const stage = staleVerification === state.epoch ? 'retry' : 'checking';
+      staleVerification = state.epoch;
+      verification.value = { ...state, stage };
+      return false;
+    };
     try {
       const user = await checkVerifiedIdentity(state);
       if (!current()) return;
@@ -388,19 +397,34 @@ watch(
         await router.replace('/signin');
         if (!current()) return;
         if (route.path !== '/signin') throw new Error('Sign-out navigation was blocked');
-        finishVerification();
+        release(user?.id ?? null);
         return;
+      }
+      let retain = false;
+      if (
+        state.resumed &&
+        !signedOut &&
+        !switchingAccount.value &&
+        clearingVerification !== state.epoch &&
+        workspaceTabs.canRestoreAccount(user.id)
+      ) {
+        retain = (await window.lykeionDesktop?.canRetainVerification?.(user.id)) === true;
+        if (!current()) return;
+        retain = retain && workspaceTabs.canRestoreAccount(user.id);
       }
       if (
         !signedOut &&
-        !state.resumed &&
         !switchingAccount.value &&
-        lastAccount === user.id &&
-        clearedVerification !== state.epoch
+        clearedVerification !== state.epoch &&
+        (retain || (!state.resumed && lastAccount === user.id))
       ) {
         if (clearingVerification === state.epoch) {
           await desktopSession.clearForIdentityChange();
           if (!current()) return;
+        }
+        if (retain) {
+          workspaceTabs.setAccount(user.id);
+          lastAccount = user.id;
         }
         client.setQueryData(keys.me, user);
         if (state.accepted && route.path === '/signin') {
@@ -413,11 +437,13 @@ watch(
           if (invite) writeText('lykeion.invite', '', 'session');
           switchingAccount.value = false;
         }
-        finishVerification();
-        void client.refetchQueries({
-          type: 'active',
-          predicate: (q) => q.state.status === 'error' || q.state.data === undefined,
-        });
+        if (retain) desktopSession.retainVerifiedOwner(user.id);
+        if (release(user.id, retain)) {
+          void client.refetchQueries({
+            type: 'active',
+            predicate: (q) => q.state.status === 'error' || q.state.data === undefined,
+          });
+        }
         return;
       }
       if (clearedVerification !== state.epoch) {
@@ -451,7 +477,7 @@ watch(
       switchingAccount.value = false;
       accountSwitchBusy.value = false;
       accountSwitchError.value = '';
-      finishVerification();
+      if (!release(user.id)) return;
       await client.refetchQueries({
         type: 'active',
         predicate: (q) => q.queryKey[0] !== keys.me[0],
@@ -778,7 +804,7 @@ onUnmounted(() => {
   </dialog>
   <DiscardDraftDialog />
   <div
-    v-if="accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)"
+    v-if="verification?.resumed || accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)"
     class="center-empty"
     role="status"
   >

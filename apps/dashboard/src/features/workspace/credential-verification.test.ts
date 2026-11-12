@@ -38,7 +38,16 @@ function held<T>() {
   });
   return { promise, resolve, reject };
 }
-async function privateEditor(initialMe?: Promise<Response>, replacement?: { storage: Map<string, string>; clear: Promise<object> }) {
+async function privateEditor(
+  initialMe?: Promise<Response>,
+  replacement?: {
+    storage: Map<string, string>;
+    clear: Promise<object>;
+    sameOwner?: boolean;
+    finalOwner?: boolean;
+    nativeRead?: boolean;
+  },
+) {
   const storage = replacement?.storage ?? new Map<string, string>();
   const adapter = {
     getItem: (k: string) => storage.get(k) ?? null,
@@ -57,10 +66,34 @@ async function privateEditor(initialMe?: Promise<Response>, replacement?: { stor
     getSnapshot: vi.fn(async () => ({ availability: 'available' })),
   };
   if (replacement) native.clearSession.mockReturnValueOnce(replacement.clear);
-  const finishVerification = vi.fn(() => true);
+  let nativeReads = 0;
+  const finishVerification = vi.fn(
+    (_id: string | null, receipt?: string, retaining?: boolean) =>
+      (!replacement?.nativeRead || receipt === 'native-read-' + nativeReads) &&
+      (!retaining || replacement?.finalOwner !== false),
+  );
   vi.stubGlobal('window', {
     location: { origin: 'https://app.example' },
-    lykeionDesktop: { daemon: native, verificationPending: Boolean(replacement), finishVerification },
+    lykeionDesktop: {
+      daemon: native,
+      verificationPending: Boolean(replacement),
+      ...(replacement?.nativeRead
+        ? {
+            readVerification: async () => {
+              const res = await probe();
+              if (!res.ok && res.status !== 401) throw new Error('Identity unavailable');
+              return {
+                receipt: 'native-read-' + ++nativeReads,
+                user: res.status === 401 ? null : await res.json(),
+              };
+            },
+          }
+        : {}),
+      finishVerification,
+      canRetainVerification: async () =>
+        replacement?.sameOwner === true &&
+        !(replacement.finalOwner === false && finishVerification.mock.calls.length),
+    },
     matchMedia: () => ({ matches: false }),
     addEventListener() {},
     removeEventListener() {},
@@ -78,7 +111,7 @@ async function privateEditor(initialMe?: Promise<Response>, replacement?: { stor
   const { workspaceId } = await import('../../api/session');
   const verify = held<Response>();
   const probe = vi.fn(async () => Response.json(identity('a')));
-  if (replacement) probe.mockImplementation(async () => Response.json(identity('b')));
+  if (replacement && !replacement.sameOwner) probe.mockImplementation(async () => Response.json(identity('b')));
   const gatedCalls: string[] = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/auth/verify-code') return verify.promise;
@@ -435,6 +468,115 @@ it('cannot restore an old server session after failed verification following loc
     expect(t.router.currentRoute.value.path).toBe('/signin');
     expect(t.client.getQueryData(['private-a'])).toBeUndefined();
     expect(t.native.configureSession).toHaveBeenCalledTimes(1);
+  } finally {
+    t.dispose();
+  }
+});
+
+it('restores the verified owner and its selected tab across document replacement without stopping the daemon', async () => {
+  const storage = new Map([
+    ['lykeion.verification', JSON.stringify({ accepted: true, wasLost: false })],
+    [
+      'lykeion.workspace-tabs',
+      JSON.stringify({
+        account: 'a',
+        pendingSwitch: false,
+        selected: 9,
+        tabs: [
+          {
+            id: 9,
+            path: '/editor',
+            title: 'A draft',
+            icon: 'tasks',
+            history: ['/editor'],
+            index: 0,
+          },
+        ],
+      }),
+    ],
+  ]);
+  const t = await privateEditor(undefined, {
+    storage,
+    clear: Promise.resolve({}),
+    sameOwner: true,
+    nativeRead: true,
+  });
+  try {
+    await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
+    expect(t.native.clearSession).not.toHaveBeenCalled();
+    expect(t.router.currentRoute.value.path).toBe('/editor');
+    expect(JSON.parse(storage.get('lykeion.workspace-tabs')!)).toMatchObject({
+      account: 'a',
+      selected: 9,
+    });
+    expect(t.client.getQueryData(['me'])).toMatchObject({ id: 'a' });
+    expect(t.finishVerification).toHaveBeenCalledWith('a', 'native-read-1', true);
+    expect(t.gatedCalls).toEqual([]);
+  } finally {
+    t.dispose();
+  }
+});
+
+it.each([
+  { pendingSwitch: true, finalOwner: true },
+  { pendingSwitch: false, finalOwner: false },
+])(
+  'keeps the replacement document gated through native clear with $pendingSwitch pending switch and $finalOwner final proof',
+  async ({ pendingSwitch, finalOwner }) => {
+    const storage = new Map([
+      ['lykeion.verification', JSON.stringify({ accepted: true, wasLost: false })],
+      [
+        'lykeion.workspace-tabs',
+        JSON.stringify({ account: 'a', selected: 9, pendingSwitch, tabs: [] }),
+      ],
+    ]);
+    const clearing = held<object>();
+    const t = await privateEditor(undefined, {
+      storage,
+      clear: clearing.promise,
+      sameOwner: true,
+      finalOwner,
+    });
+    try {
+      await vi.waitFor(() => expect(t.native.clearSession).toHaveBeenCalledOnce());
+      expect(t.auth.verifying.value).toBe(true);
+      expect(t.editor()).toBeUndefined();
+      expect(t.gatedCalls).toEqual([]);
+      clearing.resolve({});
+      await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
+      expect(t.router.currentRoute.value.path).toBe('/studies');
+      expect(JSON.parse(storage.get('lykeion.workspace-tabs')!)).toMatchObject({
+        account: 'a',
+        selected: 0,
+      });
+    } finally {
+      t.dispose();
+    }
+  },
+);
+
+it('reads the new identity after logout invalidates the cookie receipt during native clear', async () => {
+  const storage = new Map([
+    ['lykeion.verification', JSON.stringify({ accepted: true, wasLost: false })],
+  ]);
+  const clearing = held<object>();
+  const t = await privateEditor(undefined, { storage, clear: clearing.promise, nativeRead: true });
+  try {
+    await vi.waitFor(() => expect(t.native.clearSession).toHaveBeenCalledOnce());
+    t.finishVerification.mockImplementationOnce(() => false);
+    t.probe.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    clearing.resolve({});
+    await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
+    expect(t.probe).toHaveBeenCalledTimes(2);
+    expect(t.finishVerification.mock.calls).toEqual([
+      ['b', 'native-read-1', false],
+      [null, 'native-read-2', false],
+    ]);
+    expect(t.router.currentRoute.value.path).toBe('/signin');
+    expect(t.editor()).toBeUndefined();
+    expect(t.client.getQueryData(['me'])).toBeUndefined();
+    expect(t.native.configureSession).not.toHaveBeenCalled();
+    expect(t.gatedCalls).toEqual([]);
   } finally {
     t.dispose();
   }

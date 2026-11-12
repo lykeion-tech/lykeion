@@ -120,6 +120,9 @@ export async function requestDaemonAPI(url: string, options: RequestOptions): Pr
     redirect: 'error',
     signal: AbortSignal.timeout(5000),
   });
+  return readDesktopAuthResponse(response);
+}
+export async function readDesktopAuthResponse(response: Response): Promise<unknown> {
   if (!response.ok || !response.body) throw new Error('Desktop authentication request failed');
   const reader = response.body.getReader();
   let size = 0;
@@ -176,6 +179,35 @@ export class DaemonManager {
   }
   private fresh(version: number): boolean {
     return version === this.generation && !this.quitting;
+  }
+  verificationOwner() {
+    const version = this.generation;
+    const session = this.session;
+    const current = (id: string) =>
+      this.fresh(version) &&
+      (!this.options.supported || (session?.userID === id && this.session === session));
+    return {
+      current,
+      verify: async (id: string) => {
+        if (!current(id)) return false;
+        // A disabled manager cannot own a run. Its generation still fences a concurrent clear.
+        if (!this.options.supported) return true;
+        const owner = await readJSON(path.join(this.directory, 'owner.json'));
+        const config = await readJSON(this.config);
+        if (
+          owner?.userID !== id ||
+          config?.server !== this.apiOrigin ||
+          typeof config.token !== 'string' ||
+          !/^lyk_[A-Za-z0-9_-]+$/.test(config.token)
+        )
+          return false;
+        const me = object(
+          await this.request(this.apiOrigin + '/api/me', { method: 'GET', token: config.token }),
+        );
+        const status = await this.getSnapshot();
+        return current(id) && me.id === id && !status.error && status.status !== 'unknown';
+      },
+    };
   }
   private async available(): Promise<boolean> {
     if (!this.options.supported) return false;
@@ -482,7 +514,8 @@ export class DaemonManager {
       if (configured || (await this.snapshot()).status !== 'stopped') await this.stopManaged();
       await this.clearCredentials();
       const cleared = await this.snapshot();
-      if (cleared.status !== 'stopped') throw new Error('Desktop daemon stop could not be verified');
+      if (cleared.status !== 'stopped')
+        throw new Error('Desktop daemon stop could not be verified');
       return cleared;
     });
   }

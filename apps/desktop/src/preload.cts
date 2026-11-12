@@ -62,8 +62,21 @@ contextBridge.exposeInMainWorld(
           ...(startup && typeof startup !== 'string'
             ? {
                 verificationPending: startup.verificationPending,
-                finishVerification: () =>
-                  ipcRenderer.sendSync('lykeion:finish-verification', documentID) === true,
+                readVerification: () => ipcRenderer.invoke('lykeion:read-verification', documentID),
+                canRetainVerification: (id: string) =>
+                  ipcRenderer.invoke(
+                    'lykeion:can-retain-verification',
+                    documentID,
+                    id,
+                  ) as Promise<boolean>,
+                finishVerification: (id: string | null, receipt?: string, retaining?: boolean) =>
+                  ipcRenderer.sendSync(
+                    'lykeion:finish-verification',
+                    documentID,
+                    id,
+                    receipt,
+                    retaining,
+                  ) === true,
               }
             : {}),
           cancelRequest: (id: string) => ipcRenderer.send('lykeion:cancel-request', id),
