@@ -9,11 +9,13 @@
 
 	handle {
 		root * /srv
-		@assets path /assets/* /app/assets/*
+		@assets path /assets/* /app/assets/* /_next/static/*
 		header @assets Cache-Control "public, max-age=31536000, immutable"
-		@pages path / /app/
+		@pages path / /app/ /privacy/ /terms/
 		header @pages Cache-Control "no-cache"
 		redir /app /app/
+		redir /privacy /privacy/
+		redir /terms /terms/
 		file_server
 	}
 }
