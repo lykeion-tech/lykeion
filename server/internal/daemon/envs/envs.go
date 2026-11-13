@@ -686,7 +686,7 @@ func (s *Study) Packages(ctx context.Context, lang string) (string, error) {
 		// sandbox, just like its own interpreters and package manifests.
 		lock, err = run(ctx, nil, s.Dir, "/bin/cat", filepath.Join(s.Dir, "conda", "lock.txt"))
 	} else {
-		lock, err = os.ReadFile(filepath.Join(s.Bases.baseDir(lang), "lock.txt"))
+		lock, err = readBaseLock(filepath.Join(s.Bases.baseDir(lang), "lock.txt"))
 	}
 	if err != nil {
 		return "", err
