@@ -50,21 +50,18 @@ describe('landing to dashboard bridge', () => {
     );
     vi.stubGlobal('fetch', fetch);
     const bridge = await import('../apps/web/src/bridge');
-    const session = bridge.useSession();
-    await bridge.loadSession();
+    const session = await bridge.loadSession();
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/me', '/api/workspaces']);
-    expect(session.ready.value).toBe(true);
-    expect(session.ctaHref.value).toBe('/app/#/studies');
+    expect(session.destination).toBe('/app/#/studies');
   });
 
   it('keeps a refused identity signed out without asking for workspaces', async () => {
     const fetch = vi.fn(async () => new Response('{}', { status: 401 }));
     vi.stubGlobal('fetch', fetch);
     const bridge = await import('../apps/web/src/bridge');
-    const session = bridge.useSession();
-    await bridge.loadSession();
+    const session = await bridge.loadSession();
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(session.user.value).toBeNull();
-    expect(session.ctaHref.value).toBe(paths.login);
+    expect(session.user).toBeNull();
+    expect(session.destination).toBeNull();
   });
 });

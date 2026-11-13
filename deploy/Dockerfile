@@ -11,10 +11,12 @@ FROM node:24-alpine AS dashboard
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
+COPY apps/web/package.json apps/web/package-lock.json ./apps/web/
+RUN npm ci --prefix apps/web --no-audit --no-fund
 COPY . .
 ARG PUBLIC_URL
 RUN test -n "$PUBLIC_URL" \
- && npx vite build --config apps/web/vite.config.ts \
+ && npm run web:build \
  && LYK_API_URL="$PUBLIC_URL" npx vite build --config apps/dashboard/vite.config.ts --base /app/
 
 FROM alpine:3.22 AS server
@@ -33,5 +35,5 @@ CMD ["backup"]
 
 FROM caddy:2-alpine AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
-COPY --from=dashboard /src/dist/web /srv
+COPY --from=dashboard /src/apps/web/out /srv
 COPY --from=dashboard /src/dist/dashboard /srv/app

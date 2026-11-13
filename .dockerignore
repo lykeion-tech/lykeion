@@ -5,3 +5,7 @@ dist
 docs
 research
 apps/desktop/out
+
+apps/web/.next
+apps/web/.next-production
+apps/web/out
