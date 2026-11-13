@@ -12,6 +12,7 @@ git archive --format=tar "$ref" | ssh "$host" '
   rm -rf ~/lykeion/src && mv ~/lykeion/src.new ~/lykeion/src
   cd ~/lykeion/src/deploy
   docker compose --env-file ~/lykeion/.env up -d --build --remove-orphans
+  docker compose --env-file ~/lykeion/.env --profile backup build -q backup
   docker image prune -f >/dev/null
   docker compose --env-file ~/lykeion/.env ps
 '
