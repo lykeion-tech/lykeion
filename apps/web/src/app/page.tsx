@@ -17,17 +17,17 @@ const cases = [
 
 
 const photos = [
-  ['01-board.png', 'Study board showing a demo research question', 'Study board'],
-  ['02-study.png', 'Study activity with the Grounding Team’s research findings', 'Study activity'],
-  ['03-agents.png', 'List of agents in the demo workspace', 'Agents'],
-  ['04-teams.png', 'Research teams in the demo workspace', 'Teams'],
-  ['05-aristotle.png', 'Aristotle’s agent detail page', 'Aristotle'],
-  ['06-lab.png', 'The Lykeion lab and its connected rooms', 'The lab'],
+  ['01-board.webp', 'Study board showing a demo research question', 'Study board'],
+  ['02-study.webp', 'Study activity with the Grounding Team’s research findings', 'Study activity'],
+  ['03-agents.webp', 'List of agents in the demo workspace', 'Agents'],
+  ['04-teams.webp', 'Research teams in the demo workspace', 'Teams'],
+  ['05-aristotle.webp', 'Aristotle’s agent detail page', 'Aristotle'],
+  ['06-lab.webp', 'The Lykeion lab and its connected rooms', 'The lab'],
 ];
 const roleVideos = [
-  ['v1-evidence.mp4', '01-board.png', 'A study and its evidence'],
-  ['v2-aristotle.mp4', '05-aristotle.png', 'Aristotle’s agent capabilities'],
-  ['v3-aristotle-answer.mp4', '01-board.png', 'Asking Aristotle about a study'],
+  ['v1-evidence.mp4', '01-board.webp', 'A study and its evidence'],
+  ['v2-aristotle.mp4', '05-aristotle.webp', 'Aristotle’s agent capabilities'],
+  ['v3-aristotle-answer.mp4', '01-board.webp', 'Asking Aristotle about a study'],
 ];
 
 function VideoPreview({ video }: { video: string[] }) {

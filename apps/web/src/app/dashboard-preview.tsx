@@ -3,19 +3,19 @@
 import { useEffect, useRef, useState } from 'react';
 
 const screens = {
-  board: { label: 'Studies board', image: '/demo-photos/01-board.png' },
-  study: { label: 'Study activity', image: '/demo-photos/02-study.png' },
-  myStudies: { label: 'My Studies', image: '/demo-preview/demo-my-studies.png' },
-  workflows: { label: 'Workflows', image: '/demo-preview/demo-workflows.png' },
-  projects: { label: 'Projects', image: '/demo-preview/demo-projects.png' },
-  coresearch: { label: 'Coresearch', image: '/demo-preview/demo-coresearch.png' },
-  autoresearch: { label: 'Autoresearch', image: '/demo-preview/demo-autoresearch.png' },
-  colleagues: { label: 'Colleagues', image: '/demo-preview/demo-colleagues.png' },
-  teams: { label: 'Teams', image: '/demo-photos/04-teams.png' },
-  agents: { label: 'Agents', image: '/demo-preview/demo-agents.png' },
-  aristotle: { label: 'Aristotle', image: '/demo-photos/05-aristotle.png' },
-  capabilities: { label: 'Aristotle’s capabilities', image: '/demo-preview/aristotle-capabilities.png' },
-  lab: { label: 'Lykeion lab', image: '/demo-photos/06-lab.png' },
+  board: { label: 'Studies board', image: '/demo-photos/01-board.webp' },
+  study: { label: 'Study activity', image: '/demo-photos/02-study.webp' },
+  myStudies: { label: 'My Studies', image: '/demo-preview/demo-my-studies.webp' },
+  workflows: { label: 'Workflows', image: '/demo-preview/demo-workflows.webp' },
+  projects: { label: 'Projects', image: '/demo-preview/demo-projects.webp' },
+  coresearch: { label: 'Coresearch', image: '/demo-preview/demo-coresearch.webp' },
+  autoresearch: { label: 'Autoresearch', image: '/demo-preview/demo-autoresearch.webp' },
+  colleagues: { label: 'Colleagues', image: '/demo-preview/demo-colleagues.webp' },
+  teams: { label: 'Teams', image: '/demo-photos/04-teams.webp' },
+  agents: { label: 'Agents', image: '/demo-preview/demo-agents.webp' },
+  aristotle: { label: 'Aristotle', image: '/demo-photos/05-aristotle.webp' },
+  capabilities: { label: 'Aristotle’s capabilities', image: '/demo-preview/aristotle-capabilities.webp' },
+  lab: { label: 'Lykeion lab', image: '/demo-photos/06-lab.webp' },
 } as const;
 type Screen = keyof typeof screens;
 type Hotspot = { label: string; to: Screen; x: number; y: number; width: number; height: number };
@@ -84,16 +84,16 @@ export default function DashboardPreview() {
         <img src={screens[screen].image} alt={`Lykeion demo: ${screens[screen].label}`} width="1440" height="900" draggable={false}/>
         {screen === 'board' && <div className="dashboard-board-scroll" ref={board} tabIndex={0} aria-label="Studies board; scroll to see more stages">
           <div className="dashboard-board-content">
-            <img src="/demo-preview/board-scroll.png" alt="Studies board stages" width="2136" height="731" draggable={false}/>
+            <img src="/demo-preview/board-scroll.webp" alt="Studies board stages" width="2136" height="731" draggable={false}/>
             <button className="dashboard-hotspot board-study" aria-label="Open the sleep and memory study" onClick={() => show('study')}/>
             <button className="dashboard-hotspot board-create" aria-label="Create a study" onClick={requireSignIn}/>
           </div>
         </div>}
         {[...nav, ...(details[screen] ?? [])].map(h => <button key={h.label} className="dashboard-hotspot" aria-label={h.label} title={h.label} onClick={() => show(h.to)} style={{ left: `${h.x / 14.4}%`, top: `${h.y / 9}%`, width: `${h.width / 14.4}%`, height: `${h.height / 9}%` }}/>) }
         {(screen === 'coresearch' ? [] : signInActions).map(h => <button key={h.label} className="dashboard-hotspot" aria-label={h.label} title={h.label} onClick={requireSignIn} style={{ left: `${h.x / 14.4}%`, top: `${h.y / 9}%`, width: `${h.width / 14.4}%`, height: `${h.height / 9}%` }}/>) }
-        {!aristotleOpen && <button className="dashboard-hotspot aristotle-trigger" aria-label="Open Aristotle’s floating window" title="Open Aristotle" onClick={() => { setAristotleExpanded(false); setAristotleOpen(true); }} style={{right:'1%',bottom:'1%',width:'4%',height:'6%',zIndex:1,background:screen === 'board' ? 'url(/demo-preview/aristotle-button.png) center/128% 128% no-repeat' : undefined}}/>}
+        {!aristotleOpen && <button className="dashboard-hotspot aristotle-trigger" aria-label="Open Aristotle’s floating window" title="Open Aristotle" onClick={() => { setAristotleExpanded(false); setAristotleOpen(true); }} style={{right:'1%',bottom:'1%',width:'4%',height:'6%',zIndex:1,background:screen === 'board' ? 'url(/demo-preview/aristotle-button.webp) center/128% 128% no-repeat' : undefined}}/>}
         {aristotleOpen && <div className={aristotleExpanded ? "dashboard-aristotle expanded" : "dashboard-aristotle"}>
-          <img src={aristotleExpanded ? "/demo-preview/aristotle-expanded.png" : "/demo-preview/aristotle-window.png"} alt={aristotleExpanded ? "Aristotle’s expanded window" : "Aristotle’s floating window"} width="426" height={aristotleExpanded ? 556 : 116}/>
+          <img src={aristotleExpanded ? "/demo-preview/aristotle-expanded.webp" : "/demo-preview/aristotle-window.webp"} alt={aristotleExpanded ? "Aristotle’s expanded window" : "Aristotle’s floating window"} width="426" height={aristotleExpanded ? 556 : 116}/>
           <button className="dashboard-hotspot aristotle-close" aria-label="Minimize Aristotle" title="Minimize Aristotle" onClick={() => setAristotleOpen(false)}/>
           <button className="dashboard-hotspot aristotle-chat" aria-label={aristotleExpanded ? "Ask Aristotle" : "Expand Aristotle"} title={aristotleExpanded ? "Ask Aristotle" : "Expand Aristotle"} onClick={aristotleExpanded ? requireSignIn : () => setAristotleExpanded(true)}/>
           {aristotleExpanded && <button className="dashboard-hotspot aristotle-suggestions" aria-label="Ask a suggested question" title="Ask a suggested question" onClick={requireSignIn}/>}
