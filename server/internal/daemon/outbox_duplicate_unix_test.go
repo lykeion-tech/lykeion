@@ -21,7 +21,7 @@ func TestOutboxExistingRecordSyncFailures(t *testing.T) {
 	path := ob.file(r)
 	for _, failAt := range []int{1, 2, 3} {
 		calls := 0
-		err := syncExistingReport(path, r, func(f *os.File) error {
+		err := syncExistingReport(path, dir, r, func(f *os.File) error {
 			calls++
 			if calls == failAt {
 				return errors.New("injected sync failure")
@@ -32,12 +32,12 @@ func TestOutboxExistingRecordSyncFailures(t *testing.T) {
 			t.Fatalf("sync %d failure ignored", failAt)
 		}
 	}
-	if err := syncExistingReport(path, r, func(f *os.File) error { return f.Sync() }); err != nil {
+	if err := syncExistingReport(path, dir, r, func(f *os.File) error { return f.Sync() }); err != nil {
 		t.Fatal(err)
 	}
 	changed := r
 	changed.Error = "different"
-	if err := syncExistingReport(path, changed, func(f *os.File) error { return f.Sync() }); err == nil {
+	if err := syncExistingReport(path, dir, changed, func(f *os.File) error { return f.Sync() }); err == nil {
 		t.Fatal("conflict accepted")
 	}
 }
@@ -48,14 +48,14 @@ func TestOutboxExistingRecordRejectsLinksAndFIFO(t *testing.T) {
 	if err := os.Symlink("target", path); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncExistingReport(path, r, func(f *os.File) error { return f.Sync() }); err == nil {
+	if err := syncExistingReport(path, dir, r, func(f *os.File) error { return f.Sync() }); err == nil {
 		t.Fatal("symlink accepted")
 	}
 	must(t, os.Remove(path))
 	if err := unix.Mkfifo(path, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncExistingReport(path, r, func(f *os.File) error { return f.Sync() }); err == nil {
+	if err := syncExistingReport(path, dir, r, func(f *os.File) error { return f.Sync() }); err == nil {
 		t.Fatal("FIFO accepted")
 	}
 }
@@ -90,7 +90,7 @@ func TestOutboxObservedRecordDisappearanceIsNotAbsent(t *testing.T) {
 	ob := &Outbox{Dir: dir}
 	must(t, ob.Put(r))
 	path := ob.file(r)
-	err := syncExistingReport(path, r, func(f *os.File) error {
+	err := syncExistingReport(path, dir, r, func(f *os.File) error {
 		if f.Name() == path {
 			return os.Remove(path)
 		}
@@ -98,5 +98,24 @@ func TestOutboxObservedRecordDisappearanceIsNotAbsent(t *testing.T) {
 	})
 	if err == nil || errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("disappearance misclassified: %v", err)
+	}
+}
+
+func TestQuarantinedDuplicateRequiresQueueParentSync(t *testing.T) {
+	state := t.TempDir()
+	dir := filepath.Join(state, "queue")
+	q := filepath.Join(dir, "quarantine")
+	r := reportFixture()
+	must(t, atomicJSON(q, filepath.Base((&Outbox{Dir: dir}).file(r)), r))
+	calls := 0
+	err := syncExistingReport(filepath.Join(q, filepath.Base((&Outbox{Dir: dir}).file(r))), dir, r, func(f *os.File) error {
+		calls++
+		if calls == 4 {
+			return errors.New("injected queue parent sync failure")
+		}
+		return f.Sync()
+	})
+	if err == nil {
+		t.Fatalf("queue parent failure ignored; calls=%d", calls)
 	}
 }

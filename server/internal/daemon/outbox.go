@@ -171,7 +171,7 @@ func (o *Outbox) Put(r Report) error {
 		return err
 	}
 	for _, path := range []string{o.file(r), filepath.Join(o.Dir, "quarantine", filepath.Base(o.file(r)))} {
-		if err := syncExistingReport(path, r, (*os.File).Sync); err == nil {
+		if err := syncExistingReport(path, o.Dir, r, (*os.File).Sync); err == nil {
 			return nil
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err

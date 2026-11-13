@@ -9,7 +9,7 @@ import (
 
 // Other platforms retain their existing queue behavior; daemon ownership is
 // currently unsupported there and no Unix durability guarantee is implied.
-func syncExistingReport(path string, want Report, _ func(*os.File) error) error {
+func syncExistingReport(path, queueDir string, want Report, _ func(*os.File) error) error {
 	got, err := readReport(path)
 	if err != nil {
 		return err
