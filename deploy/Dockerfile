@@ -27,7 +27,7 @@ EXPOSE 8080
 CMD ["server"]
 
 FROM alpine:3.22 AS backup
-RUN apk add --no-cache ca-certificates postgresql17-client age rclone tar
+RUN apk add --no-cache ca-certificates postgresql17-client age rclone tar curl
 COPY deploy/backup.sh /usr/local/bin/backup
 CMD ["backup"]
 
