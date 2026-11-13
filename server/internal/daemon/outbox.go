@@ -62,9 +62,10 @@ type wireMsg struct {
 	Content json.RawMessage `json:"content"`
 }
 type Outbox struct {
-	Dir  string
-	Send func(context.Context, Report) error
-	mu   sync.Mutex
+	Dir     string
+	Send    func(context.Context, Report) error
+	mu      sync.Mutex
+	ownerMu *sync.Mutex
 }
 
 func Permanent(err error) bool {
@@ -157,6 +158,10 @@ func readReport(path string) (Report, error) {
 	return r, err
 }
 func (o *Outbox) Put(r Report) error {
+	if o.ownerMu != nil {
+		o.ownerMu.Lock()
+		defer o.ownerMu.Unlock()
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if r.AgentRunID == uuid.Nil || r.Attempt <= 0 {

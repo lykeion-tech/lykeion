@@ -165,3 +165,27 @@ func TestOutboxQuarantineCollisionPreservesBothPayloads(t *testing.T) {
 		t.Fatal("lost pending evidence", err)
 	}
 }
+
+func TestAttemptJournalWritesShareDaemonLock(t *testing.T) {
+	d := &daemon{cfg: Config{StateDir: t.TempDir()}}
+	r := reportFixture()
+	d.attemptMu.Lock()
+	done := make(chan error, 1)
+	go func() { done <- d.journal().Put(r) }()
+	select {
+	case err := <-done:
+		t.Fatalf("attempt write bypassed owner lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	d.attemptMu.Unlock()
+	must(t, <-done)
+	d.attemptMu.Lock()
+	go func() { done <- d.forgetAttempt(r) }()
+	select {
+	case err := <-done:
+		t.Fatalf("attempt removal bypassed owner lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	d.attemptMu.Unlock()
+	must(t, <-done)
+}

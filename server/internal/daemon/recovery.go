@@ -12,8 +12,12 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
-func (d *daemon) journal() *Outbox { return &Outbox{Dir: filepath.Join(d.cfg.StateDir, "attempts")} }
+func (d *daemon) journal() *Outbox {
+	return &Outbox{Dir: filepath.Join(d.cfg.StateDir, "attempts"), ownerMu: &d.attemptMu}
+}
 func (d *daemon) forgetAttempt(r Report) error {
+	d.attemptMu.Lock()
+	defer d.attemptMu.Unlock()
 	j := d.journal()
 	if err := os.Remove(j.file(r)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

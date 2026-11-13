@@ -138,6 +138,7 @@ type daemon struct {
 	chats              map[uuid.UUID]*chatHost
 	coreActive         map[string]bool
 	coreWork           map[uuid.UUID]bool
+	attemptMu          sync.Mutex
 	coreReceiptMu      sync.Mutex
 	coreReceiptFlights map[string]*coreReceiptFlight
 
