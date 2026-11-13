@@ -1,0 +1,101 @@
+# Production stack: Caddy (HTTPS + dashboard) in front of the server, with
+# PostgreSQL and Redis on an internal network. Only Caddy publishes ports.
+name: lykeion
+
+x-build: &build
+  context: ..
+  dockerfile: deploy/Dockerfile
+  args:
+    PUBLIC_URL: https://${DOMAIN:?}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: owner
+      POSTGRES_PASSWORD: ${OWNER_DB_PASSWORD:?}
+      POSTGRES_DB: lykeion
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: pg_isready -U owner -d lykeion
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: redis-cli ping
+      interval: 5s
+      retries: 10
+
+  migrate:
+    build: { <<: *build, target: server }
+    image: lykeion-server
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      MIGRATE_DATABASE_URL: postgres://owner:${OWNER_DB_PASSWORD}@postgres:5432/lykeion?sslmode=disable
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?}
+    command:
+      - sh
+      - -ec
+      - |
+        migrate
+        printf "ALTER ROLE lykeion_app LOGIN PASSWORD '%s';" "$$APP_DB_PASSWORD" | psql -q -v ON_ERROR_STOP=1 "$$MIGRATE_DATABASE_URL"
+
+  server:
+    image: lykeion-server
+    restart: unless-stopped
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      LISTEN_ADDR: :8080
+      PUBLIC_URL: https://${DOMAIN}
+      TRUSTED_PROXIES: 172.30.0.0/24
+      DATABASE_URL: postgres://lykeion_app:${APP_DB_PASSWORD}@postgres:5432/lykeion?sslmode=disable
+      MIGRATE_DATABASE_URL: postgres://owner:${OWNER_DB_PASSWORD}@postgres:5432/lykeion?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      STORAGE: local:/data/blobs
+      JWT_SECRET: ${JWT_SECRET:?}
+      LYK_SECRET_KEY: ${LYK_SECRET_KEY:?}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      SMTP_ADDR: ${SMTP_ADDR:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-}
+    volumes: [blobs:/data/blobs]
+    healthcheck:
+      test: wget -q --spider http://127.0.0.1:8080/readyz
+      interval: 10s
+      retries: 6
+
+  caddy:
+    build: { <<: *build, target: web }
+    image: lykeion-web
+    restart: unless-stopped
+    depends_on: [server]
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: [caddydata:/data, caddyconfig:/config]
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: 172.30.0.0/24 }]
+
+volumes:
+  pgdata:
+  redisdata:
+  blobs:
+  caddydata:
+  caddyconfig:

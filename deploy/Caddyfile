@@ -1,0 +1,17 @@
+{$DOMAIN} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+
+	@server path /api/* /auth/* /ws /mcp/* /health /readyz
+	handle @server {
+		reverse_proxy server:8080
+	}
+
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header / Cache-Control "no-cache"
+		file_server
+	}
+}
