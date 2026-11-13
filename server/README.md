@@ -19,6 +19,21 @@ an interactive psql session using `ALTER ROLE lykeion_app LOGIN` and
 `\password lykeion_app`. Do not make it a member of an owning/privileged role.
 The server still runs migrations on every start under the separate owner URL.
 
+For deployments that run migrations as a separate step, use the migration
+command from the same release before starting any servers. Then set
+`MIGRATIONS_MODE=external` for the server and omit `MIGRATE_DATABASE_URL` from
+the server process environment. The server checks that every migration in its
+release exactly matches the database's recorded versions before becoming ready;
+it refuses startup if the check is unavailable, versions differ, or a migration
+is in progress at startup. Stop all external-mode servers before running a
+migration, then start servers from the matching release; deployment tooling
+must enforce this exclusion. The startup check does not prevent a migration
+from beginning later while a server is running. An older external-mode server
+will not start after a newer release migrates the database. The check does not verify
+migration file contents. Keep the owner credential only
+in the migration step. The default `MIGRATIONS_MODE=auto` retains automatic
+migrations and requires `MIGRATE_DATABASE_URL` on every server start.
+
 ## Local run
 
 Set these environment variables with your local credentials:

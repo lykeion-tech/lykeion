@@ -2,6 +2,7 @@ package migrate_test
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -11,6 +12,23 @@ import (
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/testutil"
 )
+
+func TestVersionsValidatesAndSorts(t *testing.T) {
+	files := fstest.MapFS{"0010_second.up.sql": {Data: []byte("SELECT 1")}, "0002_first.up.sql": {Data: []byte("SELECT 1")}}
+	got, err := migrate.Versions(files)
+	if err != nil || !reflect.DeepEqual(got, []int32{2, 10}) {
+		t.Fatalf("versions: %v %v", got, err)
+	}
+	files["0010_duplicate.up.sql"] = &fstest.MapFile{Data: []byte("SELECT 1")}
+	if _, err := migrate.Versions(files); err == nil {
+		t.Fatal("duplicate accepted")
+	}
+	delete(files, "0010_duplicate.up.sql")
+	files["bad.up.sql"] = &fstest.MapFile{Data: []byte("SELECT 1")}
+	if _, err := migrate.Versions(files); err == nil {
+		t.Fatal("invalid name accepted")
+	}
+}
 
 func TestUpAppliesOnceInOrder(t *testing.T) {
 	env := testutil.Setup(t)

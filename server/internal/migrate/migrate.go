@@ -13,39 +13,65 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const lockKey = 724501
+// LockKey coordinates the migration writer with startup compatibility checks.
+const LockKey int64 = 724501
 
-func Up(ctx context.Context, conn *pgx.Conn, fsys fs.FS) error {
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
-		return err
-	}
-	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
-	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		return err
-	}
+type file struct {
+	version int
+	name    string
+}
+
+func files(fsys fs.FS) ([]file, error) {
 	files, err := fs.Glob(fsys, "*.up.sql")
 	if err != nil {
-		return err
-	}
-	type file struct {
-		version int
-		name    string
+		return nil, err
 	}
 	var todo []file
 	versions := make(map[int]string)
 	for _, f := range files {
 		v, err := strconv.Atoi(strings.SplitN(f, "_", 2)[0])
 		if err != nil {
-			return fmt.Errorf("migration %s: name must start with a number", f)
+			return nil, fmt.Errorf("migration %s: name must start with a number", f)
 		}
 		if previous, ok := versions[v]; ok {
-			return fmt.Errorf("duplicate migration version %d: %s and %s", v, previous, f)
+			return nil, fmt.Errorf("duplicate migration version %d: %s and %s", v, previous, f)
 		}
 		versions[v] = f
 		todo = append(todo, file{v, f})
 	}
 	sort.Slice(todo, func(i, j int) bool { return todo[i].version < todo[j].version })
+	return todo, nil
+}
+
+// Versions returns every embedded migration version in application order.
+func Versions(fsys fs.FS) ([]int32, error) {
+	all, err := files(fsys)
+	if err != nil {
+		return nil, err
+	}
+	versions := make([]int32, 0, len(all))
+	for _, f := range all {
+		if f.version < 1 || int64(f.version) > 2147483647 {
+			return nil, fmt.Errorf("invalid migration version: %d", f.version)
+		}
+		versions = append(versions, int32(f.version))
+	}
+	return versions, nil
+}
+
+func Up(ctx context.Context, conn *pgx.Conn, fsys fs.FS) error {
+	todo, err := files(fsys)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", LockKey); err != nil {
+		return err
+	}
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", LockKey)
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		return err
+	}
 	for _, f := range todo {
 		var done bool
 		if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", f.version).Scan(&done); err != nil {

@@ -74,7 +74,9 @@ The server also applies migrations each time it starts.
 
 | Variable                                                    | Purpose                                                                                            |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `MIGRATE_DATABASE_URL`, `DATABASE_URL`, `REDIS_URL`         | Required                                                                                           |
+| `DATABASE_URL`, `REDIS_URL`                                | Required                                                                                           |
+| `MIGRATE_DATABASE_URL`                                     | Required by default; omit from server processes using `MIGRATIONS_MODE=external` after running the release's `cmd/migrate` |
+| `MIGRATIONS_MODE`                                          | `auto` (default) runs migrations at startup; `external` checks migrations applied by a separate step |
 | `JWT_SECRET`                                                | Required, at least 32 bytes                                                                        |
 | `STORAGE`                                                   | `local:/abs/path` or `s3` (`S3_BUCKET`, `S3_REGION`, optional `S3_ENDPOINT` and AWS keys)          |
 | `PUBLIC_URL`                                                | Where people reach the dashboard. Used for invite links, sign-in redirects and the sources MCP URL |

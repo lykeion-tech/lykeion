@@ -99,24 +99,33 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if len(secret) < 32 {
 		return errors.New("JWT_SECRET must be at least 32 bytes")
 	}
-	for _, key := range []string{"DATABASE_URL", "MIGRATE_DATABASE_URL", "REDIS_URL"} {
+	mode := getenv("MIGRATIONS_MODE")
+	if mode != "" && mode != "auto" && mode != "external" {
+		return errors.New("MIGRATIONS_MODE must be auto or external")
+	}
+	for _, key := range []string{"DATABASE_URL", "REDIS_URL"} {
 		if getenv(key) == "" {
 			return fmt.Errorf("%s is required", key)
 		}
 	}
-	owner, err := pgx.Connect(ctx, getenv("MIGRATE_DATABASE_URL"))
-	if err != nil {
-		return fmt.Errorf("MIGRATE_DATABASE_URL: %w", err)
-	}
-	err = migrate.Up(ctx, owner, migrations.FS)
-	closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	closeErr := owner.Close(closeCtx)
-	closeCancel()
-	if err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close migration connection: %w", closeErr)
+	if mode != "external" {
+		if getenv("MIGRATE_DATABASE_URL") == "" {
+			return errors.New("MIGRATE_DATABASE_URL is required")
+		}
+		owner, err := pgx.Connect(ctx, getenv("MIGRATE_DATABASE_URL"))
+		if err != nil {
+			return fmt.Errorf("MIGRATE_DATABASE_URL: %w", err)
+		}
+		err = migrate.Up(ctx, owner, migrations.FS)
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		closeErr := owner.Close(closeCtx)
+		closeCancel()
+		if err != nil {
+			return fmt.Errorf("migrate: %w", err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close migration connection: %w", closeErr)
+		}
 	}
 	pool, err := pgxpool.New(ctx, getenv("DATABASE_URL"))
 	if err != nil {
@@ -136,6 +145,41 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	}
 	if !safe {
 		return errors.New("DATABASE_URL must use lykeion_app without superuser, BYPASSRLS or table ownership privileges")
+	}
+	if mode == "external" {
+		versions, err := migrate.Versions(migrations.FS)
+		if err != nil {
+			return fmt.Errorf("migration versions unavailable: %w", err)
+		}
+		if len(versions) == 0 {
+			return errors.New("migration versions unavailable: no embedded migrations")
+		}
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+		if err != nil {
+			return fmt.Errorf("migration compatibility transaction: %w", err)
+		}
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = tx.Rollback(cleanupCtx)
+		}()
+		var locked bool
+		if err := tx.QueryRow(ctx, `SELECT pg_catalog.pg_try_advisory_xact_lock_shared($1::bigint)`, migrate.LockKey).Scan(&locked); err != nil {
+			return fmt.Errorf("migration compatibility lock: %w", err)
+		}
+		if !locked {
+			return errors.New("migration compatibility check failed: a migration is in progress")
+		}
+		var compatible bool
+		if err := tx.QueryRow(ctx, `SELECT public.lykeion_schema_compatible($1::integer[])`, versions).Scan(&compatible); err != nil {
+			return fmt.Errorf("migration compatibility check: %w", err)
+		}
+		if !compatible {
+			return errors.New("migration compatibility check failed: apply the migrations for this release before starting the server")
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("migration compatibility transaction: %w", err)
+		}
 	}
 	opt, err := redis.ParseURL(getenv("REDIS_URL"))
 	if err != nil {

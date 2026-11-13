@@ -14,9 +14,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/testutil"
+	"lykeion/server/migrations"
 )
 
 // TestMain serves pack checks when the test binary is started as a check child.
@@ -146,6 +149,182 @@ func TestServerRefusesWeakSecret(t *testing.T) {
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "JWT_SECRET") {
 		t.Fatalf("weak secret: %v", err)
+	}
+}
+
+func TestExternalMigrationsServeWithoutOwnerCredential(t *testing.T) {
+	env := testutil.Setup(t)
+	values := config(t, env)
+	values["MIGRATIONS_MODE"] = "external"
+	delete(values, "MIGRATE_DATABASE_URL")
+	_, cancel, done := start(t, values)
+	cancel()
+	stopped(t, done)
+	if _, err := env.App.Exec(t.Context(), `SELECT * FROM public.schema_migrations`); err == nil {
+		t.Fatal("app role can read migration ledger")
+	}
+	if _, err := env.App.Exec(t.Context(), `DELETE FROM public.schema_migrations`); err == nil {
+		t.Fatal("app role can write migration ledger")
+	}
+}
+
+func TestExternalMigrationCheckerRejectsInvalidVersionSets(t *testing.T) {
+	env := testutil.Setup(t)
+	versions, err := migrate.Versions(migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expr := range []string{
+		`array_append($1::integer[], NULL::integer)`,
+		`array_append($1::integer[], ($1::integer[])[1])`,
+		`array_append($1::integer[], 0)`,
+		`($1::integer[])[1:0]`,
+	} {
+		var ok bool
+		if err := env.App.QueryRow(t.Context(), `SELECT public.lykeion_schema_compatible(`+expr+`)`, versions).Scan(&ok); err != nil {
+			t.Fatalf("%s: %v", expr, err)
+		}
+		if ok {
+			t.Fatalf("invalid version set accepted: %s", expr)
+		}
+	}
+}
+
+func TestExternalMigrationCheckerAfterConcurrentCommit(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	versions, err := migrate.Versions(migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readCommitted, err := env.App.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readCommitted.Rollback(context.Background())
+	repeatable, err := env.App.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repeatable.Rollback(context.Background())
+	for _, tx := range []pgx.Tx{readCommitted, repeatable} {
+		var one int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public."user"`).Scan(&one); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer, err := env.Owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(context.Background())
+	if _, err := writer.Exec(ctx, `SELECT pg_advisory_xact_lock($1::bigint)`, migrate.LockKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Exec(ctx, `INSERT INTO public.schema_migrations(version) VALUES (999999)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var locked bool
+	if err := readCommitted.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock_shared($1::bigint)`, migrate.LockKey).Scan(&locked); err != nil || !locked {
+		t.Fatalf("shared lock: %v %v", locked, err)
+	}
+	for _, tx := range []pgx.Tx{readCommitted, repeatable} {
+		var compatible bool
+		if err := tx.QueryRow(ctx, `SELECT public.lykeion_schema_compatible($1::integer[])`, versions).Scan(&compatible); err != nil {
+			t.Fatal(err)
+		}
+		if compatible {
+			t.Fatal("stale schema accepted")
+		}
+	}
+}
+
+func TestExternalMigrationsRejectIncompleteSchema(t *testing.T) {
+	env := testutil.Setup(t)
+	if _, err := env.Owner.Exec(t.Context(), `DELETE FROM public.schema_migrations WHERE version=1`); err != nil {
+		t.Fatal(err)
+	}
+	values := config(t, env)
+	values["MIGRATIONS_MODE"] = "external"
+	values["MIGRATE_DATABASE_URL"] = "not a database URL"
+	ready := make(chan string, 1)
+	err := run(t.Context(), func(k string) string { return values[k] }, ready)
+	if err == nil || !strings.Contains(err.Error(), "migration") {
+		t.Fatalf("incomplete schema: %v", err)
+	}
+	select {
+	case addr := <-ready:
+		t.Fatalf("announced ready: %s", addr)
+	default:
+	}
+}
+
+func TestExternalMigrationsFailClosedBeforeReady(t *testing.T) {
+	for _, scenario := range []string{"missing checker", "migration lock", "unsafe role"} {
+		t.Run(scenario, func(t *testing.T) {
+			env := testutil.Setup(t)
+			values := config(t, env)
+			values["MIGRATIONS_MODE"] = "external"
+			delete(values, "MIGRATE_DATABASE_URL")
+			switch scenario {
+			case "missing checker":
+				if _, err := env.Owner.Exec(t.Context(), `DROP FUNCTION public.lykeion_schema_compatible(integer[])`); err != nil {
+					t.Fatal(err)
+				}
+			case "migration lock":
+				conn, err := env.Owner.Acquire(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Release()
+				if _, err := conn.Exec(t.Context(), `SELECT pg_advisory_lock(724501::bigint)`); err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(724501::bigint)`)
+			case "unsafe role":
+				values["DATABASE_URL"] = env.OwnerURL
+			}
+			ready := make(chan string, 1)
+			err := run(t.Context(), func(k string) string { return values[k] }, ready)
+			if err == nil {
+				t.Fatal("unsafe startup succeeded")
+			}
+			select {
+			case addr := <-ready:
+				t.Fatalf("announced ready: %s", addr)
+			default:
+			}
+		})
+	}
+}
+
+func TestExternalMigrationsRejectFutureVersions(t *testing.T) {
+	env := testutil.Setup(t)
+	if _, err := env.Owner.Exec(t.Context(), `INSERT INTO public.schema_migrations(version) VALUES (999999)`); err != nil {
+		t.Fatal(err)
+	}
+	values := config(t, env)
+	values["MIGRATIONS_MODE"] = "external"
+	values["MIGRATE_DATABASE_URL"] = "not a database URL"
+	ready := make(chan string, 1)
+	err := run(t.Context(), func(k string) string { return values[k] }, ready)
+	if err == nil || !strings.Contains(err.Error(), "migration") {
+		t.Fatalf("newer schema: %v", err)
+	}
+	select {
+	case addr := <-ready:
+		t.Fatalf("announced ready: %s", addr)
+	default:
+	}
+}
+
+func TestServerRejectsUnknownMigrationMode(t *testing.T) {
+	values := map[string]string{"JWT_SECRET": "0123456789abcdef0123456789abcdef", "MIGRATIONS_MODE": "externl"}
+	if err := run(t.Context(), func(k string) string { return values[k] }, nil); err == nil || !strings.Contains(err.Error(), "MIGRATIONS_MODE") {
+		t.Fatalf("unknown mode: %v", err)
 	}
 }
 
