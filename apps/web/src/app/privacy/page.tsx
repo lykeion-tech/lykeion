@@ -96,6 +96,12 @@ export default function PrivacyPage() {
               " handles Google sign-in, only if you choose it, under Google's own privacy policy.\n        "
             }
           </li>
+          <li>
+            <strong>{'TypeSafe AI, Inc.'}</strong>
+            {
+              ' runs Jev, the AI model that reviews a study before it moves to the next stage. It receives the\n          study content under review, including attached images, but not your account details. It processes them in\n          the United States and does not use them to train its models.\n        '
+            }
+          </li>
         </ul>
         <p>
           {

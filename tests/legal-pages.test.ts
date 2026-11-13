@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { parse } = require('../apps/web/node_modules/next/dist/compiled/node-html-parser');
 const expected = {
   privacy: [
-    'f20815c9d80d5affd306c20e1ca36b32f7ea80701a18e0d38878d6e93e8b54e1',
+    '0759c72eb496d64290e990fe1e5ff9df51e9feb83b60ee089f023d4bed16ed08',
     'Privacy Policy · Lykeion',
   ],
   terms: [
