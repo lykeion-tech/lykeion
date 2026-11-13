@@ -872,8 +872,19 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 		}
 		// Upgraded daemons advertise only supported harnesses. Reject old queued
 		// work before matching a runtime, under the same owner and workspace scope.
+		workspaceCount := 0
+		for i, ref := range ordered {
+			if i == 0 || ordered[i-1].WorkspaceID != ref.WorkspaceID {
+				workspaceCount++
+			}
+		}
+		budget := 64
+		quota := min(32, max(1, budget/max(1, workspaceCount)))
 		seen := map[uuid.UUID]bool{}
 		for _, ref := range ordered {
+			if budget == 0 {
+				break
+			}
 			if seen[ref.WorkspaceID] {
 				continue
 			}
@@ -881,10 +892,11 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 			if err := tx.Workspace(ctx, ref.WorkspaceID); err != nil {
 				return err
 			}
-			removed, err := tx.Q.LockRemovedHarnessQueue(ctx, db.LockRemovedHarnessQueueParams{WorkspaceID: ref.WorkspaceID, OwnerID: user})
+			removed, err := tx.Q.LockRemovedHarnessQueue(ctx, db.LockRemovedHarnessQueueParams{WorkspaceID: ref.WorkspaceID, OwnerID: user, BatchLimit: int32(min(quota, budget))})
 			if err != nil {
 				return err
 			}
+			budget -= len(removed)
 			for _, t := range removed {
 				f, err := failRemovedHarness(ctx, tx, t)
 				if err != nil {

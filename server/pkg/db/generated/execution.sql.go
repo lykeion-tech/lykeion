@@ -232,7 +232,7 @@ WHERE id = (
   WHERE t.workspace_id = $2 AND t.status = 'queued'
  AND (($3::boolean AND t.kind='coresearch') OR (NOT $3::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle','report')))
     -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
-    AND (t.harness = r.harness OR t.kind = 'rerun') AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND (t.harness = r.harness OR t.kind = 'rerun') AND (t.kind NOT IN ('role', 'autoresearch', 'coresearch') OR t.harness NOT IN ('cursor', 'antigravity')) AND r.status = 'online' AND r.unhealthy_reason IS NULL
     -- a turn frozen to a model runs on a runtime whose CLI lists it; when none
     -- of the owner's online runtimes lists it, any runs it on the CLI default
     AND (t.kind NOT IN ('coresearch','aristotle') OR t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
@@ -1204,21 +1204,21 @@ const lockRemovedHarnessQueue = `-- name: LockRemovedHarnessQueue :many
 SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = $1 AND t.status = 'queued'
- AND (($2::boolean AND t.kind='coresearch') OR (NOT $2::boolean AND t.kind IN ('role','autoresearch')))
+ AND t.kind IN ('role','autoresearch','coresearch')
  AND t.harness IN ('cursor', 'antigravity')
- AND ((t.kind = 'role' AND c.owner_id = $3)
-   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = $3))
-ORDER BY t.id FOR UPDATE OF t
+ AND ((t.kind = 'role' AND c.owner_id = $2)
+   OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = $2))
+ORDER BY t.created_at, t.id LIMIT $3::integer FOR UPDATE OF t
 `
 
 type LockRemovedHarnessQueueParams struct {
-	WorkspaceID    uuid.UUID `json:"workspace_id"`
-	CoresearchOnly bool      `json:"coresearch_only"`
-	OwnerID        uuid.UUID `json:"owner_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	BatchLimit  int32     `json:"batch_limit"`
 }
 
 func (q *Queries) LockRemovedHarnessQueue(ctx context.Context, arg LockRemovedHarnessQueueParams) ([]AgentRun, error) {
-	rows, err := q.db.Query(ctx, lockRemovedHarnessQueue, arg.WorkspaceID, arg.CoresearchOnly, arg.OwnerID)
+	rows, err := q.db.Query(ctx, lockRemovedHarnessQueue, arg.WorkspaceID, arg.OwnerID, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}

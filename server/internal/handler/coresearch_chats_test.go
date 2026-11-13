@@ -502,6 +502,28 @@ func TestCoresearchChatListMachineNames(t *testing.T) {
 	}
 }
 
+func TestRemovedHarnessCoresearchSettlesFailure(t *testing.T) {
+	s, a, _, _, ws, p := csFixture(t)
+	path, _ := csChat(t, s, a, ws, p.ID)
+	run := csTurn(t, s, a, ws, path)
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET harness='cursor' WHERE id=$1`, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	owner, workspace := uuid.MustParse(s.userID(t, a)), uuid.MustParse(ws)
+	runtimes, err := s.H.AgentRuns.Register(t.Context(), owner, workspace, "old-core", "laptop", []string{"cursor"}, nil, agent.Platform{OS: "linux"})
+	if err != nil || len(runtimes) != 1 {
+		t.Fatalf("register old runtime: %+v, %v", runtimes, err)
+	}
+	got, err := s.H.AgentRuns.Claim(t.Context(), owner, []service.RuntimeRef{{WorkspaceID: workspace, RuntimeID: runtimes[0].ID}}, 1, service.ClaimOptions{CoresearchOnly: true})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("removed harness claimed: %+v, %v", got, err)
+	}
+	var messages []db.CoresearchMessage
+	if code := s.call(t, "GET", path+"/messages", a, ws, nil, &messages); code != 200 || len(messages) != 2 || messages[1].Kind != "failure" {
+		t.Fatalf("failure message: HTTP %d, %+v", code, messages)
+	}
+}
+
 func TestCoresearchTurnClaimRequiresExplicitMode(t *testing.T) {
 	s, a, _, _, ws, p := csFixture(t)
 	path, _ := csChat(t, s, a, ws, p.ID)

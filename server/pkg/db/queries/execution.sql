@@ -59,7 +59,7 @@ WHERE id = (
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
  AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle','report')))
     -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
-    AND (t.harness = r.harness OR t.kind = 'rerun') AND r.status = 'online' AND r.unhealthy_reason IS NULL
+    AND (t.harness = r.harness OR t.kind = 'rerun') AND (t.kind NOT IN ('role', 'autoresearch', 'coresearch') OR t.harness NOT IN ('cursor', 'antigravity')) AND r.status = 'online' AND r.unhealthy_reason IS NULL
     -- a turn frozen to a model runs on a runtime whose CLI lists it; when none
     -- of the owner's online runtimes lists it, any runs it on the CLI default
     AND (t.kind NOT IN ('coresearch','aristotle') OR t.requested_model='' OR r.models @> jsonb_build_array(jsonb_build_object('value', t.requested_model))
@@ -224,11 +224,11 @@ WHERE workspace_id = @workspace_id AND agent_run_id = @agent_run_id AND attempt 
 SELECT t.* FROM agent_run t
 LEFT JOIN card c ON c.id = t.card_id AND c.workspace_id = t.workspace_id
 WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
- AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch')))
+ AND t.kind IN ('role','autoresearch','coresearch')
  AND t.harness IN ('cursor', 'antigravity')
  AND ((t.kind = 'role' AND c.owner_id = @owner_id)
    OR (t.kind IN ('autoresearch','coresearch') AND t.requester_id = @owner_id))
-ORDER BY t.id FOR UPDATE OF t;
+ORDER BY t.created_at, t.id LIMIT @batch_limit::integer FOR UPDATE OF t;
 
 -- name: SetRuntimeSharing :execrows
 UPDATE runtime SET visibility = @visibility
