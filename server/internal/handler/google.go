@@ -55,7 +55,7 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "google sign-in is not configured")
 		return
 	}
-	if h.limited(w, r, map[string]int{"google:start:ip:" + clientIP(r): 30}) {
+	if h.limited(w, r, map[string]int{"google:start:ip:" + h.clientIP(r): 30}) {
 		return
 	}
 	port, ok := validCLIPort(r.URL.Query().Get("cli_port"))
@@ -90,7 +90,7 @@ func (h *H) googleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
-	if h.limited(w, r, map[string]int{"google:callback:ip:" + clientIP(r): 60}) {
+	if h.limited(w, r, map[string]int{"google:callback:ip:" + h.clientIP(r): 60}) {
 		return
 	}
 	c, err := r.Cookie(oauthCookie)

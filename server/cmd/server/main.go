@@ -234,7 +234,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
 		LessonWritesEnabled: writer != nil,
 		Google:              auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
-		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped()}
+		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped(),
+		TrustedProxies: handler.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))}
 	if err := runs.CancelUnavailableLabRuns(ctx); err != nil {
 		return fmt.Errorf("cancel unavailable lab runs: %w", err)
 	}
