@@ -177,9 +177,9 @@ async function logOut() {
     <aside class="rail">
       <div class="brand">
         <b>Λ</b>Lykeion<button
-          v-if="position > 0"
           class="icon-button push-right"
-          :disabled="busy"
+          :style="position > 0 ? undefined : { visibility: 'hidden' }"
+          :disabled="busy || position === 0"
           aria-label="Back"
           @click="back"
         >
