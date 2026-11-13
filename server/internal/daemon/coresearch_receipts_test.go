@@ -3,7 +3,9 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -241,5 +243,131 @@ func TestCoresearchCancelledReceiptSweepPreservesEvidence(t *testing.T) {
 	defer f.d.coreReceiptMu.Unlock()
 	if len(f.d.coreReceiptFlights) != 0 {
 		t.Fatal("completed deliveries retained coordination state")
+	}
+}
+
+func TestCoresearchReceiptDurabilityRetry(t *testing.T) {
+	w := coresearch.WorkContext{WorkspaceID: uuid.New(), ProjectID: uuid.New(), ChatID: uuid.New(), ClaimToken: uuid.New()}
+	r := coreReceipt{Work: w, Kind: "cells", ID: uuid.New(), Body: mustMarshal(coreFailure("cells", nil))}
+	dir := filepath.Join(t.TempDir(), "root", "receipt")
+	must(t, atomicJSON(dir, "finish.json", r))
+	path := filepath.Join(dir, "finish.json")
+	for _, failAt := range []int{1, 2, 3, 4} {
+		calls := 0
+		_, err := readDurableCoreReceipt(path, func(file *os.File) error {
+			calls++
+			if calls == failAt {
+				return errors.New("injected sync failure")
+			}
+			return file.Sync()
+		})
+		if err == nil || calls != failAt {
+			t.Fatalf("sync %d: calls=%d err=%v", failAt, calls, err)
+		}
+	}
+	got, err := readDurableCoreReceipt(path, (*os.File).Sync)
+	must(t, err)
+	if got.ID != r.ID || !bytes.Equal(got.Body, r.Body) {
+		t.Fatal("receipt changed during retry")
+	}
+}
+
+func TestCoresearchReceiptSyncFailurePreservesScratchAndDefersDelivery(t *testing.T) {
+	for _, operation := range []string{"queue", "queue-new", "flush", "recover", "flush-output", "recover-output"} {
+		t.Run(operation, func(t *testing.T) {
+			f := newCoreFixture(t)
+			body := map[string]any{"status": "failed", "pages": 0}
+			r := coreReceipt{Work: f.work, Kind: "builds", ID: uuid.New(), Body: mustMarshal(body)}
+			must(t, f.d.journalCoresearch(r.Work, r.Kind, r.ID))
+			scratch := buildScratchFixture(t, f.d, r)
+			var output string
+			if strings.HasSuffix(operation, "-output") {
+				data := []byte("durable build output")
+				output = filepath.Join(f.d.coreReceiptDir(r), "output-00000000")
+				must(t, os.WriteFile(output, data, 0600))
+				r.Outputs = []coreOutputReceipt{{Path: "pdf", File: "output-00000000", Size: int64(len(data)), SHA: fmt.Sprintf("%x", sha256.Sum256(data))}}
+			}
+			if operation != "queue-new" {
+				must(t, atomicJSON(f.d.coreReceiptDir(r), "finish.json", r))
+			}
+			var calls int
+			f.d.coreReceiptSync = func(file *os.File) error {
+				calls++
+				if calls == 2 {
+					return errors.New("injected directory sync failure")
+				}
+				return file.Sync()
+			}
+			invoke := func() error {
+				switch operation {
+				case "queue", "queue-new":
+					_, err := f.d.queueCoresearch(r.Work, r.Kind, r.ID, body, nil)
+					return err
+				case "flush", "flush-output":
+					return f.d.flushCoresearch(t.Context())
+				default:
+					return f.d.recoverCoresearch()
+				}
+			}
+			if err := invoke(); err == nil {
+				t.Fatal("sync failure accepted")
+			}
+			if _, err := os.Stat(scratch); err != nil {
+				t.Fatalf("scratch lost: %v", err)
+			}
+			if f.finishes.Load() != 0 {
+				t.Fatal("finish sent before durable receipt")
+			}
+			if output != "" {
+				if _, err := os.Stat(output); err != nil {
+					t.Fatalf("output lost: %v", err)
+				}
+			}
+			f.d.coreReceiptSync = nil
+			must(t, invoke())
+			if strings.HasPrefix(operation, "recover") {
+				must(t, f.d.flushCoresearch(t.Context()))
+			}
+			if _, err := os.Stat(scratch); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("scratch retained after retry: %v", err)
+			}
+			if f.finishes.Load() != 1 {
+				t.Fatalf("finish count after retry: %d", f.finishes.Load())
+			}
+		})
+	}
+}
+
+func TestCoresearchReceiptReplacementDuringSync(t *testing.T) {
+	w := coresearch.WorkContext{WorkspaceID: uuid.New(), ProjectID: uuid.New(), ChatID: uuid.New(), ClaimToken: uuid.New()}
+	r := coreReceipt{Work: w, Kind: "cells", ID: uuid.New(), Body: mustMarshal(coreFailure("cells", nil))}
+	dir := filepath.Join(t.TempDir(), "root", "receipt")
+	must(t, atomicJSON(dir, "finish.json", r))
+	replacement := filepath.Join(dir, "replacement")
+	must(t, os.WriteFile(replacement, mustMarshal(r), 0600))
+	_, err := readDurableCoreReceipt(filepath.Join(dir, "finish.json"), func(f *os.File) error {
+		must(t, f.Sync())
+		return os.Rename(replacement, filepath.Join(dir, "finish.json"))
+	})
+	if err == nil {
+		t.Fatal("replaced receipt accepted")
+	}
+}
+
+func TestRejectedCoresearchReceiptRequiresSync(t *testing.T) {
+	f := newCoreFixture(t)
+	r := coreReceipt{Work: f.work, Kind: "cells", ID: uuid.New(), Body: mustMarshal(coreFailure("cells", nil)), Rejection: "rejected"}
+	must(t, atomicJSON(f.d.coreReceiptDir(r), "finish.json", r))
+	f.d.coreReceiptSync = func(*os.File) error { return errors.New("injected failure") }
+	if err := f.d.flushCoresearch(t.Context()); err == nil {
+		t.Fatal("rejected receipt skipped durability")
+	}
+	f.d.coreReceiptSync = nil
+	must(t, f.d.flushCoresearch(t.Context()))
+	if f.finishes.Load() != 0 {
+		t.Fatal("rejected receipt delivered")
+	}
+	if _, err := os.Stat(filepath.Join(f.d.coreReceiptDir(r), "finish.json")); err != nil {
+		t.Fatal(err)
 	}
 }

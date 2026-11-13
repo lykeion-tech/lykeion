@@ -145,8 +145,8 @@ func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.
 	if err := privateDir(dir); err != nil {
 		return false, err
 	}
-	if old, err := readCoreReceipt(filepath.Join(dir, "finish.json")); err == nil {
-		same := bytes.Equal(old.Body, r.Body) && len(old.Outputs) == len(outputs)
+	if old, err := d.readDurableCoreReceipt(filepath.Join(dir, "finish.json")); err == nil {
+		same := old.ID == r.ID && old.Kind == r.Kind && bytes.Equal(mustMarshal(old.Work), mustMarshal(r.Work)) && bytes.Equal(old.Body, r.Body) && len(old.Outputs) == len(outputs)
 		if same {
 			for i, out := range outputs {
 				saved := old.Outputs[i]
@@ -190,6 +190,13 @@ func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.
 	if err := atomicJSON(dir, "finish.json", r); err != nil {
 		return false, err
 	}
+	published, err := d.readDurableCoreReceipt(filepath.Join(dir, "finish.json"))
+	if err != nil {
+		return false, err
+	}
+	if !bytes.Equal(mustMarshal(published), mustMarshal(r)) {
+		return false, errors.New("Coresearch receipt changed during publication")
+	}
 	if err := d.cleanupBuildScratch(r, dir); err != nil {
 		return true, err
 	}
@@ -199,16 +206,29 @@ func (d *daemon) queueCoresearch(w coresearch.WorkContext, kind string, id uuid.
 }
 func readCoreReceipt(path string) (coreReceipt, error) {
 	var r coreReceipt
-	info, err := os.Lstat(path)
+	f, err := openReportFile(path)
+	if err != nil {
+		return r, err
+	}
+	defer f.Close()
+	return decodeCoreReceipt(f)
+}
+
+func decodeCoreReceipt(f *os.File) (coreReceipt, error) {
+	var r coreReceipt
+	info, err := f.Stat()
 	if err != nil {
 		return r, err
 	}
 	if !info.Mode().IsRegular() || info.Size() > coresearch.MaxCellOutputBytes+(1<<20) {
 		return r, errors.New("invalid Coresearch receipt")
 	}
-	b, err := os.ReadFile(path)
+	b, err := io.ReadAll(io.LimitReader(f, coresearch.MaxCellOutputBytes+(1<<20)+1))
 	if err != nil {
 		return r, err
+	}
+	if len(b) > coresearch.MaxCellOutputBytes+(1<<20) {
+		return r, errors.New("invalid Coresearch receipt")
 	}
 	if err = json.Unmarshal(b, &r); err != nil {
 		return r, err
@@ -219,6 +239,59 @@ func readCoreReceipt(path string) (coreReceipt, error) {
 	for i, out := range r.Outputs {
 		if out.File != fmt.Sprintf("output-%08d", i) || out.Size < 0 || out.Size > 50<<20 {
 			return r, errors.New("invalid Coresearch output receipt")
+		}
+	}
+	return r, nil
+}
+
+func (d *daemon) readDurableCoreReceipt(path string) (coreReceipt, error) {
+	syncFile := d.coreReceiptSync
+	if syncFile == nil {
+		syncFile = (*os.File).Sync
+	}
+	return readDurableCoreReceipt(path, syncFile)
+}
+
+// Retry publication before allowing cleanup or delivery after an ambiguous sync.
+// This does not protect against arbitrary replacement of parent directories.
+func readDurableCoreReceipt(path string, syncFile func(*os.File) error) (r coreReceipt, result error) {
+	f, err := openReportFile(path)
+	if err != nil {
+		return r, err
+	}
+	defer f.Close()
+	defer func() {
+		if errors.Is(result, os.ErrNotExist) {
+			result = fmt.Errorf("published Coresearch receipt disappeared: %v", result)
+		}
+	}()
+	r, err = decodeCoreReceipt(f)
+	if err != nil {
+		return r, err
+	}
+	if err = syncFile(f); err != nil {
+		return r, err
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		return r, err
+	}
+	entry, err := os.Lstat(path)
+	if err != nil {
+		return r, err
+	}
+	if !entry.Mode().IsRegular() || !os.SameFile(opened, entry) {
+		return r, errors.New("Coresearch receipt replaced during sync")
+	}
+	dir := filepath.Dir(path)
+	for _, p := range []string{dir, filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		d, err := os.Open(p)
+		if err != nil {
+			return r, err
+		}
+		err = errors.Join(syncFile(d), d.Close())
+		if err != nil {
+			return r, err
 		}
 	}
 	return r, nil
@@ -307,7 +380,7 @@ func (d *daemon) flushCoreReceipt(ctx context.Context, dir string) error {
 		return nil
 	}
 	defer unlock()
-	r, err := readCoreReceipt(filepath.Join(dir, "finish.json"))
+	r, err := d.readDurableCoreReceipt(filepath.Join(dir, "finish.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -387,7 +460,7 @@ func (d *daemon) recoverCoresearch() error {
 		if !validCoreReceiptName(entry.Name()) {
 			return errors.New("invalid receipt directory")
 		}
-		if completed, err := readCoreReceipt(filepath.Join(dir, "finish.json")); err == nil {
+		if completed, err := d.readDurableCoreReceipt(filepath.Join(dir, "finish.json")); err == nil {
 			if d.coreReceiptDir(completed) != dir {
 				return errors.New("Coresearch receipt identity mismatch")
 			}
@@ -414,6 +487,13 @@ func (d *daemon) recoverCoresearch() error {
 		r.Body = mustMarshal(coreFailure(r.Kind, nil))
 		if e = atomicJSON(dir, "finish.json", r); e != nil {
 			return e
+		}
+		published, e := d.readDurableCoreReceipt(filepath.Join(dir, "finish.json"))
+		if e != nil {
+			return e
+		}
+		if !bytes.Equal(mustMarshal(published), mustMarshal(r)) {
+			return errors.New("Coresearch receipt changed during recovery")
 		}
 		if e = d.cleanupBuildScratch(r, dir); e != nil {
 			return e

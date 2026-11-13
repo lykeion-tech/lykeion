@@ -139,6 +139,7 @@ type daemon struct {
 	coreActive         map[string]bool
 	coreWork           map[uuid.UUID]bool
 	attemptMu          sync.Mutex
+	coreReceiptSync    func(*os.File) error
 	coreReceiptMu      sync.Mutex
 	coreReceiptFlights map[string]*coreReceiptFlight
 
