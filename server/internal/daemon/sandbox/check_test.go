@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -42,7 +43,12 @@ func TestCheckProbeRequiresExecutionAndDenial(t *testing.T) {
 					t.Fatalf("wrong probe command: %s %v", name, args)
 				}
 				probe = args[3]
-				if p.Home != filepath.Dir(probe) || filepath.Dir(p.Home) != home || !strings.HasPrefix(filepath.Base(p.Home), ".lyk-sandbox-check-") {
+				owned := filepath.Dir(probe)
+				expectedHome := owned
+				if runtime.GOOS == "linux" {
+					expectedHome = home
+				}
+				if p.Home != expectedHome || filepath.Dir(owned) != home || !strings.HasPrefix(filepath.Base(owned), ".lyk-sandbox-check-") {
 					t.Fatalf("wrong owned probe home %q for %q", p.Home, probe)
 				}
 				if b, err := os.ReadFile(probe); err != nil || string(b) != "x" {

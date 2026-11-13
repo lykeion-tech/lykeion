@@ -27,20 +27,33 @@ var errLookup = ErrUnavailable
 // Current resolves the effective user through the system NSS database.
 func Current() (*user.User, error) { return LookupId(strconv.Itoa(os.Geteuid())) }
 
+// CurrentContext resolves the effective user and respects cancellation.
+func CurrentContext(ctx context.Context) (*user.User, error) {
+	return lookupIDContext(ctx, strconv.Itoa(os.Geteuid()))
+}
+
 // LookupId resolves through the system NSS database, including non-file users.
 func LookupId(uid string) (*user.User, error) {
+	return lookupIDContext(context.Background(), uid)
+}
+
+func lookupIDContext(ctx context.Context, uid string) (*user.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id, err := strconv.ParseUint(uid, 10, 32)
 	if err != nil || strconv.FormatUint(id, 10) != uid {
 		return nil, errLookup
 	}
 	bin, err := trustedSystemPath("/usr/bin/getent", true)
 	if errors.Is(err, os.ErrNotExist) {
-		return lookupFilesOnly(uid)
+		return filesOnlyContext(ctx, uid, lookupFilesOnly)
 	}
 	if err != nil {
 		return nil, errLookup
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "passwd", uid)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
@@ -49,9 +62,23 @@ func LookupId(uid string) (*user.User, error) {
 	out := &limitedOutput{}
 	cmd.Stdout = out
 	if err := cmd.Run(); err != nil || out.exceeded || ctx.Err() != nil {
+		if parent.Err() != nil {
+			return nil, parent.Err()
+		}
 		return nil, errLookup
 	}
 	return parsePasswd(out.value.String(), uid)
+}
+
+func filesOnlyContext(ctx context.Context, uid string, lookup func(string) (*user.User, error)) (*user.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	u, err := lookup(uid)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return u, err
 }
 
 type limitedOutput struct {

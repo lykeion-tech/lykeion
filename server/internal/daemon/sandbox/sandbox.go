@@ -126,8 +126,66 @@ func PolicyError(err error) error {
 // make the start fail.
 // A successful command must be paired with defer CloseCommand(cmd).
 func (p Policy) Command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	if err := p.validateNetwork(); err != nil {
+		return nil, PolicyError(err)
+	}
+	if runtime.GOOS == "linux" {
+		account, err := accountlookup.CurrentContext(ctx)
+		if err != nil {
+			return nil, PolicyError(err)
+		}
+		if account == nil {
+			return nil, PolicyError(accountlookup.ErrUnavailable)
+		}
+		p, err = p.withAccountRoot(account.HomeDir)
+		if err != nil {
+			return nil, PolicyError(err)
+		}
+	}
 	cmd, err := p.command(ctx, name, args...)
 	return cmd, PolicyError(err)
+}
+
+// withAccountRoot closes ambient access to a different effective account home.
+func (p Policy) withAccountRoot(raw string) (Policy, error) {
+	if err := checkSpelling(p.Home); err != nil {
+		return p, err
+	}
+	selected, err := findHome(p.Home)
+	if err != nil || selected.fi == nil || !selected.fi.IsDir() {
+		return p, errors.New("cannot resolve selected sandbox home")
+	}
+	actual, err := findHome(raw)
+	if err != nil || actual.fi == nil || !actual.fi.IsDir() || actual.path == "/" {
+		return p, errors.New("cannot resolve effective account home")
+	}
+	p.Home = selected.path
+	if selected.path == actual.path {
+		return p, nil
+	}
+	if selected.holds(actual.path) || actual.holds(selected.path) {
+		return p, errors.New("selected and effective account homes overlap")
+	}
+	for _, path := range slices.Concat(p.Read, p.Write, p.WriteData, p.WriteSQLite) {
+		if _, _, err := walk(path, actual); err != nil {
+			return p, err
+		}
+	}
+	if !slices.Contains(p.RestrictedRoots, actual.path) {
+		p.RestrictedRoots = append(slices.Clone(p.RestrictedRoots), actual.path)
+	}
+	r, err := p.resolve()
+	if err != nil {
+		return p, err
+	}
+	for _, hidden := range r.hidden {
+		for _, read := range r.read {
+			if isAtOrUnder(read, hidden) {
+				return p, fmt.Errorf("sandbox read path %q is inside a hidden path", read)
+			}
+		}
+	}
+	return p, nil
 }
 
 func (p Policy) command(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
@@ -197,11 +255,46 @@ func CheckSelectedHome() error {
 // Check proves the sandbox both starts and confines on this machine: true
 // runs under a policy for the person's home, and a file under a stand-in home
 // is unreadable. The error names what is missing.
-func Check(ctx context.Context) error { return check(ctx, Policy.Command) }
+func Check(ctx context.Context) error {
+	u, err := accountlookup.CurrentContext(ctx)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return accountlookup.ErrUnavailable
+	}
+	return checkHome(ctx, u.HomeDir, probeCommand(u.HomeDir))
+}
 
 // CheckForDesktop validates desktop prerequisites before launching its probe.
 func CheckForDesktop(ctx context.Context) error {
-	return checkDesktop(ctx, accountlookup.Current, CheckSelectedHome, Policy.Command)
+	var account *user.User
+	return checkDesktop(ctx, func() (*user.User, error) {
+		var err error
+		account, err = accountlookup.CurrentContext(ctx)
+		return account, err
+	}, CheckSelectedHome, func(p Policy, ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+		return probeCommand(account.HomeDir)(p, ctx, name, args...)
+	})
+}
+
+// probeCommand binds both readiness probes to the identity already resolved by
+// the caller. It is private and used only with policies constructed here.
+func probeCommand(home string) func(Policy, context.Context, string, ...string) (*exec.Cmd, error) {
+	return func(p Policy, ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if runtime.GOOS == "linux" {
+			var err error
+			p, err = p.withAccountRoot(home)
+			if err != nil {
+				return nil, PolicyError(err)
+			}
+		}
+		cmd, err := p.command(ctx, name, args...)
+		return cmd, PolicyError(err)
+	}
 }
 
 func checkDesktop(ctx context.Context, account func() (*user.User, error), selected func() error, command func(Policy, context.Context, string, ...string) (*exec.Cmd, error)) error {
@@ -258,7 +351,11 @@ func checkHome(ctx context.Context, accountHome string, command func(Policy, con
 		return errors.New("sandbox read-denial control could not read its probe")
 	}
 	script := `if ! /bin/cat /dev/null >/dev/null; then exit 72; fi; printf 'STARTED\n'; if /bin/cat "$1" >/dev/null 2>&1; then printf 'EXPOSED\n'; else printf 'DENIED\n'; fi`
-	if cmd, err = command(Policy{Home: home}, ctx, "/bin/sh", "-c", script, "sh", probe); err != nil {
+	probeHome := home
+	if runtime.GOOS == "linux" {
+		probeHome = accountHome
+	}
+	if cmd, err = command(Policy{Home: probeHome}, ctx, "/bin/sh", "-c", script, "sh", probe); err != nil {
 		return err
 	}
 	cmd.Dir = "/"
