@@ -47,7 +47,6 @@ const details: Partial<Record<Screen, Hotspot[]>> = {
 const signInActions = [
   { label: 'Create a new item', x: 10, y: 137, width: 240, height: 32 },
   { label: 'Open account', x: 10, y: 850, width: 220, height: 45 },
-  { label: 'Open Grounding Team', x: 280, y: 255, width: 850, height: 55 },
 ];
 
 export default function DashboardPreview() {
@@ -91,7 +90,7 @@ export default function DashboardPreview() {
           </div>
         </div>}
         {[...nav, ...(details[screen] ?? [])].map(h => <button key={h.label} className="dashboard-hotspot" aria-label={h.label} title={h.label} onClick={() => show(h.to)} style={{ left: `${h.x / 14.4}%`, top: `${h.y / 9}%`, width: `${h.width / 14.4}%`, height: `${h.height / 9}%` }}/>) }
-        {(screen === 'coresearch' ? [] : signInActions.filter(action => (action.label !== 'Open Grounding Team' || screen === 'teams'))).map(h => <button key={h.label} className="dashboard-hotspot" aria-label={h.label} title={h.label} onClick={requireSignIn} style={{ left: `${h.x / 14.4}%`, top: `${h.y / 9}%`, width: `${h.width / 14.4}%`, height: `${h.height / 9}%` }}/>) }
+        {(screen === 'coresearch' ? [] : signInActions).map(h => <button key={h.label} className="dashboard-hotspot" aria-label={h.label} title={h.label} onClick={requireSignIn} style={{ left: `${h.x / 14.4}%`, top: `${h.y / 9}%`, width: `${h.width / 14.4}%`, height: `${h.height / 9}%` }}/>) }
         {!aristotleOpen && <button className="dashboard-hotspot aristotle-trigger" aria-label="Open Aristotle’s floating window" title="Open Aristotle" onClick={() => { setAristotleExpanded(false); setAristotleOpen(true); }} style={{right:'1%',bottom:'1%',width:'4%',height:'6%',zIndex:1,background:screen === 'board' ? 'url(/demo-preview/aristotle-button.png) center/128% 128% no-repeat' : undefined}}/>}
         {aristotleOpen && <div className={aristotleExpanded ? "dashboard-aristotle expanded" : "dashboard-aristotle"}>
           <img src={aristotleExpanded ? "/demo-preview/aristotle-expanded.png" : "/demo-preview/aristotle-window.png"} alt={aristotleExpanded ? "Aristotle’s expanded window" : "Aristotle’s floating window"} width="426" height={aristotleExpanded ? 556 : 116}/>

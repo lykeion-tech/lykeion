@@ -38,54 +38,6 @@ function VideoPreview({ video }: { video: string[] }) {
   return <><div className="role-art"><img className="video-preview-image" src={`/demo-photos/${video[1]}`} alt=""/><button className="video-preview-play" onClick={open} aria-label={`See ${video[2]} in action`}><span aria-hidden="true">▶</span> See it in action</button></div><dialog ref={dialog} className="video-modal" aria-label={video[2]} onClose={() => setPlaying(false)} onClick={event => { if (event.target === event.currentTarget) dialog.current?.close(); }}><button className="video-modal-close" aria-label="Close video" onClick={() => dialog.current?.close()}><X size={20}/></button><div className="video-modal-frame"><div className="video-modal-bar"><span className="video-modal-dots" aria-hidden="true">● ● ●</span><div className="video-modal-address"><Link2 size={15} aria-hidden="true"/><span>{video[2]}</span></div><button className="video-modal-fullscreen" aria-label="Play video fullscreen" title="Play video fullscreen" onClick={() => { void player.current?.requestFullscreen?.().catch(() => {}); }}><Maximize2 size={16}/></button></div>{playing && <video ref={player} controls autoPlay muted playsInline preload="metadata" aria-label={video[2]}><source src={`/demo-videos/${video[0]}`} type="video/mp4"/></video>}</div></dialog></>;
 }
 
-function Name() {
-  const [letters, setLetters] = useState(() => Array.from('Lykeion').map(char => ({ char, rotation: 0 })));
-  const [cursor, setCursor] = useState<number | null>(null);
-  useEffect(() => {
-    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const words = [Array.from('Lykeion'), Array.from('Λύκειον')];
-    let frame = 0, start = 0, lastTick = -1;
-    const animate = (now: number) => {
-      if (!start) start = now;
-      const elapsed = now - start;
-      const tick = Math.floor(elapsed / 40);
-      if (tick !== lastTick) {
-        lastTick = tick;
-        const intro = 640, hold = 2500, erase = 1050, type = 1320;
-        if (elapsed < intro) {
-          const pool = [...words[0], ...words[1]];
-          setLetters(words[0].map((char, i) => ({ char: elapsed - i * 80 < 0 ? '' : elapsed - i * 80 < 160 ? pool[Math.floor(Math.random() * pool.length)] : char, rotation: 0 })));
-          setCursor(null);
-        } else {
-          const time = elapsed - intro, cycle = hold + erase + type;
-          const iteration = Math.floor(time / cycle), offset = time % cycle;
-          const from = words[iteration % 2], to = words[(iteration + 1) % 2];
-          const transition = offset - hold;
-          if (transition < 0) { setLetters(from.map(char => ({ char, rotation: 0 }))); setCursor(7); }
-          else if (transition < erase) {
-            const remaining = Math.max(0, 6 - Math.floor(transition / 150));
-            setLetters(from.map((char, i) => ({ char: i < remaining ? char : '', rotation: 0 })));
-            setCursor(remaining);
-          } else {
-            const typing = transition - erase;
-            setLetters(to.map((char, i) => ({ char: typing >= i * 190 ? char : '', rotation: 0 })));
-            setCursor(Math.min(7, Math.floor(typing / 190) + 1));
-          }
-        }
-      }
-      frame = requestAnimationFrame(animate);
-    };
-    const sync = () => {
-      cancelAnimationFrame(frame);
-      if (motion.matches) { setLetters(words[0].map(char => ({ char, rotation: 0 }))); setCursor(null); }
-      else { start = 0; lastTick = -1; frame = requestAnimationFrame(animate); }
-    };
-    motion.addEventListener('change', sync); sync();
-    return () => { cancelAnimationFrame(frame); motion.removeEventListener('change', sync); };
-  }, []);
-  return <span className="brand-name" aria-label="Lykeion"><span className="brand-letters" aria-hidden="true">{letters.map((letter, i) => <span className="brand-letter" key={i} style={{ transform: `rotateX(${letter.rotation}deg)` }}>{letter.char}</span>)}{cursor !== null && <span className="brand-cursor" style={{ left: `${cursor * .82}em` }}>|</span>}</span></span>;
-}
-
 function HeroPhrase() {
   const [word, setWord] = useState('DISCOVERY');
   useEffect(() => {
@@ -139,14 +91,14 @@ export default function Home() {
     }
     void session(); return () => { live = false; };
   }, []);
-  return <><div className="announcement"><span>●</span> RESEARCH, IN MOTION. BUILT FOR YOUR WHOLE LAB.</div><header className="site-header"><div className="nav-inner"><a className="brand" href="#top"><img src="/lykeion.svg" alt=""/><Name/></a><nav className={menu ? 'nav-links open' : 'nav-links'} aria-label="Main navigation"><a href="#use-cases" onClick={() => setMenu(false)}>Platform</a><a href="#workspace" onClick={() => setMenu(false)}>Workspace</a><a href="#features" onClick={() => setMenu(false)}>Features</a></nav><div className="nav-actions"><a className="github" href="https://github.com/lykeion-ia/lykeion" aria-label="Lykeion on GitHub"><img src="https://github.githubassets.com/favicons/favicon.svg" alt="" width="17" height="17"/> <span>GitHub</span></a><a className="nav-login" href={cta}>Log in</a><a className="pill primary" href={cta}>Get started</a><button className="mobile-menu" aria-label={menu ? 'Close menu' : 'Open menu'} aria-expanded={menu} onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button></div></div></header>
-    <main id="top"><section className="hero wrap"><h1>Research, moving forward.</h1><p>A workspace where agents carry out scientific work, evidence stays connected, and your lab can focus on <HeroPhrase/></p><div className="hero-actions"><div className="hero-downloads"><div className="download-buttons"><button className="pill primary" disabled title="Coming soon">Download for macOS</button><button className="pill demo-button" disabled title="Coming soon">Book a demo</button></div><p className="download-platforms">Also for Intel · Windows · Linux</p></div><p className="hero-origin"><mark>Designed</mark> and <mark>Engineered</mark><br/>in 🇩🇰 by an 🇮🇹</p></div></section>
-    <DashboardPreview/>
-    <section className="intro wrap" id="use-cases"><h2>Your question. Your evidence.<br/>Your whole lab, working together.</h2><p>Turn a research question into a study that agents can work and people can steer.</p></section>
+  return <><header className="site-header"><div className="nav-inner"><a className="brand" href="#top"><img src="/lykeion.svg" alt=""/><span className="brand-name">Lykeion</span></a><nav className={menu ? 'nav-links open' : 'nav-links'} aria-label="Main navigation"><a href="#use-cases" onClick={() => setMenu(false)}>Platform</a><a href="#workspace" onClick={() => setMenu(false)}>Workspace</a><a href="#features" onClick={() => setMenu(false)}>Features</a></nav><div className="nav-actions"><a className="github" href="https://github.com/lykeion-ia/lykeion" aria-label="Lykeion on GitHub"><img src="https://github.githubassets.com/favicons/favicon.svg" alt="" width="17" height="17"/> <span>GitHub</span></a><a className="nav-login" href={cta}>Log in</a><a className="pill primary" href={cta}>Get started</a><button className="mobile-menu" aria-label={menu ? 'Close menu' : 'Open menu'} aria-expanded={menu} onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button></div></div></header>
+    <main id="top"><section className="hero wrap"><h1>Research, better together.</h1><p>A workspace where agents carry out scientific work, evidence stays connected, and your lab can focus on <HeroPhrase/></p><div className="hero-actions"><div className="hero-downloads"><div className="download-buttons"><button className="pill primary" disabled title="Coming soon">Download for macOS</button><button className="pill demo-button" disabled title="Coming soon">Book a demo</button></div><p className="download-platforms">Also for Intel · Linux</p></div><p className="hero-origin"><mark>Designed</mark> and <mark>Engineered</mark><span className="hero-origin-place">in 🇩🇰 by an 🇮🇹</span></p></div></section>
+    <div className="dashboard-landscape"><DashboardPreview/></div>
+    <section className="intro wrap" id="use-cases"><h2>Your question. Your evidence.<br/>Your whole lab, working together.</h2><p>Turn a research question into a study that agents can work<br/>and people can steer.</p></section>
     <section className="cases wrap" ref={casesRef}><div className="section-kicker">USE CASES <span>{active + 1} / {cases.length}</span></div><div className="cases-grid"><div className="case-art"><img src={`/demo-use-cases/${photos[active][0]}`} alt={photos[active][1]}/></div><div className="accordion">{cases.map((item, i) => <div className="accordion-item" key={item[0]}>{active === i && canAnimate && casesVisible && <div className="case-progress" aria-hidden="true" key={`${i}-${rotationKey}`}/>}<button aria-expanded={active === i} onClick={() => { setActive(i); setRotationKey(k => k + 1); }}><span>{item[0]}</span><span>{active === i ? '−' : '+'}</span></button>{active === i && <div><p>{item[1]}</p><a href="#workspace" className="pill primary">Explore the platform <ArrowUpRight size={15}/></a></div>}</div>)}</div></div></section>
     <section className="roles wrap" id="workspace"><div className="center-title"><h2>People and agents work together.<br/>On the same research.</h2><p>Different roles, one shared view of the work.</p></div><div className="role-grid">{[['BOARD', 'Start with a question.', 'Create a study, choose an agent or Team, and follow the work as it moves through the board.', 'board'], ['AGENT', 'Work in a real environment.', 'Agents run the tools they need on a connected machine, with their work and outputs recorded.', 'study'], ['ARISTOTLE', 'Ask your lab a question.', 'Open Aristotle and ask about the studies and evidence your lab has recorded.', 'evidence']].map((r, i) => <article key={r[0]}><div className="role-label"><span aria-hidden="true">{[<ListTodo key="studies" size={17} strokeWidth={1.7}/>, <Bot key="bot" size={17} strokeWidth={1.7}/>, <Brain key="brain" size={17} strokeWidth={1.7}/>][i]}</span><small>{r[0]}</small></div><VideoPreview video={roleVideos[i]}/><h3>{r[1]}</h3><p>{r[2]}</p></article>)}</div></section>
     <section className="split wrap"><div><h2>Agents that work<br/>where you do.</h2><p>Your machine runs the agent CLIs you already use. Lykeion keeps their work connected to the study.</p><a className="pill primary" href={cta}>Open your lab</a><ul><li><Bot size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Agents and Teams</strong><p>Work with one agent or choose a Team with roles for each stage.</p></div></li><li><Monitor size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Your machine</strong><p>Run supported agent CLIs in the operating system’s sandbox.</p></div></li><li><FileText size={18}/><div><strong>Evidence with provenance</strong><p>Recorded sources and outputs connect work to evidence.</p></div></li></ul></div><div className="split-art" aria-hidden="true">
-      <svg className="science-motion" viewBox="0 0 600 620" xmlns="http://www.w3.org/2000/svg">
+      <svg className="science-motion" aria-hidden="true" viewBox="0 0 600 620" xmlns="http://www.w3.org/2000/svg">
         <defs><linearGradient id="science-path" x1="0" x2="1" y1="0" y2="1"><stop stopColor="#006dd5"/><stop offset="1" stopColor="#e6b62c"/></linearGradient></defs>
         <circle className="science-orbit orbit-one" cx="300" cy="300" r="208"/><circle className="science-orbit orbit-two" cx="300" cy="300" r="150"/>
         <path className="science-link" d="M145 188 L300 300 L455 180 M138 435 L300 300 L460 440"/>

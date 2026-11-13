@@ -466,7 +466,7 @@ function tabKey(event: KeyboardEvent, index: number) {
         </div>
         <aside v-if="selected" class="team-inspector" aria-label="Agent details">
           <div class="inspector-heading">
-            <h2>Agent details</h2>
+            <h2>Agent</h2>
             <RouterLink
               v-if="detail.data.value?.my_agents?.[selected.member.name]"
               :to="`/agents/${detail.data.value.my_agents[selected.member.name]!.id}`"
