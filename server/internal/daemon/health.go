@@ -113,6 +113,10 @@ func (s *shutdownChallenges) consume(server, client string, now time.Time) bool 
 }
 
 func readHealthRecord(path string) (HealthRecord, error) {
+	return readHealthRecordWithOpen(path, openReportFile)
+}
+
+func readHealthRecordWithOpen(path string, open func(string) (*os.File, error)) (HealthRecord, error) {
 	var record HealthRecord
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -121,7 +125,7 @@ func readHealthRecord(path string) (HealthRecord, error) {
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
 		return record, errors.New("invalid daemon health file")
 	}
-	f, err := os.Open(path)
+	f, err := open(path)
 	if err != nil {
 		return record, err
 	}
@@ -133,7 +137,37 @@ func readHealthRecord(path string) (HealthRecord, error) {
 	if !os.SameFile(info, opened) {
 		return record, errors.New("daemon health file changed")
 	}
-	if err := json.NewDecoder(io.LimitReader(f, 4097)).Decode(&record); err != nil {
+	record, err = decodeHealthRecord(f)
+	if err != nil {
+		return record, err
+	}
+	current, err := os.Lstat(path)
+	if err != nil {
+		return HealthRecord{}, err
+	}
+	if !os.SameFile(opened, current) {
+		return HealthRecord{}, errors.New("daemon health file changed")
+	}
+	return record, nil
+}
+
+func decodeHealthRecord(f *os.File) (HealthRecord, error) {
+	var record HealthRecord
+	info, err := f.Stat()
+	if err != nil {
+		return record, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
+		return record, errors.New("invalid daemon health file")
+	}
+	b, err := io.ReadAll(io.LimitReader(f, 4097))
+	if err != nil {
+		return record, err
+	}
+	if len(b) > 4096 {
+		return record, errors.New("invalid daemon health file")
+	}
+	if err := json.Unmarshal(b, &record); err != nil {
 		return record, err
 	}
 	if record.Port < 1 || record.Port > 65535 || record.PID <= 0 || record.Started == "" || record.Nonce == "" || record.ServerURL == "" || record.DaemonID == "" {

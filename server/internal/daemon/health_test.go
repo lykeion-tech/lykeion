@@ -528,3 +528,22 @@ func TestHealthPublicationDoesNotChangeConfigParentPermissions(t *testing.T) {
 		t.Fatalf("health record is not private: %o", info.Mode().Perm())
 	}
 }
+
+func TestHealthRecordRejectsOversizedAndTrailingData(t *testing.T) {
+	record := HealthRecord{Port: 1234, PID: 123, Started: "start", Nonce: "nonce", ServerURL: "https://example.test", DaemonID: "daemon"}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, extra := range map[string]string{"oversized": strings.Repeat(" ", 4097), "trailing-object": `{}`} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "health.json")
+			if err := os.WriteFile(path, append(append([]byte(nil), data...), []byte(extra)...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readHealthRecord(path); err == nil {
+				t.Fatal("accepted invalid health data")
+			}
+		})
+	}
+}
