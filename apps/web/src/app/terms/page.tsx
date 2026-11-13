@@ -15,7 +15,7 @@ export default function TermsPage() {
         <h2>{'1. Who we are'}</h2>
         <p>
           {
-            '\n        Lykeion (app.lykeion.tech and the Lykeion desktop app) is provided by Domenico Diego Marono, a private\n        individual resident in Denmark ("we"). Contact: '
+            '\n        Lykeion (app.lykeion.tech and the Lykeion desktop app) is provided by a private\n        individual resident in Denmark ("we"). Contact: '
           }
           <a href="mailto:privacy@lykeion.tech">{'privacy@lykeion.tech'}</a>
           {'. By\n        creating an account you accept these terms.\n      '}

@@ -15,10 +15,12 @@ export default function PrivacyPage() {
         <h2>{'Who is responsible'}</h2>
         <p>
           {
-            '\n        Lykeion (app.lykeion.tech and the Lykeion desktop app) is run by Domenico Diego Marono, a private individual resident in\n        Denmark, who is the data controller under the EU General Data Protection Regulation (GDPR). For anything about\n        your data, write to '
+            '\n        Lykeion (app.lykeion.tech and the Lykeion desktop app) is run by a private individual resident in\n        Denmark, who is the data controller under the EU General Data Protection Regulation (GDPR). For anything about\n        your data, write to '
           }
           <a href="mailto:privacy@lykeion.tech">{'privacy@lykeion.tech'}</a>
-          {'.\n      '}
+          {
+            ". If you need the controller's full name and postal address, for example to exercise your rights, ask at\n        the same address.\n      "
+          }
         </p>
         <h2>{'What we collect'}</h2>
         <ul>
