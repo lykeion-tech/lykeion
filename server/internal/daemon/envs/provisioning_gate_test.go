@@ -98,6 +98,45 @@ func TestReadyBasesRemainUsableWithoutProvisioning(t *testing.T) {
 	}
 }
 
+func TestMalformedSharedReadyMarkersAreNotReady(t *testing.T) {
+	for _, lang := range []string{Python, R, Julia} {
+		for _, marker := range []string{"directory", "symlink"} {
+			t.Run(lang+"/"+marker, func(t *testing.T) {
+				b := NewBases(t.TempDir())
+				if err := os.MkdirAll(b.baseDir(lang), 0755); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(b.baseDir(lang), "ready")
+				if marker == "directory" {
+					if err := os.Mkdir(path, 0700); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					target := filepath.Join(t.TempDir(), "marker")
+					if err := os.WriteFile(target, nil, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(target, path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if b.Ready(lang) {
+					t.Fatal("malformed ready marker was accepted")
+				}
+				if err := b.Ensure(context.Background(), lang); !errors.Is(err, ErrBoundedProvisioningUnavailable) {
+					t.Fatalf("Ensure = %v, want bounded provisioning unavailable", err)
+				}
+				if state := b.States()[lang]; state == "ready" {
+					t.Fatal("malformed ready marker was reported ready")
+				}
+				if _, err := os.Lstat(path); err != nil {
+					t.Fatalf("marker changed: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestStatesReportsUnavailableBasesAndPreservesExistingStates(t *testing.T) {
 	b := NewBases(t.TempDir())
 	b.Fetch = func(context.Context, string, string, string) error { t.Fatal("unexpected download"); return nil }

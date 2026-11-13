@@ -232,8 +232,8 @@ func (b *Bases) Ready(lang string) bool {
 	if _, ok := displayNames[lang]; !ok {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(b.baseDir(lang), "ready"))
-	return err == nil
+	marker, err := os.Lstat(filepath.Join(b.baseDir(lang), "ready"))
+	return err == nil && marker.Mode().IsRegular()
 }
 
 func (b *Bases) lock(lang string) *sync.Mutex {
