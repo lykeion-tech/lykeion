@@ -201,7 +201,7 @@ describe('desktop renderer origin', () => {
     ])
       expect(validExternalURL(value)).toBe(false);
   });
-  it.each(['https://lykeion.ia', 'https://lab.example:8443', 'http://127.0.0.1:8080'])(
+  it.each(['https://app.lykeion.tech', 'https://lab.example:8443', 'http://127.0.0.1:8080'])(
     'serves the dashboard on the chosen origin %s',
     (origin) => {
       const entry = desktopEntryURL(origin);

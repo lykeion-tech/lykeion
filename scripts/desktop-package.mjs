@@ -45,7 +45,7 @@ export function desktopBuilderArgs(target, directory, signing, signingIntermedia
   ];
 }
 
-export function releaseOrigin(value = 'https://lykeion.ia') {
+export function releaseOrigin(value = 'https://app.lykeion.tech') {
   let url;
   try {
     url = new URL(value);

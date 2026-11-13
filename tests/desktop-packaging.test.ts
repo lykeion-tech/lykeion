@@ -210,7 +210,7 @@ describe('desktop release packaging', () => {
   });
 
   it('rejects development and malformed hosted release origins', () => {
-    expect(releaseOrigin(undefined)).toBe('https://lykeion.ia');
+    expect(releaseOrigin(undefined)).toBe('https://app.lykeion.tech');
     expect(releaseOrigin('https://service.example')).toBe('https://service.example');
     for (const origin of [
       'http://localhost:8080',
@@ -435,7 +435,7 @@ describe('desktop release packaging', () => {
       const expected = { version: '0.1.0', commit: 'abc', platform: 'darwin', arch: 'arm64', updaterSHA256: hash };
       writeFileSync(
         path.join(root, 'apps/desktop/out/desktop-hosted-origin.txt'),
-        'https://lykeion.ia',
+        'https://app.lykeion.tech',
       );
       writeFileSync(
         path.join(root, 'apps/desktop/out/desktop-build.json'),
@@ -448,13 +448,13 @@ describe('desktop release packaging', () => {
         verifyArchive(
           archive,
           expected,
-          'https://lykeion.ia',
+          'https://app.lykeion.tech',
           asar,
         ),
       ).not.toThrow();
       writeFileSync(path.join(root, 'apps/desktop/out/electron-updater.cjs'), 'tampered');
       await asar.createPackage(root, archive);
-      expect(() => verifyArchive(archive, expected, 'https://lykeion.ia', asar)).toThrow('Packaged updater mismatch');
+      expect(() => verifyArchive(archive, expected, 'https://app.lykeion.tech', asar)).toThrow('Packaged updater mismatch');
       writeFileSync(path.join(root, 'apps/desktop/out/electron-updater.cjs'), 'ok');
       writeFileSync(path.join(root, 'dist/dashboard/private.env'), 'secret');
       await asar.createPackage(root, archive);
@@ -462,7 +462,7 @@ describe('desktop release packaging', () => {
         verifyArchive(
           archive,
           expected,
-          'https://lykeion.ia',
+          'https://app.lykeion.tech',
           asar,
         ),
       ).toThrow();
@@ -473,7 +473,7 @@ describe('desktop release packaging', () => {
         verifyArchive(
           archive,
           expected,
-          'https://lykeion.ia',
+          'https://app.lykeion.tech',
           asar,
         ),
       ).toThrow();
@@ -484,7 +484,7 @@ describe('desktop release packaging', () => {
         verifyArchive(
           archive,
           expected,
-          'https://lykeion.ia',
+          'https://app.lykeion.tech',
           asar,
         ),
       ).toThrow();

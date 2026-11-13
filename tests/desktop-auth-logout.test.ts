@@ -19,38 +19,38 @@ it('refuses ambiguous same-name cookies without removing them', async () => {
   const session = {
     cookies: {
       get: vi.fn(async () => [
-        { hostOnly: true, path: '/', domain: 'lykeion.ia' },
-        { hostOnly: false, path: '/', domain: '.lykeion.ia' },
+        { hostOnly: true, path: '/', domain: 'app.lykeion.tech' },
+        { hostOnly: false, path: '/', domain: '.app.lykeion.tech' },
       ]),
       remove,
       flushStore: vi.fn(),
     },
   } as unknown as Session;
-  await expect(clearAbandonedLogout(session, 'https://lykeion.ia')).rejects.toThrow('Ambiguous');
+  await expect(clearAbandonedLogout(session, 'https://app.lykeion.tech')).rejects.toThrow('Ambiguous');
   expect(remove).not.toHaveBeenCalled();
 });
 it('fails if removal does not actually clear the host-only cookie', async () => {
   const session = {
     cookies: {
-      get: vi.fn(async () => [{ hostOnly: true, path: '/', domain: 'lykeion.ia' }]),
+      get: vi.fn(async () => [{ hostOnly: true, path: '/', domain: 'app.lykeion.tech' }]),
       remove: vi.fn(async () => {}),
       flushStore: vi.fn(),
     },
   } as unknown as Session;
-  await expect(clearAbandonedLogout(session, 'https://lykeion.ia')).rejects.toThrow(
+  await expect(clearAbandonedLogout(session, 'https://app.lykeion.tech')).rejects.toThrow(
     'could not be cleared',
   );
 });
 it.each([
-  ['domain', { hostOnly: false, path: '/', domain: '.lykeion.ia', value: 'valid-looking' }],
-  ['api path', { hostOnly: true, path: '/api', domain: 'lykeion.ia', value: 'valid-looking' }],
-  ['ws path', { hostOnly: true, path: '/ws', domain: 'lykeion.ia', value: 'valid-looking' }],
+  ['domain', { hostOnly: false, path: '/', domain: '.app.lykeion.tech', value: 'valid-looking' }],
+  ['api path', { hostOnly: true, path: '/api', domain: 'app.lykeion.tech', value: 'valid-looking' }],
+  ['ws path', { hostOnly: true, path: '/ws', domain: 'app.lykeion.tech', value: 'valid-looking' }],
 ])('refuses a %s session cookie before reopening', async (_name, cookie) => {
   const remove = vi.fn();
   const session = {
     cookies: { get: vi.fn(async () => [cookie]), remove, flushStore: vi.fn() },
   } as unknown as Session;
-  await expect(clearAbandonedLogout(session, 'https://lykeion.ia')).rejects.toThrow();
+  await expect(clearAbandonedLogout(session, 'https://app.lykeion.tech')).rejects.toThrow();
   expect(remove).not.toHaveBeenCalled();
 });
 

@@ -1,7 +1,7 @@
 # Lykeion Desktop server configuration
 
 Standard desktop builds connect to the hosted Lykeion service at
-`https://lykeion.ia` by default. A release may specify a different hosted
+`https://app.lykeion.tech` by default. A release may specify a different hosted
 address. To connect to a self-hosted server, create a UTF-8 JSON file at:
 
 - macOS and Linux: `~/.lyk/desktop.json`

@@ -25,14 +25,14 @@ it('rejects an old-cookie send event delivered after a later recovery epoch', as
     protocol: { handle: () => {} },
   } as unknown as Session;
   let epoch = 0;
-  installDesktopRenderer(session, 'https://lykeion.ia', '/tmp', {
+  installDesktopRenderer(session, 'https://app.lykeion.tech', '/tmp', {
     continue: () => false,
     finish: () => {},
     networkReady: async () => {},
     networkBlocked: () => false,
     networkEpoch: () => epoch,
   });
-  const request = { id: 7, url: 'https://lykeion.ia/api/me', method: 'GET', resourceType: 'xhr' };
+  const request = { id: 7, url: 'https://app.lykeion.tech/api/me', method: 'GET', resourceType: 'xhr' };
   const admission = await new Promise((resolve) => before(request, resolve));
   expect(admission).toEqual({ cancel: false });
   epoch++;

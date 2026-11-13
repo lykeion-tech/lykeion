@@ -57,7 +57,7 @@ build(process.execPath, [
 ]);
 writeFileSync(
   path.join(output, 'desktop-hosted-origin.txt'),
-  process.env.LYK_HOSTED_API_URL ?? 'https://lykeion.ia',
+  process.env.LYK_HOSTED_API_URL ?? 'https://app.lykeion.tech',
 );
 if (!process.argv.includes('--build-only')) {
   const child = spawn(
