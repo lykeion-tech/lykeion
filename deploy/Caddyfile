@@ -17,3 +17,7 @@
 		file_server
 	}
 }
+
+{$ALIAS_DOMAINS} {
+	redir https://{$DOMAIN}{uri} permanent
+}

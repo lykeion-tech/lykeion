@@ -105,6 +105,7 @@ services:
     depends_on: [server]
     environment:
       DOMAIN: ${DOMAIN}
+      ALIAS_DOMAINS: ${ALIAS_DOMAINS:?}
     ports: ["80:80", "443:443", "443:443/udp"]
     volumes: [caddydata:/data, caddyconfig:/config]
 
