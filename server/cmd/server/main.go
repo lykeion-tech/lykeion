@@ -103,6 +103,16 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if mode != "" && mode != "auto" && mode != "external" {
 		return errors.New("MIGRATIONS_MODE must be auto or external")
 	}
+	databaseRole := getenv("DATABASE_ROLE")
+	if databaseRole == "" {
+		databaseRole = "lykeion_app"
+	}
+	if databaseRole != "lykeion_app" && databaseRole != "lykeion_app_v2" {
+		return errors.New("DATABASE_ROLE must be lykeion_app or lykeion_app_v2")
+	}
+	if databaseRole == "lykeion_app_v2" && mode != "external" {
+		return errors.New("DATABASE_ROLE lykeion_app_v2 requires MIGRATIONS_MODE=external")
+	}
 	for _, key := range []string{"DATABASE_URL", "REDIS_URL"} {
 		if getenv(key) == "" {
 			return fmt.Errorf("%s is required", key)
@@ -134,17 +144,21 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	defer pool.Close()
 	// Validate the effective role before any request can bypass tenant policies.
 	var safe bool
-	err = pool.QueryRow(ctx, `SELECT current_user = 'lykeion_app'
+	roleCheck := `SELECT current_user = 'lykeion_app'
    AND session_user = 'lykeion_app' AND NOT r.rolsuper AND NOT r.rolbypassrls
    AND NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
      WHERE n.nspname='public' AND c.relkind IN ('r','p')
        AND pg_has_role(current_user,c.relowner,'USAGE'))
-   FROM pg_roles r WHERE r.rolname=current_user`).Scan(&safe)
+   FROM pg_roles r WHERE r.rolname=current_user`
+	if databaseRole == "lykeion_app_v2" {
+		roleCheck = restrictedV2RoleCheck
+	}
+	err = pool.QueryRow(ctx, roleCheck).Scan(&safe)
 	if err != nil {
 		return fmt.Errorf("DATABASE_URL readiness: %w", err)
 	}
 	if !safe {
-		return errors.New("DATABASE_URL must use lykeion_app without superuser, BYPASSRLS or table ownership privileges")
+		return fmt.Errorf("DATABASE_URL does not meet restricted %s role requirements", databaseRole)
 	}
 	if mode == "external" {
 		versions, err := migrate.Versions(migrations.FS)

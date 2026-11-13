@@ -34,6 +34,27 @@ migration file contents. Keep the owner credential only
 in the migration step. The default `MIGRATIONS_MODE=auto` retains automatic
 migrations and requires `MIGRATE_DATABASE_URL` on every server start.
 
+An administrator can optionally provision a separate serving login on
+PostgreSQL 17, without changing the existing login:
+
+```sql
+CREATE ROLE lykeion_app_v2 LOGIN;
+GRANT lykeion_app TO lykeion_app_v2 WITH INHERIT TRUE, SET FALSE, ADMIN FALSE;
+```
+
+Set its password separately, for example using `\password lykeion_app_v2` in
+an interactive psql session. Configure the server's `DATABASE_URL` to use
+that login, and set `DATABASE_ROLE=lykeion_app_v2` and
+`MIGRATIONS_MODE=external`. The v2 login must receive its application access
+only through the `lykeion_app` membership, with no additional direct grants,
+other role memberships, ownership, or elevated role attributes. Startup checks
+the role graph and ownership and grants for common PostgreSQL object classes;
+it is not a complete audit of every possible object or privilege. Its authority
+still depends on the grants given to `lykeion_app` and `PUBLIC`; administrators
+must keep those grants restricted and control role changes after startup. The
+check runs at startup only. Provisioning this login does not disable existing
+sessions or old replicas and does not establish a fleet cutover.
+
 ## Local run
 
 Set these environment variables with your local credentials:
