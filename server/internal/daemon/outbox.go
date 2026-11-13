@@ -171,10 +171,7 @@ func (o *Outbox) Put(r Report) error {
 		return err
 	}
 	for _, path := range []string{o.file(r), filepath.Join(o.Dir, "quarantine", filepath.Base(o.file(r)))} {
-		if old, err := readReport(path); err == nil {
-			if !sameReport(old, r) {
-				return errors.New("conflicting durable report")
-			}
+		if err := syncExistingReport(path, r, (*os.File).Sync); err == nil {
 			return nil
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
