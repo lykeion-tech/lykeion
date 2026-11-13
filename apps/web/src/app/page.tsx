@@ -172,6 +172,6 @@ export default function Home() {
           <div><h2>Company</h2><span aria-disabled="true">About</span><span aria-disabled="true">Contact</span></div>
         </nav>
       </div>
-      <div className="footer-bottom"><div className="wrap footer-bottom-inner"><div className="footer-copyright"><img src="/lykeion.svg" alt=""/><span aria-hidden="true">//</span><p>Copyright © 2026 Lykeion.<br/>All rights reserved.</p></div><div className="footer-bottom-links"><div><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div><a href="https://github.com/lykeion-ia/lykeion" aria-label="Lykeion on GitHub"><img src="https://github.githubassets.com/favicons/favicon.svg" width="15" height="15" alt=""/></a></div></div></div>
+      <div className="footer-bottom"><div className="wrap footer-bottom-inner"><div className="footer-copyright"><img src="/lykeion.svg" alt=""/><span aria-hidden="true">{'//'}</span><p>Copyright © 2026 Lykeion.<br/>All rights reserved.</p></div><div className="footer-bottom-links"><div><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div><a href="https://github.com/lykeion-ia/lykeion" aria-label="Lykeion on GitHub"><img src="https://github.githubassets.com/favicons/favicon.svg" width="15" height="15" alt=""/></a></div></div></div>
     </footer></>;
 }

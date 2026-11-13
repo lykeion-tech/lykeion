@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = { title: 'Privacy Policy · Lykeion' };
 
@@ -6,9 +7,9 @@ export default function PrivacyPage() {
   return (
     <main className="legal-page">
       <div className="legal-content">
-        <a className="home" href="/">
+        <Link className="home" href="/">
           {'Lykeion'}
-        </a>
+        </Link>
         <h1>{'Privacy Policy'}</h1>
         <p className="updated">{'Last updated: 13 November 2026'}</p>
         <h2>{'Who is responsible'}</h2>
