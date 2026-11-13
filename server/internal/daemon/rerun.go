@@ -549,6 +549,10 @@ func fetchCRAN(ctx context.Context, dir, pkg, version string) (string, error) {
 			resp.Body.Close()
 			return "", fmt.Errorf("fetching %s: %s", u, resp.Status)
 		}
+		if resp.ContentLength > maxCRANBytes {
+			resp.Body.Close()
+			return "", unrebuildable{fmt.Errorf("%s is over %d MiB", file, maxCRANBytes>>20)}
+		}
 		path := filepath.Join(dir, file)
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		var n int64
