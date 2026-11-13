@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -139,17 +140,32 @@ func sameReport(a, b Report) bool {
 	return ae == nil && be == nil && bytes.Equal(ab, bb)
 }
 func readReport(path string) (Report, error) {
+	f, err := openReportFile(path)
+	if err != nil {
+		return Report{}, err
+	}
+	defer f.Close()
+	return decodeReportFile(f)
+}
+
+func decodeReportFile(f *os.File) (Report, error) {
 	var r Report
-	fi, err := os.Lstat(path)
+	fi, err := f.Stat()
 	if err != nil {
 		return r, err
 	}
 	if !fi.Mode().IsRegular() {
-		return r, fmt.Errorf("nonregular queue record %s", path)
+		return r, fmt.Errorf("nonregular queue record %s", f.Name())
 	}
-	b, err := os.ReadFile(path)
+	if fi.Size() == int64(^uint64(0)>>1) {
+		return r, errors.New("invalid queue record size")
+	}
+	b, err := io.ReadAll(io.LimitReader(f, fi.Size()+1))
 	if err != nil {
 		return r, err
+	}
+	if int64(len(b)) != fi.Size() {
+		return r, errors.New("queue record changed while reading")
 	}
 	err = json.Unmarshal(b, &r)
 	if err == nil && (r.AgentRunID == uuid.Nil || r.Attempt <= 0 || (r.Kind != "complete" && r.Kind != "fail" && r.Kind != "messages" && (r.Kind != "rerun" || r.Rerun == nil))) {

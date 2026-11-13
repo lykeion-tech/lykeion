@@ -3,14 +3,11 @@
 package daemon
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
 )
 
@@ -38,20 +35,9 @@ func syncExistingReport(path, queueDir string, want Report, syncFile func(*os.Fi
 			result = fmt.Errorf("existing queue record disappeared: %v", result)
 		}
 	}()
-	info, err := f.Stat()
+	got, err := decodeReportFile(f)
 	if err != nil {
 		return err
-	}
-	if !info.Mode().IsRegular() || info.Size() < 1 || info.Size() == int64(^uint64(0)>>1) {
-		return errors.New("invalid existing queue record")
-	}
-	b, err := io.ReadAll(io.LimitReader(f, info.Size()+1))
-	if err != nil || int64(len(b)) != info.Size() {
-		return errors.New("queue record changed while reading")
-	}
-	var got Report
-	if err = json.Unmarshal(b, &got); err != nil || got.AgentRunID == uuid.Nil || got.Attempt <= 0 || (got.Kind != "complete" && got.Kind != "fail" && got.Kind != "messages" && (got.Kind != "rerun" || got.Rerun == nil)) {
-		return errors.New("invalid existing queue record")
 	}
 	if !sameReport(got, want) {
 		return errors.New("conflicting durable report")
