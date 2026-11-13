@@ -13,7 +13,9 @@ COPY package.json package-lock.json ./
 RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
 COPY . .
 ARG PUBLIC_URL
-RUN test -n "$PUBLIC_URL" && LYK_API_URL="$PUBLIC_URL" npx vite build --config apps/dashboard/vite.config.ts
+RUN test -n "$PUBLIC_URL" \
+ && npx vite build --config apps/web/vite.config.ts \
+ && LYK_API_URL="$PUBLIC_URL" npx vite build --config apps/dashboard/vite.config.ts --base /app/
 
 FROM alpine:3.22 AS server
 RUN apk add --no-cache ca-certificates postgresql17-client \
@@ -26,4 +28,5 @@ CMD ["server"]
 
 FROM caddy:2-alpine AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
-COPY --from=dashboard /src/dist/dashboard /srv
+COPY --from=dashboard /src/dist/web /srv
+COPY --from=dashboard /src/dist/dashboard /srv/app

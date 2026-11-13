@@ -222,7 +222,7 @@ func TestInvitationMailLinksTheDashboard(t *testing.T) {
 	w := s.workspace(t, a, "lab")
 	token := s.invite(t, a, w.ID, "new@lab.org", "member")
 	body := s.Mail.last["new@lab.org"]
-	for _, want := range []string{"https://lab.example.org/#/invite/" + token, "lyk workspace accept " + token, "POST /api/invitations/" + token + "/accept"} {
+	for _, want := range []string{"https://lab.example.org/app/#/invite/" + token, "lyk workspace accept " + token, "POST /api/invitations/" + token + "/accept"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("invitation mail lacks %q:\n%s", want, body)
 		}

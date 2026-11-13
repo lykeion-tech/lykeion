@@ -1,4 +1,4 @@
-# Production stack: Caddy (HTTPS + dashboard) in front of the server, with
+# Production stack: Caddy (HTTPS, landing page at /, dashboard at /app/) in front of the server, with
 # PostgreSQL and Redis on an internal network. Only Caddy publishes ports.
 name: lykeion
 

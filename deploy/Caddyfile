@@ -9,9 +9,11 @@
 
 	handle {
 		root * /srv
-		@assets path /assets/*
+		@assets path /assets/* /app/assets/*
 		header @assets Cache-Control "public, max-age=31536000, immutable"
-		header / Cache-Control "no-cache"
+		@pages path / /app/
+		header @pages Cache-Control "no-cache"
+		redir /app /app/
 		file_server
 	}
 }
