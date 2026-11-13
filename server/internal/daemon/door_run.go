@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -39,6 +40,8 @@ const (
 	runScriptCite = " Cite the result's numbers as run:<key>, the first line of the answer."
 	// maxScript is the longest script or cell the server records.
 	maxScript = 256 << 10
+	// maxSetupOutput matches the existing per-call output limit.
+	maxSetupOutput = 32 << 20
 	// outputCut ends output dropped past maxAnswer, as the session bridge
 	// ends a cell's.
 	outputCut     = "\n[output cut at 32 MiB]\n"
@@ -291,21 +294,47 @@ func unsandboxed(err error) error { return unsandboxedError{err} }
 // in the run's temp folder. It can't be the full environment code runs with,
 // which comes from the study's folders this step may be making.
 func (d *Door) runSandboxed(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	cmd, err := d.command(ctx, name, args...)
 	if err != nil {
 		return nil, err
 	}
+	defer sandbox.CloseCommand(cmd)
 	env = slices.DeleteFunc(slices.Clone(env), func(e string) bool { return strings.HasPrefix(e, "LYK_") })
 	cmd.Dir, cmd.Env = dir, slices.Concat(d.personEnv(), env, d.tmpEnv())
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	stdout, stderr := setupOutput{cancel: cancel}, setupOutput{cancel: cancel}
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.Cancel = func() error { killGroup(cmd); return nil }
 	cmd.WaitDelay = 5 * time.Second
-	out, err := cmd.Output()
+	err = cmd.Run()
+	if stdout.exceeded || stderr.exceeded {
+		return nil, errors.New("environment setup output exceeds 32 MiB")
+	}
+	out := stdout.buf.Bytes()
 	if err != nil {
-		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, strings.TrimSpace(stderr.buf.String()))
 	}
 	return out, nil
+}
+
+type setupOutput struct {
+	buf      bytes.Buffer
+	exceeded bool
+	cancel   context.CancelFunc
+}
+
+func (o *setupOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := maxSetupOutput - o.buf.Len()
+	if len(p) > remaining {
+		p = p[:remaining]
+		o.exceeded = true
+		// shortcut: descendants may survive an exited leader; add an OS-owned supervisor.
+		o.cancel()
+	}
+	_, _ = o.buf.Write(p)
+	return n, nil
 }
 
 // cacheDirs are where the home folder and the caches and config that
