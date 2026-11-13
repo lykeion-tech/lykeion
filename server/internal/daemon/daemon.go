@@ -319,7 +319,7 @@ loop:
 	cancel()
 	d.wg.Wait()
 	<-receiptsDone
-	d.stopChats()
+	runErr = errors.Join(runErr, d.stopChats())
 	// A concurrent child storage failure must not disappear during shutdown.
 	select {
 	case err := <-d.failures:

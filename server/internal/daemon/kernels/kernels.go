@@ -503,47 +503,86 @@ func (s *Sessions) callLocked(ctx context.Context, req map[string]any) (reply, e
 // is told to stop, which it also handles by shutting its kernels down, and is
 // killed last. Close signals before acquiring the call lock so active cells
 // cannot delay shutdown until their timeout. Later calls are refused.
+// ErrBridgeRetirementUnconfirmed means the bridge exit was not observed.
+// It makes no claim about any descendant processes.
+var ErrBridgeRetirementUnconfirmed = errors.New("session bridge retirement unconfirmed")
+
+type bridgeCloseLimits struct{ lock, graceful, term, kill time.Duration }
+
 func (s *Sessions) Close() error {
+	return s.closeWith(bridgeCloseLimits{lock: 20 * time.Second, graceful: 10 * time.Second, term: 5 * time.Second, kill: 10 * time.Second}, retireBridge)
+}
+
+func (s *Sessions) closeWith(limits bridgeCloseLimits, retire func(*bridge, bridgeCloseLimits) bool) error {
 	s.closing.Store(true)
+	deadline := time.NewTimer(limits.lock)
+	defer deadline.Stop()
 	var pending *os.Process
 	var force *time.Timer
-	// Escalation must run before taking mu: a bridge that ignores SIGTERM can
-	// otherwise keep the call lock until the full cell timeout expires.
+	defer func() {
+		if force != nil {
+			force.Stop()
+		}
+	}()
 	for !s.mu.TryLock() {
 		if p := s.process.Load(); p != nil && p != pending {
-			if b := s.current.Load(); b != nil {
-				_ = b.signal(syscall.SIGTERM)
-			} else {
-				p.Signal(syscall.SIGTERM)
-			}
+			// Signal only the original os.Process handle, never a PID resolved
+			// from a later snapshot that could have been reused.
+			_ = p.Signal(syscall.SIGTERM)
 			pending = p
 			if force != nil {
 				force.Stop()
 			}
-			force = time.AfterFunc(5*time.Second, func() { p.Kill() })
+			force = time.AfterFunc(5*time.Second, func() { _ = p.Kill() })
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if force != nil {
-		defer force.Stop()
+		select {
+		case <-deadline.C:
+			return ErrBridgeRetirementUnconfirmed
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	defer s.mu.Unlock()
-	if !s.closed {
-		defer os.Remove(s.script)
-	}
 	s.closed = true
 	if s.b == nil {
+		if s.script != "" {
+			_ = os.Remove(s.script)
+		}
 		return nil
 	}
 	b := s.b
+	if !retire(b, limits) {
+		return ErrBridgeRetirementUnconfirmed
+	}
 	s.b = nil
-	s.process.CompareAndSwap(b.cmd.Process, nil)
-	b.in.Write([]byte(`{"op":"shutdown"}` + "\n"))
-	b.in.Close()
-	if !exited(b, 10*time.Second) {
-		stop(b)
+	if b.cmd != nil {
+		s.process.CompareAndSwap(b.cmd.Process, nil)
+	}
+	if s.script != "" {
+		_ = os.Remove(s.script)
 	}
 	return nil
+}
+
+func retireBridge(b *bridge, limits bridgeCloseLimits) bool {
+	// A closed done channel belongs to this bridge's process handle; never signal
+	// a PID recovered from a later process snapshot after Wait has completed.
+	select {
+	case <-b.done:
+		return true
+	default:
+	}
+	// EOF asks the bridge to run its shutdown cleanup without a pipe write
+	// that could block indefinitely if the child stopped reading.
+	_ = b.in.Close()
+	if exited(b, limits.graceful) {
+		return true
+	}
+	_ = b.cmd.Process.Signal(syscall.SIGTERM)
+	if exited(b, limits.term) {
+		return true
+	}
+	_ = b.cmd.Process.Kill()
+	return exited(b, limits.kill)
 }
 
 func stop(b *bridge) {

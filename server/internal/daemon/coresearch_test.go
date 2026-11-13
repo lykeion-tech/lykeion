@@ -27,6 +27,7 @@ import (
 	"lykeion/server/internal/compute"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/localfiles"
+	"lykeion/server/internal/daemon/kernels"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/toolroute"
 	"lykeion/server/pkg/agent"
@@ -1402,6 +1403,142 @@ func TestCoresearchRefusesRedirectedSkillFolders(t *testing.T) {
 					t.Fatalf("redirected skills accepted: called=%v report=%+v", called, report)
 				}
 			})
+		}
+	}
+}
+
+func TestChatCloseRetainsUnconfirmedBridgeAndRetries(t *testing.T) {
+	root := t.TempDir()
+	tmp := filepath.Join(root, "tmp")
+	bridge := filepath.Join(root, "bridge")
+	for _, dir := range []string{tmp, bridge} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sessions := &kernels.Sessions{}
+	h := &chatHost{sessions: sessions, tmp: tmp, bridgeDir: bridge}
+	h.publishedSessions.Store(sessions)
+	fail := func(*kernels.Sessions) error { return kernels.ErrBridgeRetirementUnconfirmed }
+	if err := h.closeLockedWith(fail); !errors.Is(err, kernels.ErrBridgeRetirementUnconfirmed) {
+		t.Fatalf("close: %v", err)
+	}
+	if h.sessions != sessions || h.publishedSessions.Load() != sessions || !h.retirementPending {
+		t.Fatal("unconfirmed session was discarded")
+	}
+	for _, dir := range []string{tmp, bridge} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("directory removed before retirement: %v", err)
+		}
+	}
+	if err := h.closeLockedWith(func(*kernels.Sessions) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if h.sessions != nil || h.publishedSessions.Load() != nil || h.retirementPending {
+		t.Fatal("confirmed session not cleared")
+	}
+	for _, dir := range []string{tmp, bridge} {
+		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("directory not removed: %v", err)
+		}
+	}
+}
+
+func TestCoresearchCellErrorDoesNotReportUnconfirmedBridgeStopped(t *testing.T) {
+	f := newCoreFixture(t)
+	h := f.d.chats[f.work.ChatID]
+	h.mu.Lock()
+	h.sessions = &kernels.Sessions{}
+	h.retirementPending = true
+	h.mu.Unlock()
+	f.saved("../invalid", "x", 1)
+	err := f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "1"})
+	if err == nil {
+		t.Fatal("invalid snapshot unexpectedly succeeded")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, state := range f.states {
+		if state == "stopped" {
+			t.Fatal("unconfirmed bridge reported stopped")
+		}
+	}
+}
+
+func TestCoresearchReaperRetriesPendingDirectoryCleanup(t *testing.T) {
+	f := newCoreFixture(t)
+	parent := t.TempDir()
+	child := filepath.Join(parent, "pending")
+	if err := os.Mkdir(child, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "item"), []byte("synthetic"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0700) })
+	h := f.d.chats[f.work.ChatID]
+	h.mu.Lock()
+	h.tmp = child
+	h.retirementPending = true
+	h.lastUsed = time.Now().Add(-2 * chatIdle)
+	h.mu.Unlock()
+	f.d.reapChats(t.Context())
+	h.mu.Lock()
+	pending := h.retirementPending
+	path := h.tmp
+	h.mu.Unlock()
+	if !pending || path != child {
+		t.Fatal("failed cleanup was forgotten")
+	}
+	f.mu.Lock()
+	for _, state := range f.states {
+		if state == "stopped" {
+			f.mu.Unlock()
+			t.Fatal("reported stopped before cleanup succeeded")
+		}
+	}
+	f.mu.Unlock()
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	f.d.reapChats(t.Context())
+	h.mu.Lock()
+	pending = h.retirementPending
+	path = h.tmp
+	h.mu.Unlock()
+	if pending || path != "" {
+		t.Fatal("pending cleanup was not retried")
+	}
+	if _, err := os.Stat(child); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup: %v", err)
+	}
+}
+
+func TestCoresearchCellSnapshotErrorDoesNotReportLiveBridgeStopped(t *testing.T) {
+	f := coreKernelFixture(t)
+	must(t, f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "host"}))
+	h := f.d.chats[f.work.ChatID]
+	h.mu.Lock()
+	live := h.sessions != nil && !h.retirementPending
+	h.mu.Unlock()
+	if !live {
+		t.Fatal("expected live session")
+	}
+	f.mu.Lock()
+	before := len(f.states)
+	f.mu.Unlock()
+	f.saved("../invalid", "x", 1)
+	if err := f.d.runCell(t.Context(), coresearch.ClaimedCell{WorkContext: f.work, ID: uuid.New(), Kernel: "python3", Source: "1"}); err == nil {
+		t.Fatal("invalid snapshot unexpectedly succeeded")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, state := range f.states[before:] {
+		if state == "stopped" {
+			t.Fatal("live bridge reported stopped")
 		}
 	}
 }

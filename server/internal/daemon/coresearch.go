@@ -42,6 +42,7 @@ type chatHost struct {
 	dir               string
 	study             *envs.Study
 	sessions          *kernels.Sessions
+	retirementPending bool
 	publishedSessions atomic.Pointer[kernels.Sessions]
 	lastUsed          time.Time
 	users             int
@@ -193,28 +194,55 @@ func (h *chatHost) use() func() {
 	return func() { h.mu.Lock(); h.users--; h.lastUsed = time.Now(); h.mu.Unlock() }
 }
 func (h *chatHost) closeLocked() error {
-	h.publishedSessions.Store(nil)
-	var err error
+	return h.closeLockedWith((*kernels.Sessions).Close)
+}
+
+// Retain the session and its directories until bridge exit is confirmed, so a
+// caller can retry without claiming that an unconfirmed kernel has stopped.
+func (h *chatHost) closeLockedWith(closeSession func(*kernels.Sessions) error) error {
 	if h.sessions != nil {
-		err = h.sessions.Close()
+		if err := closeSession(h.sessions); err != nil {
+			h.retirementPending = true
+			return err
+		}
 		h.sessions = nil
+		h.publishedSessions.Store(nil)
 	}
-	for _, dir := range []string{h.tmp, h.bridgeDir} {
-		if dir != "" {
-			err = errors.Join(err, os.RemoveAll(dir))
+	h.retirementPending = false
+	var errs []error
+	if h.tmp != "" {
+		if err := os.RemoveAll(h.tmp); err != nil {
+			errs = append(errs, err)
+		} else {
+			h.tmp = ""
 		}
 	}
-	h.tmp, h.bridgeDir = "", ""
-	return err
+	if h.bridgeDir != "" {
+		if err := os.RemoveAll(h.bridgeDir); err != nil {
+			errs = append(errs, err)
+		} else {
+			h.bridgeDir = ""
+		}
+	}
+	if len(errs) > 0 {
+		h.retirementPending = true
+	}
+	return errors.Join(errs...)
 }
-func (d *daemon) stopChats() {
+
+func (d *daemon) stopChats() error {
 	d.chatsMu.Lock()
 	var stopped []*chatHost
+	var failures []error
 	for _, h := range d.chats {
 		h.mu.Lock()
-		hadKernel := h.sessions != nil
-		_ = h.closeLocked()
+		hadKernel := h.sessions != nil || h.retirementPending
+		err := h.closeLocked()
 		h.mu.Unlock()
+		if err != nil {
+			failures = append(failures, fmt.Errorf("stop Coresearch bridge: %w", err))
+			continue
+		}
 		if hadKernel {
 			stopped = append(stopped, h)
 		}
@@ -225,6 +253,7 @@ func (d *daemon) stopChats() {
 	for _, h := range stopped {
 		_ = d.kernelState(ctx, h, "stopped", 0)
 	}
+	return errors.Join(failures...)
 }
 
 func (d *daemon) kernelState(ctx context.Context, h *chatHost, state string, seq int64) error {
@@ -243,18 +272,22 @@ func (d *daemon) reapChats(ctx context.Context) {
 	d.chatsMu.Unlock()
 	for _, h := range hosts {
 		h.mu.Lock()
-		hasKernel := h.sessions != nil
+		hasKernel := h.sessions != nil || h.retirementPending
 		h.mu.Unlock()
 		if !hasKernel {
 			continue
 		}
 		revoked := d.checkChat(ctx, h.work) != nil
 		h.mu.Lock()
-		idle := h.users == 0 && h.sessions != nil && time.Since(h.lastUsed) >= chatIdle
+		idle := h.users == 0 && (h.sessions != nil || h.retirementPending) && time.Since(h.lastUsed) >= chatIdle
+		var closeErr error
 		if idle || revoked {
-			_ = h.closeLocked()
+			closeErr = h.closeLocked()
 		}
-		if idle && !revoked {
+		if closeErr != nil {
+			slog.Error("Coresearch bridge retirement unconfirmed; will retry", "err", closeErr)
+		}
+		if idle && !revoked && closeErr == nil {
 			_ = d.kernelState(ctx, h, "stopped", 0)
 		}
 		h.mu.Unlock()
@@ -334,6 +367,11 @@ func coreJupyterEnv(study *envs.Study, env []string) []string {
 func (d *daemon) startKernel(ctx context.Context, h *chatHost) error {
 	if err := d.retireChangedKernel(ctx, h); err != nil {
 		return err
+	}
+	if h.retirementPending {
+		if err := h.closeLocked(); err != nil {
+			return err
+		}
 	}
 	if h.sessions != nil {
 		return nil
@@ -492,8 +530,12 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 			return
 		}
 		h.mu.Lock()
-		_ = h.closeLocked()
+		closeErr := h.closeLocked()
 		h.mu.Unlock()
+		if closeErr != nil {
+			resultErr = errors.Join(resultErr, closeErr)
+			return
+		}
 		stopped, stop := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stop()
 		if d.checkChat(stopped, h.work) == nil {
@@ -554,7 +596,11 @@ func (d *daemon) runCell(ctx context.Context, c coresearch.ClaimedCell) (resultE
 		return ctx.Err()
 	}
 	receipt = map[string]any{"status": "error", "outputs": []kernels.Output{{Type: "error", Ename: "HostError", Evalue: err.Error()}}}
-	_ = d.kernelState(ctx, h, "stopped", 0)
+	h.mu.Lock()
+	if h.sessions == nil && !h.retirementPending {
+		_ = d.kernelState(ctx, h, "stopped", 0)
+	}
+	h.mu.Unlock()
 	return err
 }
 func (d *daemon) controlChat(ctx context.Context, c coresearch.ClaimedControl) error {

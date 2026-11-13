@@ -1360,3 +1360,45 @@ shared["replies"] = writer
 shared["shutdown"] = release_on_shutdown
 shared["main"]()
 `
+
+func TestCloseKeepsUnconfirmedBridgeUntilRetired(t *testing.T) {
+	b := &bridge{done: make(chan struct{}), replies: make(chan reply)}
+	s := &Sessions{b: b}
+	limits := bridgeCloseLimits{lock: time.Millisecond, graceful: time.Millisecond, term: time.Millisecond, kill: time.Millisecond}
+	retire := func(*bridge, bridgeCloseLimits) bool { return false }
+	if err := s.closeWith(limits, retire); !errors.Is(err, ErrBridgeRetirementUnconfirmed) {
+		t.Fatalf("first close: %v", err)
+	}
+	if s.b != b {
+		t.Fatal("unconfirmed bridge forgotten")
+	}
+	if err := s.closeWith(limits, retire); !errors.Is(err, ErrBridgeRetirementUnconfirmed) {
+		t.Fatalf("second close: %v", err)
+	}
+	if err := s.closeWith(limits, func(*bridge, bridgeCloseLimits) bool { return true }); err != nil {
+		t.Fatalf("confirmed close: %v", err)
+	}
+	if s.b != nil {
+		t.Fatal("confirmed bridge retained")
+	}
+	if err := s.closeWith(limits, retire); err != nil {
+		t.Fatalf("idempotent close: %v", err)
+	}
+}
+
+func TestCloseReportsUnconfirmedWhenCallLockIsStuck(t *testing.T) {
+	s := &Sessions{}
+	s.mu.Lock()
+	started := time.Now()
+	err := s.closeWith(bridgeCloseLimits{lock: 20 * time.Millisecond}, func(*bridge, bridgeCloseLimits) bool { return true })
+	s.mu.Unlock()
+	if !errors.Is(err, ErrBridgeRetirementUnconfirmed) {
+		t.Fatalf("close: %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("close exceeded its lock deadline")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close after lock release: %v", err)
+	}
+}
