@@ -78,6 +78,21 @@ services:
       interval: 10s
       retries: 6
 
+  # Run on a schedule, not kept up: docker compose --profile backup run --rm backup
+  backup:
+    build: { <<: *build, target: backup }
+    image: lykeion-backup
+    profiles: [backup]
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      MIGRATE_DATABASE_URL: postgres://owner:${OWNER_DB_PASSWORD}@postgres:5432/lykeion?sslmode=disable
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+    volumes: [blobs:/data/blobs:ro]
+
   caddy:
     build: { <<: *build, target: web }
     image: lykeion-web

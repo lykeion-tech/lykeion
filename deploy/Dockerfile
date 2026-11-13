@@ -26,6 +26,11 @@ USER lykeion
 EXPOSE 8080
 CMD ["server"]
 
+FROM alpine:3.22 AS backup
+RUN apk add --no-cache ca-certificates postgresql17-client age rclone tar
+COPY deploy/backup.sh /usr/local/bin/backup
+CMD ["backup"]
+
 FROM caddy:2-alpine AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=dashboard /src/dist/web /srv
