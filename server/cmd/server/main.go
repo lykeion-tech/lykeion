@@ -320,6 +320,28 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		}
 	}()
 	defer func() { stopEngine(); <-engineDone }()
+	skillSweeper := service.NewRuntimeSkillSweeper(st)
+	skillCtx, stopSkill := context.WithCancel(ctx)
+	skillDone := make(chan struct{})
+	go func() {
+		defer close(skillDone)
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-skillCtx.Done():
+				return
+			case <-timer.C:
+				more, err := skillSweeper.SweepMore(skillCtx)
+				delay := runtimeSkillSweepDelay(more, err)
+				if err != nil && skillCtx.Err() == nil {
+					slog.Error("runtime skill sweep", "err", err)
+				}
+				timer.Reset(delay)
+			}
+		}
+	}()
+	defer func() { stopSkill(); <-skillDone }()
 	sweepCtx, stopSweep := context.WithCancel(ctx)
 	sweepDone := make(chan struct{})
 	go func() {
@@ -448,4 +470,12 @@ func buildLessonWriter(st *store.Store, index *labindex.Index, anthropicKey, jev
 		return nil
 	}
 	return &lessons.Writer{Store: st, Index: index, Batcher: lessons.NewAnthropicBatcher(anthropicKey), Jev: &jev.Client{BaseURL: "https://api.typesafe.ai", Key: jevKey, Model: jev.Model}}
+}
+
+// Errors back off even when a pass also exhausted its budget.
+func runtimeSkillSweepDelay(more bool, err error) time.Duration {
+	if more && err == nil {
+		return time.Second
+	}
+	return 30 * time.Second
 }

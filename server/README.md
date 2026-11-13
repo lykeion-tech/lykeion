@@ -34,6 +34,12 @@ migration file contents. Keep the owner credential only
 in the migration step. The default `MIGRATIONS_MODE=auto` retains automatic
 migrations and requires `MIGRATE_DATABASE_URL` on every server start.
 
+Migration `0073_runtime_skill_timeout_sweep` creates an index on
+`runtime_skill_request` inside the migration transaction. PostgreSQL blocks
+writes to that table while the index is built, so schedule this migration for a
+suitable maintenance window, especially when the table is large. The duration
+depends on the database and table size.
+
 An administrator can optionally provision a separate serving login on
 PostgreSQL 17, without changing the existing login:
 
