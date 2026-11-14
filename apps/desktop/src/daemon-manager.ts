@@ -517,7 +517,13 @@ export class DaemonManager {
             ? status.active_work
             : null,
       };
-      return this.emit({ ...snapshot, error: this.notice });
+      // A daemon from before this app reports neither its revision nor its
+      // work, so it cannot be replaced safely without the person.
+      const unversioned =
+        this.options.runtime && !this.live.revision
+          ? 'This computer is still running the runtime from an earlier Lykeion. Restart it here once no work is running to finish the update.'
+          : null;
+      return this.emit({ ...snapshot, error: this.notice ?? unversioned });
     } catch {
       return this.emit({ ...snapshot, error: 'Desktop daemon status could not be verified' });
     }
