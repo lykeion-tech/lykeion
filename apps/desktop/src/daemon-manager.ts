@@ -21,6 +21,7 @@ import type {
   DesktopPrerequisites,
 } from './daemon-types.js';
 import { validPreferences, validSession } from './daemon-ipc.js';
+import type { DaemonRuntime } from './daemon-runtime.js';
 
 type CommandOptions = { env: NodeJS.ProcessEnv; timeout: number };
 type BrowserAuthorization = (id: string | null) => Promise<() => boolean>;
@@ -35,6 +36,11 @@ export interface DaemonManagerOptions {
   request?: (url: string, options: RequestOptions) => Promise<unknown>;
   cliAvailable?: () => Promise<boolean>;
   authorizeBrowser?: () => BrowserAuthorization;
+  // runtime and revision are the packaged daemon's copies and the source
+  // revision it was built from; a running daemon from another revision is
+  // replaced once it is idle.
+  runtime?: DaemonRuntime;
+  revision?: string;
 }
 const defaults: DaemonPreferences = { autoStart: true, autoStop: false };
 export function desktopDaemonOptions(
@@ -183,6 +189,12 @@ export class DaemonManager {
   private resumePollingAfterQuit = false;
   private busy = 0;
   private refreshingPrerequisites = false;
+  private live: { revision: string | null; activeWork: number | null } = {
+    revision: null,
+    activeWork: null,
+  };
+  private notice: string | null = null;
+  private swapFailed: string | null = null;
   constructor(private readonly options: DaemonManagerOptions) {
     this.apiOrigin = origin(options.apiOrigin);
     const host = new URL(this.apiOrigin).host.replace(/[^a-z0-9.-]/gi, '-').toLowerCase();
@@ -332,6 +344,7 @@ export class DaemonManager {
   private async command(
     action: 'status' | 'start' | 'stop',
     allowed?: () => boolean,
+    { binary = this.options.cliPath, idleOnly = false } = {},
   ): Promise<string> {
     await this.prepare();
     const config = await readJSON(this.config);
@@ -351,7 +364,7 @@ export class DaemonManager {
           createHash('sha256').update(this.session.userID).digest('hex').slice(0, 16)
         : undefined;
     return this.execute(
-      this.options.cliPath,
+      binary,
       ['daemon', action, ...(action === 'status' ? ['--json'] : [])],
       {
         env: {
@@ -368,7 +381,7 @@ export class DaemonManager {
                 LYK_ENV_DIR: path.join(os.homedir(), '.lyk', 'envs-' + runtime),
               }
             : {}),
-          LYK_DESKTOP_SAFE_STOP: action === 'stop' ? '1' : '',
+          LYK_DESKTOP_SAFE_STOP: action === 'stop' ? (idleOnly ? 'idle' : '1') : '',
         },
         timeout: action === 'start' ? 60000 : action === 'stop' ? 15000 : 5000,
       },
@@ -449,6 +462,7 @@ export class DaemonManager {
       workspaceCount: null,
       os: null,
     };
+    this.live = { revision: null, activeWork: null };
     if (!this.options.supported)
       return this.emit({
         ...snapshot,
@@ -494,7 +508,16 @@ export class DaemonManager {
       )
         snapshot.workspaceCount = status.workspace_count;
       if (typeof status.os === 'string') snapshot.os = status.os;
-      return this.emit(snapshot);
+      this.live = {
+        revision: typeof status.revision === 'string' && status.revision ? status.revision : null,
+        activeWork:
+          typeof status.active_work === 'number' &&
+          Number.isInteger(status.active_work) &&
+          status.active_work >= 0
+            ? status.active_work
+            : null,
+      };
+      return this.emit({ ...snapshot, error: this.notice });
     } catch {
       return this.emit({ ...snapshot, error: 'Desktop daemon status could not be verified' });
     }
@@ -684,13 +707,63 @@ export class DaemonManager {
     if (!allowed() || current.status === 'running' || current.status === 'starting') return current;
     if (current.status !== 'stopped') throw new Error('Cannot start an unverified daemon');
     this.emit({ ...current, status: 'starting', error: null });
+    const runtime = this.options.runtime;
+    if (!runtime) {
+      try {
+        await this.command('start', allowed);
+      } catch {
+        throw new Error('Desktop daemon failed to start; check the local daemon log');
+      }
+      // A superseding clear, identity switch or auto-stop already owns teardown in the queue.
+      return this.snapshot();
+    }
+    const previous = await runtime.lastGood();
     try {
-      await this.command('start', allowed);
+      await this.command('start', allowed, { binary: await runtime.install() });
+      const started = await this.snapshot();
+      if (started.status === 'running') {
+        await runtime.started(runtime.sha256);
+        this.notice = null;
+      }
+      return started;
+    } catch {
+      if (!allowed() || !previous || previous.sha256 === runtime.sha256)
+        throw new Error('Desktop daemon failed to start; check the local daemon log');
+    }
+    // The new runtime did not start, so the last one that did runs again.
+    this.swapFailed = this.options.revision ?? null;
+    if ((await this.snapshot()).status !== 'stopped')
+      throw new Error('Desktop daemon failed to start; check the local daemon log');
+    try {
+      await this.command('start', allowed, { binary: previous.path });
     } catch {
       throw new Error('Desktop daemon failed to start; check the local daemon log');
     }
-    // A superseding clear, identity switch or auto-stop already owns teardown in the queue.
+    this.notice =
+      'The updated Lykeion runtime failed to start, so the previous version is running. Reinstall the app to retry.';
     return this.snapshot();
+  }
+  // replaceOutdated restarts a daemon built from another revision on this
+  // app's runtime, but only through an idle-only stop: the daemon refuses
+  // while any work is active or being claimed, and it is tried again later.
+  private async replaceOutdated(version: number, allowed: () => boolean): Promise<void> {
+    const target = this.options.revision;
+    if (!this.options.runtime || !target || this.swapFailed === target || !allowed()) return;
+    const current = await this.snapshot();
+    if (
+      current.status !== 'running' ||
+      !this.live.revision ||
+      this.live.revision === target ||
+      this.live.activeWork !== 0
+    )
+      return;
+    try {
+      await this.command('stop', allowed, { idleOnly: true });
+    } catch {
+      return;
+    }
+    if ((await this.snapshot()).status !== 'stopped' || !allowed()) return;
+    await this.startManaged(version, allowed);
   }
   private async controlAuthorization(version: number, authorization: BrowserAuthorization) {
     const owner = this.session;
@@ -725,10 +798,21 @@ export class DaemonManager {
       return this.startManaged(version, allowed);
     });
   }
+  // refresh reads the daemon's status and replaces a daemon from another
+  // revision once it is idle.
+  refresh(): Promise<void> {
+    const version = this.generation;
+    const owner = this.session;
+    return this.enqueue(async () => {
+      await this.snapshot();
+      if (owner && this.live.revision && this.live.revision !== this.options.revision)
+        await this.replaceOutdated(version, () => this.fresh(version) && this.session === owner);
+    });
+  }
   startPolling(): void {
     if (this.polling) return;
     this.polling = setInterval(() => {
-      if (!this.busy && !this.quitting) void this.getSnapshot().catch(() => undefined);
+      if (!this.busy && !this.quitting) void this.refresh().catch(() => undefined);
     }, 5000);
     this.polling.unref();
   }

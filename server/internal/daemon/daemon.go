@@ -132,12 +132,16 @@ type claimed struct {
 	Leader bool `json:"leader"`
 }
 type daemon struct {
-	modelProbeMu       sync.Mutex
-	models             map[string][]agent.Model
-	chatsMu            sync.Mutex
-	chats              map[uuid.UUID]*chatHost
-	coreActive         map[string]bool
-	coreWork           map[uuid.UUID]bool
+	modelProbeMu sync.Mutex
+	models       map[string][]agent.Model
+	chatsMu      sync.Mutex
+	chats        map[uuid.UUID]*chatHost
+	coreActive   map[string]bool
+	coreWork     map[uuid.UUID]bool
+	// claiming counts claims in flight; draining refuses new ones, so an
+	// idle-only shutdown never lands between a claim and its run.
+	claiming           int
+	draining           bool
 	attemptMu          sync.Mutex
 	coreReceiptSync    func(*os.File) error
 	coreReceiptMu      sync.Mutex
@@ -436,6 +440,14 @@ func (d *daemon) claim(ctx context.Context) {
 	if d.sandboxErr != nil {
 		return
 	}
+	d.mu.Lock()
+	if d.draining {
+		d.mu.Unlock()
+		return
+	}
+	d.claiming++
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); d.claiming--; d.mu.Unlock() }()
 	refs := d.references()
 	if len(refs) == 0 {
 		return

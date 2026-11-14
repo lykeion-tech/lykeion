@@ -267,8 +267,11 @@ func daemonCmd(e *env) *cobra.Command {
 		if !ownerAlive(owner) {
 			return errors.New("daemon ownership is stale; refusing to signal this PID")
 		}
-		if os.Getenv("LYK_DESKTOP_SAFE_STOP") == "1" {
-			if err := daemon.RequestDesktopShutdown(cmd.Context(), healthFile(e), os.Getenv("LYK_DAEMON_PROFILE"), e.cfg.Server, owner.PID); err != nil {
+		// "idle" stops the desktop's daemon only when it has no work.
+		if mode := os.Getenv("LYK_DESKTOP_SAFE_STOP"); mode == "1" || mode == "idle" {
+			if err := daemon.RequestDesktopShutdown(cmd.Context(), healthFile(e), os.Getenv("LYK_DAEMON_PROFILE"), e.cfg.Server, owner.PID, mode == "idle"); errors.Is(err, daemon.ErrDaemonBusy) {
+				return err
+			} else if err != nil {
 				return fmt.Errorf("desktop daemon shutdown cannot be verified: %w", err)
 			}
 		} else if err := terminate(owner.PID); err != nil {

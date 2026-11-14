@@ -63,7 +63,7 @@ func TestDesktopShutdownDoesNotDiscloseKeyToReplayedHealthEndpoint(t *testing.T)
 	if err := writeHealthRecord(path, record); err != nil {
 		t.Fatal(err)
 	}
-	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err == nil {
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID, false); err == nil {
 		t.Fatal("accepted replayed health endpoint")
 	}
 	if leaked.Load() {
@@ -207,13 +207,13 @@ func TestDesktopShutdownRequiresPrivateKeyAndVerifiedIdentity(t *testing.T) {
 			t.Fatalf("unauthenticated shutdown: %d", res.StatusCode)
 		}
 	}
-	if err := RequestDesktopShutdown(context.Background(), path, "desktop-other", d.cfg.Server, record.PID); err == nil {
+	if err := RequestDesktopShutdown(context.Background(), path, "desktop-other", d.cfg.Server, record.PID, false); err == nil {
 		t.Fatal("wrong profile accepted")
 	}
-	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, "https://other.example", record.PID); err == nil {
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, "https://other.example", record.PID, false); err == nil {
 		t.Fatal("wrong server accepted")
 	}
-	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID+1); err == nil {
+	if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID+1, false); err == nil {
 		t.Fatal("wrong process accepted")
 	}
 	for name, mutate := range map[string]func(*HealthRecord){
@@ -228,7 +228,7 @@ func TestDesktopShutdownRequiresPrivateKeyAndVerifiedIdentity(t *testing.T) {
 			if err := writeHealthRecord(path, altered); err != nil {
 				t.Fatal(err)
 			}
-			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err == nil {
+			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID, false); err == nil {
 				t.Fatal("accepted invalid shutdown record")
 			}
 			if err := writeHealthRecord(path, record); err != nil {
@@ -244,7 +244,7 @@ func TestDesktopShutdownRequiresPrivateKeyAndVerifiedIdentity(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID); err != nil {
+			if err := RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID, false); err != nil {
 				t.Errorf("concurrent shutdown: %v", err)
 			}
 		}()
@@ -545,5 +545,66 @@ func TestHealthRecordRejectsOversizedAndTrailingData(t *testing.T) {
 				t.Fatal("accepted invalid health data")
 			}
 		})
+	}
+}
+
+func TestIdleOnlyDesktopShutdownWaitsForWork(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.health.json")
+	var calls atomic.Int32
+	d := &daemon{cfg: Config{Server: "https://lab.example", Profile: "desktop-ada", HealthPath: path}, id: uuid.NewString(), stopControl: func() { calls.Add(1) }, active: map[string]bool{}}
+	closeHealth, err := d.startHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeHealth()
+	record, err := readHealthRecord(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := func() error {
+		return RequestDesktopShutdown(context.Background(), path, record.Profile, record.ServerURL, record.PID, true)
+	}
+	busy := []struct {
+		name       string
+		set, clear func()
+	}{
+		{"run", func() { d.active["run"] = true }, func() { delete(d.active, "run") }},
+		{"coresearch job", func() { d.coreWork = map[uuid.UUID]bool{uuid.New(): true} }, func() { d.coreWork = nil }},
+		{"open chat", func() { d.chats = map[uuid.UUID]*chatHost{uuid.New(): nil} }, func() { d.chats = nil }},
+		{"claim in flight", func() { d.claiming = 1 }, func() { d.claiming = 0 }},
+	}
+	for _, b := range busy {
+		b.set()
+		live, err := ProbeHealth(context.Background(), path, record.Profile, record.ServerURL)
+		if err != nil || live.ActiveWork != 1 {
+			t.Fatalf("%s: active work %d, %v", b.name, live.ActiveWork, err)
+		}
+		if err := stop(); !errors.Is(err, ErrDaemonBusy) {
+			t.Fatalf("%s: idle-only shutdown = %v", b.name, err)
+		}
+		if d.draining {
+			t.Fatalf("%s: a refused shutdown left claims stopped", b.name)
+		}
+		b.clear()
+	}
+	if calls.Load() != 0 {
+		t.Fatal("busy daemon was stopped")
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	if !d.draining {
+		t.Fatal("an idle shutdown kept claiming")
+	}
+	deadline := time.Now().Add(time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("idle daemon was not stopped")
+	}
+	d.claim(context.Background())
+	if d.claiming != 0 {
+		t.Fatal("claim ran while draining")
 	}
 }

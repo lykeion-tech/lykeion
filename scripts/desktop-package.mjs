@@ -15,7 +15,6 @@ import os from 'node:os';
 import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { updateBuildOptions } from './desktop-update-build.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -43,6 +42,12 @@ export function desktopBuilderArgs(target, directory, signing, signingIntermedia
     '--publish',
     'never',
   ];
+}
+
+// electron-builder writes latest-mac.yml for either Mac architecture, so the
+// Intel feed is published under its own name and read by Intel apps.
+export function macFeedRename(platform, arch) {
+  return platform === 'darwin' && arch === 'x64' ? ['latest-mac.yml', 'latest-x64-mac.yml'] : null;
 }
 
 export function releaseOrigin(value = 'https://app.lykeion.tech') {
@@ -282,14 +287,6 @@ function main() {
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version))
     throw new Error('Desktop package requires an explicit version');
-  const update = updateBuildOptions(
-    process.env.LYK_DESKTOP_UPDATE_PUBLIC_KEYS,
-    version,
-    platform,
-    arch,
-    process.platform,
-    process.arch,
-  );
   const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
   const env = safeBuildEnvironment(process.env);
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
@@ -313,7 +310,6 @@ function main() {
         env: {
           ...env,
           LYK_HOSTED_API_URL: hostedOrigin,
-          ...(update ? { LYK_DESKTOP_UPDATE_PUBLIC_KEYS: update.anchors } : {}),
           ...(maintainer ? { LYK_DEB_MAINTAINER: maintainer } : {}),
           ...(signing
             ? {
@@ -364,7 +360,6 @@ function main() {
       env: {
         ...env,
         LYK_HOSTED_API_URL: hostedOrigin,
-        ...(update ? { LYK_DESKTOP_UPDATE_PUBLIC_KEYS: update.anchors } : {}),
         GOOS: target.goos,
         GOARCH: target.goarch,
         CGO_ENABLED: '0',
@@ -454,6 +449,11 @@ function main() {
       const app = path.dirname(path.dirname(resources));
       run('codesign', ['--verify', '--deep', '--strict', app], { env });
       if (signing.keychainProfile) run('xcrun', ['stapler', 'validate', app], { env });
+    }
+    const rename = macFeedRename(platform, arch);
+    if (rename && !args.includes('--dir')) {
+      const release = path.join(source, 'dist/desktop-release');
+      renameSync(path.join(release, rename[0]), path.join(release, rename[1]));
     }
     replaceOutput(path.join(source, 'dist/desktop-release'), output);
   } finally {

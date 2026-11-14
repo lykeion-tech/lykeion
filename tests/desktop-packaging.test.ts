@@ -29,9 +29,15 @@ import {
   macSigningOptions,
   macBuilderSigningArgs,
   desktopBuilderArgs,
+  macFeedRename,
 } from '../scripts/desktop-package.mjs';
 
 describe('desktop release packaging', () => {
+  it('publishes the Intel Mac update feed under its own name', () => {
+    expect(macFeedRename('darwin', 'x64')).toEqual(['latest-mac.yml', 'latest-x64-mac.yml']);
+    expect(macFeedRename('darwin', 'arm64')).toBeNull();
+    expect(macFeedRename('linux', 'x64')).toBeNull();
+  });
   it('only skips signing the discarded intermediate app in a full signed build', () => {
     const signing = {
       identity: 'Developer ID Application: Example (ABCD123456)',

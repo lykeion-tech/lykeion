@@ -20,11 +20,8 @@ import { DesktopVerification } from './desktop-verification.js';
 import { DesktopAuthGate } from './desktop-auth-gate.js';
 import { DesktopGoogleAuth } from './desktop-google-auth.js';
 import { AuthenticationReload } from './desktop-auth-reload.js';
-import {
-  DesktopUpdateCheck,
-  installDesktopUpdateIPC,
-} from './desktop-update.js';
-import { runDesktopUpdateHelper } from './desktop-update-process.js';
+import { DaemonRuntime } from './daemon-runtime.js';
+import { startDesktopUpdater } from './desktop-updater.js';
 import {
   clearAbandonedLogout,
   finalizeLogoutShutdown,
@@ -63,7 +60,6 @@ let currentDocument: string | null = null;
 let pendingAuthReload: AuthenticationReload | null = null;
 let pendingAuthReloadWait: AbortController | null = null;
 let googleAuth: DesktopGoogleAuth | null = null;
-let desktopUpdate: DesktopUpdateCheck | null = null;
 let googleMutationID = Number.MIN_SAFE_INTEGER;
 function desktopGoogleReleaseReady(): boolean {
   return false;
@@ -83,7 +79,6 @@ async function finishLogoutRecovery(): Promise<void> {
   });
 }
 function abandonDocumentAuthentication() {
-  desktopUpdate?.cancel();
   googleAuth?.cancel();
   pendingAuthReloadWait?.abort();
   pendingAuthReloadWait = null;
@@ -117,7 +112,6 @@ function resumeAuthenticationReload() {
   pendingAuthReload.resumeAfterQuit(authGate.waitForVerificationReady(wait.signal));
 }
 app.on('before-quit', (event) => {
-  desktopUpdate?.cancel();
   googleAuth?.cancel();
   if (quitAllowed || !ownsInstance) return;
   event.preventDefault();
@@ -127,7 +121,6 @@ app.on('before-quit', (event) => {
   void authGate
     .shutdown(
       async () => {
-        await desktopUpdate?.waitForStop();
         await daemon?.beforeQuit();
       },
       15000,
@@ -307,6 +300,8 @@ void app.whenReady().then(async () => {
     );
   }
   let packagedCLI: (() => Promise<boolean>) | undefined;
+  let daemonRuntime: DaemonRuntime | undefined;
+  let daemonRevision: string | undefined;
   if (app.isPackaged) {
     let manifest: unknown;
     try {
@@ -315,33 +310,30 @@ void app.whenReady().then(async () => {
       // The dashboard remains usable when the packaged runtime cannot be verified.
     }
     packagedCLI = packagedDaemonVerifier(process.resourcesPath, manifest, app.getVersion());
-    // Update checks remain gated until each platform's storage and release proof is complete.
-    const updateReleaseReady = false;
-    desktopUpdate = new DesktopUpdateCheck(
-      () => updateReleaseReady,
-      () => currentDocument,
-      () =>
-        authGate.canFinishVerification() &&
-        !!verificationIntent &&
-        !verificationIntent.exists() &&
-        !!logoutIntent &&
-        !logoutIntent.exists(),
-      packagedCLI,
-      (signal) => runDesktopUpdateHelper(path.join(process.resourcesPath, 'bin', 'lyk'), signal),
-    );
-    installDesktopUpdateIPC(
-      ipcMain,
-      () => window?.webContents ?? null,
-      apiOrigin,
-      () => currentDocument,
-      desktopUpdate,
-    );
+    const build = manifest as { commit?: unknown; daemonSHA256?: unknown } | undefined;
+    if (
+      typeof build?.commit === 'string' &&
+      /^[a-f0-9]{40}$/.test(build.commit) &&
+      typeof build.daemonSHA256 === 'string' &&
+      /^[a-f0-9]{64}$/.test(build.daemonSHA256) &&
+      ['darwin', 'linux'].includes(process.platform)
+    ) {
+      daemonRuntime = new DaemonRuntime(
+        path.join(os.homedir(), '.lyk', 'desktop-runtime'),
+        path.join(process.resourcesPath, 'bin', 'lyk'),
+        build.daemonSHA256,
+      );
+      daemonRevision = build.commit;
+      startDesktopUpdater(directory);
+    }
   }
   daemon = new DaemonManager({
     configRoot: path.join(configBase, 'lyk'),
     apiOrigin,
     packaged: app.isPackaged,
     cliAvailable: packagedCLI,
+    runtime: daemonRuntime,
+    revision: daemonRevision,
     authorizeBrowser: app.isPackaged
       ? () => verification!.daemonAuthorization(() => !verificationIntent!.exists())
       : undefined,
@@ -428,7 +420,6 @@ void app.whenReady().then(async () => {
       }
       if (path === '/auth/logout') {
         googleAuth?.cancel();
-        desktopUpdate?.cancel();
       }
       if (path === '/auth/verify-code' && (!verificationIntent || verificationIntent.exists())) {
         event.returnValue = null;
