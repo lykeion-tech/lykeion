@@ -23,7 +23,8 @@ async function bundle(dir: string, content: string) {
   return { file, sha256: createHash('sha256').update(content).digest('hex') };
 }
 
-async function machine() {
+let legacy = '';
+async function machine(fromLegacy = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'desktop-runtime-'));
   roots.push(root);
   const runtimes = path.join(root, 'runtime');
@@ -42,6 +43,16 @@ async function machine() {
       const config = path.dirname(options.env.LYK_CONFIG!);
       if (args[1] === 'start') {
         const sha = path.basename(path.dirname(file));
+        if (file === legacy) {
+          Object.assign(daemon, { running: true, revision: '' });
+          await mkdir(path.join(config, 'daemon'), { recursive: true });
+          await writeFile(
+            path.join(config, 'daemon/daemon.json'),
+            JSON.stringify({ daemon_id: 'daemon-alice', server: origin }),
+            { mode: 0o600 },
+          );
+          return '';
+        }
         if (failing.has(sha)) throw new Error('start failed');
         Object.assign(daemon, { running: true, revision: revisionOf.get(sha) ?? '' });
         await mkdir(path.join(config, 'daemon'), { recursive: true });
@@ -74,7 +85,7 @@ async function machine() {
       );
     },
   );
-  const app = (b: { file: string; sha256: string }, revision: string) =>
+  const app = (b: { file: string; sha256: string }, revision: string, copies = true) =>
     new DaemonManager({
       configRoot: path.join(root, 'config'),
       apiOrigin: origin,
@@ -86,11 +97,18 @@ async function machine() {
         options.method === 'POST' ? { token: 'lyk_alice' } : { id: 'alice' },
       cliAvailable: async () => true,
       authorizeBrowser: () => async () => () => true,
-      runtime: new DaemonRuntime(runtimes, b.file, b.sha256),
-      revision,
+      ...(copies ? { runtime: new DaemonRuntime(runtimes, b.file, b.sha256), revision } : {}),
     });
-  // The old app starts the daemon from its own copy, then is replaced.
-  await app(old, oldRevision).configureSession(session);
+  legacy = path.join(root, 'legacy-app', 'lyk');
+  if (fromLegacy) {
+    // An app from before daemon copies starts lyk from inside its bundle and
+    // its daemon reports neither revision nor work.
+    await app({ file: legacy, sha256: old.sha256 }, oldRevision, false).configureSession(session);
+    daemon.activeWork = undefined;
+  } else {
+    // The old app starts the daemon from its own copy, then is replaced.
+    await app(old, oldRevision).configureSession(session);
+  }
   const updated = app(next, newRevision);
   await updated.configureSession(session);
   calls.length = 0;
@@ -154,5 +172,19 @@ describe('desktop daemon runtime', () => {
     m.calls.length = 0;
     await m.updated.refresh();
     expect(m.calls.some((c) => c.args.startsWith('daemon stop'))).toBe(false);
+  });
+
+  it('asks the person to restart a daemon from before runtime copies', async () => {
+    const m = await machine(true);
+    expect(m.daemon.running && m.daemon.revision).toBe('');
+    await m.updated.refresh();
+    expect(m.calls.some((c) => c.args.startsWith('daemon stop'))).toBe(false);
+    expect((await m.updated.getSnapshot()).error).toContain('Restart it here');
+    await m.updated.restart();
+    expect(m.calls.find((c) => c.args === 'daemon start')?.file).toBe(
+      path.join(m.runtimes, m.next.sha256, 'lyk'),
+    );
+    expect(m.daemon.running && m.daemon.revision).toBe(newRevision);
+    expect((await m.updated.getSnapshot()).error).toBeNull();
   });
 });
