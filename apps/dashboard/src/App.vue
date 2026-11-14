@@ -408,7 +408,7 @@ async function documentation() {
   help.value = false;
   try {
     if (window.lykeionDesktop) await window.lykeionDesktop.openDocumentation();
-    else window.open('https://github.com/lykeion-ia/lykeion', '_blank', 'noopener,noreferrer');
+    else window.open('https://github.com/lykeion-tech/lykeion', '_blank', 'noopener,noreferrer');
   } catch {
     notify('Documentation could not be opened.');
   }

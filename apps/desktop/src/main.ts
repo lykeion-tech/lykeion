@@ -94,7 +94,7 @@ void app.whenReady().then(() => {
   ipcMain.handle('lykeion:open-documentation', async (event) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame)
       throw new Error('Invalid sender');
-    await shell.openExternal('https://github.com/lykeion-ia/lykeion');
+    await shell.openExternal('https://github.com/lykeion-tech/lykeion');
   });
   createWindow();
   app.on('activate', () => {
