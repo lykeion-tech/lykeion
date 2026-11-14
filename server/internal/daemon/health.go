@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,10 @@ type Diagnostics struct {
 	DeviceName     string  `json:"device_name,omitempty"`
 	WorkspaceCount int     `json:"workspace_count"`
 	OS             string  `json:"os,omitempty"`
+	// Revision is the source revision this daemon was built from.
+	Revision string `json:"revision,omitempty"`
+	// ActiveWork counts agent runs, Coresearch jobs and open Coresearch chats.
+	ActiveWork int `json:"active_work"`
 }
 
 // HealthRecord identifies the process serving this private loopback port.
@@ -261,7 +266,12 @@ func ProbeHealth(ctx context.Context, path, profile, server string) (Diagnostics
 }
 
 // RequestDesktopShutdown requests the verified daemon to stop itself; it never signals a PID.
-func RequestDesktopShutdown(ctx context.Context, path, profile, server string, pid int) error {
+// ErrDaemonBusy is returned by an idle-only shutdown while the daemon has work.
+var ErrDaemonBusy = errors.New("the daemon has active work")
+
+// RequestDesktopShutdown stops the desktop's daemon. With idleOnly it stops
+// only a daemon that has no work and none being claimed.
+func RequestDesktopShutdown(ctx context.Context, path, profile, server string, pid int, idleOnly bool) error {
 	record, err := readHealthRecord(path)
 	if err != nil {
 		return err
@@ -317,12 +327,18 @@ func RequestDesktopShutdown(ctx context.Context, path, profile, server string, p
 	}
 	req.Header.Set("X-Lykeion-Challenge", challenge)
 	req.Header.Set("X-Lykeion-Server-Nonce", answer.ServerNonce)
+	if idleOnly {
+		req.Header.Set("X-Lykeion-Idle-Only", "1")
+	}
 	req.Header.Set("Authorization", "Bearer "+shutdownProof(record.ShutdownKey, "client", challenge+answer.ServerNonce, record.Nonce))
 	res, err = client.Do(req)
 	if err != nil {
 		return errors.New("desktop shutdown request failed")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusConflict {
+		return ErrDaemonBusy
+	}
 	if res.StatusCode != http.StatusNoContent {
 		return errors.New("desktop shutdown refused")
 	}
@@ -363,8 +379,9 @@ func (d *daemon) startHealth() (func(), error) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		work := d.activeWork()
 		d.mu.Lock()
-		live := healthResponse{Diagnostics: Diagnostics{Status: "running", PID: record.PID, Uptime: time.Since(began).Seconds(), DaemonID: d.id, Profile: d.cfg.Profile, ServerURL: record.ServerURL, DeviceName: d.cfg.Device, WorkspaceCount: d.workspaceCount, OS: runtime.GOOS}, Started: record.Started, Nonce: record.Nonce}
+		live := healthResponse{Diagnostics: Diagnostics{Status: "running", PID: record.PID, Uptime: time.Since(began).Seconds(), DaemonID: d.id, Profile: d.cfg.Profile, ServerURL: record.ServerURL, DeviceName: d.cfg.Device, WorkspaceCount: d.workspaceCount, OS: runtime.GOOS, Revision: revision(), ActiveWork: work}, Started: record.Started, Nonce: record.Nonce}
 		d.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -395,6 +412,10 @@ func (d *daemon) startHealth() (func(), error) {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
+			if r.Header.Get("X-Lykeion-Idle-Only") == "1" && !d.drainIfIdle() {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
@@ -420,4 +441,50 @@ func (d *daemon) startHealth() (func(), error) {
 			clearHealthRecord(d.cfg.HealthPath, record)
 		})
 	}, nil
+}
+
+// revision is the source revision recorded in this build, or "" without one.
+func revision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
+	}
+	return ""
+}
+
+func (d *daemon) activeWork() int {
+	d.chatsMu.Lock()
+	chats := len(d.chats)
+	d.chatsMu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.active) + len(d.coreWork) + chats + d.claiming
+}
+
+// drainIfIdle stops all further claims and reports true when the daemon has
+// no work; otherwise it changes nothing.
+func (d *daemon) drainIfIdle() bool {
+	d.mu.Lock()
+	if d.claiming > 0 || len(d.active) > 0 || len(d.coreWork) > 0 {
+		d.mu.Unlock()
+		return false
+	}
+	d.draining = true
+	d.mu.Unlock()
+	// Chats open only from claimed work, which draining has now stopped.
+	d.chatsMu.Lock()
+	chats := len(d.chats)
+	d.chatsMu.Unlock()
+	if chats > 0 {
+		d.mu.Lock()
+		d.draining = false
+		d.mu.Unlock()
+		return false
+	}
+	return true
 }

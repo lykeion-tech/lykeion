@@ -188,7 +188,7 @@ describe('the dashboard source layout', () => {
 
   it('dashboard unit tests live with their code', () => {
     const left = readdirSync('tests').filter((f) => f.endsWith('.test.ts')).sort();
-    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-admission-epoch.test.ts', 'desktop-auth-gate.test.ts', 'desktop-auth-logout.test.ts', 'desktop-auth-reload.test.ts', 'desktop-daemon.test.ts', 'desktop-go-stdio.test.ts', 'desktop-google-auth.test.ts', 'desktop-held-stream.test.ts', 'desktop-packaging.test.ts', 'desktop-production-held-stream.test.ts', 'desktop-renderer.test.ts', 'desktop-runtime-config.test.ts', 'desktop-update-build.test.ts', 'desktop-update-liveness.test.ts', 'desktop-update-messages.test.ts', 'desktop-update-process.test.ts', 'desktop-update.test.ts', 'desktop-updater-bundle.test.ts', 'legal-pages.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-typing.test.ts']);
+    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-admission-epoch.test.ts', 'desktop-auth-gate.test.ts', 'desktop-auth-logout.test.ts', 'desktop-auth-reload.test.ts', 'desktop-daemon-runtime.test.ts', 'desktop-daemon.test.ts', 'desktop-google-auth.test.ts', 'desktop-packaging.test.ts', 'desktop-renderer.test.ts', 'desktop-runtime-config.test.ts', 'legal-pages.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-typing.test.ts']);
   });
 
   it('study files carry the study name', () => {

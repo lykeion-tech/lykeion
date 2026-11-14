@@ -15,7 +15,6 @@ import os from 'node:os';
 import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { updateBuildOptions } from './desktop-update-build.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -282,14 +281,6 @@ function main() {
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version))
     throw new Error('Desktop package requires an explicit version');
-  const update = updateBuildOptions(
-    process.env.LYK_DESKTOP_UPDATE_PUBLIC_KEYS,
-    version,
-    platform,
-    arch,
-    process.platform,
-    process.arch,
-  );
   const output = path.join(root, 'dist/desktop-release', commit, `${platform}-${arch}`);
   const env = safeBuildEnvironment(process.env);
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
@@ -313,7 +304,6 @@ function main() {
         env: {
           ...env,
           LYK_HOSTED_API_URL: hostedOrigin,
-          ...(update ? { LYK_DESKTOP_UPDATE_PUBLIC_KEYS: update.anchors } : {}),
           ...(maintainer ? { LYK_DEB_MAINTAINER: maintainer } : {}),
           ...(signing
             ? {
@@ -364,7 +354,6 @@ function main() {
       env: {
         ...env,
         LYK_HOSTED_API_URL: hostedOrigin,
-        ...(update ? { LYK_DESKTOP_UPDATE_PUBLIC_KEYS: update.anchors } : {}),
         GOOS: target.goos,
         GOARCH: target.goarch,
         CGO_ENABLED: '0',

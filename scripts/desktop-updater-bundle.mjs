@@ -1,15 +1,10 @@
 import { build } from 'esbuild';
-import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 import ts from 'typescript';
 
-const upstreamHash = '8a744ad4b0921f1a6c2804037eda31ddec5486cf8b797a37fa9ba7089c07a923';
-const patchedHash = 'd9895d7adb9988bb9a09ceeb4db7fa52098b7f58a8ea1f01ef74865894ea288f';
-const oldCode = '            this.app = app;\n            this.httpExecutor = null;';
-const newCode = '            this.app = app;\n            this.httpExecutor = new electronHttpExecutor_1.ElectronHttpExecutor((authInfo, callback) => this.emit("login", authInfo, callback));';
 const allowed = new Set(['electron', ...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 allowed.delete('module');
 allowed.delete('node:module');
@@ -75,35 +70,14 @@ export function auditBundleSource(source) {
   visit(tree);
 }
 
-export async function buildDesktopUpdater(root, output, sourceOverride, beforePublish) {
+export async function buildDesktopUpdater(root, output) {
   root = await realpath(root);
   const entry = path.join(root, 'node_modules/electron-updater/out/main.js');
-  const source = path.join(root, 'node_modules/electron-updater/out/AppUpdater.js');
-  const raw = await readFile(sourceOverride ?? source);
-  if (createHash('sha256').update(raw).digest('hex') !== upstreamHash)
-    throw new Error('Updater source integrity check failed');
-  const original = raw.toString('utf8');
-  if (original.split(oldCode).length !== 2) throw new Error('Updater source integrity check failed');
-  const patched = original.replace(oldCode, newCode);
-  if (createHash('sha256').update(patched).digest('hex') !== patchedHash)
-    throw new Error('Updater source integrity check failed');
-  let applied = false;
   const result = await build({
     entryPoints: [entry], outfile: output, bundle: true, platform: 'node', format: 'cjs',
     target: 'node22', external: ['electron'], logLevel: 'silent', metafile: true,
     absWorkingDir: root, write: false,
-    plugins: [{
-      name: 'lykeion-updater-patch',
-      setup(plugin) {
-        plugin.onLoad({ filter: /[/\\]electron-updater[/\\]out[/\\]AppUpdater\.js$/ }, (args) => {
-          if (path.resolve(args.path) !== source || applied) throw new Error('Updater source integrity check failed');
-          applied = true;
-          return { contents: patched, loader: 'js', resolveDir: path.dirname(source) };
-        });
-      },
-    }],
   });
-  if (!applied) throw new Error('Updater source integrity check failed');
   for (const file of Object.values(result.metafile.outputs))
     for (const item of file.imports)
       if (item.external && !allowed.has(item.path)) throw new Error('Unexpected updater external dependency');
@@ -157,7 +131,6 @@ export async function buildDesktopUpdater(root, output, sourceOverride, beforePu
   const staged = path.join(stage, 'bundle');
   try {
     await writeFile(staged, bundle, { flag: 'wx', mode: 0o600 });
-    if (beforePublish) await beforePublish();
     await rename(staged, output);
   } finally {
     await rm(stage, { recursive: true, force: true });
