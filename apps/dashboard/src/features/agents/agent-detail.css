@@ -601,12 +601,6 @@
   grid-template-columns: calc(var(--agent-property-label-width) + var(--agent-property-value-offset)) minmax(0, 1fr);
   column-gap: 0;
 }
-.agent-detail-page .agent-builtin-note {
-  padding: 0 12px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
 .agent-detail-page .agent-content {
   overflow: auto;
 }

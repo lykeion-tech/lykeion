@@ -69,3 +69,16 @@ func TestDuplicateTeamMemberLeavesTeamOnlyCapabilities(t *testing.T) {
 		t.Fatalf("copy capabilities: %d %+v", code, caps)
 	}
 }
+
+func TestCannotDuplicateBuiltInAgent(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "builtin-duplicate@lab.org")
+	w := s.workspace(t, a, "lab")
+	id := s.newAgent(t, a, w.ID, "Memory", "claude")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent SET visibility = 'private', built_in_key = 'aristotle' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "POST", "/api/agents/"+id+"/duplicate", a, w.ID, map[string]string{"name": "Copy"}, nil); code != 403 {
+		t.Fatalf("duplicate built-in agent: %d", code)
+	}
+}

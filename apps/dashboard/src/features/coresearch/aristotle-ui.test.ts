@@ -148,21 +148,6 @@ describe('Aristotle UI', () => {
     await settle();
     expect(textOf(status())).toBe('Archived');
   });
-  it('shows the built-in note only for built-in agents', async () => {
-    const { root, client, settle } = await mount('/agents/aristotle', true, true);
-    const note = "Built-in Agents can't be changed. Duplicate this Agent to make one of your own.";
-    expect(textOf(root)).toContain(note);
-
-    const custom = { ...agent, built_in_key: '', name: 'Custom agent', source: 'custom' };
-    client.setQueryData(keys.agent('lab', 'aristotle'), custom);
-    client.setQueryData(keys.agents('lab'), [custom]);
-    await settle();
-    expect(textOf(root)).not.toContain(note);
-
-    client.setQueryData(keys.agents('lab'), [{ ...custom, source: 'built_in' }]);
-    await settle();
-    expect(textOf(root)).toContain(note);
-  });
   it('keeps the agent inspector visible when switching detail tabs', async () => {
     const { root, settle } = await mount('/agents/aristotle', true, true);
     const inspector = all(root).find((n) => n.props.class === 'agent-inspector')!;
@@ -173,9 +158,7 @@ describe('Aristotle UI', () => {
     expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/agents');
     expect(textOf(inspector)).toContain('Aristotle');
     expect(textOf(inspector)).toContain('Harness default');
-    expect(textOf(root)).toContain(
-      "Built-in Agents can't be changed. Duplicate this Agent to make one of your own.",
-    );
+    expect(textOf(root)).not.toContain('Duplicate');
     const work = all(root).find((n) => n.props.role === 'tab' && textOf(n).trim() === 'Work')!;
     (work.props.onClick as () => void)();
     await settle();
@@ -183,39 +166,6 @@ describe('Aristotle UI', () => {
       'Aristotle',
     );
     expect(all(root).some((n) => n.props['aria-label'] === 'Search studies')).toBe(true);
-  });
-  it('duplicates the agent using the chosen name', async () => {
-    const fetch = vi.fn(async (url: string, init: { method: string }) =>
-      response(
-        init.method === 'POST' || String(url).endsWith('/api/agents/copied')
-          ? { ...agent, id: 'copied' }
-          : [],
-        200,
-      ),
-    );
-    vi.stubGlobal('fetch', fetch);
-    const { root, router, settle } = await mount('/agents/aristotle', true, true);
-    const duplicate = all(root).find(
-      (n) => n.tag === 'button' && textOf(n).trim() === 'Duplicate',
-    )!;
-    (duplicate.props.onClick as () => void)();
-    await settle();
-    (byLabel(root, 'Name of the duplicate').props['onUpdate:modelValue'] as (s: string) => void)(
-      'Research copy',
-    );
-    await settle();
-    const form = all(root).find((n) => n.tag === 'form' && n.props.class === 'agent-copy')!;
-    await (form.props.onSubmit as (event: { preventDefault(): void }) => Promise<void>)({
-      preventDefault() {},
-    });
-    await settle();
-    const sent = fetch.mock.calls.find((c) =>
-      String(c[0]).endsWith('/api/agents/aristotle/duplicate'),
-    )!;
-    expect(JSON.parse((sent[1] as unknown as { body: string }).body)).toEqual({
-      name: 'Research copy',
-    });
-    expect(router.currentRoute.value.path).toBe('/agents/copied');
   });
   it('places Capabilities second and offers Customize', async () => {
     const { root, settle } = await mount('/agents/aristotle', true, true);

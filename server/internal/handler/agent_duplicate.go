@@ -31,6 +31,12 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 		if !agentVisible(r, source, user) {
 			return pgx.ErrNoRows
 		}
+		if err := refuseLaboratory(source); err != nil {
+			return err
+		}
+		if source.BuiltInKey != "" {
+			return errAgentForbidden
+		}
 		links, err := tx.AgentTeams(r.Context(), id)
 		if err != nil {
 			return err
@@ -42,6 +48,9 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 			p, err := visiblePack(r, tx, user, links[0].PackID)
 			if err != nil {
 				return err
+			}
+			if p.Source == "shipped" {
+				return errAgentForbidden
 			}
 			sourceTeam, memberName = &p, links[0].Member
 		}
@@ -112,6 +121,12 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if !agentVisible(r, current, user) {
 			return pgx.ErrNoRows
+		}
+		if err := refuseLaboratory(current); err != nil {
+			return err
+		}
+		if current.BuiltInKey != "" {
+			return errAgentForbidden
 		}
 		if !current.UpdatedAt.Equal(source.UpdatedAt) {
 			return conflict("The agent changed. Reload and try again.")

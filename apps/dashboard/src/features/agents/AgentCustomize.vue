@@ -324,9 +324,6 @@ async function save(kind: 'skills' | 'connectors') {
           </div>
         </div>
       </section>
-      <p v-if="team?.source === 'shipped'" class="builtin-note">
-        Built-in Agents can't be changed. Duplicate the Agent to customize it.
-      </p>
       <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
     </template>
   </section>
@@ -335,11 +332,6 @@ async function save(kind: 'skills' | 'connectors') {
 <style scoped>
 .agent-customize h2 {
   margin-bottom: 20px;
-}
-.builtin-note {
-  margin: 28px 0 0;
-  font-size: 13px;
-  color: var(--muted);
 }
 .capability-section {
   margin-top: 34px;

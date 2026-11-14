@@ -202,14 +202,14 @@ defineExpose({
       <h3 id="tool-setup-heading">Set up an agent tool</h3>
       <LocalSetupCheck :account-id="accountId" :sign-in-problems="signInProblems" />
       <template v-if="snapshot?.cliAvailable && snapshot.status !== 'unknown'">
-        <p v-if="localProfile && snapshot?.status === 'stopped'">
+        <p v-if="localProfile && snapshot?.status === 'stopped'" class="tool-guidance">
           After setup, select Start above to detect your tools.
         </p>
-        <p v-else>
+        <p v-else class="tool-guidance">
           After setup, wait for active runs to finish, then select Restart above to detect your tools.
           Restarting interrupts active runs.
         </p>
-        <p>
+        <p class="tool-recovery">
           If a tool is still missing, wait for active runs to finish before quitting. Quitting can
           stop the daemon if auto-stop is enabled. Then quit the desktop app and launch its executable
           from a terminal where the tool works, and restart the daemon to detect it.
@@ -267,10 +267,58 @@ defineExpose({
 </template>
 <style scoped>
 .tool-setup {
-  margin: 16px 0;
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--input);
+  font-size: 14px;
+  line-height: 1.55;
 }
-.tool-setup p {
-  margin: 8px 0;
+.tool-setup h3 {
+  margin: 0 0 8px;
+}
+.tool-setup :deep(p) {
+  margin: 0 0 12px;
+  max-width: 72ch;
+}
+.tool-setup :deep(a) {
+  color: var(--primary-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tool-setup :deep(details) {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tool-setup :deep(summary) {
+  cursor: pointer;
+  font-weight: 600;
+}
+.tool-setup :deep(details p) {
+  margin: 12px 0 0;
+}
+.tool-setup :deep(code) {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.tool-setup :deep([role='status']:not(:empty)) {
+  margin-top: 14px;
+}
+.tool-guidance,
+.tool-recovery {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.tool-setup .tool-guidance {
+  margin-top: 18px;
+}
+.tool-setup .tool-recovery {
+  margin-bottom: 0;
 }
 .daemon-settings {
   margin-top: 24px;

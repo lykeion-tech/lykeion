@@ -120,17 +120,12 @@ func TestLaboratoryAgentIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestDuplicateKeepsStage(t *testing.T) {
+func TestCannotDuplicateLaboratoryAgent(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "stage-dup@lab.org")
 	w := s.workspace(t, a, "lab")
 	id := laboratoryAgent(t, s, a, w.ID)
-	var src, dup struct{ Stage, Laboratory, Visibility string }
-	s.call(t, "GET", "/api/agents/"+id, a, w.ID, nil, &src)
-	if code := s.call(t, "POST", "/api/agents/"+id+"/duplicate", a, w.ID, map[string]string{"name": "Mine"}, &dup); code != 201 {
-		t.Fatalf("duplicate: %d", code)
-	}
-	if src.Stage == "" || dup.Stage != src.Stage || dup.Laboratory != "" || dup.Visibility != "private" {
-		t.Fatalf("src %+v dup %+v", src, dup)
+	if code := s.call(t, "POST", "/api/agents/"+id+"/duplicate", a, w.ID, map[string]string{"name": "Mine"}, nil); code != 403 {
+		t.Fatalf("duplicate laboratory agent: %d", code)
 	}
 }

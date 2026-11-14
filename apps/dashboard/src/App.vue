@@ -237,7 +237,8 @@ const tabTitle = computed(() =>
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
 );
-const rail = usePaneResize('lykeion.sidebar-width', 262, 219, 360);
+writeText('lykeion.sidebar-width', '219');
+const rail = usePaneResize('lykeion.sidebar-width', 219, 219, 360);
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 // Entering either workspace starts with its own history; the toggle remains
 // available while navigating within that workspace.
@@ -872,7 +873,7 @@ onUnmounted(() => {
       verification?.resumed ||
       accountViewBlocked(!!route.meta.public, me.data.value?.id, switchingAccount)
     "
-    class="center-empty"
+    class="center-empty account-verification"
     role="status"
   >
     <p v-if="accountSwitchError || me.isError.value" role="alert">

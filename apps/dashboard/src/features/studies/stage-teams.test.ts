@@ -2381,7 +2381,6 @@ it('shows each study agent once and opens its recorded runtime and current team 
   expect(t.text()).toContain('model-one');
   expect(t.text()).toContain('statistics');
   expect(t.text()).toContain('Research assistant');
-  expect(t.text()).toContain('Settings');
   expect(t.text()).not.toContain('wrong');
   expect(t.nodes().some((n) => n.tag === 'a' && n.props.href === '/agents/a1')).toBe(true);
   t.unmount();

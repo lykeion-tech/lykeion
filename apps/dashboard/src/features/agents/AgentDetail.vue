@@ -20,7 +20,6 @@ import { workspaceId } from '../../api/session';
 import type { AgentDefinition, Card, Runtime } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
-import Modal from '../../ui/Modal.vue';
 import { useStudyComposer } from '../../state/study-composer';
 import { backends, backendLabel } from '../../lib/backends';
 import { matchesQuery } from '../../lib/search';
@@ -46,9 +45,6 @@ const router = useRouter();
 const { openComposer } = useStudyComposer();
 const starters = ref<Starter[]>([]);
 const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
-const builtInAgent = computed(
-  () => !!agent.value?.built_in_key || agents.data.value?.find((item) => item.id === props.id)?.source === 'built_in',
-);
 const validStarters = computed(
   () =>
     starters.value.length <= 12 &&
@@ -85,9 +81,6 @@ const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
 const general = ref({ name: '', description: '', harness: 'claude', model: '', stage: '' as string }),
   visibility = ref<'workspace' | 'private'>('workspace'),
   instructions = ref('');
-const copyName = ref<string | null>(null),
-  copyBusy = ref(false),
-  copyError = ref('');
 const modelChoices = computed(() => {
   const runtime = runtimes.data.value?.find(
     (r) =>
@@ -135,48 +128,16 @@ const modelLabel = computed(() => {
 });
 const mine = computed(() => agent.value?.owner_id === me.data.value?.id);
 const lab = computed(() => agent.value?.laboratory === 'built-in');
-const workspaceOwner = computed(
-  () => workspaces.data.value?.find((w) => w.id === workspaceId.value)?.role === 'owner',
-);
-// The server decides which machines a laboratory agent may bind to and on
-// which CLI it can run; this offers the machines of any CLI that allow the
-// agent's owner, and keeps the bound one listed.
-const machineChoices = computed(() => {
-  const owner = agent.value?.owner_id ?? '';
-  return (runtimes.data.value ?? []).filter(
-    (r: Runtime) =>
-      r.id === agent.value?.runtime_id ||
-      r.owner_id === owner ||
-      (r.os === 'linux' && (r.visibility === 'workspace' || r.shared_with?.includes(owner))),
-  );
-});
 const machineName = (r: Runtime) => r.custom_name || r.device_name;
 const boundMachine = computed(() =>
   (runtimes.data.value ?? []).find((r) => r.id === agent.value?.runtime_id),
 );
-async function bindMachine(runtimeId: string) {
-  if (!runtimeId || busy.value) return;
-  const ws = workspaceId.value,
-    id = props.id;
-  busy.value = true;
-  error.value = '';
-  try {
-    const saved = await api<AgentDefinition>(
-      'PUT',
-      `/api/agents/${id}/runtime`,
-      { runtime_id: runtimeId },
-      undefined,
-      { workspace: ws },
-    );
-    client.setQueryData(keys.agent(ws, id), saved);
-    await client.invalidateQueries({ queryKey: keys.agents(ws) });
-    notify('Machine saved.');
-  } catch (e) {
-    error.value = (e as Error).message;
-  } finally {
-    busy.value = false;
-  }
-}
+const boundMachineLabel = computed(() => {
+  const machine = boundMachine.value;
+  if (!machine) return 'Not bound to a machine';
+  const member = members.data.value?.find((m) => m.user_id === machine.owner_id);
+  return `${member ? member.name || member.email : 'Former member'}'s ${machineName(machine)}`;
+});
 const mayDelete = computed(
   () =>
     !!agent.value &&
@@ -252,9 +213,6 @@ watch(
     editGeneration++;
     busy.value = false;
     tab.value = requestedTab();
-    copyName.value = null;
-    copyBusy.value = false;
-    copyError.value = '';
     error.value = '';
   },
   { flush: 'sync' },
@@ -329,33 +287,6 @@ async function deleteAgent() {
     if (generation === editGeneration) busy.value = false;
   }
 }
-async function duplicateAgent() {
-  const name = copyName.value?.trim();
-  if (!name || copyBusy.value) return;
-  const ws = workspaceId.value,
-    id = props.id,
-    generation = editGeneration;
-  copyBusy.value = true;
-  copyError.value = '';
-  try {
-    const copy = await api<AgentDefinition>(
-      'POST',
-      `/api/agents/${id}/duplicate`,
-      { name },
-      undefined,
-      { workspace: ws },
-    );
-    await client.invalidateQueries({ queryKey: keys.agents(ws) });
-    if (generation === editGeneration) {
-      copyName.value = null;
-      await router.push(`/agents/${copy.id}`);
-    }
-  } catch (e) {
-    if (generation === editGeneration) copyError.value = (e as Error).message;
-  } finally {
-    if (generation === editGeneration) copyBusy.value = false;
-  }
-}
 function toggle(id: string) {
   collapsed.value = collapsed.value.includes(id)
     ? collapsed.value.filter((x) => x !== id)
@@ -372,18 +303,6 @@ function toggle(id: string) {
           <span aria-current="page">{{ agentNameWithoutCli(agent.name, agent.harness) }}</span>
         </nav>
         <div class="agent-actions">
-          <button
-            class="button"
-            :disabled="copyBusy"
-            @click="
-              copyError = '';
-              copyName =
-                [...agentNameWithoutCli(agent.name, agent.harness)].slice(0, 52).join('') +
-                ' (duplicate)';
-            "
-          >
-            Duplicate
-          </button>
           <button v-if="mayDelete" class="button" :disabled="busy" @click="deleteAgent">
             <Icon name="trash" :size="14" />Delete agent
           </button>
@@ -444,24 +363,9 @@ function toggle(id: string) {
                 <template v-if="lab">
                   <dt>Machine</dt>
                   <dd>
-                    <select
-                      v-if="workspaceOwner"
-                      aria-label="Machine"
-                      :value="agent.runtime_id ?? ''"
-                      :disabled="busy"
-                      @change="bindMachine(($event.target as HTMLSelectElement).value)"
-                    >
-                      <option value="" disabled>Not bound to a machine</option>
-                      <option v-for="r in machineChoices" :key="r.id" :value="r.id">
-                        {{ machineName(r) }}
-                      </option>
-                    </select>
-                    <template v-else>{{
-                      boundMachine ? machineName(boundMachine) : 'Not bound to a machine'
-                    }}</template>
+                    {{ boundMachineLabel }}
                     <p v-if="boundMachine && boundMachine.os !== 'linux' && (members.data.value?.length ?? 0) > 1" class="agent-hint">
-                      {{ machineName(boundMachine) }} runs only its owner's studies. Bind this agent to a shared Linux
-                      machine to run colleagues' studies.
+                      {{ machineName(boundMachine) }} runs only its owner's studies.
                     </p>
                   </dd>
                 </template>
@@ -485,9 +389,6 @@ function toggle(id: string) {
               </div>
             </div>
           </aside>
-          <p v-if="builtInAgent" class="agent-builtin-note">
-            Built-in Agents can't be changed. Duplicate this Agent to make one of your own.
-          </p>
         </div>
         <div class="agent-content">
           <div class="agent-tabs-bar" role="tablist">
@@ -799,68 +700,11 @@ function toggle(id: string) {
     <p v-if="detail.error.value" class="inline-error agent-error" role="alert">
       {{ detail.error.value.message }} <button @click="detail.refetch()">Retry</button>
     </p>
-    <Modal v-if="copyName !== null" title="Duplicate agent" @close="!copyBusy && (copyName = null)">
-      <form class="agent-copy" @submit.prevent="duplicateAgent">
-        <h2>Duplicate agent</h2>
-        <p>
-          The copy is a personal agent you can change.
-          <template v-if="agents.data.value?.find((item) => item.id === id)?.team_member">
-            Team-only skills and connectors are not copied.
-          </template>
-        </p>
-        <label
-          >Name<input
-            v-model="copyName"
-            aria-label="Name of the duplicate"
-            maxlength="64"
-            :disabled="copyBusy"
-        /></label>
-        <p v-if="copyError" role="alert" class="inline-error">{{ copyError }}</p>
-        <footer>
-          <button type="button" class="button" :disabled="copyBusy" @click="copyName = null">
-            Cancel</button
-          ><button class="button primary" :disabled="copyBusy || !copyName.trim()">
-            {{ copyBusy ? 'Duplicating…' : 'Duplicate' }}
-          </button>
-        </footer>
-      </form>
-    </Modal>
   </section>
 </template>
 <style src="./agent-detail.css" />
 
 <style scoped>
-.agent-copy {
-  padding: 24px;
-}
-.agent-copy h2 {
-  font-size: 18px;
-  margin-bottom: 12px;
-}
-.agent-copy p {
-  color: var(--muted);
-  line-height: 1.5;
-  margin-bottom: 16px;
-}
-.agent-copy label {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-}
-.agent-copy input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-}
-.agent-copy footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
-}
 :deep(.agent-avatar .aristotle-art) {
   width: 44px;
   height: 48px;

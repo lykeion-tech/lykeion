@@ -312,54 +312,15 @@ describe('agent stage', () => {
     expect(stage?.props.disabled).toBe(true);
   });
 
-  it('lets only the workspace owner choose a laboratory agent machine', async () => {
-    const lab = agent({ id: 'l', laboratory: 'built-in', runtime_id: null });
-    request.mockImplementation(async (m: string) =>
-      m === 'PUT' ? { ...lab, runtime_id: 'r2' } : [lab],
-    );
-    const owner = await mount(AgentDetail, { id: 'l' }, [lab], 'owner');
-    const select = owner.find('select', (n) => n.props['aria-label'] === 'Machine')!;
-    expect(select).toBeTruthy();
-    expect(textOf(owner.root)).toContain('Not bound to a machine');
-    (select.props.onChange as (e: unknown) => void)({ target: { value: 'r2' } });
-    await nextTick();
-    expect(request).toHaveBeenCalledWith(
-      'PUT',
-      '/api/agents/l/runtime',
-      { runtime_id: 'r2' },
-      undefined,
-      { workspace: 'w' },
-    );
-    const member = await mount(
-      AgentDetail,
-      { id: 'l' },
-      [{ ...lab, runtime_id: 'r1' }],
-      'member',
-    );
-    expect(member.find('select', (n) => n.props['aria-label'] === 'Machine')).toBeUndefined();
-    expect(member.text()).toContain('Bench');
-  });
-
-  it('offers the owner machines of any CLI that allow the agent owner', async () => {
-    runtimeRows = [
-      runtime('r1', 'Bench'),
-      runtime('r2', 'Codex box', { harness: 'codex' }),
-      runtime('r3', 'Colleague private', { owner_id: 'u2' }),
-      runtime('r4', 'Colleague shared', { owner_id: 'u2', visibility: 'workspace' }),
-      runtime('r5', 'Colleague mac', { owner_id: 'u2', visibility: 'workspace', os: 'darwin' }),
-    ];
-    const lab = agent({ id: 'l', laboratory: 'built-in', harness: 'claude', runtime_id: 'r2' });
+  it('shows the machine owner and name without a selector', async () => {
+    memberRows = [...memberRows, { user_id: 'u2', name: 'Colleague', email: 'c@lab.test' }];
+    runtimeRows = [runtime('r1', 'Bench', { owner_id: 'u2', visibility: 'workspace' })];
+    const lab = agent({ id: 'l', laboratory: 'built-in', runtime_id: 'r1' });
     const t = await mount(AgentDetail, { id: 'l' }, [lab], 'owner');
-    const select = t.find('select', (n) => n.props['aria-label'] === 'Machine')!;
-    expect(select.props.value).toBe('r2');
-    expect(select.children.filter((n) => n.tag === 'option').map((n) => textOf(n).trim())).toEqual([
-      'Not bound to a machine',
-      'Bench',
-      'Codex box',
-      'Colleague shared',
-    ]);
-    expect(t.text()).toContain('Codex');
-    expect(t.text()).not.toContain('Claude Code');
+    expect(t.find('select', (n) => n.props['aria-label'] === 'Machine')).toBeUndefined();
+    expect(t.text()).toContain("Colleague's Bench");
+    const unbound = await mount(AgentDetail, { id: 'l' }, [{ ...lab, runtime_id: null }]);
+    expect(unbound.text()).toContain('Not bound to a machine');
   });
 
   it('names the bound machine and its CLI for a member', async () => {
@@ -376,23 +337,13 @@ describe('agent stage', () => {
     expect(alone.text()).not.toContain('runs only its owner');
     memberRows = [...memberRows, { user_id: 'u2', name: 'Colleague', email: 'c@lab.test' }];
     const note =
-      "Desk mac runs only its owner's studies. Bind this agent to a shared Linux machine to run colleagues' studies.";
+      "Desk mac runs only its owner's studies.";
     const onMac = await mount(AgentDetail, { id: 'l' }, [agent({ id: 'l', laboratory: 'built-in', runtime_id: 'r2' })]);
     expect(onMac.text().replace(/\s+/g, ' ')).toContain(note);
     const onLinux = await mount(AgentDetail, { id: 'm' }, [agent({ id: 'm', laboratory: 'built-in', runtime_id: 'r1' })]);
     expect(onLinux.text()).not.toContain('runs only its owner');
   });
 
-  it('shows the server refusal for a machine verbatim', async () => {
-    const lab = agent({ id: 'l', laboratory: 'built-in' });
-    request.mockRejectedValue(new Error("this machine isn't shared with the workspace owner"));
-    const t = await mount(AgentDetail, { id: 'l' }, [lab]);
-    const select = t.find('select', (n) => n.props['aria-label'] === 'Machine')!;
-    (select.props.onChange as (e: unknown) => void)({ target: { value: 'r1' } });
-    await new Promise((r) => setTimeout(r, 0));
-    await nextTick();
-    expect(t.text()).toContain("this machine isn't shared with the workspace owner");
-  });
 
   const roster = [
     agent({ id: 'h', name: 'Hypo Agent', stage: 'hypotheses' }),

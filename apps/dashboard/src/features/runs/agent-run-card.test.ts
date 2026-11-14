@@ -5,6 +5,7 @@ import AgentRunCard from './AgentRunCard.vue';
 vi.mock('../../ui/RecordedMarkdown.vue', async () => {
   const { h } = await import('vue');
   return {
+    __esModule: true,
     default: {
       props: ['content'],
       setup: (p: { content: string }) => () =>

@@ -509,6 +509,10 @@ kbd {
   color: var(--muted);
   font-size: 14px;
 }
+.account-verification {
+  min-height: 100dvh;
+  padding: 24px;
+}
 .center-empty p {
   max-width: 440px;
   text-align: center;
