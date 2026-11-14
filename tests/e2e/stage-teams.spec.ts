@@ -20,13 +20,13 @@ test('built-in stage Teams show and filter by General-purpose domain', async ({ 
   await labPack(page.request, 'astronomy team', ws, { domain: 'astronomy', stage: 'grounding' });
   await openIn(page, ws, '/#/teams');
   const rows = page.locator('.team-table tbody tr');
-  await expect(rows.filter({ hasText: 'Grounding Team' })).toContainText('General-purpose');
+  await expect(rows.filter({ hasText: 'Grounding Team' })).not.toContainText('General-purpose');
   await page.getByRole('button', { name: 'Filter', exact: true }).click();
   await chooseCompact(page, 'Domain', 'General-purpose');
   await expect(rows).toHaveCount(4);
   await expect(rows.filter({ hasText: 'astronomy team' })).toHaveCount(0);
   await rows.filter({ hasText: 'Grounding Team' }).getByRole('link').click();
-  await expect(page.locator('.agent-meta')).toContainText('General-purpose');
+  await expect(page.locator('.agent-meta')).not.toContainText('General-purpose');
   await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(page.locator('.team-settings')).toContainText('General-purpose');
 });

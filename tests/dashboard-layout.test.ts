@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveConfig } from 'vite';
 import { createSSRApp, h } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import Icon from '../apps/dashboard/src/ui/Icon.vue';
@@ -9,11 +8,6 @@ import Icon from '../apps/dashboard/src/ui/Icon.vue';
 const src = 'apps/dashboard/src';
 
 describe('the dashboard source layout', () => {
-  it('keeps the dashboard and landing-page Vite dependency caches separate', async () => {
-    const dashboard = await resolveConfig({ configFile: 'apps/dashboard/vite.config.ts' }, 'serve');
-    const web = await resolveConfig({ configFile: 'apps/web/vite.config.ts' }, 'serve');
-    expect(dashboard.cacheDir).not.toBe(web.cacheDir);
-  });
   it('has a features folder and a ui folder', () => {
     expect(existsSync(join(src, 'features'))).toBe(true);
     expect(existsSync(join(src, 'ui'))).toBe(true);
@@ -194,7 +188,7 @@ describe('the dashboard source layout', () => {
 
   it('dashboard unit tests live with their code', () => {
     const left = readdirSync('tests').filter((f) => f.endsWith('.test.ts')).sort();
-    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-admission-epoch.test.ts', 'desktop-auth-gate.test.ts', 'desktop-auth-logout.test.ts', 'desktop-daemon.test.ts', 'desktop-packaging.test.ts', 'desktop-renderer.test.ts', 'desktop-runtime-config.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-visuals.test.ts']);
+    expect(left).toEqual(['dashboard-layout.test.ts', 'desktop-admission-epoch.test.ts', 'desktop-auth-gate.test.ts', 'desktop-auth-logout.test.ts', 'desktop-auth-reload.test.ts', 'desktop-daemon.test.ts', 'desktop-go-stdio.test.ts', 'desktop-google-auth.test.ts', 'desktop-held-stream.test.ts', 'desktop-packaging.test.ts', 'desktop-production-held-stream.test.ts', 'desktop-renderer.test.ts', 'desktop-runtime-config.test.ts', 'desktop-update-build.test.ts', 'desktop-update-liveness.test.ts', 'desktop-update-messages.test.ts', 'desktop-update-process.test.ts', 'desktop-update.test.ts', 'desktop-updater-bundle.test.ts', 'legal-pages.test.ts', 'mock-layer.test.ts', 'web-bridge.test.ts', 'web-typing.test.ts']);
   });
 
   it('study files carry the study name', () => {

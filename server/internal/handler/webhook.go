@@ -28,7 +28,7 @@ func (h *H) autoresearchWebhook(w http.ResponseWriter, r *http.Request) {
 	for _, l := range []struct {
 		key string
 		n   int
-	}{{"wh:ip:" + clientIP(r), webhookPerIP}, {"wh:token:" + hash, webhookPerToken}} {
+	}{{"wh:ip:" + h.clientIP(r), webhookPerIP}, {"wh:token:" + hash, webhookPerToken}} {
 		ok, err := h.Limit.Allow(r.Context(), l.key, l.n, time.Minute)
 		if err != nil {
 			writeErr(w, 503, "try again later")

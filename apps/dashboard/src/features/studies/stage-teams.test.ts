@@ -6,6 +6,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import AssignPicker from '../../ui/AssignPicker.vue';
 import TeamDetail from '../teams/TeamDetail.vue';
 import TeamsView from '../teams/TeamsView.vue';
+import { timeAgo } from '../../lib/studies';
 import AgentsView from '../agents/AgentsView.vue';
 import CreateStudy from './CreateStudy.vue';
 import StudyDetail from './StudyDetail.vue';
@@ -666,6 +667,42 @@ describe('new agent model picker', () => {
   });
 });
 
+describe('Teams table', () => {
+  it('lists Name, Agents, Stage, Source and Last updated, with no Domain column', async () => {
+    const t = await mount(
+      TeamsView,
+      () => ({}),
+      '/teams',
+      (c) => {
+        c.setQueryData(keys.teams('w', '', ''), [
+          storeTeam('t1', 'Grounding Team', 'grounding', 'shipped'),
+        ]);
+      },
+    );
+    try {
+      const headers = t
+        .nodes()
+        .filter((n) => n.tag === 'th')
+        .map(textOf);
+      expect(headers.map((h) => h.trim())).toEqual([
+        'Name',
+        'Agents',
+        'Stage',
+        'Source',
+        'Last updated',
+      ]);
+      const cells = t
+        .nodes()
+        .filter((n) => n.tag === 'td')
+        .map(textOf);
+      expect(cells.at(-1)).toBe(timeAgo('2026-10-21T10:00:00Z'));
+      expect(cells.join(' ')).not.toContain('General-purpose');
+    } finally {
+      t.unmount();
+    }
+  });
+});
+
 describe('Team availability', () => {
   it('shows a Team as inactive without all of its healthy runtimes', async () => {
     const t = await mount(
@@ -724,35 +761,20 @@ describe('TeamDetail', () => {
       t.unmount();
     }
   });
-  it('updates the researcher’s built-in Team member CLI', async () => {
-    const base = manifest('Hypotheses Team', 'hypotheses');
-    const team = {
-      ...base,
-      leader: {
-        ...base.leader,
-        agent: { ...base.leader.agent, models: { claude: 'sonnet', codex: 'gpt' } },
-      },
-    };
+  it('links a built-in Team member to its agent page instead of a CLI picker', async () => {
     const payload = {
       id: 't1',
       uploaded_by: null,
       visibility: 'workspace',
-      manifest: team,
+      manifest: manifest('Hypotheses Team', 'hypotheses'),
       my_agents: { lead: { id: 'my-leader', name: 'lead', harness: 'claude', model: 'sonnet' } },
     };
-    let changed = false;
-    const fetch = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === 'PATCH') changed = true;
+    const fetch = vi.fn(async (path: RequestInfo | URL) => {
       const result = String(path).startsWith('/api/teams?')
         ? [storeTeam('t1', 'Hypotheses Team', 'hypotheses', 'shipped')]
-        : String(path).startsWith('/api/agents') && init?.method !== 'PATCH'
+        : String(path).startsWith('/api/agents')
           ? []
-          : {
-              ...payload,
-              my_agents: {
-                lead: { ...payload.my_agents.lead, harness: changed ? 'codex' : 'claude' },
-              },
-            };
+          : payload;
       return new Response(JSON.stringify(result), { status: 200 });
     });
     vi.stubGlobal('fetch', fetch);
@@ -766,30 +788,18 @@ describe('TeamDetail', () => {
     );
     try {
       const breadcrumb = t.nodes().find((n) => n.props['aria-label'] === 'Team navigation')!;
-      expect(textOf(breadcrumb)).toContain('Teams');
       expect(textOf(breadcrumb)).toContain('Hypotheses Team');
       expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/teams');
-      const header = () => t.nodes().find((n) => n.props.class === 'agent-meta')!;
-      expect(textOf(header())).toContain('Claude Code');
-      expect(textOf(header())).not.toContain('Codex');
-      const trigger = t.nodes().find((n) => n.props['aria-label'] === 'CLI: Claude Code');
-      expect(trigger).toBeTruthy();
-      await (trigger!.props.onClick as () => Promise<void>)();
-      await nextTick();
-      const codex = t.nodes().find((n) => n.props['aria-label'] === 'Codex');
-      expect(codex).toBeTruthy();
-      (codex!.props.onClick as () => void)();
-      await vi.waitFor(() =>
-        expect(
-          fetch.mock.calls.some(
-            (call: any[]) =>
-              call[0] === '/api/agents/my-leader' &&
-              JSON.parse(String(call[1]?.body)).harness === 'codex',
-          ),
-        ).toBe(true),
-      );
-      await vi.waitFor(() => expect(textOf(header())).toContain('Codex'));
-      expect(textOf(header())).not.toContain('Claude Code');
+      await vi.waitFor(() => expect(t.text()).toContain('Built-in Teams can'));
+      const header = t.nodes().find((n) => n.props.class === 'agent-meta')!;
+      expect(textOf(header)).toContain('Claude Code');
+      expect(textOf(header)).not.toContain('General-purpose');
+      const inspector = t.nodes().find((n) => n.props['aria-label'] === 'Agent details')!;
+      const details = all(inspector).find((n) => n.tag === 'a');
+      expect(details?.props.href).toBe('/agents/my-leader');
+      expect(textOf(details!)).toContain('Details');
+      expect(textOf(inspector)).not.toContain('CLI');
+      expect(t.nodes().some((n) => String(n.props['aria-label']).startsWith('CLI:'))).toBe(false);
     } finally {
       t.unmount();
     }

@@ -104,6 +104,7 @@ In production, the landing page is served at `/` and the dashboard at `/app/`, b
 
 ```sh
 npm run web:app    # dashboard under /app/ on :1430
+npm ci --prefix apps/web # landing page dependencies
 npm run web        # landing page on http://127.0.0.1:1440, proxies /app and the API
 ```
 

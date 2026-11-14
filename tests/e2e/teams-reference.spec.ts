@@ -21,7 +21,7 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     'font-size',
     '13px',
   );
-  const columns = ['Name', 'Domain', 'Stage', 'Agents', 'Source'];
+  const columns = ['Name', 'Agents', 'Stage', 'Source', 'Last updated'];
   for (const [i, name] of columns.entries())
     await expect(table.getByRole('columnheader').nth(i)).toHaveAccessibleName(name);
   await expect(table.locator('thead')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -155,7 +155,8 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(page.locator('.team-table th').last()).toHaveCSS('text-align', 'right');
   const lastValue = rows.first().locator('td').last().locator('.directory-last-value');
   await expect(lastValue).toHaveCSS('text-align', 'center');
-  await expect(lastValue).toHaveCSS('width', '70px');
+  await expect(lastValue).toHaveCSS('width', '80px');
+  await expect(lastValue).toHaveCSS('white-space', 'nowrap');
   const lastCell = (await rows.first().locator('td').last().boundingBox())!;
   const lastBox = (await lastValue.boundingBox())!;
   expect(lastBox.x + lastBox.width).toBe(lastCell.x + lastCell.width);

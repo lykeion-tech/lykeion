@@ -61,7 +61,7 @@ func (h *H) googleStartWithDesktop(w http.ResponseWriter, r *http.Request, allow
 		writeErr(w, http.StatusNotFound, "google sign-in is not configured")
 		return
 	}
-	if h.limited(w, r, map[string]int{"google:start:ip:" + clientIP(r): 30}) {
+	if h.limited(w, r, map[string]int{"google:start:ip:" + h.clientIP(r): 30}) {
 		return
 	}
 	desktopTicket := r.URL.Query().Get("desktop_ticket")
@@ -118,7 +118,7 @@ func (h *H) googleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) googleCallbackWithDesktop(w http.ResponseWriter, r *http.Request, allowDesktop bool) {
-	if h.limited(w, r, map[string]int{"google:callback:ip:" + clientIP(r): 60}) {
+	if h.limited(w, r, map[string]int{"google:callback:ip:" + h.clientIP(r): 60}) {
 		return
 	}
 	c, err := r.Cookie(oauthCookie)

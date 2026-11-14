@@ -8,8 +8,10 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -28,12 +30,43 @@ const (
 
 func normEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-func clientIP(r *http.Request) string {
+// clientIP is the rate-limit key: the peer's address, or the client a trusted
+// reverse proxy forwarded for. Headers from any other peer are ignored.
+func (h *H) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil || !slices.ContainsFunc(h.TrustedProxies, func(p netip.Prefix) bool { return p.Contains(peer.Unmap()) }) {
+		return host
+	}
+	forwarded, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
+	if forwarded = strings.TrimSpace(forwarded); forwarded == "" {
+		forwarded = strings.TrimSpace(r.Header.Get("X-Real-IP"))
+	}
+	if client, err := netip.ParseAddr(forwarded); err == nil {
+		return client.Unmap().String()
 	}
 	return host
+}
+
+// ParseTrustedProxies reads comma-separated CIDRs, dropping invalid entries
+// with a warning.
+func ParseTrustedProxies(raw string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(item)
+		if err != nil {
+			slog.Warn("TRUSTED_PROXIES: ignoring invalid CIDR", "value", item)
+			continue
+		}
+		out = append(out, p.Masked())
+	}
+	return out
 }
 
 // limited applies each (key, n, window) limit; any refusal or Redis error
@@ -62,7 +95,7 @@ func (h *H) sendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := normEmail(in.Email)
-	if h.limited(w, r, map[string]int{"code:email:" + email: 5, "code:ip:" + clientIP(r): 30}) {
+	if h.limited(w, r, map[string]int{"code:email:" + email: 5, "code:ip:" + h.clientIP(r): 30}) {
 		return
 	}
 	code := auth.NewCode()
@@ -88,7 +121,7 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := normEmail(in.Email)
-	if h.limited(w, r, map[string]int{"verify:ip:" + clientIP(r): 60}) {
+	if h.limited(w, r, map[string]int{"verify:ip:" + h.clientIP(r): 60}) {
 		return
 	}
 	tx, err := h.Store.Pool.Begin(r.Context())

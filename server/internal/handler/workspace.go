@@ -434,7 +434,7 @@ func (h *H) createInvitation(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	body := "You have been invited to a Lykeion workspace. Open " + h.PublicURL + "/#/invite/" + plain +
+	body := "You have been invited to a Lykeion workspace. Open " + h.PublicURL + "/app/#/invite/" + plain +
 		"\nor accept with:\n  lyk workspace accept " + plain + "\nor POST /api/invitations/" + plain + "/accept"
 	if err := h.Mail.Send(r.Context(), email, "Lykeion invitation", body); err != nil {
 		fail(w, r, err)

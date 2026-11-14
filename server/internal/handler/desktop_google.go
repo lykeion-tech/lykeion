@@ -68,7 +68,7 @@ func (h *H) desktopGoogleStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "Google sign-in unavailable")
 		return
 	}
-	if h.limited(w, r, map[string]int{"google:desktop:start:ip:" + clientIP(r): 30}) {
+	if h.limited(w, r, map[string]int{"google:desktop:start:ip:" + h.clientIP(r): 30}) {
 		return
 	}
 	raw := make([]byte, 32)
@@ -105,7 +105,7 @@ func (h *H) desktopGoogleExchange(w http.ResponseWriter, r *http.Request) {
 	}
 	challenge := sha256.Sum256([]byte(input.Verifier))
 	codeHash := sha256.Sum256([]byte(input.Code))
-	result, err := exchangeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(input.Ticket), "lyk:rl:google:desktop:exchange:ip:" + clientIP(r)}, base64.RawURLEncoding.EncodeToString(challenge[:]), base64.RawURLEncoding.EncodeToString(codeHash[:])).StringSlice()
+	result, err := exchangeDesktopGoogle.Run(r.Context(), h.Limit.R, []string{desktopGoogleKey(input.Ticket), "lyk:rl:google:desktop:exchange:ip:" + h.clientIP(r)}, base64.RawURLEncoding.EncodeToString(challenge[:]), base64.RawURLEncoding.EncodeToString(codeHash[:])).StringSlice()
 	if err != nil {
 		writeErr(w, 503, "sign-in unavailable")
 		return

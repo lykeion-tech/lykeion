@@ -1,5 +1,3 @@
-import { computed, ref } from 'vue';
-
 // The dashboard is served beside the landing page under /app/ on the same
 // origin, so the session cookie set by sign-in is sent with the landing page's
 // requests too.
@@ -56,40 +54,10 @@ async function read<T>(path: string): Promise<T | undefined> {
   }
 }
 
-const user = ref<Me | null>(null);
-const workspaces = ref<unknown[]>([]);
-const ready = ref(false);
-let loading: Promise<void> | undefined;
-
-// The visitor's identity and workspaces, read once and shared by every caller.
-// A refused /api/me means signed out.
-export function loadSession(): Promise<void> {
-  loading ??= (async () => {
-    const me = await read<Me>('/api/me');
-    if (!me) return;
-    user.value = me;
-    const list = await read<unknown[] | null>('/api/workspaces');
-    if (!list && list !== null) return;
-    workspaces.value = list ?? [];
-    ready.value = true;
-  })();
-  return loading;
-}
-
-export function useSession() {
-  void loadSession();
-  const hasOnboarded = computed(() => user.value?.onboarded_at != null);
-  return {
-    user,
-    ready,
-    ctaHref: computed(() =>
-      resolveDashboardCtaHref({
-        isAuthenticated: !!user.value,
-        workspaceListReady: ready.value,
-        workspaces: workspaces.value,
-        hasOnboarded: hasOnboarded.value,
-      }),
-    ),
-    destination: computed(() => resolvePostAuthDestination(workspaces.value, hasOnboarded.value)),
-  };
+export async function loadSession(): Promise<{ user: Me | null; destination: string | null }> {
+  const user = await read<Me>('/api/me');
+  if (!user) return { user: null, destination: null };
+  const workspaces = await read<unknown[] | null>('/api/workspaces');
+  if (workspaces === undefined) return { user, destination: null };
+  return { user, destination: resolvePostAuthDestination(workspaces ?? [], !!user.onboarded_at) };
 }
