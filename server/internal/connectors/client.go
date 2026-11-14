@@ -351,7 +351,7 @@ func (c *Client) userAgent() string {
 	if c.Contact != "" {
 		return "Lykeion (+mailto:" + c.Contact + ")"
 	}
-	return "Lykeion (https://github.com/lykeion-ia/lykeion)"
+	return "Lykeion (https://github.com/lykeion-tech/lykeion)"
 }
 
 // wait holds the request until its rate slot in the workspace comes up.

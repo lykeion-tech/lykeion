@@ -120,8 +120,8 @@ func TestSignedAssetRedirectCannotCrossOrigin(t *testing.T) {
 func TestUpdateURLsOnlyAllowFixedReleasePathsAndApprovedCDN(t *testing.T) {
 	name := "desktop-stable-darwin-arm64.json"
 	for _, raw := range []string{
-		"https://github.com/lykeion-ia/lykeion/releases/latest/download/" + name,
-		"https://github.com/lykeion-ia/lykeion/releases/download/v1.2.3/" + name,
+		"https://github.com/lykeion-tech/lykeion/releases/latest/download/" + name,
+		"https://github.com/lykeion-tech/lykeion/releases/download/v1.2.3/" + name,
 		"https://release-assets.githubusercontent.com/github-production-release-asset/123?signature=abc",
 	} {
 		u, err := url.Parse(raw)
@@ -130,17 +130,17 @@ func TestUpdateURLsOnlyAllowFixedReleasePathsAndApprovedCDN(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
-		"http://github.com/lykeion-ia/lykeion/releases/latest/download/" + name,
+		"http://github.com/lykeion-tech/lykeion/releases/latest/download/" + name,
 		"https://github.com/other/project/releases/latest/download/" + name,
-		"https://github.com/lykeion-ia/lykeion/releases/latest/download/other.json",
-		"https://github.com/lykeion-ia/lykeion/releases/latest/download/" + name + "?secret=abc",
+		"https://github.com/lykeion-tech/lykeion/releases/latest/download/other.json",
+		"https://github.com/lykeion-tech/lykeion/releases/latest/download/" + name + "?secret=abc",
 		"https://release-assets.githubusercontent.com.evil.test/github-production-release-asset/123",
 		"https://release-assets.githubusercontent.com/private/other",
 		"https://release-assets.githubusercontent.com/github-production-release-asset-evil/123",
 		"https://release-assets.githubusercontent.com/github-production-release-asset/../private",
 		"https://release-assets.githubusercontent.com/github-production-release-asset/%2e%2e/private",
-		"https://user@github.com/lykeion-ia/lykeion/releases/latest/download/" + name,
-		"https://github.com:444/lykeion-ia/lykeion/releases/latest/download/" + name,
+		"https://user@github.com/lykeion-tech/lykeion/releases/latest/download/" + name,
+		"https://github.com:444/lykeion-tech/lykeion/releases/latest/download/" + name,
 	} {
 		u, err := url.Parse(raw)
 		if err == nil && allowedURL(u, name) {

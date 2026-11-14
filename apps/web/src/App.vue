@@ -20,7 +20,7 @@ const heroReady = ref(false);
 let stopHeroVideo: (() => void) | undefined;
 
 onMounted(() => {
-  void fetch('https://api.github.com/repos/lykeion-ia/lykeion', {
+  void fetch('https://api.github.com/repos/lykeion-tech/lykeion', {
     headers: { Accept: 'application/vnd.github+json' },
   })
     .then((response) => (response.ok ? response.json() : null))
@@ -86,7 +86,7 @@ const nav = [
     <div class="nav-external">
       <a
         class="nav-github"
-        href="https://github.com/lykeion-ia/lykeion"
+        href="https://github.com/lykeion-tech/lykeion"
         target="_blank"
         rel="noreferrer"
       >
@@ -115,7 +115,7 @@ const nav = [
         <button class="mobile-menu-item" type="button" disabled>Vision</button>
         <button class="mobile-menu-item" type="button" disabled>Docs</button>
         <button class="mobile-menu-item" type="button" disabled>Changelog</button>
-        <a class="mobile-menu-github" href="https://github.com/lykeion-ia/lykeion">GitHub <ArrowUpRight :size="20" aria-hidden="true" /></a>
+        <a class="mobile-menu-github" href="https://github.com/lykeion-tech/lykeion">GitHub <ArrowUpRight :size="20" aria-hidden="true" /></a>
         <a v-for="item in nav" :key="item.href" :href="item.href" @click="menuOpen = false">{{
           item.label
         }}</a>

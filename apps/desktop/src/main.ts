@@ -379,7 +379,7 @@ void app.whenReady().then(async () => {
         : trustedDesktopFrame(event, window.webContents, apiOrigin))
     )
       throw new Error('Invalid sender');
-    await shell.openExternal('https://github.com/lykeion-ia/lykeion');
+    await shell.openExternal('https://github.com/lykeion-tech/lykeion');
   });
   ipcMain.on('lykeion:open-external', (event, url: unknown) => {
     if (

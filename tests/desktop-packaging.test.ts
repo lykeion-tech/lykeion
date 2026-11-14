@@ -69,14 +69,14 @@ describe('desktop release packaging', () => {
       for (const intermediate of [true, false]) {
         const args = desktopBuilderArgs(desktopTarget(platform, 'arm64'), intermediate, undefined, undefined);
         expect(args).toContain('--config.publish.provider=github');
-        expect(args).toContain('--config.publish.owner=lykeion-ia');
+        expect(args).toContain('--config.publish.owner=lykeion-tech');
         expect(args).toContain('--config.publish.repo=lykeion');
         expect(args).toContain('--config.publish.releaseType=release');
         expect(args.slice(args.indexOf('--publish'), args.indexOf('--publish') + 2)).toEqual(['--publish', 'never']);
         const parsed = normalizeOptions(configureBuildCommand(createYargs()).parse(args.slice(1)));
         expect(parsed.publish).toBe('never');
         const effective = await getConfig(process.cwd(), undefined, parsed.config);
-        expect(effective.publish).toEqual({ provider: 'github', owner: 'lykeion-ia', repo: 'lykeion', releaseType: 'release' });
+        expect(effective.publish).toEqual({ provider: 'github', owner: 'lykeion-tech', repo: 'lykeion', releaseType: 'release' });
         expect(effective.publish.publishAutoUpdate).not.toBe(false);
         await expect(validateConfiguration(effective, { isEnabled: false })).resolves.toBeUndefined();
       }
@@ -94,7 +94,7 @@ describe('desktop release packaging', () => {
       await writeUpdateInfoFiles([{
         file: metadata,
         arch: null,
-        publishConfiguration: { provider: 'github', owner: 'lykeion-ia', repo: 'lykeion', releaseType: 'release' },
+        publishConfiguration: { provider: 'github', owner: 'lykeion-tech', repo: 'lykeion', releaseType: 'release' },
         info: { version: '1.2.3', files: [{ url: 'Lykeion-1.2.3-mac.zip', sha512: 'test-digest' }], path: 'Lykeion-1.2.3-mac.zip', sha512: 'test-digest' },
         packager: {},
       }], { emitArtifactCreated: async (event: { file: string }) => { emitted.push(event.file); } });

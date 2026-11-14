@@ -32,7 +32,7 @@ func allowedURL(u *url.URL, filename string) bool {
 	if host != "github.com" || u.RawQuery != "" {
 		return false
 	}
-	const base = "/lykeion-ia/lykeion/releases/"
+	const base = "/lykeion-tech/lykeion/releases/"
 	if u.Path == base+"latest/download/"+filename {
 		return true
 	}
@@ -89,7 +89,7 @@ func fetchMetadata(ctx context.Context, client *http.Client, platform, arch stri
 		return nil, errUnavailable
 	}
 	filename := "desktop-stable-" + platform + "-" + arch + ".json"
-	address := "https://github.com/lykeion-ia/lykeion/releases/latest/download/" + filename
+	address := "https://github.com/lykeion-tech/lykeion/releases/latest/download/" + filename
 	u, err := url.Parse(address)
 	if err != nil || !allowedURL(u, filename) {
 		return nil, errUnavailable
@@ -127,7 +127,7 @@ func openArtifact(ctx context.Context, client *http.Client, m metadata) (io.Read
 	if client == nil || !stableVersion.MatchString(m.version) || !releaseFilename.MatchString(m.filename) || m.size < 1 || m.size > maxArtifact {
 		return nil, errUnavailable
 	}
-	address := "https://github.com/lykeion-ia/lykeion/releases/download/v" + m.version + "/" + m.filename
+	address := "https://github.com/lykeion-tech/lykeion/releases/download/v" + m.version + "/" + m.filename
 	u, err := url.Parse(address)
 	if err != nil || !allowedURL(u, m.filename) {
 		return nil, errUnavailable

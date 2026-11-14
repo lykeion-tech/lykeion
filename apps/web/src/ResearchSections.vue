@@ -522,7 +522,7 @@ const principles = [
         </div>
         <div>
           <span>WORKSPACE</span><a :href="ctaHref">Open your lab</a
-          ><a href="https://github.com/lykeion-ia/lykeion">GitHub</a>
+          ><a href="https://github.com/lykeion-tech/lykeion">GitHub</a>
         </div>
       </div>
     </footer>

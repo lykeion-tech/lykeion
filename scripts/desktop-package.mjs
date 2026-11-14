@@ -37,7 +37,7 @@ export function desktopBuilderArgs(target, directory, signing, signingIntermedia
     ...(maintainer ? [`--config.linux.maintainer=${maintainer}`] : []),
     ...macBuilderSigningArgs(signing, signingIntermediate),
     '--config.publish.provider=github',
-    '--config.publish.owner=lykeion-ia',
+    '--config.publish.owner=lykeion-tech',
     '--config.publish.repo=lykeion',
     '--config.publish.releaseType=release',
     '--publish',
