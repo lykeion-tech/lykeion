@@ -38,3 +38,4 @@ export function verifyArchive(
   hostedOrigin: string,
   asar: typeof import('@electron/asar'),
 ): void;
+export function macFeedRename(platform: string, arch: string): [string, string] | null;

@@ -44,6 +44,12 @@ export function desktopBuilderArgs(target, directory, signing, signingIntermedia
   ];
 }
 
+// electron-builder writes latest-mac.yml for either Mac architecture, so the
+// Intel feed is published under its own name and read by Intel apps.
+export function macFeedRename(platform, arch) {
+  return platform === 'darwin' && arch === 'x64' ? ['latest-mac.yml', 'latest-x64-mac.yml'] : null;
+}
+
 export function releaseOrigin(value = 'https://app.lykeion.tech') {
   let url;
   try {
@@ -443,6 +449,11 @@ function main() {
       const app = path.dirname(path.dirname(resources));
       run('codesign', ['--verify', '--deep', '--strict', app], { env });
       if (signing.keychainProfile) run('xcrun', ['stapler', 'validate', app], { env });
+    }
+    const rename = macFeedRename(platform, arch);
+    if (rename && !args.includes('--dir')) {
+      const release = path.join(source, 'dist/desktop-release');
+      renameSync(path.join(release, rename[0]), path.join(release, rename[1]));
     }
     replaceOutput(path.join(source, 'dist/desktop-release'), output);
   } finally {

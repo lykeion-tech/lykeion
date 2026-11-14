@@ -6,6 +6,8 @@ const startupDelay = 5_000;
 const checkInterval = 60 * 60 * 1000;
 
 type Updater = {
+  channel: string | null;
+  allowDowngrade: boolean;
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   on(event: 'update-downloaded', listener: (info: { version: string }) => void): unknown;
@@ -21,6 +23,12 @@ export function startDesktopUpdater(outDirectory: string, notify = true): () => 
   const { autoUpdater } = createRequire(import.meta.url)(
     path.join(outDirectory, 'electron-updater.cjs'),
   ) as { autoUpdater: Updater };
+  if (process.platform === 'darwin' && process.arch === 'x64') {
+    // Intel Macs read their own feed; setting a channel also allows
+    // downgrades, which a feed per architecture must not.
+    autoUpdater.channel = 'latest-x64';
+    autoUpdater.allowDowngrade = false;
+  }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   let notified = '';
