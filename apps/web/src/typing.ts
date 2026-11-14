@@ -1,4 +1,4 @@
-const words = ['DISCOVERY', 'EVIDENCE', 'VERIFICATION'];
+const words = ['DISCOVERY', 'INSIGHT', 'VERIFICATION'];
 export function typedWord(elapsed: number): string {
   const cycle = 3700;
   const word = words[Math.floor(elapsed / cycle) % words.length];
