@@ -157,7 +157,9 @@ func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lo
 		return "", PythonConflict(old)
 	}
 	if !s.Bases.Ready(Python) {
-		return "", missingBase(Python)
+		if err := s.Bases.Ensure(ctx, Python); err != nil {
+			return "", fmt.Errorf("%w: %w", notReady(Python), err)
+		}
 	}
 	if err := s.checkDefaultPython(ctx); err != nil {
 		return "", err

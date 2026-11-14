@@ -137,6 +137,17 @@ describe('shared scientific base availability', () => {
     expect(html).toContain('Shared scientific setup for R is unavailable');
     expect(html).not.toContain('Shared scientific setup for Python');
   });
+  it('names the fix the daemon reports', async () => {
+    const html = await renderMachine(undefined, undefined, undefined, 'online', {
+      bases: {
+        python:
+          'failed: bounded scientific environment setup is unavailable on this machine: install fuse2fs (packages fuse2fs, e2fsprogs and util-linux) so environments can be installed with a size limit',
+      },
+    });
+    expect(html).toContain('Shared scientific setup for Python is unavailable');
+    expect(html).toContain('To set up new ones, install fuse2fs');
+    expect(html).not.toContain('a supported update is required');
+  });
   it('omits the notice for ready, building, and unrelated failures', async () => {
     const html = await renderMachine(undefined, undefined, undefined, 'online', {
       bases: { python: 'ready', r: 'building', julia: 'failed: other error' },

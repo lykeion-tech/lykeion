@@ -98,18 +98,19 @@ type rerunCase struct {
 
 type condaCall struct{ python, lock string }
 
-func TestRerunCannotBypassSharedBaseProvisioningGate(t *testing.T) {
+func TestRerunNeverInstallsSharedBases(t *testing.T) {
 	for _, lang := range []string{envs.R, envs.Julia} {
 		t.Run(lang, func(t *testing.T) {
 			root := t.TempDir()
-			bases := envs.NewBases(root)
+			// Even where installs are possible, a rerun never starts one.
+			bases := envs.NewBoundedBases(root)
 			bases.Fetch = func(context.Context, string, string, string) error {
 				t.Fatal("rerun attempted a download")
 				return nil
 			}
 			study := envs.ForStudy(bases, t.TempDir())
 			err := (&daemon{}).rebuildLanguage(t.Context(), &Door{Study: study}, "", lang, "", "")
-			if !errors.Is(err, envs.ErrBoundedProvisioningUnavailable) {
+			if !errors.Is(err, envs.ErrNotReady) {
 				t.Fatalf("rerun error = %v", err)
 			}
 			entries, err := os.ReadDir(root)

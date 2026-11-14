@@ -330,7 +330,7 @@ func TestLeanBaseRunnerCancellationStopsChildren(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := b.Run(ctx, nil, dir, "/bin/sh", "-c", `touch started; (sleep 0.4; touch escaped) & wait`)
+		_, err := b.Run(installing(ctx, dir), nil, dir, "/bin/sh", "-c", `touch started; (sleep 0.4; touch escaped) & wait`)
 		done <- err
 	}()
 	for i := 0; i < 200; i++ {

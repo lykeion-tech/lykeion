@@ -29,6 +29,7 @@ import (
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/labmemory"
@@ -1223,12 +1224,14 @@ func TestTheDaemonSendsBaseStates(t *testing.T) {
 	if len(bodies) != 3 {
 		t.Fatalf("heartbeats: %d", len(bodies))
 	}
+	// These bases have no volume to install into, so the missing ones report why.
+	missing := envs.Failed(envs.ErrBoundedProvisioningUnavailable)
 	var bases map[string]string
-	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "ready"}) {
+	if err := json.Unmarshal(bodies[0]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "r": missing, "julia": missing, "sandbox": "ready"}) {
 		t.Fatalf("bases %s: %v", bodies[0]["bases"], err)
 	}
 	bases = nil
-	if err := json.Unmarshal(bodies[1]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
+	if err := json.Unmarshal(bodies[1]["bases"], &bases); err != nil || !maps.Equal(bases, map[string]string{"python": "ready", "r": missing, "julia": missing, "sandbox": "failed: sandbox-exec missin" + strings.Repeat("é", 90)}) {
 		t.Fatalf("bases with a failed sandbox %s: %v", bodies[1]["bases"], err)
 	}
 	bases = nil

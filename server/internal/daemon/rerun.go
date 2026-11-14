@@ -433,8 +433,9 @@ func (d *daemon) rebuildLanguage(ctx context.Context, door *Door, python, lang, 
 		}
 		return nil
 	case envs.R, envs.Julia:
-		if err := study.Bases.Ensure(ctx, lang); err != nil {
-			return err
+		// A rerun uses only what is already installed; it never installs.
+		if !study.Bases.Ready(lang) {
+			return fmt.Errorf("the %s environment is not installed on this machine: %w", lang, envs.ErrNotReady)
 		}
 		fresh, err := study.Packages(ctx, lang)
 		if err != nil {

@@ -124,8 +124,14 @@ const sandboxFailure = computed(() => {
   const reason = status.slice('failed'.length).replace(/^:\s*/, '').trim();
   return reason ? `Can't run agents: ${reason}` : "Can't run agents";
 });
-const unavailableBase =
-  'failed: bounded scientific environment setup is unavailable on this machine; use an existing ready environment until a supported update is available';
+// The daemon's reason follows this prefix: either what to install on this
+// machine, or that this version cannot set up new environments.
+const unavailablePrefix = 'failed: bounded scientific environment setup is unavailable on this machine';
+const unavailableReason = (state: string | undefined) => {
+  if (!state?.startsWith(unavailablePrefix)) return undefined;
+  const rest = state.slice(unavailablePrefix.length);
+  return rest.startsWith(': ') ? rest.slice(2) : '';
+};
 const unavailableBases = computed(() => {
   const current = machine.value;
   if (!current || !current.online || !isOwner.value || !workspaceId.value) return [];
@@ -144,9 +150,10 @@ const unavailableBases = computed(() => {
       ['julia', 'Julia'],
     ] as const
   )
-    .filter(([key]) => reports.every((r) => r.bases?.[key] === unavailableBase))
-    .map(([, label]) => label);
+    .filter(([key]) => reports.every((r) => unavailableReason(r.bases?.[key]) !== undefined))
+    .map(([key, label]) => ({ label, fix: unavailableReason(reports[0].bases?.[key]) }));
 });
+const unavailableFix = computed(() => unavailableBases.value.find((b) => b.fix)?.fix ?? '');
 const daemonSettings = ref<InstanceType<typeof DaemonSettings>>();
 const sharingDetails = ref(false);
 const sharingForm = ref<InstanceType<typeof MachineSharing>>();
@@ -373,9 +380,13 @@ async function remove(d: Daemon) {
             </div>
             <p v-if="sandboxFailure" class="inline-error" role="alert">{{ sandboxFailure }}</p>
             <p v-if="unavailableBases.length" class="inline-error" role="status">
-              Shared scientific setup for {{ unavailableBases.join(', ') }} is unavailable on this
-              machine. Existing prepared environments may remain usable; a supported update is
-              required to set up new ones.
+              Shared scientific setup for
+              {{ unavailableBases.map((b) => b.label).join(', ') }} is unavailable on this machine.
+              <template v-if="unavailableFix">To set up new ones, {{ unavailableFix }}.</template>
+              <template v-else
+                >Existing prepared environments may remain usable; a supported update is required to
+                set up new ones.</template
+              >
             </p>
             <p v-if="removalError?.id === machine.id" class="inline-error" role="alert">
               {{ removalError.message }}

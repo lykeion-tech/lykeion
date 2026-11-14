@@ -15,14 +15,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
+
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 const Python, R, Julia = "python", "r", "julia"
@@ -45,16 +45,17 @@ func (e notReady) Error() string {
 func (e notReady) Unwrap() error    { return ErrNotReady }
 func (e notReady) Language() string { return string(e) }
 
-func missingBase(lang string) error {
-	return fmt.Errorf("%w; %w", notReady(lang), ErrBoundedProvisioningUnavailable)
-}
-
 type Bases struct {
 	Dir string
 	// Run's env, when non-nil, is the command's whole environment; nil
 	// inherits the daemon's.
 	Run   func(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error)
 	Fetch func(ctx context.Context, url, sha256, dest string) error
+
+	// vol caps every install; nil means this machine installs nothing, and
+	// volErr says why.
+	vol    volume
+	volErr error
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -63,15 +64,43 @@ type Bases struct {
 	studies map[string]studyState
 }
 
+// NewBases gives the bases at dir without installing any: missing bases stay
+// missing.
 func NewBases(dir string) *Bases {
 	return &Bases{Dir: dir, Run: run, Fetch: fetch}
 }
 
+// NewBoundedBases installs missing bases on demand, each in its own capped
+// volume, where this machine can mount one without administrator rights.
+func NewBoundedBases(dir string) *Bases {
+	b := NewBases(dir)
+	b.vol, b.volErr = platformVolume()
+	return b
+}
+
+// run runs one install command in the sandbox, which lets it write only in
+// the install's volume. Outside an install nothing runs.
 func run(ctx context.Context, env []string, dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cancelBuildTree(cmd)
+	scope, ok := installOf(ctx)
+	if !ok {
+		return nil, errors.New("installer commands run only inside a size-limited install")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	p := sandbox.Policy{Home: home, Read: scope.read, Write: []string{scope.write}}
+	cmd, err := p.Command(ctx, name, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer sandbox.CloseCommand(cmd)
+	killGroupOnCancel(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	cmd.Env = env
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = withScratch(env, scope.write)
 	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -80,6 +109,32 @@ func run(ctx context.Context, env []string, dir, name string, args ...string) ([
 		return out, fmt.Errorf("%s %s: %w: %s", filepath.Base(name), strings.Join(args, " "), err, tail(stderr.String(), 4096))
 	}
 	return out, nil
+}
+
+// withScratch points HOME and TMPDIR inside the install's volume unless env
+// already does; the sandbox would refuse writes anywhere else.
+func withScratch(env []string, write string) []string {
+	out := env[:len(env):len(env)]
+	for _, k := range []string{"HOME", "TMPDIR"} {
+		v := ""
+		for _, e := range env {
+			if key, val, _ := strings.Cut(e, "="); key == k {
+				v = val
+			}
+		}
+		if v != "" && isUnder(v, write) {
+			continue
+		}
+		d := filepath.Join(scratch(write), strings.ToLower(k))
+		os.MkdirAll(d, 0o700)
+		out = append(out, k+"="+d)
+	}
+	return out
+}
+
+func isUnder(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
 }
 
 // isolated is the daemon's environment without anything that would point a
@@ -202,12 +257,23 @@ func (b *Bases) Folders() []string {
 	return []string{filepath.Join(b.Dir, Python), filepath.Join(b.Dir, R), filepath.Join(b.Dir, Julia), filepath.Join(b.Dir, "micromamba"), filepath.Join(b.Dir, "lean")}
 }
 
+// mountDir is where a base's volume is mounted.
+func (b *Bases) mountDir(lang string) string { return filepath.Join(b.Dir, lang) }
+
 // baseDir is where a base's lock.txt and ready marker live.
 func (b *Bases) baseDir(lang string) string {
 	if lang == Julia {
 		return filepath.Join(b.Dir, "julia", "base")
 	}
 	return filepath.Join(b.Dir, lang)
+}
+
+// juliaBundled is the release's own depot, which holds its precompiled
+// standard library. Naming any depot drops it from Julia's defaults, and
+// without it Julia recompiles REPL, which needs a terminal the sandbox does
+// not give.
+func (b *Bases) juliaBundled() string {
+	return filepath.Join(b.Dir, "julia", juliaVersion, "share", "julia")
 }
 
 func (b *Bases) juliaBin() string {
@@ -232,7 +298,15 @@ func (b *Bases) Ready(lang string) bool {
 	if _, ok := displayNames[lang]; !ok {
 		return false
 	}
-	marker, err := os.Lstat(filepath.Join(b.baseDir(lang), "ready"))
+	if hasMarker(b.baseDir(lang)) {
+		return true
+	}
+	// A sealed base is mounted again after a restart, on first use.
+	return b.attachSealed(lang, b.mountDir(lang)) && hasMarker(b.baseDir(lang))
+}
+
+func hasMarker(dir string) bool {
+	marker, err := os.Lstat(filepath.Join(dir, "ready"))
 	return err == nil && marker.Mode().IsRegular()
 }
 
@@ -248,7 +322,9 @@ func (b *Bases) lock(lang string) *sync.Mutex {
 	return b.locks[lang]
 }
 
-// Ensure allows existing bases, but does not launch an unbounded installer.
+// Ensure installs a missing base, and Python first for R and Julia, which
+// use it. Only one install of a base runs at a time; a waiting caller can
+// cancel. Without a volume to cap the install, nothing is installed.
 func (b *Bases) Ensure(ctx context.Context, lang string) error {
 	if _, ok := displayNames[lang]; !ok {
 		return fmt.Errorf("unknown language %q", lang)
@@ -259,15 +335,40 @@ func (b *Bases) Ensure(ctx context.Context, lang string) error {
 	if b.Ready(lang) {
 		return nil
 	}
-	return fmt.Errorf("%s environment: %w", displayNames[lang], ErrBoundedProvisioningUnavailable)
+	if b.vol == nil {
+		return fmt.Errorf("%s environment: %w", displayNames[lang], b.unavailable())
+	}
+	if lang != Python {
+		if err := b.Ensure(ctx, Python); err != nil {
+			return err
+		}
+	}
+	l := b.lock(lang)
+	for !l.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	defer l.Unlock()
+	if b.Ready(lang) {
+		return nil
+	}
+	b.setState(lang, "building")
+	err := b.provision(ctx, lang, b.mountDir(lang), filepath.Join(b.baseDir(lang), "ready"), baseSizes[lang], func(ctx context.Context) error { return b.build(ctx, lang) })
+	if err != nil {
+		err = fmt.Errorf("installing the %s environment: %w", displayNames[lang], err)
+		b.setState(lang, Failed(err))
+	} else {
+		b.setState(lang, "")
+	}
+	return err
 }
 
+// build installs a base into its folder, which is the root of the install's
+// volume.
 func (b *Bases) build(ctx context.Context, lang string) error {
-	// conda-forge's R scripts word-split R_HOME, and console-script shebangs
-	// break on spaces too, so a base is never built under such a path.
-	if strings.ContainsFunc(b.Dir, unicode.IsSpace) {
-		return fmt.Errorf("the environments folder must not contain spaces: %s", b.Dir)
-	}
 	plat, err := platform()
 	if err != nil {
 		return err
@@ -275,21 +376,13 @@ func (b *Bases) build(ctx context.Context, lang string) error {
 	if lang != Python && !b.Ready(Python) {
 		return fmt.Errorf("the %s base needs the Python base, which isn't ready", displayNames[lang])
 	}
-	root := filepath.Join(b.Dir, lang)
-	if err := os.RemoveAll(root); err != nil {
-		return err
-	}
 	switch lang {
 	case Python, R:
 		err = b.buildConda(ctx, plat, lang)
 	case Julia:
 		err = b.buildJulia(ctx, plat)
 	}
-	if err == nil {
-		err = os.WriteFile(filepath.Join(b.baseDir(lang), "ready"), nil, 0o644)
-	}
 	if err != nil {
-		os.RemoveAll(root)
 		return fmt.Errorf("building the %s base: %w", displayNames[lang], err)
 	}
 	return nil
@@ -308,7 +401,9 @@ func (b *Bases) setState(lang, state string) {
 	}
 }
 
-// States reports each base as "ready", "building" or "failed: <reason>".
+// States reports each base as "ready", "building" or "failed: <reason>". A
+// base that is simply not installed yet, where it installs on first use, is
+// left out.
 func (b *Bases) States() map[string]string {
 	out := map[string]string{}
 	for lang := range displayNames {
@@ -324,8 +419,8 @@ func (b *Bases) States() map[string]string {
 		}
 		if state := b.states[lang]; state != "" {
 			out[lang] = state
-		} else {
-			out[lang] = Failed(ErrBoundedProvisioningUnavailable)
+		} else if b.vol == nil {
+			out[lang] = Failed(b.unavailable())
 		}
 	}
 	return out
@@ -375,46 +470,45 @@ func (b *Bases) buildConda(ctx context.Context, plat, lang string) error {
 	}
 	prefix := filepath.Join(b.Dir, lang)
 	// micromamba keeps its cache under the root prefix and records every
-	// environment it creates in $HOME/.conda, so both point inside Dir, apart
-	// from the person's own conda.
-	env := isolated("MAMBA_ROOT_PREFIX="+filepath.Join(b.Dir, "micromamba", "root"), "HOME="+filepath.Join(b.Dir, "micromamba", "home"))
+	// environment it creates in $HOME/.conda, so both point inside the
+	// install's volume, apart from the person's own conda.
+	env := isolated("MAMBA_ROOT_PREFIX="+filepath.Join(scratch(prefix), "mamba"), "HOME="+filepath.Join(scratch(prefix), "home"))
+	// The prefix is the volume's root and holds the install's scratch folder;
+	// micromamba installs only into a folder already marked as an environment.
+	if err := os.MkdirAll(filepath.Join(prefix, "conda-meta"), 0o755); err != nil {
+		return err
+	}
 	pins := pythonPins
 	if lang == R {
 		pins = rPins
 	}
-	if _, err := b.Run(ctx, env, b.Dir, mm, append([]string{"--no-rc", "create", "-y", "-p", prefix, "-c", "conda-forge", "--override-channels"}, pins...)...); err != nil {
+	if _, err := b.Run(ctx, env, prefix, mm, append([]string{"--no-rc", "install", "-y", "-p", prefix, "-c", "conda-forge", "--override-channels"}, pins...)...); err != nil {
 		return err
 	}
-	lock, err := b.Run(ctx, env, b.Dir, mm, "--no-rc", "env", "export", "-p", prefix, "--explicit")
+	lock, err := b.Run(ctx, env, prefix, mm, "--no-rc", "env", "export", "-p", prefix, "--explicit")
 	if err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(prefix, "lock.txt"), lock, 0o644); err != nil {
 		return err
 	}
-	if err := b.verifyConda(ctx, lang, prefix); err != nil {
-		return err
-	}
-	// The packages are linked into the prefix, so the cache can go.
-	if _, err := b.Run(ctx, env, b.Dir, mm, "--no-rc", "clean", "-a", "-y"); err != nil {
-		slog.Warn("cleaning the conda package cache", "err", err)
-	}
-	return nil
+	// The package cache is in the scratch folder, removed before sealing.
+	return b.verifyConda(ctx, lang, prefix)
 }
 
 func (b *Bases) verifyConda(ctx context.Context, lang, prefix string) error {
 	if lang == Python {
-		_, err := b.Run(ctx, isolated(), b.Dir, filepath.Join(prefix, "bin", "python"), "-I", "-c", "import numpy, pandas, scipy, matplotlib, statsmodels, ipykernel, jupyter_client")
+		_, err := b.Run(ctx, isolated(), prefix, filepath.Join(prefix, "bin", "python"), "-I", "-c", "import numpy, pandas, scipy, matplotlib, statsmodels, ipykernel, jupyter_client")
 		return err
 	}
 	// IRkernel registers itself through the Python base's jupyter.
 	path := isolated("PATH=" + filepath.Join(b.Dir, "python", "bin") + string(os.PathListSeparator) + os.Getenv("PATH"))
 	rscript := filepath.Join(prefix, "bin", "Rscript")
-	if _, err := b.Run(ctx, path, b.Dir, rscript, "--vanilla", "-e", fmt.Sprintf("IRkernel::installspec(user = FALSE, prefix = %q)", prefix)); err != nil {
+	if _, err := b.Run(ctx, path, prefix, rscript, "--vanilla", "-e", fmt.Sprintf("IRkernel::installspec(user = FALSE, prefix = %q)", prefix)); err != nil {
 		return err
 	}
 	// --vanilla still honours R_LIBS_USER; clearing .libPaths leaves only the base's own library.
-	_, err := b.Run(ctx, isolated(), b.Dir, rscript, "--vanilla", "-e", ".libPaths(character()); library(tidyverse); library(jsonlite); library(IRkernel)")
+	_, err := b.Run(ctx, isolated(), prefix, rscript, "--vanilla", "-e", ".libPaths(character()); library(tidyverse); library(jsonlite); library(IRkernel)")
 	return err
 }
 
@@ -427,7 +521,7 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	if err := os.MkdirAll(release, 0o755); err != nil {
 		return err
 	}
-	if _, err := b.Run(ctx, isolated(), b.Dir, "tar", "-xzf", tarball, "-C", release, "--strip-components=1"); err != nil {
+	if _, err := b.Run(ctx, isolated(), b.mountDir(Julia), "tar", "-xzf", tarball, "-C", release, "--strip-components=1"); err != nil {
 		return err
 	}
 	if err := os.Remove(tarball); err != nil {
@@ -440,7 +534,7 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	jl := filepath.Join(b.juliaBin(), "julia")
 	py := filepath.Join(b.Dir, "python", "bin")
 	env := isolated(
-		"JULIA_DEPOT_PATH="+filepath.Join(b.Dir, "julia", "depot"),
+		"JULIA_DEPOT_PATH="+filepath.Join(b.Dir, "julia", "depot")+string(os.PathListSeparator)+b.juliaBundled(),
 		"JULIA_PROJECT="+project,
 		"JULIA_LOAD_PATH=@"+string(os.PathListSeparator)+"@stdlib",
 		"JUPYTER_DATA_DIR="+filepath.Join(b.Dir, "julia", "jupyter"),
@@ -451,10 +545,10 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	for _, p := range juliaPins {
 		specs = append(specs, fmt.Sprintf("PackageSpec(name=%q, version=%q)", p[0], p[1]))
 	}
-	if _, err := b.Run(ctx, env, b.Dir, jl, "-e", "using Pkg; Pkg.add(["+strings.Join(specs, ", ")+"])"); err != nil {
+	if _, err := b.Run(ctx, env, b.mountDir(Julia), jl, "-e", "using Pkg; Pkg.add(["+strings.Join(specs, ", ")+"])"); err != nil {
 		return err
 	}
-	if _, err := b.Run(ctx, env, b.Dir, jl, "-e", `using IJulia; IJulia.installkernel("Julia")`); err != nil {
+	if _, err := b.Run(ctx, env, b.mountDir(Julia), jl, "-e", `using IJulia; IJulia.installkernel("Julia")`); err != nil {
 		return err
 	}
 	manifest, err := os.ReadFile(filepath.Join(project, "Manifest.toml"))
@@ -464,7 +558,7 @@ func (b *Bases) buildJulia(ctx context.Context, plat string) error {
 	if err := os.WriteFile(filepath.Join(project, "lock.txt"), manifest, 0o644); err != nil {
 		return err
 	}
-	_, err = b.Run(ctx, env, b.Dir, jl, "-e", "using DataFrames, CSV, IJulia")
+	_, err = b.Run(ctx, env, b.mountDir(Julia), jl, "-e", "using DataFrames, CSV, IJulia")
 	return err
 }
 
@@ -607,7 +701,7 @@ func (s *Study) Environment(ctx context.Context) ([]string, error) {
 	if b.Ready(Julia) {
 		env = append(env,
 			"JULIA_PROJECT="+filepath.Join(s.Dir, "julia"),
-			"JULIA_DEPOT_PATH="+filepath.Join(s.Dir, "julia", "depot")+sep+filepath.Join(b.Dir, "julia", "depot"),
+			"JULIA_DEPOT_PATH="+filepath.Join(s.Dir, "julia", "depot")+sep+filepath.Join(b.Dir, "julia", "depot")+sep+b.juliaBundled(),
 			"JULIA_LOAD_PATH=@"+sep+b.baseDir(Julia)+sep+"@stdlib")
 	}
 	if err := s.loadLean(ctx); err != nil {
@@ -657,7 +751,9 @@ func (s *Study) interpreter(ctx context.Context, lang string) (string, []string,
 		return "", nil, fmt.Errorf("unknown language %q", lang)
 	}
 	if !s.Bases.Ready(lang) {
-		return "", nil, missingBase(lang)
+		if err := s.Bases.Ensure(ctx, lang); err != nil {
+			return "", nil, fmt.Errorf("%w: %w", notReady(lang), err)
+		}
 	}
 	if err := s.prepare(ctx); err != nil {
 		return "", nil, err

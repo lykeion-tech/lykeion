@@ -22,6 +22,7 @@ import (
 
 	"lykeion/server/internal/accountlookup"
 	"lykeion/server/internal/daemon"
+	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/daemon/sandbox"
 )
 
@@ -224,12 +225,12 @@ func daemonCmd(e *env) *cobra.Command {
 				return fmt.Errorf("identify daemon process: %w", err)
 			}
 		}
-		envs, err := envDir()
+		envRoot, err := envDir()
 		if err != nil {
 			return err
 		}
 		cfg := daemon.Config{Server: e.cfg.Server, Token: e.cfg.Token, StateDir: stateDir(e),
-			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: envs, Profile: os.Getenv("LYK_DAEMON_PROFILE"), HealthPath: healthFile(e)}
+			Home: home, Device: host, Harnesses: h, Slots: slots, EnvDir: envRoot, Bases: envs.NewBoundedBases(envRoot), Profile: os.Getenv("LYK_DAEMON_PROFILE"), HealthPath: healthFile(e)}
 		if ownerNonce != "" {
 			cfg.Ready = func() error { return writeOwner(pidFile(e), owner) }
 			cfg.OnExit = func() {
