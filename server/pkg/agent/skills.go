@@ -1,0 +1,240 @@
+package agent
+
+import (
+	"archive/tar"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// skillFolders says where each harness reads project skills, relative to the
+// run's folder.
+var skillFolders = map[string]string{
+	"claude": ".claude/skills",
+	"codex":  ".agents/skills",
+}
+
+// SkillsDir is the folder a harness reads skills from in a run folder. It is
+// always the run's own folder, never the account's config home. Code the run
+// started may have planted a link on the way there, so a link below dir is
+// refused: whoever writes skills there would follow it out of the folder.
+func SkillsDir(harness, dir string) (string, error) {
+	rel, ok := skillFolders[harness]
+	if !ok {
+		return "", fmt.Errorf("no skills folder is known for harness %q", harness)
+	}
+	p := dir
+	for _, part := range strings.Split(rel, "/") {
+		p = filepath.Join(p, part)
+		fi, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("the skills folder's path passes the link %s", p)
+		}
+	}
+	return filepath.Join(dir, filepath.FromSlash(rel)), nil
+}
+
+// PinnedName is the name a pinned skill is installed under, so it never
+// shares a name with one of the account's own skills.
+func PinnedName(name string) string { return "lyk-" + name }
+
+// ReloadSkills starts a resumed session's prompt: its working folder is new,
+// so skills it unpacked earlier are not on disk.
+const ReloadSkills = "This session continues in a new working folder. Skills you loaded earlier are not here: load any you still need again."
+
+// placeSkills wipes the run folder's skills folder and copies the staged
+// skill folders into it, so every prepare leaves exactly the staged skills
+// there. Only folders and regular files are copied.
+func placeSkills(o *ExecOptions, harness string) error {
+	if o.SkillsFrom == "" {
+		return nil
+	}
+	es, err := os.ReadDir(o.SkillsFrom)
+	if err != nil {
+		return err
+	}
+	dst, err := SkillsDir(harness, o.Dir)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return err
+	}
+	for _, e := range es {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "lyk-") {
+			return fmt.Errorf("%q is not a staged Lykeion skill", e.Name())
+		}
+		err := filepath.WalkDir(filepath.Join(o.SkillsFrom, e.Name()), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(o.SkillsFrom, p)
+			if err != nil {
+				return err
+			}
+			target := filepath.Join(dst, rel)
+			switch {
+			case d.IsDir():
+				return os.MkdirAll(target, 0o700)
+			case d.Type().IsRegular():
+				b, err := os.ReadFile(p)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(target, b, 0o600)
+			}
+			return fmt.Errorf("%q is not a file or a folder", rel)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RenameSkill sets the name in a skill's SKILL.md frontmatter, which the
+// Agent Skills format requires to match the skill's folder.
+func RenameSkill(folder, from, to string) error {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return RenameSkillRoot(root, from, to)
+}
+
+// RenameSkillRoot rewrites frontmatter through the already pinned skill folder.
+func RenameSkillRoot(root *os.Root, from, to string) error {
+	b, err := root.ReadFile("SKILL.md")
+	if err != nil {
+		return err
+	}
+	s := string(b)
+	if !strings.HasPrefix(s, "---\n") {
+		return errors.New("SKILL.md has no frontmatter")
+	}
+	end := strings.Index(s[4:], "\n---")
+	if end < 0 {
+		return errors.New("SKILL.md's frontmatter is not closed")
+	}
+	head := strings.Split(s[4:4+end], "\n")
+	found := false
+	for i, l := range head {
+		if k, v, ok := strings.Cut(l, ":"); ok && k == "name" && strings.Trim(strings.TrimSpace(v), `"'`) == from {
+			head[i], found = "name: "+to, true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("SKILL.md does not name %q", from)
+	}
+	return root.WriteFile("SKILL.md", []byte("---\n"+strings.Join(head, "\n")+s[4+end:]), 0o644)
+}
+
+var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,59}$`)
+
+// ValidSkillName says whether name can be a bundled skill's folder; with the
+// "lyk-" prefix it stays within the format's 64 characters.
+func ValidSkillName(name string) bool { return skillName.MatchString(name) }
+
+const maxSkillBytes = 64 << 20
+
+// Untar unpacks a skill folder into dst. Only folders and regular files are
+// written, every path must stay inside dst, and the whole is capped, so a
+// tar from a broken or hostile server cannot write anywhere else.
+func Untar(r io.Reader, dst string) error {
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dst)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return UntarRoot(r, root)
+}
+
+// UntarRoot extracts through a pinned directory even if an enclosing chat
+// folder is renamed or replaced while the archive is being read.
+func UntarRoot(r io.Reader, root *os.Root) error {
+	tr := tar.NewReader(r)
+	var total int64
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		name := filepath.FromSlash(strings.TrimSuffix(h.Name, "/"))
+		if !filepath.IsLocal(name) {
+			return fmt.Errorf("%q leaves the skill's folder", h.Name)
+		}
+		target := name
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := root.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			total += h.Size
+			if h.Size < 0 || total > maxSkillBytes {
+				return errors.New("the skill is over 64 MiB")
+			}
+			if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			f, err := root.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(f, io.LimitReader(tr, h.Size))
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%q is not a file or a folder", h.Name)
+		}
+	}
+}
+
+// OpenSkillsRoot pins all creation and removal beneath the chat directory.
+// reset replaces the prior turn's skills without following a swapped parent.
+func OpenSkillsRoot(harness, dir string, reset bool) (*os.Root, error) {
+	if _, err := SkillsDir(harness, dir); err != nil {
+		return nil, err
+	}
+	chat, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer chat.Close()
+	rel := filepath.FromSlash(skillFolders[harness])
+	if reset {
+		if err = chat.RemoveAll(rel); err != nil {
+			return nil, err
+		}
+	}
+	if err = chat.MkdirAll(rel, 0700); err != nil {
+		return nil, err
+	}
+	return chat.OpenRoot(rel)
+}

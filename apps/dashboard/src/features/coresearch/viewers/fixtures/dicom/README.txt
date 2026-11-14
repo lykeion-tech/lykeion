@@ -1,0 +1,1 @@
+The 8-bit and 16-bit implicit-VR little-endian files are synthetic images created with pydicom 3.0.1. They contain invented patient metadata solely to test that metadata is not exposed; no real patient data is present. Both files contain a 2×2 monochrome image with square pixels and increasing unsigned intensities.

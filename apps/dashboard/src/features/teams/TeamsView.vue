@@ -1,0 +1,392 @@
+<script setup lang="ts">
+import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import SelectPicker from '../../ui/SelectPicker.vue';
+import { generalPurposeDomain, teamDisplayParts, teamDomain } from '../../lib/team-name';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import Icon from '../../ui/Icon.vue';
+import { workspaceId } from '../../api/session';
+import { useMe, useRuntimes, useTeams } from '../../api/queries';
+import type { StoreTeam } from '../../api/types';
+import { matchesQuery } from '../../lib/search';
+import { timeAgo } from '../../lib/studies';
+
+const search = ref('');
+const newestFirst = ref(true);
+const domain = ref('');
+const stage = ref('');
+const filterOpen = ref(false);
+const filterAnchor = ref<HTMLElement>();
+const filterTrigger = ref<HTMLButtonElement>();
+const directory = ref<HTMLElement>();
+const scrollbarWidth = ref(0);
+let directoryObserver: ResizeObserver | undefined;
+function measureScrollbar() {
+  if (directory.value) {
+    const width = directory.value.offsetWidth - directory.value.clientWidth;
+    scrollbarWidth.value = Number.isFinite(width) ? width : 0;
+  }
+}
+function closeFilter(restoreFocus = false) {
+  filterOpen.value = false;
+  if (restoreFocus) filterTrigger.value?.focus();
+}
+async function toggleFilter() {
+  if (filterOpen.value) return closeFilter(true);
+  filterOpen.value = true;
+  await nextTick();
+  filterAnchor.value?.querySelector<HTMLButtonElement>('.select-picker-trigger')?.focus();
+}
+function outsideFilter(event: PointerEvent) {
+  if (!filterAnchor.value?.contains(event.target as Node | null)) closeFilter();
+}
+function leaveFilter(event: FocusEvent) {
+  if ((event.relatedTarget as HTMLElement | null)?.closest?.('.select-picker-popup')) return;
+  if (!filterAnchor.value?.contains(event.relatedTarget as Node | null)) closeFilter();
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', outsideFilter);
+  if (directory.value && typeof ResizeObserver !== 'undefined') {
+    directoryObserver = new ResizeObserver(measureScrollbar);
+    directoryObserver.observe(directory.value);
+  }
+  measureScrollbar();
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsideFilter);
+  directoryObserver?.disconnect();
+});
+const stages = ['grounding', 'hypotheses', 'experimentation', 'validation'];
+const everything = useTeams('', '');
+const me = useMe();
+const runtimes = useRuntimes();
+function teamOnline(team: StoreTeam) {
+  return (
+    !!me.data.value?.id &&
+    !!team.agent_clis?.length &&
+    team.agent_clis.every((harness) =>
+      (runtimes.data.value ?? []).some(
+        (runtime) =>
+          runtime.owner_id === me.data.value?.id &&
+          runtime.harness === harness &&
+          runtime.status === 'online' &&
+          !runtime.unhealthy_reason,
+      ),
+    )
+  );
+}
+const teams = useTeams(() => (domain.value === generalPurposeDomain ? '' : domain.value), stage);
+const rows = computed(() =>
+  (teams.data.value ?? [])
+    .filter(
+      (team) =>
+        (domain.value !== generalPurposeDomain ||
+          teamDomain(team.source, team.stage, team.domain) === generalPurposeDomain) &&
+        matchesQuery(
+          `${team.name} ${teamDisplayParts(team.name).label} ${team.manifest.description}`,
+          search.value,
+        ),
+    )
+    .sort((a, b) => (newestFirst.value ? -1 : 1) * a.created_at.localeCompare(b.created_at)),
+);
+const domains = computed(() =>
+  [
+    ...new Set(
+      (everything.data.value ?? [])
+        .map((t) => teamDomain(t.source, t.stage, t.domain))
+        .filter(Boolean),
+    ),
+  ].sort(),
+);
+watch(workspaceId, () => closeFilter());
+const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
+</script>
+<template>
+  <section
+    ref="directory"
+    class="directory-page directory-table-page team-directory"
+    :style="{ '--team-scrollbar-width': `${scrollbarWidth}px` }"
+  >
+    <Teleport to="#page-header-actions">
+      <RouterLink to="/teams/new" class="button primary directory-header-action"
+        ><Icon name="plus" :size="14" />New team</RouterLink
+      >
+    </Teleport>
+    <p v-if="teams.error.value" class="inline-error" role="alert">
+      {{ teams.error.value.message }}
+    </p>
+    <div v-if="everything.data.value?.length" class="agent-toolbar team-toolbar">
+      <label class="agent-search"
+        ><Icon name="search" :size="14" /><input
+          v-model="search"
+          placeholder="Search Teams..."
+          aria-label="Search Teams"
+      /></label>
+      <div ref="filterAnchor" class="team-filter menu-anchor" @focusout="leaveFilter">
+        <button
+          ref="filterTrigger"
+          class="button"
+          :class="{ active: domain || stage }"
+          aria-haspopup="dialog"
+          :aria-expanded="filterOpen"
+          aria-controls="team-filter-popover"
+          @click="toggleFilter"
+          @keydown.down.prevent="!filterOpen && toggleFilter()"
+        >
+          <Icon name="filter" :size="14" />Filter
+        </button>
+        <div
+          v-if="filterOpen"
+          id="team-filter-popover"
+          role="dialog"
+          aria-label="Filter Teams"
+          class="team-filter-popover"
+          @keydown.esc.stop.prevent="closeFilter(true)"
+        >
+          <label
+            >Domain<SelectPicker
+              ><select v-model="domain" aria-label="Domain">
+                <option value="">All domains</option>
+                <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+              </select></SelectPicker
+            ></label
+          >
+          <label
+            >Stage<SelectPicker
+              ><select v-model="stage" aria-label="Stage">
+                <option value="">All stages</option>
+                <option v-for="s in stages" :key="s" :value="s">{{ label(s) }}</option>
+              </select></SelectPicker
+            ></label
+          >
+          <button
+            v-if="domain || stage"
+            class="text-button"
+            @click="
+              domain = '';
+              stage = '';
+            "
+          >
+            Clear filters
+          </button>
+        </div>
+      </div>
+      <button class="button agent-sort" @click="newestFirst = !newestFirst">
+        <Icon name="up" :size="13" :class="{ 'sort-descending': newestFirst }" />Last updated
+      </button>
+    </div>
+    <div v-if="everything.data.value?.length" class="team-table-scroll">
+      <table class="directory-data-table directory-aligned-table team-table" aria-label="Teams">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Agents</th>
+            <th scope="col">Stage</th>
+            <th scope="col">Source</th>
+            <th scope="col" :aria-sort="newestFirst ? 'descending' : 'ascending'">
+              <span class="directory-last-value">Last updated</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in rows" :key="t.id">
+            <td>
+              <RouterLink :to="'/teams/' + t.id" class="team-name"
+                ><span class="team-icon" :class="{ 'team-icon-built-in': t.source === 'shipped' }"
+                  ><AvatarDisplay
+                    v-if="t.avatar_url"
+                    :value="t.avatar_url.slice(6)"
+                    :size="18" /><Icon v-else name="team" :size="18" />
+                  <span
+                    class="availability-dot"
+                    :class="{ inactive: !teamOnline(t) }"
+                    role="img"
+                    :aria-label="teamOnline(t) ? 'Active' : 'Inactive'"
+                    :title="teamOnline(t) ? 'Active' : 'Inactive'"
+                  ></span></span
+                ><span class="team-label"
+                  ><span>{{ teamDisplayParts(t.name).label }}</span
+                  ><small v-if="t.manifest.description">{{ t.manifest.description }}</small></span
+                ></RouterLink
+              >
+            </td>
+            <td>{{ t.manifest.members.length + 2 }}</td>
+            <td>{{ t.stage ? label(t.stage) : 'A set of stages' }}</td>
+            <td>{{ t.source === 'shipped' ? 'Built in' : t.added ? 'Added' : 'Not added' }}</td>
+            <td>
+              <span class="directory-last-value">{{ timeAgo(t.created_at) }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p v-if="teams.isSuccess.value && search && !rows.length" class="agent-none">
+      No matching Teams
+    </p>
+    <div
+      v-if="teams.isSuccess.value && !search && !teams.data.value?.length"
+      class="directory-empty"
+    >
+      <Icon name="team" :size="30" />
+      <h2>No Teams yet</h2>
+      <p>A Team is the agents that work each stage of your studies.</p>
+      <RouterLink to="/teams/new" class="button"
+        ><Icon name="plus" :size="14" />New Team</RouterLink
+      >
+    </div>
+  </section>
+</template>
+<style src="../../ui/directory.css" />
+<style src="../../ui/directory-table.css" />
+<style scoped>
+.team-directory {
+  padding: 4px 20px 32px;
+  scrollbar-gutter: stable;
+}
+.team-toolbar {
+  margin-right: calc(-1 * var(--team-scrollbar-width, 0px));
+}
+.team-toolbar .agent-sort {
+  margin-left: 0;
+}
+.team-filter {
+  margin-left: auto;
+}
+.team-filter-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 240px;
+  padding: 12px;
+  background: var(--fill-menu);
+  border: 1px solid #ffffff55;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px #00000012;
+}
+.team-filter-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.team-filter-popover label:last-of-type {
+  margin-bottom: 0;
+}
+.team-filter-popover select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.team-filter-popover > button {
+  margin-top: 12px;
+}
+.team-table tr {
+  grid-template-columns: minmax(300px, 1fr) repeat(3, 120px) 100px;
+  padding-right: 0;
+}
+.team-table tbody tr {
+  padding-block: 10px;
+}
+.team-table tbody td {
+  height: auto;
+  min-height: 32px;
+}
+.team-table th {
+  padding-block: 6px;
+  line-height: normal;
+}
+.team-table th:not(:first-child) {
+  text-align: center;
+}
+.team-table td:not(:first-child) {
+  justify-content: center;
+  text-align: center;
+}
+.team-table th:last-child {
+  text-align: right;
+}
+.team-table td:last-child {
+  justify-content: flex-end;
+}
+.team-table .directory-last-value {
+  display: inline-block;
+  width: 80px;
+  text-align: center;
+  white-space: nowrap;
+}
+.team-table-scroll {
+  overflow-x: auto;
+  margin-right: calc(-1 * var(--team-scrollbar-width, 0px));
+}
+.team-table td:first-child .team-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 24px;
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
+.team-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-label {
+  min-width: 0;
+}
+.team-label > span,
+.team-label small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-label small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.team-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  color: var(--muted);
+}
+.team-icon-built-in {
+  background: var(--input);
+  border-radius: 50%;
+}
+.team-name > .team-icon {
+  overflow: visible;
+}
+.team-icon .availability-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39a35a;
+}
+.team-icon .availability-dot.inactive {
+  background: var(--error);
+}
+.team-table td {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text);
+}
+</style>

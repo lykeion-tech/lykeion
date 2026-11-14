@@ -1,0 +1,7 @@
+3Dmol.js 2.5.5 bundles code identified in its published unminified build from iobuffer, netcdfjs, pako and upng-js, and includes source credits to Mol* and MMTF JavaScript. Their license texts accompany this file. The bundle identifies its pako 2 code as version 2.1.0; UPNG also embeds a pako 1 copy. Exact embedded versions for other modules are not recorded in the published bundle.
+
+The ProteinSurface implementation includes the following EDTSurf permission and citation:
+
+Permission to use, copy, modify, and distribute this program for any purpose, with or without fee, is hereby granted, provided that this copyright notice and the reference information appear in all copies or substantial portions of the Software. It is provided "as is" without express or implied warranty.
+
+Reference: D. Xu, Y. Zhang (2009), Generating Triangulated Macromolecular Surfaces by Euclidean Distance Transform, PLoS ONE 4(12): e8140. http://zhanglab.ccmb.med.umich.edu/EDTSurf/

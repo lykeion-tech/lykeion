@@ -1,0 +1,417 @@
+package flow
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"math/big"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+
+	"lykeion/server/internal/records"
+	"lykeion/server/internal/service"
+	"lykeion/server/internal/storage"
+	db "lykeion/server/pkg/db/generated"
+)
+
+// Run is a recorded execution as value matching needs it: its whole output,
+// read from the blob when the record's body kept only a cut of it.
+// Unreadable is set when that blob is gone, and Stdout then holds only the
+// cut the body kept. AgentRunID is the agent run that made the run, zero
+// when the record names none.
+type Run struct {
+	Tool, Stdout string
+	ExitStatus   int
+	Unreadable   bool
+	AgentRunID   uuid.UUID
+}
+
+// ValueMatch is one reported value found in a record. Matched is set when a
+// cited script run that exited with status 0 printed it; Failed when only a
+// cited script run that failed did, ExitStatus being that run's; Exploration
+// when only a cited run_code run did; Run names that run. Uncited is set when
+// the value's item cites nothing, CallsOnly when it cites database calls but
+// no run. Unchecked names a cited run whose full output could not be read,
+// for a value no run that counts was seen to print; only a script run that
+// succeeded is named, since no other run could make the value match. File
+// names the output record whose text held a value its runs did not print.
+type ValueMatch struct {
+	Record, Value        string
+	Run, File            string
+	Matched, Exploration bool
+	Failed               bool
+	ExitStatus           int
+	Uncited, CallsOnly   bool
+	Unchecked            string
+}
+
+// LoadRuns reads the whole output of each run record in recs, from the blob
+// when the body was cut; a blob that is gone marks its run unreadable. It
+// does blob I/O, so the caller runs it outside a transaction.
+func LoadRuns(ctx context.Context, blobs storage.Storage, recs []db.Record) (map[string]Run, error) {
+	runs := map[string]Run{}
+	for _, rec := range recs {
+		if rec.Kind != "run" {
+			continue
+		}
+		var body struct {
+			Tool       string `json:"tool"`
+			Output     string `json:"output"`
+			ExitStatus int    `json:"exit_status"`
+		}
+		if json.Unmarshal(rec.Body, &body) != nil {
+			runs[rec.Key] = Run{Unreadable: true}
+			continue
+		}
+		run := Run{Tool: body.Tool, Stdout: body.Output, ExitStatus: body.ExitStatus}
+		if rec.AgentRunID != nil {
+			run.AgentRunID = *rec.AgentRunID
+		}
+		if rec.BlobKey != "" {
+			rc, err := blobs.Get(ctx, rec.BlobKey)
+			if errors.Is(err, storage.ErrNotFound) {
+				run.Unreadable = true
+				runs[rec.Key] = run
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			b, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return nil, err
+			}
+			run.Stdout = string(b)
+		}
+		runs[rec.Key] = run
+	}
+	return runs, nil
+}
+
+var (
+	numberToken = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?`)
+	numberText  = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`)
+)
+
+// maxNumberText bounds a number's text and exponent, so that no printed
+// number can cost the scoring pass an enormous exact decimal. ponytail: such
+// numbers never match; widen the bounds if real output needs them.
+const (
+	maxNumberText = 256
+	maxExponent   = 9999
+)
+
+// number is a number's text read as an exact decimal, with the places it
+// states: the digits after its point, less its exponent, never below 0.
+// Integer is set for text with neither a point nor an exponent.
+type number struct {
+	r       *big.Rat
+	places  int
+	integer bool
+}
+
+func parseNumber(s string) (number, bool) {
+	if len(s) > maxNumberText || !numberText.MatchString(s) {
+		return number{}, false
+	}
+	mant, exp := s, 0
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		e, err := strconv.Atoi(s[i+1:])
+		if err != nil || e > maxExponent || e < -maxExponent {
+			return number{}, false
+		}
+		mant, exp = s[:i], e
+	}
+	frac := 0
+	if i := strings.IndexByte(mant, '.'); i >= 0 {
+		frac = len(mant) - i - 1
+	}
+	r, ok := new(big.Rat).SetString(s)
+	if !ok {
+		return number{}, false
+	}
+	return number{r: r, places: max(frac-exp, 0), integer: !strings.ContainsAny(s, ".eE")}, true
+}
+
+// tokens are the numbers printed in out. A minus sign right after a digit is
+// not a sign, so `3-4` is 3 and 4, while `a,-0.5` keeps its negative; a comma
+// never joins digits, so `1,234` is the numbers 1 and 234. A number right
+// after a letter or `_` is part of a name and is not a value.
+func tokens(out string) []*big.Rat {
+	var rs []*big.Rat
+	eachToken(out, func(_ int, r *big.Rat) bool {
+		rs = append(rs, r)
+		return true
+	})
+	return rs
+}
+
+// eachToken calls f with each number tokens reads in out and the byte offset
+// where it starts, until f returns false.
+func eachToken(out string, f func(start int, r *big.Rat) bool) {
+	for _, ix := range numberToken.FindAllStringIndex(out, -1) {
+		i := ix[0]
+		if out[i] == '-' && i > 0 && out[i-1] >= '0' && out[i-1] <= '9' {
+			i++
+		}
+		if joinedToName(out, ix[0]) {
+			continue
+		}
+		if n, ok := parseNumber(out[i:ix[1]]); ok && !f(i, n.r) {
+			return
+		}
+	}
+}
+
+// joinedToName reports whether the number at out[start:end] follows a letter
+// or `_`, as in `H2O`, `log10` or `x_2`: that is part of a name, not a printed
+// value. Letters after a number are units, so `5.3ms` is still 5.3. A leading
+// minus is a sign, so the character before it is not checked.
+func joinedToName(out string, start int) bool {
+	if start == 0 || out[start] == '-' {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(out[:start])
+	return r == '_' || unicode.IsLetter(r)
+}
+
+// roundTo rounds r to d decimal places, halves away from zero.
+func roundTo(r *big.Rat, d int) *big.Rat {
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(d)), nil)
+	y := new(big.Rat).Mul(r, new(big.Rat).SetInt(scale))
+	num := new(big.Int).Abs(y.Num())
+	twice := new(big.Int).Lsh(y.Denom(), 1)
+	q := new(big.Int).Quo(new(big.Int).Add(new(big.Int).Lsh(num, 1), y.Denom()), twice)
+	if y.Sign() < 0 {
+		q.Neg(q)
+	}
+	return new(big.Rat).SetFrac(q, scale)
+}
+
+// MatchValues checks each reported value in recs against the runs its record
+// cites. A value is a JSON number or a numeric string under a `value` field,
+// or in a `values` list, at any depth of a record's body, checked against the
+// runs named by the `cites` of the nearest enclosing object that has one.
+// Explicit value records also match textual outcomes as whole words. A number
+// matches a printed number equal to it once that number is rounded to
+// the places the value states; an integer value must be equal exactly.
+// Records of the free kinds report no values, and server-written records are
+// not the agent's reports; both are skipped.
+func MatchValues(recs []db.Record, runs map[string]Run) []ValueMatch {
+	return MatchValuesIn(recs, runs, nil)
+}
+
+// MatchValuesIn is MatchValues where a value no cited run printed may also be
+// found, by the same rounding rule, in the text of a file saved by the agent
+// run that made a cited script run that exited with status 0, or in the file
+// a `file` field beside the value names, whichever of the study's runs saved
+// it. files holds the text of output records by key; only the output records
+// in recs whose text is in files are read.
+func MatchValuesIn(recs []db.Record, runs map[string]Run, files map[string]string) []ValueMatch {
+	saved := map[uuid.UUID][]string{}
+	named := map[string][]string{}
+	for _, rec := range recs {
+		if _, ok := files[rec.Key]; ok && rec.Kind == "output" {
+			if rec.AgentRunID != nil {
+				saved[*rec.AgentRunID] = append(saved[*rec.AgentRunID], rec.Key)
+			}
+			name := records.Body[struct{ Name string }](rec).Name
+			named[name] = append(named[name], rec.Key)
+		}
+	}
+	for _, ks := range saved {
+		slices.Sort(ks)
+	}
+	// printed holds the numbers of each run, or of each file under its
+	// output key, rounded once per number of places; places -1 keeps them
+	// exact, for integer values.
+	type at struct {
+		file   bool
+		key    string
+		places int
+	}
+	type src struct {
+		file bool
+		key  string
+	}
+	toks := map[src][]*big.Rat{}
+	printed := map[at]map[string]bool{}
+	in := func(file bool, k string, n number) bool {
+		key := at{file, k, n.places}
+		if n.integer {
+			key.places = -1
+		}
+		set, ok := printed[key]
+		if !ok {
+			t, ok := toks[src{file, k}]
+			if !ok {
+				text := runs[k].Stdout
+				if file {
+					text = files[k]
+				}
+				t = tokens(text)
+				toks[src{file, k}] = t
+			}
+			set = map[string]bool{}
+			for _, r := range t {
+				if key.places >= 0 {
+					r = roundTo(r, key.places)
+				}
+				set[r.RatString()] = true
+			}
+			printed[key] = set
+		}
+		return set[n.r.RatString()]
+	}
+	prints := func(k string, n number) bool { return in(false, k, n) }
+	var out []ValueMatch
+	for _, rec := range recs {
+		if slices.Contains(service.FreeKinds, rec.Kind) || slices.Contains(service.ServerKinds, rec.Kind) {
+			continue
+		}
+		d := json.NewDecoder(bytes.NewReader(rec.Body))
+		d.UseNumber()
+		var body any
+		if d.Decode(&body) != nil {
+			continue
+		}
+		walkValues(body, nil, false, rec.Kind == "value", func(v string, cites []string, calls bool, file string, scriptRun bool) {
+			m := ValueMatch{Record: rec.Key, Value: v, Uncited: len(cites) == 0 && !calls, CallsOnly: len(cites) == 0 && calls}
+			n, ok := parseNumber(v)
+			textual := !numberText.MatchString(v) && utf8.RuneCountInString(v) <= 2000
+			matches := func(text string) bool { return textual && wordsIn([]string{text}, v) }
+			// Only a script run that exited with status 0 counts; a timeout's
+			// status is -1.
+			counts := func(r Run) bool { return r.Tool == "run_script" && r.ExitStatus == 0 }
+			var failed, explored, unchecked string
+			for _, k := range cites {
+				r, cited := runs[k]
+				if !cited {
+					continue
+				}
+				if (ok && prints(k, n)) || matches(r.Stdout) {
+					if counts(r) {
+						m.Matched, m.Run = true, k
+						break
+					}
+					if r.Tool == "run_script" && failed == "" {
+						failed = k
+					} else if r.Tool != "run_script" && explored == "" {
+						explored = k
+					}
+				}
+				if r.Unreadable && counts(r) && unchecked == "" {
+					unchecked = k
+				}
+			}
+		files:
+			for _, k := range cites {
+				if m.Matched || (!ok && !textual) || scriptRun {
+					break
+				}
+				r, cited := runs[k]
+				if !cited || !counts(r) || r.AgentRunID == uuid.Nil {
+					continue
+				}
+				for _, f := range saved[r.AgentRunID] {
+					if (ok && in(true, f, n)) || matches(files[f]) {
+						m.Matched, m.Run, m.File = true, k, f
+						break files
+					}
+				}
+			}
+			for _, f := range named[file] {
+				if m.Matched || (!ok && !textual) || scriptRun {
+					break
+				}
+				if (ok && in(true, f, n)) || matches(files[f]) {
+					m.Matched, m.File = true, f
+				}
+			}
+			// Only an unreadable run that counts may hide the match, so it
+			// outranks what other runs printed; any other unreadable run
+			// leaves the value not found.
+			switch {
+			case m.Matched:
+			case unchecked != "" && counts(runs[unchecked]):
+				m.Unchecked = unchecked
+			case failed != "":
+				m.Failed, m.Run, m.ExitStatus = true, failed, runs[failed].ExitStatus
+			case explored != "":
+				m.Exploration, m.Run = true, explored
+			}
+			out = append(out, m)
+		})
+	}
+	slices.SortStableFunc(out, func(a, b ValueMatch) int {
+		return cmp.Or(strings.Compare(a.Record, b.Record), strings.Compare(a.Value, b.Value))
+	})
+	return out
+}
+
+// walkValues finds each value as walkQuotes finds quotes, keeping only the
+// `run:` entries of a `cites` list; calls is set when that list also names a
+// `call:` entry. file is the `file` field of the object holding the value.
+func walkValues(v any, cites []string, calls, explicit bool, found func(value string, cites []string, calls bool, file string, scriptRun bool)) {
+	text := func(e any) (string, bool) {
+		switch e := e.(type) {
+		case json.Number:
+			return e.String(), true
+		case string:
+			s := strings.TrimSpace(e)
+			return s, numberText.MatchString(s) || explicit
+		}
+		return "", false
+	}
+	switch v := v.(type) {
+	case []any:
+		for _, e := range v {
+			walkValues(e, cites, calls, false, found)
+		}
+	case map[string]any:
+		if list, ok := v["cites"].([]any); ok {
+			cites, calls = nil, false
+			for _, c := range list {
+				if s, ok := c.(string); ok {
+					if k, ok := strings.CutPrefix(s, "run:"); ok {
+						cites = append(cites, k)
+					}
+					calls = calls || strings.HasPrefix(s, "call:")
+				}
+			}
+		}
+		file, _ := v["file"].(string)
+		scriptRun, _ := v["script_run"].(bool)
+		for name, e := range v {
+			switch name {
+			case "value":
+				if s, ok := text(e); ok {
+					found(s, cites, calls, file, scriptRun)
+					continue
+				}
+			case "values":
+				if list, ok := e.([]any); ok {
+					for _, x := range list {
+						if s, ok := text(x); ok {
+							found(s, cites, calls, file, scriptRun)
+						} else {
+							walkValues(x, cites, calls, false, found)
+						}
+					}
+					continue
+				}
+			}
+			walkValues(e, cites, calls, false, found)
+		}
+	}
+}

@@ -1,0 +1,175 @@
+.lab-chart {
+  position: relative;
+  overflow: hidden;
+  background: #f6f6f4;
+  color: var(--text);
+}
+.lab-chart-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+/* The dashboard's raised surface, as on its floating panes and menus. */
+.lab-chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px #00000012;
+  color: var(--text);
+}
+.lab-chart-pill {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px #0000001a;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.lab-chart-pill b {
+  font-weight: 600;
+}
+.lab-chart-pill.ask {
+  color: var(--error-text);
+}
+.lab-chart-pill.ask b {
+  color: var(--text);
+}
+.lab-chart-pill-dot,
+.lab-chart-panel-row .work::before,
+.lab-chart-panel-row .ask::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--stage-experimentation-dot);
+}
+.lab-chart-pill.ask .lab-chart-pill-dot,
+.lab-chart-panel-row .ask::before {
+  background: var(--danger-text);
+}
+.lab-chart-panel-row .work::before,
+.lab-chart-panel-row .ask::before {
+  content: '';
+}
+.lab-chart-tick {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  padding: 7px 12px;
+  font-size: 13px;
+  z-index: 2;
+}
+.lab-chart-tick-time {
+  color: var(--muted);
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+  font-size: 12px;
+  margin-right: 10px;
+}
+.lab-chart-panel {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 260px;
+  padding: 12px 14px 14px;
+  z-index: 3;
+}
+.lab-chart-panel-name {
+  margin: 0 28px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.lab-chart-panel-role {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.lab-chart-panel-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding: 7px 0;
+  font-size: 13px;
+}
+.lab-chart-panel-row span:first-child {
+  color: var(--muted);
+}
+.lab-chart-panel-row span:last-child {
+  text-align: right;
+}
+.lab-chart-panel-row .ask {
+  color: var(--error-text);
+}
+.lab-chart-panel-link {
+  margin-top: 6px;
+}
+.lab-chart-panel-close {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+.lab-chart-popup {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 8px 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.lab-chart-popup b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.lab-chart-popup span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.lab-chart-list {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 16px 18px;
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 13px;
+  z-index: 4;
+}
+.lab-chart-list h3 {
+  margin: 12px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.lab-chart-list ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.lab-chart-list button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lab-chart-list.is-hidden:not(:focus-within) {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}

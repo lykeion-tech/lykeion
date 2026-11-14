@@ -1,0 +1,5 @@
+(./main.tex
+Overfull \hbox (3.1pt too wide) in paragraph at lines 8--9
+Underfull \vbox (badness 10000) has occurred while \output is active
+LaTeX Warning: There were undefined references.
+)

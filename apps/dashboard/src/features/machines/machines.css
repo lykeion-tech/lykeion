@@ -1,0 +1,516 @@
+.machine-rows {
+  list-style: none;
+  padding: 20px 0 0;
+  margin: 0 auto;
+  max-width: 1408px;
+}
+.settings-machines {
+  overflow: visible;
+}
+.settings-machines .inset-content,
+.settings-machines .machine-rail {
+  width: 100%;
+  margin: 0;
+  padding-inline: 0;
+}
+.settings-machines .machine-rows {
+  padding-top: 0;
+}
+.settings-machines .machine-row:first-child {
+  margin-top: 0;
+}
+.settings-machines .machine-heading-row {
+  flex-wrap: wrap;
+  margin-top: 0;
+}
+.settings-machines .machine-detail-header {
+  padding-top: 0;
+}
+.machine-row {
+  display: flex;
+  align-items: center;
+  background: var(--input);
+  border-radius: 10px;
+  padding: 0;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.machine-row.offline {
+  opacity: 0.75;
+}
+.machine-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  padding: 14px 18px;
+  border-radius: 10px;
+}
+.machine-link:hover {
+  background: var(--fill-highlight);
+}
+.machine-link:focus-visible {
+  outline: 2px solid var(--primary-text);
+  outline-offset: -2px;
+}
+.name {
+  flex: 1;
+  min-width: 80px;
+}
+.name b {
+  display: block;
+  font-weight: 500;
+}
+.name small,
+.seen,
+.clis small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.status {
+  width: 120px;
+}
+.machine-row:not(.offline) .status {
+  color: var(--stage-validation-dot);
+}
+.clis {
+  width: 150px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.clis small {
+  width: 100%;
+}
+.clis i {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--surface);
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+  font-style: normal;
+}
+.seen {
+  width: 80px;
+}
+.runs {
+  width: 120px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.menu-anchor {
+  position: relative;
+}
+.row-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  background: var(--fill-menu);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  width: 160px;
+  box-shadow: 0 10px 30px #0003;
+}
+.machine-row:has(.row-menu) {
+  position: relative;
+  z-index: 6;
+}
+.row-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 9px;
+  border-radius: 5px;
+}
+.row-menu .danger {
+  color: var(--error-text);
+}
+.machine-detail {
+  overflow: auto;
+}
+.machine-detail-header {
+  padding: 12px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.machine-rail {
+  width: min(100%, 1448px);
+  padding: 0 20px;
+  margin: 0 auto;
+}
+.machine-heading-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 16px;
+}
+.machine-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+}
+.machine-heading-copy {
+  flex: 1;
+  min-width: 0;
+}
+.machine-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 1px;
+}
+.machine-title h1 {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 29px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.machine-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.machine-health.online .icon {
+  color: var(--stage-validation-dot);
+}
+.daemon-id {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 340px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.machine-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 13px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 18px;
+}
+.machine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 490px;
+}
+.machine-actions .button,
+.runtime-heading .button {
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 14px;
+}
+.machine-actions .stop-machine {
+  color: var(--error-text);
+  background: var(--error-bg);
+}
+.machine-runtime-section {
+  padding-top: 24px;
+  padding-bottom: 28px;
+}
+.runtime-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+.runtime-heading h2 {
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+.runtime-heading p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+.runtime-table-scroll {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow-x: auto;
+}
+.machine-runtime-table {
+  width: 100%;
+  min-width: 670px;
+  border-collapse: collapse;
+  font-size: 14px;
+  text-align: left;
+}
+.machine-runtime-table th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  height: 38px;
+}
+.machine-runtime-table th,
+.machine-runtime-table td {
+  padding: 0 20px;
+}
+.machine-runtime-table th:first-child,
+.machine-runtime-table td:first-child {
+  width: 56%;
+}
+.machine-runtime-table td {
+  height: 48px;
+  background: var(--input);
+}
+.machine-runtime-table th:nth-child(2) {
+  width: 14%;
+}
+.machine-runtime-table th:nth-child(3),
+.machine-runtime-table th:nth-child(4) {
+  width: 9%;
+  white-space: nowrap;
+}
+.machine-runtime-table th:last-child {
+  width: 12%;
+}
+.machine-runtime-table td:last-child .text-button {
+  padding-inline: 0;
+}
+.runtime-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.runtime-name .harness-icon {
+  text-align: left;
+}
+.harness-icon {
+  font-size: 24px;
+  line-height: 26px;
+  font-style: normal;
+  width: 30px;
+  text-align: center;
+}
+.claude {
+  color: #d78b70;
+}
+.runtime-name small {
+  font-size: 13px;
+  background: var(--fill-chip);
+  color: var(--muted);
+  border-radius: 2px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+.runtime-version {
+  font:
+    12px ui-monospace,
+    monospace;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unknown-metric {
+  color: var(--muted);
+}
+.remote-limit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.remote-limit p {
+  margin: 0;
+}
+.remote-limit .button {
+  font-size: 13px;
+}
+.daemon-instructions p {
+  line-height: 22px;
+}
+code {
+  font:
+    12px ui-monospace,
+    monospace;
+  background: var(--input);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+.machine-error {
+  margin: 12px 20px;
+}
+@media (max-width: 1100px) {
+  .machine-heading-row {
+    flex-wrap: wrap;
+  }
+  .machine-actions {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+    margin-left: 72px;
+  }
+  .clis {
+    width: 90px;
+  }
+  .status {
+    width: 60px;
+  }
+  .seen {
+    display: none;
+  }
+  .runs {
+    width: 60px;
+  }
+}
+@media (max-width: 700px) {
+  .machine-rail {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .machine-actions {
+    margin-left: 0;
+  }
+  .machine-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .runtime-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .machine-link {
+    gap: 8px;
+    padding: 12px 10px;
+    flex-wrap: wrap;
+  }
+  .machine-link .name {
+    flex-basis: calc(100% - 50px);
+  }
+  .machine-row .clis {
+    width: 100px;
+  }
+  .machine-row .clis small {
+    width: auto;
+    margin-right: 6px;
+  }
+  .daemon-id {
+    max-width: 220px;
+  }
+}
+.machine-sharing,
+.machine-colleagues {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+  margin-top: 24px;
+}
+.machine-sharing-dialog {
+  padding: 24px;
+}
+.machine-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.machine-sharing-dialog > .runtime-heading {
+  justify-content: space-between;
+}
+.machine-sharing-dialog > .runtime-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.machine-sharing-dialog :deep(.machine-sharing) {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.sharing-platform-intro {
+  margin: 0 0 24px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.machine-sharing-dialog :deep(.sharing-save) {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.sharing-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+.sharing-fields > label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sharing-fields select {
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.sharing-fields fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.sharing-fields legend {
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+.sharing-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sharing-check input {
+  width: auto;
+}
+.sharing-warnings {
+  border-left: 2px solid var(--border);
+  padding-left: 16px;
+  margin-bottom: 16px;
+  max-width: 80ch;
+  color: var(--muted);
+}
+.sharing-warnings p {
+  line-height: 1.6;
+}
+.sharing-note {
+  color: var(--muted);
+}
+.sharing-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.machine-colleagues .machine-runtime-table th:first-child {
+  width: auto;
+}

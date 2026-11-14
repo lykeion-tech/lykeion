@@ -1,0 +1,7 @@
+(./main.tex (./sections/intro.tex
+! Missing $ inserted.
+<inserted text>
+                $
+l.3 x_
+      1
+) )

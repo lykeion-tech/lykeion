@@ -1,0 +1,31 @@
+import { defineConfig } from '@playwright/test';
+
+// Isolated HTTP-fixture checks: no Go lab, database or authenticated session required.
+const port = process.env.LYK_UI_RENDERER_PORT || '1437';
+export default defineConfig({
+  testDir: './tests/e2e',
+  testMatch: [
+    'coresearch-markdown.spec.ts',
+    'coresearch-notebook.spec.ts',
+    'coresearch-files.spec.ts',
+    'coresearch-final.spec.ts',
+    'aristotle.spec.ts',
+    'aristotle-bootstrap-banner.spec.ts',
+  ],
+  workers: 1,
+  retries: 0,
+  reporter: 'list',
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    browserName: 'chromium',
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE }
+      : undefined,
+    permissions: ['clipboard-read', 'clipboard-write'],
+  },
+  webServer: {
+    command: `npx vite --config apps/dashboard/vite.config.ts --host 127.0.0.1 --port ${port}`,
+    url: `http://127.0.0.1:${port}`,
+    reuseExistingServer: true,
+  },
+});

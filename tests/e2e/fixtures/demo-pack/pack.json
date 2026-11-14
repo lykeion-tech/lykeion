@@ -1,0 +1,34 @@
+{
+  "name": "ui-demo",
+  "version": "1",
+  "description": "Demo Team for the dashboard's browser tests",
+  "domain": "demo",
+  "stage": "grounding",
+  "leader": {
+    "name": "pi",
+    "role": "Leads the study and names who works next.",
+    "agent": { "harness": "claude", "model": "", "instructions": "You lead the demo Team." },
+    "skills": ["lead"]
+  },
+  "auditor": {
+    "name": "auditor",
+    "role": "Audits the finished work.",
+    "agent": { "harness": "codex", "model": "", "instructions": "You audit the demo Team's work." }
+  },
+  "members": [
+    {
+      "name": "scout",
+      "role": "Finds sources and writes the grounding note.",
+      "agent": { "harness": "claude", "model": "", "instructions": "You search the literature." },
+      "skills": ["search"]
+    },
+    {
+      "name": "analyst",
+      "role": "Checks what the scout found.",
+      "agent": { "harness": "claude", "model": "", "instructions": "You analyse the findings." },
+      "skills": ["analyse"]
+    }
+  ],
+  "criteria": [],
+  "steps": 12
+}

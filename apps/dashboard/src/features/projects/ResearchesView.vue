@@ -1,0 +1,1042 @@
+<script setup lang="ts">
+import { agentDisplayName } from '../../lib/agent-name';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
+import { useRouter } from 'vue-router';
+import { api } from '../../api/client';
+import { keys } from '../../api/keys';
+import { workspaceId } from '../../api/session';
+import {
+  useAgents,
+  useCards,
+  useMe,
+  useMembers,
+  useResearch,
+  useResearches,
+  useWorkspace,
+  useWorkspaces,
+} from '../../api/queries';
+import type { Research } from '../../api/types';
+import Modal from '../../ui/Modal.vue';
+import ProjectDetail from './ProjectDetail.vue';
+import { timeAgo } from '../../lib/studies';
+import Icon from '../../ui/Icon.vue';
+import ComposerCalendar from '../studies/ComposerCalendar.vue';
+const props = defineProps<{ id?: string }>();
+const list = useResearches(),
+  detail = useResearch(() => props.id ?? '');
+const client = useQueryClient(),
+  router = useRouter();
+const workspace = useWorkspace();
+const workspaces = useWorkspaces();
+const canDelete = computed(() => {
+  const role = workspaces.data.value?.find((item) => item.id === workspaceId.value)?.role;
+  return role === 'owner' || role === 'admin';
+});
+const cards = useCards();
+const metrics = (id: string) => {
+  const linked = (cards.data.value ?? []).filter((c) => c.research_id === id);
+  return { total: linked.length, done: linked.filter((c) => c.board_column === 'done').length };
+};
+const actorName = (r: Research) =>
+  r.lead_type === 'member'
+    ? members.data.value?.find((m) => m.user_id === r.lead_id)?.name
+    : agents.data.value?.find((a) => a.id === r.lead_id)?.name;
+
+const members = useMembers(),
+  agents = useAgents(),
+  me = useMe();
+const statuses: { value: Research['status']; label: string }[] = [
+  { value: 'planned', label: 'Planned' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+const priorities: { value: Research['priority']; label: string; bars: number }[] = [
+  { value: 'urgent', label: 'Urgent', bars: 4 },
+  { value: 'high', label: 'High', bars: 3 },
+  { value: 'medium', label: 'Medium', bars: 2 },
+  { value: 'low', label: 'Low', bars: 1 },
+  { value: 'none', label: 'No priority', bars: 0 },
+];
+const status = ref<Research['status']>('planned'),
+  priority = ref<Research['priority']>('none'),
+  leadType = ref<Research['lead_type']>(null),
+  leadId = ref<string | null>(null),
+  picker = ref<'status' | 'priority' | 'lead' | 'dates' | 'start' | 'due' | null>(null),
+  leadFilter = ref('');
+const startDate = ref(''),
+  dueDate = ref('');
+const statusLabel = computed(() => statuses.find((s) => s.value === status.value)!.label);
+const priorityOption = computed(() => priorities.find((p) => p.value === priority.value)!);
+const leadLabel = computed(() =>
+  leadType.value === 'member'
+    ? (members.data.value?.find((m) => m.user_id === leadId.value)?.name ?? 'Unavailable member')
+    : leadType.value === 'agent'
+      ? (agents.data.value?.find((a) => a.id === leadId.value)?.name ?? 'Unavailable agent')
+      : 'Lead',
+);
+const filteredMembers = computed(() =>
+  (members.data.value ?? []).filter((m) =>
+    m.name.toLowerCase().includes(leadFilter.value.toLowerCase()),
+  ),
+);
+const filteredAgents = computed(() =>
+  (agents.data.value ?? []).filter(
+    (a) =>
+      !a.archived_at &&
+      (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
+      a.name.toLowerCase().includes(leadFilter.value.toLowerCase()),
+  ),
+);
+let pickerTrigger: HTMLButtonElement | null = null;
+let switchingCalendar = false;
+async function openCalendar(kind: 'start' | 'due') {
+  switchingCalendar = true;
+  picker.value = kind;
+  await nextTick();
+  switchingCalendar = false;
+}
+async function togglePicker(value: NonNullable<typeof picker.value>, event: MouseEvent) {
+  if (picker.value === value) return closePicker();
+  pickerTrigger = event.currentTarget as HTMLButtonElement;
+  picker.value = value;
+  leadFilter.value = '';
+  await nextTick();
+  document
+    .querySelector<HTMLElement>('.project-picker-menu input, .project-picker-menu button')
+    ?.focus();
+}
+function closePicker() {
+  picker.value = null;
+  leadFilter.value = '';
+  pickerTrigger?.focus();
+}
+function selectLead(type: Research['lead_type'], id: string | null) {
+  leadType.value = type;
+  leadId.value = id;
+  closePicker();
+}
+function pickerKey(event: KeyboardEvent) {
+  if (!picker.value) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    closePicker();
+  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    const items = [...document.querySelectorAll<HTMLButtonElement>('.project-picker-menu button')];
+    if (!items.length) return;
+    event.preventDefault();
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : index < 0
+            ? event.key === 'ArrowDown'
+              ? 0
+              : items.length - 1
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  }
+}
+function leavePicker(event: FocusEvent) {
+  if (switchingCalendar) return;
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null))
+    picker.value = null;
+}
+function outsidePicker(event: PointerEvent) {
+  if (picker.value && !(event.target as HTMLElement).closest('.project-picker'))
+    picker.value = null;
+}
+function fitProjectPopup(anchor: HTMLElement) {
+  const popup = anchor.querySelector<HTMLElement>('.project-picker-menu, .composer-calendar');
+  if (!popup) return;
+  const bounds = anchor.getBoundingClientRect();
+  popup.style.boxSizing = 'border-box';
+  popup.style.maxHeight = `${Math.max(0, window.innerHeight - bounds.bottom - 16)}px`;
+  popup.style.maxWidth = `${Math.max(0, window.innerWidth - 16)}px`;
+  popup.style.overflowY = 'auto';
+  popup.style.left = '0px';
+  popup.style.right = 'auto';
+  const right = popup.getBoundingClientRect().right;
+  if (right > window.innerWidth - 8) popup.style.left = `${window.innerWidth - 8 - right}px`;
+}
+async function fitProjectMenu(event: MouseEvent) {
+  const anchor = (event.target as HTMLElement).closest<HTMLElement>('.project-picker');
+  if (!anchor) return;
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  fitProjectPopup(anchor);
+}
+function fitOpenProjectMenus() {
+  document.querySelectorAll<HTMLElement>('.project-properties .project-picker').forEach(fitProjectPopup);
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', outsidePicker);
+  if (typeof window !== 'undefined') window.addEventListener('resize', fitOpenProjectMenus);
+});
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsidePicker);
+  if (typeof window !== 'undefined') window.removeEventListener('resize', fitOpenProjectMenus);
+});
+const expanded = ref(false);
+const deleting = ref<Research | null>(null);
+const deleteBusy = ref(false);
+const deleteError = ref('');
+const editor = ref(false),
+  name = ref(''),
+  description = ref(''),
+  busy = ref(false),
+  error = ref('');
+let visit = 0;
+watch(
+  [workspaceId, () => props.id],
+  () => {
+    visit++;
+    editor.value = false;
+    picker.value = null;
+    error.value = '';
+    busy.value = false;
+    deleting.value = null;
+    deleteBusy.value = false;
+    deleteError.value = '';
+  },
+  { flush: 'sync' },
+);
+watch(canDelete, (allowed) => {
+  if (!allowed) deleting.value = null;
+});
+onUnmounted(() => visit++);
+const failure = computed(() => (props.id ? detail.error.value : list.error.value));
+function edit() {
+  name.value = detail.data.value?.name ?? '';
+  description.value = detail.data.value?.description ?? '';
+  status.value = detail.data.value?.status ?? 'planned';
+  priority.value = detail.data.value?.priority ?? 'none';
+  leadType.value = detail.data.value?.lead_type ?? null;
+  leadId.value = detail.data.value?.lead_id ?? null;
+  startDate.value = detail.data.value?.start_date?.slice(0, 10) ?? '';
+  dueDate.value = detail.data.value?.due_date?.slice(0, 10) ?? '';
+  picker.value = null;
+  error.value = '';
+  expanded.value = false;
+  editor.value = true;
+}
+function requestDelete(project: Research) {
+  if (!canDelete.value) return;
+  deleteError.value = '';
+  deleting.value = project;
+}
+async function deleteProject() {
+  const project = deleting.value;
+  if (!project || deleteBusy.value || !canDelete.value) return;
+  const ws = workspaceId.value,
+    v = visit;
+  deleteBusy.value = true;
+  deleteError.value = '';
+  try {
+    await api('DELETE', `/api/researches/${project.id}`, undefined, undefined, { workspace: ws });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: keys.researches(ws) }),
+      client.invalidateQueries({ queryKey: keys.research(ws, project.id) }),
+      client.invalidateQueries({ queryKey: keys.cards(ws) }),
+      client.invalidateQueries({ queryKey: ['ws', ws, 'card'] }),
+    ]);
+    if (v === visit && ws === workspaceId.value) deleting.value = null;
+  } catch (e) {
+    if (v === visit && ws === workspaceId.value) deleteError.value = (e as Error).message;
+  } finally {
+    if (v === visit && ws === workspaceId.value) deleteBusy.value = false;
+  }
+}
+async function save() {
+  if (startDate.value && dueDate.value && startDate.value > dueDate.value) {
+    error.value = 'Start date must be on or before the due date.';
+    return;
+  }
+  const ws = workspaceId.value,
+    id = props.id,
+    v = visit;
+  busy.value = true;
+  error.value = '';
+  try {
+    const saved = await api<Research>(
+      id ? 'PATCH' : 'POST',
+      id ? `/api/researches/${id}` : '/api/researches',
+      {
+        name: name.value,
+        description: description.value,
+        status: status.value,
+        priority: priority.value,
+        lead_type: leadType.value,
+        lead_id: leadId.value,
+        start_date: startDate.value ? `${startDate.value}T00:00:00Z` : null,
+        due_date: dueDate.value ? `${dueDate.value}T00:00:00Z` : null,
+      },
+    );
+    if (v !== visit || ws !== workspaceId.value) return;
+    editor.value = false;
+    await client.invalidateQueries({ queryKey: keys.researches(ws) });
+    if (v !== visit || ws !== workspaceId.value) return;
+    if (id) await client.invalidateQueries({ queryKey: keys.research(ws, id) });
+    else await router.push('/projects/' + saved.id);
+  } catch (e) {
+    if (v === visit) error.value = (e as Error).message;
+  } finally {
+    if (v === visit) busy.value = false;
+  }
+}
+</script>
+<template>
+  <section
+    class="directory-page directory-table-page"
+    :class="{ 'project-detail-page': id, 'project-directory': !id }"
+  >
+    <ProjectDetail
+      v-if="id && detail.data.value"
+      :key="id"
+      :project="detail.data.value"
+      @edit="edit"
+    />
+    <template v-else-if="!id">
+      <Teleport to="#page-header-actions"
+        ><button class="button primary" @click="edit">
+          <Icon name="plus" :size="14" />New Project
+        </button></Teleport
+      >
+      <table
+        v-if="list.data.value?.length"
+        class="directory-data-table directory-aligned-table projects-table"
+        aria-label="Projects"
+      >
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Priority</th>
+            <th scope="col">Status</th>
+            <th scope="col">Progress</th>
+            <th scope="col">Lead</th>
+            <th scope="col">Created</th>
+            <th scope="col" aria-label="Actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in list.data.value ?? []" :key="r.id">
+            <td>
+              <RouterLink :to="'/projects/' + r.id"
+                ><span class="table-folder" aria-hidden="true">📁</span
+                ><span>{{ r.name }}</span></RouterLink
+              >
+            </td>
+            <td class="table-secondary">
+              <span class="table-priority"
+                ><span class="project-priority-mark" aria-hidden="true"
+                  ><template v-if="r.priority === 'none'">—</template
+                  ><template v-else
+                    ><i
+                      v-for="n in 4"
+                      :key="n"
+                      :class="{
+                        filled: n <= (priorities.find((p) => p.value === r.priority)?.bars ?? 0),
+                      }"
+                      :style="{ height: `${3 + n * 2}px` }" /></template></span
+                >{{ priorities.find((p) => p.value === r.priority)?.label }}</span
+              >
+            </td>
+            <td>
+              <span class="project-status-label" :class="r.status">{{
+                statuses.find((st) => st.value === r.status)?.label
+              }}</span>
+            </td>
+            <td>
+              <div v-if="cards.data.value" class="table-progress">
+                <progress
+                  :max="metrics(r.id).total || 1"
+                  :value="metrics(r.id).done"
+                  :aria-label="r.name + ' completed studies'"
+                /><span>{{ metrics(r.id).done }}/{{ metrics(r.id).total }}</span>
+              </div>
+              <span v-else class="muted">—</span>
+            </td>
+            <td>
+              <span
+                v-if="r.lead_id"
+                class="table-lead-avatar"
+                :title="actorName(r) || 'Unavailable lead'"
+                >{{ (actorName(r) || '?')[0] }}</span
+              ><span v-else class="table-lead-empty" aria-label="No lead" />
+            </td>
+            <td class="table-secondary" :title="new Date(r.created_at).toLocaleString()">
+              {{ timeAgo(r.created_at) }}
+            </td>
+            <td class="project-actions">
+              <button
+                v-if="canDelete"
+                type="button"
+                class="icon-button project-delete"
+                :aria-label="`Delete project ${r.name}`"
+                title="Delete project"
+                @click="requestDelete(r)"
+              >
+                <Icon name="trash" :size="15" />
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="list.isSuccess.value && !list.data.value?.length" class="directory-empty">
+        <Icon name="folder" :size="30" />
+        <h2>No Projects yet</h2>
+        <p>Group related studies in a Project.</p>
+        <button class="button" @click="edit">Create Project</button>
+      </div>
+    </template>
+    <p v-if="failure" class="inline-error" role="alert">
+      {{ failure.message }} <button @click="id ? detail.refetch() : list.refetch()">Retry</button>
+    </p>
+    <p v-if="id ? detail.isPending.value : list.isPending.value" role="status">Loading Projects…</p>
+    <Modal
+      v-if="deleting"
+      class="project-delete-modal"
+      :title="`Delete ${deleting.name}?`"
+      :before-close="() => !deleteBusy"
+      @close="deleting = null"
+    >
+      <div class="project-delete-dialog">
+        <h2>Delete {{ deleting.name }}?</h2>
+        <p>
+          Studies in this project will be kept and removed from the project. This cannot be undone.
+        </p>
+        <p v-if="deleteError" class="inline-error" role="alert">{{ deleteError }}</p>
+        <footer>
+          <button class="button" :disabled="deleteBusy" @click="deleting = null">Cancel</button>
+          <button class="button danger" :disabled="deleteBusy" @click="deleteProject">
+            {{ deleteBusy ? 'Deleting…' : 'Delete project' }}
+          </button>
+        </footer>
+      </div>
+    </Modal>
+    <Modal
+      v-if="editor"
+      :title="id ? 'Edit Project' : 'New Project'"
+      class="project-editor"
+      :class="{ expanded }"
+      @close="editor = false"
+    >
+      <form class="project-create" @submit.prevent="save" @keydown.capture="pickerKey">
+        <header class="project-breadcrumb">
+          <span class="project-workspace">{{ workspace.data.value?.name }}</span>
+          <Icon name="right" :size="12" />
+          <strong>{{ id ? 'Edit project' : 'New project' }}</strong>
+          <button
+            type="button"
+            class="icon-button push-right"
+            :aria-label="expanded ? 'Collapse project editor' : 'Expand project editor'"
+            :aria-pressed="expanded"
+            @click="expanded = !expanded"
+          >
+            <Icon name="expand" :size="15" />
+          </button>
+          <button type="button" class="icon-button" aria-label="Close" @click="editor = false">
+            <Icon name="close" :size="15" />
+          </button>
+        </header>
+        <div class="project-create-body">
+          <span class="project-folder" aria-hidden="true">📁</span>
+          <input
+            v-model="name"
+            class="project-title"
+            placeholder="Project title"
+            aria-label="Project name"
+            required
+            autofocus
+          />
+          <textarea
+            v-model="description"
+            placeholder="Add description..."
+            aria-label="Project description"
+          />
+        </div>
+        <p v-if="error" class="inline-error project-error" role="alert">{{ error }}</p>
+        <div class="project-properties" aria-label="Project properties" @click.capture="fitProjectMenu">
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'status'"
+              @click="togglePicker('status', $event)"
+            >
+              <span class="project-status-dot" :class="status" aria-hidden="true" />{{
+                statusLabel
+              }}
+            </button>
+            <div
+              v-if="picker === 'status'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project status"
+            >
+              <button
+                v-for="option in statuses"
+                :key="option.value"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="status === option.value"
+                @click="
+                  status = option.value;
+                  closePicker();
+                "
+              >
+                <span class="project-status-dot" :class="option.value" aria-hidden="true" />{{
+                  option.label
+                }}
+              </button>
+            </div>
+          </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'priority'"
+              @click="togglePicker('priority', $event)"
+            >
+              <span class="project-priority-mark" :class="priority" aria-hidden="true"
+                ><template v-if="priorityOption.bars"
+                  ><i
+                    v-for="n in 4"
+                    :key="n"
+                    :class="{ filled: n <= priorityOption.bars }"
+                    :style="{ height: `${3 + n * 2}px` }" /></template
+                ><template v-else>—</template></span
+              >{{ priorityOption.label }}
+            </button>
+            <div
+              v-if="picker === 'priority'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project priority"
+            >
+              <button
+                v-for="option in priorities"
+                :key="option.value"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="priority === option.value"
+                @click="
+                  priority = option.value;
+                  closePicker();
+                "
+              >
+                <span class="project-priority-mark" :class="option.value" aria-hidden="true"
+                  ><template v-if="option.bars"
+                    ><i
+                      v-for="n in 4"
+                      :key="n"
+                      :class="{ filled: n <= option.bars }"
+                      :style="{ height: `${3 + n * 2}px` }" /></template
+                  ><template v-else>—</template></span
+                >{{ option.label }}
+              </button>
+            </div>
+          </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property project-lead"
+              aria-haspopup="menu"
+              :aria-expanded="picker === 'lead'"
+              @click="togglePicker('lead', $event)"
+            >
+              <span>{{ leadLabel }}</span>
+            </button>
+            <div v-if="picker === 'lead'" class="project-picker-menu project-lead-menu">
+              <input
+                v-model="leadFilter"
+                aria-label="Search project leads"
+                placeholder="Search members and agents…"
+                @keydown.enter.prevent
+              />
+              <div role="menu" aria-label="Project lead" class="project-lead-options">
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="!leadType"
+                  @click="selectLead(null, null)"
+                >
+                  No lead
+                </button>
+                <p v-if="filteredMembers.length" class="project-picker-label">Members</p>
+                <button
+                  v-for="member in filteredMembers"
+                  :key="member.user_id"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="leadType === 'member' && leadId === member.user_id"
+                  @click="selectLead('member', member.user_id)"
+                >
+                  {{ member.name }}
+                </button>
+                <p v-if="filteredAgents.length" class="project-picker-label">Agents</p>
+                <button
+                  v-for="agent in filteredAgents"
+                  :key="agent.id"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="leadType === 'agent' && leadId === agent.id"
+                  @click="selectLead('agent', agent.id)"
+                >
+                  {{ agentDisplayName(agent.name) }}
+                </button>
+                <p
+                  v-if="members.isPending.value || agents.isPending.value"
+                  role="status"
+                  class="project-picker-label"
+                >
+                  Loading leads…
+                </p>
+                <p
+                  v-if="members.error.value || agents.error.value"
+                  role="alert"
+                  class="project-picker-label"
+                >
+                  Could not load all leads.
+                  <button
+                    type="button"
+                    @click="
+                      members.refetch();
+                      agents.refetch();
+                    "
+                  >
+                    Retry
+                  </button>
+                </p>
+                <p
+                  v-if="leadFilter && !filteredMembers.length && !filteredAgents.length"
+                  class="project-picker-label"
+                >
+                  No results
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="project-picker" @focusout="leavePicker">
+            <button
+              type="button"
+              class="project-property"
+              aria-label="More project properties"
+              :aria-expanded="['dates', 'start', 'due'].includes(picker ?? '')"
+              @click="togglePicker('dates', $event)"
+            >
+              <Icon name="more" :size="16" />
+            </button>
+            <div
+              v-if="picker === 'dates'"
+              class="project-picker-menu"
+              role="menu"
+              aria-label="Project dates"
+            >
+              <button type="button" role="menuitem" @click="openCalendar('start')">
+                <Icon name="calendar" :size="14" />{{
+                  startDate ? `Start date: ${startDate}` : 'Set start date…'
+                }}
+              </button>
+              <button type="button" role="menuitem" @click="openCalendar('due')">
+                <Icon name="calendar" :size="14" />{{
+                  dueDate ? `Due date: ${dueDate}` : 'Set due date…'
+                }}
+              </button>
+            </div>
+            <ComposerCalendar
+              v-if="picker === 'start'"
+              v-model="startDate"
+              kind="start"
+              @close="closePicker"
+            />
+            <ComposerCalendar
+              v-if="picker === 'due'"
+              v-model="dueDate"
+              kind="due"
+              @close="closePicker"
+            />
+          </div>
+        </div>
+        <footer class="project-create-footer">
+          <button class="button primary compact" :disabled="busy || !name.trim()">
+            {{ busy ? 'Saving…' : id ? 'Save Project' : 'Create Project' }}
+          </button>
+        </footer>
+      </form>
+    </Modal>
+  </section>
+</template>
+<style src="../../ui/directory.css" />
+<style src="../../ui/directory-table.css" />
+
+<style scoped>
+.project-editor {
+  width: 800px;
+  max-width: calc(100vw - 48px);
+  background: var(--modal);
+  overflow: visible;
+}
+.project-picker :deep(.composer-calendar) {
+  top: calc(100% + 8px);
+  bottom: auto;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+}
+.project-create {
+  display: flex;
+  flex-direction: column;
+  min-height: 384px;
+}
+.project-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 50px;
+  flex: none;
+  padding: 12px 20px;
+  font-size: 13px;
+}
+.project-workspace {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.project-breadcrumb > .icon {
+  color: var(--icon-dim);
+}
+.project-breadcrumb strong {
+  font-weight: 400;
+  white-space: nowrap;
+}
+.project-breadcrumb .icon-button {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.project-create-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px 20px;
+}
+.project-folder {
+  font-size: 24px;
+  line-height: 30px;
+}
+.project-create-body input,
+.project-create-body textarea {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 0;
+  color: var(--text);
+  outline: none;
+}
+.project-create-body input:focus-visible,
+.project-create-body textarea:focus-visible {
+  box-shadow: none;
+}
+.project-title {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 25px;
+}
+.project-create-body textarea {
+  flex: 1;
+  min-height: 120px;
+  font-size: 14px;
+  line-height: 23px;
+  resize: none;
+}
+.project-create-body input::placeholder,
+.project-create-body textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.project-create-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: none;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.project-properties {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 10px;
+}
+.project-property {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.project-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--icon-faint);
+}
+.project-lead {
+  color: var(--muted);
+}
+.project-create-footer > .button {
+  margin-left: auto;
+}
+.project-error {
+  padding: 0 20px 10px;
+}
+.project-editor.expanded {
+  width: min(1100px, calc(100vw - 64px));
+}
+.project-editor.expanded .project-create {
+  height: min(740px, 85vh);
+  min-height: 0;
+}
+.project-picker {
+  position: relative;
+  max-width: 100%;
+}
+.project-property:hover,
+.project-picker-menu button:hover {
+  background: var(--fill-highlight);
+}
+.project-lead span {
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-picker-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  bottom: auto;
+  z-index: 2;
+  width: 176px;
+  max-width: calc(100vw - 80px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--fill-menu);
+  box-shadow: 0 8px 24px #0002;
+}
+.project-picker-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+}
+.project-picker-menu button[aria-checked='true'] {
+  background: var(--fill-accent-soft);
+}
+.project-lead-menu {
+  width: 228px;
+  left: auto;
+  right: 0;
+}
+.project-lead-menu input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 7px 8px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.project-lead-options {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.project-picker-label {
+  margin: 6px 8px 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.project-status-dot.in_progress {
+  background: var(--stage-experimentation-dot);
+}
+.project-status-dot.completed {
+  background: var(--stage-reporting-dot);
+}
+.project-status-dot.cancelled {
+  background: var(--error);
+}
+.project-priority-mark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 14px;
+  color: var(--muted);
+}
+.project-priority-mark i {
+  width: 2px;
+  background: currentColor;
+  opacity: 0.2;
+}
+.project-priority-mark i.filled {
+  opacity: 1;
+}
+.project-priority-mark.urgent {
+  color: var(--error);
+}
+.project-priority-mark.high,
+.project-priority-mark.medium {
+  color: var(--stage-experimentation-dot);
+}
+.project-priority-mark.low {
+  color: var(--stage-reporting-dot);
+}
+</style>
+
+<style scoped>
+.project-detail-page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.project-directory {
+  --directory-columns: minmax(240px, 1fr) repeat(3, 122px) 64px 84px 32px;
+  padding: 8px 20px 32px;
+}
+.projects-table tr {
+  padding-right: 0;
+}
+.projects-table td {
+  display: flex;
+  align-items: center;
+}
+.projects-table td:last-child {
+  justify-content: flex-end;
+}
+.projects-table th:last-child,
+.projects-table td:last-child {
+  text-align: right;
+}
+.project-actions .project-delete {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.project-delete-modal {
+  width: 420px;
+}
+.project-delete-dialog {
+  padding: 24px;
+}
+.project-delete-dialog h2 {
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+.project-delete-dialog p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.project-delete-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.project-delete-dialog .danger {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+}
+
+.projects-table th {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.table-priority {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.table-folder {
+  font-size: 18px;
+  line-height: 24px;
+}
+.project-status-label {
+  display: block;
+  text-align: left;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 3px 0;
+}
+.table-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.table-progress progress {
+  appearance: none;
+  width: 48px;
+  height: 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill-card);
+}
+.table-progress progress::-webkit-progress-bar {
+  background: var(--fill-card);
+  border-radius: 4px;
+}
+.table-progress progress::-webkit-progress-value {
+  background: var(--stage-reporting-dot);
+  border-radius: 4px;
+}
+.table-lead-avatar,
+.table-lead-empty {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.table-lead-avatar {
+  background: var(--fill-card);
+  color: var(--muted);
+}
+.table-lead-empty {
+  border: 1px dashed var(--border);
+}
+</style>

@@ -1,0 +1,752 @@
+import { authenticationEpoch, verification } from './auth-loss';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { effectScope, ref, type EffectScope } from 'vue';
+import { QueryClient, QueryObserver } from '@tanstack/vue-query';
+import { invalidationsFor, useRealtimeSync, type Socket } from './realtime';
+import { keys } from './keys';
+import type { LykEvent } from './types';
+
+const ev = (type: string, card: string | null = 'c1', id = 1): LykEvent => ({
+  id,
+  workspace_id: 'w1',
+  card_id: card,
+  type,
+  actor_type: 'system',
+  actor_id: null,
+  payload: {},
+  created_at: '2026-10-15T10:00:00Z',
+});
+const has = (type: string, key: readonly unknown[], card: string | null = 'c1') =>
+  expect(invalidationsFor('w1', ev(type, card))).toContainEqual(key);
+
+describe('event to query map', () => {
+  it('refreshes the Lab Chart on run, agent, runtime, decision and member events', () => {
+    for (const type of ['agent_run.queued', 'agent.updated', 'laboratory.installed', 'decision.opened', 'member.joined'])
+      has(type, keys.labChart('w1'));
+    for (const type of ['runtime.updated', 'runtime.online', 'runtime.deleted'])
+      has(type, keys.labChart('w1'));
+    for (const type of ['agent_run.usage_updated', 'agent_run.settled'])
+      expect(invalidationsFor('w1', ev(type))).not.toContainEqual(keys.labChart('w1'));
+    expect(invalidationsFor('w1', ev('card.moved'))).not.toContainEqual(keys.labChart('w1'));
+  });
+
+  it('refreshes projects and studies when a project is deleted', () => {
+    const event = { ...ev('research.deleted', null), payload: { research_id: 'p1' } };
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.researches('w1'));
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.research('w1', 'p1'));
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.cards('w1'));
+  });
+  it('card events refresh the board, the card, its event lines and the Inbox', () => {
+    for (const type of ['card.created', 'card.steered', 'card.escalated', 'card.deleted']) {
+      has(type, keys.cards('w1'));
+      has(type, keys.card('w1', 'c1'));
+      has(type, keys.events('w1', 'c1'));
+      has(type, keys.decisionsAll('w1'));
+      has(type, keys.decisionCount('w1'));
+      has(type, keys.analytics('w1'));
+    }
+  });
+  it("a column leaving refreshes the study's Team ratings", () => {
+    has('card.steered', keys.ratings('w1', 'c1'));
+  });
+  it('an uploaded or approved Team refreshes the Teams list', () => {
+    for (const type of ['pack.uploaded', 'pack.approved', 'team.created'])
+      has(type, ['ws', 'w1', 'packs'], null);
+  });
+  it("a Team's added agents refresh the Agents list", () => {
+    has('team.added', keys.agents('w1'), null);
+  });
+  it('a deleted Team refreshes cached Agent details without exposing their ids', () => {
+    has('team.deleted', ['ws', 'w1', 'agent'], null);
+  });
+  it('a deleted card, named only in the payload, still refreshes its own queries', () => {
+    const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
+    expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));
+    expect(invalidationsFor('w1', deleted)).toContainEqual(keys.cards('w1'));
+  });
+  it("a new record refreshes that card's records", () => {
+    has('record.created', keys.recordsAll('w1', 'c1'));
+  });
+  it("a new comment refreshes that card's comments", () => {
+    has('comment.created', keys.comments('w1', 'c1'));
+  });
+  it("agent-run events refresh the card's runs, the card and the board", () => {
+    for (const type of [
+      'agent_run.queued',
+      'agent_run.dispatched',
+      'agent_run.started',
+      'agent_run.completed',
+      'agent_run.cancelled',
+      'agent_run.failed',
+      'agent_run.usage',
+    ]) {
+      has(type, keys.runtimes('w1'));
+      has(type, keys.analytics('w1'));
+      has(type, keys.runs('w1', 'c1'));
+      has(type, keys.card('w1', 'c1'));
+      has(type, keys.cards('w1'));
+    }
+  });
+  it('late usage invalidates all analytics filters only in its own workspace', () => {
+    const client = new QueryClient();
+    const all = [...keys.analytics('w1'), 'UTC', 'all', 'daily', '30d'];
+    const standalone = [...keys.analytics('w1'), 'Europe/Copenhagen', 'standalone', 'weekly', '7d'];
+    const foreign = [...keys.analytics('w2'), 'UTC', 'all', 'daily', '30d'];
+    for (const key of [all, standalone, foreign]) client.setQueryData(key, {});
+    for (const queryKey of invalidationsFor('w1', ev('agent_run.usage')))
+      void client.invalidateQueries({ queryKey });
+    expect(client.getQueryState(all)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(standalone)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
+    client.clear();
+  });
+  it('inbox and decision events refresh the Decisions lists and the count', () => {
+    for (const type of ['inbox.created', 'inbox.read', 'inbox.resolved', 'decision.reminder']) {
+      has(type, keys.decisionsAll('w1'), null);
+      has(type, keys.decisionCount('w1'), null);
+    }
+  });
+  it('runtime events refresh the runtimes', () => {
+    has('runtime.online', keys.runtimes('w1'), null);
+    has('runtime.updated', keys.runtimes('w1'), null);
+    has('runtime.online', keys.storage('w1'), null);
+    has('runtime.updated', keys.storage('w1'), null);
+  });
+  it('runtime events refresh every study waiting on a machine, only in their workspace', () => {
+    const client = new QueryClient();
+    const own = [keys.cards('w1'), keys.runs('w1', 'c1'), keys.runs('w1', 'c2')];
+    const foreign = keys.runs('w2', 'c1');
+    for (const key of [...own, foreign]) client.setQueryData(key, []);
+    for (const queryKey of invalidationsFor('w1', ev('runtime.updated')))
+      void client.invalidateQueries({ queryKey });
+    for (const key of own) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreign)?.isInvalidated).toBe(false);
+    client.clear();
+  });
+  it('member events refresh the members and the workspace list', () => {
+    has('member.role_changed', keys.members('w1'), null);
+    has('member.removed', keys.workspaces, null);
+  });
+  it('membership changes refresh capability permissions on both summaries and open details', () => {
+    const client = new QueryClient();
+    const resources = [
+      keys.skills('w1'),
+      keys.skill('w1', 's1'),
+      keys.workspaceMCP('w1'),
+      keys.coresearchProjects('w1'),
+      keys.coresearchProject('w1', 'p'),
+      keys.coresearchMembers('w1', 'p'),
+    ];
+    resources.forEach((key) => client.setQueryData(key, ['old permissions']));
+    client.setQueryData(keys.skill('w2', 's1'), ['other']);
+    for (const queryKey of invalidationsFor('w1', ev('member.role_changed', null)))
+      void client.invalidateQueries({ queryKey });
+    resources.forEach((key) => expect(client.getQueryState(key)?.isInvalidated).toBe(true));
+    expect(client.getQueryState(keys.skill('w2', 's1'))?.isInvalidated).toBe(false);
+    client.clear();
+  });
+  it('invitation events refresh the invitations and the members', () => {
+    has('invitation.created', keys.invitations('w1'), null);
+    has('invitation.accepted', keys.members('w1'), null);
+  });
+  it('workspace events refresh the workspace and the list', () => {
+    has('workspace.updated', keys.workspace('w1'), null);
+    has('workspace.renamed', keys.workspaces, null);
+  });
+  it('refreshes skill lists and revision-scoped files for only the affected skill', () => {
+    for (const type of ['skill.created', 'skill.updated', 'skill.deleted']) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { skill_id: 's1', name: 'method', revision: 2 },
+        }),
+      ).toEqual([keys.skills('w1'), keys.skill('w1', 's1')]);
+    }
+    expect(keys.skillFile('w1', 's1', 2, 'data/a.bin').slice(0, 4)).toEqual(keys.skill('w1', 's1'));
+  });
+  it('distinguishes catalogue changes from custom MCP changes', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('connector.updated', null),
+        payload: { connector: 'geo', revision: 3 },
+      }),
+    ).toEqual([keys.connectors('w1')]);
+    for (const type of ['connector.created', 'connector.updated', 'connector.deleted']) {
+      const mapped = invalidationsFor('w1', {
+        ...ev(type, null),
+        payload: { connector_id: 'm1', origin: 'custom', name: 'lab', revision: 2 },
+      });
+      expect(mapped).toEqual([keys.workspaceMCP('w1'), keys.workspaceMCPItem('w1', 'm1')]);
+      expect(mapped).not.toContainEqual(keys.workspaceMCP('w2'));
+    }
+  });
+  it('refreshes the exact runtime discovery or import operation without exposing result bodies', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('runtime_skill_request.updated', null),
+        payload: { runtime_id: 'rt1', request_id: 'j1', operation: 'import', status: 'running' },
+      }),
+    ).toEqual([keys.runtimeSkillRequest('w1', 'rt1', 'j1')]);
+  });
+  it('refreshes Autoresearch parents, trigger information and direct report reads', () => {
+    for (const type of [
+      'autoresearch.created',
+      'autoresearch.updated',
+      'autoresearch.deleted',
+      'autoresearch.paused',
+      'autoresearch_trigger.updated',
+    ]) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { autoresearch_id: 'a1', trigger_id: 't1' },
+        }),
+      ).toEqual([keys.autoresearches('w1'), keys.autoresearch('w1', 'a1')]);
+    }
+    for (const type of [
+      'autoresearch_run.reported',
+      'autoresearch_run.completed',
+      'autoresearch_run.failed',
+    ]) {
+      expect(
+        invalidationsFor('w1', {
+          ...ev(type, null),
+          payload: { autoresearch_id: 'a1', run_id: 'r1' },
+        }),
+      ).toEqual([
+        keys.autoresearches('w1'),
+        keys.autoresearch('w1', 'a1'),
+        keys.autoresearchRuns('w1', 'a1'),
+        keys.autoresearchRun('w1', 'r1'),
+      ]);
+    }
+  });
+  it('does not map a foreign-workspace event into the current workspace', () => {
+    expect(
+      invalidationsFor('w1', {
+        ...ev('skill.updated', null),
+        workspace_id: 'w2',
+        payload: { skill_id: 's1' },
+      }),
+    ).toEqual([]);
+  });
+  it('blob events and unknown events refresh nothing', () => {
+    expect(invalidationsFor('w1', ev('blob.created'))).toEqual([]);
+    expect(invalidationsFor('w1', ev('something.else'))).toEqual([]);
+  });
+});
+
+class FakeSocket implements Socket {
+  sent: string[] = [];
+  closed = false;
+  onopen: ((e: unknown) => void) | null = null;
+  onmessage: ((e: { data: unknown }) => void) | null = null;
+  onclose: ((e: unknown) => void) | null = null;
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.closed = true;
+    this.onclose?.({});
+  }
+  event(e: LykEvent) {
+    this.onmessage?.({ data: JSON.stringify({ type: 'event', event: e }) });
+  }
+}
+
+describe('useRealtimeSync', () => {
+  let sockets: FakeSocket[];
+  let client: QueryClient;
+  let invalidate: MockInstance<QueryClient['invalidateQueries']>;
+  const workspace = ref('w1');
+  let scope: EffectScope;
+  let sync: ReturnType<typeof useRealtimeSync>;
+  // The start cursor arrives asynchronously; let its promise settle.
+  const settle = () => vi.advanceTimersByTimeAsync(0);
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    sockets = [];
+    scope = effectScope();
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    invalidate = vi.spyOn(client, 'invalidateQueries');
+    workspace.value = 'w1';
+    sync = scope.run(() =>
+      useRealtimeSync(
+        workspace,
+        client,
+        () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s;
+        },
+        async (ws) => (ws === 'w1' ? 40 : 7),
+      ),
+    )!;
+    await settle();
+  });
+  afterEach(() => {
+    scope.stop();
+    client.clear();
+    vi.useRealTimers();
+  });
+  const keysInvalidated = () =>
+    invalidate.mock.calls.map((c) => (c[0] as { queryKey: unknown }).queryKey);
+
+  it("subscribes from the workspace's event cursor, then debounces invalidations", async () => {
+    sockets[0]!.onopen!({});
+    expect(JSON.parse(sockets[0]!.sent[0]!)).toEqual({
+      type: 'subscribe',
+      workspace: 'w1',
+      cursor: 40,
+    });
+    expect(sync.connected.value).toBe(true);
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 7));
+    sockets[0]!.event(ev('comment.created', 'c1', 8));
+    expect(invalidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(keysInvalidated()).toEqual([keys.comments('w1', 'c1')]);
+  });
+
+  it('resumes from the last event after a drop and refreshes everything of the workspace', async () => {
+    sockets[0]!.onopen!({});
+    sockets[0]!.event(ev('card.created', 'c1', 41));
+    sockets[0]!.onclose!({});
+    expect(sync.reconnecting.value).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(41);
+    expect(sync.reconnecting.value).toBe(false);
+    await settle();
+    expect(keysInvalidated()).toContainEqual(keys.ws('w1'));
+    expect(keysInvalidated()).toContainEqual(keys.workspaces);
+  });
+
+  it('closes the socket during verification while preserving the workspace and cache', async () => {
+    client.setQueryData(keys.cards('w1'), ['kept']);
+    const old = sockets[0]!;
+    old.onopen!({});
+    await settle();
+    verification.value = { epoch: authenticationEpoch(), stage: 'checking', accepted: false };
+    try {
+      expect(old.closed).toBe(true);
+      old.onclose!({});
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(sockets).toHaveLength(1);
+      expect(workspace.value).toBe('w1');
+      expect(client.getQueryData(keys.cards('w1'))).toEqual(['kept']);
+    } finally {
+      verification.value = undefined;
+    }
+    await settle();
+    expect(sockets).toHaveLength(2);
+  });
+  it('a workspace switch closes the old socket and drops the old cache', async () => {
+    client.setQueryData(keys.cards('w1'), []);
+    sockets[0]!.onopen!({});
+    workspace.value = 'w2';
+    expect(sockets[0]!.closed).toBe(true);
+    expect(client.getQueryData(keys.cards('w1'))).toBeUndefined();
+    await settle();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!)).toEqual({
+      type: 'subscribe',
+      workspace: 'w2',
+      cursor: 7,
+    });
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it('a refused workspace is reported as lost and not retried', () => {
+    sockets[0]!.onopen!({});
+    sockets[0]!.onmessage!({ data: '{"type":"error","error":"workspace not found"}' });
+    expect(sync.lost.value).toBe(true);
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  it('refreshes on first open without waiting for a ready frame or any event', async () => {
+    client.setQueryData(keys.cards('w1'), ['old']);
+    sockets[0]!.onopen!({});
+    await settle();
+    expect(client.getQueryState(keys.cards('w1'))?.isInvalidated).toBe(true);
+    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces]);
+  });
+
+  it.each([{ queryKey: keys.cards('w1') }, { queryKey: keys.workspaces }])(
+    'cancels a pending pre-cursor snapshot for $queryKey before refreshing',
+    async ({ queryKey }) => {
+      const stale = deferred<string[]>();
+      const fresh = deferred<string[]>();
+      let requests = 0;
+      const observer = new QueryObserver(client, {
+        queryKey,
+        queryFn: () => (++requests === 1 ? stale.promise : fresh.promise),
+      });
+      const unsubscribe = observer.subscribe(() => {});
+      scope.stop();
+      scope = effectScope();
+      sockets = [];
+      const cursor = deferred<number>();
+      scope.run(() =>
+        useRealtimeSync(
+          workspace,
+          client,
+          () => {
+            const socket = new FakeSocket();
+            sockets.push(socket);
+            return socket;
+          },
+          () => {
+            expect(requests).toBe(1);
+            return cursor.promise;
+          },
+        ),
+      );
+      try {
+        expect(requests).toBe(1);
+        expect(client.getQueryData(queryKey)).toBeUndefined();
+        cursor.resolve(40);
+        await settle();
+        // This request predates the cursor read and is still unresolved on open.
+        sockets[0]!.onopen!({});
+        await settle();
+        expect(requests).toBe(2);
+        fresh.resolve(['committed before cursor 40']);
+        await settle();
+        expect(client.getQueryData(queryKey)).toEqual(['committed before cursor 40']);
+        stale.resolve(['snapshot from before cursor 40']);
+        await settle();
+        expect(client.getQueryData(queryKey)).toEqual(['committed before cursor 40']);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it('refreshes every workspace resource and the list after reconnect without replay', async () => {
+    const scoped = [
+      keys.workspace('w1'),
+      keys.skills('w1'),
+      keys.skillFile('w1', 's1', 2, 'data/a.bin'),
+      keys.connectors('w1'),
+      keys.workspaceMCPItem('w1', 'm1'),
+      keys.runtimeSkillRequest('w1', 'rt1', 'j1'),
+      keys.autoresearchRun('w1', 'r1'),
+      keys.cards('w1'),
+      keys.card('w1', 'c1'),
+      keys.records('w1', 'c1', 'grounding'),
+      keys.comments('w1', 'c1'),
+      keys.events('w1', 'c1'),
+      keys.runs('w1', 'c1'),
+      keys.runMessages('w1', 'r1', 1),
+      keys.decisions('w1', false),
+      keys.decisions('w1', true),
+      keys.decisionCount('w1'),
+      keys.runtimes('w1'),
+      keys.storage('w1'),
+      keys.analytics('w1'),
+      keys.members('w1'),
+      keys.invitations('w1'),
+      keys.workspaces,
+    ];
+    sockets[0]!.onopen!({});
+    await settle();
+    scoped.forEach((key) => client.setQueryData(key, ['old']));
+    client.setQueryData(keys.cards('w2'), ['other']);
+    invalidate.mockClear();
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    await settle();
+    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces]);
+    scoped.forEach((key) => expect(client.getQueryState(key)?.isInvalidated).toBe(true));
+    expect(client.getQueryState(keys.cards('w2'))?.isInvalidated).toBe(false);
+  });
+
+  it('waits 100 ms after the last mapped event before flushing each key once', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 41));
+    await vi.advanceTimersByTimeAsync(70);
+    sockets[0]!.event(ev('comment.created', 'c1', 42));
+    await vi.advanceTimersByTimeAsync(30);
+    expect(invalidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(69);
+    expect(invalidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(keysInvalidated()).toEqual([keys.comments('w1', 'c1')]);
+  });
+
+  it('does not postpone a mapped refresh when repeated unmapped events arrive', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 41));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('blob.created', null, 42));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('something.else', null, 43));
+    await vi.advanceTimersByTimeAsync(30);
+    sockets[0]!.event(ev('blob.created', null, 44));
+    await vi.advanceTimersByTimeAsync(9);
+    expect(invalidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(keysInvalidated()).toEqual([keys.comments('w1', 'c1')]);
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(44);
+  });
+
+  it('ignores obsolete socket callbacks after a workspace switch', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    const old = sockets[0]!;
+    workspace.value = 'w2';
+    await settle();
+    sockets[1]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    old.onopen!({});
+    old.event(ev('comment.created', 'c1', 900));
+    old.onmessage!({ data: '{"type":"error","error":"workspace not found"}' });
+    old.onclose!({});
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sync.connected.value).toBe(true);
+    expect(sync.lost.value).toBe(false);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(client.getQueryData(keys.comments('w1', 'c1'))).toBeUndefined();
+    sockets[1]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[2]!.onopen!({});
+    expect(JSON.parse(sockets[2]!.sent[0]!).cursor).toBe(7);
+  });
+
+  it('ignores callbacks from a dropped socket after reconnecting in the same workspace', async () => {
+    sockets[0]!.onopen!({});
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 900));
+    sockets[0]!.onmessage!({ data: '{"type":"error","error":"workspace not found"}' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(sync.lost.value).toBe(false);
+    sockets[1]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[2]!.onopen!({});
+    expect(JSON.parse(sockets[2]!.sent[0]!).cursor).toBe(40);
+  });
+
+  it('drops pending event invalidations when the scope is disposed', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event(ev('comment.created', 'c1', 41));
+    scope.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(sockets[0]!.closed).toBe(true);
+    expect(sockets).toHaveLength(1);
+    expect(sync.connected.value).toBe(false);
+  });
+
+  it('an event during a loaded refetch keeps its awaiters waiting for fresh data', async () => {
+    const queryKey = keys.skills('w1');
+    const replies: Array<(value: string[]) => void> = [];
+    const observer = new QueryObserver(client, {
+      queryKey,
+      queryFn: () => new Promise<string[]>((resolve) => replies.push(resolve)),
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      sockets[0]!.onopen!({});
+      await settle();
+      replies.splice(0).forEach((reply) => reply(['loaded']));
+      await settle();
+      expect(client.getQueryData(queryKey)).toEqual(['loaded']);
+
+      let settled = false;
+      const awaited = client.invalidateQueries({ queryKey }).then(() => (settled = true));
+      await settle();
+      sockets[0]!.event(ev('skill.changed', null, 41));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(settled).toBe(false);
+      replies.splice(0).forEach((reply) => reply(['fresh']));
+      await awaited;
+      expect(client.getQueryData(queryKey)).toEqual(['fresh']);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not finish an old socket refresh after a workspace switch', async () => {
+    const cancelled = deferred<void>();
+    const cancel = client.cancelQueries.bind(client);
+    vi.spyOn(client, 'cancelQueries').mockImplementation(async (filters) => {
+      await cancel(filters);
+      await cancelled.promise;
+    });
+    sockets[0]!.onopen!({});
+    workspace.value = 'w2';
+    await settle();
+    cancelled.resolve();
+    await settle();
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('ignores a foreign workspace envelope without advancing the reconnect cursor', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    sockets[0]!.event({
+      ...ev('skill.updated', null, 900),
+      workspace_id: 'w2',
+      payload: { skill_id: 's1' },
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(invalidate).not.toHaveBeenCalled();
+    sockets[0]!.onclose!({});
+    await vi.advanceTimersByTimeAsync(500);
+    sockets[1]!.onopen!({});
+    expect(JSON.parse(sockets[1]!.sent[0]!).cursor).toBe(40);
+  });
+  it('does not open a socket for a late initial cursor after switching workspaces', async () => {
+    scope.stop();
+    scope = effectScope();
+    sockets = [];
+    const oldCursor = deferred<number>();
+    scope.run(() =>
+      useRealtimeSync(
+        workspace,
+        client,
+        () => {
+          const socket = new FakeSocket();
+          sockets.push(socket);
+          return socket;
+        },
+        (ws) => (ws === 'w1' ? oldCursor.promise : Promise.resolve(7)),
+      ),
+    );
+    workspace.value = 'w2';
+    await settle();
+    expect(sockets).toHaveLength(1);
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    oldCursor.resolve(900);
+    await settle();
+    expect(sockets).toHaveLength(1);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(JSON.parse(sockets[0]!.sent[0]!)).toEqual({
+      type: 'subscribe',
+      workspace: 'w2',
+      cursor: 7,
+    });
+  });
+
+  it('reconnect replaces a pending library snapshot and late responses cannot overwrite it', async () => {
+    const snapshots = [deferred<string[]>(), deferred<string[]>(), deferred<string[]>()];
+    let requests = 0;
+    const observer = new QueryObserver(client, {
+      queryKey: keys.skills('w1'),
+      queryFn: () => snapshots[requests++]!.promise,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      sockets[0]!.onopen!({});
+      await settle();
+      expect(requests).toBe(2);
+      sockets[0]!.onclose!({});
+      await vi.advanceTimersByTimeAsync(500);
+      sockets[1]!.onopen!({});
+      await settle();
+      expect(requests).toBe(3);
+      snapshots[2]!.resolve(['authoritative library after reconnect']);
+      await settle();
+      snapshots[1]!.resolve(['stale first-open snapshot']);
+      snapshots[0]!.resolve(['stale initial snapshot']);
+      await settle();
+      expect(client.getQueryData(keys.skills('w1'))).toEqual([
+        'authoritative library after reconnect',
+      ]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('ignores malformed and non-event envelopes', async () => {
+    sockets[0]!.onopen!({});
+    await settle();
+    invalidate.mockClear();
+    for (const data of ['{', 'null', '[]', '{"type":"ready"}', '{"type":"event"}']) {
+      sockets[0]!.onmessage!({ data });
+    }
+    await vi.advanceTimersByTimeAsync(100);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(sync.connected.value).toBe(true);
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+describe('delayed cursor reads', () => {
+  it('ignores a late cursor after switching and after disposal', async () => {
+    const scope = effectScope();
+    const workspace = ref('w1');
+    const first = deferred<number>();
+    const second = deferred<number>();
+    const third = deferred<number>();
+    const sockets: FakeSocket[] = [];
+    const client = new QueryClient();
+    try {
+      scope.run(() =>
+        useRealtimeSync(
+          workspace,
+          client,
+          () => {
+            const socket = new FakeSocket();
+            sockets.push(socket);
+            return socket;
+          },
+          (ws) => (ws === 'w1' ? first.promise : ws === 'w2' ? second.promise : third.promise),
+        ),
+      );
+      workspace.value = 'w2';
+      second.resolve(7);
+      await vi.waitFor(() => expect(sockets).toHaveLength(1));
+      first.resolve(900);
+      await Promise.resolve();
+      await Promise.resolve();
+      sockets[0]!.onopen!({});
+      expect(JSON.parse(sockets[0]!.sent[0]!)).toEqual({
+        type: 'subscribe',
+        workspace: 'w2',
+        cursor: 7,
+      });
+      workspace.value = 'w3';
+      scope.stop();
+      third.resolve(13);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(sockets).toHaveLength(1);
+    } finally {
+      scope.stop();
+      client.clear();
+    }
+  });
+});

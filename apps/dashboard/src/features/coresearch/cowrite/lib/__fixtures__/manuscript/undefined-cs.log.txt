@@ -1,0 +1,8 @@
+(./main.tex
+LaTeX Warning: Citation `smith' on page 1 undefined on input line 12.
+
+! Undefined control sequence.
+l.14 \foo
+         bar
+Overfull \hbox (12.3pt too wide) in paragraph at lines 20--21
+)

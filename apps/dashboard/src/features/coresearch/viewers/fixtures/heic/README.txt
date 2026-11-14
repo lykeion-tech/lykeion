@@ -1,0 +1,1 @@
+All fixtures are synthetic solid red images created locally using heif-enc. red-8x8.heic is an 8×8 single image, lykeion-heic-multi.heic contains two top-level 8×8 images, lykeion-heic-seq.heic contains two 8×8 sequence frames, and lykeion-heic-wide.heic is 4097×1. No patient or personal data is present.

@@ -1,0 +1,108 @@
+.property-anchor {
+  position: relative;
+}
+.property-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #ffffff42;
+  border-radius: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  max-width: 240px;
+}
+.property-pill:hover {
+  background: #ffffff30;
+}
+.assignee-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  min-width: 250px;
+  max-width: 340px;
+  max-height: min(460px, 60vh);
+  overflow: auto;
+  background: var(--fill-menu);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px;
+  box-shadow: 0 6px 22px #0002;
+  color: var(--text);
+  font-size: 13px;
+}
+.composer-menu > input {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  outline: 0;
+  padding: 9px 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.composer-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 31px;
+  padding: 6px 8px;
+  text-align: left;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.composer-menu > button:hover,
+.composer-menu > button:focus-visible {
+  background: var(--input);
+}
+.composer-menu small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.composer-menu p.menu-group {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+}
+.composer-menu p {
+  padding: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: normal;
+}
+.composer-menu label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+.composer-menu label input {
+  background: var(--input);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.stage-menu {
+  bottom: calc(100% + 6px);
+  top: auto;
+}
+.set-menu select {
+  background: var(--input);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 13px;
+}
+.set-menu > button {
+  margin: 4px 8px 8px;
+  justify-content: center;
+}

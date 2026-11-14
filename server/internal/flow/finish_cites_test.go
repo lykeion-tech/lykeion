@@ -1,0 +1,61 @@
+package flow
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+func TestACallCitedOnlyInTheSummaryReachesTheScorer(t *testing.T) {
+	l := newLab(t)
+	l.legacy = true
+	js := l.jev(t, 200, levels(nil))
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	l.in(t, func(tx *store.Tx) error {
+		for _, r := range []db.InsertRecordParams{
+			{Kind: "call", Key: "c1", Body: []byte(`{"answer":"MARKER-FROM-THE-CALL"}`)},
+			{Kind: "evidence", Key: "r3", Body: []byte(`{"claim":"x"}`)},
+		} {
+			r.WorkspaceID, r.CardID, r.BoardColumn, r.Round, r.Role = l.ws, c.ID, "grounding", c.Round, "agent"
+			if _, err := tx.Q.InsertRecord(context.Background(), r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	l.done(t, c.ID, "call:c1")
+	var seen bool
+	for _, r := range js.calls() {
+		seen = seen || strings.Contains(r.State, "MARKER-FROM-THE-CALL")
+	}
+	if !seen {
+		t.Fatalf("the cited call never reached Jev: %d requests", len(js.calls()))
+	}
+}
+
+func TestASummaryCitingAHugeCallIsStillScored(t *testing.T) {
+	l := newLab(t)
+	l.legacy = true
+	js := l.jev(t, 200, levels(nil))
+	js.maxState = 40 << 10
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "hypotheses", a)
+	huge := `{"answer":"` + strings.Repeat(`{\"id\":\"P12345\",\"score\":0.91},`, 7000) + `"}`
+	l.in(t, func(tx *store.Tx) error {
+		_, err := tx.Q.InsertRecord(context.Background(), db.InsertRecordParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "grounding",
+			Round: c.Round, Kind: "call", Role: "agent", Key: "c1", Body: []byte(huge)})
+		return err
+	})
+	l.done(t, c.ID, "call:c1")
+	got := l.card(t, c.ID)
+	if got.BoardColumn != "hypotheses" {
+		t.Fatalf("a too-long state left the study unscored in %s (%d Jev requests)", got.BoardColumn, len(js.calls()))
+	}
+	if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 0 {
+		t.Fatalf("scoring_unavailable items: %v", items)
+	}
+}

@@ -1,0 +1,250 @@
+<script setup lang="ts">
+import { computed, provide, ref } from 'vue';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
+import RunTimeline from './RunTimeline.vue';
+import StudyHandIn from './StudyHandIn.vue';
+import { matchesAccepted, messagePreview, structuredMessage } from './study-hand-in';
+import CopyButton from '../coresearch/CopyButton.vue';
+import {
+  attemptDivider,
+  liveStatus,
+  transcriptBlocks,
+  visibleTranscriptMessages,
+} from './run-transcript';
+import { useCardReview, useRunMessages } from '../../api/queries';
+import type { AgentRun } from '../../api/types';
+import { readableAssignment, systemRun } from '../../lib/studies';
+import { durationLabel } from './run-timeline';
+
+const formattingFailed = ref(false);
+const RecordedMarkdown = lazyRecordedMarkdown(() => (formattingFailed.value = true));
+
+const props = defineProps<{ run: AgentRun; study?: { title: string; question: string } }>();
+const emit = defineEmits<{ openOutput: [key: string] }>();
+provide('study-output-preview', {
+  get cardId() {
+    return props.run.card_id;
+  },
+  open: (key: string) => emit('openOutput', key),
+});
+const assignment = computed(() => readableAssignment(props.run, props.study));
+const messages = useRunMessages(() => props.run, true);
+const finalKey = computed(() => {
+  const r = props.run;
+  if (!r.hand_in_id || !r.hand_in || !r.hand_in_message_seq) return '';
+  const message = (messages.data.value ?? []).find(
+    (m) => m.attempt === r.attempt && m.seq === r.hand_in_message_seq && m.type === 'text',
+  );
+  return message &&
+    typeof message.content === 'string' &&
+    matchesAccepted(message.content, r.hand_in)
+    ? `${message.attempt}:${message.seq}`
+    : '';
+});
+const review = useCardReview(() =>
+  props.run.board_column === 'validation' ? props.run.card_id : '',
+);
+const reviewState = computed(() => {
+  if (review.isPending.value || review.isError.value) return 'unknown';
+  return review.data.value
+    ?.find((item) => item.column === 'validation')
+    ?.attempts.some((attempt) => attempt.round === props.run.round)
+    ? 'available'
+    : 'pending';
+});
+const active = computed(() => ['dispatched', 'running'].includes(props.run.status));
+const blocks = computed(() =>
+  transcriptBlocks(
+    visibleTranscriptMessages(messages.data.value ?? []).filter(
+      (message) => message.type !== 'thinking',
+    ),
+    { joinText: false },
+  ).filter((block) => block.kind !== 'reask'),
+);
+// One divider per earlier attempt: each recorded ending, and any earlier
+// attempt with messages but no recorded ending.
+const dividers = computed(() => {
+  const ends = props.run.attempt_ends ?? [];
+  const attempts = new Set(ends.map((end) => end.attempt));
+  for (const m of messages.data.value ?? [])
+    if (m.attempt < props.run.attempt) attempts.add(m.attempt);
+  return [...attempts]
+    .sort((a, b) => a - b)
+    .map((attempt) => ({
+      attempt,
+      text: attemptDivider(
+        attempt,
+        ends.find((end) => end.attempt === attempt),
+      ),
+    }));
+});
+const ending = computed(() => {
+  const r = props.run;
+  const took =
+    r.started_at && r.completed_at
+      ? ` · ${durationLabel(Date.parse(r.completed_at) - Date.parse(r.started_at))}`
+      : '';
+  if (active.value)
+    return { mark: 'mark-live', text: liveStatus(messages.data.value ?? []) || 'Working…' };
+  if (r.status === 'completed') return { mark: 'mark-ok', text: `Run finished${took}` };
+  if (r.status === 'failed')
+    return {
+      mark: 'mark-fail',
+      text: `Run failed${took}${r.failure_reason ? ` · ${r.failure_reason.replace(/_/g, ' ')}` : ''}`,
+    };
+  if (r.status === 'queued')
+    return {
+      mark: 'mark-queued',
+      text: r.queue_reason ? `Queued: ${r.queue_reason.replace(/_/g, ' ')}` : 'Queued',
+    };
+  return { mark: 'mark-queued', text: 'Cancelled' };
+});
+</script>
+<template>
+  <div class="agent-turn">
+    <p v-if="messages.isError.value" class="run-error run-read-error" role="alert">
+      Run messages: {{ messages.error.value?.message }}
+      <button class="text-button" :disabled="messages.isFetching.value" @click="messages.refetch()">
+        Retry run messages
+      </button>
+    </p>
+    <p v-if="messages.isPending.value && run.attempt > 0" role="status">Loading run messages…</p>
+    <p v-if="formattingFailed" class="formatting-notice" role="status">
+      Markdown formatting is unavailable; showing recorded text.
+    </p>
+    <div v-if="assignment" class="turn-assignment" aria-label="Assignment">
+      <div v-if="formattingFailed" class="recorded-text-fallback">{{ assignment }}</div>
+      <RecordedMarkdown v-else class="lyk-reading" :content="assignment" />
+      <div class="assignment-actions"><CopyButton :text="assignment" label="Copy message" /></div>
+    </div>
+    <RunTimeline
+      :blocks="blocks"
+      :active="active"
+      :attempt="run.attempt"
+      :dividers="dividers"
+      :ending="ending"
+      :queued="run.status === 'queued'"
+      :study-column="run.board_column"
+    >
+      <template #text="{ block }">
+        <StudyHandIn
+          v-if="finalKey && block.key === finalKey && run.hand_in"
+          :hand-in="run.hand_in"
+          :role="run.role"
+          :column="run.board_column"
+          :review-state="reviewState"
+          :card-id="run.card_id"
+          :run-id="run.id"
+          @open-output="emit('openOutput', $event)"
+        />
+        <template v-else-if="structuredMessage(block.text)">
+          <RecordedMarkdown
+            class="lyk-reading"
+            local-files
+            :content="String(structuredMessage(block.text)?.answer || '')"
+          />
+        </template>
+        <RecordedMarkdown
+          v-else-if="/^\s*\{\s*&quot;answer&quot;\s*:/.test(block.text)"
+          class="lyk-reading"
+          local-files
+          :content="messagePreview(block.text) || 'Report text unavailable.'"
+        />
+        <div v-else-if="formattingFailed" class="recorded-text-fallback">{{ block.text }}</div>
+        <RecordedMarkdown v-else class="lyk-reading" local-files :content="block.text" />
+      </template>
+    </RunTimeline>
+    <StudyHandIn
+      v-if="run.hand_in && run.hand_in_id && !finalKey"
+      :hand-in="run.hand_in"
+      :role="run.role"
+      :column="run.board_column"
+      :review-state="reviewState"
+      :card-id="run.card_id"
+      :run-id="run.id"
+      @open-output="emit('openOutput', $event)"
+    />
+    <p v-if="run.error && !systemRun(run.role)" class="run-error">{{ run.error }}</p>
+  </div>
+</template>
+<style scoped>
+.agent-turn {
+  --step-canvas: var(--surface);
+  --step-border: color-mix(in srgb, var(--text) 12%, var(--surface));
+  --step-line: color-mix(in srgb, var(--text) 20%, var(--surface));
+  --step-quiet: color-mix(in srgb, var(--text) 40%, var(--surface));
+  --step-muted: color-mix(in srgb, var(--text) 55%, var(--surface));
+  --step-surface: #edeef3;
+  --step-hover: color-mix(in srgb, var(--step-surface) 92%, var(--text));
+  --step-done: #27a644;
+  width: 100%;
+  max-width: 100ch;
+  margin-inline: auto;
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+/* The run's assignment, on the right like the researcher's own comments. */
+.turn-assignment {
+  position: relative;
+  width: fit-content;
+  max-width: min(100%, 52ch);
+  margin: 0 0 39px auto;
+  padding: 8px 12px;
+  border: 1px solid var(--step-line);
+  border-radius: 12px;
+  background: var(--step-hover);
+  min-width: 0;
+}
+.assignment-actions {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  padding-top: 4px;
+  opacity: 0;
+}
+.turn-assignment:hover .assignment-actions,
+.turn-assignment:focus-within .assignment-actions {
+  opacity: 1;
+}
+.assignment-actions :deep(.quiet-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.assignment-actions :deep(.quiet-action:hover) {
+  color: var(--text);
+  background: var(--hover);
+}
+@media (hover: none) {
+  .assignment-actions {
+    opacity: 1;
+  }
+}
+.recorded-text-fallback {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.formatting-notice {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.run-error {
+  color: var(--error-text);
+  margin-top: 10px;
+}
+</style>
+
+<style>
+:root[data-theme='dark'] .agent-turn {
+  --step-surface: color-mix(in srgb, var(--surface) 92%, var(--text));
+}
+</style>

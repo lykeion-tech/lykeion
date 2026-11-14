@@ -1,0 +1,56 @@
+#!/bin/sh
+# Stands in for Claude Code: reads its role from the prompt and ends as that
+# role would. The prompt arrives on stdin: in continuity mode
+# as one stream-json user frame on the first line, with stdin left open until
+# the result; in private mode as plain text up to end of file. Like a real
+# Claude Code it reports its version and schema flag, answers the daemon's
+# preflight hello, and, given a schema, ends with a structured answer.
+case "$1" in
+  --version) echo "2.1.69 (Claude Code)"; exit 0 ;;
+  --help) echo "  --json-schema <schema>  JSON Schema"; exit 0 ;;
+esac
+case "$*" in
+  *"--input-format stream-json"*) IFS= read -r prompt ;;
+  *) prompt="$(cat)" ;;
+esac
+case "$prompt" in
+  *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0 ;;
+esac
+# The role is the first word after "You are the" in the prompt: "autoresearch
+# role", or "<role> on Lykeion study" for a study's leader, member or agent.
+role=$(printf '%s' "$prompt" | grep -oE 'You are the [a-z0-9_-]+ (role|on Lykeion study)' | head -n 1 | sed 's/^You are the //; s/ role$//; s/ on Lykeion study$//')
+# Tests that set LYK_TEST_CAPTURE see what the daemon gave this role: the
+# skill, the MCP config and the command line, from the scratch folder the CLI
+# runs in.
+if [ -n "$LYK_TEST_CAPTURE" ]; then
+  # The MCP config reaches the CLI only as the --mcp-config argument, and
+  # the role only as --append-system-prompt-file.
+  mcp=""
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--mcp-config" ] && mcp=$a
+    [ "$prev" = "--append-system-prompt-file" ] && cp "$a" "$LYK_TEST_CAPTURE/$role.skill" 2>/dev/null
+    prev=$a
+  done
+  [ -n "$mcp" ] && cp "$mcp" "$LYK_TEST_CAPTURE/$role.mcp" 2>/dev/null
+  printf '%s\n' "$@" > "$LYK_TEST_CAPTURE/$role.args"
+fi
+exec 3>&1
+exec 1>&2
+# Only Autoresearch runs come here; a study's run ends with its hand-in,
+# which this stand-in never gives.
+# A real Claude Code keeps its session where the daemon looks before resuming
+# one; without the file the daemon starts the next run fresh.
+d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf '%s' "$PWD" | sed 's/[^a-zA-Z0-9]/-/g')"
+mkdir -p "$d" && : > "$d/s.jsonl"
+# Usage is cumulative per session, as Claude Code reports it, so a resumed
+# session is charged only its own turn.
+case "$*" in
+  *"--resume"*) n=2 ;;
+  *) n=1 ;;
+esac
+handin=''
+case "$*:$role" in
+  *--json-schema*:autoresearch) handin=',"structured_output":{"status":"done","answer":"Nothing new this week.","reason":null,"report":"Nothing new this week.","new_studies":[{"title":"Z and W","question":"Does Z lower W in mouse liver?"}]}' ;;
+esac
+echo '{"type":"result","is_error":false'"$handin"',"total_cost_usd":0.0'$n',"session_id":"s","modelUsage":{"m":{"inputTokens":'$n',"outputTokens":'$n',"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.0'$n'}}}' >&3

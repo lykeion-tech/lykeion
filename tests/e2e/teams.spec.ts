@@ -1,0 +1,282 @@
+import { selectPicker } from './select-picker';
+import { expect, test, type Page } from '@playwright/test';
+import { labPack, labSignIn, labWorkspace } from './lab';
+
+const shots = 'test-results/teams-scoring';
+
+test('deleting a custom Team warns about its agents and removes them', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  const headers = { 'X-Workspace-ID': ws };
+  const team = await labPack(page.request, 'delete-this-team', ws, { stage: 'grounding' });
+  const added = await page.request.post(`/api/teams/${team.id}/add`, { headers });
+  expect(added.status()).toBe(200);
+  const agents = await added.json();
+  expect(agents.length).toBeGreaterThan(0);
+  await page.goto(`/#/teams/${team.id}`);
+  await expect(page.getByRole('heading', { name: 'delete-this-team' })).toBeVisible();
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Agent copies will also be deleted');
+    await dialog.accept();
+  });
+  await page.getByRole('button', { name: 'Delete Team' }).click();
+  await expect(page).toHaveURL(/#\/teams$/);
+  expect((await page.request.get(`/api/teams/${team.id}`, { headers })).status()).toBe(404);
+  expect((await page.request.get(`/api/agents/${agents[0].id}`, { headers })).status()).toBe(404);
+});
+
+test('the sidebar shows the final IT Department order', async ({ page }) => {
+  await page.goto('/#/studies');
+  const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
+  const names = await nav.getByRole('link').allInnerTexts();
+  const at = (name: string) => names.findIndex((n) => n.trim() === name);
+  expect(at('Teams')).toBeGreaterThan(at('Studies'));
+  expect(at('Teams')).toBeGreaterThan(at('Colleagues'));
+  expect(
+    names
+      .map((name) => name.trim())
+      .filter((name) => ['Teams', 'Agents', 'Autoresearch'].includes(name)),
+  ).toEqual(['Autoresearch', 'Teams', 'Agents']);
+  await expect(nav.getByText('IT Department', { exact: true })).toBeVisible();
+  await nav.getByRole('link', { name: 'Teams', exact: true }).click();
+  await expect(page).toHaveURL(/#\/teams$/);
+  await expect(page.getByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
+  // The team glyph: a back square and a front square with two eyes.
+  const glyph = nav.getByRole('link', { name: 'Teams', exact: true }).locator('svg');
+  await expect(glyph.locator('circle')).toHaveCount(2);
+  await expect(glyph).not.toHaveClass(/lucide-network/);
+  await expect(page.locator('#page-header-count')).toBeEmpty();
+  await expect(page.locator('.page-header')).toHaveCSS('height', '58px');
+  await expect(page.locator('.page-header h1')).toHaveCSS('font-size', '20px');
+});
+
+test('Teams shows the empty state when nothing is shipped or uploaded', async ({ page }) => {
+  await page.route(/\/api\/teams\?/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.goto('/#/teams');
+  const empty = page.locator('.directory-empty');
+  await expect(empty.getByRole('heading', { name: 'No Teams yet' })).toBeVisible();
+  await expect(empty).toContainText('A Team is the agents that work each stage of your studies.');
+  // The Team icon: a square with two eyes in front of another, not the network icon.
+  await expect(empty.locator(':scope > svg')).not.toHaveClass(/lucide-network/);
+  await expect(empty.locator(':scope > svg circle')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Upload a Team' })).toHaveCount(0);
+  await empty.getByRole('link', { name: 'New Team' }).click();
+  await expect(page.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
+});
+
+test('the store filters by domain and stage', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  await labPack(page.request, 'store-neuro', ws, { domain: 'neuroscience', stage: 'grounding' });
+  await labPack(page.request, 'store-chem', ws, { domain: 'chemistry', stage: 'validation' });
+  await page.goto('/#/teams');
+  const rows = page.locator('.team-table tbody tr');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toContainText('Grounding');
+  await expect(rows.filter({ hasText: 'store-chem' })).toContainText('chemistry');
+  await page.screenshot({ path: `${shots}/store.png` });
+
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await selectPicker(page.getByRole('combobox', { name: 'Domain', exact: true }), 'chemistry');
+  await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(0);
+  await selectPicker(page.getByRole('combobox', { name: 'Domain', exact: true }), '');
+  await selectPicker(page.getByRole('combobox', { name: 'Stage', exact: true }), 'grounding');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'store-chem' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Filter Teams' })).toHaveCount(0);
+  await page.screenshot({ path: `${shots}/store-filtered.png` });
+  const search = page.getByRole('textbox', { name: 'Search Teams', exact: true });
+  await search.fill('STORE-NEURO');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
+  await search.fill('store-chem');
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByText('No matching Teams', { exact: true })).toBeVisible();
+  await search.fill('');
+  await expect(rows.filter({ hasText: 'store-neuro' })).toHaveCount(1);
+});
+
+test('adding a Team creates its agents', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  await labPack(page.request, 'store-add', ws, { domain: 'neuroscience', stage: 'grounding' });
+  await page.goto('/#/teams');
+  const row = page.locator('.team-table tbody tr').filter({ hasText: 'store-add' });
+  await expect(row).not.toContainText('Added');
+  await row.getByRole('link').click();
+  await expect(page.getByRole('heading', { name: 'store-add', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Leader' })).toBeVisible();
+  await expect(page.getByText('scout', { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${shots}/team-detail.png` });
+  await page.getByRole('button', { name: 'Add Team' }).click();
+  await expect(page.getByRole('status')).toContainText('Created 4 agents in your Agents page');
+  await page.screenshot({ path: `${shots}/team-added.png` });
+  await page.getByRole('link', { name: 'Agents', exact: true }).first().click();
+  await expect(page.getByRole('table', { name: 'Agents' })).toContainText('Pi · store-add');
+  await page.goto('/#/teams');
+  await expect(page.locator('.team-table tbody tr').filter({ hasText: 'store-add' })).toContainText(
+    'Added',
+  );
+});
+
+test("a colleague's Team is not in my store", async ({ page, browser }) => {
+  const ws = await labWorkspace(page.request);
+  const email = `store.${Date.now()}@ki.se`;
+  const invite = await page.request.post(`/api/workspaces/${ws}/invitations`, {
+    headers: { 'X-Workspace-ID': ws },
+    data: { email, role: 'member' },
+  });
+  expect(invite.status()).toBe(201);
+  const other = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  try {
+    await labSignIn(other.request, email);
+    const token = (await invite.json()).token;
+    expect((await other.request.post(`/api/invitations/${token}/accept`)).status()).toBe(200);
+    await labPack(other.request, 'store-theirs', ws, {
+      domain: 'neuroscience',
+      stage: 'grounding',
+    });
+    await page.goto('/#/teams');
+    await expect(page.locator('.team-table tbody tr').first()).toBeVisible();
+    await expect(
+      page.locator('.team-table tbody tr').filter({ hasText: 'store-theirs' }),
+    ).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+});
+
+// A Team's agents come from the Agents page; the form refers to them by id.
+async function formAgents(page: Page) {
+  const ws = await labWorkspace(page.request);
+  const headers = { 'X-Workspace-ID': ws };
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
+  const make = async (name: string, harness: string, model: string) =>
+    (
+      await (
+        await page.request.post('/api/agents', {
+          headers,
+          data: {
+            name: `${name} ${Date.now()}`,
+            stage: 'experimentation',
+            harness,
+            model,
+            instructions: `${name} works`,
+          },
+        })
+      ).json()
+    ).name as string;
+  return {
+    lead: await make('Form lead', 'claude', 'opus'),
+    worker: await make('Form worker', 'codex', ''),
+    checker: await make('Form checker', 'claude', 'sonnet'),
+  };
+}
+
+test('creating a Team from the template', async ({ page }) => {
+  const a = await formAgents(page);
+  const name = `scrna-${Date.now()}`;
+  await page.goto('/#/teams/new');
+  await page.getByLabel('Team name').fill(name);
+  await page.getByLabel('Description', { exact: true }).fill('Evidence briefs for scRNA-seq');
+  await page
+    .getByRole('dialog', { name: 'Create Team' })
+    .getByLabel('Domain')
+    .fill('Computational biology');
+  await selectPicker(
+    page
+      .getByRole('dialog', { name: 'Create Team' })
+      .getByRole('combobox', { name: 'Built for', exact: true }),
+    'grounding',
+  );
+  await selectPicker(page.getByLabel('Leader agent'), { label: a.lead });
+  await page.getByLabel('Leader role').fill('Reads the question and names a member for each step');
+  const member = page.locator('.team-member').first();
+  await member.getByLabel('Member name').fill('bioinformatician');
+  await selectPicker(member.getByLabel('Member agent'), { label: a.worker });
+  await member.getByLabel('Member role').fill('Python scripts and alignment');
+  await selectPicker(member.getByLabel('Add skill'), 'aeon');
+  await expect(member.getByRole('button', { name: 'Remove skill aeon' })).toBeVisible();
+  await selectPicker(member.getByLabel('Add connector'), 'uniprot');
+  await selectPicker(member.getByLabel('Add connector'), 'url');
+  await member.getByLabel('Connector name').fill('lab-mcp');
+  await member.getByLabel('Connector URL').fill('https://mcp.example.org/sse');
+  await page.getByRole('button', { name: '+ Add member' }).click();
+  const second = page.locator('.team-member').nth(1);
+  await second.getByLabel('Member name').fill('data-specialist');
+  await selectPicker(second.getByLabel('Member agent'), { label: a.lead });
+  await second.getByLabel('Member role').fill('Fetches records');
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.checker });
+  await page.getByLabel('Auditor role').fill('Checks every quote against its recorded call');
+  await page.getByRole('button', { name: "+ This Team's own criterion" }).click();
+  await page
+    .getByLabel('Criterion 1', { exact: true })
+    .fill('Every dataset named has its accession');
+  await page.getByLabel('Steps per column').fill('20');
+  await page.screenshot({ path: `${shots}/team-form.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Create Team' }).click();
+  await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible();
+  await expect(page.getByText('bioinformatician', { exact: true })).toBeVisible();
+  await expect(page.getByText('data-specialist', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await expect(page.getByText('Every dataset named has its accession')).toBeVisible();
+});
+
+test('the auditor can use the same model', async ({ page }) => {
+  const a = await formAgents(page);
+  await page.goto('/#/teams/new');
+  await page.getByLabel('Team name').fill('auditor-check');
+  await selectPicker(page.getByLabel('Leader agent'), { label: a.lead });
+  await page.getByLabel('Leader role').fill('Leads');
+  const member = page.locator('.team-member').first();
+  await member.getByLabel('Member name').fill('worker');
+  await selectPicker(member.getByLabel('Member agent'), { label: a.worker });
+  await member.getByLabel('Member role').fill('Works');
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.checker });
+  await page.getByLabel('Auditor role').fill('Audits');
+  await expect(page.getByRole('button', { name: 'Create Team' })).toBeEnabled();
+  await selectPicker(page.getByLabel('Auditor agent'), { label: a.lead });
+  await expect(page.getByRole('button', { name: 'Create Team' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Create Team' }).click();
+  await expect(page.getByRole('heading', { name: 'auditor-check', level: 1 })).toBeVisible();
+});
+
+test('the core criteria cannot be removed', async ({ page }) => {
+  await page.goto('/#/teams/new');
+  for (const c of [
+    'Does the work cite where its facts came from?',
+    'Does it answer what the researcher asked?',
+    "Does it say what it couldn't do?",
+  ]) {
+    const row = page.locator('.core-criterion').filter({ hasText: c });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole('button')).toHaveCount(0);
+  }
+  await page.getByRole('button', { name: "+ This Team's own criterion" }).click();
+  await expect(page.getByRole('button', { name: 'Remove criterion 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove criterion 1' }).click();
+  await expect(page.locator('.core-criterion')).toHaveCount(3);
+  await expect(page.getByLabel('Criterion 1', { exact: true })).toHaveCount(0);
+});
+
+test('Team slots show the supported agent backends', async ({ page }) => {
+  const ws = await labWorkspace(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
+  const agents: { id: string; label: string }[] = [];
+  for (const [harness, label] of [
+    ['claude', 'Claude Code'],
+    ['codex', 'Codex'],
+  ]) {
+    const response = await page.request.post('/api/agents', {
+      headers: { 'X-Workspace-ID': ws },
+      data: { name: `Team ${label}`, stage: 'experimentation', harness },
+    });
+    expect(response.status()).toBe(201);
+    agents.push({ id: (await response.json()).id, label: label! });
+  }
+  await page.goto('/#/teams/new');
+  const slot = page.locator('.slot').filter({ has: page.getByLabel('Leader agent') });
+  for (const agent of agents) {
+    await selectPicker(page.getByLabel('Leader agent'), agent.id);
+    await expect(slot.locator('small')).toHaveText(agent.label);
+  }
+});

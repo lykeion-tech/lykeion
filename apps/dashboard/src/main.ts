@@ -1,0 +1,20 @@
+import { createApp } from 'vue';
+import { VueQueryPlugin } from '@tanstack/vue-query';
+import App from './App.vue';
+import { router } from './router';
+import { createDashboardQueryClient } from './api/query-client';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
+import '@fontsource/barlow/400.css';
+import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/600.css';
+import '@fontsource/barlow-condensed/700.css';
+import '@fontsource/caveat/600.css';
+import './style.css';
+import './reading.css';
+import { applyTheme } from './theme';
+import { usePreferences } from './state/preferences';
+
+const queryClient = createDashboardQueryClient(router);
+applyTheme(usePreferences().theme);
+createApp(App).use(router).use(VueQueryPlugin, { queryClient }).mount('#app');

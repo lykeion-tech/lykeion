@@ -1,0 +1,76 @@
+DELETE FROM inbox_item WHERE kind IN ('escalated', 'released');
+ALTER TABLE inbox_item DROP CONSTRAINT inbox_item_kind_check,
+  ADD CONSTRAINT inbox_item_kind_check CHECK (kind IN
+  ('autoresearch_card', 'autoresearch_report', 'middle_score', 'blocked',
+   'no_tool', 'scoring_unavailable', 'done', 'waiting_for_machine', 'needs_decision', 'open_doubts',
+   'agent_decision', 'machine_offline'));
+
+ALTER TABLE inbox_item
+  ADD COLUMN options jsonb NOT NULL DEFAULT '[]',
+  ADD COLUMN default_option text NOT NULL DEFAULT '',
+  ADD COLUMN status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'decided', 'expired', 'dismissed', 'cancelled')),
+  ADD COLUMN expires_at timestamptz,
+  ADD COLUMN reminded_at timestamptz,
+  ADD COLUMN chosen_option text NOT NULL DEFAULT '',
+  ADD COLUMN guidance text NOT NULL DEFAULT '',
+  ADD COLUMN decided_by uuid REFERENCES "user"(id) ON DELETE SET NULL,
+  ADD COLUMN decided_at timestamptz,
+  ADD COLUMN raised_by text NOT NULL DEFAULT 'system' CHECK (raised_by IN ('system', 'agent')),
+  ADD COLUMN raised_run_id uuid REFERENCES agent_run(id) ON DELETE SET NULL,
+  ADD COLUMN from_member text NOT NULL DEFAULT '',
+  ADD COLUMN decision_kind text NOT NULL DEFAULT '' CHECK (decision_kind IN ('', 'scope', 'change_question', 'ethics', 'cost', 'access')),
+  ADD COLUMN decide_by text NOT NULL DEFAULT '',
+  ADD COLUMN decide_by_date date,
+  ADD COLUMN snoozed_until timestamptz,
+  ADD COLUMN kept boolean NOT NULL DEFAULT false,
+  ADD COLUMN archived_at timestamptz,
+  ADD COLUMN touched_at timestamptz NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX inbox_item_one_agent_decision ON inbox_item (card_id)
+  WHERE kind = 'agent_decision' AND status = 'open';
+CREATE INDEX inbox_item_due ON inbox_item (expires_at)
+  WHERE status = 'open' AND expires_at IS NOT NULL;
+
+ALTER TABLE card DROP CONSTRAINT card_block_kind_check,
+  ADD CONSTRAINT card_block_kind_check CHECK (block_kind IN ('', 'low_score', 'decision', 'parked'));
+
+-- Resolved items are history: a resolved stop was decided, anything else
+-- dismissed. Open stops become decisions that park the study after a week.
+UPDATE inbox_item SET status = 'decided', decided_at = resolved_at
+WHERE resolved_at IS NOT NULL AND kind IN ('blocked', 'needs_decision');
+UPDATE inbox_item SET status = 'dismissed' WHERE resolved_at IS NOT NULL AND kind NOT IN ('blocked', 'needs_decision');
+
+UPDATE inbox_item SET default_option = 'park', expires_at = now() + interval '7 days',
+  options = '[{"id":"redo","label":"Redo with guidance","consequence":"The column runs again with your guidance as its brief."},
+    {"id":"close","label":"Close as a negative result","consequence":"The study ends here and is recorded as a negative result."},
+    {"id":"park","label":"Park","consequence":"The study stops here; anyone who can open it may redo it later."}]'
+WHERE resolved_at IS NULL AND (kind = 'blocked' OR (kind = 'needs_decision' AND cause IS DISTINCT FROM 'machine_failures'));
+
+UPDATE inbox_item SET default_option = 'park', expires_at = now() + interval '7 days',
+  options = '[{"id":"try_again","label":"Try again","consequence":"The parked runs are queued again on their machine."},
+    {"id":"park","label":"Park","consequence":"The study stops here; anyone who can open it may redo it later."}]'
+WHERE resolved_at IS NULL AND kind = 'needs_decision' AND cause = 'machine_failures';
+
+-- The engine's sweep finds due decisions across workspaces, then works on
+-- each inside its own workspace.
+CREATE FUNCTION due_decisions(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid, card_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT workspace_id, id, card_id FROM inbox_item
+  WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= at AND card_id IS NOT NULL
+  ORDER BY expires_at, id LIMIT 100
+$$;
+CREATE FUNCTION due_reminders(at timestamptz) RETURNS TABLE (workspace_id uuid, id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT workspace_id, id FROM inbox_item
+  WHERE status = 'open' AND expires_at IS NOT NULL AND reminded_at IS NULL AND expires_at <= at + interval '24 hours'
+  ORDER BY expires_at, id LIMIT 100
+$$;
+CREATE INDEX inbox_item_stale ON inbox_item (touched_at)
+  WHERE archived_at IS NULL AND NOT kept AND status <> 'open';
+CREATE FUNCTION archive_stale_decisions(at timestamptz) RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  UPDATE inbox_item SET archived_at = at
+  WHERE archived_at IS NULL AND NOT kept AND status <> 'open' AND touched_at <= at - interval '90 days'
+$$;
+REVOKE ALL ON FUNCTION due_decisions(timestamptz), due_reminders(timestamptz), archive_stale_decisions(timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION due_decisions(timestamptz), due_reminders(timestamptz), archive_stale_decisions(timestamptz) TO lykeion_app;

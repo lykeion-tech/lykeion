@@ -1,0 +1,104 @@
+package pack
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sync"
+
+	"github.com/google/uuid"
+
+	"lykeion/server/internal/storage"
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+func blobKey(ws uuid.UUID, sha string) string { return ws.String() + "/packs/" + sha }
+
+// PutBlob stores the archive under its content address in ws. Call it before
+// the transaction that inserts the row: the key depends only on ws and the
+// archive, and a blob without a row is harmless.
+func PutBlob(ctx context.Context, blobs storage.Storage, ws uuid.UUID, zipBytes []byte, sha string) (string, error) {
+	key := blobKey(ws, sha)
+	return key, blobs.Put(ctx, key, bytes.NewReader(zipBytes), int64(len(zipBytes)))
+}
+
+// Insert writes the row for a parsed archive whose blob PutBlob stored at key.
+// A nil uploadedBy marks a shipped pack.
+func Insert(ctx context.Context, tx *store.Tx, key string, p *Pack, uploadedBy *uuid.UUID) (db.FieldPack, error) {
+	manifest, err := checkedManifest(ctx, tx, p)
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	source := "shipped"
+	if uploadedBy != nil {
+		source = "uploaded"
+	}
+	return tx.Q.InsertFieldPack(ctx, db.InsertFieldPackParams{WorkspaceID: tx.WS, Name: p.Manifest.Name,
+		Version: p.Manifest.Version, Sha256: p.SHA256, Manifest: manifest, BlobKey: key, Source: source, UploadedBy: uploadedBy,
+		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage})
+}
+
+// Replace points row at a newly stored archive in place: the id, name, source
+// and stored version stay, so studies and added agents keep the Team.
+func Replace(ctx context.Context, tx *store.Tx, row db.FieldPack, key string, p *Pack) (db.FieldPack, error) {
+	manifest, err := checkedManifest(ctx, tx, p)
+	if err != nil {
+		return db.FieldPack{}, err
+	}
+	return tx.Q.ReplaceFieldPack(ctx, db.ReplaceFieldPackParams{Sha256: p.SHA256, Manifest: manifest, BlobKey: key,
+		Domain: p.Manifest.Domain, Stage: p.Manifest.Stage, WorkspaceID: tx.WS, ID: row.ID})
+}
+
+// checkedManifest refuses connector references to another workspace's
+// servers and returns the manifest as the row stores it.
+func checkedManifest(ctx context.Context, tx *store.Tx, p *Pack) ([]byte, error) {
+	for _, member := range append([]Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...) {
+		for _, c := range member.Connectors {
+			if c.Workspace == "" {
+				continue
+			}
+			id, err := uuid.Parse(c.Workspace)
+			if err != nil {
+				return nil, fmt.Errorf("invalid workspace connector reference")
+			}
+			if _, err := tx.Q.GetWorkspaceMCPServer(ctx, db.GetWorkspaceMCPServerParams{WorkspaceID: tx.WS, ID: id}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return json.Marshal(p.Manifest)
+}
+
+// loaded holds parsed packs by archive sha256; the same bytes always parse
+// to the same pack.
+// ponytail: unbounded, keyed by content hash; bound it if packs churn.
+var loaded sync.Map
+
+// Load returns the parsed pack a field_pack row points at. It reads the blob,
+// so call it outside any transaction, with a row read inside one.
+func Load(ctx context.Context, blobs storage.Storage, row db.FieldPack) (*Pack, error) {
+	if p, ok := loaded.Load(row.Sha256); ok {
+		return p.(*Pack), nil
+	}
+	rc, err := blobs.Get(ctx, row.BlobKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	z, err := io.ReadAll(io.LimitReader(rc, MaxArchive+1))
+	if err != nil {
+		return nil, err
+	}
+	p, err := Parse(z)
+	if err != nil {
+		return nil, err
+	}
+	if p.SHA256 != row.Sha256 {
+		return nil, fmt.Errorf("pack: blob for %s does not match its sha256", row.ID)
+	}
+	loaded.Store(row.Sha256, p)
+	return p, nil
+}

@@ -1,0 +1,1 @@
+Synthetic VCF 4.3 FORMAT test, generated from lykeion-bcf-format.vcf with pysam 0.24.1 / HTSlib 1.24. Open the VCF with pysam.VariantFile, open a BCF writer with mode wb and the source header, and write each record. The fixture has no patient or personal data.
