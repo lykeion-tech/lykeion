@@ -45,6 +45,27 @@ const finalMessages = useRunMessages(
   () => props.run,
   () => props.run.status === 'completed' && !props.run.answer,
 );
+// A report run hands in the study's report as concepts, facts and links, not
+// as prose, so its card says what it wrote and where to read it.
+const reportSummary = computed(() => {
+  const hand = props.run.hand_in;
+  if (props.run.kind !== 'report' || props.run.status !== 'completed' || !hand) return null;
+  if (hand.status !== 'done') {
+    const reason = typeof hand.reason === 'string' ? hand.reason.trim() : '';
+    return {
+      done: false,
+      text: `Couldn't write the study report: ${reason || 'no reason was given.'}`,
+    };
+  }
+  const count = (key: string, one: string, many: string) => {
+    const n = Array.isArray(hand[key]) ? hand[key].length : 0;
+    return `${n} ${n === 1 ? one : many}`;
+  };
+  return {
+    done: true,
+    text: `Wrote the study report: ${count('concepts', 'concept', 'concepts')}, ${count('facts', 'fact', 'facts')} and ${count('links', 'link', 'links')}.`,
+  };
+});
 const finalAnswer = computed(() => {
   if (props.run.status !== 'completed') return '';
   if (props.run.answer) return props.run.answer;
@@ -263,6 +284,14 @@ const lastActive = computed(
           local-files
           :content="finalAnswer"
         />
+        <p v-else-if="reportSummary">
+          {{ reportSummary.text }}
+          <RouterLink
+            v-if="reportSummary.done"
+            :to="`/decisions/report/${encodeURIComponent(studyId)}`"
+            >Open the report</RouterLink
+          >
+        </p>
         <p
           v-else-if="run.status === 'completed' && finalMessages.isPending.value && run.attempt > 0"
         >
