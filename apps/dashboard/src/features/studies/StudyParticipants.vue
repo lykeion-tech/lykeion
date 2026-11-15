@@ -6,6 +6,7 @@ import { api } from '../../api/client';
 import { workspaceId } from '../../api/session';
 import type { AgentDefinition, AgentRun, Member, Runtime } from '../../api/types';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
+import ChatAgentAvatar from '../coresearch/ChatAgentAvatar.vue';
 import { agentDisplayName } from '../../lib/agent-name';
 
 type Capabilities = {
@@ -99,6 +100,11 @@ function runtime(run: AgentRun) {
           :value="agents.find((a) => a.id === run.agent_id)!.avatar_url.slice(6)"
           :size="18"
         />
+        <ChatAgentAvatar
+          v-else-if="agents.find((a) => a.id === run.agent_id)?.built_in_key === 'aristotle'"
+          :agent="agents.find((a) => a.id === run.agent_id)"
+          :size="22"
+        />
         <template v-else>{{ label(run)[0] }}</template>
       </button>
     </div>
@@ -120,7 +126,7 @@ function runtime(run: AgentRun) {
         <div class="profile-identity">
           <strong>{{ owner.name || owner.email }}</strong>
           <span class="role-badge">{{ owner.role }}</span>
-          <div class="muted">{{ owner.email }}</div>
+          <div class="muted profile-email" :title="owner.email">{{ owner.email }}</div>
         </div>
         <RouterLink class="details-link" :to="`/colleagues/${owner.user_id}`">Details →</RouterLink>
       </div>
@@ -139,6 +145,10 @@ function runtime(run: AgentRun) {
                 item.avatar_url.startsWith('emoji:') ? item.avatar_url.slice(6) : item.avatar_url
               "
               :size="18"
+            /><ChatAgentAvatar
+              v-else-if="item.built_in_key === 'aristotle'"
+              :agent="item"
+              :size="24"
             /><template v-else>{{ agentDisplayName(item.name)[0] }}</template></span
           >
           <span
@@ -161,6 +171,10 @@ function runtime(run: AgentRun) {
               agent.avatar_url.startsWith('emoji:') ? agent.avatar_url.slice(6) : agent.avatar_url
             "
             :size="30"
+          /><ChatAgentAvatar
+            v-else-if="agent?.built_in_key === 'aristotle'"
+            :agent="agent"
+            :size="42"
           /><template v-else>{{ label(active)[0] }}</template></span
         >
         <div class="profile-identity">
@@ -281,11 +295,18 @@ function runtime(run: AgentRun) {
   color: var(--muted);
 }
 .role-badge {
+  margin-left: 5px;
   background: var(--fill-control);
   border-radius: 4px;
   padding: 2px 5px;
   font-size: 11px;
   text-transform: capitalize;
+}
+.profile-email {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .details-link {
   color: var(--primary-text);

@@ -78,7 +78,13 @@ const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
   collapsed = ref<string[]>([]),
   busy = ref(false),
   error = ref('');
-const general = ref({ name: '', description: '', harness: 'claude', model: '', stage: '' as string }),
+const general = ref({
+    name: '',
+    description: '',
+    harness: 'claude',
+    model: '',
+    stage: '' as string,
+  }),
   visibility = ref<'workspace' | 'private'>('workspace'),
   instructions = ref('');
 const modelChoices = computed(() => {
@@ -108,7 +114,9 @@ const denied = computed(
   () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
 );
 const agent = computed(() => (denied.value ? undefined : detail.data.value));
-const available = computed(() => !!agent.value && agentAvailable(agent.value, runtimes.data.value ?? [], me.data.value?.id));
+const available = computed(
+  () => !!agent.value && agentAvailable(agent.value, runtimes.data.value ?? [], me.data.value?.id),
+);
 const modelLabel = computed(() => {
   const current = agent.value;
   if (!current?.model) return 'Harness default';
@@ -321,6 +329,7 @@ function toggle(id: string) {
             <div class="agent-identity">
               <EmojiIcon
                 :key="workspaceId + ':' + id"
+                :class="{ 'aristotle-avatar': builtin && !agent.avatar_url }"
                 :value="agent.avatar_url || ''"
                 :editable="editable"
                 :busy="busy"
@@ -332,13 +341,21 @@ function toggle(id: string) {
               <div>
                 <div class="agent-title">
                   <h1
-                    :class="{ 'long-name': [...agentNameWithoutCli(agent.name, agent.harness)].length > 20 }"
+                    :class="{
+                      'long-name': [...agentNameWithoutCli(agent.name, agent.harness)].length > 20,
+                    }"
                   >
                     {{ agentNameWithoutCli(agent.name, agent.harness) }}
                   </h1>
-                  {{ ' ' }}<span class="agent-status" :class="{ archived: agent.archived_at, unavailable: !agent.archived_at && !available }">{{
-                    agent.archived_at ? 'Archived' : available ? 'Active' : 'Inactive'
-                  }}</span>
+                  {{ ' '
+                  }}<span
+                    class="agent-status"
+                    :class="{
+                      archived: agent.archived_at,
+                      unavailable: !agent.archived_at && !available,
+                    }"
+                    >{{ agent.archived_at ? 'Archived' : available ? 'Active' : 'Inactive' }}</span
+                  >
                 </div>
                 <p v-if="agent.description" class="agent-description">{{ agent.description }}</p>
               </div>
@@ -355,7 +372,9 @@ function toggle(id: string) {
                   }}
                 </dd>
                 <dt>Harness</dt>
-                <dd>{{ harnessName(lab && boundMachine ? boundMachine.harness : agent.harness) }}</dd>
+                <dd>
+                  {{ harnessName(lab && boundMachine ? boundMachine.harness : agent.harness) }}
+                </dd>
                 <dt>Model</dt>
                 <dd>{{ modelLabel }}</dd>
                 <dt>Stage</dt>
@@ -364,15 +383,20 @@ function toggle(id: string) {
                   <dt>Machine</dt>
                   <dd>
                     {{ boundMachineLabel }}
-                    <p v-if="boundMachine && boundMachine.os !== 'linux' && (members.data.value?.length ?? 0) > 1" class="agent-hint">
+                    <p
+                      v-if="
+                        boundMachine &&
+                        boundMachine.os !== 'linux' &&
+                        (members.data.value?.length ?? 0) > 1
+                      "
+                      class="agent-hint"
+                    >
                       {{ machineName(boundMachine) }} runs only its owner's studies.
                     </p>
                   </dd>
                 </template>
               </dl>
-              <h3>
-                Studies
-              </h3>
+              <h3>Studies</h3>
               <div class="agent-stats">
                 <div>
                   <b>{{ active.length }}</b
@@ -557,8 +581,7 @@ function toggle(id: string) {
               <h3>Stage</h3>
               <div class="agent-card agent-execution">
                 <label class="agent-model-field"
-                  ><span>Stage</span
-                  ><span v-if="builtin" class="agent-stage-none">No stage</span
+                  ><span>Stage</span><span v-if="builtin" class="agent-stage-none">No stage</span
                   ><select
                     v-else
                     id="agent-stage"
@@ -705,6 +728,9 @@ function toggle(id: string) {
 <style src="./agent-detail.css" />
 
 <style scoped>
+:deep(.aristotle-avatar .agent-avatar) {
+  background: var(--palette-accent);
+}
 :deep(.agent-avatar .aristotle-art) {
   width: 44px;
   height: 48px;

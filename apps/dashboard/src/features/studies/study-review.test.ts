@@ -333,11 +333,10 @@ it('folds the checks to counts and filters them by status', async () => {
   await click(labelled(root, 'Unsupported checks'));
   const rows = all(root).filter((n) => n.props.class === 'check-row');
   expect(rows).toHaveLength(1);
+  expect(rows[0]!.tag).not.toBe('button');
+  expect(rows[0]!.props.onClick).toBeUndefined();
   expect(textOf(rows[0]!)).toContain('Criterion 1');
   expect(textOf(rows[0]!)).toContain('20%');
-  await click(labelled(root, 'Supported checks'));
-  await click(all(root).find((n) => n.props.class === 'check-row')!);
-  expect(textOf(selected(root))).toContain('The first paper found a benefit.');
 });
 
 it('opens the server checks when one failed', async () => {
@@ -357,7 +356,7 @@ it('opens the server checks when one failed', async () => {
   expect(server.props['aria-expanded']).toBe(true);
   expect(textOf(root)).toContain('DOI was not found');
   expect(all(root).filter((n) => n.props.class === 'server-family')).toHaveLength(1);
-  expect(textOf(root)).toContain('Searched “seedling growth” · 14 found · 6 screened by Jev');
+  expect(textOf(root)).not.toContain('Searched “seedling growth”');
 });
 
 it('puts the Experimentation fingerprint before open server checks and marks warning rows', async () => {
@@ -578,16 +577,12 @@ it('preserves distinct missed item groups and selection when status filters chan
   await click(labelled(root, 'Unsupported checks'));
   expect(groups()).toHaveLength(1);
   expect(groups()[0] === second).toBe(true);
-  await click(all(groups()[0]!).find((n) => n.props.class === 'check-row')!);
-  expect(textOf(selected(root))).toContain('Second missing source');
   await click(labelled(root, 'All checks'));
   expect(groups().map((group) => textOf(group).includes('Missed'))).toEqual([true, true, true]);
   expect(groups()[1] === second).toBe(true);
   await click(labelled(root, 'Unclear checks'));
   expect(groups()).toHaveLength(1);
   expect(textOf(groups()[0]!)).toContain('Missed third');
-  await click(all(groups()[0]!).find((n) => n.props.class === 'check-row')!);
-  expect(textOf(selected(root))).toContain('Third missing source');
 });
 
 it('says why the objector did not run without showing the same-family label', async () => {

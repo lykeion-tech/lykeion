@@ -6,13 +6,15 @@ import StudyParticipants from './StudyParticipants.vue';
 import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 
+vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
+
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   while (cleanups.length) cleanups.pop()!();
   vi.unstubAllGlobals();
 });
 
-async function open(runtime: Record<string, unknown> | null) {
+async function open(runtime: Record<string, unknown> | null, aristotle = false) {
   vi.stubGlobal('document', {
     activeElement: null,
     addEventListener() {},
@@ -49,8 +51,17 @@ async function open(runtime: Record<string, unknown> | null) {
           },
         ] as never,
         agents: [
-          { id: 'a1', name: 'searcher · Grounding Team', owner_id: 'u1', avatar_url: '' },
+          {
+            id: 'a1',
+            name: aristotle ? 'Aristotle' : 'searcher · Grounding Team',
+            owner_id: 'u1',
+            avatar_url: '',
+            built_in_key: aristotle ? 'aristotle' : '',
+          },
         ] as never,
+        owner: aristotle
+          ? ({ user_id: 'u1', name: 'Owner', email: 'owner@example.com', role: 'owner' } as never)
+          : undefined,
         runtimes: (runtime
           ? [{ id: 'r1', device_name: 'Mac', harness: 'claude', ...runtime }]
           : []) as never,
@@ -73,6 +84,14 @@ async function open(runtime: Record<string, unknown> | null) {
 }
 
 describe('a study participant card', () => {
+  it('shows Aristotle’s colored avatar in the owner’s agent list', async () => {
+    const root = await open(null, true);
+    const avatars = all(root).filter((entry) =>
+      String(entry.props.class ?? '').includes('is-aristotle'),
+    );
+    expect(avatars.length).toBeGreaterThan(0);
+    expect(textOf(root)).toContain('Aristotle');
+  });
   const dot = (root: ReturnType<typeof node>) =>
     all(root).find((n) => String(n.props.class ?? '').includes('status-dot'))!;
   it('says Active, with a green dot, when its machine is up and healthy', async () => {

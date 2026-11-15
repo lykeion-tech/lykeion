@@ -239,15 +239,6 @@ const ServerChecks = () =>
               ),
             ]),
           ),
-          ...(shown.value === 'grounding' && attempt.value?.recall
-            ? [
-                h(
-                  'p',
-                  { class: 'type-caption recall' },
-                  `Searched “${attempt.value.recall.query}” · ${attempt.value.recall.hits} found · ${attempt.value.recall.screened} screened by Jev`,
-                ),
-              ]
-            : []),
         ]
       : []),
   ]);
@@ -488,12 +479,10 @@ const unlinkedObjections = computed(() =>
                 >
                 <p class="item-quote" :title="group.item.quote">{{ group.item.quote }}</p>
               </header>
-              <button
+              <div
                 v-for="spoke in group.rows"
                 :key="spoke.id"
                 class="check-row"
-                :aria-pressed="picked === spoke.id"
-                @click="picked = spoke.id"
               >
                 <span
                   :style="{ color: colors[spoke.status] }"
@@ -511,7 +500,7 @@ const unlinkedObjections = computed(() =>
                     style="left: 35%" /><i class="evidence-tick" style="left: 70%"
                 /></span>
                 <span class="type-caption">{{ pct(spoke.p) }}%</span>
-              </button>
+              </div>
             </section>
           </template>
         </section>
@@ -772,10 +761,6 @@ footer {
   text-align: left;
   border-radius: 5px;
 }
-.check-row:hover,
-.check-row[aria-pressed='true'] {
-  background: var(--hover);
-}
 .check-row-label {
   overflow-wrap: anywhere;
 }
@@ -824,14 +809,8 @@ footer {
 .validation-unlinked p {
   margin: 4px 0 0;
 }
-.server-checks :deep(.server-row p),
-.server-checks :deep(.recall) {
+.server-checks :deep(.server-row p) {
   color: var(--muted);
-}
-.server-checks :deep(.recall) {
-  margin: 12px 0 0;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 .validation-details {
   margin-top: 16px;
