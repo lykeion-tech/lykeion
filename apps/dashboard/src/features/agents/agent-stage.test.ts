@@ -291,6 +291,17 @@ describe('agent stage', () => {
     expect(detail.text()).toContain('No stage');
   });
 
+  it("gives Aristotle's list icon the accent background its floating window uses", async () => {
+    const list = await mount(AgentsView, {}, [
+      agent({ id: 'x', name: 'Aristotle', stage: '', built_in_key: 'aristotle' }),
+      agent({ id: 'a', name: 'Reader', stage: 'grounding' }),
+    ]);
+    const avatars = all(list.root).filter(
+      (n) => String(n.props.class ?? '').split(' ').includes('avatar') && n.parent?.props.class === 'agent-cell',
+    );
+    expect(avatars.map((n) => String(n.props.class).includes('aristotle-avatar'))).toEqual([true, false]);
+  });
+
   it('lists agents with Stage after Owner and no Source column', async () => {
     const t = await mount(AgentsView, {}, [agent({ id: 'a', name: 'Reader', stage: 'grounding' })]);
     const heads = all(t.root)
