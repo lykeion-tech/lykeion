@@ -39,7 +39,11 @@ ON CONFLICT (card_id, board_column) DO UPDATE SET pack_id = EXCLUDED.pack_id;
 SELECT c.*,
   COALESCE((SELECT w FROM agent_run t, agent_run_waiting(t.workspace_id, t.id) w
     WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id AND t.status = 'queued' AND w IS NOT NULL
-    ORDER BY t.created_at, t.id LIMIT 1), '')::text AS waiting,
+    ORDER BY t.created_at, t.id LIMIT 1),
+    -- A column whose hand-in waits on scoring is not plain work in progress.
+    (SELECT 'Waiting for scoring: it is unavailable. Lykeion keeps retrying.' FROM inbox_item i
+    WHERE i.workspace_id = c.workspace_id AND i.card_id = c.id AND i.kind = 'scoring_unavailable' AND i.resolved_at IS NULL
+    LIMIT 1), '')::text AS waiting,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id
     AND t.status = 'queued' AND t.queue_reason IS NOT NULL)::boolean AS queued,
   EXISTS (SELECT 1 FROM agent_run t WHERE t.workspace_id = c.workspace_id AND t.card_id = c.id

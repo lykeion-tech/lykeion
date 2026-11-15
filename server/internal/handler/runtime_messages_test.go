@@ -117,6 +117,41 @@ func TestWaitingStudyNamesTheMachine(t *testing.T) {
 	}
 }
 
+// A study whose column waits on scoring says so on the board, so it doesn't
+// read as plain work in progress, and stops saying so once scoring resumes.
+func TestWaitingStudyNamesUnavailableScoring(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "a@lab.org")
+	w := s.workspace(t, a, "lab")
+	c := s.idleCard(t, a, w.ID, "Why?")
+	board := func() string {
+		t.Helper()
+		var cards []struct{ ID, Waiting string }
+		if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &cards); code != 200 {
+			t.Fatalf("cards: %d", code)
+		}
+		for _, x := range cards {
+			if x.ID == c.ID {
+				return x.Waiting
+			}
+		}
+		t.Fatalf("card %s not on the board", c.ID)
+		return ""
+	}
+	if got := board(); got != "" {
+		t.Fatalf("waiting before scoring failed: %q", got)
+	}
+	s.mustUpdate(t, `INSERT INTO inbox_item (workspace_id, user_id, card_id, kind, text)
+		SELECT workspace_id, owner_id, id, 'scoring_unavailable', 'Scoring is unavailable.' FROM card WHERE id = $1`, c.ID)
+	if got, want := board(), "Waiting for scoring: it is unavailable. Lykeion keeps retrying."; got != want {
+		t.Fatalf("waiting on scoring: %q, want %q", got, want)
+	}
+	s.mustUpdate(t, `UPDATE inbox_item SET resolved_at = now() WHERE card_id = $1`, c.ID)
+	if got := board(); got != "" {
+		t.Fatalf("waiting after scoring resumed: %q", got)
+	}
+}
+
 // A run no machine has claimed yet waits on every machine that could claim
 // it: it says so when none of them can, and the page hears when one stops or
 // starts taking studies.
