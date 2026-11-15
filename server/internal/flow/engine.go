@@ -318,10 +318,24 @@ func (e *Engine) enqueueWithInput(ctx context.Context, tx *store.Tx, c db.Card, 
 			model, _ = team.ModelFor(def, rt.Harness)
 		}
 	}
+	instructions := a.Instructions
+	if role == "agent" {
+		row, err := tx.ShippedSoloTeam(ctx, a.ID, c.BoardColumn)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return db.AgentRun{}, err
+		}
+		if err == nil {
+			var solo pack.Manifest
+			if err := json.Unmarshal(row.Manifest, &solo); err != nil {
+				return db.AgentRun{}, err
+			}
+			instructions = soloInstructions(solo)
+		}
+	}
 	return e.AgentRuns.Enqueue(ctx, tx, c.OwnerID, service.NewAgentRun{Card: c.ID, Column: c.BoardColumn, Round: c.Round,
 		Role: role, Harness: harness, Model: model, Prompt: runPrompt, Agent: &agentID, Assignment: runAssignment,
 		ContinuityScope: ContinuityScope(c.ID, role, c.BoardColumn, c.Round),
-		Skill:           strings.TrimSpace(a.Instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
+		Skill:           strings.TrimSpace(instructions + "\n\n" + Protocol(role, c.BoardColumn, c.ScopeFrom, m))})
 }
 
 func studyCLI(role, worker, auditor string, def pack.AgentDef) (string, string) {

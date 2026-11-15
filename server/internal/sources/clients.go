@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -88,19 +89,52 @@ func get(ctx context.Context, h *http.Client, u string) ([]byte, error) {
 	if h == nil {
 		h = client
 	}
-	resp, err := h.Do(req)
-	if err != nil {
-		if ue := (*url.Error)(nil); errors.As(err, &ue) {
-			ue.URL = shown(req.URL)
+	for attempt := 0; ; attempt++ {
+		resp, err := h.Do(req)
+		if err != nil {
+			if ue := (*url.Error)(nil); errors.As(err, &ue) {
+				ue.URL = shown(req.URL)
+			}
+			return nil, err
 		}
-		return nil, err
+		b, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return b, err
+		}
+		retryAfter := resp.Header.Get("Retry-After")
+		msg := fmt.Sprintf("GET %s: %s", shown(req.URL), resp.Status)
+		if retryAfter != "" {
+			msg += "; Retry-After: " + retryAfter
+		}
+		failure := statusError{msg, resp.StatusCode}
+		if attempt == 2 || (resp.StatusCode != http.StatusTooManyRequests && (resp.StatusCode < 500 || resp.StatusCode >= 600)) {
+			return nil, failure
+		}
+		if err := waitRetry(ctx, attempt, retryAfter); err != nil {
+			return nil, fmt.Errorf("%v: %w", failure, err)
+		}
 	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, statusError{fmt.Sprintf("GET %s: %s", shown(req.URL), resp.Status), resp.StatusCode}
+}
+
+func waitRetry(ctx context.Context, attempt int, retryAfter string) error {
+	delay := time.Duration(float64(time.Duration(1<<attempt)*500*time.Millisecond) * (1 - rand.Float64()/4))
+	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 && seconds <= int((1<<63-1)/int64(time.Second)) {
+		delay = time.Duration(seconds) * time.Second
+	} else if when, err := http.ParseTime(retryAfter); err == nil {
+		delay = max(time.Until(when), 0)
 	}
-	return b, err
+	if deadline, ok := ctx.Deadline(); ok && delay >= time.Until(deadline) {
+		return context.DeadlineExceeded
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // shown is u as an error may name it: errors reach agents, so an upstream

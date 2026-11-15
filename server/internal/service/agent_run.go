@@ -858,6 +858,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 	var out []Claimed
 	var refused []db.AgentRun
 	teams := map[uuid.UUID]TeamClaim{}
+	soloTeams := map[uuid.UUID]db.FieldPack{}
 	agentSkills := map[uuid.UUID][]string{}
 	workflows := map[uuid.UUID]string{}
 	rerunPackages := map[uuid.UUID]string{} // a rerun's package list, by blob key
@@ -1132,6 +1133,15 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
+					if t.Role == "agent" && t.AgentID != nil && t.CardID != nil && t.Kind == "role" {
+						row, e := tx.ShippedSoloTeam(ctx, *t.AgentID, t.BoardColumn)
+						if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+							return e
+						}
+						if e == nil {
+							soloTeams[t.ID] = row
+						}
+					}
 					if team != nil {
 						teams[t.ID] = *team
 					} else if t.Kind != "coresearch" && t.Kind != "aristotle" && t.Kind != "report" && t.AgentID != nil {
@@ -1314,6 +1324,25 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 				return err
 			}
 			out[i].Skills = slices.DeleteFunc(skills, func(s toolroute.RoutedSkill) bool { return !slices.Contains(names, s.Name) })
+		}
+		if row, ok := soloTeams[out[i].AgentRun.ID]; ok {
+			var manifest pack.Manifest
+			if err := json.Unmarshal(row.Manifest, &manifest); err != nil {
+				return err
+			}
+			var soloSkills []toolroute.RoutedSkill
+			for _, member := range append([]pack.Member{manifest.Leader}, manifest.Members...) {
+				_, skills := s.teamTools(ctx, TeamClaim{Pack: row, Role: member.Name, Added: true})
+				for _, skill := range skills {
+					if !slices.ContainsFunc(soloSkills, func(existing toolroute.RoutedSkill) bool { return existing.Name == skill.Name }) {
+						soloSkills = append(soloSkills, skill)
+					}
+				}
+			}
+			out[i].Skills = slices.DeleteFunc(out[i].Skills, func(existing toolroute.RoutedSkill) bool {
+				return slices.ContainsFunc(soloSkills, func(own toolroute.RoutedSkill) bool { return own.Name == existing.Name })
+			})
+			out[i].Skills = append(out[i].Skills, soloSkills...)
 		}
 		// A Workflow study's run carries the Workflow as a skill; one dropped
 		// from the release is simply left out.

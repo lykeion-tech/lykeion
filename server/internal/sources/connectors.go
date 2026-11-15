@@ -164,13 +164,32 @@ func (h *Hosted) Connectors(ctx context.Context, role middleware.Role) ([]Connec
 // serve the workspace's cached response of the last day, or call the
 // upstream with no transaction open; then record the call under the run.
 func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, in ConnectorIn) (ConnectorOut, error) {
+	r := connectors.NewRequest(in.Connector, in.Path, in.Query, in.Variables)
+	failed := func(failure error, args any) (ConnectorOut, error) {
+		name := in.Connector
+		if _, ok := connectors.Get(name); !ok {
+			name = "unknown"
+		}
+		body, rest := NewCall(role, "catalogue:"+name, "fetch", args, "", false)
+		message := failure.Error()
+		if _, rejected := args.(map[string]any); rejected {
+			message = "connector request rejected during validation"
+		}
+		body["error"] = message
+		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CallTimeout)
+		defer cancel()
+		if _, err := h.RecordCall(recordCtx, role, token, body, rest); err != nil {
+			return ConnectorOut{}, fmt.Errorf("source call failed (%v), and the failure could not be recorded: %w", failure, err)
+		}
+		return ConnectorOut{}, failure
+	}
 	e, ok := connectors.Get(in.Connector)
 	if !ok {
-		return ConnectorOut{}, fmt.Errorf("no connector is named %q: list_connectors names the ones this run can use", in.Connector)
+		return failed(fmt.Errorf("no connector is named %q: list_connectors names the ones this run can use", in.Connector), map[string]any{"connector": "unknown"})
 	}
-	r := connectors.NewRequest(e.Name, in.Path, in.Query, in.Variables)
 	if err := h.Conn.Check(e, r); err != nil {
-		return ConnectorOut{}, h.refused(role, in, err)
+		// A rejected request may contain credentials in its parameters.
+		return failed(h.refused(role, in, err), map[string]any{"connector": e.Name})
 	}
 	var row *db.WorkspaceConnector
 	var hit *db.ConnectorFetch
@@ -197,69 +216,76 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 		return nil
 	})
 	if err != nil {
-		return ConnectorOut{}, err
+		return failed(err, r)
 	}
 	listed, err := h.declared(ctx, role, team)
 	if err != nil {
-		return ConnectorOut{}, err
+		return failed(err, r)
 	}
 	if listed != nil && !listed[e.Name] {
 		if team != nil {
-			return ConnectorOut{}, fmt.Errorf("this study's Team does not declare `%s` for this member: list_connectors names the ones it does", e.Name)
+			return failed(fmt.Errorf("this study's Team does not declare `%s` for this member: list_connectors names the ones it does", e.Name), r)
 		}
-		return ConnectorOut{}, fmt.Errorf("this agent does not have `%s`: list_connectors names the connectors it can use", e.Name)
+		return failed(fmt.Errorf("this agent does not have `%s`: list_connectors names the connectors it can use", e.Name), r)
 	}
 	if err := connectors.Ready(e, row, h.Conn.Contact); err != nil {
-		return ConnectorOut{}, err
+		return failed(err, r)
 	}
 	out := ConnectorOut{SourceID: r.SourceID(), Connector: e.Name, Notice: notice}
 	var body []byte
 	if hit != nil {
 		if body, err = h.read(ctx, hit.BlobKey); err != nil {
-			return ConnectorOut{}, err
+			return failed(err, r)
 		}
 		out.Status, out.ContentType, out.Truncated, out.Cached = 200, hit.ContentType, hit.Truncated, true
 	} else {
 		key := ""
 		if row != nil && len(row.KeyCiphertext) > 0 {
 			if key, err = h.Conn.Open(role.WorkspaceID, e.Name, row.KeyCiphertext); err != nil {
-				return ConnectorOut{}, fmt.Errorf("the key saved for `%s` cannot be read on this server: the workspace owner saves it again in Connectors", e.Name)
+				return failed(fmt.Errorf("the key saved for `%s` cannot be read on this server: the workspace owner saves it again in Connectors", e.Name), r)
 			}
 		}
 		res, err := h.Conn.Do(ctx, role.WorkspaceID, e, r, key)
+		for attempt := 0; err == nil && attempt < 2 && (res.Status == 429 || (res.Status >= 500 && res.Status < 600)); attempt++ {
+			if err = waitRetry(ctx, attempt, res.RetryAfter); err != nil {
+				err = fmt.Errorf("%s answered %d; Retry-After: %s: %w", e.Name, res.Status, res.RetryAfter, err)
+			} else {
+				res, err = h.Conn.Do(ctx, role.WorkspaceID, e, r, key)
+			}
+		}
 		if errors.Is(err, connectors.ErrRefused) {
-			return ConnectorOut{}, h.refused(role, in, err)
+			return failed(h.refused(role, in, err), r)
 		}
 		if err != nil {
-			return ConnectorOut{}, err
+			return failed(err, r)
 		}
-		if res.Status == 429 || res.Status >= 500 {
+		if res.Status == 429 || (res.Status >= 500 && res.Status < 600) {
 			msg := fmt.Sprintf("%s answered %d", e.Name, res.Status)
 			if res.RetryAfter != "" {
 				msg += "; retry after " + res.RetryAfter + " (its Retry-After)"
 			}
-			return ConnectorOut{}, errors.New(msg)
+			return failed(errors.New(msg), r)
 		}
 		if res.Status >= 300 {
-			return ConnectorOut{}, fmt.Errorf("%s answered %d: %s", e.Name, res.Status, excerpt(res.Body))
+			return failed(fmt.Errorf("%s answered %d: %s", e.Name, res.Status, excerpt(res.Body)), r)
 		}
 		sum := sha256.Sum256(res.Body)
 		blobKey := role.WorkspaceID.String() + "/connectors/" + hex.EncodeToString(sum[:])
 		if err := h.Blobs.Put(ctx, blobKey, bytes.NewReader(res.Body), int64(len(res.Body))); err != nil {
-			return ConnectorOut{}, err
+			return failed(err, r)
 		}
 		err = h.Store.InWorkspace(ctx, role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
 			return tx.Q.PutConnectorFetch(ctx, db.PutConnectorFetchParams{WorkspaceID: tx.WS, RequestSha256: r.SHA256(), Connector: e.Name,
 				BlobKey: blobKey, ContentType: res.ContentType, Truncated: res.Truncated})
 		})
 		if err != nil {
-			return ConnectorOut{}, err
+			return failed(err, r)
 		}
 		body = res.Body
 		out.Status, out.ContentType, out.Truncated = res.Status, res.ContentType, res.Truncated
 	}
 	if h.Exclude.Match(string(body)) {
-		return ConnectorOut{}, fmt.Errorf("%s answered with a source that is not available on this server", e.Name)
+		return failed(fmt.Errorf("%s answered with a source that is not available on this server", e.Name), r)
 	}
 	out.Body = string(body)
 	if role.CardID == uuid.Nil {
@@ -279,7 +305,7 @@ func (h *Hosted) Fetch(ctx context.Context, role middleware.Role, token string, 
 // refused logs a request Lykeion would not send and hands back why.
 func (h *Hosted) refused(role middleware.Role, in ConnectorIn, err error) error {
 	slog.Warn("connector request refused", "workspace", role.WorkspaceID, "agent_run", role.AgentRunID,
-		"connector", in.Connector, "path", in.Path, "reason", err.Error())
+		"connector", in.Connector)
 	return err
 }
 
