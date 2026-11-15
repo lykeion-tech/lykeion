@@ -241,7 +241,7 @@ func daemonCmd(e *env) *cobra.Command {
 		}
 		return daemon.Run(ctx, cfg)
 	}}
-	run.Flags().IntVar(&slots, "slots", 2, "agent runs at once")
+	run.Flags().IntVar(&slots, "slots", daemon.DefaultSlots, "agent runs at once")
 	run.Flags().StringVar(&claudeBin, "claude-bin", "", "path to claude")
 	run.Flags().StringVar(&codexBin, "codex-bin", "", "path to codex")
 

@@ -402,6 +402,10 @@ type CoresearchCell struct {
 	ReceiptSha      *string         `json:"receipt_sha"`
 }
 
+type CoresearchCellGenerationCapability struct {
+	Enabled bool `json:"enabled"`
+}
+
 type CoresearchChange struct {
 	ID          uuid.UUID  `json:"id"`
 	WorkspaceID uuid.UUID  `json:"workspace_id"`
@@ -971,7 +975,7 @@ type Runtime struct {
 	CustomName      *string         `json:"custom_name"`
 	Status          string          `json:"status"`
 	LastSeenAt      time.Time       `json:"last_seen_at"`
-	MaxConcurrent   int32           `json:"max_concurrent"`
+	MaxConcurrent   *int32          `json:"max_concurrent"`
 	CreatedAt       time.Time       `json:"created_at"`
 	CliVersion      string          `json:"cli_version"`
 	Os              string          `json:"os"`

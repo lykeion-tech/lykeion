@@ -643,6 +643,9 @@ func TestConcurrentClaimsRespectRuntimeLimit(t *testing.T) {
 	ctx := context.Background()
 	f.enqueue(t, 8, "claude")
 	ref := f.runtime(t, f.Owner, "d1", "claude")
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET max_concurrent = 2 WHERE id = $1", ref.RuntimeID); err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	total := 0

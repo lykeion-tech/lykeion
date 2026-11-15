@@ -31,7 +31,7 @@ SELECT r.*, (SELECT count(*) FROM agent_run t WHERE t.workspace_id = r.workspace
 FROM runtime r WHERE r.workspace_id = @workspace_id ORDER BY r.created_at;
 
 -- name: SetRuntimeConcurrency :execrows
-UPDATE runtime SET max_concurrent = @max_concurrent
+UPDATE runtime SET max_concurrent = sqlc.narg(max_concurrent)
 WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: SetRuntimeName :execrows

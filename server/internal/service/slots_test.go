@@ -7,6 +7,39 @@ import (
 	"lykeion/server/internal/store"
 )
 
+// A runtime has no limit of its own unless one is set: its daemon's slots
+// decide how many runs it starts. A limit, once set, still holds.
+func TestRuntimeLimitIsOptional(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	ref := f.runtime(t, f.Owner, "d1", "claude")
+	var limit *int32
+	if err := f.Env.Owner.QueryRow(ctx, "SELECT max_concurrent FROM runtime WHERE id = $1", ref.RuntimeID).Scan(&limit); err != nil {
+		t.Fatal(err)
+	}
+	if limit != nil {
+		t.Fatalf("a new runtime has a limit of %d, want none", *limit)
+	}
+	for range 4 {
+		err := f.T.Store.InWorkspace(ctx, f.WS, f.Owner, func(tx *store.Tx) error {
+			_, err := f.T.Enqueue(ctx, tx, f.Owner, NewAgentRun{Card: f.Card, Column: "grounding", Round: 1, Role: "scoper", Harness: "claude", Prompt: "p", MaxAttempts: 2})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 3); err != nil || len(got) != 3 {
+		t.Fatalf("an unlimited runtime claimed %d of 3 free slots: %v", len(got), err)
+	}
+	if _, err := f.Env.Owner.Exec(ctx, "UPDATE runtime SET max_concurrent = 3 WHERE id = $1", ref.RuntimeID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{ref}, 5); err != nil || len(got) != 0 {
+		t.Fatalf("a runtime limited to 3 with 3 active started %d more: %v", len(got), err)
+	}
+}
+
 // A leader waiting on its member must not hold the runtime's only slot, or
 // the member it waits for never starts.
 func TestWaitingLeaderFreesItsSlot(t *testing.T) {

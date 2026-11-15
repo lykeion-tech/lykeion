@@ -464,7 +464,7 @@ export interface Runtime {
   status: 'online' | 'offline';
   unhealthy_reason?: string | null;
   last_seen_at: string;
-  max_concurrent: number;
+  max_concurrent: number | null; // null: no limit of its own; its daemon's slots decide
   created_at: string;
   active_runs: number; // dispatched or running on this runtime
   cli_version: string; // as the daemon reported it; '' when unknown
