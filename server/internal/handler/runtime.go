@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -97,17 +98,23 @@ func (h *H) patchRuntime(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// max_concurrent null lifts the runtime's own limit; absent leaves it.
 	var in struct {
-		MaxConcurrent *int32  `json:"max_concurrent"`
-		CustomName    *string `json:"custom_name"`
+		MaxConcurrent json.RawMessage `json:"max_concurrent"`
+		CustomName    *string         `json:"custom_name"`
 	}
 	if err := readJSON(r, &in); err != nil || (in.MaxConcurrent == nil && in.CustomName == nil) {
 		writeErr(w, 400, "max_concurrent or custom_name required")
 		return
 	}
-	if in.MaxConcurrent != nil && (*in.MaxConcurrent < 1 || *in.MaxConcurrent > 32) {
-		writeErr(w, 400, "max_concurrent between 1 and 32 required")
-		return
+	var limit *int32
+	if in.MaxConcurrent != nil && string(in.MaxConcurrent) != "null" {
+		var n int32
+		if err := json.Unmarshal(in.MaxConcurrent, &n); err != nil || n < 1 || n > 32 {
+			writeErr(w, 400, "max_concurrent between 1 and 32, or null, required")
+			return
+		}
+		limit = &n
 	}
 	var name *string
 	if in.CustomName != nil {
@@ -122,7 +129,7 @@ func (h *H) patchRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, u uuid.UUID) error {
 		if in.MaxConcurrent != nil {
-			n, err := tx.Q.SetRuntimeConcurrency(r.Context(), db.SetRuntimeConcurrencyParams{ID: id, WorkspaceID: ws, OwnerID: u, MaxConcurrent: *in.MaxConcurrent})
+			n, err := tx.Q.SetRuntimeConcurrency(r.Context(), db.SetRuntimeConcurrencyParams{ID: id, WorkspaceID: ws, OwnerID: u, MaxConcurrent: limit})
 			if err != nil {
 				return err
 			}
@@ -139,7 +146,7 @@ func (h *H) patchRuntime(w http.ResponseWriter, r *http.Request) {
 				return pgx.ErrNoRows
 			}
 		}
-		return tx.Emit(r.Context(), "runtime.updated", nil, store.User(u), map[string]any{"runtime_id": id, "custom_name": name, "max_concurrent": in.MaxConcurrent})
+		return tx.Emit(r.Context(), "runtime.updated", nil, store.User(u), map[string]any{"runtime_id": id, "custom_name": name, "max_concurrent": limit})
 	})
 	if err != nil {
 		fail(w, r, err)

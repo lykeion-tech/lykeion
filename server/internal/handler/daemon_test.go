@@ -162,12 +162,12 @@ func TestRuntimeCustomNameSurvivesRegistrationAndEmitsEvents(t *testing.T) {
 	var list []struct {
 		CustomName    *string `json:"custom_name"`
 		DeviceName    string  `json:"device_name"`
-		MaxConcurrent int32   `json:"max_concurrent"`
+		MaxConcurrent *int32  `json:"max_concurrent"`
 	}
 	if got := s.call(t, "GET", "/api/runtimes", jwt, w.ID, nil, &list); got != 200 || len(list) != 1 {
 		t.Fatalf("list: %d %+v", got, list)
 	}
-	if list[0].CustomName == nil || *list[0].CustomName != "Lab Mac" || list[0].DeviceName != "renamed-host" || list[0].MaxConcurrent != 2 {
+	if list[0].CustomName == nil || *list[0].CustomName != "Lab Mac" || list[0].DeviceName != "renamed-host" || list[0].MaxConcurrent == nil || *list[0].MaxConcurrent != 2 {
 		t.Fatalf("re-registration overwrote runtime settings: %+v", list[0])
 	}
 	for _, bad := range []map[string]any{{}, {"custom_name": strings.Repeat("x", 65)}, {"max_concurrent": 0}, {"max_concurrent": 33}} {
@@ -182,12 +182,21 @@ func TestRuntimeCustomNameSurvivesRegistrationAndEmitsEvents(t *testing.T) {
 	if list[0].CustomName != nil {
 		t.Fatalf("name not cleared: %q", *list[0].CustomName)
 	}
+	// null lifts the runtime's own limit, leaving its daemon's slots to decide.
+	if got := s.call(t, "PATCH", path, jwt, w.ID, map[string]any{"max_concurrent": nil}, nil); got != 204 {
+		t.Fatalf("clear limit: %d", got)
+	}
+	s.call(t, "GET", "/api/runtimes", jwt, w.ID, nil, &list)
+	if list[0].MaxConcurrent != nil {
+		t.Fatalf("limit not cleared: %d", *list[0].MaxConcurrent)
+	}
 	var updates int
 	if err := s.Env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM event WHERE workspace_id=$1 AND type='runtime.updated'", w.ID).Scan(&updates); err != nil {
 		t.Fatal(err)
 	}
-	if updates != 2 {
-		t.Fatalf("runtime.updated events: %d, want 2", updates)
+	// One event per successful update: settings, the name cleared, the limit cleared.
+	if updates != 3 {
+		t.Fatalf("runtime.updated events: %d, want 3", updates)
 	}
 	if got := s.call(t, "DELETE", path, jwt, w.ID, nil, nil); got != 204 {
 		t.Fatalf("delete: %d", got)

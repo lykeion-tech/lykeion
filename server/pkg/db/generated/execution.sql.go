@@ -1039,7 +1039,7 @@ type ListRuntimesRow struct {
 	CustomName      *string         `json:"custom_name"`
 	Status          string          `json:"status"`
 	LastSeenAt      time.Time       `json:"last_seen_at"`
-	MaxConcurrent   int32           `json:"max_concurrent"`
+	MaxConcurrent   *int32          `json:"max_concurrent"`
 	CreatedAt       time.Time       `json:"created_at"`
 	CliVersion      string          `json:"cli_version"`
 	Os              string          `json:"os"`
@@ -1899,7 +1899,7 @@ WHERE id = $2 AND workspace_id = $3 AND owner_id = $4
 `
 
 type SetRuntimeConcurrencyParams struct {
-	MaxConcurrent int32     `json:"max_concurrent"`
+	MaxConcurrent *int32    `json:"max_concurrent"`
 	ID            uuid.UUID `json:"id"`
 	WorkspaceID   uuid.UUID `json:"workspace_id"`
 	OwnerID       uuid.UUID `json:"owner_id"`

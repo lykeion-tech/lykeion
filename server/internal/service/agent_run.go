@@ -928,7 +928,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if err != nil {
 						return err
 					}
-					if !coresearchOnly && active >= int(runtime.MaxConcurrent) {
+					if !coresearchOnly && runtime.MaxConcurrent != nil && active >= int(*runtime.MaxConcurrent) {
 						return nil
 					}
 					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation, CoresearchOnly: coresearchOnly})

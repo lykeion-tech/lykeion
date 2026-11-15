@@ -48,9 +48,13 @@ type Config struct {
 	Preflight func(ctx context.Context, harness string) (reason, detail string)
 }
 
+// DefaultSlots is how many agent runs a daemon runs at once unless told
+// otherwise, as Multica's daemon does (DefaultMaxConcurrentTasks).
+const DefaultSlots = 20
+
 func (c *Config) defaults() {
 	if c.Slots == 0 {
-		c.Slots = 2
+		c.Slots = DefaultSlots
 	}
 	if c.Poll == 0 {
 		c.Poll = 30 * time.Second
