@@ -486,6 +486,37 @@ it('does not label an interim text as the final message when no accepted answer 
   expect(textOf(root)).not.toContain('intermediate thought');
 });
 
+it('says what a finished report run wrote instead of a missing final message', async () => {
+  const { root } = setup({
+    status: 'completed',
+    role: 'reporter',
+    kind: 'report',
+    answer: '',
+    hand_in: { status: 'done', reason: null, concepts: [{}, {}], facts: [{}, {}, {}], links: [{}] },
+  });
+  await vi.waitFor(() => expect(textOf(root)).toContain('Wrote the study report'));
+  expect(textOf(root)).toContain('2 concepts, 3 facts and 1 link');
+  expect(textOf(root)).not.toContain('Final message unavailable');
+  const open = all(root).find((n) => n.props.href === '/decisions/report/c');
+  expect(open && textOf(open)).toBe('Open the report');
+});
+
+it('says why a report run could not write the report', async () => {
+  const { root } = setup({
+    status: 'completed',
+    role: 'reporter',
+    kind: 'report',
+    answer: '',
+    hand_in: { status: 'could_not_do', reason: 'The study has no records yet.' },
+  });
+  await vi.waitFor(() =>
+    expect(textOf(root)).toContain(
+      "Couldn't write the study report: The study has no records yet.",
+    ),
+  );
+  expect(textOf(root)).not.toContain('Final message unavailable');
+});
+
 it('keeps the answer expanded with no model name or fold control', async () => {
   const { root } = setup({ answer: 'Final **answer**', model: 'Secret model' });
   await nextTick();
