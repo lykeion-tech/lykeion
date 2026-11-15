@@ -29,6 +29,7 @@ var failureWords = map[string]string{
 	agent.ReasonRuntimeOffline:  "its machine went offline",
 	"timeout":                   "it ran out of time",
 	agent.ReasonProviderNetwork: "the agent's provider could not be reached",
+	agent.ReasonProviderQuota:   "the provider account reached its usage limit",
 	agent.ReasonSignIn:          "the agent's CLI was signed out",
 	agent.ReasonCLIMissing:      "the agent's CLI was not installed",
 	agent.ReasonCLITooOld:       "the agent's CLI was too old",
@@ -84,6 +85,8 @@ func ReleaseParkedRuns(ctx context.Context, tx *store.Tx, card uuid.UUID) error 
 func machineWaitText(machine, harness, reason, tool string) string {
 	name := harnessName(harness)
 	switch reason {
+	case agent.ReasonProviderQuota:
+		return fmt.Sprintf("%s on %s reached its provider usage limit. Lykeion checks again every 30 minutes; waiting studies continue after a successful check.", name, machine)
 	case agent.ReasonSignIn:
 		return fmt.Sprintf("%s on %s is signed out. Sign in again on that machine (run `%s login`); waiting studies continue by themselves.", name, machine, harness)
 	case agent.ReasonCLIMissing:
@@ -156,7 +159,7 @@ func (s *AgentRuns) parkInfra(ctx context.Context, tx *store.Tx, run db.AgentRun
 	}
 	var raise bool
 	switch reason {
-	case agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonSandbox:
+	case agent.ReasonProviderQuota, agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonSandbox:
 		raise = true
 	case agent.ReasonFenceBreach:
 		// The first breach is retried. A second one in a row on the same run

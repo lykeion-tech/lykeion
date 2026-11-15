@@ -339,7 +339,7 @@ func TestPreflightRechecksSoonWhileASelfClearingCauseHolds(t *testing.T) {
 	for _, tc := range []struct {
 		reason string
 		soon   bool
-	}{{agent.ReasonDoor, true}, {agent.ReasonCLIBroken, true}, {agent.ReasonSignIn, false}} {
+	}{{agent.ReasonDoor, true}, {agent.ReasonCLIBroken, true}, {agent.ReasonSignIn, false}, {"provider_quota", false}} {
 		t.Run(tc.reason, func(t *testing.T) {
 			var calls atomic.Int32
 			d := &daemon{rechecks: make(chan string, 4), cfg: Config{Harnesses: map[string]string{"claude": "claude"}, Preflight: func(context.Context, string) (string, string) {
@@ -369,5 +369,56 @@ func TestClaudeTooOld(t *testing.T) {
 		if got := claudeTooOld(v); got != old {
 			t.Errorf("claudeTooOld(%q) = %v, want %v", v, got, old)
 		}
+	}
+}
+
+func TestQuotaPreflightDoesNotRetryOrRequestImmediateCheck(t *testing.T) {
+	var calls int
+	d := &daemon{rechecks: make(chan string, 1), cfg: Config{Preflight: func(context.Context, string) (string, string) {
+		calls++
+		return "provider_quota", "weekly limit reached"
+	}}}
+	d.checkMachine(t.Context(), "claude", false)
+	d.recheck("claude", "provider_quota")
+	if calls != 1 || len(d.rechecks) != 0 || d.selfClearing["claude"] {
+		t.Fatalf("quota: calls=%d immediate=%d soft=%v", calls, len(d.rechecks), d.selfClearing["claude"])
+	}
+}
+
+func TestQuotaPauseBlocksAllHarnessReferencesUntilSuccessfulPreflight(t *testing.T) {
+	a, b, other := uuid.New(), uuid.New(), uuid.New()
+	d := &daemon{harnessOf: map[uuid.UUID]string{a: "claude", b: "claude", other: "codex"}, selfClearing: map[string]bool{"claude": true, "codex": true}, cfg: Config{Preflight: func(context.Context, string) (string, string) { return "provider_quota", "limit" }}}
+	refs := []runtimeRef{{RuntimeID: a}, {RuntimeID: b}, {RuntimeID: other}}
+	d.pauseQuotaReport(Report{Kind: "fail", RuntimeID: a, FailureReason: "provider_quota"})
+	if got := d.claimableReferences(refs); len(got) != 1 || got[0].RuntimeID != other {
+		t.Fatalf("claimable: %v", got)
+	}
+	last := time.Now()
+	if got := d.preflightDue("claude", last).Sub(last); got != preflightEvery {
+		t.Fatalf("quota interval %v", got)
+	}
+	if got := d.preflightDue("codex", last).Sub(last); got != softRecheckEvery {
+		t.Fatalf("soft interval %v", got)
+	}
+	d.checkMachine(t.Context(), "claude", false)
+	if got := d.claimableReferences(refs); len(got) != 1 {
+		t.Fatalf("quota check cleared pause: %v", got)
+	}
+	d.cfg.Preflight = func(context.Context, string) (string, string) { return "", "" }
+	d.checkMachine(t.Context(), "claude", false)
+	if got := d.claimableReferences(refs); len(got) != 3 {
+		t.Fatalf("healthy check did not release: %v", got)
+	}
+}
+
+func TestOlderPreflightCannotClearNewQuotaPause(t *testing.T) {
+	d := &daemon{harnessOf: map[uuid.UUID]string{}, quotaPaused: map[string]time.Time{"codex": time.Now().Add(-time.Minute)}}
+	d.cfg.Preflight = func(context.Context, string) (string, string) {
+		d.pauseQuota("codex")
+		return "", ""
+	}
+	d.checkMachine(t.Context(), "codex", false)
+	if d.quotaPaused["codex"].IsZero() {
+		t.Fatal("older preflight cleared a quota refusal reported during its check")
 	}
 }

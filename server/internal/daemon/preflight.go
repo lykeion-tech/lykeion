@@ -200,6 +200,7 @@ func cliOutput(ctx context.Context, bin string, args ...string) (string, error) 
 // that CLI: a pass clears the runtime and its waits, a failure flags it.
 // Only the pass at start clears a fence breach.
 func (d *daemon) checkMachine(ctx context.Context, harness string, start bool) {
+	checkedAt := time.Now()
 	check := d.cfg.Preflight
 	if check == nil {
 		check = d.preflight
@@ -232,9 +233,39 @@ func (d *daemon) checkMachine(ctx context.Context, harness string, start bool) {
 	if reason != "" {
 		slog.Warn("preflight failed", "harness", harness, "reason", reason, "detail", detail)
 	}
+	if reason == agent.ReasonProviderQuota {
+		d.pauseQuota(harness)
+	}
+	d.mu.Lock()
+	newerQuota := d.quotaPaused[harness].After(checkedAt)
+	d.mu.Unlock()
+	if reason == "" && newerQuota {
+		return
+	}
+	if err := d.reportHealth(ctx, harness, reason, detail, start); err != nil {
+		slog.Warn("preflight report failed", "harness", harness, "err", err)
+		return
+	}
+	if reason == "" {
+		d.mu.Lock()
+		newerQuota = d.quotaPaused[harness].After(checkedAt)
+		if !newerQuota {
+			delete(d.quotaPaused, harness)
+		}
+		d.mu.Unlock()
+		if newerQuota {
+			if err := d.reportHealth(ctx, harness, agent.ReasonProviderQuota, "Provider usage limit reached during preflight", false); err != nil {
+				slog.Warn("quota report failed", "harness", harness, "err", err)
+			}
+		}
+	}
+}
+
+func (d *daemon) reportHealth(ctx context.Context, harness, reason, detail string, start bool) error {
 	if len(detail) > 2000 {
 		detail = detail[:2000]
 	}
+	var reports error
 	for _, ref := range d.references() {
 		d.mu.Lock()
 		h := d.harnessOf[ref.RuntimeID]
@@ -243,10 +274,42 @@ func (d *daemon) checkMachine(ctx context.Context, harness string, start bool) {
 			continue
 		}
 		body := map[string]any{"workspace_id": ref.WorkspaceID, "ok": reason == "", "start": start, "reason": reason, "detail": detail}
-		if err := d.api.Do(ctx, "POST", "/api/daemon/runtimes/"+ref.RuntimeID.String()+"/health", body, nil); err != nil {
-			slog.Warn("preflight report failed", "harness", harness, "err", err)
+		reports = errors.Join(reports, d.api.Do(ctx, "POST", "/api/daemon/runtimes/"+ref.RuntimeID.String()+"/health", body, nil))
+	}
+	return reports
+}
+
+func (d *daemon) pauseQuota(harness string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.quotaPaused == nil {
+		d.quotaPaused = map[string]time.Time{}
+	}
+	d.quotaPaused[harness] = time.Now()
+}
+
+func (d *daemon) pauseQuotaReport(r Report) {
+	if r.Kind != "fail" || r.FailureReason != agent.ReasonProviderQuota {
+		return
+	}
+	d.mu.Lock()
+	harness := d.harnessOf[r.RuntimeID]
+	d.mu.Unlock()
+	if harness != "" {
+		d.pauseQuota(harness)
+	}
+}
+
+func (d *daemon) claimableReferences(refs []runtimeRef) []runtimeRef {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]runtimeRef, 0, len(refs))
+	for _, ref := range refs {
+		if d.quotaPaused[d.harnessOf[ref.RuntimeID]].IsZero() {
+			out = append(out, ref)
 		}
 	}
+	return out
 }
 
 func (d *daemon) preflightAll(ctx context.Context, start bool) {
@@ -255,43 +318,54 @@ func (d *daemon) preflightAll(ctx context.Context, start bool) {
 	}
 }
 
-// preflights checks every CLI every preflightEvery, or every
-// softRecheckEvery while one failed its last check for a cause that clears
-// by itself, and one CLI again when a run on it failed for the machine's
-// sake, at most once per recheckGap.
-func (d *daemon) preflights(ctx context.Context) {
-	// Every CLI was just checked by the pass at start.
-	checked := map[string]time.Time{}
-	last := time.Now()
-	all := func() {
-		last = time.Now()
-		for h := range d.cfg.Harnesses {
-			checked[h] = last
+// preflightDue keeps each CLI's schedule independent, so another CLI's soft
+// rechecks cannot repeatedly probe an exhausted provider account.
+func (d *daemon) preflightDue(harness string, checked time.Time) time.Time {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	every := preflightEvery
+	if paused := d.quotaPaused[harness]; !paused.IsZero() {
+		if paused.After(checked) {
+			checked = paused
 		}
+	} else if d.selfClearing[harness] {
+		every = softRecheckEvery
 	}
-	all()
+	return checked.Add(every)
+}
+
+func (d *daemon) preflights(ctx context.Context) {
+	checked := map[string]time.Time{}
+	for h := range d.cfg.Harnesses {
+		checked[h] = time.Now()
+	}
 	for {
-		every := preflightEvery
-		d.mu.Lock()
-		for _, soon := range d.selfClearing {
-			if soon {
-				every = softRecheckEvery
+		next := time.Now().Add(preflightEvery)
+		for h, last := range checked {
+			if due := d.preflightDue(h, last); due.Before(next) {
+				next = due
 			}
 		}
-		d.mu.Unlock()
-		t := time.NewTimer(time.Until(last.Add(every)))
+		t := time.NewTimer(time.Until(next))
 		select {
 		case <-ctx.Done():
 			t.Stop()
 			return
 		case <-t.C:
-			all()
-			d.preflightAll(ctx, false)
+			for h, last := range checked {
+				if !d.preflightDue(h, last).After(time.Now()) {
+					d.checkMachine(ctx, h, false)
+					checked[h] = time.Now()
+				}
+			}
 		case h := <-d.rechecks:
 			t.Stop()
-			if time.Since(checked[h]) >= recheckGap {
-				checked[h] = time.Now()
+			d.mu.Lock()
+			paused := !d.quotaPaused[h].IsZero()
+			d.mu.Unlock()
+			if !paused && time.Since(checked[h]) >= recheckGap {
 				d.checkMachine(ctx, h, false)
+				checked[h] = time.Now()
 			}
 		}
 	}
@@ -309,7 +383,7 @@ var selfClearing = map[string]bool{agent.ReasonRuntimeOffline: true, "timeout": 
 // breach asks for none: the hello can't see its cause, and only the owner or
 // a restart clears it.
 func (d *daemon) recheck(harness, reason string) {
-	if harness == "" || !service.Infra(reason) || reason == agent.ReasonFenceBreach || reason == agent.ReasonRuntimeOffline {
+	if harness == "" || !service.Infra(reason) || reason == agent.ReasonProviderQuota || reason == agent.ReasonFenceBreach || reason == agent.ReasonRuntimeOffline {
 		return
 	}
 	select {

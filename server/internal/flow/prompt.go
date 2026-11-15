@@ -115,13 +115,17 @@ const sourcesTools = "Literature and datasets come from Lykeion's sources server
 	"For literature search use the direct `search_literature` tool with args `{\"database\": \"europepmc\", \"query\": \"search terms\"}`; database must be `openalex`, `europepmc` or `arxiv` (not `pubmed`). " +
 	"To read a search hit use the direct `fetch_text` tool with args `{\"source_id\": \"<id from the hit>\"}`, not `id` or `url`. This lookup ID is for fetching only; when handing in a paper, use its DOI, PMID or arXiv identifier returned by the source, not its Europe PMC or OpenAlex lookup ID. " +
 	"Use no other arguments for either tool (including `limit`). For datasets use `search_datasets` with `query`, then `open_dataset` with `accession`. " +
-	"Call `list_source_tools` for the current input schemas; this does not require Jev.\n"
+	"Call `list_source_tools` for the current input schemas; this does not require Jev. " +
+	"Fetch with the exact returned source ID, never a guessed identifier. Reuse a fetched source's already returned text while it remains in context; re-fetch only for a concrete reason, such as missing/truncated context or checking changed content. " +
+	"A no-text result is unavailable evidence: search through the sources server for an accessible record, or state the limitation. Never invent quotations or treat a search abstract as fetched evidence. " +
+	"Read routed skills from the sections returned by `find_tools`. Saved output names, skill paths and tool-call receipts are separate references: `read_output` accepts only an exact saved output name, never a source ID, skill path or receipt.\n"
 
 // workOutputs tells an Experimentation run how its code runs and how the
 // files its scripts wrote are kept, since the run folder is cleared when the
 // run ends, and that the packages its code needs are its own to install.
 const workOutputs = "Run Python, R or Julia through `run_code` (a live session, for exploring) and `run_script` (a saved script run start to finish, for results), never through the shell: both run in the study's environment. " +
-	"Every reported number comes from a `run_script` run, and the files your results come from go in `outputs/`.\n" +
+	"Every reported number comes from a `run_script` run, and the files your results come from go in `outputs/`. " +
+	"Code must perform the claimed work. Placeholder prints are not analytical evidence. Use the run tool's documented code input; do not rely on opening `/dev/stdin`.\n" +
 	"Install any package you need into the study's folder from your code runs, or with `set_up_environment`; it needs no approval.\n"
 
 // itemsPrompt describes the item fields of a column's hand-in, and what Jev
@@ -256,6 +260,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 			"A question only the researcher can answer goes to the leader: hand in `ask` with the decision, and the leader raises it for you.\n\n")
 	}
 	b.WriteString(reportTemplate(role, column))
+	b.WriteString(handInExample(role, column))
 	if role != "auditor" {
 		b.WriteString(handInIntro + itemsPrompt(column))
 	}
@@ -267,4 +272,26 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 	}
 	b.WriteString("\n" + sourcesTools + "To find a skill or another database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
 	return b.String()
+}
+
+func handInExample(role, column string) string {
+	if role == "auditor" {
+		column = "auditor"
+	}
+	var example string
+	switch column {
+	case "grounding":
+		example = `{"status":"could_not_do","answer":"Required evidence was unavailable; the work could not be completed.","reason":"Required source text was unavailable.","decision":null,"blocked_by_environment":null,"blocked_by_member_run":null,"papers":[],"datasets":[],"no_qualifying":null,"replies":[]}`
+	case "hypotheses":
+		example = `{"status":"could_not_do","answer":"Required evidence was unavailable; the work could not be completed.","reason":"Required source text was unavailable.","decision":null,"blocked_by_environment":null,"blocked_by_member_run":null,"hypotheses":[],"replies":[]}`
+	case "experimentation":
+		example = `{"status":"could_not_do","answer":"Required evidence was unavailable; the work could not be completed.","reason":"Required source text was unavailable.","decision":null,"blocked_by_environment":null,"blocked_by_member_run":null,"outputs":[],"values":[],"replies":[]}`
+	case "validation":
+		example = `{"status":"could_not_do","answer":"Required evidence was unavailable; the work could not be completed.","reason":"Required source text was unavailable.","decision":null,"blocked_by_environment":null,"blocked_by_member_run":null,"assessments":[],"verdicts":[],"flagged_errors":[],"replies":[]}`
+	case "auditor":
+		example = `{"status":"could_not_do","answer":"Required evidence was unavailable; the work could not be completed.","reason":"Required source text was unavailable.","decision":null,"concerns":[],"replies":[]}`
+	default:
+		return ""
+	}
+	return "The hand-in is one top-level JSON object. `answer` is researcher-facing prose; item fields such as `papers`, `datasets` and `values` are siblings of `answer`, only where the schema includes them. Do not put JSON evidence inside the answer string. This example shows the shape of an unavailable-evidence hand-in; fill your own fields from the work actually done:\n" + "```json\n" + example + "\n```\n\n"
 }

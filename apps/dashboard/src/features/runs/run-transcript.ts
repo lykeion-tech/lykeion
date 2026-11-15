@@ -472,6 +472,7 @@ export function attemptDivider(attempt: number, end: AttemptEnd | undefined): st
     runtime_offline: `${on} went offline`,
     timeout: `${on} did not start it in time`,
     provider_network: 'the model provider could not be reached',
+    provider_quota: 'the provider account reached its usage limit',
     sign_in: `the agent CLI on ${on} was signed out`,
     cli_missing: `the agent CLI was missing on ${on}`,
     cli_too_old: `the agent CLI on ${on} was too old`,

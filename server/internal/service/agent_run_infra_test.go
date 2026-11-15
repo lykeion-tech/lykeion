@@ -524,3 +524,37 @@ func TestHealthReportsTakeLocksInWorkspaceOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaRefusalParksImmediatelyAndRecoversWithoutSpendingAttempt(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	f.enqueue(t, 1, "claude")
+	runtime := f.runtime(t, f.Owner, "quota-machine", "claude")
+	ref, id := f.claimStart(t, runtime)
+	got, err := f.T.Fail(ctx, f.Owner, ref, id, Report{FailureReason: "provider_quota", Error: "You've hit your weekly limit"})
+	if err != nil || got.Status != "queued" {
+		t.Fatalf("park: %+v %v", got, err)
+	}
+	state := f.infraState(t, id)
+	if state.Charged != 0 || state.InfraFailures != 1 || f.unhealthy(t, ref.RuntimeID) != "provider_quota" || f.settledCount() != 0 {
+		t.Fatalf("state: %+v", state)
+	}
+	f.clearBackoff(t)
+	claims, err := f.T.Claim(ctx, f.Owner, []RuntimeRef{runtime}, 1)
+	if err != nil || len(claims) != 0 {
+		t.Fatalf("paused runtime claimed: %v %v", claims, err)
+	}
+	if err := f.T.MarkPassed(ctx, f.Owner, runtime); err != nil {
+		t.Fatal(err)
+	}
+	if f.unhealthy(t, ref.RuntimeID) != "" || len(f.openWaits(t, ref.RuntimeID)) != 0 {
+		t.Fatal("successful check left runtime paused")
+	}
+	claims, err = f.T.Claim(ctx, f.Owner, []RuntimeRef{runtime}, 1)
+	if err != nil || len(claims) != 1 || claims[0].AgentRun.ID != id {
+		t.Fatalf("recovery: %v %v", claims, err)
+	}
+	if claims[0].AgentRun.Attempt-claims[0].AgentRun.InfraFailures != 1 {
+		t.Fatalf("quota spent scientific attempt: %+v", claims[0].AgentRun)
+	}
+}

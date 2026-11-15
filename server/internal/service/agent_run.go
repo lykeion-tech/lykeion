@@ -140,13 +140,13 @@ var (
 // and the network's fault from the agent's. Runtime access denial is recorded
 // only by the server.
 var FailureReasons = []string{"runtime_offline", "timeout", "provider_network", "context_exhausted", "agent_error", "runtime_access_denied", "coresearch_access_revoked",
-	agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid, agent.ReasonLabContextChanged}
+	agent.ReasonProviderQuota, agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld, agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach, agent.ReasonHandInInvalid, agent.ReasonLabContextChanged}
 
 // Infra reports whether a reason is the machine's or its tooling's fault
 // rather than the agent's, so the run is not held against the agent.
 func Infra(reason string) bool {
 	switch reason {
-	case "runtime_offline", "timeout", "provider_network", agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld,
+	case "runtime_offline", "timeout", "provider_network", agent.ReasonProviderQuota, agent.ReasonSignIn, agent.ReasonCLIMissing, agent.ReasonCLITooOld,
 		agent.ReasonDoor, agent.ReasonCLIBroken, agent.ReasonSandbox, agent.ReasonFenceBreach:
 		return true
 	}

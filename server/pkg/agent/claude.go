@@ -527,6 +527,8 @@ func parseClaude(fallbackModel, resume string, accounting *claudeAccounting, in 
 				detail := strings.TrimSpace(strings.Join(append([]string{ev.Result}, ev.Errors...), "\n"))
 				if detail == "" {
 					detail = "Claude returned an error result without details"
+				} else {
+					res.Reason = classify(detail)
 				}
 				res.Err = errors.New(detail)
 			}

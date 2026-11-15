@@ -7,6 +7,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/pack"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -264,6 +265,82 @@ func TestStudyRolesReceiveExactSourceToolArguments(t *testing.T) {
 		for _, want := range []string{`"database": "europepmc"`, `"query":`, `"source_id":`, `list_source_tools`, "no other arguments"} {
 			if !strings.Contains(p, want) {
 				t.Errorf("%s missing source contract %q", role, want)
+			}
+		}
+	}
+}
+
+func TestStudyInstructionsExplainReferenceTypesAndHandInExample(t *testing.T) {
+	for _, col := range board.Stages {
+		for _, role := range []string{"leader", "agent", "member", "auditor"} {
+			p := Protocol(role, col, col, nil)
+			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "tool-call receipts", "siblings of `answer`"} {
+				if !strings.Contains(p, want) {
+					t.Errorf("%s/%s lacks %q", col, role, want)
+				}
+			}
+			_, rest, ok := strings.Cut(p, "```json\n")
+			example, _, end := strings.Cut(rest, "\n```")
+			if !ok || !end {
+				t.Errorf("%s/%s missing example", col, role)
+				continue
+			}
+			k := handin.Kind(col)
+			if role == "auditor" {
+				k = handin.Auditor
+			}
+			var fields map[string]any
+			if err := json.Unmarshal([]byte(example), &fields); err != nil {
+				t.Fatal(err)
+			}
+			var schema struct{ Required []string }
+			if err := json.Unmarshal([]byte(handin.Schema(k)), &schema); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range schema.Required {
+				if _, ok := fields[key]; !ok {
+					t.Errorf("%s/%s example missing %s", col, role, key)
+				}
+			}
+			if _, probs := handin.Parse(k, []byte(example)); len(probs) != 0 {
+				t.Errorf("%s/%s example: %v", col, role, probs)
+			}
+			if col == board.Experimentation && role != "auditor" {
+				for _, want := range []string{"Placeholder prints", "documented code input", "/dev/stdin"} {
+					if !strings.Contains(p, want) {
+						t.Errorf("missing %s", want)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestEveryShippedRoleExplainsEvidenceAndUsesItsSchema(t *testing.T) {
+	for _, name := range pack.ShippedNames(pack.Shipped()) {
+		_, p, err := pack.ReadShipped(pack.Shipped(), name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roles := append([]pack.Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...)
+		for _, role := range roles {
+			instructions := role.Agent.Instructions
+			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "tool-call receipts", "siblings of `answer`", "Placeholder prints", "documented code input"} {
+				if !strings.Contains(instructions, want) {
+					t.Errorf("%s/%s missing %s", name, role.Name, want)
+				}
+			}
+			_, rest, ok := strings.Cut(instructions, "```json\n")
+			example, _, end := strings.Cut(rest, "\n```")
+			if !ok || !end {
+				t.Fatalf("%s/%s lacks example", name, role.Name)
+			}
+			k := handin.Kind(p.Manifest.Stage)
+			if role.Name == p.Manifest.Auditor.Name {
+				k = handin.Auditor
+			}
+			if _, probs := handin.Parse(k, []byte(example)); len(probs) != 0 {
+				t.Errorf("%s/%s: %v", name, role.Name, probs)
 			}
 		}
 	}

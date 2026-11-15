@@ -217,6 +217,7 @@ const runtimeProblem = (reason: string) => {
     cli_missing: 'Agent CLI is missing',
     cli_too_old: 'Agent CLI is too old',
     cli_broken: 'Agent CLI stopped working',
+    provider_quota: 'Provider usage limit reached',
     sign_in: 'Agent CLI needs sign-in',
     sandbox: 'Sandbox could not start',
     door: 'Connection to Lykeion failed',

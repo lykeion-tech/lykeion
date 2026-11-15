@@ -3,6 +3,7 @@ package handin
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -519,5 +520,24 @@ func TestAHypothesisMayCiteAnAttachedFile(t *testing.T) {
 	}
 	if b := body(t, recs[0]); !slices.Equal(b["cites"].([]any), []any{"call:c4"}) {
 		t.Fatalf("hypothesis %v", b)
+	}
+}
+
+func TestNestedEvidenceIsRejectedWithCorrectionWithoutExtraction(t *testing.T) {
+	h := parsed(t, Grounding, `{"status":"done","answer":"{\"papers\":[{\"id\":\"doi:10.1001/a\",\"why\":\"meets conditions\"}]}","papers":[],"datasets":[],"no_qualifying":null,"replies":[]}`)
+	recs, probs := Convert(Grounding, true, h, studyEvidence(), Review{})
+	if len(recs) != 0 || len(h.Papers) != 0 || !strings.Contains(strings.Join(probs, "\n"), "siblings of answer") {
+		t.Fatalf("records=%v papers=%v problems=%v", recs, h.Papers, probs)
+	}
+	// Correcting the position still requires recorded provenance.
+	h.Answer = "A source supports this result."
+	h.Papers = []Paper{{ID: "doi:10.1000/not-retrieved", Why: "supports result"}}
+	recs, probs = Convert(Grounding, true, h, studyEvidence(), Review{})
+	if len(recs) != 0 || !strings.Contains(strings.Join(probs, "\n"), "was not found through Lykeion's sources") {
+		t.Fatalf("unrecorded evidence accepted: %v %v", recs, probs)
+	}
+	h.Papers[0].ID = "doi:10.1001/a"
+	if _, probs = Convert(Grounding, true, h, studyEvidence(), Review{}); len(probs) != 0 {
+		t.Fatal(probs)
 	}
 }

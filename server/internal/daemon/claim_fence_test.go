@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,5 +73,24 @@ func TestActiveCountMissesInflightClaim(t *testing.T) {
 	report, err := readReport(d.out.file(Report{AgentRunID: runID, Attempt: 1}))
 	if err != nil || report.Kind != "fail" || report.AgentRunID != runID {
 		t.Fatalf("missing durable local failure report: %+v, %v", report, err)
+	}
+}
+
+func TestQuotaPauseStopsLaterClaimsInSamePoll(t *testing.T) {
+	runtime := uuid.New()
+	d := &daemon{cfg: Config{Slots: 1}, refs: []runtimeRef{{WorkspaceID: uuid.New(), RuntimeID: runtime}}, harnessOf: map[uuid.UUID]string{runtime: "claude"}}
+	calls := 0
+	d.api = &apiclient.Client{Server: "https://example.invalid", HTTP: &http.Client{Transport: coreRoundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		body := "[]"
+		if strings.HasSuffix(r.URL.Path, "/coresearch/claim") {
+			body = "{}"
+			d.pauseQuota("claude")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	})}}
+	d.claim(t.Context())
+	if calls != 1 {
+		t.Fatalf("%d claims: poll reused references after quota pause", calls)
 	}
 }

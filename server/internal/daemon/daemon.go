@@ -164,6 +164,7 @@ type daemon struct {
 	ownerOf           map[uuid.UUID]uuid.UUID
 	harnessOf         map[uuid.UUID]string // runtime → its CLI
 	rechecks          chan string          // CLIs a failed run asks to check again
+	quotaPaused       map[string]time.Time // CLIs waiting for provider quota recovery
 	selfClearing      map[string]bool      // CLIs whose last check failed for a cause that clears by itself
 	out, messages     *Outbox
 	wake              chan struct{}
@@ -452,7 +453,7 @@ func (d *daemon) claim(ctx context.Context) {
 	d.claiming++
 	d.mu.Unlock()
 	defer func() { d.mu.Lock(); d.claiming--; d.mu.Unlock() }()
-	refs := d.references()
+	refs := d.claimableReferences(d.references())
 	if len(refs) == 0 {
 		return
 	}
@@ -474,7 +475,11 @@ func (d *daemon) claimTurns(ctx context.Context, currentRefs []runtimeRef, free 
 	d.rotation = (d.rotation + 64) % len(currentRefs)
 	for i := 0; i < len(refs) && free > 0 && ctx.Err() == nil; i += 64 {
 		var got []claimed
-		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "slots": free, "coresearch_only": coreOnly}
+		batch := d.claimableReferences(refs[i:min(i+64, len(refs))])
+		if len(batch) == 0 {
+			continue
+		}
+		body := map[string]any{"runtimes": batch, "slots": free, "coresearch_only": coreOnly}
 		if runtime.GOOS == "linux" {
 			body["guest_isolation"] = agent.GuestIsolationProtocol
 		}
@@ -597,6 +602,7 @@ func (d *daemon) flush(ctx context.Context) error {
 var errMessagesPending = errors.New("final report awaits durable message acknowledgements")
 
 func (d *daemon) send(ctx context.Context, r Report) error {
+	d.pauseQuotaReport(r)
 	pending, err := d.messages.pending(r)
 	if err != nil {
 		return err
@@ -639,7 +645,13 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 		d.mu.Lock()
 		harness := d.harnessOf[r.RuntimeID]
 		d.mu.Unlock()
-		d.recheck(harness, r.FailureReason)
+		if r.FailureReason == agent.ReasonProviderQuota {
+			if err := d.reportHealth(ctx, harness, agent.ReasonProviderQuota, r.Error, false); err != nil {
+				return err
+			}
+		} else {
+			d.recheck(harness, r.FailureReason)
+		}
 	}
 	return nil
 }

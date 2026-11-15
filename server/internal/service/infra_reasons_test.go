@@ -12,13 +12,13 @@ func TestInfraReasons(t *testing.T) {
 			t.Errorf("Infra(%q)=%v", r, got)
 		}
 	}
-	for _, r := range []string{"runtime_offline", "timeout", "provider_network", "sign_in", "cli_missing", "cli_too_old", "door", "cli_broken", "sandbox", "fence_breach"} {
+	for _, r := range []string{"runtime_offline", "timeout", "provider_network", "provider_quota", "sign_in", "cli_missing", "cli_too_old", "door", "cli_broken", "sandbox", "fence_breach"} {
 		if !Infra(r) {
 			t.Errorf("Infra(%q)=false", r)
 		}
 	}
-	if len(FailureReasons) != 16 {
-		t.Errorf("FailureReasons has %d, want 16", len(FailureReasons))
+	if len(FailureReasons) != 17 {
+		t.Errorf("FailureReasons has %d, want 17", len(FailureReasons))
 	}
 }
 

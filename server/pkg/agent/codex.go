@@ -262,6 +262,8 @@ func parseCodex(model string) parser {
 			detail := ev.Error.Message
 			if detail == "" {
 				detail = "Codex turn failed without details"
+			} else {
+				res.Reason = classify(detail)
 			}
 			res.Err = errors.New(detail)
 			return true, nil
@@ -269,6 +271,8 @@ func parseCodex(model string) parser {
 			detail := ev.Message
 			if detail == "" {
 				detail = "Codex error without details"
+			} else {
+				res.Reason = classify(detail)
 			}
 			res.Err = errors.New(detail)
 		default:

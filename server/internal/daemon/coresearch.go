@@ -670,6 +670,7 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 			fail(ctx.Err())
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
+		d.pauseQuotaReport(r)
 		if err := d.out.Put(r); err != nil {
 			localErr = errors.Join(localErr, err)
 			return
@@ -795,7 +796,7 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 			fail(err)
 			return nil
 		}
-		door := &Door{Coresearch: true, Server: d.cfg.Server, RunToken: c.Token, CallToken: c.CallToken,
+		door := &Door{RunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt, Coresearch: true, Server: d.cfg.Server, RunToken: c.Token, CallToken: c.CallToken,
 			WorkspaceConnectors: c.WorkspaceConnectors, Harness: c.AgentRun.Harness, Study: study,
 			PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
 			Child: func() agent.ExecOptions { return opts }}
@@ -852,7 +853,7 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 	if err != nil {
 		fail(err)
 	} else if final.Err != nil {
-		fail(final.Err)
+		failResult(&r, c.AgentRun.Harness, final)
 	}
 	if runCtx.Err() != nil {
 		fail(runCtx.Err())
@@ -882,8 +883,12 @@ func protectChatCLI(p *sandbox.Policy, dir string) {
 // and environment installation enter through dispatchCoresearchRun/Setup.
 func (d *daemon) claimCoresearchWork(ctx context.Context, refs []runtimeRef) {
 	for i := 0; i < len(refs) && ctx.Err() == nil; i += 64 {
+		batch := d.claimableReferences(refs[i:min(i+64, len(refs))])
+		if len(batch) == 0 {
+			continue
+		}
 		var work coresearch.Work
-		if err := d.api.Do(ctx, "POST", "/api/daemon/coresearch/claim", map[string]any{"daemon_id": d.id, "runtimes": refs[i:min(i+64, len(refs))]}, &work); err != nil {
+		if err := d.api.Do(ctx, "POST", "/api/daemon/coresearch/claim", map[string]any{"daemon_id": d.id, "runtimes": batch}, &work); err != nil {
 			slog.Warn("Coresearch work claim failed", "err", err)
 			return
 		}

@@ -205,6 +205,50 @@ func TestCodexTurnFailed(t *testing.T) {
 	}
 }
 
+func TestCodexStructuredFailureIgnoresUnrelatedStderr(t *testing.T) {
+	for name, tc := range map[string]struct{ event, want string }{
+		"turn.failed":                 {`{"type":"turn.failed","error":{"message":"Unsupported input item type: additional_tools (parameter=input)"}}`, ReasonAgentError},
+		"error":                       {`{"type":"error","message":"Unsupported input item type: additional_tools (parameter=input)"}`, ReasonAgentError},
+		"turn.failed without details": {`{"type":"turn.failed"}`, ReasonProviderNetwork},
+		"error without details":       {`{"type":"error"}`, ReasonProviderNetwork},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bin := script(t, `echo 'failed to refresh available models: stream disconnected before completion' >&2
+ echo '`+tc.event+`'`)
+			s, err := Codex{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, res := collect(t, s)
+			if res.Err == nil || !strings.Contains(res.Err.Error(), "stderr:") || res.Reason != tc.want {
+				t.Fatalf("%+v", res)
+			}
+		})
+	}
+}
+
+func TestClaudeStructuredFailureIgnoresUnrelatedStderr(t *testing.T) {
+	for name, tc := range map[string]struct{ event, want string }{
+		"result":          {`{"type":"result","is_error":true,"result":"Unsupported input item type: additional_tools"}`, ReasonAgentError},
+		"errors":          {`{"type":"result","subtype":"error_during_execution","errors":["Unsupported input item type: additional_tools"]}`, ReasonAgentError},
+		"rate limit":      {`{"type":"result","is_error":true,"result":"rate limited"}`, ReasonProviderNetwork},
+		"without details": {`{"type":"result","is_error":true}`, ReasonProviderNetwork},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bin := script(t, `echo 'background connection reset' >&2
+ echo '`+tc.event+`'`)
+			s, err := Claude{Bin: bin}.Execute(context.Background(), "p", ExecOptions{Sandbox: testSandbox, Dir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, res := collect(t, s)
+			if res.Err == nil || !strings.Contains(res.Err.Error(), "stderr:") || res.Reason != tc.want {
+				t.Fatalf("%+v", res)
+			}
+		})
+	}
+}
+
 // TestConfigHomeIsIsolated puts a personal skill and a sign-in file in each
 // CLI's real config home. The agent run's config home must hold the sign-in file
 // and nothing else, and the copy must be gone once the CLI exits.

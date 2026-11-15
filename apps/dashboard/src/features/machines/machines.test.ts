@@ -173,3 +173,9 @@ describe('shared scientific base availability', () => {
     expect(html).not.toContain('Shared scientific setup for');
   });
 });
+
+it('explains provider quota exhaustion on the machine', async () => {
+  const html = await renderMachine('ready', undefined, 'provider_quota');
+  expect(html).toContain('Provider usage limit reached');
+  expect(html).not.toContain('provider_quota');
+});

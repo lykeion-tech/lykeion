@@ -81,6 +81,7 @@ type ExecOptions struct {
 const (
 	ReasonRuntimeOffline    = "runtime_offline"
 	ReasonProviderNetwork   = "provider_network"
+	ReasonProviderQuota     = "provider_quota"
 	ReasonContextExhausted  = "context_exhausted"
 	ReasonAgentError        = "agent_error"
 	ReasonSignIn            = "sign_in"
@@ -142,6 +143,11 @@ func New(harness, bin string) (Backend, error) {
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func classify(text string) string {
 	s := strings.ToLower(text)
+	for _, h := range []string{"insufficient_quota", "insufficient_balance", "credit balance is too low", "provider quota exhausted", "you've hit your limit", "you’ve hit your limit", "you've hit your usage limit", "you’ve hit your usage limit", "hit your session limit", "hit your weekly limit", "reached your 5-hour usage limit", "reached your weekly usage limit", "exceeded your current quota"} {
+		if strings.Contains(s, h) {
+			return ReasonProviderQuota
+		}
+	}
 	for _, h := range []string{"prompt_too_long", "prompt is too long", "context window", "context_length_exceeded", "maximum context length", "input exceeds the maximum length of"} {
 		if strings.Contains(s, h) {
 			return ReasonContextExhausted

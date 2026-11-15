@@ -81,6 +81,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 			r.Error = ctx.Err().Error()
 			r.FailureReason = agent.ReasonRuntimeOffline
 		}
+		d.pauseQuotaReport(r)
 		if err := d.out.Put(r); err != nil {
 			localErr = errors.Join(localErr, err)
 			return
@@ -358,7 +359,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		fail(err)
 		return nil
 	}
-	door := &Door{Lab: lab, NoTools: report, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
+	door := &Door{RunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt, Lab: lab, NoTools: report, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
 		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)

@@ -99,6 +99,15 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 	}
 	c.replies(h.Replies, prev)
 	if len(c.probs) > 0 {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal([]byte(h.Answer), &nested) == nil {
+			for _, field := range []string{"papers", "datasets", "no_qualifying", "hypotheses", "outputs", "values", "assessments", "verdicts", "flagged_errors"} {
+				if _, ok := nested[field]; ok {
+					c.problem("answer: use researcher-facing prose; evidence fields belong at the top level as siblings of answer, using this hand-in's schema. Evidence inside the answer string is not submitted; correct the fields and submit again")
+					break
+				}
+			}
+		}
 		return nil, c.probs
 	}
 	return append(c.recs, NewRecord{Kind: "summary", Body: summaryBody{Text: h.Answer, Cites: []string{}}}), nil
