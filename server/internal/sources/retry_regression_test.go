@@ -84,3 +84,23 @@ func TestRateLimitBeyondDeadlineReturnsPromptly(t *testing.T) {
 		t.Fatalf("error=%v elapsed=%v", err, time.Since(start))
 	}
 }
+
+// A Retry-After past the cap (a daily quota saying "come back tomorrow") fails
+// the call at once instead of holding its caller, which may have no deadline.
+func TestLongRetryAfterFailsWithoutWaiting(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "36000")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	start := time.Now()
+	_, err := (OpenAlex{Base: srv.URL}).Search(context.Background(), "q")
+	if err == nil || !strings.Contains(err.Error(), "Retry-After: 36000") {
+		t.Fatalf("error = %v", err)
+	}
+	if took := time.Since(start); took > 5*time.Second || attempts != 1 {
+		t.Fatalf("took %v over %d attempts; want an immediate failure", took, attempts)
+	}
+}

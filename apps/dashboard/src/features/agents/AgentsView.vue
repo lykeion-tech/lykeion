@@ -270,7 +270,9 @@ async function save() {
           class="agent-row"
           role="row"
           ><span class="agent-cell" role="cell"
-            ><span class="avatar"
+            ><span
+              class="avatar"
+              :class="{ 'aristotle-avatar': !a.avatar_url && a.built_in_key === 'aristotle' }"
               ><AvatarDisplay
                 v-if="a.avatar_url"
                 :value="a.avatar_url.slice(6)"
@@ -561,6 +563,9 @@ async function save() {
 }
 .avatar-active-dot.inactive {
   background: var(--error);
+}
+.avatar.aristotle-avatar {
+  background: var(--palette-accent);
 }
 .avatar :deep(.aristotle-art) {
   width: 28px;

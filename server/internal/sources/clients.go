@@ -117,12 +117,22 @@ func get(ctx context.Context, h *http.Client, u string) ([]byte, error) {
 	}
 }
 
+// maxRetryWait is the longest Retry-After a call waits out. A longer one is a
+// quota that resets in hours, and waiting for it would hold the caller (a
+// review, an agent's tool call) for that long, so the call fails instead.
+const maxRetryWait = 30 * time.Second
+
+var errRetryTooLong = errors.New("Retry-After is longer than a call waits")
+
 func waitRetry(ctx context.Context, attempt int, retryAfter string) error {
 	delay := time.Duration(float64(time.Duration(1<<attempt)*500*time.Millisecond) * (1 - rand.Float64()/4))
 	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 && seconds <= int((1<<63-1)/int64(time.Second)) {
 		delay = time.Duration(seconds) * time.Second
 	} else if when, err := http.ParseTime(retryAfter); err == nil {
 		delay = max(time.Until(when), 0)
+	}
+	if delay > maxRetryWait {
+		return errRetryTooLong
 	}
 	if deadline, ok := ctx.Deadline(); ok && delay >= time.Until(deadline) {
 		return context.DeadlineExceeded
