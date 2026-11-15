@@ -217,7 +217,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 				// A hypothesis rests on Grounding's sources and the sources
 				// server's calls alone: the agents' own prose, an audit or a
 				// review cited here would reach Jev as evidence.
-				if r.Kind == "call" || review.GroundingSource(r) {
+				if r.Kind == "call" && records.Body[struct{ Error string }](r).Error == "" || review.GroundingSource(r) {
 					byKey[r.Key] = r
 				}
 			}

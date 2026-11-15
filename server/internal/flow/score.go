@@ -231,7 +231,8 @@ func citedRecords(ctx context.Context, tx *store.Tx, c db.Card, summary db.Recor
 	for i, k := range keys {
 		keys[i] = strings.TrimPrefix(k, "call:")
 	}
-	return tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
+	recs, err := tx.Q.LiveRecordsByKeys(ctx, db.LiveRecordsByKeysParams{WorkspaceID: tx.WS, CardID: c.ID, Keys: keys})
+	return slices.DeleteFunc(recs, func(r db.Record) bool { return r.Kind == "call" && records.Body[struct{ Error string }](r).Error != "" }), err
 }
 
 // scoring is what one pass read to score a column, with no transaction open.

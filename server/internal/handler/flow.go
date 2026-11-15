@@ -205,10 +205,19 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		Tool          string          `json:"tool"`
 		Args          json.RawMessage `json:"args"`
 		Answer        string          `json:"answer"`
+		Error         string          `json:"error"`
 		WorkspaceCall string          `json:"workspace_call,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.Server == "" || in.Tool == "" {
 		writeErr(w, 400, "server, tool and answer required")
+		return
+	}
+	if in.Error != "" && (in.Server != "sources" || in.Answer != "" || in.WorkspaceCall != "") {
+		writeErr(w, 400, "only a failed sources call may carry an error")
+		return
+	}
+	if len(in.Error) > maxCallAnswer {
+		writeErr(w, 400, "an error is at most 32 MiB")
 		return
 	}
 	if len(in.Answer) > maxCallAnswer {
@@ -226,6 +235,9 @@ func (h *H) postCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, rest := sources.NewCall(role, in.Server, in.Tool, args, in.Answer, false)
+	if in.Error != "" {
+		body["error"] = in.Error
+	}
 	hosted := &sources.Hosted{Store: h.Store, Blobs: h.Blobs}
 	key, err := hosted.RecordCall(r.Context(), role, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body, rest, check)
 	if errors.Is(err, sources.ErrReserved) {
@@ -269,6 +281,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	}
 	var conns []pack.Connector
 	var team *service.TeamClaim
+	var solo *db.FieldPack
 	var scope skill.Scope
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
@@ -285,7 +298,19 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			scope = skill.Scope{Kind: "autoresearch_run", ID: ar.ID}
 		}
 		conns, team, err = service.ClaimConnectors(r.Context(), tx, run)
-		return err
+		if err != nil {
+			return err
+		}
+		if team == nil && run.Role == "agent" && run.Kind == "role" && run.AgentID != nil && run.CardID != nil {
+			row, e := tx.ShippedSoloTeam(r.Context(), *run.AgentID, run.BoardColumn)
+			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+				return e
+			}
+			if e == nil {
+				solo = &row
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		roleError(w, r, err)
@@ -304,6 +329,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 		in.ConnectorTools[name] = tools
 	}
 	var c toolroute.Candidates
+	var soloSkills []toolroute.Skill
 	routeCtx := skill.WithRunAuthority(r.Context(), middleware.RoleFrom(r.Context()), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	if team != nil {
 		p, member, err := service.TeamMember(r.Context(), h.Blobs, *team)
@@ -332,6 +358,25 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			conns = append(conns, pack.Connector{Name: wc.Name, Workspace: wc.ID.String()})
 		}
 		c = toolroute.ForLibrary(conns, in.ConnectorTools, library)
+		if solo != nil {
+			p, e := pack.Load(r.Context(), h.Blobs, *solo)
+			if e != nil {
+				fail(w, r, e)
+				return
+			}
+			for _, member := range append([]pack.Member{p.Manifest.Leader}, p.Manifest.Members...) {
+				own := toolroute.ForTeam(p, member, nil, nil)
+				for _, sk := range own.Skills {
+					if !slices.ContainsFunc(soloSkills, func(existing toolroute.Skill) bool { return existing.Name == sk.Name }) {
+						soloSkills = append(soloSkills, sk)
+					}
+				}
+			}
+			c.Skills = slices.DeleteFunc(c.Skills, func(sk toolroute.Skill) bool {
+				return slices.ContainsFunc(soloSkills, func(own toolroute.Skill) bool { return own.Name == sk.Name })
+			})
+			c.Skills = append(c.Skills, soloSkills...)
+		}
 	}
 	res, err := toolroute.Route(r.Context(), h.Engine.Jev, in.Need, c)
 	if err != nil {
@@ -342,7 +387,9 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	if team == nil {
 		names := make([]string, 0, len(res.Skills))
 		for _, s := range res.Skills {
-			names = append(names, s.Name)
+			if !slices.ContainsFunc(soloSkills, func(own toolroute.Skill) bool { return own.Name == s.Name }) {
+				names = append(names, s.Name)
+			}
 		}
 		c.Skills, err = h.skillService().ResolveForScope(routeCtx, middleware.RoleFrom(r.Context()).WorkspaceID, scope, names)
 		if errors.Is(err, skill.ErrRoutingChanged) {
@@ -353,6 +400,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			roleError(w, r, err)
 			return
 		}
+		c.Skills = append(c.Skills, soloSkills...)
 	}
 	if err := c.AttachFolders(&res); err != nil {
 		fail(w, r, err)

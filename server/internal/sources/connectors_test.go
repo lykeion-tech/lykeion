@@ -326,7 +326,7 @@ func TestAnAnswerOverTheBodyLimitKeepsItsRestAsABlob(t *testing.T) {
 	})
 }
 
-func TestNothingIsRecordedForARefusedResponse(t *testing.T) {
+func TestRefusedRequestsRecordFailures(t *testing.T) {
 	f := newConnFix(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte{0x89, 'P', 'N', 'G', 0xff}) })
 	var logs bytes.Buffer
 	prev := slog.Default()
@@ -338,8 +338,11 @@ func TestNothingIsRecordedForARefusedResponse(t *testing.T) {
 	if _, err := f.fetch(f.card, ConnectorIn{Connector: "chembl", Path: "/../ena/x"}); err == nil {
 		t.Fatal("a path out of the base was accepted")
 	}
-	if n := f.count(`SELECT (SELECT count(*) FROM record) + (SELECT count(*) FROM connector_fetch)`); n != 0 {
-		t.Fatalf("%d rows written for refused requests", n)
+	if n := f.count(`SELECT count(*) FROM record WHERE kind='call' AND body->>'error' <> ''`); n != 2 {
+		t.Fatalf("%d failure records for refused requests", n)
+	}
+	if n := f.count(`SELECT count(*) FROM connector_fetch`); n != 0 {
+		t.Fatalf("%d cached refusals", n)
 	}
 	if strings.Count(logs.String(), "connector request refused") != 2 {
 		t.Fatalf("refusals not logged:\n%s", logs.String())
@@ -352,8 +355,11 @@ func TestUpstreamThrottleNamesRetryAfter(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "answered 429") || !strings.Contains(err.Error(), "retry after 7") {
 		t.Fatalf("%v", err)
 	}
-	if n := f.count(`SELECT (SELECT count(*) FROM record) + (SELECT count(*) FROM connector_fetch)`); n != 0 {
-		t.Fatalf("%d rows written for a throttled request", n)
+	if n := f.count(`SELECT count(*) FROM record WHERE kind='call' AND body->>'error' <> ''`); n != 1 {
+		t.Fatalf("%d failure records for throttling", n)
+	}
+	if n := f.count(`SELECT count(*) FROM connector_fetch`); n != 0 {
+		t.Fatalf("%d cached throttled responses", n)
 	}
 }
 

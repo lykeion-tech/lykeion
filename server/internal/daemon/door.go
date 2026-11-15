@@ -413,6 +413,9 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		}
 	}
 	if err != nil {
+		if t.kind == "sources" {
+			return nil, nil, d.recordSourceError(ctx, in, err)
+		}
 		return nil, nil, err
 	}
 	if t.kind == "lab" {
@@ -431,7 +434,11 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 	}
 	answer := text(res)
 	if res.IsError {
-		return nil, nil, fmt.Errorf("%s answered with an error: %s", in.Server, answer)
+		err := fmt.Errorf("%s answered with an error: %s", in.Server, answer)
+		if t.kind == "sources" {
+			return nil, nil, d.recordSourceError(ctx, in, err)
+		}
+		return nil, nil, err
 	}
 	if len(answer) > maxAnswer {
 		return nil, nil, fmt.Errorf("%s answered %d bytes, more than the 32 MiB a call record keeps: ask for less", in.Server, len(answer))
@@ -444,6 +451,14 @@ func (d *Door) callTool(ctx context.Context, _ *mcp.CallToolRequest, in callIn) 
 		return nil, nil, fmt.Errorf("the call could not be recorded, so its answer is withheld: %w", err)
 	}
 	return cited(rec.Key, answer), nil, nil
+}
+
+func (d *Door) recordSourceError(ctx context.Context, in callIn, failure error) error {
+	api := &apiclient.Client{Server: d.Server, Token: d.CallToken}
+	if err := api.Do(context.WithoutCancel(ctx), "POST", "/api/role/calls", map[string]any{"server": in.Server, "tool": in.Tool, "args": in.Args, "error": failure.Error()}, nil); err != nil {
+		return fmt.Errorf("source call failed (%v), and the failure could not be recorded: %w", failure, err)
+	}
+	return failure
 }
 
 // catalogue fetches through the server, for the connector the claim names

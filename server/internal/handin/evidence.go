@@ -151,6 +151,7 @@ func NewEvidence(recs []db.Record) Evidence {
 		}
 		var b struct {
 			Answer    string   `json:"answer"`
+			Error     string   `json:"error"`
 			Results   []string `json:"results"`
 			SourceID  string   `json:"source_id"`
 			DOI       string   `json:"doi"`
@@ -167,6 +168,9 @@ func NewEvidence(recs []db.Record) Evidence {
 		_ = json.Unmarshal(r.Body, &b)
 		switch r.Kind {
 		case "call":
+			if b.Error != "" {
+				continue
+			}
 			ref := "call:" + r.Key
 			for _, t := range tokens(b.Answer) {
 				e.add(t, ref)

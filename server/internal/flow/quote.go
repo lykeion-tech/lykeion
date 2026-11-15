@@ -48,8 +48,9 @@ func LoadCalls(ctx context.Context, blobs storage.Storage, recs []db.Record) (ma
 		}
 		var body struct {
 			Answer string `json:"answer"`
+			Error  string `json:"error"`
 		}
-		if json.Unmarshal(rec.Body, &body) != nil {
+		if json.Unmarshal(rec.Body, &body) != nil || body.Error != "" {
 			continue
 		}
 		if rec.BlobKey != "" {
