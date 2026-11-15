@@ -133,7 +133,6 @@ const marked = computed(() =>
   height: 7px;
   box-sizing: border-box;
   border-radius: 50%;
-  box-shadow: 0 0 0 4px var(--step-canvas);
 }
 .mark-message::before {
   border: 1px solid var(--step-muted);

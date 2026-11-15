@@ -1415,15 +1415,10 @@ kbd {
 }
 .board-scroll {
   padding-bottom: 12px;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 .board-scroll::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-.board-scroll::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  display: none;
 }
 .board-column,
 .stage-grounding {
