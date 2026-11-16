@@ -6,7 +6,6 @@ const modifier =
 <template>
   <section aria-labelledby="shortcut-navigation">
     <h3 id="shortcut-navigation">Navigation and creation</h3>
-    <p class="shortcut-description">Shortcuts apply when the workspace is open.</p>
     <dl class="shortcut-list">
       <div>
         <dt>Search</dt>
@@ -25,6 +24,26 @@ const modifier =
         <dd><kbd>C</kbd><small>Outside text fields and dialogs</small></dd>
       </div>
       <div>
+        <dt>New workspace tab</dt>
+        <dd><kbd>{{ modifier }}T</kbd><small>Browser shortcuts may take precedence</small></dd>
+      </div>
+      <div>
+        <dt>Close workspace tab</dt>
+        <dd><kbd>{{ modifier }}W</kbd><small>Browser shortcuts may take precedence</small></dd>
+      </div>
+      <div>
+        <dt>Workspace tab history</dt>
+        <dd><kbd>{{ modifier }}[</kbd><kbd>{{ modifier }}]</kbd></dd>
+      </div>
+      <div>
+        <dt>Switch workspace tab</dt>
+        <dd><kbd>Ctrl + Tab</kbd><small>Add Shift to go back; browser shortcuts may take precedence</small></dd>
+      </div>
+      <div>
+        <dt>Aristotle model menu</dt>
+        <dd><kbd>Ctrl + Shift + M</kbd><small>When Aristotle is available</small></dd>
+      </div>
+      <div>
         <dt>Toggle Aristotle</dt>
         <dd>
           <kbd>{{ modifier }}J</kbd><small>When Aristotle is available</small>
@@ -35,11 +54,6 @@ const modifier =
 </template>
 
 <style scoped>
-.shortcut-description {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 0 0 16px;
-}
 .shortcut-list {
   margin: 0;
   border: 1px solid var(--border);

@@ -178,6 +178,7 @@ const diagnostics = computed(() => {
   ];
 });
 defineExpose({
+  hasDiagnostics: matches,
   managed,
   canControl,
   stopped,

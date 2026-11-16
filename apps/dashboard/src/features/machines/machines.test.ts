@@ -118,7 +118,8 @@ describe('runtime readiness', () => {
   it('explains supported CLIs and how to investigate runtime health', async () => {
     const html = await renderMachine(undefined, undefined, 'cli_missing');
     expect(html).toContain('Claude Code and Codex are supported');
-    expect(html).toContain('Check daemon diagnostics below');
+    expect(html).toContain('Use Daemon instructions on the computer');
+    expect(html).not.toContain('View diagnostics');
     expect(html).not.toContain('Add custom runtime');
   });
   it('directs offline machines to instructions on that computer', async () => {

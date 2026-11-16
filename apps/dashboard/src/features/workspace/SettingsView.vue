@@ -595,13 +595,13 @@ async function copySlug() {
                   :disabled="!isAdmin || busy"
                 /></label
               ><label class="setting-row about-row"
-                ><span
-                  >Research context<small
-                    >Given to every agent in this workspace on every run.</small
-                  ></span
+                ><span>Research context</span
                 ><textarea
                   v-model="context"
                   aria-label="Research context"
+                  aria-description="Given to every agent in this workspace on every run."
+                  placeholder="Given to every agent in this workspace on every run."
+                  class="workspace-description-input"
                   :disabled="!isAdmin || busy"
                 />
               </label>

@@ -462,8 +462,11 @@ async function remove(d: Daemon) {
             Check the daemon on this computer using Daemon instructions.
           </p>
           <p v-else-if="machine.runtimes.some((r) => r.unhealthy_reason)" class="remote-limit">
-            Check daemon diagnostics below and use Daemon instructions on the computer to investigate.
-            <button class="text-button" @click="daemonSettings?.$el.scrollIntoView()">View diagnostics</button>
+            <template v-if="daemonSettings?.hasDiagnostics">
+              Check daemon diagnostics below.
+              <button class="text-button" @click="daemonSettings?.$el.scrollIntoView()">View diagnostics</button>
+            </template>
+            <template v-else>Use Daemon instructions on the computer to investigate.</template>
           </p>
           <div class="remote-limit">
             <p>

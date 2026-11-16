@@ -61,6 +61,11 @@ it('lists only supported shortcuts on a dedicated settings page', async () => {
   expect(text).toContain('Search');
   expect(text).toContain('Toggle sidebar');
   expect(text).toContain('New item');
+  expect(text).toContain('New workspace tab');
+  expect(text).toContain('Close workspace tab');
+  expect(text).toContain('Workspace tab history');
+  expect(text).toContain('Switch workspace tab');
+  expect(text).toContain('Aristotle model menu');
   expect(text).not.toContain('Change shortcut');
 });
 it('keeps the timezone and theme controls on preferences', async () => {
