@@ -659,6 +659,14 @@ async function copySlug() {
               {{ busy ? 'Saving…' : 'Save changes' }}
             </button>
           </form>
+          <h3 class="subsequent-heading">Members and invitations</h3>
+          <div class="setting-box">
+            <div class="setting-row">
+              <span>Colleagues<small>View workspace members and manage invitations.</small></span>
+              <RouterLink to="/colleagues" class="button">Manage colleagues</RouterLink>
+            </div>
+          </div>
+          <p v-if="!isAdmin" class="muted">Only workspace owners and admins can edit workspace details and manage invitations.</p>
           <h3 class="subsequent-heading">Danger Zone</h3>
           <div class="setting-box">
             <div class="setting-row">
