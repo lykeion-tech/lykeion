@@ -24,6 +24,7 @@ const card = (id: string, owner: string, extra = {}) => ({
   ending: '',
   role: 'grounding',
   queued: false,
+  running_clis: [{ board_column: 'grounding', harness: 'claude' }],
   research_id: 'project',
   assignee_type: 'team',
   updated_at: new Date().toISOString(),

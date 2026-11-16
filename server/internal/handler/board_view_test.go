@@ -37,12 +37,24 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	otherUser := s.signIn(t, "other@lab.org")
+	otherWorkspace := s.workspace(t, otherUser, "other-lab")
+	otherCard := s.idleCard(t, otherUser, otherWorkspace.ID, "other")
+	s.queue(t, otherWorkspace.ID, otherCard.ID, s.userID(t, otherUser), "claude")
+	if _, err := s.Env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'running' WHERE card_id = $1`, otherCard.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	var list []struct {
 		ID           string `json:"id"`
 		BoardColumn  string `json:"board_column"`
 		Queued       bool   `json:"queued"`
 		AgentRunning bool   `json:"agent_running"`
-		Role         string `json:"role"`
+		RunningCLIs  []struct {
+			Column  string `json:"board_column"`
+			Harness string `json:"harness"`
+		} `json:"running_clis"`
+		Role string `json:"role"`
 	}
 	if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &list); code != 200 || len(list) != 4 {
 		t.Fatalf("%d %+v", code, list)
@@ -50,6 +62,12 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 	got := map[string]string{}
 	for _, c := range list {
 		got[c.ID] = c.BoardColumn + "/" + map[bool]string{true: "queued", false: "-"}[c.Queued] + "/" + c.Role
+		if c.ID == working.ID && (len(c.RunningCLIs) != 1 || c.RunningCLIs[0].Harness != "codex" || c.RunningCLIs[0].Column != "grounding") {
+			t.Errorf("running agents: %+v", c.RunningCLIs)
+		}
+		if c.ID != working.ID && len(c.RunningCLIs) != 0 {
+			t.Errorf("inactive card has running agents: %+v", c.RunningCLIs)
+		}
 		if c.AgentRunning != (c.ID == working.ID) {
 			t.Errorf("card %s: agent_running = %v", c.ID, c.AgentRunning)
 		}
@@ -63,6 +81,18 @@ func TestCardListShowsQueuedAndTheWorkingRole(t *testing.T) {
 	for id, exp := range want {
 		if got[id] != exp {
 			t.Errorf("card %s: %q, want %q", id, got[id], exp)
+		}
+	}
+	// Concurrent Team members each contribute their actual CLI to the card.
+	if _, err := s.Env.Owner.Exec(ctx, `UPDATE agent_run SET status = 'running' WHERE card_id = $1 AND harness = 'claude'`, working.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "GET", "/api/cards", a, w.ID, nil, &list); code != 200 {
+		t.Fatal(code)
+	}
+	for _, c := range list {
+		if c.ID == working.ID && (len(c.RunningCLIs) != 2 || c.RunningCLIs[0].Harness != "claude" || c.RunningCLIs[1].Harness != "codex") {
+			t.Errorf("concurrent CLIs: %+v", c.RunningCLIs)
 		}
 	}
 	// Grouped by column, then position: the newest card heads its column.

@@ -185,6 +185,30 @@ func (t *Tx) CardTeamAssignments(ctx context.Context) ([]CardTeamAssignment, err
 	return assignments, rows.Err()
 }
 
+type CardRunningCLI struct {
+	CardID  uuid.UUID `json:"-"`
+	Column  string    `json:"board_column"`
+	Harness string    `json:"harness"`
+}
+
+func (t *Tx) CardRunningCLIs(ctx context.Context) ([]CardRunningCLI, error) {
+	rows, err := t.raw.Query(ctx, `SELECT card_id, board_column, harness FROM agent_run
+ WHERE workspace_id = $1 AND card_id IS NOT NULL AND status = 'running' ORDER BY created_at, id`, t.WS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []CardRunningCLI
+	for rows.Next() {
+		var item CardRunningCLI
+		if err := rows.Scan(&item.CardID, &item.Column, &item.Harness); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 // AfterCommit runs fn once the transaction has committed, and never when it
 // rolls back. Side effects outside the database, such as deleting blobs,
 // belong here.

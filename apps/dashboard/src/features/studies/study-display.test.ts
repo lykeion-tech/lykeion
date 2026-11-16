@@ -116,6 +116,76 @@ describe('study display controls', () => {
     expect(textOf(t.root)).toContain('Next study');
     expect(textOf(t.root)).not.toContain('Own study');
   });
+  it('shows running CLI icons and filters to studies with running agents', async () => {
+    const t = await mount();
+    t.client.setQueryData(keys.cards('lab'), [
+      card('Active study', 'me', {
+        agent_running: true,
+        teams: { grounding: { pack_id: 'team', name: 'Grounding', stage: 'grounding' } },
+        running_clis: [
+          { board_column: 'grounding', harness: 'claude' },
+          { board_column: 'grounding', harness: 'codex' },
+        ],
+      }),
+      card('Solo study', 'me', {
+        agent_running: true,
+        teams: {},
+        running_clis: [{ board_column: 'grounding', harness: 'codex' }],
+      }),
+      card('Another team study', 'me', {
+        agent_running: true,
+        teams: { grounding: { pack_id: 'team', name: 'Grounding', stage: 'grounding' } },
+        running_clis: [{ board_column: 'grounding', harness: 'claude' }],
+      }),
+      card('Other study', 'other'),
+    ]);
+    await t.settle();
+    expect(t.button('2 agents working')).toBeTruthy();
+    expect(all(t.root).find((n) => n.props['data-cli'] === 'claude')).toBeTruthy();
+    expect(all(t.root).find((n) => n.props['data-cli'] === 'codex')).toBeTruthy();
+    expect(all(t.root).filter((n) => n.props['data-cli']).length).toBe(3);
+    expect(all(t.root).filter((n) => n.props.class === 'working-icon').length).toBe(2);
+    expect(t.button('2 agents working').props['aria-description']).toContain(
+      'Grounding: Claude Code, Codex',
+    );
+    await t.click('2 agents working');
+    expect(textOf(t.root)).toContain('Active study');
+    expect(textOf(t.root)).toContain('Solo study');
+    expect(textOf(t.root)).toContain('Another team study');
+    expect(textOf(t.root)).not.toContain('Other study');
+  });
+  it('keeps waiting studies visible separately from working groups', async () => {
+    const t = await mount();
+    t.client.setQueryData(keys.cards('lab'), [
+      card('Running', 'me', { running_clis: [{ board_column: 'grounding', harness: 'claude' }] }),
+      card('Waiting', 'me', { queued: true, waiting: 'Waiting for a machine' }),
+    ]);
+    await t.settle();
+    expect(t.button('1 agents working, 1 waiting')).toBeTruthy();
+  });
+  it('limits the icon stack and reports the remaining groups', async () => {
+    const t = await mount();
+    t.client.setQueryData(
+      keys.cards('lab'),
+      [1, 2, 3, 4].map((n) =>
+        card(`Study ${n}`, 'me', {
+          agent_running: true,
+          running_clis: [{ board_column: 'grounding', harness: 'claude' }],
+        }),
+      ),
+    );
+    await t.settle();
+    expect(t.button('4 agents working')).toBeTruthy();
+    expect(all(t.root).filter((n) => n.props['data-cli']).length).toBe(3);
+    expect(textOf(t.button('4 agents working'))).toContain('+1');
+  });
+  it('clears the working filter when no running work remains', async () => {
+    const t = await mount();
+    await t.click('0 agents working');
+    expect(textOf(t.root)).toContain('No studies match these filters');
+    await t.click('Clear filters');
+    expect(textOf(t.root)).toContain('Own study');
+  });
   it('shows active filters and clears a filtered-empty board', async () => {
     const t = await mount();
     await t.click('Filter');

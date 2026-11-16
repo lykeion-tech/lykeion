@@ -226,6 +226,7 @@ export interface Card {
   position: number;
   queued: boolean; // GET /api/cards only
   agent_running?: boolean; // GET /api/cards only; at least one run is running
+  running_clis?: { board_column: string; harness: string }[] | null;
   role: string; // GET /api/cards only; '' when no run is queued, dispatched or running
   waiting?: string; // GET /api/cards only; as AgentRun.waiting for the card's waiting run
   pack_id: string | null;

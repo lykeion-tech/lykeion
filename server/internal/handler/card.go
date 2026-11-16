@@ -660,9 +660,10 @@ func (h *H) setCardTeams(w http.ResponseWriter, r *http.Request) {
 
 type cardListView struct {
 	db.ListCardsRow
-	Teams     map[string]cardTeamView `json:"teams"`
-	StartDate *time.Time              `json:"start_date"`
-	HoldText  string                  `json:"hold_text"`
+	Teams       map[string]cardTeamView `json:"teams"`
+	StartDate   *time.Time              `json:"start_date"`
+	HoldText    string                  `json:"hold_text"`
+	RunningCLIs []store.CardRunningCLI  `json:"running_clis"`
 }
 
 func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
@@ -679,6 +680,14 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 		assignments, err := tx.CardTeamAssignments(r.Context())
 		if err != nil {
 			return err
+		}
+		running, err := tx.CardRunningCLIs(r.Context())
+		if err != nil {
+			return err
+		}
+		clisByCard := make(map[uuid.UUID][]store.CardRunningCLI)
+		for _, cli := range running {
+			clisByCard[cli.CardID] = append(clisByCard[cli.CardID], cli)
 		}
 		byCard := make(map[uuid.UUID]map[string]cardTeamView)
 		for _, assignment := range assignments {
@@ -703,7 +712,7 @@ func (h *H) listCards(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 			}
-			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams, StartDate: start, HoldText: hold})
+			cards = append(cards, cardListView{ListCardsRow: card, Teams: teams, StartDate: start, HoldText: hold, RunningCLIs: clisByCard[card.ID]})
 		}
 		return nil
 	})

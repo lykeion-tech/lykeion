@@ -16,6 +16,8 @@ import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
+import CliIcon from '../coresearch/CliIcon.vue';
+import { backendLabel } from '../../lib/backends';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
 import Aristotle from '../coresearch/Aristotle.vue';
 import {
@@ -169,7 +171,9 @@ watch(
   { deep: true },
 );
 
-const hiddenPropertyCount = computed(() => propertyNames.filter((name) => !display.properties.includes(name)).length);
+const hiddenPropertyCount = computed(
+  () => propertyNames.filter((name) => !display.properties.includes(name)).length,
+);
 
 const tab = ref<'All' | 'Members' | 'Agents'>('All');
 const actorTabs = computed(() => (props.projectId ? (['All', 'Members', 'Agents'] as const) : []));
@@ -232,7 +236,7 @@ const options = (category: Category) =>
   category === 'Owner'
     ? (members.data.value ?? []).map((m) => ({ value: m.user_id, label: m.name || m.email }))
     : filterOptions[category];
-const visible = computed(() =>
+const matchingCards = computed(() =>
   all.value.filter(
     (c) =>
       (!props.projectId ||
@@ -242,8 +246,37 @@ const visible = computed(() =>
       matchesFilters(c, filters.value),
   ),
 );
+const waitingCount = computed(() => boardActivity(matchingCards.value).waiting);
+const runningOnly = ref(false);
+const workingGroups = computed(() => {
+  const groups = new Map<string, { key: string; harnesses: string[]; name: string }>();
+  for (const card of matchingCards.value) {
+    for (const run of card.running_clis ?? []) {
+      const team = card.teams?.[run.board_column];
+      const key = team ? `team:${team.pack_id}` : `study:${card.id}`;
+      const group = groups.get(key);
+      if (group) {
+        if (!group.harnesses.includes(run.harness)) group.harnesses.push(run.harness);
+      } else {
+        groups.set(key, {
+          key,
+          harnesses: [run.harness],
+          name: team?.name || studyDisplayTitle(card.title || card.question),
+        });
+      }
+    }
+  }
+  return [...groups.values()];
+});
+const workingGroupLabel = (group: { name: string; harnesses: string[] }) =>
+  `${group.name}: ${group.harnesses.map(backendLabel).join(', ')}`;
+const workingDescription = computed(() => workingGroups.value.map(workingGroupLabel).join('; '));
+const visible = computed(() =>
+  runningOnly.value
+    ? matchingCards.value.filter((card) => (card.running_clis?.length ?? 0) > 0)
+    : matchingCards.value,
+);
 const grouped = computed(() => groupByColumn(visible.value));
-const activity = computed(() => boardActivity(all.value));
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
 );
@@ -371,18 +404,54 @@ onUnmounted(() => {
     </div>
     <div class="toolbar-group push-right">
       <div class="working-control">
-        <button class="button compact" disabled>
-          {{ activity.working }} agents working<template v-if="activity.waiting"
-            >, {{ activity.waiting }} waiting</template
+        <button
+          class="button compact working-chip"
+          :class="{ 'working-has-agents': workingGroups.length, 'working-active': runningOnly }"
+          :disabled="!cards.isSuccess.value"
+          :aria-pressed="runningOnly"
+          :aria-label="
+            cards.isSuccess.value
+              ? `${workingGroups.length} agents working${waitingCount ? `, ${waitingCount} waiting` : ''}`
+              : 'Agent activity unavailable'
+          "
+          :aria-description="workingDescription || undefined"
+          @click="runningOnly = !runningOnly"
+        >
+          <span v-if="workingGroups.length" class="working-icons" aria-hidden="true">
+            <span
+              v-for="group in workingGroups.slice(0, 3)"
+              :key="group.key"
+              class="working-icon"
+              :title="workingGroupLabel(group)"
+            >
+              <span
+                v-for="harness in group.harnesses"
+                :key="harness"
+                :data-cli="harness"
+                class="working-cli"
+              >
+                <CliIcon v-if="harness === 'claude' || harness === 'codex'" :cli="harness" />
+                <span v-else>?</span>
+              </span>
+            </span>
+            <span v-if="workingGroups.length > 3" class="working-icon working-overflow"
+              >+{{ workingGroups.length - 3 }}</span
+            >
+          </span>
+          {{ cards.isSuccess.value ? workingGroups.length : '—' }} agents working<template
+            v-if="cards.isSuccess.value && waitingCount"
+            >, {{ waitingCount }} waiting</template
           >
         </button>
         <div class="working-tooltip" role="tooltip">
           {{
-            activity.waiting
-              ? 'Studies with a role running now, and studies waiting for a machine'
-              : activity.working
-                ? 'Studies with a role running now'
+            cards.isSuccess.value
+              ? workingGroups.length
+                ? runningOnly
+                  ? 'Show all studies'
+                  : 'Show studies with agents working'
                 : 'No agents working right now'
+              : 'Agent activity unavailable'
           }}
         </div>
       </div>
@@ -464,13 +533,17 @@ onUnmounted(() => {
         <button
           class="button compact"
           aria-label="Display"
-          :aria-description="hiddenPropertyCount ? `${hiddenPropertyCount} card properties hidden` : undefined"
+          :aria-description="
+            hiddenPropertyCount ? `${hiddenPropertyCount} card properties hidden` : undefined
+          "
           :title="hiddenPropertyCount ? `Display · ${hiddenPropertyCount} hidden` : 'Display'"
           :aria-expanded="popup === 'display'"
           @click="menu('display', $event)"
           @keydown.down.prevent="menu('display', $event)"
         >
-          <Icon name="filters" :size="14" /><span v-if="hiddenPropertyCount">{{ hiddenPropertyCount }}</span>
+          <Icon name="filters" :size="14" /><span v-if="hiddenPropertyCount">{{
+            hiddenPropertyCount
+          }}</span>
         </button>
         <div
           v-if="popup === 'display'"
@@ -491,7 +564,11 @@ onUnmounted(() => {
               <span class="property-switch" aria-hidden="true"></span>
             </button>
           </div>
-          <button v-if="hiddenPropertyCount" class="clear-filters" @click="display.properties = [...propertyNames]">
+          <button
+            v-if="hiddenPropertyCount"
+            class="clear-filters"
+            @click="display.properties = [...propertyNames]"
+          >
             Reset properties
           </button>
         </div>
@@ -686,7 +763,7 @@ onUnmounted(() => {
     </section>
   </div>
   <div
-    v-if="cards.isSuccess.value && !visible.length && activeFilterCount"
+    v-if="cards.isSuccess.value && !visible.length && (activeFilterCount || runningOnly)"
     class="center-empty board-empty"
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
@@ -695,6 +772,7 @@ onUnmounted(() => {
       class="button compact"
       @click="
         filters = {};
+        runningOnly = false;
         tab = 'All';
       "
     >
@@ -1411,6 +1489,43 @@ onUnmounted(() => {
 }
 .working-control {
   position: relative;
+}
+.working-chip {
+  gap: 6px;
+}
+.working-has-agents {
+  border-color: var(--primary) !important;
+}
+.working-icons {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 2px;
+}
+.working-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 2px;
+  gap: 1px;
+  box-sizing: border-box;
+  margin-left: -2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 12px;
+}
+.working-cli {
+  display: inline-flex;
+  font-size: 12px;
+}
+.working-icon + .working-icon {
+  margin-left: -1px;
+}
+.working-overflow {
+  font-size: 9px;
 }
 .working-active {
   background: var(--primary) !important;
