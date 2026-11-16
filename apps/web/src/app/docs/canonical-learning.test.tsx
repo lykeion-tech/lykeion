@@ -73,3 +73,14 @@ it('preserves the concept relationship caveat in canonical Markdown and the grap
     ),
   ).toHaveLength(1);
 });
+
+
+describe('final report instructions', () => {
+  for (const slug of ['complete-tutorial', 'evidence-and-results']) {
+    it(`explains conditional report access in ${slug}`, () => {
+      const markdown = getArticle(slug)!.markdown;
+      for (const text of ['Go to the report', 'evidence graph', 'stopped', 'Workflow', 'waiting for scoring'])
+        expect(markdown).toContain(text);
+    });
+  }
+});

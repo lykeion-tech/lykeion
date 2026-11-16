@@ -200,6 +200,8 @@ The demonstration produced real hand-ins, but scoring was unavailable. This is a
 
 ## 5. Review results
 
+When the study has a final report, select **Go to the report** in Activity to open its final hand-in and evidence graph. The action appears only for a finished study with a stored report; unfinished or stopped studies, Workflow runs and older studies without a report do not show it. The local demonstration studies are waiting for scoring, so they do not yet have a finished report. Report access is described from the implementation; it was not verified live for these studies.
+
 Read the hand-in and follow its source references. Compare the answer with your requested scope. Open Files for produced artifacts, Notebook for recorded computations and Review for available checks and their explanations. These surfaces can be empty when that kind of record has not been produced.
 
 [![Searcher Grounding Team hand-in identity and Assignment heading](/docs/study-progress-detail.jpg)](/docs/study-progress.jpg)
@@ -373,6 +375,10 @@ Start from a study you can access in the selected workspace. The useful result i
 The detail identifies the hand-in. Open the image for the full assignment and findings in the actual study screenshot.
 
 The example shows a Searcher hand-in. Grounding scoring was unavailable, so this capture is not a passed review or a validated finding.
+
+## Open a final report
+
+When the study has a final report, select **Go to the report** in Activity to open its final hand-in and evidence graph. The action appears only for a finished study with a stored report; unfinished or stopped studies, Workflow runs and older studies without a report do not show it. The local demonstration studies are waiting for scoring, so they do not yet have a finished report. Report access is described from the implementation; it was not verified live for these studies.
 
 ## Inspect recorded output files
 

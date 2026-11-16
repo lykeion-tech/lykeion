@@ -157,7 +157,7 @@
 }
 .concept-choice span {
   font-size: 9px;
-  opacity: 0.6;
+  opacity: 1;
 }
 .concept-panel {
   grid-column: 1/-1;
@@ -201,7 +201,7 @@
 .concepts fieldset:has(#learn-concept-9:checked) .concept-path-9,
 .concepts fieldset:has(#learn-concept-10:checked) .concept-path-10 {
   opacity: 1;
-  animation: learning-links 2s linear 3;
+  animation: learning-links 1.5s linear 3;
 }
 @keyframes learning-reveal {
   from {

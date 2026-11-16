@@ -251,8 +251,9 @@ test.describe('isolated documentation deployment', () => {
 
 
 test('documentation text meets normal text contrast on its rendered background', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   const measurements: { text: string; ratio: number }[] = [];
-  for (const route of ['/docs/', '/docs/welcome/']) {
+  for (const route of ['/docs/', '/docs/welcome/', '/docs/core-concepts/', '/docs/scientific-stages/']) {
     await page.goto(`${origin}${route}`);
     const measure = () => page.locator('.docs-site, .docs-search').evaluateAll(roots => {
       const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number);
@@ -269,9 +270,15 @@ test('documentation text meets normal text contrast on its rendered background',
           const color = rgb(getComputedStyle(ancestor).backgroundColor);
           const alpha = color[3] ?? 1;
           background = background.map((channel, index) => color[index] * alpha + channel * (1 - alpha));
+          // Use the darkest opaque gradient stop as the contrast bound for light surfaces.
+          for (const stop of getComputedStyle(ancestor).backgroundImage.match(/rgba?\([^)]+\)/g) ?? []) {
+            const candidate = rgb(stop);
+            if ((candidate[3] ?? 1) === 1 && luminance(candidate) < luminance(background)) background = candidate;
+          }
         }
         const foreground = rgb(getComputedStyle(element).color);
-        const alpha = foreground[3] ?? 1;
+        const opacity = ancestors.reduce((value, ancestor) => value * Number(getComputedStyle(ancestor).opacity), 1);
+        const alpha = (foreground[3] ?? 1) * opacity;
         const textColor = background.map((channel, index) => foreground[index] * alpha + channel * (1 - alpha));
         const light = luminance(background), dark = luminance(textColor);
         return { text: element.textContent!.trim().slice(0, 90), ratio: (Math.max(light, dark) + .05) / (Math.min(light, dark) + .05) };
@@ -332,6 +339,69 @@ test('canonical learning content is copied, exported and searched on desktop and
       await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/canonical-${slug}-search-${width}.png` });
       await page.keyboard.press('Escape');
       await expect(search).not.toBeVisible();
+    }
+  }
+});
+
+
+test('initial concept motion stops within five seconds and focus contrasts with its surroundings', async ({ page }) => {
+  for (const slug of ['core-concepts', 'scientific-stages']) {
+    await page.goto(`${origin}/docs/${slug}/`);
+    if (slug === 'core-concepts') {
+      const duration = await page.locator('.concept-path').evaluateAll(paths => Math.max(...paths.map(path => {
+        const style = getComputedStyle(path);
+        return parseFloat(style.animationDuration) * Number(style.animationIterationCount) || 0;
+      })));
+      expect(duration).toBeGreaterThan(0);
+      expect.soft(duration).toBeLessThanOrEqual(5);
+    }
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const targets = [page.getByRole('button', { name: /Search documentation/ }), page.locator('.docs-actions summary'), page.locator('.learning-radio:checked')];
+      if (width === 390) targets.push(page.locator('.docs-sidebar summary'));
+      for (const target of targets) {
+        await target.focus();
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Shift+Tab');
+        const measurement = await target.evaluate(element => {
+          const visible = element.classList.contains('learning-radio') ? element.nextElementSibling! : element;
+          const style = getComputedStyle(visible);
+          const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number);
+          const luminance = (color: number[]) => color.slice(0, 3).map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
+          let background = [255, 255, 255];
+          const ancestors = [];
+          for (let parent = visible.parentElement; parent; parent = parent.parentElement) ancestors.unshift(parent);
+          for (const ancestor of ancestors) {
+            const style = getComputedStyle(ancestor);
+            const color = rgb(style.backgroundColor); const alpha = color[3] ?? 1;
+            background = background.map((c, i) => color[i] * alpha + c * (1 - alpha));
+            for (const stop of style.backgroundImage.match(/rgba?\([^)]+\)/g) ?? []) {
+              const candidate = rgb(stop);
+              if ((candidate[3] ?? 1) === 1 && luminance(candidate) < luminance(background)) background = candidate;
+            }
+          }
+          const ring = rgb(style.outlineColor);
+          const a = luminance(background), b = luminance(ring);
+          return { style: style.outlineStyle, width: parseFloat(style.outlineWidth), ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
+        });
+        expect(measurement.style).toBe('solid');
+        expect(measurement.width).toBeGreaterThanOrEqual(2);
+        expect(measurement.ratio).toBeGreaterThanOrEqual(3);
+        console.log(`Focus ${slug} ${width}: ${JSON.stringify(measurement)}`);
+      }
+    }
+  }
+});
+
+
+test('audited documentation pages fit desktop and phone', async ({ page }) => {
+  for (const slug of ['complete-tutorial', 'evidence-and-results', 'core-concepts', 'scientific-stages']) {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.goto(`${origin}/docs/${slug}/`);
+      await expect(page.locator('h1')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+      await page.screenshot({ animations: 'disabled', fullPage: true, path: `.superpowers/sdd/2026-11-16-lykeion-documentation/audit-${slug}-${width}.png` });
     }
   }
 });
