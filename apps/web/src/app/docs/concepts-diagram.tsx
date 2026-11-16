@@ -90,6 +90,19 @@ const relationships: [number, number][] = [
 const connections = (index: number) =>
   relationships.flatMap(([a, b]) => (a === index ? [b] : b === index ? [a] : []));
 
+// Use the grid gutters so a relationship never crosses an unrelated concept.
+export function conceptPath(first: number, second: number) {
+  const [source, target] = [first, second].sort((a, b) => a - b);
+  const sx = 100 + (source % 3) * 200;
+  const sy = 36 + Math.floor(source / 3) * 96;
+  const tx = 100 + (target % 3) * 200;
+  const ty = 36 + Math.floor(target / 3) * 96;
+  if ((sy === ty && tx - sx === 200) || (sx === tx && ty - sy === 96))
+    return `M ${sx} ${sy} L ${tx} ${ty}`;
+  const gutter = sx === tx ? (sx === 100 ? 20 : sx - 100) : tx + (sx < tx ? -100 : 100);
+  return `M ${sx} ${sy} V ${sy + 48} H ${gutter} V ${ty} H ${tx}`;
+}
+
 export function ConceptsDiagram() {
   return (
     <section className="learning concepts" aria-label="Core concepts diagram">
@@ -112,7 +125,9 @@ export function ConceptsDiagram() {
               {connections(index).map((target) => (
                 <path
                   key={target}
-                  d={`M ${100 + (index % 3) * 200} ${36 + Math.floor(index / 3) * 96} L ${100 + (target % 3) * 200} ${36 + Math.floor(target / 3) * 96}`}
+                  d={conceptPath(index, target)}
+                  data-source={index}
+                  data-target={target}
                 />
               ))}
             </g>

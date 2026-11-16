@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { ConceptsDiagram } from './concepts-diagram';
+import { ConceptsDiagram, conceptPath } from './concepts-diagram';
 import { StudyWalkthrough } from './study-walkthrough';
 import { getArticle } from './content';
 
@@ -64,4 +64,10 @@ describe('reviewed learning behavior', () => {
     expect(panel(10)).toContain('Study');
     expect(html).toContain('aria-controls="concept-panel-3"');
   });
+});
+
+it('routes long concept links through the gaps rather than unrelated nodes', () => {
+  expect(conceptPath(0, 9)).toBe('M 100 36 V 84 H 20 V 324 H 100');
+  expect(conceptPath(9, 0)).toBe(conceptPath(0, 9));
+  expect(conceptPath(0, 8)).toBe('M 100 36 V 84 H 400 V 228 H 500');
 });

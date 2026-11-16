@@ -177,3 +177,31 @@ test('reviewed walkthrough explains both validation routes and concept links rev
     }
   }
 });
+
+test('concept relationship lines avoid unrelated nodes on desktop and phone', async ({ page }) => {
+  await page.goto(`${origin}/docs/core-concepts/`);
+  const map = page.getByRole('region', { name: 'Core concepts diagram' });
+  await map.locator('label[for="learn-concept-0"]').click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (width === 390) await page.locator('.docs-sidebar summary').click();
+    const crossings = await map.evaluate(element => {
+      const labels = [...element.querySelectorAll('.concept-choice')].map(label => label.getBoundingClientRect());
+      return [...element.querySelectorAll<SVGPathElement>('path')].flatMap(path => {
+        const matrix = path.getScreenCTM()!;
+        for (let distance = 0; distance <= path.getTotalLength(); distance += 2) {
+          const point = path.getPointAtLength(distance).matrixTransform(matrix);
+          for (let index = 0; index < labels.length; index++) {
+            if (index === Number(path.dataset.source) || index === Number(path.dataset.target)) continue;
+            const rect = labels[index];
+            if (point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom) return [`${path.dataset.source}-${path.dataset.target} crosses ${index}`];
+          }
+        }
+        return [];
+      });
+    });
+    expect(crossings).toEqual([]);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-routing-workspace-${width}.png`, fullPage: true });
+  }
+});
