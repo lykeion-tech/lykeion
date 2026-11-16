@@ -7,6 +7,7 @@ import type { DocArticle } from './content';
 export function ArticleActions({ article }: { article: DocArticle }) {
   const [status, setStatus] = useState('');
   const markdownUrl = `https://app.lykeion.tech/docs/${encodeURIComponent(article.slug)}/markdown/`;
+  const prompt = encodeURIComponent(`Read https://app.lykeion.tech/docs/${encodeURIComponent(article.slug)}/ so I can ask questions about it.`);
   async function copy(text: string, success: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -22,6 +23,8 @@ export function ArticleActions({ article }: { article: DocArticle }) {
         <button type="button" onClick={() => copy(article.markdown, 'Page copied.')}><Copy size={15} aria-hidden="true" />Copy page</button>
         <button type="button" onClick={() => copy(markdownUrl, 'Markdown link copied.')}><Link2 size={15} aria-hidden="true" />Copy Markdown link</button>
         <a href={markdownUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />View Markdown</a>
+        <a href={`https://chatgpt.com/?hints=search&q=${prompt}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />Open in ChatGPT</a>
+        <a href={`https://claude.ai/new?q=${prompt}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />Open in Claude</a>
       </div>
     </details>
     <p role="status">{status}</p>

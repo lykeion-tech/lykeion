@@ -82,6 +82,16 @@ test('article actions copy exact Markdown and links, and report clipboard denial
   await actions.getByRole('button', { name: 'Copy Markdown link' }).click();
   expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('https://app.lykeion.tech/docs/welcome/markdown/');
   await expect(actions.getByRole('link', { name: 'View Markdown' })).toHaveAttribute('href', 'https://app.lykeion.tech/docs/welcome/markdown/');
+  const prompt = 'Read https://app.lykeion.tech/docs/welcome/ so I can ask questions about it.';
+  for (const [name, host, path] of [['Open in ChatGPT', 'chatgpt.com', '/'], ['Open in Claude', 'claude.ai', '/new']] as const) {
+    const link = actions.getByRole('link', { name });
+    const url = new URL((await link.getAttribute('href'))!);
+    expect(url.hostname).toBe(host);
+    expect(url.pathname).toBe(path);
+    expect(url.searchParams.get('q')).toBe(prompt);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  }
   await expect(actions).not.toContainText(/MCP|Cursor|VS Code/);
   await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new DOMException('Denied', 'NotAllowedError'); } }, configurable: true }); });
   await actions.getByRole('button', { name: 'Copy page', exact: true }).click();
