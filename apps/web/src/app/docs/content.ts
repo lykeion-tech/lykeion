@@ -371,6 +371,14 @@ The detail identifies the hand-in. Open the image for the full assignment and fi
 
 The example shows a Searcher hand-in. Grounding scoring was unavailable, so this capture is not a passed review or a validated finding.
 
+## Inspect recorded output files
+
+The DISC-2 demonstration study runs a sampling simulation using explicitly simulated data. Its Files surface contains recorded outputs, including a plot and a CSV. Open a file to inspect it and compare it with the study's stated method and inputs.
+
+[![DISC-2 Files surface with a simulated-data plot and CSV output](/docs/experiment-outputs-detail.jpg)](/docs/experiment-outputs.jpg)
+
+This detail is from the actual study; open the image for the full dashboard view. The files show what was produced from simulated data. DISC-2 is still waiting for unavailable scoring, so the presence of these files does not mean its review gate passed or that the result is a validated finding.
+
 ## Check before reusing a result
 
 Follow cited sources and compare them with the claims being made. Check whether an artifact actually exists and whether the recorded analysis corresponds to the question and inputs. Note missing sources, failed computation and unresolved objections in your own interpretation.

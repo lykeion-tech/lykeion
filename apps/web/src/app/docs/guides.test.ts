@@ -109,3 +109,12 @@ it('checks runtime availability in Settings after choosing an agent or Team', ()
   expect(concepts).toContain('runtime needed by your agent or Team is online');
   expect(getArticle('connect-machine')!.description).not.toMatch(/^Build/);
 });
+
+it('labels the actual output example as simulated and awaiting scoring', () => {
+  const evidence = getArticle('evidence-and-results')!.markdown;
+  expect(evidence).toContain('/docs/experiment-outputs-detail.jpg');
+  expect(evidence).toContain('](/docs/experiment-outputs.jpg)');
+  expect(evidence).toContain('DISC-2');
+  expect(evidence).toContain('explicitly simulated data');
+  expect(evidence).toContain('still waiting for unavailable scoring');
+});
