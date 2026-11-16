@@ -52,3 +52,32 @@ test('desktop navigation disclosure remains operable by keyboard and pointer', a
   await page.keyboard.press('Enter');
   await expect(navigation).toBeVisible();
 });
+
+test('article actions copy exact Markdown and links, and report clipboard denial', async ({ page }) => {
+  const { articles } = await import('../../apps/web/src/app/docs/content');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (text: string) => {
+      (window as unknown as { copied: string }).copied = text;
+    } }, configurable: true });
+  });
+  await page.goto(`${origin}/docs/welcome/`);
+  const actions = page.getByRole('group', { name: 'Article actions' });
+  await actions.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await expect(actions.getByRole('button', { name: 'Copy page', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toHaveText('Page copied.');
+  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(articles[0].markdown);
+  await actions.getByRole('button', { name: 'Copy Markdown link' }).click();
+  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('https://app.lykeion.tech/docs/welcome/markdown/');
+  await expect(actions.getByRole('link', { name: 'View Markdown' })).toHaveAttribute('href', 'https://app.lykeion.tech/docs/welcome/markdown/');
+  await expect(actions).not.toContainText(/MCP|Cursor|VS Code/);
+  await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new DOMException('Denied', 'NotAllowedError'); } }, configurable: true }); });
+  await actions.getByRole('button', { name: 'Copy page', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Could not copy. Open View Markdown and copy the text or URL from your browser.');
+  await page.screenshot({ path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-3-actions-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-3-actions-mobile.png', fullPage: true });
+});

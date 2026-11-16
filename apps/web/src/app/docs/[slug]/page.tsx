@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { articles, getArticle } from '../content';
+import { ArticleActions } from '../article-actions';
 import { DocsShell, articleContent } from '../docs-shell';
 
 type Props = { params: Promise<{ slug: string }> };
@@ -21,6 +22,7 @@ export default async function ArticlePage({ params }: Props) {
   const article = getArticle((await params).slug);
   if (!article) notFound();
   return <DocsShell articles={articles} currentSlug={article.slug}>
+    <ArticleActions article={article} />
     <article className="docs-prose" dangerouslySetInnerHTML={{ __html: articleContent(article.markdown).html }} />
   </DocsShell>;
 }
