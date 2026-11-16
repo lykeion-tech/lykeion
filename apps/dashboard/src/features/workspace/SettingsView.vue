@@ -67,6 +67,7 @@ const groups = computed(() =>
       title: workspace.data.value?.name ?? 'Workspace',
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
+        { id: 'colleagues', label: 'Colleagues', icon: 'users' },
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
       ],
@@ -87,7 +88,8 @@ const titles: Record<string, string> = {
   connectors: 'Connectors',
 };
 function open(id: string) {
-  void router.push({ path: '/settings', query: { tab: id } });
+  if (id === 'colleagues') void router.push('/colleagues');
+  else void router.push({ path: '/settings', query: { tab: id } });
 }
 function hydrate(w: Workspace | undefined, reset = false) {
   const previous = reset ? undefined : baseline;
@@ -363,15 +365,19 @@ async function copySlug() {
           <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
           ><strong>{{ group.title }}</strong>
         </header>
-        <button
-          v-for="item in group.items"
-          :key="item.id"
-          :class="{ selected: section === item.id }"
-          :aria-current="section === item.id ? 'page' : undefined"
-          @click="open(item.id)"
-        >
-          <Icon :name="item.icon" />{{ item.label }}
-        </button>
+        <template v-for="item in group.items" :key="item.id">
+          <RouterLink v-if="item.id === 'colleagues'" to="/colleagues" class="settings-link">
+            <Icon :name="item.icon" />{{ item.label }}
+          </RouterLink>
+          <button
+            v-else
+            :class="{ selected: section === item.id }"
+            :aria-current="section === item.id ? 'page' : undefined"
+            @click="open(item.id)"
+          >
+            <Icon :name="item.icon" />{{ item.label }}
+          </button>
+        </template>
       </section>
       <p v-if="!groups.length" class="no-match">No matching settings.</p>
     </nav>
@@ -460,7 +466,7 @@ async function copySlug() {
               ></label
             >
           </div>
-          <AnalyticsPanel />
+          <section aria-label="Usage analytics"><AnalyticsPanel /></section>
         </template>
 
         <template v-else-if="section === 'preferences'">
@@ -784,7 +790,8 @@ async function copySlug() {
   font-size: 12px;
   font-weight: 400;
 }
-.settings-rail button {
+.settings-rail button,
+.settings-rail .settings-link {
   height: 32px;
   margin-bottom: 1px;
   border-radius: 6px;
@@ -797,7 +804,8 @@ async function copySlug() {
   color: var(--muted);
   font-size: 14px;
 }
-.settings-rail button:hover {
+.settings-rail button:hover,
+.settings-rail .settings-link:hover {
   background: var(--input);
 }
 .settings-rail button.selected {
