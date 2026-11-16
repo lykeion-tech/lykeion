@@ -23,34 +23,41 @@ test('documentation search works with keyboard, escape and empty results', async
   await expect(page.locator('#open-your-workspace')).toBeInViewport();
 });
 
-test('documentation fits narrow screens with reduced motion', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+test('documentation fits narrow screens with a collapsed keyboard and touch menu', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, reducedMotion: 'reduce' });
+  const page = await context.newPage();
   await page.goto(`${origin}/docs/welcome/`);
-  await expect(page.getByRole('heading', { name: 'Welcome to Lykeion' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Welcome to Lykeion', level: 1 })).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.getByText('Explore documentation', { exact: true }).click();
-  await expect(page.getByRole('navigation', { name: 'Documentation', exact: true })).not.toBeVisible();
-  await page.getByText('Explore documentation', { exact: true }).click();
-  await expect(page.getByRole('navigation', { name: 'Documentation', exact: true })).toBeVisible();
-});
-
-
-test('desktop navigation disclosure remains operable by keyboard and pointer', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${origin}/docs/`);
-  const disclosure = page.locator('.docs-sidebar summary');
   const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
+  const disclosure = page.locator('.docs-sidebar summary');
+  await expect(navigation).not.toBeVisible();
   await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await expect(navigation).toBeVisible();
   await page.keyboard.press('Space');
   await expect(navigation).not.toBeVisible();
-  await disclosure.click();
+  await expect(disclosure).toBeFocused();
+  await disclosure.tap();
   await expect(navigation).toBeVisible();
-  await disclosure.focus();
-  await page.keyboard.press('Enter');
+  await disclosure.tap();
   await expect(navigation).not.toBeVisible();
-  await page.keyboard.press('Enter');
+  await context.close();
+});
+
+test('desktop navigation is expanded and its links support keyboard focus without JavaScript', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await page.goto(`${origin}/docs/`);
+  const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
   await expect(navigation).toBeVisible();
+  await expect(page.locator('.docs-sidebar summary')).not.toBeVisible();
+  const overview = navigation.getByRole('link', { name: 'Overview', exact: true });
+  await overview.focus();
+  await expect(overview).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(navigation.getByRole('link', { name: 'Welcome to Lykeion', exact: true })).toBeFocused();
+  await context.close();
 });
 
 test('article actions copy exact Markdown and links, and report clipboard denial', async ({ page }) => {
@@ -144,7 +151,6 @@ test('reviewed walkthrough explains both validation routes and concept links rev
   expect(await page.locator('h1').evaluate(element => element.getBoundingClientRect().top)).toBeLessThan(await walkthrough.evaluate(element => element.getBoundingClientRect().top));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
-    if (width === 390) await page.locator('.docs-sidebar summary').click();
     for (let index = 0; index < 4; index++) {
       await walkthrough.locator(`label[for="learn-stage-${index}"]`).click();
       const radio = walkthrough.locator(`#learn-stage-${index}`);
@@ -167,7 +173,6 @@ test('reviewed walkthrough explains both validation routes and concept links rev
   const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
-    if (width === 390) await page.locator('.docs-sidebar summary').click();
     for (const [index, related] of [[0, 'Agent'], [3, 'Workspace'], [1, 'Aristotle'], [10, 'Study']] as const) {
       await concepts.locator(`label[for="learn-concept-${index}"]`).click();
       await expect(concepts.locator(`#concept-panel-${index}`)).toContainText(related);
@@ -184,7 +189,6 @@ test('concept relationship lines avoid unrelated nodes on desktop and phone', as
   await map.locator('label[for="learn-concept-0"]').click();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
-    if (width === 390) await page.locator('.docs-sidebar summary').click();
     const crossings = await map.evaluate(element => {
       const labels = [...element.querySelectorAll('.concept-choice')].map(label => label.getBoundingClientRect());
       return [...element.querySelectorAll<SVGPathElement>('path')].flatMap(path => {
@@ -243,4 +247,47 @@ test.describe('isolated documentation deployment', () => {
       expect(response.headers()['content-type']).toContain('text/html');
     }
   });
+});
+
+
+test('documentation text meets normal text contrast on its rendered background', async ({ page }) => {
+  const measurements: { text: string; ratio: number }[] = [];
+  for (const route of ['/docs/', '/docs/welcome/']) {
+    await page.goto(`${origin}${route}`);
+    const measure = () => page.locator('.docs-site, .docs-search').evaluateAll(roots => {
+      const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number);
+      const luminance = (color: number[]) => color.slice(0, 3).map(value => {
+        const channel = value / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      }).reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0);
+      const elements = new Set(roots.flatMap(root => [...root.querySelectorAll<HTMLElement>('*')]));
+      return [...elements].filter(element => element.checkVisibility() && [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())).map(element => {
+        let background = [255, 255, 255];
+        const ancestors = [];
+        for (let parent: Element | null = element; parent; parent = parent.parentElement) ancestors.unshift(parent);
+        for (const ancestor of ancestors) {
+          const color = rgb(getComputedStyle(ancestor).backgroundColor);
+          const alpha = color[3] ?? 1;
+          background = background.map((channel, index) => color[index] * alpha + channel * (1 - alpha));
+        }
+        const foreground = rgb(getComputedStyle(element).color);
+        const alpha = foreground[3] ?? 1;
+        const textColor = background.map((channel, index) => foreground[index] * alpha + channel * (1 - alpha));
+        const light = luminance(background), dark = luminance(textColor);
+        return { text: element.textContent!.trim().slice(0, 90), ratio: (Math.max(light, dark) + .05) / (Math.min(light, dark) + .05) };
+      });
+    });
+    measurements.push(...await measure());
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      measurements.push(...await measure());
+      await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/mobile-contrast-${route === '/docs/' ? 'index' : 'welcome'}-${width}.png` });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('button', { name: /Search documentation/ }).click();
+    measurements.push(...await measure());
+  }
+  expect(measurements.length).toBeGreaterThan(20);
+  expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
+  console.log(`Rendered text contrast: ${measurements.length} samples, minimum ${Math.min(...measurements.map(item => item.ratio)).toFixed(2)}:1`);
 });

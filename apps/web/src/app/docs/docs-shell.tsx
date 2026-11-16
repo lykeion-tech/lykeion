@@ -30,11 +30,12 @@ export function DocsShell({ children, currentSlug, articles }: { children: React
   const sections = [...new Set(articles.map(article => article.section))];
   const current = articles.find(article => article.slug === currentSlug);
   const headings = current ? articleContent(current.markdown).headings : [];
+  const navigation = <nav aria-label="Documentation"><Link className="docs-overview" href="/docs/" aria-current={!currentSlug ? 'page' : undefined}>Overview</Link>{sections.map(section => <div className="docs-nav-group" key={section}><h2>{section}</h2>{articles.filter(article => article.section === section).map(article => <a key={article.slug} href={`/docs/${article.slug}/`} aria-current={article.slug === currentSlug ? 'page' : undefined}>{article.title}</a>)}</div>)}</nav>;
   return <div className="docs-site">
     <a className="docs-skip" href="#docs-content">Skip to content</a>
     <header className="docs-header"><Link href="/" className="docs-brand"><img src="/lykeion.svg" alt="" width="30" height="30" />Lykeion</Link><Link href="/docs/" className="docs-label">Docs</Link><DocsSearch articles={articles} /><a className="docs-app-link" href="/app/">Open Lykeion ↗</a></header>
     <div className="docs-layout">
-      <aside className="docs-sidebar"><details open><summary>Explore documentation</summary><nav aria-label="Documentation"><Link className="docs-overview" href="/docs/" aria-current={!currentSlug ? 'page' : undefined}>Overview</Link>{sections.map(section => <div className="docs-nav-group" key={section}><h2>{section}</h2>{articles.filter(article => article.section === section).map(article => <a key={article.slug} href={`/docs/${article.slug}/`} aria-current={article.slug === currentSlug ? 'page' : undefined}>{article.title}</a>)}</div>)}</nav></details></aside>
+      <aside className="docs-sidebar"><div className="docs-desktop-nav">{navigation}</div><details className="docs-mobile-nav"><summary>Explore documentation</summary>{navigation}</details></aside>
       <main id="docs-content" className="docs-content"><div className="docs-breadcrumb"><Link href="/docs/">Documentation</Link><span>/</span><span>{current?.section || 'Get started'}</span></div>{children}<div className="docs-article-foot">Research, better together.<a href="/app/">Open your workspace ↗</a></div></main>
       {headings.length > 0 && <aside className="docs-toc"><nav aria-label="On this page"><h2>On this page</h2>{headings.map(heading => <a key={heading.id} className={heading.level === 'h3' ? 'docs-toc-sub' : ''} href={`#${heading.id}`}>{heading.title}</a>)}</nav></aside>}
     </div>
