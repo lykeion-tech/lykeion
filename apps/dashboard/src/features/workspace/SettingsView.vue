@@ -12,6 +12,7 @@ import AnalyticsPanel from './settings/AnalyticsPanel.vue';
 import SkillPanel from './settings/library/SkillPanel.vue';
 import ConnectorPanel from './settings/library/ConnectorPanel.vue';
 import TokenCreationForm from './settings/TokenCreationForm.vue';
+import ShortcutReference from './settings/ShortcutReference.vue';
 import TimeZonePicker from '../../ui/TimeZonePicker.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
@@ -57,6 +58,7 @@ const groups = computed(() =>
       items: [
         { id: 'profile', label: 'Profile', icon: 'user' },
         { id: 'preferences', label: 'Preferences', icon: 'filters' },
+        { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
         { id: 'storage', label: 'Storage', icon: 'layers' },
         { id: 'machines', label: 'Machines', icon: 'monitor' },
@@ -79,6 +81,7 @@ const groups = computed(() =>
 const titles: Record<string, string> = {
   profile: 'Profile',
   preferences: 'Preferences',
+  shortcuts: 'Keyboard shortcuts',
   tokens: 'API Tokens',
   storage: 'Storage',
   machines: 'Machines',
@@ -401,7 +404,8 @@ async function copySlug() {
         </header>
         <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
 
-        <StoragePanel v-if="section === 'storage'" />
+        <ShortcutReference v-if="section === 'shortcuts'" />
+        <StoragePanel v-else-if="section === 'storage'" />
         <MachinesView
           v-else-if="section === 'machines'"
           ref="machinePanel"
@@ -470,7 +474,7 @@ async function copySlug() {
         </template>
 
         <template v-else-if="section === 'preferences'">
-          <h3>Language & region</h3>
+          <h3>Language & region <span class="scope-badge">Account</span></h3>
           <div class="setting-box">
             <label class="setting-row"
               ><span>Time zone<small>Used for your dates and schedules.</small></span

@@ -272,7 +272,7 @@ describe('Shared machines', () => {
         all(personal)
           .filter((n) => n.tag === 'button')
           .map(textOf),
-      ).toEqual(['Profile', 'Preferences', 'API Tokens', 'Storage', 'Machines', 'Updates']);
+      ).toEqual(['Profile', 'Preferences', 'Shortcuts', 'API Tokens', 'Storage', 'Machines', 'Updates']);
       expect(t.text()).toContain('Current version');
     } finally {
       t.unmount();
