@@ -21,6 +21,7 @@ describe('documentation navigation', () => {
     expect(result.headings[0].title).toBe('A code heading');
     expect(result.html).toContain('id="a-code-heading"');
     expect(result.html).not.toContain('<script>');
+    expect(articleContent('## A\n\n## A\n\n## A-2').headings.map(heading => heading.id)).toEqual(['a', 'a-2', 'a-2-2']);
   });
   it('searches titles, descriptions and Markdown and returns no unmatched articles', () => {
     for (const query of ['Welcome', 'people steer', 'Sign in']) expect(searchArticles(articles, query)).toContain(articles[0]);

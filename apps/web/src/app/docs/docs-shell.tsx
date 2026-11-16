@@ -9,14 +9,15 @@ import './docs.css';
 export function articleContent(markdown: string) {
   const renderer = new MarkdownIt({ html: false });
   const headings: { id: string; title: string; level: string }[] = [];
-  const used = new Map<string, number>();
+  const used = new Set<string>();
   renderer.renderer.rules.heading_open = (tokens, index, options, _env, self) => {
     const token = tokens[index];
     const title = tokens[index + 1].children?.filter(child => child.type === 'text' || child.type === 'code_inline').map(child => child.content).join('') || tokens[index + 1].content;
     const base = title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'section';
-    const count = used.get(base) || 0;
-    used.set(base, count + 1);
-    const id = count ? `${base}-${count + 1}` : base;
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) id = `${base}-${suffix++}`;
+    used.add(id);
     token.attrSet('id', id);
     if (token.tag !== 'h1') headings.push({ id, title, level: token.tag });
     return self.renderToken(tokens, index, options);

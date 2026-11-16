@@ -34,3 +34,21 @@ test('documentation fits narrow screens with reduced motion', async ({ page }) =
   await page.getByText('Explore documentation', { exact: true }).click();
   await expect(page.getByRole('navigation', { name: 'Documentation', exact: true })).toBeVisible();
 });
+
+
+test('desktop navigation disclosure remains operable by keyboard and pointer', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${origin}/docs/`);
+  const disclosure = page.locator('.docs-sidebar summary');
+  const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
+  await disclosure.focus();
+  await page.keyboard.press('Space');
+  await expect(navigation).not.toBeVisible();
+  await disclosure.click();
+  await expect(navigation).toBeVisible();
+  await disclosure.focus();
+  await page.keyboard.press('Enter');
+  await expect(navigation).not.toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(navigation).toBeVisible();
+});
