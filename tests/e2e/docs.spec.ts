@@ -291,3 +291,47 @@ test('documentation text meets normal text contrast on its rendered background',
   expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
   console.log(`Rendered text contrast: ${measurements.length} samples, minimum ${Math.min(...measurements.map(item => item.ratio)).toFixed(2)}:1`);
 });
+
+test('canonical learning content is copied, exported and searched on desktop and phone', async ({ page, request }) => {
+  const { getArticle } = await import('../../apps/web/src/app/docs/content');
+  const { stages, concepts, connections } = await import('../../apps/web/src/app/docs/learning-content');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { copied: string }).copied = text; } } });
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const slug of ['scientific-stages', 'core-concepts']) {
+      const article = getArticle(slug)!;
+      await page.goto(`${origin}/docs/${slug}/`);
+      const actions = page.getByRole('group', { name: 'Article actions' });
+      await actions.locator('summary').click();
+      await actions.getByRole('button', { name: 'Copy page', exact: true }).click();
+      await expect(page.getByRole('status')).toHaveText('Page copied.');
+      const copied = await page.evaluate(() => (window as unknown as { copied: string }).copied);
+      expect(copied).toBe(article.markdown);
+      expect(await (await request.get(`${origin}/docs/${slug}/markdown/`)).text()).toBe(copied);
+      if (slug === 'scientific-stages') {
+        for (const stage of stages) { expect(copied).toContain(stage.gate); expect(copied).toContain(stage.result); }
+        await page.locator('label[for="learn-stage-3"]').click();
+        await expect(page.locator('#stage-panel-3')).toContainText(stages[3].result);
+        expect((await page.locator('.docs-prose').allTextContents()).join(' ')).not.toContain(stages[3].result);
+      } else {
+        for (const [index, concept] of concepts.entries()) {
+          expect(copied).toContain(concept.text);
+          expect(copied).toContain(connections(index).map(target => concepts[target].name).join(' · '));
+        }
+        await page.locator('label[for="learn-concept-3"]').click();
+        await expect(page.locator('#concept-panel-3')).toContainText('Workspace');
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ animations: 'disabled', fullPage: true, path: `.superpowers/sdd/2026-11-16-lykeion-documentation/canonical-${slug}-copy-${width}.png` });
+      await page.getByRole('button', { name: /Search documentation/ }).click();
+      const search = page.getByRole('dialog', { name: 'Search documentation' });
+      await search.getByRole('searchbox').fill(slug === 'scientific-stages' ? 'falsifiability' : 'reusable research role');
+      await expect(search.getByRole('link', { name: new RegExp(article.title) })).toBeVisible();
+      await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/canonical-${slug}-search-${width}.png` });
+      await page.keyboard.press('Escape');
+      await expect(search).not.toBeVisible();
+    }
+  }
+});

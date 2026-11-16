@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { articles, getArticle } from './content';
-import { renderMarkdown } from './markdown';
+import { articleContent } from './docs-shell';
 import ArticlePage, { generateStaticParams as articleParams } from './[slug]/page';
 import { GET, generateStaticParams as markdownParams } from './[slug]/markdown/route';
 
@@ -29,11 +29,11 @@ describe('documentation source and static routes', () => {
     expect((await GET(new Request('https://example.com'), props)).status).toBe(404);
   });
   it('escapes raw HTML while rendering links and fenced code', () => {
-    const html = renderMarkdown('<script>alert(1)</script>\n\n[Welcome](/docs/welcome/)\n\n```sh\nlyk --help\n```');
+    const html = articleContent('<script>alert(1)</script>\n\n[Welcome](/docs/welcome/)\n\n```sh\nlyk --help\n```').html;
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('<a href="/docs/welcome/">Welcome</a>');
     expect(html).toContain('<pre><code class="language-sh">lyk --help\n</code></pre>');
-    expect(renderMarkdown('[unsafe](javascript:alert(1))')).not.toContain('href="javascript:');
+    expect(articleContent('[unsafe](javascript:alert(1))').html).not.toContain('href="javascript:');
   });
 });

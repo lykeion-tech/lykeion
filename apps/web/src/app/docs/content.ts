@@ -1,12 +1,15 @@
+import { learningMarkdown } from './learning-content';
+
 export type DocArticle = {
   slug: string;
   title: string;
   description: string;
   section: string;
   markdown: string;
+  proseMarkdown?: string;
 };
 
-export const articles: DocArticle[] = [
+const authoredArticles: DocArticle[] = [
   {
     slug: 'welcome',
     title: 'Welcome to Lykeion',
@@ -822,6 +825,11 @@ Coresearch also uses projects for ongoing conversations and files. Use [Coresear
 `,
   },
 ];
+
+export const articles: DocArticle[] = authoredArticles.map(article => {
+  const learning = learningMarkdown(article.slug);
+  return learning ? { ...article, proseMarkdown: article.markdown, markdown: `${article.markdown.trimEnd()}\n\n${learning}` } : article;
+});
 
 export function getArticle(slug: string): DocArticle | undefined {
   return articles.find((article) => article.slug === slug);

@@ -29,7 +29,7 @@ export function articleContent(markdown: string) {
 export function DocsShell({ children, currentSlug, articles }: { children: ReactNode; currentSlug?: string; articles: DocArticle[] }) {
   const sections = [...new Set(articles.map(article => article.section))];
   const current = articles.find(article => article.slug === currentSlug);
-  const headings = current ? articleContent(current.markdown).headings : [];
+  const headings = current ? articleContent(current.proseMarkdown ?? current.markdown).headings : [];
   const navigation = <nav aria-label="Documentation"><Link className="docs-overview" href="/docs/" aria-current={!currentSlug ? 'page' : undefined}>Overview</Link>{sections.map(section => <div className="docs-nav-group" key={section}><h2>{section}</h2>{articles.filter(article => article.section === section).map(article => <a key={article.slug} href={`/docs/${article.slug}/`} aria-current={article.slug === currentSlug ? 'page' : undefined}>{article.title}</a>)}</div>)}</nav>;
   return <div className="docs-site">
     <a className="docs-skip" href="#docs-content">Skip to content</a>

@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ArticlePage({ params }: Props) {
   const article = getArticle((await params).slug);
   if (!article) notFound();
-  const html = articleContent(article.markdown).html;
+  const html = articleContent(article.proseMarkdown ?? article.markdown).html;
   const learning = article.slug === 'core-concepts' ? <ConceptsDiagram />
     : article.slug === 'scientific-stages' ? <StudyWalkthrough /> : null;
   const introEnd = learning ? html.indexOf('<h2') : -1;
