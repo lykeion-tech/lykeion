@@ -51,6 +51,19 @@ func TestHealthRouteClearsTheWait(t *testing.T) {
 	if reason, open := state(); reason != nil || open != 0 {
 		t.Fatalf("after passing preflight: %v %d", reason, open)
 	}
+
+	if code := s.call(t, "POST", path, tok, "", map[string]any{"workspace_id": w.ID, "ok": false, "reason": "provider_quota"}, nil); code != 204 {
+		t.Fatalf("quota report: %d", code)
+	}
+	if reason, open := state(); reason == nil || *reason != "provider_quota" || open != 1 {
+		t.Fatalf("after quota report: %v %d", reason, open)
+	}
+	if code := s.call(t, "POST", path, tok, "", map[string]any{"workspace_id": w.ID, "ok": true}, nil); code != 204 {
+		t.Fatalf("quota recovery report: %d", code)
+	}
+	if reason, open := state(); reason != nil || open != 0 {
+		t.Fatalf("after quota recovery: %v %d", reason, open)
+	}
 }
 
 // A fence breach survives the daemon's later passes, and a later failure

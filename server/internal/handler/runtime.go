@@ -379,7 +379,7 @@ func (h *H) setRuntimeSharing(w http.ResponseWriter, r *http.Request) {
 }
 
 // preflightReasons are the failures a daemon's preflight reports.
-var preflightReasons = map[string]bool{agent.ReasonCLIMissing: true, agent.ReasonCLITooOld: true, agent.ReasonSandbox: true, agent.ReasonDoor: true, agent.ReasonSignIn: true, agent.ReasonCLIBroken: true}
+var preflightReasons = map[string]bool{agent.ReasonCLIMissing: true, agent.ReasonCLITooOld: true, agent.ReasonSandbox: true, agent.ReasonDoor: true, agent.ReasonSignIn: true, agent.ReasonCLIBroken: true, agent.ReasonProviderQuota: true}
 
 // daemonRuntimeHealth takes a preflight's result for one of the caller's
 // runtimes: a pass lets it claim again and resolves its waits, a failure
