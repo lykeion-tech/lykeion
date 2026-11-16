@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { articles, getArticle } from '../content';
-import { renderMarkdown } from '../markdown';
+import { DocsShell, articleContent } from '../docs-shell';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -20,8 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ArticlePage({ params }: Props) {
   const article = getArticle((await params).slug);
   if (!article) notFound();
-  return <main>
-    <nav aria-label="Documentation"><a href="/docs/">Documentation</a></nav>
-    <article dangerouslySetInnerHTML={{ __html: renderMarkdown(article.markdown) }} />
-  </main>;
+  return <DocsShell articles={articles} currentSlug={article.slug}>
+    <article className="docs-prose" dangerouslySetInnerHTML={{ __html: articleContent(article.markdown).html }} />
+  </DocsShell>;
 }
