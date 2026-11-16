@@ -84,3 +84,52 @@ test('article actions copy exact Markdown and links, and report clipboard denial
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.screenshot({ path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-3-actions-mobile.png', fullPage: true });
 });
+
+test('learning diagrams support native keyboard selection, no JavaScript and reduced motion', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  await page.goto(`${origin}/docs/scientific-stages/`);
+  const stages = page.getByRole('region', { name: 'Study stage walkthrough' });
+  await stages.getByRole('radio', { name: '01 Grounding' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(stages.getByRole('heading', { name: 'Make alternatives explicit' })).toBeVisible();
+  await expect(stages.getByRole('heading', { name: 'Find the foundation' })).not.toBeVisible();
+  expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-stages-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
+  await page.goto(`${origin}/docs/core-concepts/`);
+  const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
+  await concepts.getByRole('radio', { name: '02 Study', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(concepts.getByRole('heading', { name: 'Stages', exact: true })).toBeVisible();
+  await expect(concepts.getByRole('link', { name: 'Read Scientific stages' })).toHaveAttribute('href', '/docs/scientific-stages/');
+  expect(await concepts.locator('.concept-path-2').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-concepts-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
+  await context.close();
+});
+
+test('learning graphics show each stage and selected relationships with bounded motion', async ({ page }) => {
+  await page.goto(`${origin}/docs/scientific-stages/`);
+  const stages = page.getByRole('region', { name: 'Study stage walkthrough' });
+  for (const [name, heading] of [['01 Grounding', 'Find the foundation'], ['02 Hypotheses', 'Make alternatives explicit'], ['03 Experimentation', 'Put the question to work'], ['04 Validation', 'Challenge the findings']]) {
+    await stages.locator(`label[for="learn-stage-${['01 Grounding', '02 Hypotheses', '03 Experimentation', '04 Validation'].indexOf(name)}"]`).click();
+    await expect(stages.getByRole('heading', { name: heading })).toBeVisible();
+  }
+  expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('learning-reveal');
+  await stages.screenshot({ animations: 'disabled', path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-validation.png' });
+  await page.goto(`${origin}/docs/core-concepts/`);
+  const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
+  await concepts.locator('label[for="learn-concept-3"]').click();
+  await expect(concepts.getByRole('heading', { name: 'Agent', exact: true })).toBeVisible();
+  await expect(concepts.getByRole('link', { name: 'Read Agents' })).toBeVisible();
+  expect(await concepts.locator('.concept-path-3').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+  expect(await concepts.locator('.concept-path-3').evaluate(element => getComputedStyle(element).animationIterationCount)).toBe('3');
+  await concepts.screenshot({ animations: 'disabled', path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-agent.png' });
+});

@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { articles, getArticle } from '../content';
+import { ConceptsDiagram } from '../concepts-diagram';
+import { StudyWalkthrough } from '../study-walkthrough';
 import { ArticleActions } from '../article-actions';
 import { DocsShell, articleContent } from '../docs-shell';
 
@@ -23,6 +25,8 @@ export default async function ArticlePage({ params }: Props) {
   if (!article) notFound();
   return <DocsShell articles={articles} currentSlug={article.slug}>
     <ArticleActions article={article} />
+    {article.slug === 'core-concepts' && <ConceptsDiagram />}
+    {article.slug === 'scientific-stages' && <StudyWalkthrough />}
     <article className="docs-prose" dangerouslySetInnerHTML={{ __html: articleContent(article.markdown).html }} />
   </DocsShell>;
 }

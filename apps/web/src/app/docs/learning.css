@@ -1,0 +1,309 @@
+.learning {
+  margin: 36px 0 52px;
+  padding: 30px;
+  border: 1px solid #dce3d9;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #f8faf3, #fff);
+  color: #263c32;
+  isolation: isolate;
+}
+.learning-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #627958;
+}
+.learning h2 {
+  font-family: var(--font-serif), serif;
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 14px 0;
+}
+.learning p {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.learning fieldset {
+  position: relative;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 24px 0;
+}
+.learning legend {
+  font-size: 12px;
+  margin-bottom: 16px;
+  color: #59665b;
+}
+.learning-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.learning label {
+  cursor: pointer;
+}
+.learning-radio:focus-visible + label {
+  outline: 3px solid #5a7561;
+  outline-offset: 4px;
+}
+.learning-radio:checked + label {
+  background: #263f32;
+  color: #fff;
+  border-color: #263f32;
+}
+.learning-panel {
+  display: none;
+}
+.learning-radio:checked + label + .learning-panel {
+  display: block;
+  animation: learning-reveal 0.35s ease-out;
+}
+.learning h3 {
+  font-size: 22px;
+  margin: 20px 0 14px;
+}
+.learning a {
+  font-size: 13px;
+  color: #355b41;
+  text-underline-offset: 4px;
+}
+.learning .learning-note {
+  font-size: 12px;
+  color: #647064;
+  border-top: 1px solid #dce3d9;
+  padding-top: 16px;
+}
+.walkthrough fieldset {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.walkthrough legend {
+  grid-column: 1/-1;
+}
+.stage-track {
+  grid-column: 1/-1;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  padding: 12px 2px;
+  border-bottom: 1px solid #b9c9af;
+  margin-bottom: 8px;
+}
+.stage-choice {
+  grid-row: 2;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 12px 8px;
+  border: 1px solid #dce3d9;
+  border-radius: 8px;
+  background: #fff;
+}
+.stage-choice > span {
+  font-size: 18px;
+  font-family: serif;
+}
+.stage-panel {
+  grid-row: 3;
+  grid-column: 1/-1;
+  padding-top: 12px;
+}
+.stage-scene {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 116px;
+  background: radial-gradient(ellipse, #e9efdc, transparent 70%);
+  overflow: hidden;
+}
+.stage-scene > span {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border: 1px solid #92a682;
+  background: #fff;
+  border-radius: 50%;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.stage-scene .scene-question {
+  font-family: serif;
+  font-size: 34px;
+  width: 48px;
+  height: 48px;
+}
+.stage-scene .scene-evidence {
+  border-radius: 8px;
+  transform: rotate(-5deg);
+}
+.stage-scene i {
+  width: 50px;
+  height: 1px;
+  background: #9cac8a;
+  position: relative;
+}
+.stage-scene i:after {
+  content: '';
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  top: -2px;
+  left: 0;
+  border-radius: 50%;
+  background: #527044;
+  animation: learning-flow 2.5s ease-in-out 2;
+}
+.learning dl {
+  margin: 0;
+}
+.learning dl > div {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid #e1e7db;
+}
+.learning dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 3px;
+  color: #627958;
+}
+.learning dd {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.concepts fieldset {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, 72px) auto;
+  gap: 24px 12px;
+}
+.concept-choice {
+  align-self: center;
+  justify-self: center;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px;
+  border: 1px solid #bfcdb6;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  box-shadow: 0 4px 16px #304f2810;
+}
+.concept-choice span {
+  font-size: 9px;
+  opacity: 0.6;
+}
+.concept-panel {
+  grid-column: 1/-1;
+  grid-row: 5;
+  border-top: 1px solid #dce3d9;
+  padding-top: 6px;
+  min-height: 230px;
+}
+.concept-panel h4 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #627958;
+  margin-bottom: 0;
+}
+.concept-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 360px;
+  z-index: -1;
+  pointer-events: none;
+}
+.concept-path {
+  opacity: 0;
+  stroke: #73925e;
+  stroke-width: 1.5;
+  fill: none;
+  stroke-dasharray: 5 5;
+}
+.concepts fieldset:has(#learn-concept-0:checked) .concept-path-0,
+.concepts fieldset:has(#learn-concept-1:checked) .concept-path-1,
+.concepts fieldset:has(#learn-concept-2:checked) .concept-path-2,
+.concepts fieldset:has(#learn-concept-3:checked) .concept-path-3,
+.concepts fieldset:has(#learn-concept-4:checked) .concept-path-4,
+.concepts fieldset:has(#learn-concept-5:checked) .concept-path-5,
+.concepts fieldset:has(#learn-concept-6:checked) .concept-path-6,
+.concepts fieldset:has(#learn-concept-7:checked) .concept-path-7,
+.concepts fieldset:has(#learn-concept-8:checked) .concept-path-8,
+.concepts fieldset:has(#learn-concept-9:checked) .concept-path-9,
+.concepts fieldset:has(#learn-concept-10:checked) .concept-path-10 {
+  opacity: 1;
+  animation: learning-links 2s linear 3;
+}
+@keyframes learning-reveal {
+  from {
+    opacity: 0.3;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes learning-flow {
+  to {
+    left: 100%;
+  }
+}
+@keyframes learning-links {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .learning *,
+  .learning *:after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 600px) {
+  .learning {
+    padding: 18px 14px;
+  }
+  .learning h2 {
+    font-size: 27px;
+  }
+  .stage-choice {
+    font-size: 9px;
+    padding: 10px 4px;
+  }
+  .concept-choice {
+    font-size: 10px;
+    padding: 10px 5px;
+    gap: 4px;
+  }
+  .concepts fieldset {
+    column-gap: 5px;
+  }
+  .stage-scene {
+    gap: 8px;
+  }
+  .stage-scene i {
+    width: 25px;
+  }
+  .learning dl > div {
+    grid-template-columns: 64px 1fr;
+    gap: 8px;
+  }
+}
