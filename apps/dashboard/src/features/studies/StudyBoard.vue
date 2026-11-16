@@ -169,6 +169,8 @@ watch(
   { deep: true },
 );
 
+const hiddenPropertyCount = computed(() => propertyNames.filter((name) => !display.properties.includes(name)).length);
+
 const tab = ref<'All' | 'Members' | 'Agents'>('All');
 const actorTabs = computed(() => (props.projectId ? (['All', 'Members', 'Agents'] as const) : []));
 const popup = ref('');
@@ -462,12 +464,13 @@ onUnmounted(() => {
         <button
           class="button compact"
           aria-label="Display"
-          title="Display"
+          :aria-description="hiddenPropertyCount ? `${hiddenPropertyCount} card properties hidden` : undefined"
+          :title="hiddenPropertyCount ? `Display · ${hiddenPropertyCount} hidden` : 'Display'"
           :aria-expanded="popup === 'display'"
           @click="menu('display', $event)"
           @keydown.down.prevent="menu('display', $event)"
         >
-          <Icon name="filters" :size="14" />
+          <Icon name="filters" :size="14" /><span v-if="hiddenPropertyCount">{{ hiddenPropertyCount }}</span>
         </button>
         <div
           v-if="popup === 'display'"
@@ -488,6 +491,9 @@ onUnmounted(() => {
               <span class="property-switch" aria-hidden="true"></span>
             </button>
           </div>
+          <button v-if="hiddenPropertyCount" class="clear-filters" @click="display.properties = [...propertyNames]">
+            Reset properties
+          </button>
         </div>
       </div>
       <button
