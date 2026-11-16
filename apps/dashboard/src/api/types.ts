@@ -88,6 +88,7 @@ export interface ReportNode {
   id: string;
   kind: ReportNodeKind;
   label: string;
+  paper_id?: string;
   // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses:
   // kept|rejected; objections: upheld|not_upheld; papers, datasets and
   // doubts: pass|unclear|fail; otherwise ''.
@@ -529,6 +530,8 @@ export interface ResearchDetail extends Research {
   studies: Card[];
 }
 export interface AgentDefinition {
+  report_template?: string;
+  default_report_template?: string;
   avatar_url: string;
   built_in_key?: string;
   conversation_starters?: { label: string; prompt: string }[];

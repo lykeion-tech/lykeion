@@ -34,6 +34,7 @@ function onKey(e: KeyboardEvent) {
     role="button"
     :tabindex="0"
     :aria-label="`${kindName(data.kind)}: ${data.label}`"
+    :title="data.label"
     :aria-pressed="data.selected"
     @click="emit('select', id)"
     @keydown="onKey"

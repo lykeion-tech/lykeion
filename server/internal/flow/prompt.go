@@ -183,11 +183,9 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 	"An item you could not check against a source is a concern, never a pass. " +
 	"Leave `replies` empty and `decision` null. You hand in no items and ask no members.\n"
 
-// Protocol is the skill text appended to an agent's instructions for its role
-// in a column: "leader", "agent" (a study's single agent), "auditor", or a
-// member's name. It is Lykeion's counterpart of the operating protocol a
-// squad leader reads.
-func reportTemplate(role, column string) string {
+// DefaultReportFormat is the Markdown headings a role's hand-in answer uses in
+// a column when its agent has no report template of its own.
+func DefaultReportFormat(role, column string) string {
 	var headings string
 	switch role {
 	case "auditor":
@@ -207,15 +205,27 @@ func reportTemplate(role, column string) string {
 		headings = "Assignment; Findings; Handoff"
 	}
 	if headings == "" {
-		return ""
+		headings = "Assignment; Findings; Handoff"
 	}
-	return "Write the hand-in's `answer` in Markdown using these headings in order: " + headings + ". " +
+	return "## " + strings.ReplaceAll(headings, "; ", "\n\n## ")
+}
+
+func reportTemplate(role, column, custom string) string {
+	format := "using this template:\n" + DefaultReportFormat(role, column) + "\n"
+	if strings.TrimSpace(custom) != "" {
+		format = "using this template:\n" + custom + "\n"
+	}
+	return "Write the hand-in's `answer` in Markdown " + format +
 		"Be concise and report only what you actually did or found. State when a section is unavailable or not applicable; never invent evidence or results. " +
 		"If you could not complete the work, say why. Validation review status is pending until Lykeion's checks determine it; do not claim a gate passed. " +
 		"If the researcher requested a specific final line, preserve that line at the end.\n\n"
 }
 
-func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
+// Protocol is the skill text appended to an agent's instructions for its role
+// in a column: "leader", "agent" (a study's single agent), "auditor", or a
+// member's name. It is Lykeion's counterpart of the operating protocol a
+// squad leader reads.
+func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...string) string {
 	var b strings.Builder
 	b.WriteString("## How you work in Lykeion\n\n")
 	switch role {
@@ -259,7 +269,11 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest) string {
 		b.WriteString("Do the task and end with your hand-in. It has the column's fields, but the items are optional: hand in the ones your task produced. The leader decides what goes into the column's hand-in. " +
 			"A question only the researcher can answer goes to the leader: hand in `ask` with the decision, and the leader raises it for you.\n\n")
 	}
-	b.WriteString(reportTemplate(role, column))
+	var custom string
+	if len(templates) > 0 {
+		custom = templates[0]
+	}
+	b.WriteString(reportTemplate(role, column, custom))
 	b.WriteString(handInExample(role, column))
 	if role != "auditor" {
 		b.WriteString(handInIntro + itemsPrompt(column))

@@ -13,6 +13,8 @@ const required = [
   'members-and-roles',
   'studies',
   'scientific-stages',
+  'decisions',
+  'jev',
   'evidence-and-results',
   'workflows',
   'agents',
@@ -117,4 +119,12 @@ it('labels the actual output example as simulated and awaiting scoring', () => {
   expect(evidence).toContain('DISC-2');
   expect(evidence).toContain('explicitly simulated data');
   expect(evidence).toContain('still waiting for unavailable scoring');
+});
+
+it('replaces the Projects guide with Jev and links Decisions to review', () => {
+  expect(getArticle('projects')).toBeUndefined();
+  expect(getArticle('jev')?.section).toBe('Research');
+  expect(getArticle('decisions')?.section).toBe('Research');
+  expect(getArticle('decisions')?.markdown).toContain('](/docs/jev/)');
+  expect(getArticle('jev')?.markdown).toContain('](/docs/decisions/)');
 });

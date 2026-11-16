@@ -125,7 +125,7 @@ function runtime(run: AgentRun) {
         >
         <div class="profile-identity">
           <strong>{{ owner.name || owner.email }}</strong>
-          <span class="role-badge">{{ owner.role }}</span>
+          <div><span class="role-badge">{{ owner.role }}</span></div>
           <div class="muted profile-email" :title="owner.email">{{ owner.email }}</div>
         </div>
         <RouterLink class="details-link" :to="`/colleagues/${owner.user_id}`">Details →</RouterLink>
@@ -295,7 +295,6 @@ function runtime(run: AgentRun) {
   color: var(--muted);
 }
 .role-badge {
-  margin-left: 5px;
   background: var(--fill-control);
   border-radius: 4px;
   padding: 2px 5px;

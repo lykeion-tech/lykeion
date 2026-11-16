@@ -39,6 +39,10 @@
   font-size: 13px;
   margin-top: 2px;
 }
+.aristotle-header small a {
+  color: var(--primary-text);
+  text-decoration: none;
+}
 .aristotle-scroll {
   flex: 1;
   overflow: auto;

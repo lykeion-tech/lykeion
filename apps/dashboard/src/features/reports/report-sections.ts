@@ -1,6 +1,6 @@
 import type { ReportEdge, ReportLink, ReportNode, ReviewCheck, StudyReport } from '../../api/types';
 import { checkLabel } from '../../lib/review';
-import { columnName } from '../../lib/studies';
+import { columnName, studyDisplayTitle } from '../../lib/studies';
 
 // A section shows only what the report recorded: every label, status and
 // detail below is copied from a node, edge, check or steering entry.
@@ -9,6 +9,7 @@ export type DetailBlock = { label: string; text: string; nodeId?: string };
 export type Row =
   | {
       kind: 'detail';
+      inline?: boolean;
       label: string;
       status?: 'pass' | 'unclear' | 'fail';
       pct?: number;
@@ -162,16 +163,19 @@ export function sectionFor(report: StudyReport, nodeId: string) {
     return { title, summary: rows.length ? String(rows.length) : 'None recorded', rows };
   };
 
-  const runRows = (): Row[] =>
+  const runRows = (inline = false): Row[] =>
     node.run_id
       ? [
           {
             kind: 'detail',
+            inline,
             label: node.agent || 'Agent run',
             detail: [
               ...(node.agent ? [{ label: 'Agent', text: node.agent }] : []),
-              { label: 'Run', text: node.run_id },
-              ...(node.column ? [{ label: 'Column', text: columnName(node.column) }] : []),
+              inline
+                ? { label: 'Study', text: studyDisplayTitle(report.title) }
+                : { label: 'Run', text: node.run_id },
+              ...(node.column ? [{ label: inline ? 'Stage' : 'Column', text: columnName(node.column) }] : []),
             ],
           },
         ]
@@ -190,7 +194,7 @@ export function sectionFor(report: StudyReport, nodeId: string) {
     }));
   const whoFold = (title: string, judged?: string): Fold => {
     const rows = [
-      ...runRows(),
+      ...runRows(title === 'Who found it'),
       ...steeringRows(),
       ...(judged && node.checks.length
         ? [
@@ -470,7 +474,7 @@ export function tabRows(
   });
   const rank = (n: ReportNode) => (n.kind === 'finding' ? 0 : 1);
   return {
-    findings: pick(['finding', 'hypothesis'], near2, false)
+    findings: pick(['finding', 'hypothesis'], near2, true)
       .sort((a, b) => rank(a) - rank(b))
       .map(row),
     concerns: pick(['objection', 'doubt'], near1, true).map((n) => ({

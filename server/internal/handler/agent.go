@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/flow"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/pack"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	"lykeion/server/pkg/agent"
@@ -41,6 +43,9 @@ func validateAgent(a db.Agent) error {
 	}
 	if len(a.Instructions) > 65536 || strings.ContainsRune(a.Instructions, 0) || !utf8.ValidString(a.Instructions) {
 		return cardInputError("instructions must be valid UTF-8 without NUL, at most 64 KiB")
+	}
+	if len(a.ReportTemplate) > 65536 || strings.ContainsRune(a.ReportTemplate, 0) || !utf8.ValidString(a.ReportTemplate) {
+		return cardInputError("report template must be valid UTF-8 without NUL, at most 64 KiB")
 	}
 	if _, ok := agent.Harnesses[a.Harness]; !ok {
 		return cardInputError(fmt.Sprintf("unknown harness %q", a.Harness))
@@ -129,6 +134,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 		Name                 string          `json:"name"`
 		Description          string          `json:"description"`
 		Instructions         string          `json:"instructions"`
+		ReportTemplate       string          `json:"report_template"`
 		Harness              string          `json:"harness"`
 		Model                string          `json:"model"`
 		Visibility           string          `json:"visibility"`
@@ -160,7 +166,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	if len(in.ConversationStarters) == 0 {
 		in.ConversationStarters = json.RawMessage(`[]`)
 	}
-	a := db.Agent{ConversationStarters: in.ConversationStarters, Name: strings.TrimSpace(in.Name), Description: in.Description, Instructions: in.Instructions, Harness: in.Harness, Model: in.Model, Visibility: in.Visibility}
+	a := db.Agent{ConversationStarters: in.ConversationStarters, Name: strings.TrimSpace(in.Name), Description: in.Description, Instructions: in.Instructions, ReportTemplate: in.ReportTemplate, Harness: in.Harness, Model: in.Model, Visibility: in.Visibility}
 	if err := validateAgent(a); err != nil {
 		agentFail(w, r, err, nil, 201)
 		return
@@ -168,7 +174,7 @@ func (h *H) createAgent(w http.ResponseWriter, r *http.Request) {
 	var out db.Agent
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, Stage: in.Stage, ConversationStarters: a.ConversationStarters})
+		out, err = tx.Q.CreateAgent(r.Context(), db.CreateAgentParams{WorkspaceID: ws, OwnerID: user, Name: a.Name, Description: a.Description, Instructions: a.Instructions, ReportTemplate: a.ReportTemplate, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, Stage: in.Stage, ConversationStarters: a.ConversationStarters})
 		if err != nil {
 			return err
 		}
@@ -182,14 +188,50 @@ func (h *H) getAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var out db.Agent
+	var out struct {
+		db.Agent
+		DefaultReportTemplate string `json:"default_report_template"`
+	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
-		out, err = tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
-		if err == nil && !agentVisible(r, out, user) {
+		out.Agent, err = tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+		if err == nil && !agentVisible(r, out.Agent, user) {
 			return pgx.ErrNoRows
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		role := "agent"
+		builtIn, err := tx.Q.AgentIsBuiltIn(r.Context(), db.AgentIsBuiltInParams{WorkspaceID: ws, AgentID: id})
+		if err != nil {
+			return err
+		}
+		if builtIn && out.BuiltInKey == "" {
+			links, err := tx.AgentTeams(r.Context(), id)
+			if err != nil {
+				return err
+			}
+			if len(links) > 0 {
+				p, err := tx.Q.GetFieldPack(r.Context(), db.GetFieldPackParams{WorkspaceID: ws, ID: links[0].PackID})
+				if err != nil {
+					return err
+				}
+				var m pack.Manifest
+				if err := json.Unmarshal(p.Manifest, &m); err != nil {
+					return err
+				}
+				role = links[0].Member
+				if role == m.Leader.Name {
+					role = "leader"
+				} else if role == m.Auditor.Name {
+					role = "auditor"
+				}
+			}
+		}
+		if out.BuiltInKey == "" {
+			out.DefaultReportTemplate = flow.DefaultReportFormat(role, out.Stage)
+		}
+		return nil
 	})
 	agentFail(w, r, err, out, 200)
 }
@@ -203,6 +245,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		Name                 *string         `json:"name"`
 		Description          *string         `json:"description"`
 		Instructions         *string         `json:"instructions"`
+		ReportTemplate       *string         `json:"report_template"`
 		Harness              *string         `json:"harness"`
 		Model                *string         `json:"model"`
 		Visibility           *string         `json:"visibility"`
@@ -219,7 +262,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "built-in identity is immutable")
 		return
 	}
-	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && in.AvatarURL == nil && in.Stage == nil && len(in.ConversationStarters) == 0 {
+	if in.Name == nil && in.Description == nil && in.Instructions == nil && in.ReportTemplate == nil && in.Harness == nil && in.Model == nil && in.Visibility == nil && in.AvatarURL == nil && in.Stage == nil && len(in.ConversationStarters) == 0 {
 		writeErr(w, 400, "nothing to change")
 		return
 	}
@@ -243,6 +286,16 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := refuseLaboratory(a); err != nil {
 			return err
+		}
+		if in.ReportTemplate != nil {
+			builtIn, err := tx.Q.AgentIsBuiltIn(r.Context(), db.AgentIsBuiltInParams{WorkspaceID: ws, AgentID: id})
+			if err != nil {
+				return err
+			}
+			if builtIn {
+				return cardInputError("built-in agents cannot have a report template")
+			}
+			a.ReportTemplate = *in.ReportTemplate
 		}
 		if a.ArchivedAt != nil {
 			return errAgentArchived
@@ -301,7 +354,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if err := validateAgent(a); err != nil {
 			return err
 		}
-		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters, AvatarUrl: a.AvatarUrl, Stage: a.Stage})
+		out, err = tx.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{WorkspaceID: ws, ID: id, Name: a.Name, Description: a.Description, Instructions: a.Instructions, ReportTemplate: a.ReportTemplate, Harness: a.Harness, Model: a.Model, Visibility: a.Visibility, ConversationStarters: a.ConversationStarters, AvatarUrl: a.AvatarUrl, Stage: a.Stage})
 		if err != nil {
 			return err
 		}

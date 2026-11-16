@@ -326,7 +326,7 @@ const invite = () =>
           </select></SelectPicker
         >
       </div>
-      <table class="people" aria-label="Members">
+      <table class="people members" aria-label="Members">
         <thead>
           <tr>
             <th>Name</th>
@@ -348,7 +348,7 @@ const invite = () =>
             </td>
             <td class="muted">{{ m.email }}</td>
             <td>
-              <SelectPicker v-if="isAdmin"
+              <SelectPicker v-if="isAdmin" :min-width="120"
                 ><select
                   :value="m.role"
                   :disabled="busy"
@@ -514,7 +514,7 @@ const invite = () =>
 }
 
 .colleagues {
-  padding: 16px 24px;
+  padding: 4px 20px 32px;
 }
 .people {
   width: 100%;
@@ -526,24 +526,29 @@ const invite = () =>
   text-align: left;
   font-size: 13px;
   font-weight: 400;
-  padding: 10px 16px;
+  padding: 6px 12px 6px 0;
 }
 .people td {
-  padding: 10px 16px;
+  padding: 10px 12px 10px 0;
   border-top: 1px solid var(--border);
+}
+.members td:nth-child(3) > .select-picker {
+  margin-left: -9px;
 }
 .people tbody tr:hover {
   background: var(--fill-card);
 }
 .colleague-toolbar {
-  margin-bottom: 20px;
+  margin: 4px 0 14px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 .colleague-toolbar .agent-search {
-  width: 245px;
+  width: 224px;
   max-width: 100%;
+  margin-right: 0;
 }
 .colleague-name {
   display: flex;

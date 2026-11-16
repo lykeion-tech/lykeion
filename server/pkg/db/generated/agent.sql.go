@@ -47,6 +47,22 @@ func (q *Queries) AgentHasLiveRuns(ctx context.Context, arg AgentHasLiveRunsPara
 	return exists, err
 }
 
+const agentIsBuiltIn = `-- name: AgentIsBuiltIn :one
+SELECT EXISTS (SELECT 1 FROM agent a WHERE a.workspace_id = $1 AND a.id = $2 AND (a.built_in_key <> '' OR a.laboratory <> '' OR EXISTS (SELECT 1 FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id AND p.source = 'shipped')))
+`
+
+type AgentIsBuiltInParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AgentID     uuid.UUID `json:"agent_id"`
+}
+
+func (q *Queries) AgentIsBuiltIn(ctx context.Context, arg AgentIsBuiltInParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentIsBuiltIn, arg.WorkspaceID, arg.AgentID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const agentIsTeamCopy = `-- name: AgentIsTeamCopy :one
 SELECT EXISTS (SELECT 1 FROM team_agent WHERE workspace_id = $1 AND agent_id = $2)
 `
@@ -109,7 +125,7 @@ func (q *Queries) AgentUses(ctx context.Context, arg AgentUsesParams) ([]AgentUs
 }
 
 const archiveAgent = `-- name: ArchiveAgent :one
-UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type ArchiveAgentParams struct {
@@ -141,13 +157,14 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (Age
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
 
 const archiveOwnedAgents = `-- name: ArchiveOwnedAgents :many
 UPDATE agent SET archived_at = now(), updated_at = now()
-WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' AND laboratory = '' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+WHERE workspace_id = $1 AND owner_id = $2 AND archived_at IS NULL AND built_in_key='' AND laboratory = '' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type ArchiveOwnedAgentsParams struct {
@@ -185,6 +202,7 @@ func (q *Queries) ArchiveOwnedAgents(ctx context.Context, arg ArchiveOwnedAgents
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -198,7 +216,7 @@ func (q *Queries) ArchiveOwnedAgents(ctx context.Context, arg ArchiveOwnedAgents
 
 const bindAgentRuntime = `-- name: BindAgentRuntime :one
 UPDATE agent SET runtime_id = $1, updated_at = now()
-WHERE workspace_id = $2 AND id = $3 AND laboratory <> '' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+WHERE workspace_id = $2 AND id = $3 AND laboratory <> '' RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type BindAgentRuntimeParams struct {
@@ -231,12 +249,13 @@ func (q *Queries) BindAgentRuntime(ctx context.Context, arg BindAgentRuntimePara
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
 
 const boundLaboratoryAgents = `-- name: BoundLaboratoryAgents :many
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND runtime_id IS NOT NULL ORDER BY created_at, id FOR UPDATE
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND runtime_id IS NOT NULL ORDER BY created_at, id FOR UPDATE
 `
 
 func (q *Queries) BoundLaboratoryAgents(ctx context.Context, workspaceID uuid.UUID) ([]Agent, error) {
@@ -269,6 +288,7 @@ func (q *Queries) BoundLaboratoryAgents(ctx context.Context, workspaceID uuid.UU
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -281,8 +301,8 @@ func (q *Queries) BoundLaboratoryAgents(ctx context.Context, workspaceID uuid.UU
 }
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::jsonb, '[]'::jsonb)) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters, report_template)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::jsonb, '[]'::jsonb), $11) RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type CreateAgentParams struct {
@@ -296,6 +316,7 @@ type CreateAgentParams struct {
 	OwnerID              uuid.UUID `json:"owner_id"`
 	Stage                string    `json:"stage"`
 	ConversationStarters []byte    `json:"conversation_starters"`
+	ReportTemplate       string    `json:"report_template"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error) {
@@ -310,6 +331,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		arg.OwnerID,
 		arg.Stage,
 		arg.ConversationStarters,
+		arg.ReportTemplate,
 	)
 	var i Agent
 	err := row.Scan(
@@ -333,13 +355,14 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
 
 const deleteAgent = `-- name: DeleteAgent :exec
 UPDATE agent SET deleted_at = now(), archived_at = COALESCE(archived_at, now()), updated_at = now(),
-  description = '', instructions = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
+  description = '', instructions = '', report_template = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
 WHERE workspace_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
@@ -354,7 +377,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error 
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL
 `
 
 type GetAgentParams struct {
@@ -386,12 +409,13 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
 
 const getAgentForShare = `-- name: GetAgentForShare :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL FOR SHARE
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL FOR SHARE
 `
 
 type GetAgentForShareParams struct {
@@ -424,12 +448,13 @@ func (q *Queries) GetAgentForShare(ctx context.Context, arg GetAgentForSharePara
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
 
 const getAgentForUpdate = `-- name: GetAgentForUpdate :one
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL FOR UPDATE
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template FROM agent WHERE workspace_id = $1 AND id = $2 AND team_deleted_at IS NULL AND deleted_at IS NULL FOR UPDATE
 `
 
 type GetAgentForUpdateParams struct {
@@ -462,6 +487,7 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, arg GetAgentForUpdatePa
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
@@ -502,7 +528,7 @@ func (q *Queries) LaboratoryMerge(ctx context.Context, keep uuid.UUID) ([]uuid.U
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory, a.runtime_id, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory, a.runtime_id, a.report_template, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
   CASE WHEN a.built_in_key <> '' OR EXISTS (
     SELECT 1 FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id
     WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id AND p.source = 'shipped'
@@ -539,6 +565,7 @@ type ListAgentsRow struct {
 	Stage                string          `json:"stage"`
 	Laboratory           string          `json:"laboratory"`
 	RuntimeID            *uuid.UUID      `json:"runtime_id"`
+	ReportTemplate       string          `json:"report_template"`
 	TeamMember           bool            `json:"team_member"`
 	Source               string          `json:"source"`
 }
@@ -573,6 +600,7 @@ func (q *Queries) ListAgents(ctx context.Context, arg ListAgentsParams) ([]ListA
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 			&i.TeamMember,
 			&i.Source,
 		); err != nil {
@@ -590,7 +618,7 @@ const makeLaboratoryAgent = `-- name: MakeLaboratoryAgent :one
 UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5,
   visibility = 'workspace', owner_id = $6, laboratory = 'built-in', stage = $7, avatar_url = $8, conversation_starters = '[]'::jsonb,
   archived_at = NULL, updated_at = now()
-WHERE workspace_id = $9 AND id = $10 RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+WHERE workspace_id = $9 AND id = $10 RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type MakeLaboratoryAgentParams struct {
@@ -641,6 +669,7 @@ func (q *Queries) MakeLaboratoryAgent(ctx context.Context, arg MakeLaboratoryAge
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }
@@ -660,7 +689,7 @@ const reassignLaboratoryAgents = `-- name: ReassignLaboratoryAgents :many
 UPDATE agent SET owner_id = $1, updated_at = now()
 WHERE agent.workspace_id = $2 AND agent.laboratory <> '' AND NOT EXISTS (SELECT 1 FROM member m
   WHERE m.workspace_id = agent.workspace_id AND m.user_id = agent.owner_id AND m.role = 'owner')
-RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type ReassignLaboratoryAgentsParams struct {
@@ -701,6 +730,7 @@ func (q *Queries) ReassignLaboratoryAgents(ctx context.Context, arg ReassignLabo
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -736,7 +766,7 @@ func (q *Queries) RetargetLaboratoryRuns(ctx context.Context, arg RetargetLabora
 }
 
 const teamMemberCopies = `-- name: TeamMemberCopies :many
-SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory, a.runtime_id FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
+SELECT a.id, a.workspace_id, a.name, a.description, a.instructions, a.harness, a.model, a.visibility, a.owner_id, a.archived_at, a.created_at, a.updated_at, a.built_in_key, a.conversation_starters, a.avatar_url, a.team_deleted_at, a.deleted_at, a.stage, a.laboratory, a.runtime_id, a.report_template FROM team_agent t JOIN agent a ON a.workspace_id = t.workspace_id AND a.id = t.agent_id
 WHERE t.workspace_id = $1 AND t.pack_id = $2 AND t.member = $3 AND t.user_id IS NOT NULL
 ORDER BY a.created_at, a.id
 `
@@ -778,6 +808,7 @@ func (q *Queries) TeamMemberCopies(ctx context.Context, arg TeamMemberCopiesPara
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -790,7 +821,7 @@ func (q *Queries) TeamMemberCopies(ctx context.Context, arg TeamMemberCopiesPara
 }
 
 const unboundLaboratoryAgents = `-- name: UnboundLaboratoryAgents :many
-SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND runtime_id IS NULL
+SELECT id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template FROM agent WHERE workspace_id = $1 AND laboratory <> '' AND runtime_id IS NULL
   AND deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, id FOR UPDATE
 `
 
@@ -825,6 +856,7 @@ func (q *Queries) UnboundLaboratoryAgents(ctx context.Context, workspaceID uuid.
 			&i.Stage,
 			&i.Laboratory,
 			&i.RuntimeID,
+			&i.ReportTemplate,
 		); err != nil {
 			return nil, err
 		}
@@ -837,8 +869,8 @@ func (q *Queries) UnboundLaboratoryAgents(ctx context.Context, workspaceID uuid.
 }
 
 const updateAgent = `-- name: UpdateAgent :one
-UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5, visibility = $6, conversation_starters = $7, avatar_url = $8, stage = $9, updated_at = now()
-WHERE workspace_id = $10 AND id = $11 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id
+UPDATE agent SET name = $1, description = $2, instructions = $3, harness = $4, model = $5, visibility = $6, conversation_starters = $7, report_template = $8, avatar_url = $9, stage = $10, updated_at = now()
+WHERE workspace_id = $11 AND id = $12 AND archived_at IS NULL RETURNING id, workspace_id, name, description, instructions, harness, model, visibility, owner_id, archived_at, created_at, updated_at, built_in_key, conversation_starters, avatar_url, team_deleted_at, deleted_at, stage, laboratory, runtime_id, report_template
 `
 
 type UpdateAgentParams struct {
@@ -849,6 +881,7 @@ type UpdateAgentParams struct {
 	Model                string          `json:"model"`
 	Visibility           string          `json:"visibility"`
 	ConversationStarters json.RawMessage `json:"conversation_starters"`
+	ReportTemplate       string          `json:"report_template"`
 	AvatarUrl            string          `json:"avatar_url"`
 	Stage                string          `json:"stage"`
 	WorkspaceID          uuid.UUID       `json:"workspace_id"`
@@ -864,6 +897,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		arg.Model,
 		arg.Visibility,
 		arg.ConversationStarters,
+		arg.ReportTemplate,
 		arg.AvatarUrl,
 		arg.Stage,
 		arg.WorkspaceID,
@@ -891,6 +925,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		&i.Stage,
 		&i.Laboratory,
 		&i.RuntimeID,
+		&i.ReportTemplate,
 	)
 	return i, err
 }

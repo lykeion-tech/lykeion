@@ -157,7 +157,13 @@ func TestDuplicateThisTeam(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
-	src := s.builtInID(t, w.ID, "grounding")
+	builtIn := s.builtInID(t, w.ID, "grounding")
+	if c := s.call(t, "POST", "/api/teams/"+builtIn+"/duplicate", a, w.ID, map[string]string{"name": "Copy"}, nil); c != 403 {
+		t.Fatalf("duplicate built-in Team: %d", c)
+	}
+	var uploaded struct{ ID string }
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "source", Stage: "grounding", Members: 1}), &uploaded)
+	src := uploaded.ID
 	var made struct{ ID, Name string }
 	if c := s.call(t, "POST", "/api/teams/"+src+"/duplicate", a, w.ID, map[string]string{"name": "My grounding"}, &made); c != 201 {
 		t.Fatalf("duplicate: %d", c)

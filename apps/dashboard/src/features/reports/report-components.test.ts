@@ -134,22 +134,6 @@ it('a detail row opens its detail and a link row emits select with its node id',
   expect(emitted).toEqual(['rec:r1']);
 });
 
-it('Back returns to the previous node, and Back to the overview clears the selection', async () => {
-  const { root, emitted } = pane('rec:r5');
-  await nextTick();
-  for (const fold of folds(root)) press(fold);
-  await nextTick();
-  press(byText(root, 'doi:10.1/a'));
-  await nextTick();
-  press(byText(root, '← Back to Sleep helps memory'));
-  await nextTick();
-  expect(emitted).toEqual(['rec:r1', 'rec:r5']);
-  press(byText(root, '×'));
-  await nextTick();
-  expect(emitted.at(-1)).toBeNull();
-  expect(textOf(root)).toContain('Findings supported');
-});
-
 it('the checks summary glyphs are hidden from screen readers and read as words', async () => {
   const { root } = pane('rec:r5');
   await nextTick();
@@ -158,34 +142,6 @@ it('the checks summary glyphs are hidden from screen readers and read as words',
   expect(glyphs.props['aria-hidden']).toBe('true');
   const words = all(fold).find((n) => n.props.class === 'sr-only')!;
   expect(textOf(words)).toBe('1 supported, 0 unclear, 0 unsupported');
-});
-
-it('Back does not stick when the parent ignores the select', async () => {
-  const selected = ref<string | null>('rec:r5');
-  const emitted: (string | null)[] = [];
-  let ignore = false;
-  const root = mount(ReportPane, () => ({
-    report,
-    selected: selected.value,
-    onSelect: (id: string | null) => {
-      emitted.push(id);
-      if (!ignore) selected.value = id;
-    },
-  }));
-  await nextTick();
-  for (const fold of folds(root)) press(fold);
-  await nextTick();
-  press(byText(root, 'doi:10.1/a'));
-  await nextTick();
-  ignore = true;
-  press(byText(root, '← Back to Sleep helps memory'));
-  await nextTick();
-  await nextTick();
-  ignore = false;
-  // A later move forward must push, so Back still names the node just left.
-  selected.value = 'rec:r2';
-  await nextTick();
-  expect(textOf(byText(root, '← Back to'))).toContain('doi:10.1/a');
 });
 
 it("a fact's source is a link that selects its node", async () => {
@@ -235,13 +191,13 @@ it("a fact's source is a link that selects its node", async () => {
 it('tabs list the report, and a focused node narrows them to what touches it', async () => {
   const { root } = pane(null);
   await nextTick();
-  expect(textOf(byText(root, 'Findings'))).toBe('Findings2');
+  expect(textOf(byText(root, 'Findings'))).toContain('Findings2');
   press(byText(root, 'Sources'));
   await nextTick();
   expect(textOf(root)).toContain('doi:10.1/a');
   const focused = pane('rec:r5');
   await nextTick();
-  expect(textOf(byText(focused.root, 'Findings'))).toBe('Findings1');
+  expect(textOf(byText(focused.root, 'Findings'))).toContain('Findings2');
 });
 
 it('a row in a tab selects its node', async () => {
@@ -251,4 +207,57 @@ it('a row in a tab selects its node', async () => {
   await nextTick();
   press(byText(root, 'Sleep helps memory'));
   expect(emitted).toEqual(['rec:r5']);
+});
+
+it('expands the recorded hand-in and collapses it again', async () => {
+  const handIn = {
+    ...report,
+    hand_in: {
+      text: '**Evidence**\n\n' + 'detail '.repeat(50),
+      agent_name: 'Agent',
+      run_id: 'r',
+      at: '2026-11-10T10:00:00Z',
+    },
+  };
+  const root = mount(ReportPane, () => ({ report: handIn, selected: null }));
+  const toggle = byText(root, 'Show full hand-in');
+  expect(toggle.props['aria-expanded']).toBe(false);
+  press(toggle);
+  await nextTick();
+  expect(byText(root, 'Show less').props['aria-expanded']).toBe(true);
+  expect(textOf(root)).toContain('Evidence');
+  press(byText(root, 'Show less'));
+  await nextTick();
+  expect(byText(root, 'Show full hand-in').props['aria-expanded']).toBe(false);
+});
+
+it('opens the matching review tab when a graph node is selected', async () => {
+  const selected = ref<string | null>('rec:r1');
+  const graphSelection = ref(1);
+  const root = mount(ReportPane, () => ({ report, selected: selected.value, graphSelection: graphSelection.value }));
+  await nextTick();
+  expect(byText(root, 'Sources').props['aria-selected']).toBe(true);
+  selected.value = 'rec:r5';
+  graphSelection.value++;
+  await nextTick();
+  expect(byText(root, 'Findings').props['aria-selected']).toBe(true);
+  expect(textOf(root)).toContain('Sleep helps memory');
+  press(byText(root, 'Sleep helps memory'));
+  await nextTick();
+  expect(byText(root, 'Summary').props['aria-selected']).toBe(true);
+  selected.value = 'question';
+  graphSelection.value++;
+  await nextTick();
+  expect(byText(root, 'Summary').props['aria-selected']).toBe(true);
+});
+
+it('shows who found a source without a duplicate expandable agent row', async () => {
+  const r: StudyReport = { ...report, nodes: report.nodes.map((n) => n.id === 'rec:r1' ? { ...n, agent: 'Researcher', run_id: 'run-123', column: 'grounding' } : n) };
+  const root = mount(ReportPane, () => ({ report: r, selected: 'rec:r1' }));
+  press(folds(root).find((n) => textOf(n).includes('Who found it'))!);
+  await nextTick();
+  expect(textOf(root)).toContain('Studyt');
+  expect(textOf(root)).toContain('StageGrounding');
+  expect(textOf(root)).not.toContain('run-123');
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Researcher')).toBe(false);
 });

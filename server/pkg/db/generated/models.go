@@ -33,6 +33,7 @@ type Agent struct {
 	Stage                string          `json:"stage"`
 	Laboratory           string          `json:"laboratory"`
 	RuntimeID            *uuid.UUID      `json:"runtime_id"`
+	ReportTemplate       string          `json:"report_template"`
 }
 
 type AgentCapability struct {

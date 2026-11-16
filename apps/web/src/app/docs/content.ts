@@ -340,6 +340,32 @@ If you need to choose a stage-specific assignee, read [Teams](/docs/teams/) and 
 `,
   },
   {
+    slug: 'decisions',
+    title: 'Decisions',
+    description: 'Review questions, respond to study blockers and inspect reports in Decisions.',
+    section: 'Research',
+    markdown: `# Decisions
+
+Decisions brings together questions and other items that need your attention. Open it to review the context, see what a study needs and respond when you have permission. Finished study reports are also available from this area.
+
+## Find the item
+
+Select an item in the Decisions sidebar. Use the type and date filters to narrow the list, or clear them if an expected item is hidden. Open a question to see its status, its context and any available choices. When the item belongs to a study, **Open study** takes you to the research record.
+
+## Answer a question
+
+Read the question and the consequences of each option before choosing. Some questions contain several prompts, including multiple-choice or text answers; complete the required prompts before submitting. For an instruction to redo a blocked study, add the requested guidance. Only an authorized person can submit a study decision; the screen explains when you cannot answer.
+
+A submitted answer is recorded with the decision. The study can then continue according to the chosen option; check its activity and current state rather than assuming a run has completed. An item may also have an expiry or a default, so inspect its details before waiting.
+
+## Inspect a report or a private note
+
+Select a report to read the hand-in, explore its evidence graph and open the Report pane. Use its tabs and source details to follow what the study recorded. A report is a starting point for inspection, not a substitute for checking the evidence.
+
+Decisions can also contain private notes you create for yourself. Review a note before saving it, and use its controls to edit or resolve it. See [evidence and results](/docs/evidence-and-results/) for reading research outputs and [Jev](/docs/jev/) for how configured study review works.
+`,
+  },
+  {
     slug: 'evidence-and-results',
     title: 'Evidence and results',
     description:
@@ -442,7 +468,7 @@ An agent with no stage needs an appropriate stage selection before stage-specifi
 
 ## Edit with a concrete purpose
 
-If you have edit access, use the agent's settings to adjust its instructions, stage or execution configuration. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
+If you have edit access, use the agent's settings to adjust its instructions, stage or execution configuration. For a custom agent, set a Study report template in General settings to format its hand-in answer. The default format uses the agent’s stage headings; changes apply to new runs. Required evidence and review checks still apply. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
 
 Access settings control who can assign studies to the agent. Check those settings and the machine's availability when another colleague cannot use it. Some machine configurations only execute their owner's studies; read the restriction shown by the product.
 
@@ -783,38 +809,34 @@ See [agents](/docs/agents/) for capability selection, [skills](/docs/skills/) fo
 `,
   },
   {
-    slug: 'projects',
-    title: 'Organize studies in Projects',
-    description:
-      'Group related studies, choose a lead and inspect progress without losing the individual research record.',
+    slug: 'jev',
+    title: 'Jev',
+    description: 'Understand how Jev and server checks review research items and guide the next step.',
     section: 'Research',
-    markdown: `# Organize studies in Projects
+    markdown: `# Jev
 
-Use Projects to group related studies around a broader research effort. A project has a description, lead, status and priority, while each linked study retains its own assignment, stages and results. Start with workspace access and a clear goal for the collection.
+Agents carry out the work in a study; Jev helps review research items before configured stages advance. It is an independent check on the work, not a progress meter or a grade for an agent. Open a study's Review surface to inspect the recorded checks, evidence and outstanding limits.
 
-## Create a project
+## Review the work, item by item
 
-1. Open Projects and create a new project.
-2. Enter a title and a description that explains the research goal and boundaries.
-3. Choose a status and priority. Select a lead from available members or agents when responsibility is known.
-4. Set dates if useful, then save.
-5. Reopen the project and confirm its details before adding work.
+Review concerns the items a stage hands in: for example, sources in Grounding, hypotheses, experimental outputs and values, or assessments and verdicts in Validation. The checks depend on the stage and the item. A failed item can be sent back with a specific reason, while items that still stand can be retained. Study completion still depends on its configured scope and required review.
 
-Choose a name that helps colleagues distinguish the wider effort from an individual study. An agent being selected as lead is a project property; inspect actual study assignments and runs to see what work is executing.
+The server performs checks it can verify mechanically, such as resolving a source or checking that a cited record exists. Jev answers focused questions that require judgment using the supplied research context and evidence. Items that fail applicable prerequisite checks are not necessarily sent to Jev. Review uses bounded evidence for its questions; for example, Grounding screens a source without telling Jev who declared it.
 
-## Add and inspect studies
+## What the stages examine
 
-From the project's empty state, choose New study to create linked work. You can also choose the project in a study's properties or creation form. Give each study its own bounded question and deliverable.
+- **Grounding:** whether sources can be resolved and bear on the research question or its conditions, including checks for potentially missed papers.
+- **Hypotheses:** whether predictions are falsifiable and supported by cited evidence, and whether the exact prediction was already tested.
+- **Experimentation:** whether recorded outputs and values satisfy the applicable checks; some Jev checks give warnings rather than deciding the stage.
+- **Validation:** whether recorded assessments and verdicts are supported, with objections and limitations considered where applicable.
 
-Open the project board to inspect its studies. Select a card to read Activity, Review, Notebook and Files for that piece of work. See [studies](/docs/studies/) and [evidence and results](/docs/evidence-and-results/).
+The precise checks and available evidence vary. Inspect the recorded questions and results in Review rather than treating this list as a complete checklist.
 
-## Read progress accurately
+## From checks to the next step
 
-The project properties rail shows status, priority and lead, with progress based on linked completed studies. Project status and a study's scientific review describe different things. Inspect the underlying studies before using a project summary as evidence of research completion.
+Jev's answers contribute to recorded checks; Lykeion applies its review rules to the results. A stage may pass, carry an unclear item forward, or send failed work back for a limited redo. If the redo still fails, the study is blocked. In some cases the study asks its owner for a decision. An unavailable review service leaves work waiting rather than establishing a pass.
 
-Success means you can reopen the project, find the intended linked study and trace its result. If a study is missing, confirm its project selection and workspace. If a lead is unavailable, select an available person or agent and check the saved property.
-
-Coresearch also uses projects for ongoing conversations and files. Use [Coresearch](/docs/coresearch/) for that separate research conversation flow.
+Review can identify a weakest item where applicable, giving the Team a more specific starting point. Unclear is distinct from a pass or a failure, and a warning does not necessarily decide the stage. Open [Decisions](/docs/decisions/) when a person needs to respond, and use [scientific stages](/docs/scientific-stages/) to follow progress through the study's scope.
 `,
   },
 ];

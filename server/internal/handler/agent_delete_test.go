@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"lykeion/server/internal/testutil"
 )
 
 func TestDeleteAgentPreservesFinishedStudyAndRun(t *testing.T) {
@@ -110,7 +112,9 @@ func TestDeleteAgentBlockedByTeamMembership(t *testing.T) {
 	s.builtIns(t)
 	a := s.signIn(t, "team-delete@lab.org")
 	w := s.workspace(t, a, "lab")
-	src := s.builtInID(t, w.ID, "grounding")
+	var uploaded struct{ ID string }
+	s.installPackFixture(t, a, w.ID, testutil.Pack(t, testutil.PackOpts{Name: "source", Stage: "grounding", Members: 1}), &uploaded)
+	src := uploaded.ID
 	var made struct{ ID string }
 	if code := s.call(t, "POST", "/api/teams/"+src+"/duplicate", a, w.ID, map[string]string{"name": "Duplicate"}, &made); code != 201 {
 		t.Fatalf("duplicate: %d", code)

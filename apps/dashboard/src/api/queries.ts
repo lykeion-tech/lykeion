@@ -417,10 +417,6 @@ export const useAnalytics = (
     refetchInterval: 30_000,
   });
 };
-// Copies a Team as a new one of the caller's own, named name.
-export const duplicateTeam = (id: string, name: string) =>
-  api<{ id: string }>('POST', `/api/teams/${id}/duplicate`, { name });
-
 // Uploads one file for a study that does not exist yet. fetch reports no upload
 // progress, so this one request goes through XMLHttpRequest with the headers
 // api() sends.

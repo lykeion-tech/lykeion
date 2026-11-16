@@ -96,7 +96,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   expect(stored.teams.hypotheses.name).toBe('Hypotheses Team');
 });
 
-test('a built-in Team is read-only and Duplicate this Team makes an editable copy', async ({
+test('a built-in Team is read-only and cannot be duplicated', async ({
   page,
 }) => {
   const ws = await builtInWorkspace(page.request);
@@ -124,24 +124,13 @@ test('a built-in Team is read-only and Duplicate this Team makes an editable cop
   });
   expect(refused.status()).toBe(403);
 
-  await page.getByRole('button', { name: 'Duplicate', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Duplicate this Team' });
-  const name = dialog.getByRole('textbox', { name: 'Name of the duplicate' });
-  await expect(name).toHaveValue('Grounding Team (duplicate)');
-  await name.fill('My grounding Team');
-  await dialog.getByRole('button', { name: 'Duplicate', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'My grounding Team', exact: true })).toBeVisible();
-  await expect(page).not.toHaveURL(new RegExp(builtIn.id));
   await expect(page.getByRole('button', { name: 'Duplicate', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
-  const picker = page.getByRole('dialog', { name: 'Skills for pi', exact: true });
-  await picker.getByRole('checkbox', { name: 'aeon', exact: true }).check();
-  await picker.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(picker).toHaveCount(0);
-  await page.getByRole('button', { name: 'Edit skills for pi', exact: true }).click();
-  await expect(picker.getByRole('checkbox', { name: 'aeon', exact: true })).toBeChecked();
-  await page.keyboard.press('Escape');
-  await expect(picker).toHaveCount(0);
+  await expect(page.getByText(/Duplicate this Team/)).toHaveCount(0);
+  const duplicate = await page.request.post(`/api/teams/${builtIn.id}/duplicate`, {
+    headers,
+    data: { name: 'My grounding Team' },
+  });
+  expect(duplicate.status()).toBe(403);
 });
 
 test('a workspace without a built-in Team shows why a study can’t start', async ({ page }) => {

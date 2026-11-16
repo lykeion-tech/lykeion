@@ -20,7 +20,7 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-const errBuiltInTeam = forbidden("Built-in Teams can't be changed; duplicate it instead")
+const errBuiltInTeam = forbidden("Built-in Teams can't be changed")
 
 // editable refuses changes to a built-in Team and to a Team that studies or
 // Autoresearches still need as it is.
@@ -245,6 +245,9 @@ func (h *H) duplicateTeam(w http.ResponseWriter, r *http.Request) {
 	var source db.FieldPack
 	err := h.memberTx(r, ws, false, func(tx *store.Tx) (err error) {
 		source, err = visiblePack(r, tx, user, id)
+		if err == nil && source.Source == "shipped" {
+			return forbidden("Built-in Teams can't be duplicated")
+		}
 		return err
 	})
 	if !answer(w, r, err) {

@@ -145,7 +145,10 @@ async function save(kind: 'skills' | 'connectors') {
 <template>
   <section class="agent-pane agent-customize">
     <h2>Customize</h2>
-    <p class="agent-lede">Choose the skills and connectors this agent uses in future studies.</p>
+    <p class="agent-lede">
+      Choose the skills and connectors this agent uses in future studies.
+      <span v-if="!query.isPending.value && !query.isError.value && !canEdit && team?.source === 'shipped'">Shipped Team capabilities are read-only.</span>
+    </p>
     <p v-if="query.isPending.value" role="status">Loading capabilities…</p>
     <p v-else-if="query.isError.value" role="alert">
       Could not load capabilities. <button type="button" @click="query.refetch()">Retry</button>
@@ -166,10 +169,7 @@ async function save(kind: 'skills' | 'connectors') {
       <p v-if="query.data.value?.team_member && !team" class="agent-hint">
         This agent's Team is not available to you.
       </p>
-      <p v-else-if="!canEdit && team?.source === 'shipped'" class="agent-hint">
-        Shipped Team capabilities are read-only.
-      </p>
-      <p v-else-if="!canEdit" class="agent-hint">
+      <p v-else-if="!canEdit && team?.source !== 'shipped'" class="agent-hint">
         Only the owner can change these capabilities.
       </p>
       <section class="capability-section" aria-labelledby="skills-heading">
@@ -336,8 +336,14 @@ async function save(kind: 'skills' | 'connectors') {
 .agent-customize h2 {
   margin-bottom: 20px;
 }
+.agent-customize .agent-lede {
+  margin-bottom: 16px;
+}
 .capability-section {
   margin-top: 34px;
+}
+.capability-section[aria-labelledby="skills-heading"] {
+  margin-top: 16px;
 }
 .capability-heading {
   display: flex;

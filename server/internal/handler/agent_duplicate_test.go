@@ -11,7 +11,7 @@ func TestDuplicateAgentCopiesSettingsAndCapabilities(t *testing.T) {
 	a := s.signIn(t, "agent-duplicate@lab.org")
 	w := s.workspace(t, a, "lab")
 	id := s.newAgent(t, a, w.ID, "Original", "claude")
-	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"avatar_url": "emoji:🧪", "visibility": "private"}, nil); code != 200 {
+	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"avatar_url": "emoji:🧪", "visibility": "private", "report_template": "## Findings"}, nil); code != 200 {
 		t.Fatalf("update source: %d", code)
 	}
 	colleague := s.member(t, a, w.ID, "duplicate-colleague@lab.org", "member")
@@ -24,11 +24,12 @@ func TestDuplicateAgentCopiesSettingsAndCapabilities(t *testing.T) {
 	var copy struct {
 		ID, Name, Instructions, Visibility string
 		AvatarURL                          string `json:"avatar_url"`
+		ReportTemplate                     string `json:"report_template"`
 	}
 	if code := s.call(t, "POST", "/api/agents/"+id+"/duplicate", a, w.ID, map[string]string{"name": "Copy"}, &copy); code != 201 {
 		t.Fatalf("duplicate: %d", code)
 	}
-	if copy.ID == id || copy.Name != "Copy" || copy.Instructions != "Be Original" || copy.Visibility != "private" || copy.AvatarURL != "emoji:🧪" {
+	if copy.ID == id || copy.Name != "Copy" || copy.Instructions != "Be Original" || copy.Visibility != "private" || copy.AvatarURL != "emoji:🧪" || copy.ReportTemplate != "## Findings" {
 		t.Fatalf("copy: %+v", copy)
 	}
 	var caps struct {

@@ -381,6 +381,10 @@
   line-height: 1.6;
   resize: none;
 }
+.agent-pane .report-template {
+  margin-bottom: 40px;
+  padding: 16px;
+}
 .agent-pane .agent-prompt::-webkit-scrollbar {
   display: none;
 }
@@ -469,6 +473,14 @@
   padding: 8px 10px;
   border-radius: 5px;
   font-weight: 400;
+}
+.coresearch.agent-model-picker .cli-menu {
+  background: var(--surface);
+}
+.coresearch.agent-model-picker .cli-menu[aria-label='Stage options'],
+.coresearch.agent-model-picker .cli-menu[aria-label='Harness options'] {
+  width: 200px;
+  max-width: 100%;
 }
 .agent-radios label {
   display: flex;
@@ -575,13 +587,14 @@
   line-height: 22px;
 }
 .agent-detail-page .agent-description {
+  margin-top: 8px;
   font-size: 13px;
   line-height: 1.5;
 }
 .agent-detail-page .agent-status {
-  display: inline-block;
+  display: block;
   margin-left: 0;
-  margin-top: 0;
+  margin-top: 5px;
 }
 .agent-detail-page .agent-panel {
   --agent-property-label-width: 72px;

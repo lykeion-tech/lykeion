@@ -564,7 +564,7 @@ async function stop() {
                 ? 'Getting started with Aristotle'
                 : conversation?.title || 'Chat with ' + (agent?.name || 'Aristotle')
             }}</b
-            ><small>Your research companion</small>
+            ><small><a href="https://app.lykeion.tech/docs/coresearch/" target="_blank" rel="noopener noreferrer">Learn about Coresearch ↗</a></small>
           </div>
           <button
             v-if="experiment && paneMode !== 'focus'"

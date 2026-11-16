@@ -13,12 +13,10 @@ import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../../api/client';
 import type { TeamMember } from '../../api/types';
-import Modal from '../../ui/Modal.vue';
 import TeamSkillsPicker from './TeamSkillsPicker.vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import {
   addTeam,
-  duplicateTeam,
   useTeam,
   useTeams,
   useCards,
@@ -118,29 +116,6 @@ const displayDomain = computed(() =>
 const availability = computed(() =>
   builtIn.value ? 'Built in' : added.value ? 'Added' : 'Not added',
 );
-const copyName = ref<string | null>(null);
-const copyBusy = ref(false);
-const copyError = ref('');
-async function duplicate() {
-  const name = copyName.value?.trim();
-  if (!name || copyBusy.value) return;
-  const ownVisit = visit,
-    ws = workspaceId.value;
-  copyBusy.value = true;
-  copyError.value = '';
-  try {
-    const copy = await duplicateTeam(props.id, name);
-    await Promise.all([
-      client.invalidateQueries({ queryKey: keys.packs(ws) }),
-      client.invalidateQueries({ queryKey: keys.agents(ws) }),
-    ]);
-    if (ownVisit === visit) await router.push(`/teams/${copy.id}`);
-  } catch (e) {
-    if (ownVisit === visit) copyError.value = (e as Error).message;
-  } finally {
-    if (ownVisit === visit) copyBusy.value = false;
-  }
-}
 const people = computed(() =>
   manifest.value
     ? [
@@ -239,9 +214,6 @@ watch([workspaceId, () => props.id], () => {
   busy.value = false;
   error.value = '';
   created.value = null;
-  copyName.value = null;
-  copyBusy.value = false;
-  copyError.value = '';
   iconBusy.value = false;
   settingsBusy.value = false;
   settingsError.value = '';
@@ -379,16 +351,7 @@ function tabKey(event: KeyboardEvent, index: number) {
               <button v-if="canEditTeam" class="button" :disabled="busy" @click="deleteTeam">
                 <Icon name="trash" :size="14" />Delete Team
               </button>
-              <button
-                v-if="builtIn"
-                class="button"
-                @click="
-                  copyError = '';
-                  copyName = manifest.name + ' (duplicate)';
-                "
-              >
-                Duplicate</button
-              ><button v-if="added || builtIn" class="button primary" @click="newStudy">
+              <button v-if="added || builtIn" class="button primary" @click="newStudy">
                 <Icon name="plus" :size="14" />New study</button
               ><button
                 v-else
@@ -460,9 +423,6 @@ function tabKey(event: KeyboardEvent, index: number) {
               </button>
             </div>
           </div>
-          <p v-if="builtIn" class="team-note">
-            Built-in Teams can't be changed. Duplicate this Team to make one of your own.
-          </p>
         </div>
         <aside v-if="selected" class="team-inspector" aria-label="Agent details">
           <div class="inspector-heading">
@@ -679,27 +639,6 @@ function tabKey(event: KeyboardEvent, index: number) {
       @close="skillMember = null"
       @save="saveSkills"
     />
-    <Modal
-      v-if="copyName !== null"
-      title="Duplicate this Team"
-      @close="!copyBusy && (copyName = null)"
-    >
-      <form class="team-copy" @submit.prevent="duplicate">
-        <h2>Duplicate this Team</h2>
-        <p class="team-lede">The duplicate is a Team of your own that you can change.</p>
-        <label
-          >Name<input v-model="copyName" aria-label="Name of the duplicate" :disabled="copyBusy"
-        /></label>
-        <p v-if="copyError" role="alert" class="inline-error">{{ copyError }}</p>
-        <footer>
-          <button type="button" class="button" :disabled="copyBusy" @click="copyName = null">
-            Cancel</button
-          ><button class="button primary" :disabled="copyBusy || !copyName.trim()">
-            {{ copyBusy ? 'Duplicating…' : 'Duplicate' }}
-          </button>
-        </footer>
-      </form>
-    </Modal>
   </section>
 </template>
 <style src="../agents/agent-detail.css" />
@@ -835,9 +774,6 @@ function tabKey(event: KeyboardEvent, index: number) {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.team-canvas-column .team-note {
-  margin: 16px 0 0;
-}
 .team-inspector {
   min-width: 0;
   padding: 20px;
@@ -914,10 +850,6 @@ function tabKey(event: KeyboardEvent, index: number) {
   padding: 12px var(--gutter) 0;
   font-size: 13px;
 }
-.team-note {
-  color: var(--muted);
-  font-size: 13px;
-}
 .team-settings {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
@@ -932,29 +864,6 @@ function tabKey(event: KeyboardEvent, index: number) {
   color: var(--muted);
   font-size: 13px;
   line-height: 2;
-}
-.team-copy {
-  padding: 24px;
-}
-.team-copy label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.team-copy input {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 13px;
-}
-.team-copy footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
 }
 @media (max-width: 900px) {
   .team-role-cards {

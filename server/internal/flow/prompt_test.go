@@ -345,3 +345,21 @@ func TestEveryShippedRoleExplainsEvidenceAndUsesItsSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomReportTemplateReplacesHeadings(t *testing.T) {
+	for _, role := range []string{"agent", "leader", "member", "auditor"} {
+		p := reportTemplate(role, board.Grounding, "## My findings")
+		if !strings.Contains(p, "## My findings") || strings.Contains(p, "Question and scope; Findings") || !strings.Contains(p, "never invent evidence") {
+			t.Errorf("%s: unexpected template: %s", role, p)
+		}
+	}
+}
+
+func TestDefaultReportFormat(t *testing.T) {
+	if got := DefaultReportFormat("agent", board.Grounding); !strings.Contains(got, "Question and scope") || !strings.Contains(got, "Evidence gaps") {
+		t.Fatalf("grounding: %q", got)
+	}
+	if got := DefaultReportFormat("auditor", board.Grounding); !strings.Contains(got, "Concerns") || strings.Contains(got, "Question and scope") {
+		t.Fatalf("auditor: %q", got)
+	}
+}

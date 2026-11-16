@@ -21,16 +21,16 @@ vi.mock('../../ui/CompactSelect.vue', async () => {
   const { h } = await import('vue');
   return {
     default: {
-      props: ['modelValue', 'options', 'label', 'width'],
+      props: ['modelValue', 'options', 'label', 'width', 'disabled'],
       emits: ['update:modelValue'],
       setup: (
-        props: { label: string; options: { value: string; label: string }[] },
+        props: { label: string; disabled: boolean; options: { value: string; label: string }[] },
         { emit }: { emit: (e: 'update:modelValue', v: string) => void },
       ) =>
         () =>
           h(
             'div',
-            { 'aria-label': props.label },
+            { 'aria-label': props.label, role: 'combobox', disabled: props.disabled },
             props.options.map((o) =>
               h(
                 'button',
@@ -322,6 +322,34 @@ describe('agent stage', () => {
     expect(post?.[2]).toMatchObject({ name: 'Reader', stage: 'validation' });
   });
 
+  it('saves a stage selected from the agent settings menu', async () => {
+    request.mockImplementation((method: string, url: string) =>
+      Promise.resolve(method === 'PATCH' || url === '/api/agents/a' ? agent({ stage: 'validation' }) : []),
+    );
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({ stage: '' })], 'owner', '/x?tab=settings');
+    await t.click(/^Stage: No stage$/);
+    const option = t.find('button', (n) => n.props.role === 'option' && textOf(n) === 'Validation')!;
+    expect(option).toBeTruthy();
+    (option.props.onClick as () => void)();
+    await nextTick();
+    const form = t.find('form', () => true)!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(request.mock.calls.find((call) => call[0] === 'PATCH')?.[2]).toMatchObject({ stage: 'validation' });
+  });
+
+  it('shows and saves the Study report template and keeps built-ins read-only', async () => {
+    request.mockImplementation((method: string, url: string) => Promise.resolve(method === 'PATCH' || url === '/api/agents/a' ? agent({ report_template: '## Results' }) : []));
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({ default_report_template: '## Findings' })], 'owner', '/x?tab=settings');
+    const input = t.find('textarea', (n) => n.props['aria-label'] === 'Study report template')!;
+    expect(input).toBeTruthy();
+    (input.props['onUpdate:modelValue'] as (v: string) => void)('## Results');
+    await nextTick();
+    await (t.find('form', () => true)!.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(request.mock.calls.find((call) => call[0] === 'PATCH')?.[2]).toMatchObject({ report_template: '## Results' });
+    const builtin = await mount(AgentDetail, { id: 'b' }, [agent({ id: 'b', source: 'built_in' })], 'owner', '/x?tab=settings');
+    expect(builtin.find('textarea', (n) => n.props['aria-label'] === 'Study report template')?.props.readonly).toBe(true);
+  });
+
   it('flags an agent with no stage and offers Choose a stage', async () => {
     const t = await mount(AgentsView, {}, [
       agent({ id: 'a', name: 'Old', stage: '' }),
@@ -370,7 +398,7 @@ describe('agent stage', () => {
     const detail = await mount(AgentDetail, { id: 'l' }, [lab], 'owner', '/x?tab=settings');
     expect(detail.button(/Delete agent/)).toBeUndefined();
     expect(detail.button(/Archive/)).toBeUndefined();
-    const stage = detail.find('select', (n) => n.props['aria-label'] === 'Agent stage');
+    const stage = detail.find('button', (n) => String(n.props['aria-label']).startsWith('Stage:'));
     expect(stage?.props.disabled).toBe(true);
   });
 

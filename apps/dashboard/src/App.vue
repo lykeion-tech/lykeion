@@ -1129,9 +1129,21 @@ onUnmounted(() => {
       >
         <div v-if="current === 'workflows'" class="workflow-heading">
           <h1>{{ heading }}</h1>
-          <span class="workflow-attribution"
-            >Workflows are ported from Terminal-Bench-Science.</span
-          >
+          <a
+            class="workflow-attribution"
+            href="https://github.com/harbor-framework/terminal-bench-science"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Workflows are ported from Terminal-Bench-Science ↗</a>
+        </div>
+        <div v-else-if="(current === 'studies' && !cardId) || current === 'decisions'" class="study-heading">
+          <h1>{{ heading }}</h1>
+          <a
+            class="header-doc-link"
+            :href="current === 'decisions' ? 'https://app.lykeion.tech/docs/decisions/' : 'https://app.lykeion.tech/docs/scientific-stages/'"
+            target="_blank"
+            rel="noopener noreferrer"
+          >{{ current === 'decisions' ? 'Learn about Decisions ↗' : 'Learn about scientific stages ↗' }}</a>
         </div>
         <h1 v-else>{{ heading }}</h1>
         <span id="page-header-count" class="page-header-count" />
@@ -1424,13 +1436,19 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-.workflow-heading {
+.workflow-heading,
+.study-heading {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
+.header-doc-link {
+  color: var(--primary-text);
+  font-size: 13px;
+  line-height: 1.3;
+}
 .workflow-attribution {
-  color: var(--muted);
+  color: var(--primary-text);
   font-size: 13px;
 }
 .page-header-count {

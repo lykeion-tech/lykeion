@@ -44,6 +44,8 @@ const route = useRoute();
 const router = useRouter();
 const { openComposer } = useStudyComposer();
 const starters = ref<Starter[]>([]);
+const reportTemplate = ref('');
+const defaultReportTemplate = ref('');
 const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
 const validStarters = computed(
   () =>
@@ -136,6 +138,9 @@ const modelLabel = computed(() => {
 });
 const mine = computed(() => agent.value?.owner_id === me.data.value?.id);
 const lab = computed(() => agent.value?.laboratory === 'built-in');
+const customAgent = computed(
+  () => !lab.value && !builtin.value && agents.data.value?.find((item) => item.id === props.id)?.source === 'custom',
+);
 const machineName = (r: Runtime) => r.custom_name || r.device_name;
 const boundMachine = computed(() =>
   (runtimes.data.value ?? []).find((r) => r.id === agent.value?.runtime_id),
@@ -207,6 +212,8 @@ watch(
     };
     visibility.value = a.visibility;
     instructions.value = a.instructions;
+    defaultReportTemplate.value = a.default_report_template ?? '';
+    reportTemplate.value = a.report_template || defaultReportTemplate.value;
     starters.value = (a.conversation_starters ?? []).map((s) => ({ ...s }));
   },
   { immediate: true },
@@ -234,7 +241,7 @@ watch(
     tab.value = 'settings';
     section.value = 'general';
     await nextTick();
-    document.getElementById('agent-stage')?.focus();
+    document.getElementById('agent-stage')?.querySelector('button')?.focus();
   },
   { immediate: true },
 );
@@ -263,7 +270,8 @@ async function patch(body: Record<string, unknown>) {
       workspace: ws,
     });
     if (!current()) return;
-    client.setQueryData(keys.agent(ws, id), saved);
+    client.setQueryData(keys.agent(ws, id), { ...saved, default_report_template: defaultReportTemplate.value });
+    void detail.refetch();
     await client.invalidateQueries({ queryKey: keys.agents(ws) });
     if (current()) notify('Agent saved.');
   } catch (e) {
@@ -552,6 +560,7 @@ function toggle(id: string) {
                       ? agent.name
                       : general.name,
                   conversation_starters: starters,
+                  ...(customAgent ? { report_template: reportTemplate === defaultReportTemplate ? '' : reportTemplate } : {}),
                 })
               "
             >
@@ -580,18 +589,20 @@ function toggle(id: string) {
               </div>
               <h3>Stage</h3>
               <div class="agent-card agent-execution">
-                <label class="agent-model-field"
+                <div class="agent-model-field"
                   ><span>Stage</span><span v-if="builtin" class="agent-stage-none">No stage</span
-                  ><select
-                    v-else
-                    id="agent-stage"
-                    v-model="general.stage"
-                    aria-label="Agent stage"
-                    :disabled="!editable"
-                  >
-                    <option v-if="!general.stage" value="" disabled>No stage</option>
-                    <option v-for="s in stages" :key="s" :value="s">{{ columnName(s) }}</option>
-                  </select></label
+                  ><div v-else id="agent-stage" class="coresearch agent-model-picker">
+                    <ModelSwitcher
+                      v-model="general.stage"
+                      label="Stage"
+                      :models="[
+                        ...(!general.stage ? [{ value: '', label: 'No stage' }] : []),
+                        ...stages.map((s) => ({ value: s, label: columnName(s) })),
+                      ]"
+                      open-up
+                      :disabled="!editable"
+                    />
+                  </div></div
                 >
               </div>
               <h3>Execution</h3>
@@ -620,6 +631,18 @@ function toggle(id: string) {
                   </div>
                 </div>
               </div>
+              <h3>Study report template</h3>
+              <p class="agent-hint">
+                Choose how this agent responds and presents its findings in a Study.
+              </p>
+              <p v-if="builtin" class="agent-hint">This agent does not run Studies.</p>
+              <textarea
+                v-else
+                v-model="reportTemplate"
+                class="agent-prompt report-template"
+                aria-label="Study report template"
+                :readonly="!editable || !customAgent"
+              />
               <h3>Conversation starters</h3>
               <p class="agent-hint">
                 Settings apply to new conversations. Leave this list empty to use the defaults.

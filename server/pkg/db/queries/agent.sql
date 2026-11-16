@@ -1,6 +1,6 @@
 -- name: CreateAgent :one
-INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters)
-VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @visibility, @owner_id, @stage, coalesce(sqlc.narg(conversation_starters)::jsonb, '[]'::jsonb)) RETURNING *;
+INSERT INTO agent (workspace_id, name, description, instructions, harness, model, visibility, owner_id, stage, conversation_starters, report_template)
+VALUES (@workspace_id, @name, @description, @instructions, @harness, @model, @visibility, @owner_id, @stage, coalesce(sqlc.narg(conversation_starters)::jsonb, '[]'::jsonb), @report_template) RETURNING *;
 
 -- name: ListAgents :many
 SELECT a.*, EXISTS (SELECT 1 FROM team_agent t WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id) AS team_member,
@@ -30,7 +30,7 @@ SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND team_del
 SELECT * FROM agent WHERE workspace_id = @workspace_id AND id = @id AND team_deleted_at IS NULL AND deleted_at IS NULL FOR SHARE;
 
 -- name: UpdateAgent :one
-UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, avatar_url = @avatar_url, stage = @stage, updated_at = now()
+UPDATE agent SET name = @name, description = @description, instructions = @instructions, harness = @harness, model = @model, visibility = @visibility, conversation_starters = @conversation_starters, report_template = @report_template, avatar_url = @avatar_url, stage = @stage, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING *;
 
 -- name: ArchiveAgent :one
@@ -38,7 +38,7 @@ UPDATE agent SET archived_at = now(), updated_at = now() WHERE workspace_id = @w
 
 -- name: DeleteAgent :exec
 UPDATE agent SET deleted_at = now(), archived_at = COALESCE(archived_at, now()), updated_at = now(),
-  description = '', instructions = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
+  description = '', instructions = '', report_template = '', model = '', avatar_url = '', conversation_starters = '[]'::jsonb
 WHERE workspace_id = @workspace_id AND id = @id AND deleted_at IS NULL;
 
 -- name: AgentHasLiveRuns :one
@@ -112,3 +112,6 @@ WHERE t.workspace_id = @workspace_id AND t.agent_id = @agent_id AND t.user_id IS
 -- name: RetargetLaboratoryRuns :exec
 UPDATE agent_run SET harness = @harness, requested_model = @requested_model
 WHERE workspace_id = @workspace_id AND agent_id = @agent_id AND kind = 'role' AND status = 'queued' AND harness <> @harness;
+
+-- name: AgentIsBuiltIn :one
+SELECT EXISTS (SELECT 1 FROM agent a WHERE a.workspace_id = @workspace_id AND a.id = @agent_id AND (a.built_in_key <> '' OR a.laboratory <> '' OR EXISTS (SELECT 1 FROM team_agent t JOIN field_pack p ON p.workspace_id = t.workspace_id AND p.id = t.pack_id WHERE t.workspace_id = a.workspace_id AND t.agent_id = a.id AND p.source = 'shipped')));

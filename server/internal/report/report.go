@@ -64,6 +64,7 @@ type Node struct {
 	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "out:<output name>", "obj:<record id>", "doubt:<column>:<item key>"
 	Kind    string          `json:"kind"` // question|paper|dataset|hypothesis|experiment|output|finding|objection|doubt
 	Label   string          `json:"label"`
+	PaperID string          `json:"paper_id,omitempty"`
 	Status  string          `json:"status"`          // findings: supported|caveated|refuted|inconclusive|invalid; hypotheses: kept|rejected; objections: upheld|not_upheld; papers, datasets and doubts: pass|unclear|fail; else ""
 	Reasons []string        `json:"reasons"`         // recorded reasons only
 	Quote   string          `json:"quote"`           // the recorded text the node stands for

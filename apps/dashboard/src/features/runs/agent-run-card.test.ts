@@ -501,6 +501,38 @@ it('says what a finished report run wrote instead of a missing final message', a
   expect(open && textOf(open)).toBe('Open the report');
 });
 
+it('shows the report summary instead of the Codex structured output', async () => {
+  const raw = '{"concepts":[{"key":"sleep"}],"facts":[],"links":[]}';
+  const { root, fetch } = setup(
+    {
+      status: 'completed',
+      role: 'reporter',
+      kind: 'report',
+      harness: 'codex',
+      answer: '',
+      hand_in: { status: 'done', concepts: [{}], facts: [], links: [] },
+    },
+    null,
+    [],
+    [
+      {
+        agent_run_id: 'run-1',
+        attempt: 1,
+        seq: 1,
+        type: 'text',
+        tool: '',
+        content: raw,
+        created_at: run.created_at,
+      },
+    ],
+  );
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(textOf(root)).toContain('1 concept, 0 facts and 0 links');
+  expect(textOf(root)).not.toContain(raw);
+  expect(textOf(root)).toContain('Open the report');
+});
+
 it('says why a report run could not write the report', async () => {
   const { root } = setup({
     status: 'completed',

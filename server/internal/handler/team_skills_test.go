@@ -146,7 +146,7 @@ func TestBuiltInTeamsAreReadOnly(t *testing.T) {
 	a := s.signIn(t, "a@lab.org")
 	w := s.workspace(t, a, "lab")
 	id := s.builtInID(t, w.ID, "grounding")
-	if c, e := s.saveSkills(t, a, w.ID, id); c != 403 || e != "Built-in Teams can't be changed; duplicate it instead" {
+	if c, e := s.saveSkills(t, a, w.ID, id); c != 403 || e != "Built-in Teams can't be changed" {
 		t.Fatalf("save on a built-in Team: %d %q", c, e)
 	}
 	if c := s.call(t, "PATCH", "/api/teams/"+id, a, w.ID, map[string]string{"avatar_url": "emoji:🧪"}, nil); c != 403 {

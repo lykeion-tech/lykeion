@@ -278,13 +278,7 @@ const lastActive = computed(
         ><RunReactions :study-id="studyId" :run-id="run.id" />
       </div>
       <div :id="`run-transcript-${run.id}`" class="run-result">
-        <RecordedMarkdown
-          v-if="finalAnswer"
-          class="lyk-reading"
-          local-files
-          :content="finalAnswer"
-        />
-        <p v-else-if="reportSummary">
+        <p v-if="reportSummary">
           {{ reportSummary.text }}
           <RouterLink
             v-if="reportSummary.done"
@@ -292,6 +286,12 @@ const lastActive = computed(
             >Open the report</RouterLink
           >
         </p>
+        <RecordedMarkdown
+          v-else-if="finalAnswer"
+          class="lyk-reading"
+          local-files
+          :content="finalAnswer"
+        />
         <p
           v-else-if="run.status === 'completed' && finalMessages.isPending.value && run.attempt > 0"
         >

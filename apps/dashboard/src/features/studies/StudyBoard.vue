@@ -130,7 +130,7 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton
   studyMenu.value = {
     id: card.id,
     x: fromButton
-      ? Math.min(rect.right - 200, window.innerWidth - 208)
+      ? Math.min(rect.right - 120, window.innerWidth - 128)
       : event instanceof MouseEvent
         ? event.clientX
         : rect.left + 60,
@@ -247,7 +247,6 @@ const matchingCards = computed(() =>
   ),
 );
 const waitingCount = computed(() => boardActivity(matchingCards.value).waiting);
-const runningOnly = ref(false);
 const workingGroups = computed(() => {
   const groups = new Map<string, { key: string; harnesses: string[]; name: string }>();
   for (const card of matchingCards.value) {
@@ -271,11 +270,7 @@ const workingGroups = computed(() => {
 const workingGroupLabel = (group: { name: string; harnesses: string[] }) =>
   `${group.name}: ${group.harnesses.map(backendLabel).join(', ')}`;
 const workingDescription = computed(() => workingGroups.value.map(workingGroupLabel).join('; '));
-const visible = computed(() =>
-  runningOnly.value
-    ? matchingCards.value.filter((card) => (card.running_clis?.length ?? 0) > 0)
-    : matchingCards.value,
-);
+const visible = matchingCards;
 const grouped = computed(() => groupByColumn(visible.value));
 const activeFilterCount = computed(() =>
   Object.values(filters.value).reduce((sum, items) => sum + (items?.length ?? 0), 0),
@@ -404,18 +399,16 @@ onUnmounted(() => {
     </div>
     <div class="toolbar-group push-right">
       <div class="working-control">
-        <button
+        <span
           class="button compact working-chip"
-          :class="{ 'working-has-agents': workingGroups.length, 'working-active': runningOnly }"
-          :disabled="!cards.isSuccess.value"
-          :aria-pressed="runningOnly"
+          :class="{ 'working-has-agents': workingGroups.length }"
+          role="status"
           :aria-label="
             cards.isSuccess.value
               ? `${workingGroups.length} agents working${waitingCount ? `, ${waitingCount} waiting` : ''}`
               : 'Agent activity unavailable'
           "
           :aria-description="workingDescription || undefined"
-          @click="runningOnly = !runningOnly"
         >
           <span v-if="workingGroups.length" class="working-icons" aria-hidden="true">
             <span
@@ -442,18 +435,7 @@ onUnmounted(() => {
             v-if="cards.isSuccess.value && waitingCount"
             >, {{ waitingCount }} waiting</template
           >
-        </button>
-        <div class="working-tooltip" role="tooltip">
-          {{
-            cards.isSuccess.value
-              ? workingGroups.length
-                ? runningOnly
-                  ? 'Show all studies'
-                  : 'Show studies with agents working'
-                : 'No agents working right now'
-              : 'Agent activity unavailable'
-          }}
-        </div>
+        </span>
       </div>
       <div class="menu-anchor">
         <button
@@ -763,7 +745,7 @@ onUnmounted(() => {
     </section>
   </div>
   <div
-    v-if="cards.isSuccess.value && !visible.length && (activeFilterCount || runningOnly)"
+    v-if="cards.isSuccess.value && !visible.length && activeFilterCount"
     class="center-empty board-empty"
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
@@ -772,7 +754,6 @@ onUnmounted(() => {
       class="button compact"
       @click="
         filters = {};
-        runningOnly = false;
         tab = 'All';
       "
     >
@@ -1492,6 +1473,10 @@ onUnmounted(() => {
 }
 .working-chip {
   gap: 6px;
+  cursor: default;
+}
+.working-chip:hover {
+  background: var(--surface);
 }
 .working-has-agents {
   border-color: var(--primary) !important;
@@ -1505,8 +1490,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 2px;
   gap: 1px;
   box-sizing: border-box;
@@ -1519,37 +1504,13 @@ onUnmounted(() => {
 }
 .working-cli {
   display: inline-flex;
-  font-size: 12px;
+  font-size: 14px;
 }
 .working-icon + .working-icon {
   margin-left: -1px;
 }
 .working-overflow {
   font-size: 9px;
-}
-.working-active {
-  background: var(--primary) !important;
-  color: var(--on-primary) !important;
-  border-color: var(--primary) !important;
-}
-.working-tooltip {
-  width: 288px;
-  display: none;
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  background: var(--fill-menu);
-  box-shadow: 0 4px 12px #0001;
-  white-space: nowrap;
-  padding: 10px 12px;
-  border-radius: 7px;
-  font-size: 12px;
-  color: var(--muted);
-  z-index: 41;
-}
-.working-control:hover .working-tooltip,
-.working-control:focus-within .working-tooltip {
-  display: block;
 }
 .board-scroll {
   overflow-y: hidden;
@@ -1640,7 +1601,8 @@ onUnmounted(() => {
   position: fixed;
   right: auto;
   top: auto;
-  width: 200px;
+  width: 120px;
+  min-width: 120px;
 }
 .study-menu hr {
   border: 0;

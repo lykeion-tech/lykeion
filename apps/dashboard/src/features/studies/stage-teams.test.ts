@@ -790,7 +790,7 @@ describe('TeamDetail', () => {
       const breadcrumb = t.nodes().find((n) => n.props['aria-label'] === 'Team navigation')!;
       expect(textOf(breadcrumb)).toContain('Hypotheses Team');
       expect(all(breadcrumb).find((n) => n.tag === 'a')?.props.href).toBe('/teams');
-      await vi.waitFor(() => expect(t.text()).toContain('Built-in Teams can'));
+      await vi.waitFor(() => expect(t.text()).toContain('Details →'));
       const header = t.nodes().find((n) => n.props.class === 'agent-meta')!;
       expect(textOf(header)).toContain('Claude Code');
       expect(textOf(header)).not.toContain('General-purpose');
@@ -1009,26 +1009,15 @@ describe('TeamDetail', () => {
       own.unmount();
     }
   });
-  it('shows Duplicate and no edit for a built-in Team', async () => {
+  it('shows no Duplicate and no edit for a built-in Team', async () => {
     const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
     try {
       expect(t.text()).toContain('Hypotheses Team');
-      expect(t.button(/^Duplicate$/)).toBeTruthy();
+      expect(t.button(/^Duplicate$/)).toBeFalsy();
       expect(t.text()).not.toContain('Add Team');
       expect(t.text()).not.toMatch(/Delete/);
       expect(t.text()).toContain('scout');
       expect(t.text()).not.toContain('Edit skills');
-    } finally {
-      t.unmount();
-    }
-  });
-
-  it('prefills the duplicate with the Team’s name and (duplicate)', async () => {
-    const t = await mount(TeamDetail, () => ({ id: 't1' }), '/teams/t1');
-    try {
-      await t.click(/^Duplicate$/);
-      expect(t.input('Name of the duplicate')?.value).toBe('Hypotheses Team (duplicate)');
-      expect(t.text()).not.toMatch(/copy/i);
     } finally {
       t.unmount();
     }

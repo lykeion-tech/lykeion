@@ -18,6 +18,7 @@ func (h *H) cardReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var rep report.Report
+	var input report.Input
 	noReport := false
 	err := h.inWS(r, func(tx *store.Tx, ws, _ uuid.UUID) error {
 		card, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: id})
@@ -33,6 +34,7 @@ func (h *H) cardReport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		input = in
 		rep = report.Build(in)
 		return nil
 	})
@@ -44,5 +46,6 @@ func (h *H) cardReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this study has no report")
 		return
 	}
+	h.resolveReportPaperTitles(r.Context(), &rep, input.Records)
 	writeJSON(w, http.StatusOK, rep)
 }

@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, useId } from 'vue';
 import Icon from './Icon.vue';
 
+const props = withDefaults(defineProps<{ minWidth?: number }>(), { minWidth: 180 });
+
 type Choice = { value: string; label: string; disabled: boolean; group: string };
 const root = ref<HTMLElement>(),
   trigger = ref<HTMLButtonElement>(),
@@ -96,7 +98,7 @@ async function show() {
 function positionPopup() {
   if (!trigger.value) return;
   const bounds = trigger.value.getBoundingClientRect();
-  const width = Math.min(Math.max(bounds.width, 180), 280, window.innerWidth - 16);
+  const width = Math.min(Math.max(bounds.width, props.minWidth), 280, window.innerWidth - 16);
   const height = popup.value?.getBoundingClientRect().height ?? Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
   const top = bounds.bottom + height + 6 <= window.innerHeight - 8
     ? bounds.bottom + 6

@@ -129,3 +129,33 @@ func TestCannotDuplicateLaboratoryAgent(t *testing.T) {
 		t.Fatalf("duplicate laboratory agent: %d", code)
 	}
 }
+
+func TestAgentReportTemplate(t *testing.T) {
+	s := newServer(t)
+	a := s.signIn(t, "report-template@lab.org")
+	w := s.workspace(t, a, "lab")
+	id := s.newAgent(t, a, w.ID, "Reporter", "claude")
+	var initial struct {
+		Default string `json:"default_report_template"`
+	}
+	if code := s.call(t, "GET", "/api/agents/"+id, a, w.ID, nil, &initial); code != 200 || initial.Default == "" {
+		t.Fatalf("default template: %d %+v", code, initial)
+	}
+	var out struct {
+		ReportTemplate string `json:"report_template"`
+	}
+	for _, template := range []string{"## Results", ""} {
+		if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"report_template": template}, &out); code != 200 || out.ReportTemplate != template {
+			t.Fatalf("template %q: %d %+v", template, code, out)
+		}
+	}
+	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"report_template": "bad\x00text"}, nil); code != 400 {
+		t.Fatalf("invalid template: %d", code)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent SET visibility = 'private', built_in_key = 'aristotle' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "PATCH", "/api/agents/"+id, a, w.ID, map[string]any{"report_template": "## Results"}, nil); code != 400 {
+		t.Fatalf("built-in template: %d", code)
+	}
+}

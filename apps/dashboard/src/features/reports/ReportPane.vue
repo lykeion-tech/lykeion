@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import type { StudyReport } from '../../api/types';
+import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
+
+const RecordedMarkdown = lazyRecordedMarkdown();
 import {
   kindName,
   overviewOf,
@@ -12,7 +15,7 @@ import {
   type TabId,
 } from './report-sections';
 
-const props = defineProps<{ report: StudyReport; selected: string | null }>();
+const props = defineProps<{ report: StudyReport; selected: string | null; graphSelection?: number }>();
 const emit = defineEmits<{ select: [id: string | null]; hover: [id: string | null] }>();
 
 const section = computed(() =>
@@ -35,6 +38,18 @@ const overview = computed(() => {
 });
 
 const tab = ref<TabId>('summary');
+watch(
+  () => props.graphSelection,
+  (selection) => {
+    if (!selection) return;
+    const kind = props.report.nodes.find((node) => node.id === props.selected)?.kind;
+    tab.value = kind === 'finding' || kind === 'hypothesis' ? 'findings'
+      : kind === 'objection' || kind === 'doubt' ? 'concerns'
+        : kind === 'paper' || kind === 'dataset' || kind === 'output' ? 'sources'
+          : 'summary';
+  },
+  { immediate: true },
+);
 const rows = computed(() => tabRows(props.report, section.value ? props.selected : null));
 const tabs = computed<{ id: TabId; label: string; n?: number }[]>(() => [
   { id: 'summary', label: 'Summary' },
@@ -43,7 +58,16 @@ const tabs = computed<{ id: TabId; label: string; n?: number }[]>(() => [
   { id: 'sources', label: 'Sources', n: rows.value.sources.length },
 ]);
 function tabKey(e: KeyboardEvent) {
-  const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  const step =
+    e.key === 'ArrowRight'
+      ? 1
+      : e.key === 'ArrowLeft'
+        ? -1
+        : e.key === 'ArrowDown'
+          ? 2
+          : e.key === 'ArrowUp'
+            ? -2
+            : 0;
   if (!step) return;
   e.preventDefault();
   const at = tabs.value.findIndex((t) => t.id === tab.value);
@@ -51,6 +75,13 @@ function tabKey(e: KeyboardEvent) {
   tab.value = next.id;
   void nextTick(() => document.getElementById(`report-tab-${next.id}`)?.focus());
 }
+const handInExpanded = ref(false);
+watch(
+  () => props.report.card_id,
+  () => {
+    handInExpanded.value = false;
+  },
+);
 const excerpt = computed(() => {
   const text = (props.report.hand_in?.text ?? '')
     .replace(/[#*_`>[\]]/g, '')
@@ -67,60 +98,39 @@ const colors: Record<Status['icon'], string> = {
 };
 const colorOf = (status: string) => colors[statusOf(status).icon];
 
-// Back retraces the nodes visited from this pane or the graph; reaching the
-// overview starts the path again. Focus follows into the pane only when the
-// move started here, so a keyboard user in the graph stays on their node.
-const path = ref<string[]>([]);
-let goingBack = false;
+// Focus follows a selection made in the pane; graph selections keep focus there.
 let fromPane = false;
-const labelOf = (id: string) => props.report.nodes.find((n) => n.id === id)?.label ?? id;
 const openFolds = reactive(new Set<string>());
 const openRows = reactive(new Set<string>());
 const panelEl = ref<HTMLElement | null>(null);
 watch(
   () => props.selected,
-  (now, before) => {
+  () => {
     openFolds.clear();
     openRows.clear();
-    if (now === null) path.value = [];
-    else if (goingBack) path.value = path.value.slice(0, -1);
-    else if (before) path.value = [...path.value, before];
-    goingBack = false;
     if (fromPane) void nextTick(() => panelEl.value?.focus());
     fromPane = false;
   },
 );
-// A parent that ignores the select never fires the watch; don't let the
-// flags outlive this move.
-function go(id: string | null, back = false) {
-  goingBack = back;
+function go(id: string | null) {
+  tab.value = 'summary';
   fromPane = true;
   emit('select', id);
-  void nextTick(() => (goingBack = fromPane = false));
-}
-function back() {
-  const to = path.value.at(-1);
-  if (to) go(to, true);
+  void nextTick(() => (fromPane = false));
 }
 const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key) : set.add(key));
 </script>
 
 <template>
   <section class="report-pane type-body" aria-label="Report section">
+    <header class="report-review-header">
+      <h2>Report</h2>
+      <p>Explore the evidence behind this study.</p>
+    </header>
     <!-- Focus may stay in the graph, so the newly shown section is announced. -->
     <p class="sr-only" role="status">
       {{ section ? `${kindName(section.node.kind)}: ${section.node.label}` : 'Overview' }}
     </p>
-    <nav v-if="section" class="pane-back" aria-label="Report path">
-      <span class="focus-chip type-caption">
-        <span class="focus-kind">{{ kindName(section.node.kind) }}</span>
-        <b>{{ section.node.label }}</b>
-        <button class="text-button" aria-label="Clear focus" @click="go(null)">×</button>
-      </span>
-      <button v-if="path.length" class="text-button" @click="back">
-        ← Back to {{ labelOf(path.at(-1)!) }}
-      </button>
-    </nav>
     <div class="pane-tabs" role="tablist" aria-label="Report sections" @keydown="tabKey">
       <button
         v-for="t in tabs"
@@ -133,7 +143,18 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
         :tabindex="tab === t.id ? 0 : -1"
         @click="tab = t.id"
       >
-        {{ t.label }}<span v-if="t.n !== undefined" class="tab-count">{{ t.n }}</span>
+        <span class="tab-heading"
+          >{{ t.label }}<b v-if="t.n !== undefined" class="tab-count">{{ t.n }}</b></span
+        >
+        <span class="tab-caption">{{
+          t.id === 'summary'
+            ? 'Overview'
+            : t.id === 'findings'
+              ? 'Results'
+              : t.id === 'concerns'
+                ? 'Open questions'
+                : 'Evidence'
+        }}</span>
       </button>
     </div>
     <section
@@ -145,23 +166,38 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
       :aria-labelledby="`report-tab-${tab}`"
     >
       <template v-if="tab === 'summary' && !section">
-        <p class="verdict">{{ verdictOf(report) }}</p>
-        <ul class="overview-counts">
-          <li v-for="row in overview" :key="row.label">
-            <span :style="{ color: colorOf(row.status) }" aria-hidden="true">{{
-              statusOf(row.status).icon
-            }}</span>
-            <span>{{ row.label }}</span
-            ><b>{{ row.n }}</b>
-          </li>
-        </ul>
-        <template v-if="excerpt">
-          <h3 class="type-caption pane-label">Hand-in says</h3>
-          <p class="excerpt">{{ excerpt }}</p>
-        </template>
+        <div class="overview-card">
+          <span class="overview-eyebrow">Study overview</span>
+          <p class="verdict">{{ verdictOf(report) }}</p>
+          <ul v-if="overview.length" class="overview-counts">
+            <li v-for="row in overview" :key="row.label">
+              <span :style="{ color: colorOf(row.status) }" aria-hidden="true">{{
+                statusOf(row.status).icon
+              }}</span>
+              <span>{{ row.label }}</span
+              ><b>{{ row.n }}</b>
+            </li>
+          </ul>
+        </div>
+        <section v-if="excerpt" class="review-fold hand-in-preview">
+          <h3>Hand-in</h3>
+          <RecordedMarkdown
+            v-if="handInExpanded"
+            class="hand-in-full"
+            :content="report.hand_in!.text"
+          />
+          <p v-else class="excerpt">{{ excerpt }}</p>
+          <button
+            class="text-button hand-in-toggle"
+            :aria-expanded="handInExpanded"
+            @click="handInExpanded = !handInExpanded"
+          >
+            {{ handInExpanded ? 'Show less' : 'Show full hand-in' }}
+          </button>
+        </section>
       </template>
       <template v-else-if="tab !== 'summary'">
-        <p v-if="!rows[tab].length" class="type-caption fold-empty">None recorded</p>
+        <p v-if="!rows[tab].length" class="type-caption fold-empty empty-card">None recorded</p>
         <button
           v-for="row in rows[tab]"
           :key="row.id"
@@ -189,6 +225,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
       </template>
       <template v-else-if="section">
         <section class="selected-check" aria-label="Selected">
+          <p v-if="section.node.paper_id" class="paper-id">{{ section.node.paper_id }}</p>
           <div v-if="section.status.word" class="selected-status">
             <b :style="{ color: colorOf(section.node.status) }"
               ><span aria-hidden="true">{{ section.status.icon }}</span>
@@ -222,11 +259,13 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
               </button>
               <template v-else>
                 <button
+                  v-if="!row.inline"
                   class="check-row"
+                  :class="{ 'no-status': !row.status, 'no-evidence': row.pct === undefined }"
                   :aria-expanded="openRows.has(`${f}:${r}`)"
                   @click="toggle(openRows, `${f}:${r}`)"
                 >
-                  <span :style="{ color: row.status ? colorOf(row.status) : undefined }"
+                  <span v-if="row.status" :style="{ color: colorOf(row.status) }"
                     ><span aria-hidden="true">{{
                       row.status ? statusOf(row.status).icon : ''
                     }}</span
@@ -246,7 +285,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
                     row.pctText ?? `${row.pct}%`
                   }}</span>
                 </button>
-                <dl v-if="openRows.has(`${f}:${r}`)" class="row-detail">
+                <dl v-if="row.inline || openRows.has(`${f}:${r}`)" class="row-detail" :class="{ 'inline-detail': row.inline }">
                   <template v-for="(block, b) in row.detail" :key="b">
                     <dt class="type-caption">{{ block.label }}</dt>
                     <dd>
@@ -273,59 +312,112 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.report-review-header {
+  margin-bottom: 18px;
+}
+.report-review-header h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.report-review-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.overview-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.overview-eyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
 .verdict {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 15px;
   font-weight: 650;
-}
-.pane-label {
-  margin: 14px 0 4px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
 }
 .excerpt {
   margin: 0;
   color: var(--muted);
+  line-height: 1.5;
 }
 .pane-tabs {
-  display: flex;
-  gap: 2px;
-  margin: 8px 0 12px;
-  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0;
 }
 .pane-tab {
-  padding: 6px 10px;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  color: var(--muted);
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  text-align: left;
 }
 .pane-tab[aria-selected='true'] {
-  color: var(--text);
+  border-color: var(--muted);
+  background: var(--hover);
+}
+.pane-tab:hover {
+  background: var(--hover);
+}
+.pane-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.tab-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
   font-weight: 600;
-  border-bottom-color: var(--primary);
+}
+.tab-caption {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .tab-count {
-  margin-left: 5px;
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
+}
+.hand-in-full {
+  overflow-wrap: anywhere;
+}
+.hand-in-toggle {
+  margin-top: 8px;
+  padding-inline: 0;
+  color: var(--accent, #337ab7);
+  text-align: left;
+}
+.paper-id {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.hand-in-preview h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.empty-card {
+  padding: 24px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
 }
 .pane-panel:focus {
   outline: none;
 }
-.focus-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  max-width: 100%;
-  padding: 2px 4px 2px 10px;
-  border-radius: 12px;
-  background: var(--hover);
-}
-.focus-kind {
-  color: var(--muted);
-}
-.list-row {
+.check-row.list-row {
   grid-template-columns: 16px minmax(0, 1fr) auto;
 }
 .row-sub {
@@ -336,6 +428,7 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   list-style: none;
   margin: 0;
   padding: 0;
+  margin-top: 8px;
 }
 .overview-counts li {
   display: grid;
@@ -344,14 +437,12 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
 }
+.overview-counts li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
 .overview-counts b {
   font-variant-numeric: tabular-nums;
-}
-.pane-back {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
 }
 .selected-check {
   border: 1px solid var(--border);
@@ -406,6 +497,16 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   text-align: left;
   border-radius: 5px;
 }
+.check-row.no-evidence {
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+.check-row.no-status {
+  grid-template-columns: minmax(0, 1fr) minmax(45px, 100px) minmax(36px, auto);
+  padding-inline: 0;
+}
+.check-row.no-status.no-evidence {
+  grid-template-columns: minmax(0, 1fr);
+}
 .row-link {
   display: block;
   width: 100%;
@@ -446,6 +547,9 @@ const toggle = (set: Set<string>, key: string) => (set.has(key) ? set.delete(key
   padding: 9px 12px;
   background: var(--input);
   border-radius: 5px;
+}
+.row-detail.inline-detail {
+  margin-left: 0;
 }
 .row-detail dt {
   color: var(--muted);

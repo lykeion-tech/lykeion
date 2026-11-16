@@ -20,12 +20,14 @@ const noReport = computed(
 );
 
 const selected = ref<string | null>(null);
+const graphSelection = ref(0);
 const hovered = ref<string | null>(null);
 const expanded = ref(false);
 watch(
   () => props.cardId,
   () => {
     selected.value = null;
+    graphSelection.value = 0;
     expanded.value = false;
   },
 );
@@ -127,7 +129,14 @@ function clickRef(e: MouseEvent) {
   if (b?.dataset.node) selectRef(b.dataset.node);
 }
 function selectRef(id: string) {
+  graphSelection.value = 0;
   selected.value = id;
+  paneOpen.value = true;
+}
+
+function selectGraph(id: string) {
+  selected.value = id;
+  graphSelection.value++;
   paneOpen.value = true;
 }
 
@@ -145,7 +154,7 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
 
 <template>
   <section class="study-report" aria-label="Study report">
-    <div class="report-main" :class="{ 'beside-pane': paneOpen && !paneFocused }">
+    <div class="report-main">
       <!-- The page has no header of its own until the report loads. -->
       <h1 v-if="!report" class="sr-only">Study report</h1>
       <p v-if="noReport" class="report-empty">This study has no report.</p>
@@ -159,7 +168,7 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
       <template v-else>
         <header class="report-header">
           <div class="report-heading">
-            <h1>#{{ report.number }} {{ studyDisplayTitle(report.title) }}</h1>
+            <h1>{{ studyDisplayTitle(report.title) }}</h1>
             <p v-if="report.hand_in" class="type-caption hand-in-by">{{ handInBy }}</p>
           </div>
         </header>
@@ -189,7 +198,7 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
             :report="report"
             :selected="selected"
             :hovered="hovered"
-            @select="selected = $event"
+            @select="selectGraph"
           />
         </div>
       </template>
@@ -218,6 +227,7 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
         class="report-pane-body"
         :report="report"
         :selected="selected"
+        :graph-selection="graphSelection"
         @select="selected = $event"
         @hover="hovered = $event"
       />
@@ -226,6 +236,10 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
 </template>
 
 <style scoped>
+.study-report :deep(.surface-header) {
+  border-bottom: 0;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -249,11 +263,6 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-@media (min-width: 981px) {
-  .report-main.beside-pane {
-    padding-right: 396px;
-  }
 }
 .report-header {
   padding-right: 40px;

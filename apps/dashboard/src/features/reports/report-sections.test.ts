@@ -506,6 +506,6 @@ it('tabRows lists the whole report, then only what lies near the focus', () => {
   expect(all.sources.map((x) => x.id)).toContain('rec:r1');
   const hypothesis = r.nodes.find((n) => n.kind === 'hypothesis')!;
   const focused = tabRows(r, hypothesis.id);
-  expect(focused.findings.some((x) => x.id === hypothesis.id)).toBe(false);
+  expect(focused.findings.some((x) => x.id === hypothesis.id)).toBe(true);
   expect(focused.sources.length).toBeLessThanOrEqual(all.sources.length);
 });
