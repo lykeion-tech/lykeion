@@ -13,6 +13,10 @@ export default tseslint.config(
       'docs/',
       'research/',
       'science/',
+      'apps/web/',
+      'apps/dashboard/src/features/coresearch/viewers/vendor/',
+      'apps/dashboard/src/features/coresearch/viewers/targeted-hdf/hdf-reader.js',
+      'server/internal/workflow/bundle/',
       'apps/dashboard/src/data/emoji-data.ts',
     ],
   },
@@ -22,6 +26,22 @@ export default tseslint.config(
   {
     files: ['**/*.vue'],
     languageOptions: { parserOptions: { parser: tseslint.parser } },
+  },
+  {
+    files: ['**/*.test.ts', 'tests/e2e/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-function-type': 'off',
+      '@typescript-eslint/no-this-alias': 'off',
+    },
+  },
+  {
+    files: ['apps/dashboard/src/features/coresearch/viewers/**/*.ts'],
+    rules: { 'no-control-regex': 'off' },
+  },
+  {
+    files: ['**/*.cjs'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
     languageOptions: { globals: { ...globals.browser, ...globals.node } },

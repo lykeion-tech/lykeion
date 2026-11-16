@@ -137,8 +137,8 @@ export function workbookSample(
     if (!source) return;
     const doc = parse(source, MAIN, 'worksheet');
     if (!doc) return;
-    let shared: string[] = [],
-      sharedTruncated = false;
+    const shared: string[] = [];
+    let sharedTruncated = false;
     if (parts.sharedStrings) {
       const strings = parse(parts.sharedStrings, MAIN, 'sst');
       if (!strings) return;

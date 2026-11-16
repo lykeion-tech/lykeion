@@ -7,7 +7,7 @@ import ProjectInfoPane from './ProjectInfoPane.vue';
 import VersionsPane from './VersionsPane.vue';
 import CommentsPane from './CommentsPane.vue';
 import LogPane from './LogPane.vue';
-const props = defineProps<{
+defineProps<{
   projectId: string;
   title: string;
   builds: Build[];

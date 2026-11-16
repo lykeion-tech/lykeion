@@ -291,7 +291,6 @@ async function submit() {
     emit('close');
   } catch (e) {
     if (!current()) return;
-    const message = (e as Error).message;
     if (e instanceof ApiError && e.status === 409 && typeof e.body.card_id === 'string')
       duplicate.value = { id: e.body.card_id, number: Number(e.body.number) };
     else if (usedLastSet.value && /add this Team/.test((e as Error).message))

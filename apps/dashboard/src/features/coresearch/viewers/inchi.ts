@@ -11,7 +11,7 @@ interface Molecule {
 export function inchiRecord(text: string): string | undefined {
   if (text.length > 2048) return undefined;
   const value = text.trim();
-  if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;\/]+$/.test(value)) return;
+  if (!/^InChI=1S?\/[A-Za-z0-9+(),.\-;/]+$/.test(value)) return;
   if (!/\/[btms]/.test(value)) return value;
   // Permit up to two non-isotopic geometric bonds, optionally with absolute
   // tetrahedral stereo, or absolute tetrahedral stereo with a supported

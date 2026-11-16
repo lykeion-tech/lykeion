@@ -2,7 +2,7 @@
 import type { AgentDefinition } from '../../api/types';
 import Aristotle from './Aristotle.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
-const props = withDefaults(
+withDefaults(
   defineProps<{ agent?: AgentDefinition; size?: number; fallbackAristotle?: boolean }>(),
   { size: 64, fallbackAristotle: false },
 );

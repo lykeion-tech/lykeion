@@ -14,6 +14,11 @@ export async function cowriteFixture(page: Page, owner = true) {
         name: 'Ada Lovelace',
         email: 'ada@example.com',
         onboarded_at: '2026-01-01',
+        timezone: 'UTC',
+        created_at: '2026-01-01T00:00:00Z',
+        avatar_url: '',
+        google_sub: null,
+        career_stage: '',
       },
     }),
   );

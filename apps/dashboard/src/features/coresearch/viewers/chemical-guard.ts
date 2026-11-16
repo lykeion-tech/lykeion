@@ -21,7 +21,7 @@ export function chemicalInput(
     const keep: string[] = [];
     let atoms = 0;
     for (const line of lines) {
-      if (/^(ATOM  |HETATM)/.test(line)) {
+      if (/^(ATOM {2}|HETATM)/.test(line)) {
         if (++atoms > MAX_ATOMS || line.length < 54) return undefined;
         for (const [a, b] of [
           [30, 38],
@@ -33,7 +33,7 @@ export function chemicalInput(
             return undefined;
         }
         keep.push(line.slice(0, 100));
-      } else if (/^(CONECT|TER   |END   |ENDMDL)/.test(line)) keep.push(line.slice(0, 100));
+      } else if (/^(CONECT|TER {3}|END {3}|ENDMDL)/.test(line)) keep.push(line.slice(0, 100));
     }
     return atoms ? { text: keep.join('\n') + '\nEND\n', format: 'pdb', atoms } : undefined;
   }

@@ -178,7 +178,11 @@ for (const failedRead of [
     try {
       await page.goto('/#/studies');
       const alert = page.getByRole('alert');
-      await expect(alert).toContainText(`${failedRead.name} temporarily unavailable`);
+      await expect(alert).toContainText(
+        failedRead.name === 'identity'
+          ? 'Could not verify your account. Try again.'
+          : `${failedRead.name} temporarily unavailable`,
+      );
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
       await page.screenshot({
         path: `test-results/ui-lab/task11-recovery-${failedRead.name.replaceAll(' ', '-')}.png`,
@@ -191,7 +195,7 @@ for (const failedRead of [
           'click',
           (event) => {
             const button = (event.target as HTMLElement).closest('button');
-            if (button?.closest('[role="alert"]') && button.textContent?.trim() === 'Try again')
+            if (button?.textContent?.trim() === 'Try again')
               document.documentElement.dataset.shellRetryClicked = 'true';
           },
           { capture: true },
@@ -207,9 +211,11 @@ for (const failedRead of [
         .poll(() => page.evaluate(() => document.documentElement.dataset.shellBackgroundStatus))
         .toBe('503');
       const retryRequest = page.waitForRequest(failedRead.pattern);
-      await alert.getByRole('button', { name: 'Try again' }).click();
+      await page.getByRole('button', { name: 'Try again' }).click();
       await retryRequest;
-      await expect(page.getByRole('status')).toContainText('Loading workspace');
+      await expect(page.getByRole('status')).toContainText(
+        failedRead.name === 'identity' ? 'Verifying your account' : 'Loading workspace',
+      );
       await expect(page.getByRole('button', { name: 'Try again', disabled: false })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Board', exact: true })).toHaveCount(0);
       finishRetry();

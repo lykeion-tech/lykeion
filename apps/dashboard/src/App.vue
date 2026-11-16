@@ -237,7 +237,6 @@ const tabTitle = computed(() =>
 const headingIcon = computed(
   () => destinations.find((x) => x.id === current.value)?.icon ?? 'tasks',
 );
-writeText('lykeion.sidebar-width', '219');
 const rail = usePaneResize('lykeion.sidebar-width', 219, 219, 360);
 const collapsed = ref(readText('lykeion.sidebar-collapsed') === 'true');
 // Entering either workspace starts with its own history; the toggle remains
@@ -461,7 +460,8 @@ watch(
       workspaceId.value = '';
       workspaceTabs.clearAccount();
       dropAccountData();
-      if (signedOut) authenticationRestored(state.epoch);
+      if (signedOut || (state.accepted && route.path === '/signin'))
+        authenticationRestored(state.epoch);
       workspaceTabs.setAccount(user.id);
       client.setQueryData(keys.me, user);
       await nextTick();

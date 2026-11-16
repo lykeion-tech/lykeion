@@ -35,11 +35,11 @@ describe('mass spectrometry XML', () => {
   it('rejects mismatched declared spectrum counts and conflicting unknown CV terms', async () => {
     const data = b64([100, 5, 200, 10], false);
     expect(
-      await readMassXml(mzxml(data).replace('<msRun>', '<msRun scanCount=\"2\">'), 'mzxml'),
+      await readMassXml(mzxml(data).replace('<msRun>', '<msRun scanCount="2">'), 'mzxml'),
     ).toBeUndefined();
     const arr = (term: string) =>
-      `<binaryDataArray><cvParam accession=\"${term}\"/><cvParam accession=\"MS:1000521\"/><cvParam accession=\"MS:1000576\"/><cvParam accession=\"MS:9999999\" name=\"benign\"/><binary>${b64([1, 2], true)}</binary></binaryDataArray>`;
-    const xml = `<mzML><spectrumList count=\"1\"><spectrum defaultArrayLength=\"2\">${arr('MS:1000514')}${arr('MS:1000515')}</spectrum></spectrumList></mzML>`;
+      `<binaryDataArray><cvParam accession="${term}"/><cvParam accession="MS:1000521"/><cvParam accession="MS:1000576"/><cvParam accession="MS:9999999" name="benign"/><binary>${b64([1, 2], true)}</binary></binaryDataArray>`;
+    const xml = `<mzML><spectrumList count="1"><spectrum defaultArrayLength="2">${arr('MS:1000514')}${arr('MS:1000515')}</spectrum></spectrumList></mzML>`;
     expect(await readMassXml(xml, 'mzml')).toBeUndefined();
   });
   it('rejects mismatched counts, unknown encodings and entities', async () => {

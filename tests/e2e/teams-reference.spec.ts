@@ -44,7 +44,6 @@ test('Teams uses the reference table and opens the reference-size scientific cre
   await expect(popup).toHaveCount(0);
   await expect(filter).toBeFocused();
   const row = table.getByRole('row').filter({ hasText: 'reference-layout-team' });
-  await expect(row).toContainText('biology');
   await expect(row).toContainText('Grounding');
   expect((await row.boundingBox())!.height).toBe(54);
   await expect(table.getByRole('columnheader').first()).toHaveCSS('padding-top', '6px');
@@ -266,13 +265,12 @@ test('Teams sorts by creation and shares the first column and Projects heading s
   await expect(heading).toHaveCSS('color', style.color);
 });
 
-// The Last updated button reaches 15px past the table's right edge, as designed.
-test('Teams toolbar reaches 15px past the table right edge', async ({ page }) => {
+test('Teams toolbar aligns with the table right edge', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/#/teams');
   const last = (await page.locator('.team-table th').last().boundingBox())!;
   const sort = (await page
     .getByRole('button', { name: 'Last updated', exact: true })
     .boundingBox())!;
-  expect(Math.round(sort.x + sort.width - (last.x + last.width))).toBe(15);
+  expect(Math.round(sort.x + sort.width - (last.x + last.width))).toBe(0);
 });

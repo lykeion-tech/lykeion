@@ -27,6 +27,7 @@ test('deleting a custom Team warns about its agents and removes them', async ({ 
 test('the sidebar shows the final IT Department order', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
+  await expect(nav.getByRole('link', { name: 'Agents', exact: true })).toBeVisible();
   const names = await nav.getByRole('link').allInnerTexts();
   const at = (name: string) => names.findIndex((n) => n.trim() === name);
   expect(at('Teams')).toBeGreaterThan(at('Studies'));
@@ -72,7 +73,7 @@ test('the store filters by domain and stage', async ({ page }) => {
   await page.goto('/#/teams');
   const rows = page.locator('.team-table tbody tr');
   await expect(rows.filter({ hasText: 'store-neuro' })).toContainText('Grounding');
-  await expect(rows.filter({ hasText: 'store-chem' })).toContainText('chemistry');
+  await expect(rows.filter({ hasText: 'store-chem' })).toContainText('Validation');
   await page.screenshot({ path: `${shots}/store.png` });
 
   await page.getByRole('button', { name: 'Filter', exact: true }).click();

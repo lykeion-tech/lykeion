@@ -158,7 +158,7 @@ test('the wordmark takes Coresearch and Decisions back to Studies, and Decisions
   await expect(toggle(page, 'Decisions').locator('svg.lucide-bell')).toHaveCount(1);
 });
 
-test('every rail is 262px wide by default and the sidebar toggle sits left of the wordmark, even when hidden', async ({
+test('every rail is 219px wide by default and the sidebar toggle sits left of the wordmark, even when hidden', async ({
   page,
 }) => {
   await page.addInitScript(() => localStorage.removeItem('lykeion.sidebar-width'));
@@ -170,7 +170,7 @@ test('every rail is 262px wide by default and the sidebar toggle sits left of th
   ] as const) {
     await page.goto(path);
     await expect(rail).toBeVisible();
-    expect((await rail.boundingBox())!.width).toBe(262);
+    expect((await rail.boundingBox())!.width).toBe(219);
     const mark = (await page.locator('.sidebar-brand:visible .wordmark').boundingBox())!;
     const toggle = (await button.boundingBox())!;
     expect(toggle.x + toggle.width).toBeLessThanOrEqual(mark.x);

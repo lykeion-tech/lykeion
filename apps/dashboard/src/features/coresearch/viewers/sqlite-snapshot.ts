@@ -69,9 +69,9 @@ export function readSqliteSnapshot(bytes: Uint8Array): SqliteSnapshot | undefine
       const end = start + length;
       if (length > MAX_RECORD || end > bytes.length) throw Error('record');
       if (length > outputBudget) throw Error('output limit');
-      let h = readVar(start, end),
-        header = asSize(h.value),
-        p = h.next;
+      let h = readVar(start, end);
+      const header = asSize(h.value);
+      let p = h.next;
       if (header < p - start || start + header > end) throw Error('header');
       const codes: number[] = [];
       while (p < start + header) {

@@ -22,7 +22,7 @@ function record(
 ): SequenceRecord {
   const normalized = sequence.toUpperCase();
   const protein = kind === 'protein';
-  const nucleotide = kind === 'nucleotide' && !/[^ACGTUNRYKMSWBDHV.\-]/.test(normalized);
+  const nucleotide = kind === 'nucleotide' && !/[^ACGTUNRYKMSWBDHV.-]/.test(normalized);
   const called = normalized.match(/[ACGTU]/g)?.length ?? 0;
   const gc = normalized.match(/[GC]/g)?.length ?? 0;
   return {

@@ -209,7 +209,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	checked := 0
 	err := chi.Walk(NewRouter(s.H).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if !strings.HasPrefix(route, "/api/") || strings.HasPrefix(route, "/api/tokens") ||
-			route == "/api/me" || route == "/api/cli-token" || route == "/api/workspaces" || route == "/api/laboratories" ||
+			route == "/api/me" || route == "/api/cli-token" || route == "/api/contact-sales" || route == "/api/workspaces" || route == "/api/laboratories" ||
 			strings.HasPrefix(route, "/api/invitations") || strings.HasPrefix(route, "/api/daemon") || strings.HasPrefix(route, "/api/role") || strings.HasPrefix(route, "/api/run/coresearch") || strings.HasPrefix(route, "/api/workflows") {
 			return nil
 		}

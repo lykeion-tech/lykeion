@@ -16,8 +16,7 @@ function htmlTable(html: string): string[][] {
   const rows: string[][] = [];
   const rowOpen = /<tr\b[^<>]*>/gi,
     rowClose = /<\/tr\s*>/gi;
-  let start: RegExpExecArray | null;
-  while (rows.length < 100 && (start = rowOpen.exec(html))) {
+  while (rows.length < 100 && rowOpen.exec(html)) {
     rowClose.lastIndex = rowOpen.lastIndex;
     const end = rowClose.exec(html);
     if (!end) break;

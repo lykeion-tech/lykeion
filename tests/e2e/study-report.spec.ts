@@ -176,7 +176,7 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
     await expect(graph(page).getByRole('button', { name: label, exact: true })).toBeVisible();
   await expect(page.getByRole('complementary', { name: 'Right pane' })).toHaveCount(0);
   await openPane(page);
-  await expect(pane(page).getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await expect(pane(page).getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true');
   await expect(pane(page)).toContainText('Findings supported1');
   // The pane is the report and nothing else: no chooser, no tab, no way back to one.
   const right = page.getByRole('complementary', { name: 'Right pane' });
@@ -221,15 +221,15 @@ test('clicking a finding opens its section and every row is inspectable', async 
     .getByRole('button', { name: /^Sources/ })
     .click();
   await pane(page).getByRole('button', { name: PAPER, exact: true }).click();
-  await expect(selected).toContainText(PAPER);
-  await expect(selected).toContainText('Paper');
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText(PAPER);
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText('Paper');
   // A move started in the pane takes focus to the new section.
-  await expect(selected).toBeFocused();
+  await expect(pane(page).getByRole('tabpanel')).toBeFocused();
   await page.screenshot({ path: `${shots}/study-report-source.png`, fullPage: true });
   await pane(page)
     .getByRole('button', { name: `← Back to ${H2}` })
     .click();
-  await expect(selected).toContainText(H2);
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText(H2);
   await expect(selected).toContainText('Supported with caveats');
 });
 
@@ -242,8 +242,7 @@ test('nodes work from the keyboard', async ({ page }) => {
   const question = graph(page).getByRole('button', { name: /^Question: / });
   await expect(question).toBeFocused();
   await page.keyboard.press('Enter');
-  const selected = pane(page).getByRole('region', { name: 'Selected' });
-  await expect(selected).toContainText('Question');
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText('Question');
   const live = pane(page).getByRole('status');
   await expect(live).toHaveText(/^Question: Does glucose raise insulin secretion\?$/);
   // Moving between nodes keeps focus in the graph.
@@ -252,7 +251,7 @@ test('nodes work from the keyboard', async ({ page }) => {
   const paper = graph(page).getByRole('button', { name: `Paper: ${PAPER}`, exact: true });
   await expect(paper).toBeFocused();
   await page.keyboard.press(' ');
-  await expect(selected).toContainText(PAPER);
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText(PAPER);
   await expect(live).toHaveText(`Paper: ${PAPER}`);
   await expect(paper).toBeFocused();
 });
@@ -462,11 +461,11 @@ test('clicking a hand-in link selects its node and opens its section', async ({ 
   await page.keyboard.press('Enter');
   await expect(link).toHaveAttribute('aria-pressed', 'true');
   const selected = pane(page).getByRole('region', { name: 'Selected' });
-  await expect(selected).toContainText(PAPER);
-  await expect(selected).toContainText('Paper');
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText(PAPER);
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText('Paper');
 
   await graph(page).getByRole('button', { name: 'Concept: Insulin' }).click();
-  await expect(selected).toContainText('Insulin');
+  await expect(pane(page).getByRole('navigation', { name: 'Report path' })).toContainText('Insulin');
   await expect(selected).toContainText('Protein');
   await pane(page)
     .getByRole('button', { name: /Facts about it/ })

@@ -43,7 +43,7 @@ export function pdbqtGeometry(
     output: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (!/^(ATOM  |HETATM)/.test(line)) continue;
+    if (!/^(ATOM {2}|HETATM)/.test(line)) continue;
     if (
       (models.length && (i < models[0]! || i > ends[0]!)) ||
       line.length < 78 ||

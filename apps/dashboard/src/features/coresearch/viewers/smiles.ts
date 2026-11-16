@@ -16,7 +16,7 @@ export function smilesRecord(text: string): string | undefined {
     !value ||
     value.length > 512 ||
     /^InChI=/i.test(value) ||
-    !/^[A-Za-z0-9@+\-\[\]()=#$%\\/.::*]+$/.test(value)
+    !/^[A-Za-z0-9@+\-[\]()=#$%\\/.::*]+$/.test(value)
   )
     return undefined;
   return value;

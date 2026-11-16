@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { lstat, mkdtemp, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { builtinModules } from 'node:module';
 import path from 'node:path';
@@ -94,7 +94,7 @@ export async function buildDesktopUpdater(root, output) {
         packages.set(directory, pkg);
         break;
       } catch (error) {
-        if (error?.code !== 'ENOENT') throw new Error('Invalid updater dependency metadata');
+        if (error?.code !== 'ENOENT') throw new Error('Invalid updater dependency metadata', { cause: error });
       }
       directory = path.dirname(directory);
     }

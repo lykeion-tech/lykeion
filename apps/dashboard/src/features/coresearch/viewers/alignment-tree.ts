@@ -14,7 +14,7 @@ export function parseAlignment(text: string, extension: string, partial: boolean
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const rows = new Map<string, string>();
   const add = (name: string, seq: string) => {
-    if (!name || name.length > 200 || !/^[A-Za-z.*?\-]+$/.test(seq)) return false;
+    if (!name || name.length > 200 || !/^[A-Za-z.*?-]+$/.test(seq)) return false;
     if (!rows.has(name) && rows.size >= 100) return false;
     const next = (rows.get(name) ?? '') + seq;
     if (next.length > 20000) return false;
@@ -32,7 +32,7 @@ export function parseAlignment(text: string, extension: string, partial: boolean
     if (!count || count > 100 || !width || width > 20000) return undefined;
     for (const line of lines) {
       if (!line.trim()) continue;
-      const match = line.trim().match(/^(\S+)\s+([A-Za-z.*?\-]+)$/);
+      const match = line.trim().match(/^(\S+)\s+([A-Za-z.*?-]+)$/);
       if (!match || rows.has(match[1]!) || !add(match[1]!, match[2]!)) return undefined;
     }
     if (rows.size !== count || [...rows.values()].some((seq) => seq.length !== width))
@@ -52,7 +52,7 @@ export function parseAlignment(text: string, extension: string, partial: boolean
         continue;
       }
       if (!line.trim() || line.startsWith('#') || /^\s+[*:. ]+\s*$/.test(line)) continue;
-      const match = line.trim().match(/^(\S+)\s+([A-Za-z.*?\-]+)(?:\s+\d+)?$/);
+      const match = line.trim().match(/^(\S+)\s+([A-Za-z.*?-]+)(?:\s+\d+)?$/);
       if (!match || !add(match[1]!, match[2]!)) return undefined;
     }
     if (stockholm && !terminated) return undefined;
@@ -80,12 +80,12 @@ export function parseTree(text: string, partial: boolean): TreeNode | undefined 
     const children: TreeNode[] = [];
     if (text[i] === '(') {
       i++;
-      do {
+      for (;;) {
         children.push(node(depth + 1));
         skip();
         if (text[i] !== ',') break;
         i++;
-      } while (true);
+      }
       if (text[i++] !== ')' || children.length < 2) throw Error('invalid tree');
     }
     skip();
@@ -109,7 +109,7 @@ export function parseTree(text: string, partial: boolean): TreeNode | undefined 
       if (!closed) throw Error('unclosed label');
     } else {
       const start = i;
-      while (i < text.length && !/[\s(),:;\[\]]/.test(text[i]!)) i++;
+      while (i < text.length && !/[\s(),:;[\]]/.test(text[i]!)) i++;
       name = text.slice(start, i);
       if (name.length > 200) throw Error('label too long');
     }
