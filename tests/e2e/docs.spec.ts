@@ -206,34 +206,41 @@ test('concept relationship lines avoid unrelated nodes on desktop and phone', as
   }
 });
 
-// Run against Caddy serving apps/web/out to cover the production static routes.
-test('exported articles and Markdown survive deployment routing', async ({ page, request }) => {
-  const { articles } = await import('../../apps/web/src/app/docs/content');
-  await page.goto(origin);
-  await page.locator('footer').getByRole('link', { name: 'Documentation', exact: true }).click();
-  await expect(page).toHaveURL(`${origin}/docs/`);
-  for (const article of articles) {
-    const response = await page.goto(`${origin}/docs/${article.slug}/`);
-    expect(response?.status()).toBe(200);
-    await expect(page.getByRole('heading', { name: article.title, exact: true, level: 1 })).toBeVisible();
-    const markdown = await request.get(`${origin}/docs/${article.slug}/markdown/`);
-    expect(markdown.status()).toBe(200);
-    expect(markdown.headers()['content-type']).toMatch(/^text\/markdown(?:;|$)/);
-    expect(await markdown.text()).toBe(article.markdown);
-    expect(markdown.url()).toBe(`${origin}/docs/${article.slug}/markdown`);
-  }
-  for (const path of ['/docs/missing-article/', '/docs/welcome/missing/']) {
-    expect((await request.get(`${origin}${path}`)).status()).toBe(404);
-  }
-  const api = await request.get(`${origin}/health`);
-  // The isolated Caddy has no server upstream; 502 proves this was proxied.
-  expect(api.status()).toBe(502);
-  expect(api.headers()['content-type'] || '').not.toContain('text/markdown');
-  const appRedirect = await request.get(`${origin}/app`, { maxRedirects: 0 });
-  expect(appRedirect.headers().location).toBe('/app/');
-  for (const path of ['/privacy/', '/terms/']) {
-    const response = await request.get(`${origin}${path}`);
-    expect(response.status()).toBe(200);
-    expect(response.headers()['content-type']).toContain('text/html');
-  }
+// Opt in with LYK_DOCS_DEPLOYMENT=1 against isolated Caddy serving apps/web/out.
+test.describe('isolated documentation deployment', () => {
+  test.skip(process.env.LYK_DOCS_DEPLOYMENT !== '1', 'Requires an isolated Caddy export with no server upstream.');
+
+  test('exported articles and Markdown survive deployment routing', async ({ page, request }) => {
+    const { articles } = await import('../../apps/web/src/app/docs/content');
+    await page.goto(origin);
+    await page.locator('footer').getByRole('link', { name: 'Documentation', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/docs/`);
+    for (const article of articles) {
+      const response = await page.goto(`${origin}/docs/${article.slug}/`);
+      expect(response?.status()).toBe(200);
+      await expect(page.getByRole('heading', { name: article.title, exact: true, level: 1 })).toBeVisible();
+      const redirect = await request.get(`${origin}/docs/${article.slug}/markdown/`, { maxRedirects: 0 });
+      expect(redirect.status()).toBe(308);
+      expect(redirect.headers().location).toBe(`/docs/${article.slug}/markdown`);
+      const markdown = await request.get(`${origin}/docs/${article.slug}/markdown/`);
+      expect(markdown.status()).toBe(200);
+      expect(markdown.headers()['content-type']).toMatch(/^text\/markdown(?:;|$)/);
+      expect(await markdown.text()).toBe(article.markdown);
+      expect(markdown.url()).toBe(`${origin}/docs/${article.slug}/markdown`);
+    }
+    for (const path of ['/docs/missing-article/', '/docs/welcome/missing/']) {
+      expect((await request.get(`${origin}${path}`)).status()).toBe(404);
+    }
+    const api = await request.get(`${origin}/health`);
+    // The isolated Caddy has no server upstream; 502 proves this was proxied.
+    expect(api.status()).toBe(502);
+    expect(api.headers()['content-type'] || '').not.toContain('text/markdown');
+    const appRedirect = await request.get(`${origin}/app`, { maxRedirects: 0 });
+    expect(appRedirect.headers().location).toBe('/app/');
+    for (const path of ['/privacy/', '/terms/']) {
+      const response = await request.get(`${origin}${path}`);
+      expect(response.status()).toBe(200);
+      expect(response.headers()['content-type']).toContain('text/html');
+    }
+  });
 });
