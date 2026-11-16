@@ -71,3 +71,9 @@ it('routes long concept links through the gaps rather than unrelated nodes', () 
   expect(conceptPath(9, 0)).toBe(conceptPath(0, 9));
   expect(conceptPath(0, 8)).toBe('M 100 36 V 84 H 400 V 228 H 500');
 });
+
+
+it('exposes illustrative stage evidence as named groups', () => {
+  const html = renderToStaticMarkup(<StudyWalkthrough />);
+  expect(html.match(/class="stage-scene" role="group" aria-label="Illustrative evidence and gate"/g)).toHaveLength(4);
+});

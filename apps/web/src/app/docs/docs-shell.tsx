@@ -22,6 +22,11 @@ export function articleContent(markdown: string) {
     if (token.tag !== 'h1') headings.push({ id, title, level: token.tag });
     return self.renderToken(tokens, index, options);
   };
+  // Keep code scrollable by keyboard even before hydration or with JavaScript disabled.
+  for (const rule of ['fence', 'code_block']) {
+    const render = renderer.renderer.rules[rule]!;
+    renderer.renderer.rules[rule] = (...args) => render(...args).replace('<pre>', '<pre tabindex="0" role="region" aria-label="Code example">');
+  }
   const html = renderer.render(markdown);
   return { html, headings };
 }

@@ -28,3 +28,10 @@ describe('documentation navigation', () => {
     expect(searchArticles(articles, 'zzzzzz')).toEqual([]);
   });
 });
+
+
+it('makes fenced and indented code examples keyboard scrollable in server HTML', () => {
+  for (const markdown of ['```sh\necho hello\n```', '    echo hello']) {
+    expect(articleContent(markdown).html).toContain('<pre tabindex="0" role="region" aria-label="Code example">');
+  }
+});

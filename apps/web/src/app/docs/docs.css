@@ -15,3 +15,5 @@
 @media(max-width:600px){.docs-actions-list{flex-direction:column}}
 
 .docs-site :is(a,button,input,summary):focus-visible,.docs-search :is(a,button,input):focus-visible{outline:3px solid #22538b;outline-offset:3px}
+
+.docs-prose pre:focus-visible{outline:3px solid #22538b;outline-offset:3px}

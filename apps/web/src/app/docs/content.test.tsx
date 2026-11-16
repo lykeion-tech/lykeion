@@ -33,7 +33,7 @@ describe('documentation source and static routes', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('<a href="/docs/welcome/">Welcome</a>');
-    expect(html).toContain('<pre><code class="language-sh">lyk --help\n</code></pre>');
+    expect(html).toContain('<pre tabindex="0" role="region" aria-label="Code example"><code class="language-sh">lyk --help\n</code></pre>');
     expect(articleContent('[unsafe](javascript:alert(1))').html).not.toContain('href="javascript:');
   });
 });

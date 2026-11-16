@@ -39,7 +39,7 @@ export function StudyWalkthrough() {
               {stage.name}
             </label>
             <div className="learning-panel stage-panel" id={`stage-panel-${index}`}>
-              <div className="stage-scene" aria-label="Illustrative evidence and gate">
+              <div className="stage-scene" role="group" aria-label="Illustrative evidence and gate">
                 <div className="scene-input">
                   <small>EVIDENCE IN</small>
                   <strong>{scenes[index][0]}</strong>

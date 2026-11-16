@@ -405,3 +405,37 @@ test('audited documentation pages fit desktop and phone', async ({ page }) => {
     }
   }
 });
+
+
+test('search close label includes its visible name and Escape shortcut', async ({ page }) => {
+  await page.goto(`${origin}/docs/connect-machine/`);
+  await page.getByRole('button', { name: /Search documentation/ }).click();
+  const close = page.getByRole('button', { name: 'Close search Esc' });
+  await expect(close).toContainText('Close search');
+  await expect(close).toHaveAttribute('aria-keyshortcuts', 'Escape');
+  await page.keyboard.press('Escape');
+});
+
+test('article commands support keyboard scrolling without JavaScript', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto(`${origin}/docs/connect-machine/`);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const code = page.locator('.docs-prose pre').first();
+    await expect(code).toHaveAttribute('tabindex', '0');
+    await expect(code).toHaveAttribute('aria-label', 'Code example');
+    await code.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(code).toBeFocused();
+    expect(await code.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => code.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+    await code.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/axe-code-focus-${width}.png` });
+  }
+  await page.goto(`${origin}/docs/scientific-stages/`);
+  await expect(page.getByRole('group', { name: 'Illustrative evidence and gate' }).first()).toBeVisible();
+  await context.close();
+});
