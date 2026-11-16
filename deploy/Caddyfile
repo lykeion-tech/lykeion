@@ -11,6 +11,8 @@
 		root * /srv
 		@assets path /assets/* /app/assets/* /_next/static/*
 		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@markdown path /docs/*/markdown /docs/*/markdown/
+		header @markdown Content-Type "text/markdown; charset=utf-8"
 		@pages path / /app/ /privacy/ /terms/
 		header @pages Cache-Control "no-cache"
 		redir /app /app/
