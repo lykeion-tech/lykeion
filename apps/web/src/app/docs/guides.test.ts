@@ -93,3 +93,11 @@ describe('hosted setup and actual study controls', () => {
       expect(getArticle(slug)!.markdown, slug).toContain(`/docs/${asset}`);
   });
 });
+
+it('does not present native Windows commands as supported agent execution', () => {
+  const machine = getArticle('connect-machine')!.markdown;
+  expect(machine).toContain('Native Windows agent execution is not supported');
+  expect(machine).toContain('macOS or Linux execution machine');
+  expect(machine).not.toContain('keep the foreground daemon terminal open');
+  expect(machine).not.toContain('On Windows, read the foreground output');
+});

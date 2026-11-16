@@ -555,7 +555,7 @@ If no model is available, inspect [machine connection](/docs/connect-machine/) a
     section: 'Machine and execution',
     markdown: `# Connect a machine
 
-A machine is a computer whose Lykeion daemon exposes agent CLI runtimes. The hosted app needs one to execute agent work. Install and authenticate Claude Code or Codex on the computer you want to connect. Choose the desktop app for your own computer or the prebuilt CLI for a remote machine; neither path requires building Lykeion from source.
+A machine is a computer whose Lykeion daemon exposes agent CLI runtimes. The hosted app needs one to execute agent work. Use a macOS or Linux execution machine and install and authenticate Claude Code or Codex there. Native Windows agent execution is not supported: the daemon has no Windows sandbox. Choose the desktop app for your own computer or the prebuilt CLI for a remote machine; neither path requires building Lykeion from source.
 
 ## Connect with the desktop app
 
@@ -581,7 +581,7 @@ Replace the email and workspace slug with your own, and enter the emailed code i
 
 ## Alternative: build from source
 
-The dashboard's Add a machine dialog also offers a source-build path. This alternative requires Go 1.26 and a Lykeion source checkout. Run its displayed build command from the checkout's server directory, then follow its login and daemon instructions. Choose the dialog's Windows tab for its PowerShell source-build commands and keep the foreground daemon terminal open. The prebuilt installer above is the macOS / Linux path.
+The dashboard's Add a machine dialog also offers a source-build path. This alternative requires Go 1.26 and a Lykeion source checkout. Run its displayed build command from the checkout's server directory, then follow its login and daemon instructions. The dialog also displays Windows build commands, but building or starting a daemon does not supply the missing Windows sandbox. Use a macOS or Linux execution machine for agent runs.
 
 ## Confirm execution is ready
 
@@ -600,7 +600,7 @@ lyk daemon status
 lyk daemon logs
 \`\`\`
 
-On Windows, read the foreground output. If no computer appears, check the account, hosted server address and network reachability. An address containing localhost refers to the computer running the command, so it cannot identify a remote hosted server.
+If no computer appears, check the account, hosted server address and network reachability. An address containing localhost refers to the computer running the command, so it cannot identify a remote hosted server.
 
 Do not paste login codes or provider credentials into studies. Once the desired runtime is usable, return to [your first study](/docs/quickstart/). Use [runs](/docs/runs/) and [troubleshooting](/docs/troubleshooting/) when a connected machine still cannot execute work.
 `,
