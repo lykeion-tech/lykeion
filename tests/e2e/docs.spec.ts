@@ -54,7 +54,8 @@ test('desktop navigation disclosure remains operable by keyboard and pointer', a
 });
 
 test('article actions copy exact Markdown and links, and report clipboard denial', async ({ page }) => {
-  const { articles } = await import('../../apps/web/src/app/docs/content');
+  const { getArticle } = await import('../../apps/web/src/app/docs/content');
+  const article = getArticle('welcome')!;
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (text: string) => {
       (window as unknown as { copied: string }).copied = text;
@@ -66,9 +67,11 @@ test('article actions copy exact Markdown and links, and report clipboard denial
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');
   await expect(actions.getByRole('button', { name: 'Copy page', exact: true })).toBeFocused();
+  expect(await actions.getByRole('button', { name: 'Copy page', exact: true }).evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid');
+  await page.screenshot({ path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-3-actions-focus.png', fullPage: true });
   await page.keyboard.press('Enter');
   await expect(page.getByRole('status')).toHaveText('Page copied.');
-  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(articles[0].markdown);
+  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(article.markdown);
   await actions.getByRole('button', { name: 'Copy Markdown link' }).click();
   expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('https://app.lykeion.tech/docs/welcome/markdown/');
   await expect(actions.getByRole('link', { name: 'View Markdown' })).toHaveAttribute('href', 'https://app.lykeion.tech/docs/welcome/markdown/');

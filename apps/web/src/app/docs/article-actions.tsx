@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ChevronDown, Copy, ExternalLink, Link2 } from 'lucide-react';
 import type { DocArticle } from './content';
 
 export function ArticleActions({ article }: { article: DocArticle }) {
@@ -14,13 +15,13 @@ export function ArticleActions({ article }: { article: DocArticle }) {
       setStatus('Could not copy. Open View Markdown and copy the text or URL from your browser.');
     }
   }
-  return <div role="group" aria-label="Article actions" style={{ marginBlock: '1rem' }}>
+  return <div role="group" aria-label="Article actions" className="docs-actions">
     <details>
-      <summary>Page actions</summary>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', paddingBlock: '1rem' }}>
-        <button type="button" onClick={() => copy(article.markdown, 'Page copied.')}>Copy page</button>
-        <button type="button" onClick={() => copy(markdownUrl, 'Markdown link copied.')}>Copy Markdown link</button>
-        <a href={markdownUrl} target="_blank" rel="noopener noreferrer">View Markdown</a>
+      <summary>Page actions<ChevronDown size={15} aria-hidden="true" /></summary>
+      <div className="docs-actions-list">
+        <button type="button" onClick={() => copy(article.markdown, 'Page copied.')}><Copy size={15} aria-hidden="true" />Copy page</button>
+        <button type="button" onClick={() => copy(markdownUrl, 'Markdown link copied.')}><Link2 size={15} aria-hidden="true" />Copy Markdown link</button>
+        <a href={markdownUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />View Markdown</a>
       </div>
     </details>
     <p role="status">{status}</p>
