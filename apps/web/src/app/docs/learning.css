@@ -113,53 +113,6 @@
   grid-column: 1/-1;
   padding-top: 12px;
 }
-.stage-scene {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 116px;
-  background: radial-gradient(ellipse, #e9efdc, transparent 70%);
-  overflow: hidden;
-}
-.stage-scene > span {
-  display: grid;
-  place-items: center;
-  width: 74px;
-  height: 74px;
-  border: 1px solid #92a682;
-  background: #fff;
-  border-radius: 50%;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
-.stage-scene .scene-question {
-  font-family: serif;
-  font-size: 34px;
-  width: 48px;
-  height: 48px;
-}
-.stage-scene .scene-evidence {
-  border-radius: 8px;
-  transform: rotate(-5deg);
-}
-.stage-scene i {
-  width: 50px;
-  height: 1px;
-  background: #9cac8a;
-  position: relative;
-}
-.stage-scene i:after {
-  content: '';
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  top: -2px;
-  left: 0;
-  border-radius: 50%;
-  background: #527044;
-  animation: learning-flow 2.5s ease-in-out 2;
-}
 .learning dl {
   margin: 0;
 }
@@ -260,11 +213,6 @@
     transform: translateY(0);
   }
 }
-@keyframes learning-flow {
-  to {
-    left: 100%;
-  }
-}
 @keyframes learning-links {
   to {
     stroke-dashoffset: -20;
@@ -299,11 +247,104 @@
   .stage-scene {
     gap: 8px;
   }
-  .stage-scene i {
-    width: 25px;
-  }
   .learning dl > div {
     grid-template-columns: 64px 1fr;
     gap: 8px;
+  }
+}
+/* Evidence reaches the check before the conditional result is revealed. */
+.learning .example-question {
+  padding: 14px;
+  border-left: 2px solid #92a682;
+  background: #edf2e5;
+}
+.stage-scene {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse, #e9efdc, transparent 70%);
+  height: auto;
+  min-height: 180px;
+  gap: 8px;
+  padding: 20px 0;
+  overflow: visible;
+}
+.stage-scene > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 10px;
+  border: 1px solid #b7c6aa;
+  border-radius: 8px;
+  background: #fff;
+}
+.stage-scene small {
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+}
+.stage-scene strong {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.stage-scene .scene-gate {
+  border-radius: 24px;
+  border-style: dashed;
+  animation: learning-gate 1.8s ease-out both;
+}
+.stage-scene .scene-result {
+  background: #e6eedb;
+  animation: learning-result 1.8s ease-out both;
+}
+.stage-scene .scene-arrow {
+  border: 0;
+  background: none;
+  width: auto;
+  height: auto;
+  font-size: 16px;
+  flex: 0;
+}
+@keyframes learning-gate {
+  0%,
+  25% {
+    background: #fff;
+    border-color: #b7c6aa;
+  }
+  65%,
+  100% {
+    background: #e6eedb;
+    border-color: #527044;
+  }
+}
+@keyframes learning-result {
+  0%,
+  60% {
+    opacity: 0.35;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 600px) {
+  .stage-scene {
+    flex-direction: column;
+  }
+  .stage-scene > div {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .stage-scene .scene-arrow {
+    transform: rotate(90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-scene .scene-gate,
+  .stage-scene .scene-result {
+    animation: none;
   }
 }

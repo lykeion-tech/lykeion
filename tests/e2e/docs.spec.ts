@@ -95,6 +95,8 @@ test('learning diagrams support native keyboard selection, no JavaScript and red
   await expect(stages.getByRole('heading', { name: 'Make alternatives explicit' })).toBeVisible();
   await expect(stages.getByRole('heading', { name: 'Find the foundation' })).not.toBeVisible();
   expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  expect(await stages.locator('.stage-panel:visible .scene-gate').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  expect(await stages.locator('.stage-panel:visible .scene-result').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-stages-${width}.png`, fullPage: true });
@@ -123,6 +125,8 @@ test('learning graphics show each stage and selected relationships with bounded 
     await expect(stages.getByRole('heading', { name: heading })).toBeVisible();
   }
   expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('learning-reveal');
+  expect(await stages.locator('.stage-panel:visible .scene-gate').evaluate(element => getComputedStyle(element).animationName)).toBe('learning-gate');
+  expect(await stages.locator('.stage-panel:visible .scene-result').evaluate(element => getComputedStyle(element).animationIterationCount)).toBe('1');
   await stages.screenshot({ animations: 'disabled', path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-validation.png' });
   await page.goto(`${origin}/docs/core-concepts/`);
   const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
@@ -132,4 +136,44 @@ test('learning graphics show each stage and selected relationships with bounded 
   expect(await concepts.locator('.concept-path-3').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
   expect(await concepts.locator('.concept-path-3').evaluate(element => getComputedStyle(element).animationIterationCount)).toBe('3');
   await concepts.screenshot({ animations: 'disabled', path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-agent.png' });
+});
+
+test('reviewed walkthrough explains both validation routes and concept links reverse', async ({ page }) => {
+  await page.goto(`${origin}/docs/scientific-stages/`);
+  const walkthrough = page.getByRole('region', { name: 'Study stage walkthrough' });
+  expect(await page.locator('h1').evaluate(element => element.getBoundingClientRect().top)).toBeLessThan(await walkthrough.evaluate(element => element.getBoundingClientRect().top));
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (width === 390) await page.locator('.docs-sidebar summary').click();
+    for (let index = 0; index < 4; index++) {
+      await walkthrough.locator(`label[for="learn-stage-${index}"]`).click();
+      const radio = walkthrough.locator(`#learn-stage-${index}`);
+      await expect(radio).toHaveAttribute('aria-controls', `stage-panel-${index}`);
+      await expect(walkthrough.locator(`#stage-panel-${index}`)).toBeVisible();
+      await expect(walkthrough.locator('.stage-scene:visible')).toContainText(['Source S', 'Evidence from S', 'Compare A and B', 'Claim or mA, mB'][index]);
+      if (index === 3) {
+        await expect(walkthrough.locator('#stage-panel-3')).toContainText('Without recorded runs');
+        await expect(walkthrough.locator('#stage-panel-3')).toContainText('back to Experimentation once');
+        await expect(walkthrough.locator('#stage-panel-3')).toContainText('waits for its owner');
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-reviewed-stage-${index}-${width}.png`, fullPage: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    }
+  }
+  await walkthrough.getByRole('link', { name: 'Read the stage vocabulary below' }).click();
+  await expect(page.locator('#read-the-stage-vocabulary')).toBeInViewport();
+  await page.goto(`${origin}/docs/core-concepts/`);
+  const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (width === 390) await page.locator('.docs-sidebar summary').click();
+    for (const [index, related] of [[0, 'Agent'], [3, 'Workspace'], [1, 'Aristotle'], [10, 'Study']] as const) {
+      await concepts.locator(`label[for="learn-concept-${index}"]`).click();
+      await expect(concepts.locator(`#concept-panel-${index}`)).toContainText(related);
+      await expect(concepts.locator(`#learn-concept-${index}`)).toHaveAttribute('aria-controls', `concept-panel-${index}`);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-reviewed-concept-${index}-${width}.png`, fullPage: true });
+    }
+  }
 });

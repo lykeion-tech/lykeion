@@ -37,3 +37,31 @@ describe('interactive learning without JavaScript', () => {
     expect(html).toContain('Connected concepts');
   });
 });
+
+describe('reviewed learning behavior', () => {
+  it('distinguishes claim review, measurement validation and return to experimentation', () => {
+    const html = renderToStaticMarkup(<StudyWalkthrough />);
+    for (const text of [
+      'Without recorded runs',
+      'quoted passages',
+      'With recorded runs',
+      'back to Experimentation once',
+      'waits for its owner',
+      'separate from an ordinary item redo',
+    ])
+      expect(html).toContain(text);
+    expect(html).toContain('Method A versus method B');
+    expect(html).toContain('aria-controls="stage-panel-3"');
+    expect(html).not.toContain('href="/docs/scientific-stages/"');
+  });
+  it('derives both ends of every verified concept relationship from one pair', () => {
+    const html = renderToStaticMarkup(<ConceptsDiagram />);
+    const panel = (index: number) =>
+      html.split(`id="concept-panel-${index}"`)[1].split('</div>')[0];
+    expect(panel(0)).toContain('Agent');
+    expect(panel(3)).toContain('Workspace');
+    expect(panel(1)).toContain('Aristotle');
+    expect(panel(10)).toContain('Study');
+    expect(html).toContain('aria-controls="concept-panel-3"');
+  });
+});

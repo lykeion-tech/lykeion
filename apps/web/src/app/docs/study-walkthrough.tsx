@@ -1,7 +1,33 @@
 import React from 'react';
-import Link from 'next/link';
-import { getArticle } from './content';
 import './learning.css';
+
+// Symbolic example: no measurements or scientific findings are asserted.
+const scenes = [
+  [
+    'Source S',
+    'SCREEN SOURCE',
+    'Exists · not retracted · meets criteria',
+    'Eligible evidence if checks pass',
+  ],
+  [
+    'Evidence from S',
+    'FORM PREDICTIONS',
+    'Cited · falsifiable · not already tested',
+    'A exceeds B / A does not exceed B',
+  ],
+  [
+    'Compare A and B',
+    'TRACE EXECUTION',
+    'Saved output · values traced to run',
+    'Measurement mA, mB + output file',
+  ],
+  [
+    'Claim or mA, mB',
+    'INDEPENDENT CHECK',
+    'Source passage / reproduced measurement',
+    'Claim verdict / status or return',
+  ],
+];
 
 const stages = [
   {
@@ -39,8 +65,9 @@ const stages = [
     agents:
       'Independent reviewers test the findings; inspect the assigned roles and actual review record.',
     evidence: 'Review explanations, checks and unresolved objections.',
-    gate: 'The server derives hypothesis statuses from assessments and reproduced measurements. Objections can lower the status; they cannot raise it.',
-    result: 'A review record to assess against the original question and scope.',
+    gate: 'Without recorded runs, the server checks quoted passages against their sources and Jev judges claims independently of the Team’s verdict. With recorded runs, the server derives hypothesis statuses from assessments and reproduced measurements; upheld objections can lower them.',
+    result:
+      'With recorded runs, an invalid status sends the study back to Experimentation once. Another invalid result waits for its owner. This return is separate from an ordinary item redo. Without recorded runs, claim review follows the item-review outcomes.',
   },
 ];
 
@@ -51,6 +78,12 @@ export function StudyWalkthrough() {
       <h2>One question. Four lenses.</h2>
       <p>
         Explore the stage vocabulary. Your study’s configured scope determines which stages run.
+      </p>
+      <p className="example-question">
+        <strong>Method A versus method B</strong>
+        <br />
+        Illustrative question: does A change a measurement compared with B? Follow symbolic source S
+        and measurements mA and mB; no result is assumed.
       </p>
       <fieldset>
         <legend>Choose a scientific stage</legend>
@@ -67,6 +100,7 @@ export function StudyWalkthrough() {
               name="study-stage"
               id={`learn-stage-${index}`}
               value={stage.name}
+              aria-controls={`stage-panel-${index}`}
               defaultChecked={index === 0}
             />
             <label className="stage-choice" htmlFor={`learn-stage-${index}`}>
@@ -74,14 +108,25 @@ export function StudyWalkthrough() {
               {stage.name}
             </label>
             <div className="learning-panel stage-panel" id={`stage-panel-${index}`}>
-              <div className="stage-scene" aria-hidden="true">
-                <span className="scene-question">?</span>
-                <i />
-                <span className="scene-agent">{index === 3 ? 'REVIEW' : 'AGENT'}</span>
-                <i />
-                <span className="scene-evidence">
-                  {['SOURCES', 'IDEAS', 'ARTIFACTS', 'CHECKS'][index]}
+              <div className="stage-scene" aria-label="Illustrative evidence and gate">
+                <div className="scene-input">
+                  <small>EVIDENCE IN</small>
+                  <strong>{scenes[index][0]}</strong>
+                </div>
+                <span className="scene-arrow" aria-hidden="true">
+                  →
                 </span>
+                <div className="scene-gate">
+                  <small>{scenes[index][1]}</small>
+                  <strong>{scenes[index][2]}</strong>
+                </div>
+                <span className="scene-arrow" aria-hidden="true">
+                  →
+                </span>
+                <div className="scene-result">
+                  <small>CHECKED OUTCOME</small>
+                  <strong>{scenes[index][3]}</strong>
+                </div>
               </div>
               <h3>{stage.verb}</h3>
               <dl>
@@ -105,14 +150,12 @@ export function StudyWalkthrough() {
       <p className="learning-note">
         After hand-in, a Team’s auditor settles before required review; an individual agent goes
         straight to review. The server advances automatically within the configured scope when
-        review passes, carrying unclear items when applicable. Failed items trigger one redo, then a
-        block if still failing. Unavailable review services leave the study waiting. At the end of
-        its scope, completion follows required review. An individual agent is restricted to its own
-        stage.
+        review passes, carrying unclear items when applicable. Ordinary item-review failures trigger
+        one redo, then a block if still failing. Unavailable review services leave the study
+        waiting. At the end of its scope, completion follows required review. An individual agent is
+        restricted to its own stage.
       </p>
-      <Link href="/docs/scientific-stages/">
-        Read {getArticle('scientific-stages')!.title.toLowerCase()} →
-      </Link>
+      <a href="#read-the-stage-vocabulary">Read the stage vocabulary below ↓</a>
     </section>
   );
 }
