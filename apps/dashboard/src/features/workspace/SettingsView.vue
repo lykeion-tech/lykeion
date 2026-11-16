@@ -514,8 +514,9 @@ async function copySlug() {
 
         <template v-else-if="section === 'tokens'">
           <p class="table-description">
-            Personal <code>lyk_</code> tokens for scripts. <code>lyk login</code> makes its own. A
-            token expires after 90 days.
+            Personal <code>lyk_</code> tokens let scripts access your account. Keep them private.
+            Tokens expire after 90 days. Revoking one makes any clients using it stop working.
+            <code>lyk login</code> creates its own token.
           </p>
           <div class="tokens-body">
             <TokenCreationForm
