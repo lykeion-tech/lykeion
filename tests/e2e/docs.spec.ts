@@ -288,7 +288,7 @@ test('documentation text meets normal text contrast on its rendered background',
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
       measurements.push(...await measure());
-      await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/mobile-contrast-${route === '/docs/' ? 'index' : 'welcome'}-${width}.png` });
+      await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/mobile-contrast-${route.split('/').filter(Boolean)[1] || 'index'}-${width}.png` });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('button', { name: /Search documentation/ }).click();
