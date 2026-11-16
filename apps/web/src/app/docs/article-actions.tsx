@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, Copy, ExternalLink, Link2 } from 'lucide-react';
+import { ChevronDown, Copy, FileText, Link2 } from 'lucide-react';
+import { cliIconPaths } from '../../../../../packages/cli-icons';
 import type { DocArticle } from './content';
 
 export function ArticleActions({ article }: { article: DocArticle }) {
@@ -17,16 +18,15 @@ export function ArticleActions({ article }: { article: DocArticle }) {
     }
   }
   return <div role="group" aria-label="Article actions" className="docs-actions">
-    <details>
-      <summary>Page actions<ChevronDown size={15} aria-hidden="true" /></summary>
+    <div className="docs-actions-control"><button type="button" className="docs-copy-page" onClick={() => copy(article.markdown, 'Page copied.')}><Copy size={15} aria-hidden="true" />Copy page</button><details>
+      <summary aria-label="More page actions"><ChevronDown size={15} aria-hidden="true" /></summary>
       <div className="docs-actions-list">
-        <button type="button" onClick={() => copy(article.markdown, 'Page copied.')}><Copy size={15} aria-hidden="true" />Copy page</button>
         <button type="button" onClick={() => copy(markdownUrl, 'Markdown link copied.')}><Link2 size={15} aria-hidden="true" />Copy Markdown link</button>
-        <a href={markdownUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />View Markdown</a>
-        <a href={`https://chatgpt.com/?hints=search&q=${prompt}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />Open in ChatGPT</a>
-        <a href={`https://claude.ai/new?q=${prompt}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />Open in Claude</a>
+        <a href={markdownUrl} target="_blank" rel="noopener noreferrer"><FileText size={15} aria-hidden="true" />View Markdown</a>
+        <a href={`https://chatgpt.com/?hints=search&q=${prompt}`} target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d={cliIconPaths.codex} /></svg>Open in ChatGPT</a>
+        <a href={`https://claude.ai/new?q=${prompt}`} target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="15" height="15" fill="#D97757" aria-hidden="true"><path d={cliIconPaths.claude} /></svg>Open in Claude</a>
       </div>
-    </details>
+    </details></div>
     <p role="status">{status}</p>
   </div>;
 }

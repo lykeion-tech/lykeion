@@ -1,85 +1,41 @@
-import React from 'react';
+'use client';
+
+import { useRef, useSyncExternalStore } from 'react';
+import { stages, advancement, stageGuidance } from './learning-content';
 import './learning.css';
+import './stage-board.css';
 
-import { scenes, stages, advancement, example } from './learning-content';
-
+const examples = [
+  ['Sleep and memory: find the evidence', 'Map research on urban heat', 'Review evidence on air quality'],
+  ['Compare explanations for memory retention', 'Explore causes of heat exposure'],
+  ['Run a sampling simulation', 'Analyze temperature measurements', 'Compare two analysis methods', 'Reproduce a published computation'],
+  ['Review a memory-retention claim', 'Check a temperature analysis', 'Examine a reproduced result'],
+];
+const subscribe = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
 export function StudyWalkthrough() {
-  return (
-    <section className="learning walkthrough" aria-label="Study stage walkthrough">
-      <div className="learning-kicker">FOLLOW THE RESEARCH</div>
-      <h2>One question. Four lenses.</h2>
-      <p>
-        Explore the stage vocabulary. Your study’s configured scope determines which stages run.
-      </p>
-      <p className="example-question">
-        <strong>Method A versus method B</strong>
-        <br />
-        {example}
-      </p>
-      <fieldset>
-        <legend>Choose a scientific stage</legend>
-        <div className="stage-track" aria-hidden="true">
-          <span>QUESTION</span>
-          <span>EVIDENCE</span>
-          <span>REVIEW</span>
-        </div>
-        {stages.map((stage, index) => (
-          <React.Fragment key={stage.name}>
-            <input
-              className="learning-radio"
-              type="radio"
-              name="study-stage"
-              id={`learn-stage-${index}`}
-              value={stage.name}
-              aria-controls={`stage-panel-${index}`}
-              defaultChecked={index === 0}
-            />
-            <label className="stage-choice" htmlFor={`learn-stage-${index}`}>
-              <span>0{index + 1}</span>
-              {stage.name}
-            </label>
-            <div className="learning-panel stage-panel" id={`stage-panel-${index}`}>
-              <div className="stage-scene" role="group" aria-label="Illustrative evidence and gate">
-                <div className="scene-input">
-                  <small>EVIDENCE IN</small>
-                  <strong>{scenes[index][0]}</strong>
-                </div>
-                <span className="scene-arrow" aria-hidden="true">
-                  →
-                </span>
-                <div className="scene-gate">
-                  <small>{scenes[index][1]}</small>
-                  <strong>{scenes[index][2]}</strong>
-                </div>
-                <span className="scene-arrow" aria-hidden="true">
-                  →
-                </span>
-                <div className="scene-result">
-                  <small>CHECKED OUTCOME</small>
-                  <strong>{scenes[index][3]}</strong>
-                </div>
-              </div>
-              <h3>{stage.verb}</h3>
-              <dl>
-                {[
-                  ['Inputs', stage.input],
-                  ['Agents', stage.agents],
-                  ['Evidence', stage.evidence],
-                  ['Gate', stage.gate],
-                  ['Result', stage.result],
-                ].map(([title, text]) => (
-                  <div key={title}>
-                    <dt>{title}</dt>
-                    <dd>{text}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </React.Fragment>
-        ))}
-      </fieldset>
-      <p className="learning-note">{advancement}</p>
-      <a href="#read-the-stage-vocabulary">Read the stage vocabulary below ↓</a>
-    </section>
-  );
+  const dialogs = useRef<(HTMLDialogElement | null)[]>([]);
+  const ready = useSyncExternalStore(subscribe, clientReady, serverReady);
+  return <section className={`stage-board${ready ? ' stage-board-ready' : ''}`} aria-label="Study stage walkthrough">
+    <p className="stage-board-caption">Explore the scientific stages</p>
+    <div className="stage-board-scroll" tabIndex={0} role="region" aria-label="Scientific stage columns">
+      <div className="stage-board-columns">
+        {stages.map((stage, index) => <div className={`stage-board-column stage-board-column-${index}`} key={stage.name}>
+          <button type="button" disabled={!ready} className="stage-board-select" data-stage={stage.name} aria-label={`Explore ${stage.name} stage`} aria-controls={`stage-dialog-${index}`} aria-haspopup="dialog" onClick={() => dialogs.current[index]?.showModal()}>
+            <span className="stage-board-heading"><span className="stage-board-dot" aria-hidden="true" /><strong>{stage.name}</strong><span>{examples[index].length}</span><span className="stage-board-plus" aria-hidden="true">+</span></span>
+            <span className="stage-board-cards">{examples[index].map((title, cardIndex) => <span className="study-example-card" key={title}><span>EXAMPLE-{examples.slice(0, index).reduce((sum, cards) => sum + cards.length, 0) + cardIndex + 1}</span><strong>{title}</strong><span>Simulated study</span></span>)}</span>
+          </button>
+          <dialog ref={node => { dialogs.current[index] = node; }} id={`stage-dialog-${index}`} className="stage-board-dialog" aria-labelledby={`stage-title-${index}`}>
+            <form method="dialog"><button className="stage-board-close" aria-label="Close stage explanation">Close</button></form>
+            <h2 id={`stage-title-${index}`}>{stage.name}</h2><p>{stageGuidance[index][0]}</p>
+            <h3>Choose this stage when</h3><p>{stageGuidance[index][1]}</p>
+            <dl>{[['Inputs', stage.input], ['Agents', stage.agents], ['Evidence', stage.evidence], ['Gate', stage.gate], ['Result', stage.result]].map(([label, text]) => <div key={label}><dt>{label}</dt><dd>{text}</dd></div>)}</dl>
+            <p className="stage-board-advance">{advancement}</p>
+          </dialog>
+        </div>)}
+      </div>
+    </div>
+    <div className="stage-board-fallback"><p>Enable JavaScript to open stage explanations.</p>{stages.map((stage, index) => <p key={stage.name}><strong>{stage.name}:</strong> {stageGuidance[index][0]} {stageGuidance[index][1]}</p>)}</div>
+  </section>;
 }

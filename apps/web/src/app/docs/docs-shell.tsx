@@ -3,6 +3,9 @@ import type { ReactNode } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { DocArticle } from './content';
 import { DocsSearch } from './search';
+import { TableOfContents } from './table-of-contents';
+import { ThemePicker } from './theme-picker';
+import { ArrowUpRight } from 'lucide-react';
 import './docs.css';
 
 // The same tokens provide article anchors and the table of contents.
@@ -35,14 +38,14 @@ export function DocsShell({ children, currentSlug, articles }: { children: React
   const sections = [...new Set(articles.map(article => article.section))];
   const current = articles.find(article => article.slug === currentSlug);
   const headings = current ? articleContent(current.proseMarkdown ?? current.markdown).headings : [];
-  const navigation = <nav aria-label="Documentation"><Link className="docs-overview" href="/docs/" aria-current={!currentSlug ? 'page' : undefined}>Overview</Link>{sections.map(section => <div className="docs-nav-group" key={section}><h2>{section}</h2>{articles.filter(article => article.section === section).map(article => <a key={article.slug} href={`/docs/${article.slug}/`} aria-current={article.slug === currentSlug ? 'page' : undefined}>{article.title}</a>)}</div>)}</nav>;
-  return <div className="docs-site">
+  const navigation = <nav aria-label="Documentation"><div className="docs-site-links"><a href="https://github.com/lykeion-tech/lykeion"><img src="/github.svg" alt="" width="16" height="16" />GitHub <ArrowUpRight size={12} aria-hidden="true" /></a><Link href="/"><img src="/lykeion.svg" alt="" width="16" height="16" />Lykeion <ArrowUpRight size={12} aria-hidden="true" /></Link></div>{sections.map(section => <div className="docs-nav-group" key={section}><h2>{section}</h2>{section === 'Get started' && <Link className="docs-overview" href="/docs/" aria-current={!currentSlug ? 'page' : undefined}>Overview</Link>}{articles.filter(article => article.section === section).map(article => <a key={article.slug} href={`/docs/${article.slug}/`} aria-current={article.slug === currentSlug ? 'page' : undefined}>{article.slug === 'welcome' ? 'Welcome' : article.title}</a>)}</div>)}</nav>;
+  return <><script dangerouslySetInnerHTML={{ __html: `(function(){var theme;try{theme=localStorage.getItem('lykeion-docs-theme')}catch(e){}var dark=theme==='dark'||(theme!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.docsTheme=dark?'dark':'light'})()` }} /><div className="docs-site">
     <a className="docs-skip" href="#docs-content">Skip to content</a>
-    <header className="docs-header"><Link href="/" className="docs-brand"><img src="/lykeion.svg" alt="" width="30" height="30" />Lykeion</Link><Link href="/docs/" className="docs-label">Docs</Link><DocsSearch articles={articles} /><a className="docs-app-link" href="/app/">Open Lykeion ↗</a></header>
+    <header className="docs-header"><Link href="/docs/" className="docs-brand"><img src="/lykeion.svg" alt="" width="30" height="30" /><span>Lykeion</span></Link><Link href="/docs/" className="docs-label">Docs</Link><DocsSearch articles={articles} /></header>
     <div className="docs-layout">
-      <aside className="docs-sidebar"><div className="docs-desktop-nav">{navigation}</div><details className="docs-mobile-nav"><summary>Explore documentation</summary>{navigation}</details></aside>
-      <main id="docs-content" className="docs-content"><div className="docs-breadcrumb"><Link href="/docs/">Documentation</Link><span>/</span><span>{current?.section || 'Get started'}</span></div>{children}<div className="docs-article-foot">Research, better together.<a href="/app/">Open your workspace ↗</a></div></main>
-      {headings.length > 0 && <aside className="docs-toc"><nav aria-label="On this page"><h2>On this page</h2>{headings.map(heading => <a key={heading.id} className={heading.level === 'h3' ? 'docs-toc-sub' : ''} href={`#${heading.id}`}>{heading.title}</a>)}</nav></aside>}
+      <aside className="docs-sidebar"><div className="docs-desktop-nav">{navigation}</div><details className="docs-mobile-nav"><summary>Explore documentation</summary>{navigation}</details><ThemePicker /></aside>
+      <main id="docs-content" className="docs-content"><div className="docs-breadcrumb"><Link href="/docs/">Documentation</Link><span>/</span><span>{current?.section || 'Get started'}</span></div>{children}<div className="docs-article-foot">Research, better together.</div></main>
+      {headings.length > 0 && <TableOfContents headings={headings} />}
     </div>
-  </div>;
+  </div></>;
 }

@@ -47,7 +47,7 @@ describe('canonical interactive learning content', () => {
     expect(html.match(/The server checks recorded citations;/g)).toHaveLength(1);
     expect(html.match(/<h1/g)).toHaveLength(1);
     expect(html).not.toContain('href="#stage-walkthrough"');
-    expect(html).toContain('href="#read-the-stage-vocabulary"');
+    expect(html).not.toContain('Read the stage vocabulary');
     const conceptHtml = renderToStaticMarkup(
       await ArticlePage({ params: Promise.resolve({ slug: 'core-concepts' }) }),
     );
@@ -60,7 +60,7 @@ describe('canonical interactive learning content', () => {
   });
 });
 
-it('preserves the concept relationship caveat in canonical Markdown and the graphic', async () => {
+it('preserves the concept relationship caveat in canonical Markdown without a graphic footer', async () => {
   const note =
     'Lines show documented relationships, not automatic data flow or guaranteed execution.';
   expect(getArticle('core-concepts')!.markdown).toContain(note);
@@ -71,7 +71,7 @@ it('preserves the concept relationship caveat in canonical Markdown and the grap
     html.match(
       /Lines show documented relationships, not automatic data flow or guaranteed execution\./g,
     ),
-  ).toHaveLength(1);
+  ).toBeNull();
 });
 
 

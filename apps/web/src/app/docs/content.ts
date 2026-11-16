@@ -48,7 +48,7 @@ If you cannot see your lab, check the selected workspace before creating another
     section: 'Get started',
     markdown: `# Your first study
 
-Start with a modest literature question, for example: How does sleep affect memory consolidation? This is a setup exercise, not a promise of a scientific finding. You need a Lykeion account and a computer with an authenticated supported agent CLI.
+Start with a modest literature question, for example: How does sleep affect memory consolidation? You need a Lykeion account and a computer with an authenticated supported agent CLI.
 
 ## 1. Open a workspace
 
@@ -63,8 +63,6 @@ Use the [download page](/download/) to install the desktop app, which includes t
 Open Studies and create a new study. Enter a short title and a description with your question, boundaries and requested output. Choose an available Grounding agent or a suitable Team and check the stage scope. For a small literature exercise, request a cited evidence summary and explicitly ask the agent to report inaccessible sources. Submit with Create study.
 
 ![A populated New study form in the actual demonstration workspace](/docs/new-study-form.jpg)
-
-The image shows the form before submission; it does not represent a completed study.
 
 ## 4. Follow progress
 
@@ -246,7 +244,6 @@ Skills and Connectors are configured in their own workspace settings sections. A
 
 If expected studies or colleagues are absent, check the selected workspace and account first. Do not create a duplicate workspace to recover access. Ask the lab's administrator to confirm your membership.
 
-Success means you can reopen the correct workspace and find its studies and settings. Continue with [your first study](/docs/quickstart/) once the workspace and execution machine are ready.
 `,
   },
   {
@@ -279,7 +276,6 @@ Open the colleague's workspace access section to inspect available role controls
 
 If a control is absent, first check your role and selected workspace. A failed access change must be resolved before assuming the displayed permissions have changed. Ask an owner when you cannot complete the action yourself.
 
-Continue with [workspaces](/docs/workspaces/) for workspace settings and [studies](/docs/studies/) for assigning research.
 `,
   },
   {
@@ -326,15 +322,6 @@ If creation is unavailable, check missing inputs, assignment, stage selection an
     markdown: `# Scientific stages
 
 Lykeion presents research in four stages: Grounding, Hypotheses, Experimentation and Validation. A study can cover a configured part of that sequence. Start by checking its scope and assignee; do not infer that every study will execute all four stages.
-
-## Read the stage vocabulary
-
-- **Grounding:** find the literature and data that bear on the question. Inspect sources, relevance and access limitations.
-- **Hypotheses:** form rival hypotheses that an experiment can tell apart. Read the proposed distinctions before acting on them.
-- **Experimentation:** run the analysis and retain reproducible results. Inspect the actual computation and artifacts produced.
-- **Validation:** independent reviewers test the findings. Read the review record and unresolved objections.
-
-These descriptions orient you to the product's research process. They do not establish a universal scientific acceptance threshold or replace your lab's judgment.
 
 ## Follow a study through its scope
 
@@ -409,7 +396,7 @@ You are ready to use an output when you can locate it, trace its relevant eviden
     section: 'Research',
     markdown: `# Workflows
 
-A workflow packages instructions and files for a particular experimental task. Use one when its documented inputs and purpose match your question. You need access to the workspace, the required input files and a suitable Experimentation agent on a usable machine.
+A workflow packages instructions and files for a particular experimental task. Lykeion's workflows are ported from [Terminal-Bench-Science](https://github.com/harbor-framework/terminal-bench-science). Use one when its documented inputs and purpose match your question. You need access to the workspace, the required input files and a suitable Experimentation agent on a usable machine.
 
 ## Inspect before starting
 
@@ -504,7 +491,7 @@ You have a suitable assignment when the Team's stage and roles match the study a
     title: 'Skills',
     description:
       'Inspect and reuse instruction packs for the research methods your agents perform.',
-    section: 'Agents',
+    section: 'Data',
     markdown: `# Skills
 
 A skill is an instruction pack agents can use while working. Its main file is SKILL.md, with supporting files where needed. Use skills for reusable methods, such as a literature screening procedure, rather than copying the same procedure into every study. You need access to the workspace's Skills settings.
@@ -832,7 +819,7 @@ Coresearch also uses projects for ongoing conversations and files. Use [Coresear
   },
 ];
 
-export const articles: DocArticle[] = authoredArticles.map(article => {
+export const articles: DocArticle[] = [...authoredArticles.filter(article => article.slug !== 'skills'), ...authoredArticles.filter(article => article.slug === 'skills')].map(article => {
   const learning = learningMarkdown(article.slug);
   return learning ? { ...article, proseMarkdown: article.markdown, markdown: `${article.markdown.trimEnd()}\n\n${learning}` } : article;
 });

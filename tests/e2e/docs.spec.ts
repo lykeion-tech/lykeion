@@ -18,7 +18,7 @@ test('documentation search works with keyboard, escape and empty results', async
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${origin}/docs/welcome/`);
-  await expect(page.getByRole('navigation', { name: 'Documentation', exact: true }).getByRole('link', { name: 'Welcome to Lykeion' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('navigation', { name: 'Documentation', exact: true }).getByRole('link', { name: 'Welcome', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.getByRole('navigation', { name: 'On this page' }).getByRole('link', { name: 'Open your workspace' }).click();
   await expect(page.locator('#open-your-workspace')).toBeInViewport();
 });
@@ -30,7 +30,7 @@ test('documentation fits narrow screens with a collapsed keyboard and touch menu
   await expect(page.getByRole('heading', { name: 'Welcome to Lykeion', level: 1 })).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
-  const disclosure = page.locator('.docs-sidebar summary');
+  const disclosure = page.locator('.docs-mobile-nav summary');
   await expect(navigation).not.toBeVisible();
   await disclosure.focus();
   await page.keyboard.press('Enter');
@@ -51,13 +51,58 @@ test('desktop navigation is expanded and its links support keyboard focus withou
   await page.goto(`${origin}/docs/`);
   const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
   await expect(navigation).toBeVisible();
-  await expect(page.locator('.docs-sidebar summary')).not.toBeVisible();
+  await expect(page.locator('.docs-mobile-nav summary')).not.toBeVisible();
   const overview = navigation.getByRole('link', { name: 'Overview', exact: true });
   await overview.focus();
   await expect(overview).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(navigation.getByRole('link', { name: 'Welcome to Lykeion', exact: true })).toBeFocused();
+  await expect(navigation.getByRole('link', { name: 'Welcome', exact: true })).toBeFocused();
   await context.close();
+});
+
+test('saved and system themes apply before client scripts load', async ({ browser }) => {
+  for (const [preference, colorScheme, expected] of [['dark', 'light', 'dark'], ['system', 'dark', 'dark'], ['light', 'dark', 'light'], ['system', 'light', 'light']] as const) {
+    const context = await browser.newContext({ colorScheme });
+    await context.addInitScript(value => localStorage.setItem('lykeion-docs-theme', value), preference);
+    await context.route('**/*', route => route.request().resourceType() === 'script' ? route.abort() : route.continue());
+    const page = await context.newPage();
+    await page.goto(`${origin}/docs/quickstart/`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveAttribute('data-docs-theme', expected);
+    await expect(page.locator('.docs-site')).toHaveCSS('background-color', expected === 'dark' ? 'rgb(17, 22, 28)' : 'rgb(255, 255, 255)');
+    await context.close();
+  }
+});
+
+test('documentation theme follows the selected preference across pages', async ({ browser }) => {
+  const context = await browser.newContext({ colorScheme: 'light' });
+  const page = await context.newPage();
+  await page.goto(`${origin}/docs/quickstart/`);
+  const theme = page.getByLabel('Documentation theme');
+  await theme.click();
+  await page.getByRole('radio', { name: 'Dark' }).check();
+  await expect(page.locator('html')).toHaveAttribute('data-docs-theme', 'dark');
+  await page.goto(`${origin}/docs/core-concepts/`);
+  await page.getByLabel('Documentation theme').click();
+  await expect(page.getByRole('radio', { name: 'Dark' })).toBeChecked();
+  await expect(page.locator('html')).toHaveAttribute('data-docs-theme', 'dark');
+  await page.getByRole('radio', { name: 'System' }).check();
+  await expect(page.locator('html')).toHaveAttribute('data-docs-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-docs-theme', 'dark');
+  await page.getByLabel('Documentation theme').click();
+  await page.getByRole('radio', { name: 'Light' }).check();
+  await expect(page.locator('html')).toHaveAttribute('data-docs-theme', 'light');
+  await context.close();
+});
+
+test('table of contents tracks the visible section', async ({ page }) => {
+  await page.goto(`${origin}/docs/quickstart/`);
+  const toc = page.getByRole('navigation', { name: 'On this page' });
+  await expect(toc.getByRole('link', { name: '1. Open a workspace' })).toHaveAttribute('aria-current', 'location');
+  await page.locator('[id="3-create-the-study"]').evaluate(element => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 100));
+  await expect(toc.getByRole('link', { name: '3. Create the study' })).toHaveAttribute('aria-current', 'location');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect(toc.getByRole('link', { name: '5. Inspect results' })).toHaveAttribute('aria-current', 'location');
 });
 
 test('article actions copy exact Markdown and links, and report clipboard denial', async ({ page }) => {
@@ -70,15 +115,15 @@ test('article actions copy exact Markdown and links, and report clipboard denial
   });
   await page.goto(`${origin}/docs/welcome/`);
   const actions = page.getByRole('group', { name: 'Article actions' });
-  await actions.locator('summary').focus();
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Tab');
+  await actions.getByRole('button', { name: 'Copy page', exact: true }).focus();
   await expect(actions.getByRole('button', { name: 'Copy page', exact: true })).toBeFocused();
   expect(await actions.getByRole('button', { name: 'Copy page', exact: true }).evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid');
   await page.screenshot({ path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-3-actions-focus.png', fullPage: true });
   await page.keyboard.press('Enter');
   await expect(page.getByRole('status')).toHaveText('Page copied.');
   expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(article.markdown);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
   await actions.getByRole('button', { name: 'Copy Markdown link' }).click();
   expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('https://app.lykeion.tech/docs/welcome/markdown/');
   await expect(actions.getByRole('link', { name: 'View Markdown' })).toHaveAttribute('href', 'https://app.lykeion.tech/docs/welcome/markdown/');
@@ -107,13 +152,8 @@ test('learning diagrams support native keyboard selection, no JavaScript and red
   const page = await context.newPage();
   await page.goto(`${origin}/docs/scientific-stages/`);
   const stages = page.getByRole('region', { name: 'Study stage walkthrough' });
-  await stages.getByRole('radio', { name: '01 Grounding' }).focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(stages.getByRole('heading', { name: 'Make alternatives explicit' })).toBeVisible();
-  await expect(stages.getByRole('heading', { name: 'Find the foundation' })).not.toBeVisible();
-  expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
-  expect(await stages.locator('.stage-panel:visible .scene-gate').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
-  expect(await stages.locator('.stage-panel:visible .scene-result').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  await expect(stages.getByText('Enable JavaScript to open stage explanations.')).toBeVisible();
+  expect(await stages.locator('.stage-board-column').first().evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-stages-${width}.png`, fullPage: true });
@@ -137,13 +177,14 @@ test('learning diagrams support native keyboard selection, no JavaScript and red
 test('learning graphics show each stage and selected relationships with bounded motion', async ({ page }) => {
   await page.goto(`${origin}/docs/scientific-stages/`);
   const stages = page.getByRole('region', { name: 'Study stage walkthrough' });
-  for (const [name, heading] of [['01 Grounding', 'Find the foundation'], ['02 Hypotheses', 'Make alternatives explicit'], ['03 Experimentation', 'Put the question to work'], ['04 Validation', 'Challenge the findings']]) {
-    await stages.locator(`label[for="learn-stage-${['01 Grounding', '02 Hypotheses', '03 Experimentation', '04 Validation'].indexOf(name)}"]`).click();
-    await expect(stages.getByRole('heading', { name: heading })).toBeVisible();
+  expect(await stages.locator('.stage-board-column').evaluateAll(columns => columns.map(column => column.querySelectorAll('.study-example-card').length))).toEqual([3, 2, 4, 3]);
+  for (const name of ['Grounding', 'Hypotheses', 'Experimentation', 'Validation']) {
+    await stages.locator(`[data-stage="${name}"]`).click();
+    const dialog = page.getByRole('dialog', { name });
+    await expect(dialog.getByRole('heading', { name: 'Choose this stage when' })).toBeVisible();
+    await page.keyboard.press('Escape');
   }
-  expect(await stages.locator('.stage-panel:visible').evaluate(element => getComputedStyle(element).animationName)).toBe('learning-reveal');
-  expect(await stages.locator('.stage-panel:visible .scene-gate').evaluate(element => getComputedStyle(element).animationName)).toBe('learning-gate');
-  expect(await stages.locator('.stage-panel:visible .scene-result').evaluate(element => getComputedStyle(element).animationIterationCount)).toBe('1');
+  expect(await stages.locator('.study-example-card').count()).toBe(12);
   await stages.screenshot({ animations: 'disabled', path: '.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-validation.png' });
   await page.goto(`${origin}/docs/core-concepts/`);
   const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
@@ -162,23 +203,25 @@ test('reviewed walkthrough explains both validation routes and concept links rev
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     for (let index = 0; index < 4; index++) {
-      await walkthrough.locator(`label[for="learn-stage-${index}"]`).click();
-      const radio = walkthrough.locator(`#learn-stage-${index}`);
-      await expect(radio).toHaveAttribute('aria-controls', `stage-panel-${index}`);
-      await expect(walkthrough.locator(`#stage-panel-${index}`)).toBeVisible();
-      await expect(walkthrough.locator('.stage-scene:visible')).toContainText(['Source S', 'Evidence from S', 'Compare A and B', 'Claim or mA, mB'][index]);
+      const button = walkthrough.locator('.stage-board-select').nth(index);
+      await button.click();
+      await expect(button).toHaveAttribute('aria-controls', `stage-dialog-${index}`);
+      const dialog = page.locator(`#stage-dialog-${index}`);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('heading', { name: 'Choose this stage when' })).toBeVisible();
       if (index === 3) {
-        await expect(walkthrough.locator('#stage-panel-3')).toContainText('Without recorded runs');
-        await expect(walkthrough.locator('#stage-panel-3')).toContainText('back to Experimentation once');
-        await expect(walkthrough.locator('#stage-panel-3')).toContainText('waits for its owner');
+        await expect(dialog).toContainText('Without recorded runs');
+        await expect(dialog).toContainText('back to Experimentation once');
+        await expect(dialog).toContainText('waits for its owner');
       }
+      await page.keyboard.press('Escape');
+      await expect(button).toBeFocused();
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ animations: 'disabled', path: `.superpowers/sdd/2026-11-16-lykeion-documentation/task-5-reviewed-stage-${index}-${width}.png`, fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     }
   }
-  await walkthrough.getByRole('link', { name: 'Read the stage vocabulary below' }).click();
-  await expect(page.locator('#read-the-stage-vocabulary')).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Read the stage vocabulary' })).toHaveCount(0);
   await page.goto(`${origin}/docs/core-concepts/`);
   const concepts = page.getByRole('region', { name: 'Core concepts diagram' });
   for (const width of [1440, 390]) {
@@ -329,8 +372,9 @@ test('canonical learning content is copied, exported and searched on desktop and
       expect(await (await request.get(`${origin}/docs/${slug}/markdown/`)).text()).toBe(copied);
       if (slug === 'scientific-stages') {
         for (const stage of stages) { expect(copied).toContain(stage.gate); expect(copied).toContain(stage.result); }
-        await page.locator('label[for="learn-stage-3"]').click();
-        await expect(page.locator('#stage-panel-3')).toContainText(stages[3].result);
+        await page.locator('[data-stage="Validation"]').click();
+        await expect(page.locator('#stage-dialog-3')).toContainText(stages[3].result);
+        await page.keyboard.press('Escape');
         expect((await page.locator('.docs-prose').allTextContents()).join(' ')).not.toContain(stages[3].result);
       } else {
         for (const [index, concept] of concepts.entries()) {
@@ -367,8 +411,8 @@ test('initial concept motion stops within five seconds and focus contrasts with 
     }
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });
-      const targets = [page.getByRole('button', { name: /Search documentation/ }), page.locator('.docs-actions summary'), page.locator('.learning-radio:checked')];
-      if (width === 390) targets.push(page.locator('.docs-sidebar summary'));
+      const targets = [page.getByRole('button', { name: /Search documentation/ }), page.locator('.docs-actions summary'), slug === 'core-concepts' ? page.locator('.learning-radio:checked') : page.locator('.stage-board-select').first()];
+      if (width === 390) targets.push(page.locator('.docs-mobile-nav summary'));
       for (const target of targets) {
         await target.focus();
         await page.keyboard.press('Tab');
@@ -420,8 +464,8 @@ test('audited documentation pages fit desktop and phone', async ({ page }) => {
 test('search close label includes its visible name and Escape shortcut', async ({ page }) => {
   await page.goto(`${origin}/docs/connect-machine/`);
   await page.getByRole('button', { name: /Search documentation/ }).click();
-  const close = page.getByRole('button', { name: 'Close search Esc' });
-  await expect(close).toContainText('Close search');
+  const close = page.getByRole('button', { name: 'Close search (Esc)' });
+  await expect(close).toHaveText('Esc');
   await expect(close).toHaveAttribute('aria-keyshortcuts', 'Escape');
   await page.keyboard.press('Escape');
 });
@@ -440,12 +484,16 @@ test('article commands support keyboard scrolling without JavaScript', async ({ 
     await page.keyboard.press('Shift+Tab');
     await expect(code).toBeFocused();
     expect(await code.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid');
-    await page.keyboard.press('ArrowRight');
-    await expect.poll(() => code.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+    const overflows = await code.evaluate(element => element.scrollWidth > element.clientWidth);
+    if (width === 390) expect(overflows).toBe(true);
+    if (overflows) {
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => code.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+    }
     await code.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `.superpowers/sdd/2026-11-16-lykeion-documentation/axe-code-focus-${width}.png` });
   }
   await page.goto(`${origin}/docs/scientific-stages/`);
-  await expect(page.getByRole('group', { name: 'Illustrative evidence and gate' }).first()).toBeVisible();
+  await expect(page.getByText('Enable JavaScript to open stage explanations.')).toBeVisible();
   await context.close();
 });

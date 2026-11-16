@@ -15,6 +15,12 @@ describe('documentation navigation', () => {
     for (const article of articles) expect(html).toContain(`href="/docs/${article.slug}/"`);
     expect(html).toContain('aria-current="page"');
   });
+  it('links the brand to overview and offers the website and repository in navigation', () => {
+    const html = renderToStaticMarkup(<DocsShell articles={articles}><p>Article</p></DocsShell>);
+    expect(html).toMatch(/<a\b(?=[^>]*class="docs-brand")(?=[^>]*href="\/docs\/?")[^>]*>/);
+    expect(html).toContain('href="https://github.com/lykeion-tech/lykeion"');
+    expect(html).toContain('href="/"');
+  });
   it('derives stable unique anchors and labels from safe Markdown tokens', () => {
     const result = articleContent('# Title\n\n## A `code` heading\n\n## A `code` heading\n\n<script>unsafe</script>');
     expect(result.headings.map(heading => heading.id)).toEqual(['a-code-heading', 'a-code-heading-2']);

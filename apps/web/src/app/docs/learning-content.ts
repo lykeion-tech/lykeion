@@ -1,29 +1,8 @@
-// Symbolic example: no measurements or scientific findings are asserted.
-export const scenes = [
-  [
-    'Source S',
-    'SCREEN SOURCE',
-    'Exists · not retracted · meets criteria',
-    'Eligible evidence if checks pass',
-  ],
-  [
-    'Evidence from S',
-    'FORM PREDICTIONS',
-    'Cited · falsifiable · not already tested',
-    'A exceeds B / A does not exceed B',
-  ],
-  [
-    'Compare A and B',
-    'TRACE EXECUTION',
-    'Saved output · values traced to run',
-    'Measurement mA, mB + output file',
-  ],
-  [
-    'Claim or mA, mB',
-    'INDEPENDENT CHECK',
-    'Source passage / reproduced measurement',
-    'Claim verdict / status or return',
-  ],
+export const stageGuidance = [
+  ['Find and assess sources and trace scientific claims to their evidence.', 'Choose Grounding when you need to map existing literature, screen sources or establish what is known about a question.'],
+  ['Develop alternative explanations and predictions from the available evidence.', 'Choose Hypotheses when your study needs testable explanations to compare before experimentation.'],
+  ['Carry out an analysis or computation and retain the artifacts it produces.', 'Choose Experimentation when you have a concrete task, suitable inputs and an agent with an available machine.'],
+  ['Challenge findings against their supporting evidence and review checks.', 'Choose Validation when a claim or result is ready for independent review.'],
 ];
 
 export const stages = [
@@ -70,8 +49,6 @@ export const stages = [
 
 export const advancement =
   'After hand-in, a Team’s auditor settles before required review; an individual agent goes straight to review. The server advances automatically within the configured scope when review passes, carrying unclear items when applicable. Ordinary item-review failures trigger one redo, then a block if still failing. Unavailable review services leave the study waiting. At the end of its scope, completion follows required review. An individual agent is restricted to its own stage.';
-export const example =
-  'Illustrative question: does A change a measurement compared with B? Follow symbolic source S and measurements mA and mB; no result is assumed.';
 export const concepts = [
   {
     name: 'Workspace',
@@ -167,13 +144,11 @@ export function learningMarkdown(slug: string): string {
   if (slug === 'scientific-stages')
     return `## Stage walkthrough
 
-**Method A versus method B**
-
-${example}
-
 ${stages
   .map(
     (stage, index) => `### ${stage.name}: ${stage.verb}
+
+${stageGuidance[index][0]} ${stageGuidance[index][1]}
 
 ${[
   ['Inputs', stage.input],
@@ -183,9 +158,7 @@ ${[
   ['Result', stage.result],
 ]
   .map(([label, text]) => `- **${label}:** ${text}`)
-  .join('\n')}
-
-Illustration: ${scenes[index].join(' → ')}.`,
+  .join('\n')}`,
   )
   .join('\n\n')}
 

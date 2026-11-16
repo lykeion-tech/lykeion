@@ -6,12 +6,13 @@ import { StudyWalkthrough } from './study-walkthrough';
 import { getArticle } from './content';
 
 describe('interactive learning without JavaScript', () => {
-  it('offers the four stages in order with native keyboard-selectable controls and complete text', () => {
+  it('offers four populated stage columns with explanations and varied simulated cards', () => {
     const html = renderToStaticMarkup(<StudyWalkthrough />);
     const names = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation'];
-    const labels = [...html.matchAll(/type="radio"[^>]*value="([^"]+)"/g)].map((match) => match[1]);
+    const labels = [...html.matchAll(/data-stage="([^"]+)"/g)].map((match) => match[1]);
     expect(labels).toEqual(names);
-    expect(html).toContain('<fieldset');
+    expect(html).toContain('Simulated study');
+    expect(html.match(/class="study-example-card"/g)).toHaveLength(12);
     for (const label of ['Inputs', 'Agents', 'Evidence', 'Gate', 'Result'])
       expect(html).toContain(label);
     expect(html).toContain('required review');
@@ -50,8 +51,7 @@ describe('reviewed learning behavior', () => {
       'separate from an ordinary item redo',
     ])
       expect(html).toContain(text);
-    expect(html).toContain('Method A versus method B');
-    expect(html).toContain('aria-controls="stage-panel-3"');
+    expect(html).toContain('aria-controls="stage-dialog-3"');
     expect(html).not.toContain('href="/docs/scientific-stages/"');
   });
   it('derives both ends of every verified concept relationship from one pair', () => {
@@ -73,7 +73,7 @@ it('routes long concept links through the gaps rather than unrelated nodes', () 
 });
 
 
-it('exposes illustrative stage evidence as named groups', () => {
+it('provides a separate dialog for every stage', () => {
   const html = renderToStaticMarkup(<StudyWalkthrough />);
-  expect(html.match(/class="stage-scene" role="group" aria-label="Illustrative evidence and gate"/g)).toHaveLength(4);
+  expect(html.match(/<dialog/g)).toHaveLength(4);
 });

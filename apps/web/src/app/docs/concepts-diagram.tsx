@@ -1,8 +1,9 @@
 import React from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import { getArticle } from './content';
 import './learning.css';
 
-import { concepts, connections, conceptNote } from './learning-content';
+import { concepts, connections } from './learning-content';
 
 // Use the grid gutters so a relationship never crosses an unrelated concept.
 export function conceptPath(first: number, second: number) {
@@ -69,18 +70,16 @@ export function ConceptsDiagram() {
             <div className="learning-panel concept-panel" id={`concept-panel-${index}`}>
               <h3>{concept.name}</h3>
               <p>{concept.text}</p>
-              <h4>Connected concepts</h4>
-              <p>
+              <span className="concept-connections-accessible">Connected concepts: {' '}
                 {connections(index)
                   .map((target) => concepts[target].name)
                   .join(' · ')}
-              </p>
-              <a href={`/docs/${concept.slug}/`}>Read {getArticle(concept.slug)!.title} →</a>
+              </span>
+              <a href={`/docs/${concept.slug}/`}>Read {getArticle(concept.slug)!.title} <ArrowUpRight size={12} aria-hidden="true" /></a>
             </div>
           </React.Fragment>
         ))}
       </fieldset>
-      <p className="learning-note">{conceptNote}</p>
     </section>
   );
 }
