@@ -13,6 +13,13 @@ import (
 func TestTeamRatingsMigration(t *testing.T) {
 	env := testutil.Setup(t)
 	ctx := t.Context()
+	downLatest, err := fs.ReadFile(migrations.FS, "0076_remove_ratings_and_preserve_run_history.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, string(downLatest)); err != nil {
+		t.Fatal(err)
+	}
 	u, ws, card := seedWorkspace(t, env)
 	var pack uuid.UUID
 	if err := env.Owner.QueryRow(ctx, `INSERT INTO field_pack (workspace_id, name, version, sha256, manifest, blob_key, source)

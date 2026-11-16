@@ -351,6 +351,37 @@ describe('stages and blocks', () => {
 });
 
 describe('records and transcript', () => {
+  it('shows only runs with proven starts or retained legacy history in start order', () => {
+    const run = (id: string, extra: object) =>
+      ({
+        id,
+        created_at: '2026-11-01T10:00:00Z',
+        started_at: null,
+        status: 'queued',
+        ...extra,
+      }) as AgentRun;
+    const entries = transcript(
+      [],
+      [
+        run('queued', {}),
+        run('retried', { first_started_at: '2026-11-01T10:02:00Z' }),
+        run('running', { started_at: '2026-11-01T10:01:00Z', status: 'running' }),
+        run('legacy', {
+          status: 'completed',
+          legacy_unverified_started: true,
+          completed_at: '2026-11-01T10:03:00Z',
+        }),
+        run('never-started-failure', { status: 'failed', completed_at: '2026-11-01T10:04:00Z' }),
+      ],
+      [],
+    );
+    expect(entries.map((entry) => entry.kind === 'run' && entry.run.id)).toEqual([
+      'running',
+      'retried',
+      'legacy',
+    ]);
+  });
+
   it('merges Jev lines into the activity in time order', () => {
     const comment = {
       id: 'k',
@@ -591,9 +622,7 @@ describe('flow records and Inbox sentences', () => {
   });
   it('leaves the server text alone when it does not fit', () => {
     expect(studies.inboxText({ kind: 'no_tool', text: 'found nothing' }, 'S')).toBeNull();
-    expect(
-      studies.inboxText({ kind: 'agent_decision', text: 'Asked a question' }, 'S'),
-    ).toBeNull();
+    expect(studies.inboxText({ kind: 'agent_decision', text: 'Asked a question' }, 'S')).toBeNull();
   });
   it('lifts the criterion and the need out of the server sentence', () => {
     expect(

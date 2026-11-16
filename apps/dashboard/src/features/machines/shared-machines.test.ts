@@ -39,7 +39,7 @@ function seedClient() {
   c.setQueryData(keys.workspace('w'), { name: 'Lab' });
   for (const key of [keys.cards, keys.agents, keys.researches]) c.setQueryData(key('w'), []);
   c.setQueryData(keys.teams('w', '', ''), []);
-  for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
+  for (const key of [keys.comments, keys.events, keys.runs])
     c.setQueryData(key('w', 'c'), []);
   c.setQueryData(keys.records('w', 'c', 'grounding'), []);
   c.setQueryData(keys.card('w', 'c'), {

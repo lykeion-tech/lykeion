@@ -62,6 +62,7 @@ func (h *H) cardReview(w http.ResponseWriter, r *http.Request) {
 				if err := json.Unmarshal(rec.Body, &body); err != nil {
 					return err
 				}
+				body["legacy_timeline"] = rec.LegacyReviewTimeline
 				body["round"] = rec.Round
 				body["at"] = rec.CreatedAt
 				for _, field := range []string{"items", "missed"} {

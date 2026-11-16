@@ -43,58 +43,60 @@ type AgentCapability struct {
 }
 
 type AgentRun struct {
-	ID                    uuid.UUID       `json:"id"`
-	WorkspaceID           uuid.UUID       `json:"workspace_id"`
-	CardID                *uuid.UUID      `json:"card_id"`
-	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
-	BoardColumn           string          `json:"board_column"`
-	Round                 int32           `json:"round"`
-	Role                  string          `json:"role"`
-	Harness               string          `json:"harness"`
-	Prompt                string          `json:"prompt"`
-	Skill                 string          `json:"skill"`
-	Status                string          `json:"status"`
-	QueueReason           *string         `json:"queue_reason"`
-	RuntimeID             *uuid.UUID      `json:"runtime_id"`
-	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
-	DispatchedAt          *time.Time      `json:"dispatched_at"`
-	StartedAt             *time.Time      `json:"started_at"`
-	CompletedAt           *time.Time      `json:"completed_at"`
-	Attempt               int32           `json:"attempt"`
-	MaxAttempts           int32           `json:"max_attempts"`
-	SessionID             string          `json:"session_id"`
-	ContinuityScope       string          `json:"continuity_scope"`
-	ProfileMode           string          `json:"profile_mode"`
-	PolicyDigest          string          `json:"policy_digest"`
-	Model                 string          `json:"model"`
-	Error                 string          `json:"error"`
-	FailureReason         *string         `json:"failure_reason"`
-	CostUsd               float64         `json:"cost_usd"`
-	LateUsageAt           *time.Time      `json:"late_usage_at"`
-	CreatedAt             time.Time       `json:"created_at"`
-	HandoffNote           string          `json:"handoff_note"`
-	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
-	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
-	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
-	InputOutcomes         json.RawMessage `json:"input_outcomes"`
-	AddonHash             string          `json:"addon_hash"`
-	AddonMcp              json.RawMessage `json:"addon_mcp"`
-	Kind                  string          `json:"kind"`
-	RequesterID           *uuid.UUID      `json:"requester_id"`
-	RequestedModel        string          `json:"requested_model"`
-	AgentID               *uuid.UUID      `json:"agent_id"`
-	Assignment            string          `json:"assignment"`
-	CancelReason          *string         `json:"cancel_reason"`
-	MachineName           *string         `json:"machine_name"`
-	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
-	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
-	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
-	RetryAfter            *time.Time      `json:"retry_after"`
-	InfraFailures         int32           `json:"infra_failures"`
-	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
-	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
-	LabPurpose            string          `json:"lab_purpose"`
-	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
+	ID                      uuid.UUID       `json:"id"`
+	WorkspaceID             uuid.UUID       `json:"workspace_id"`
+	CardID                  *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID       uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn             string          `json:"board_column"`
+	Round                   int32           `json:"round"`
+	Role                    string          `json:"role"`
+	Harness                 string          `json:"harness"`
+	Prompt                  string          `json:"prompt"`
+	Skill                   string          `json:"skill"`
+	Status                  string          `json:"status"`
+	QueueReason             *string         `json:"queue_reason"`
+	RuntimeID               *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt   *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt            *time.Time      `json:"dispatched_at"`
+	StartedAt               *time.Time      `json:"started_at"`
+	CompletedAt             *time.Time      `json:"completed_at"`
+	Attempt                 int32           `json:"attempt"`
+	MaxAttempts             int32           `json:"max_attempts"`
+	SessionID               string          `json:"session_id"`
+	ContinuityScope         string          `json:"continuity_scope"`
+	ProfileMode             string          `json:"profile_mode"`
+	PolicyDigest            string          `json:"policy_digest"`
+	Model                   string          `json:"model"`
+	Error                   string          `json:"error"`
+	FailureReason           *string         `json:"failure_reason"`
+	CostUsd                 float64         `json:"cost_usd"`
+	LateUsageAt             *time.Time      `json:"late_usage_at"`
+	CreatedAt               time.Time       `json:"created_at"`
+	HandoffNote             string          `json:"handoff_note"`
+	InputLeaseExpiresAt     *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt     *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID            *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes           json.RawMessage `json:"input_outcomes"`
+	AddonHash               string          `json:"addon_hash"`
+	AddonMcp                json.RawMessage `json:"addon_mcp"`
+	Kind                    string          `json:"kind"`
+	RequesterID             *uuid.UUID      `json:"requester_id"`
+	RequestedModel          string          `json:"requested_model"`
+	AgentID                 *uuid.UUID      `json:"agent_id"`
+	Assignment              string          `json:"assignment"`
+	CancelReason            *string         `json:"cancel_reason"`
+	MachineName             *string         `json:"machine_name"`
+	MachineOwnerID          *uuid.UUID      `json:"machine_owner_id"`
+	CoresearchChatID        *uuid.UUID      `json:"coresearch_chat_id"`
+	CoresearchBuildID       *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter              *time.Time      `json:"retry_after"`
+	InfraFailures           int32           `json:"infra_failures"`
+	AttachmentSnapshot      []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID               *uuid.UUID      `json:"lab_chat_id"`
+	LabPurpose              string          `json:"lab_purpose"`
+	PinnedRuntimeID         *uuid.UUID      `json:"pinned_runtime_id"`
+	FirstStartedAt          *time.Time      `json:"first_started_at"`
+	LegacyUnverifiedStarted bool            `json:"legacy_unverified_started"`
 }
 
 type AgentRunMachineAttempt struct {
@@ -865,19 +867,20 @@ type PersonalAccessToken struct {
 }
 
 type Record struct {
-	ID           uuid.UUID       `json:"id"`
-	WorkspaceID  uuid.UUID       `json:"workspace_id"`
-	CardID       uuid.UUID       `json:"card_id"`
-	BoardColumn  string          `json:"board_column"`
-	Round        int32           `json:"round"`
-	Kind         string          `json:"kind"`
-	Role         string          `json:"role"`
-	Key          string          `json:"key"`
-	Body         json.RawMessage `json:"body"`
-	BlobKey      string          `json:"blob_key"`
-	AgentRunID   *uuid.UUID      `json:"agent_run_id"`
-	SupersededAt *time.Time      `json:"superseded_at"`
-	CreatedAt    time.Time       `json:"created_at"`
+	ID                   uuid.UUID       `json:"id"`
+	WorkspaceID          uuid.UUID       `json:"workspace_id"`
+	CardID               uuid.UUID       `json:"card_id"`
+	BoardColumn          string          `json:"board_column"`
+	Round                int32           `json:"round"`
+	Kind                 string          `json:"kind"`
+	Role                 string          `json:"role"`
+	Key                  string          `json:"key"`
+	Body                 json.RawMessage `json:"body"`
+	BlobKey              string          `json:"blob_key"`
+	AgentRunID           *uuid.UUID      `json:"agent_run_id"`
+	SupersededAt         *time.Time      `json:"superseded_at"`
+	CreatedAt            time.Time       `json:"created_at"`
+	LegacyReviewTimeline bool            `json:"legacy_review_timeline"`
 }
 
 type ReportBuild struct {
@@ -1049,20 +1052,6 @@ type TeamAgent struct {
 	UserID      *uuid.UUID `json:"user_id"`
 	Member      string     `json:"member"`
 	AgentID     uuid.UUID  `json:"agent_id"`
-}
-
-type TeamRating struct {
-	ID          uuid.UUID  `json:"id"`
-	WorkspaceID uuid.UUID  `json:"workspace_id"`
-	CardID      *uuid.UUID `json:"card_id"`
-	BoardColumn string     `json:"board_column"`
-	PackID      uuid.UUID  `json:"pack_id"`
-	UserID      uuid.UUID  `json:"user_id"`
-	Offered     bool       `json:"offered"`
-	DrawnAt     time.Time  `json:"drawn_at"`
-	Rating      *int16     `json:"rating"`
-	RatedAt     *time.Time `json:"rated_at"`
-	DismissedAt *time.Time `json:"dismissed_at"`
 }
 
 type User struct {

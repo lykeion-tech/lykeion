@@ -481,19 +481,6 @@ func TestUILab(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	// Offers a study's owner a rating for a Team-worked column, as a hit draw
-	// would; the lab has no Jev, so its columns never finish on their own.
-	mux.HandleFunc("POST /lab/rating-offer/{card}/{column}", func(w http.ResponseWriter, r *http.Request) {
-		tag, err := env.Owner.Exec(r.Context(), `INSERT INTO team_rating (workspace_id, card_id, board_column, pack_id, user_id, offered, drawn_at)
-			SELECT c.workspace_id, c.id, t.board_column, t.pack_id, c.owner_id, true, now()
-			FROM card c JOIN card_team t ON t.card_id = c.id WHERE c.id = $1 AND t.board_column = $2`,
-			r.PathValue("card"), r.PathValue("column"))
-		if err != nil || tag.RowsAffected() != 1 {
-			http.Error(w, "no Team works that column of that card", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("POST /lab/fixtures", func(w http.ResponseWriter, r *http.Request) {
 		fixture, err := seedUIFixture(r.Context(), st)
 		if err != nil {

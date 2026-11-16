@@ -6,9 +6,24 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestStartOnlyAfterRequestValidation(t *testing.T) {
+	s := server(t, 200, "jev-1.13.0")
+	defer s.Close()
+	c := &Client{BaseURL: s.URL, Key: "k", Model: "jev-1.13.0"}
+	starts := 0
+	ctx := WithStart(context.Background(), func() { starts++ })
+	if _, err := c.Choice(ctx, strings.Repeat("x", maxBody), "pick", map[string]string{"a": "A", "b": "B"}); err == nil || starts != 0 {
+		t.Fatalf("locally rejected request: starts=%d err=%v", starts, err)
+	}
+	if _, err := c.Choice(ctx, "s", "pick", map[string]string{"a": "A", "b": "B"}); err != nil || starts != 1 {
+		t.Fatalf("sent request: starts=%d err=%v", starts, err)
+	}
+}
 
 func server(t *testing.T, status int, model string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

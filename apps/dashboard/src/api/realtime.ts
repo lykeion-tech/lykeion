@@ -90,7 +90,7 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.analytics(ws),
         keys.decisionsAll(ws),
         keys.decisionCount(ws),
-        ...own(keys.card, keys.events, keys.ratings),
+        ...own(keys.card, keys.events),
         keys.researches(ws),
         ...(researchIds.length
           ? researchIds.map((id) => keys.research(ws, id))
@@ -111,6 +111,8 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
       ];
     case 'record':
       return own(keys.recordsAll);
+    case 'review':
+      return [...own(keys.events, keys.card, keys.recordsAll)];
     case 'study':
       if (e.type === 'study.run_reactions_changed' && card && typeof e.payload.run_id === 'string')
         return [['ws', ws, 'run-reactions', card, e.payload.run_id]];

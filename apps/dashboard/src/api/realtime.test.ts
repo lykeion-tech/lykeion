@@ -46,9 +46,6 @@ describe('event to query map', () => {
       has(type, keys.analytics('w1'));
     }
   });
-  it("a column leaving refreshes the study's Team ratings", () => {
-    has('card.steered', keys.ratings('w1', 'c1'));
-  });
   it('an uploaded or approved Team refreshes the Teams list', () => {
     for (const type of ['pack.uploaded', 'pack.approved', 'team.created'])
       has(type, ['ws', 'w1', 'packs'], null);
@@ -63,6 +60,13 @@ describe('event to query map', () => {
     const deleted = { ...ev('card.deleted', null), payload: { card_id: 'c9' } };
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.card('w1', 'c9'));
     expect(invalidationsFor('w1', deleted)).toContainEqual(keys.cards('w1'));
+  });
+  it('refreshes the study timeline on Jev lifecycle events', () => {
+    for (const type of ['review.started', 'review.finished']) {
+      has(type, keys.events('w1', 'c1'));
+      has(type, keys.card('w1', 'c1'));
+      has(type, keys.recordsAll('w1', 'c1'));
+    }
   });
   it("a new record refreshes that card's records", () => {
     has('record.created', keys.recordsAll('w1', 'c1'));

@@ -18,7 +18,6 @@ import type {
   ReviewColumn,
   AgentRun,
   Card,
-  ColumnRating,
   Comment,
   DecisionItem,
   Invitation,
@@ -113,8 +112,6 @@ function ofCard<T>(
 }
 export const useCard = (id: MaybeRefOrGetter<string>) =>
   ofCard<Card>(id, keys.card, (c) => `/api/cards/${c}`);
-export const useCardRatings = (id: MaybeRefOrGetter<string>) =>
-  ofCard<ColumnRating[]>(id, keys.ratings, (c) => `/api/cards/${c}/ratings`);
 export const useCardReview = (id: MaybeRefOrGetter<string>) =>
   useQuery({
     queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'review']),

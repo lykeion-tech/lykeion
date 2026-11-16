@@ -260,11 +260,15 @@ var (
 // Validation to reviewValidation. Jev
 // is asked with no transaction open. When Jev cannot be reached the study
 // stays where it is and the next pass retries.
-func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
+func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) (resultErr error) {
 	in, ok, err := e.readScoring(ctx, ws, card)
 	if err != nil || !ok {
 		return err
 	}
+	activity := &reviewActivity{engine: e, workspace: ws, card: in.card, pass: uuid.New(), attempt: in.attempt}
+	ctx = context.WithValue(ctx, reviewActivityKey{}, activity)
+	ctx = jev.WithStart(ctx, func() { markReviewStarted(ctx) })
+	defer func() { activity.finish(ctx, resultErr) }()
 	if usesReview(in.card) {
 		if in.card.BoardColumn == board.Validation {
 			return e.reviewValidation(ctx, ws, in)
@@ -280,6 +284,7 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) error {
 	if err == nil {
 		answers, err = e.askJev(ctx, in, MatchQuotes(in.work, calls), MatchValues(in.work, runs))
 	}
+	markReviewFailed(ctx, err)
 	moved, werr := e.applyScore(ctx, ws, in, answers, err)
 	if werr != nil {
 		return werr
@@ -660,13 +665,11 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			next.Redos, next.Round = 1, c.Round+1
 			next.HandoffNote = fmt.Sprintf("Jev scored the last attempt at this column low on %s. Redo the column, and fix that first.", weak)
 		case verdict == "low":
-			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
 			if err := holdForDecision(ctx, tx, c, "blocked", "low_score", blockedText(c.Number, c.BoardColumn, weak), e.now()); err != nil {
 				return err
 			}
 		default:
-			e.drawRatingSafely(ctx, tx, c)
 			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
 			if i := board.StageIndex(c.BoardColumn); !last {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
@@ -716,6 +719,18 @@ func writeServerKey(ctx context.Context, tx *store.Tx, c db.Card, kind string, b
 	b, err := json.Marshal(body)
 	if err != nil {
 		return "", err
+	}
+	if activity, ok := ctx.Value(reviewActivityKey{}).(*reviewActivity); kind == "review" && ok && !activity.invokedAt.IsZero() {
+		var fields map[string]any
+		if err := json.Unmarshal(b, &fields); err != nil {
+			return "", err
+		}
+		fields["jev_pass_id"] = activity.pass.String()
+		fields["jev_started_at"] = activity.invokedAt
+		b, err = json.Marshal(fields)
+		if err != nil {
+			return "", err
+		}
 	}
 	key, err := records.NextRecordKey(ctx, tx, c.ID)
 	if err != nil {

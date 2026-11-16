@@ -52,7 +52,7 @@ func (q *Queries) BindCommentReservations(ctx context.Context, arg BindCommentRe
 }
 
 const cardAgentRuns = `-- name: CardAgentRuns :many
-SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id, a.name AS agent_name,
+SELECT t.id, t.workspace_id, t.card_id, t.responsible_user_id, t.board_column, t.round, t.role, t.harness, t.prompt, t.skill, t.status, t.queue_reason, t.runtime_id, t.prepare_lease_expires_at, t.dispatched_at, t.started_at, t.completed_at, t.attempt, t.max_attempts, t.session_id, t.continuity_scope, t.profile_mode, t.policy_digest, t.model, t.error, t.failure_reason, t.cost_usd, t.late_usage_at, t.created_at, t.handoff_note, t.input_lease_expires_at, t.input_fetch_expires_at, t.input_fetch_id, t.input_outcomes, t.addon_hash, t.addon_mcp, t.kind, t.requester_id, t.requested_model, t.agent_id, t.assignment, t.cancel_reason, t.machine_name, t.machine_owner_id, t.coresearch_chat_id, t.coresearch_build_id, t.retry_after, t.infra_failures, t.attachment_snapshot, t.lab_chat_id, t.lab_purpose, t.pinned_runtime_id, t.first_started_at, t.legacy_unverified_started, a.name AS agent_name,
   COALESCE(agent_run_excerpt(t.workspace_id, t.id, t.attempt, t.harness = 'antigravity'), '')::text AS latest_text,
   m.created_at AS last_activity_at,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('attempt', rc.attempt, 'failure_reason', COALESCE(rc.result->>'failure_reason', ''),
@@ -84,67 +84,69 @@ type CardAgentRunsParams struct {
 }
 
 type CardAgentRunsRow struct {
-	ID                    uuid.UUID       `json:"id"`
-	WorkspaceID           uuid.UUID       `json:"workspace_id"`
-	CardID                *uuid.UUID      `json:"card_id"`
-	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
-	BoardColumn           string          `json:"board_column"`
-	Round                 int32           `json:"round"`
-	Role                  string          `json:"role"`
-	Harness               string          `json:"harness"`
-	Prompt                string          `json:"prompt"`
-	Skill                 string          `json:"skill"`
-	Status                string          `json:"status"`
-	QueueReason           *string         `json:"queue_reason"`
-	RuntimeID             *uuid.UUID      `json:"runtime_id"`
-	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
-	DispatchedAt          *time.Time      `json:"dispatched_at"`
-	StartedAt             *time.Time      `json:"started_at"`
-	CompletedAt           *time.Time      `json:"completed_at"`
-	Attempt               int32           `json:"attempt"`
-	MaxAttempts           int32           `json:"max_attempts"`
-	SessionID             string          `json:"session_id"`
-	ContinuityScope       string          `json:"continuity_scope"`
-	ProfileMode           string          `json:"profile_mode"`
-	PolicyDigest          string          `json:"policy_digest"`
-	Model                 string          `json:"model"`
-	Error                 string          `json:"error"`
-	FailureReason         *string         `json:"failure_reason"`
-	CostUsd               float64         `json:"cost_usd"`
-	LateUsageAt           *time.Time      `json:"late_usage_at"`
-	CreatedAt             time.Time       `json:"created_at"`
-	HandoffNote           string          `json:"handoff_note"`
-	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
-	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
-	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
-	InputOutcomes         json.RawMessage `json:"input_outcomes"`
-	AddonHash             string          `json:"addon_hash"`
-	AddonMcp              json.RawMessage `json:"addon_mcp"`
-	Kind                  string          `json:"kind"`
-	RequesterID           *uuid.UUID      `json:"requester_id"`
-	RequestedModel        string          `json:"requested_model"`
-	AgentID               *uuid.UUID      `json:"agent_id"`
-	Assignment            string          `json:"assignment"`
-	CancelReason          *string         `json:"cancel_reason"`
-	MachineName           *string         `json:"machine_name"`
-	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
-	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
-	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
-	RetryAfter            *time.Time      `json:"retry_after"`
-	InfraFailures         int32           `json:"infra_failures"`
-	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
-	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
-	LabPurpose            string          `json:"lab_purpose"`
-	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
-	AgentName             *string         `json:"agent_name"`
-	LatestText            string          `json:"latest_text"`
-	LastActivityAt        *time.Time      `json:"last_activity_at"`
-	AttemptEnds           json.RawMessage `json:"attempt_ends"`
-	Waiting               string          `json:"waiting"`
-	Answer                string          `json:"answer"`
-	HandIn                interface{}     `json:"hand_in"`
-	HandInID              string          `json:"hand_in_id"`
-	HandInMessageSeq      int32           `json:"hand_in_message_seq"`
+	ID                      uuid.UUID       `json:"id"`
+	WorkspaceID             uuid.UUID       `json:"workspace_id"`
+	CardID                  *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID       uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn             string          `json:"board_column"`
+	Round                   int32           `json:"round"`
+	Role                    string          `json:"role"`
+	Harness                 string          `json:"harness"`
+	Prompt                  string          `json:"prompt"`
+	Skill                   string          `json:"skill"`
+	Status                  string          `json:"status"`
+	QueueReason             *string         `json:"queue_reason"`
+	RuntimeID               *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt   *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt            *time.Time      `json:"dispatched_at"`
+	StartedAt               *time.Time      `json:"started_at"`
+	CompletedAt             *time.Time      `json:"completed_at"`
+	Attempt                 int32           `json:"attempt"`
+	MaxAttempts             int32           `json:"max_attempts"`
+	SessionID               string          `json:"session_id"`
+	ContinuityScope         string          `json:"continuity_scope"`
+	ProfileMode             string          `json:"profile_mode"`
+	PolicyDigest            string          `json:"policy_digest"`
+	Model                   string          `json:"model"`
+	Error                   string          `json:"error"`
+	FailureReason           *string         `json:"failure_reason"`
+	CostUsd                 float64         `json:"cost_usd"`
+	LateUsageAt             *time.Time      `json:"late_usage_at"`
+	CreatedAt               time.Time       `json:"created_at"`
+	HandoffNote             string          `json:"handoff_note"`
+	InputLeaseExpiresAt     *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt     *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID            *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes           json.RawMessage `json:"input_outcomes"`
+	AddonHash               string          `json:"addon_hash"`
+	AddonMcp                json.RawMessage `json:"addon_mcp"`
+	Kind                    string          `json:"kind"`
+	RequesterID             *uuid.UUID      `json:"requester_id"`
+	RequestedModel          string          `json:"requested_model"`
+	AgentID                 *uuid.UUID      `json:"agent_id"`
+	Assignment              string          `json:"assignment"`
+	CancelReason            *string         `json:"cancel_reason"`
+	MachineName             *string         `json:"machine_name"`
+	MachineOwnerID          *uuid.UUID      `json:"machine_owner_id"`
+	CoresearchChatID        *uuid.UUID      `json:"coresearch_chat_id"`
+	CoresearchBuildID       *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter              *time.Time      `json:"retry_after"`
+	InfraFailures           int32           `json:"infra_failures"`
+	AttachmentSnapshot      []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID               *uuid.UUID      `json:"lab_chat_id"`
+	LabPurpose              string          `json:"lab_purpose"`
+	PinnedRuntimeID         *uuid.UUID      `json:"pinned_runtime_id"`
+	FirstStartedAt          *time.Time      `json:"first_started_at"`
+	LegacyUnverifiedStarted bool            `json:"legacy_unverified_started"`
+	AgentName               *string         `json:"agent_name"`
+	LatestText              string          `json:"latest_text"`
+	LastActivityAt          *time.Time      `json:"last_activity_at"`
+	AttemptEnds             json.RawMessage `json:"attempt_ends"`
+	Waiting                 string          `json:"waiting"`
+	Answer                  string          `json:"answer"`
+	HandIn                  interface{}     `json:"hand_in"`
+	HandInID                string          `json:"hand_in_id"`
+	HandInMessageSeq        int32           `json:"hand_in_message_seq"`
 }
 
 // A card's runs with what the study page shows about each: the name of the
@@ -214,6 +216,8 @@ func (q *Queries) CardAgentRuns(ctx context.Context, arg CardAgentRunsParams) ([
 			&i.LabChatID,
 			&i.LabPurpose,
 			&i.PinnedRuntimeID,
+			&i.FirstStartedAt,
+			&i.LegacyUnverifiedStarted,
 			&i.AgentName,
 			&i.LatestText,
 			&i.LastActivityAt,
@@ -657,7 +661,7 @@ func (q *Queries) LegacyPromptCommentCandidates(ctx context.Context, arg LegacyP
 }
 
 const listAllRecords = `-- name: ListAllRecords :many
-SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at, legacy_review_timeline FROM record WHERE workspace_id = $1 AND card_id = $2 AND board_column = $3
 ORDER BY created_at, length(key), key
 `
 
@@ -691,6 +695,7 @@ func (q *Queries) ListAllRecords(ctx context.Context, arg ListAllRecordsParams) 
 			&i.AgentRunID,
 			&i.SupersededAt,
 			&i.CreatedAt,
+			&i.LegacyReviewTimeline,
 		); err != nil {
 			return nil, err
 		}

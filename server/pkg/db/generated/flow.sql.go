@@ -12,7 +12,7 @@ import (
 )
 
 const agentRunRecords = `-- name: AgentRunRecords :many
-SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND agent_run_id = $2
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at, legacy_review_timeline FROM record WHERE workspace_id = $1 AND agent_run_id = $2
 ORDER BY created_at, id
 `
 
@@ -44,6 +44,7 @@ func (q *Queries) AgentRunRecords(ctx context.Context, arg AgentRunRecordsParams
 			&i.AgentRunID,
 			&i.SupersededAt,
 			&i.CreatedAt,
+			&i.LegacyReviewTimeline,
 		); err != nil {
 			return nil, err
 		}
@@ -278,7 +279,7 @@ func (q *Queries) LiveRecordKeys(ctx context.Context, arg LiveRecordKeysParams) 
 }
 
 const liveRecordsByKeys = `-- name: LiveRecordsByKeys :many
-SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at FROM record WHERE workspace_id = $1 AND card_id = $2
+SELECT id, workspace_id, card_id, board_column, round, kind, role, key, body, blob_key, agent_run_id, superseded_at, created_at, legacy_review_timeline FROM record WHERE workspace_id = $1 AND card_id = $2
   AND key = ANY($3::text[]) AND superseded_at IS NULL ORDER BY created_at, id
 `
 
@@ -311,6 +312,7 @@ func (q *Queries) LiveRecordsByKeys(ctx context.Context, arg LiveRecordsByKeysPa
 			&i.AgentRunID,
 			&i.SupersededAt,
 			&i.CreatedAt,
+			&i.LegacyReviewTimeline,
 		); err != nil {
 			return nil, err
 		}

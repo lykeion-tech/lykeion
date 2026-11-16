@@ -135,7 +135,6 @@ describe('the dashboard source layout', () => {
       ['views/TaskBoard.vue', 'features/studies/StudyBoard.vue'],
       ['views/TaskDetail.vue', 'features/studies/StudyDetail.vue'],
       ['views/CreateTask.vue', 'features/studies/CreateStudy.vue'],
-      ['components/ColumnRating.vue', 'features/studies/ColumnRating.vue'],
       ['components/StudyOutputs.vue', 'features/studies/StudyOutputs.vue'],
       ['components/ComposerCalendar.vue', 'features/studies/ComposerCalendar.vue'],
       ['lib/environment.ts', 'features/studies/environment.ts'],

@@ -79,6 +79,7 @@ func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) err
 	} else if res, err = e.runReview(ctx, ws, in, rv); err != nil {
 		err = fmt.Errorf("%s review: %w", in.card.BoardColumn, err)
 	}
+	markReviewFailed(ctx, err)
 	moved, werr := e.applyReview(ctx, ws, in, res, err)
 	if werr != nil {
 		return werr
@@ -794,13 +795,11 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 				return err
 			}
 		case res.Decision == review.DecideBlock:
-			e.drawRatingSafely(ctx, tx, c)
 			next.State, next.BlockKind = "blocked", "low_score"
 			if err := holdForDecision(ctx, tx, c, "blocked", "low_score", reviewBlockedText(c.Number, c.BoardColumn, review.Reasons(res)), e.now()); err != nil {
 				return err
 			}
 		default:
-			e.drawRatingSafely(ctx, tx, c)
 			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
 				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
 				if res.Decision == review.DecideCarry {

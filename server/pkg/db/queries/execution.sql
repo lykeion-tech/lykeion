@@ -120,7 +120,7 @@ UPDATE agent_run SET prepare_lease_expires_at = now() + interval '2 minutes'
 WHERE id = @id AND workspace_id = @workspace_id AND runtime_id = @runtime_id AND status = 'dispatched';
 
 -- name: StartAgentRun :execrows
-UPDATE agent_run SET status = 'running', started_at = now()
+UPDATE agent_run SET status = 'running', started_at = now(), first_started_at = COALESCE(first_started_at, now())
 WHERE id = @id AND workspace_id = @workspace_id AND runtime_id = @runtime_id
   AND status = 'dispatched' AND prepare_lease_expires_at > now();
 

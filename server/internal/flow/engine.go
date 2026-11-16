@@ -38,10 +38,6 @@ type Engine struct {
 	Now       func() time.Time
 	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic
 
-	// RatingDraw says whether a finished Team column is offered for rating;
-	// nil draws one in ratingChance.
-	RatingDraw func() bool
-
 	reporting sync.Map // the report work in flight, by kind and study
 }
 

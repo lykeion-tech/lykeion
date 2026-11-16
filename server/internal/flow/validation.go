@@ -317,6 +317,7 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 		return nil
 	}
 	judged, jerr := e.judgeObjections(ctx, ws, in, v)
+	markReviewFailed(ctx, jerr)
 	moved, err := e.applyValidation(ctx, ws, in, v, judged, jerr)
 	if err != nil {
 		return err
@@ -615,11 +616,8 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			moved = true
 			return e.routeBack(ctx, tx, c, board.Experimentation, "Validation sent this back: "+strings.Join(invalid, "; "), invalid)
 		case review.DecideAsk:
-			// Held like a block, it is offered for rating as a block is.
-			e.drawRatingSafely(ctx, tx, c)
 			return e.holdInvalid(ctx, tx, c, invalid)
 		}
-		e.drawRatingSafely(ctx, tx, c)
 		if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: "done",
 			Round: c.Round, Redos: c.Redos}); err != nil {
 			return err

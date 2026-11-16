@@ -1064,7 +1064,7 @@ function seedStudy(client: QueryClient, extra: Record<string, unknown> = {}) {
   client.setQueryData(keys.cards('w'), []);
   client.setQueryData(keys.runtimes('w'), []);
   client.setQueryData(keys.researches('w'), []);
-  for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
+  for (const key of [keys.comments, keys.events, keys.runs])
     client.setQueryData(key('w', 'c'), []);
   client.setQueryData(keys.records('w', 'c', 'grounding'), []);
   client.setQueryData(keys.card('w', 'c'), {
@@ -1636,7 +1636,7 @@ it('does not display the machine waiting message under the study title', async (
 });
 
 describe('study right-pane surfaces', () => {
-  it('shows an empty Jev state when no review exists for a one-agent study', async () => {
+  it('shows no Jev card when no review has started for a one-agent study', async () => {
     const t = await mount(
       StudyDetail,
       () => ({ id: 'c' }),
@@ -1647,13 +1647,13 @@ describe('study right-pane surfaces', () => {
       },
     );
     try {
-      await vi.waitFor(() => expect(t.text()).toContain('nothing to review yet'));
-      expect(t.text()).not.toContain('· reviewing');
+      await vi.waitFor(() => expect(t.text()).toContain('Activity'));
+      expect(t.text()).not.toContain('Jev ·');
     } finally {
       t.unmount();
     }
   });
-  it('shows a pending Jev line only for a successfully read review in the active non-legacy round', async () => {
+  it('shows a pending Jev line only after a recorded review start', async () => {
     let failReview!: () => void;
     const pending = new Promise<Response>((resolve) => {
       failReview = () => resolve(Response.json({ error: 'Review unavailable' }, { status: 503 }));
@@ -1694,6 +1694,8 @@ describe('study right-pane surfaces', () => {
       await vi.waitFor(() => expect(t.text()).toContain('Review unavailable'));
       expect(t.text()).not.toContain('· reviewing');
       client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
+      expect(t.text()).not.toContain('· reviewing');
+      client.setQueryData(keys.events('w', 'c'), [{ id: 1, type: 'review.started', created_at: '2026-11-03T10:02:00Z', payload: { pass_id: 'pass', column: 'grounding', round: 1, attempt: 1 } }]);
       await vi.waitFor(() => expect(t.text()).toContain('Jev · Grounding · reviewing'));
       const cardKey = keys.card('w', 'c');
       const working = client.getQueryData<Record<string, unknown>>(cardKey)!;
@@ -1702,7 +1704,6 @@ describe('study right-pane surfaces', () => {
         { state: 'done' },
         { ending: 'stopped' },
         { flag: 'escalated' },
-        { legacy_column: 'grounding' },
         { round: 2 },
       ]) {
         client.setQueryData(cardKey, working);
@@ -2153,8 +2154,8 @@ it('does not describe a stopped study as a Done Jev review', async () => {
     },
   );
   try {
-    await vi.waitFor(() => expect(t.text()).toContain('Jev · nothing to review yet'));
-    expect(t.text()).not.toContain('Jev · Done');
+    await vi.waitFor(() => expect(t.text()).toContain('Activity'));
+    expect(t.text()).not.toContain('Jev ·');
   } finally {
     t.unmount();
   }

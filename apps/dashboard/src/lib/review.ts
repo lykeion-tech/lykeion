@@ -1,5 +1,5 @@
 import type {
-  AgentRun,
+  LykEvent,
   Card,
   CheckStatus,
   Column,
@@ -141,42 +141,84 @@ export function feedLine(a: ReviewAttempt): string {
   return `Jev · ${columnName(a.column)} · ${outcome}`;
 }
 
-export function reviewingLine(
-  card: Pick<
-    Card,
-    | 'board_column'
-    | 'state'
-    | 'ending'
-    | 'flag'
-    | 'legacy_column'
-    | 'round'
-    | 'gating_until'
-    | 'assignee_type'
-  >,
-  runs: AgentRun[],
-  reviews: ReviewColumn[],
-): string | null {
-  const { board_column: col, round } = card;
-  if (
-    card.state !== 'working' ||
-    card.ending ||
-    card.flag ||
-    card.assignee_type === 'agent' ||
-    !card.gating_until ||
-    !(Date.parse(card.gating_until) > Date.now()) ||
-    col === 'done' ||
-    col === card.legacy_column
-  )
-    return null;
-  const currentRuns = runs.filter((run) => run.board_column === col && run.round === round);
-  if (
-    !currentRuns.length ||
-    currentRuns.some((run) => ['queued', 'dispatched', 'running'].includes(run.status))
-  )
-    return null;
-  const attempts = reviews.find((review) => review.column === col)?.attempts ?? [];
-  if (attempts.some((a) => a.round === round)) return null;
-  return `Jev · ${columnName(col)} · reviewing`;
+export function reviewTimeline(
+  events: LykEvent[],
+  columns: ReviewColumn[],
+  card:
+    | Pick<
+        Card,
+        'board_column' | 'round' | 'state' | 'gating_until' | 'ending' | 'flag' | 'legacy_column'
+      >
+    | undefined,
+  now: number,
+): { at: string; text: string; column: Column }[] {
+  const starts = events.filter(
+    (event) =>
+      event.type === 'review.started' &&
+      typeof event.payload.pass_id === 'string' &&
+      typeof event.payload.column === 'string' &&
+      typeof event.payload.round === 'number',
+  );
+  const finishes = new Map(
+    events
+      .filter(
+        (event) => event.type === 'review.finished' && typeof event.payload.pass_id === 'string',
+      )
+      .map((event) => [event.payload.pass_id, event]),
+  );
+  const used = new Set<number>();
+  const lines: { at: string; text: string; column: Column }[] = [];
+  for (const column of columns) {
+    for (const result of column.attempts) {
+      const start = [...starts]
+        .reverse()
+        .find(
+          (event) =>
+            !used.has(event.id) &&
+            (result.jev_pass_id
+              ? event.payload.pass_id === result.jev_pass_id
+              : result.legacy_timeline !== false) &&
+            event.payload.column === result.column &&
+            event.payload.round === result.round &&
+            Date.parse(event.created_at) <= Date.parse(result.at) &&
+            finishes.get(event.payload.pass_id)?.payload.status !== 'failed',
+        );
+      if (start) used.add(start.id);
+      if (!start && result.legacy_timeline === false && !result.jev_started_at) continue;
+      lines.push({
+        at: start?.created_at ?? result.jev_started_at ?? result.at,
+        text: feedLine(result),
+        column: result.column,
+      });
+    }
+  }
+  for (const start of starts) {
+    if (used.has(start.id)) continue;
+    const column = start.payload.column as Column;
+    const finish = finishes.get(start.payload.pass_id);
+    const active =
+      !finish &&
+      !starts.some(
+        (other) =>
+          other.id > start.id &&
+          other.payload.column === column &&
+          other.payload.round === start.payload.round,
+      ) &&
+      card?.board_column === column &&
+      card.round === start.payload.round &&
+      card.state === 'working' &&
+      !card.ending &&
+      !card.flag &&
+      !!card.gating_until &&
+      Date.parse(card.gating_until) > now;
+    const status = active
+      ? 'reviewing'
+      : finish?.payload.status === 'completed'
+        ? 'review complete'
+        : 'review unavailable';
+    lines.push({ at: start.created_at, text: `Jev · ${columnName(column)} · ${status}`, column });
+  }
+  return lines.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
 export function legacyColumns(

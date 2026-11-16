@@ -29,7 +29,6 @@ import { registerDraftVisit } from '../../state/resource-draft';
 import AgentRunCard from '../runs/AgentRunCard.vue';
 import TeamName from '../teams/TeamName.vue';
 import ExecutionLog from '../runs/ExecutionLog.vue';
-import ColumnRating from './ColumnRating.vue';
 import { api } from '../../api/client';
 import { useWorkflows } from '../../api/workflows';
 import { formatSize } from '../../lib/attachments';
@@ -42,7 +41,6 @@ import {
   useResearches,
   useCard,
   useCardEvents,
-  useCardRatings,
   useCardReview,
   useCards,
   useComments,
@@ -66,9 +64,10 @@ import {
   studyNumber,
   studyActivity,
   groupStudyActivity,
+  runActivityAt,
   transcript,
 } from '../../lib/studies';
-import { feedLine, reviewingLine } from '../../lib/review';
+import { reviewTimeline } from '../../lib/review';
 import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
 import { readText, writeText } from '../../storage';
@@ -104,9 +103,7 @@ const generatedFiles = computed(() => {
     return true;
   });
 });
-const ratings = useCardRatings(() => props.id);
 const review = useCardReview(() => props.id);
-const openRatings = computed(() => (ratings.data.value ?? []).filter((r) => !r.dismissed));
 const runs = useRuns(() => props.id);
 const members = useMembers();
 const agents = useAgents();
@@ -120,9 +117,11 @@ const embeddedConstrained = computed(
   () => props.embedded && studyWidth.value < inspectorMinimum + studyMinimum,
 );
 let studyObserver: ResizeObserver | undefined;
+const activityNow = ref(Date.now());
 let reviewPoll: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   reviewPoll = setInterval(() => {
+    activityNow.value = Date.now();
     const current = card.data.value;
     const roundRuns = (runs.data.value ?? []).filter(
       (run) => run.board_column === current?.board_column && run.round === current?.round,
@@ -256,7 +255,6 @@ function jevOutcomeClass(text: string) {
   if (outcome.startsWith('good to go')) return 'jev-pass';
   if (outcome === 'needs another try' || outcome === 'sent back to Experimentation')
     return 'jev-redo';
-  if (outcome === 'nothing to review yet') return 'jev-empty';
   return 'jev-waiting';
 }
 const entries = computed(() => {
@@ -264,17 +262,12 @@ const entries = computed(() => {
   const entries = transcript(
     (comments.data.value ?? []).filter(
       (comment) =>
-        !comment.reply_run_id || !agentRuns.value.some((run) => run.id === comment.reply_run_id),
+        !comment.reply_run_id ||
+        !agentRuns.value.some((run) => run.id === comment.reply_run_id && runActivityAt(run)),
     ),
     agentRuns.value,
     [],
-    columns.flatMap((column) =>
-      column.attempts.map((attempt) => ({
-        at: attempt.at,
-        text: feedLine(attempt),
-        column: attempt.column,
-      })),
-    ),
+    reviewTimeline(events.data.value ?? [], columns, c.value, activityNow.value),
   );
   entries.push(
     ...studyActivity(events.data.value ?? [], activityRecords.data.value ?? [], (id) => {
@@ -284,37 +277,7 @@ const entries = computed(() => {
     }),
   );
   entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  const current = c.value;
-  if (!current || !review.isSuccess.value || !runs.isSuccess.value) return entries;
-  const line = reviewingLine(current, agentRuns.value, columns);
-  if (!line) {
-    if (!columns.some((column) => column.attempts.length)) {
-      entries.push({
-        kind: 'jev',
-        at: current.created_at,
-        text: ['grounding', 'hypotheses', 'experimentation', 'validation'].includes(
-          current.board_column,
-        )
-          ? `Jev · ${columnName(current.board_column)} · nothing to review yet`
-          : 'Jev · nothing to review yet',
-        column: current.board_column,
-      });
-    }
-    return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  }
-  const newest = agentRuns.value
-    .filter((run) => run.board_column === current.board_column && run.round === current.round)
-    .at(-1);
-  if (newest) {
-    // A completed run can lack completed_at in older data.
-    entries.push({
-      kind: 'jev',
-      at: newest.completed_at ?? newest.started_at ?? newest.created_at,
-      text: line,
-      column: current.board_column,
-    });
-  }
-  return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return entries;
 });
 const groupedEntries = computed(() => groupStudyActivity(entries.value));
 const agentRuns = computed(() =>
@@ -589,7 +552,6 @@ function pin() {
               :owner="members.data.value?.find((member) => member.user_id === c?.owner_id)"
             />
           </div>
-          <ColumnRating v-for="r in openRatings" :key="r.column" :card-id="id" :offer="r" />
           <div
             v-for="read in readErrors"
             :key="read.label"
@@ -703,10 +665,7 @@ function pin() {
               </span>
             </div>
           </template>
-          <RouterLink
-            v-if="c.has_report"
-            class="report-link"
-            :to="'/decisions/report/' + id"
+          <RouterLink v-if="c.has_report" class="report-link" :to="'/decisions/report/' + id"
             >Go to the report</RouterLink
           >
           <section
@@ -1719,9 +1678,6 @@ function pin() {
 }
 .jev-waiting {
   color: #c69c25;
-}
-.jev-empty {
-  color: var(--muted);
 }
 .jev-redo {
   color: #ef4444;

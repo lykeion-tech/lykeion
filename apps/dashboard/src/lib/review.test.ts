@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentRun, ReviewAttempt, ReviewCheck, ReviewItem, StudyRecord } from '../api/types';
+import type { ReviewAttempt, ReviewCheck, ReviewItem, StudyRecord } from '../api/types';
 import {
   checkLabel,
   defaultSpoke,
   feedLine,
   indexOf,
   legacyColumns,
-  reviewingLine,
+  reviewTimeline,
   spokes,
   statusWord,
   tileOf,
@@ -123,32 +123,6 @@ describe('review helpers', () => {
     );
   });
 
-  it('shows reviewing only after the latest round finishes and before it has a review', () => {
-    const card = {
-      board_column: 'hypotheses',
-      round: 3,
-      state: 'working',
-      ending: '',
-      flag: '',
-      assignee_type: 'team',
-      gating_until: '2999-01-01T00:00:00Z',
-    } as const;
-    const runs = [
-      { board_column: 'hypotheses', round: 2, status: 'running' },
-      { board_column: 'hypotheses', round: 3, status: 'completed' },
-      { board_column: 'hypotheses', round: 3, status: 'completed' },
-    ] as AgentRun[];
-    const reviews = [{ column: 'hypotheses' as const, attempts: [attempt()] }];
-    expect(reviewingLine(card, runs, reviews)).toBe('Jev · Hypotheses · reviewing');
-    expect(reviewingLine({ ...card, gating_until: null }, runs, reviews)).toBeNull();
-    expect(reviewingLine({ ...card, assignee_type: 'agent' }, runs, reviews)).toBeNull();
-    expect(reviewingLine(card, [...runs, { ...runs[2]!, status: 'running' }], reviews)).toBeNull();
-    expect(
-      reviewingLine(card, runs, [{ column: 'hypotheses', attempts: [attempt({ round: 3 })] }]),
-    ).toBeNull();
-    expect(reviewingLine({ ...card, board_column: 'grounding' }, runs, reviews)).toBeNull();
-  });
-
   it('uses the latest legacy round per column and rounds levels to words', () => {
     expect(
       legacyColumns(
@@ -182,5 +156,112 @@ describe('review helpers', () => {
     expect(
       ['pass', 'unclear', 'fail', 'withdrawn'].map((s) => statusWord(s as ReviewCheck['status'])),
     ).toEqual(['Supported', 'Unclear', 'Unsupported', 'Withdrawn']);
+  });
+});
+
+describe('recorded Jev activity', () => {
+  const start = {
+    id: 10,
+    type: 'review.started',
+    created_at: '2026-11-16T10:02:00Z',
+    payload: { pass_id: 'pass', column: 'grounding', round: 1, attempt: 1 },
+  } as any;
+  const finish = {
+    id: 11,
+    type: 'review.finished',
+    created_at: '2026-11-16T10:05:00Z',
+    payload: { pass_id: 'pass', status: 'completed' },
+  } as any;
+  const card = {
+    board_column: 'grounding',
+    round: 1,
+    state: 'working',
+    gating_until: '2026-11-16T10:15:00Z',
+  } as any;
+  it('shows no placeholder without an actual start', () => {
+    expect(reviewTimeline([], [], card, Date.parse('2026-11-16T10:03:00Z'))).toEqual([]);
+  });
+  it('does not attribute a new server-only result to Jev', () => {
+    const result = attempt({
+      column: 'grounding',
+      at: '2026-11-16T10:04:00Z',
+      legacy_timeline: false,
+    });
+    expect(
+      reviewTimeline(
+        [],
+        [{ column: 'grounding', attempts: [result] }],
+        card,
+        Date.parse('2026-11-16T10:06:00Z'),
+      ),
+    ).toEqual([]);
+  });
+  it('places the result at the actual start without duplicating it', () => {
+    const result = attempt({ column: 'grounding', at: '2026-11-16T10:04:00Z' });
+    expect(
+      reviewTimeline(
+        [start, finish],
+        [{ column: 'grounding', attempts: [result] }],
+        card,
+        Date.parse('2026-11-16T10:06:00Z'),
+      ),
+    ).toEqual([
+      { at: start.created_at, text: 'Jev · Grounding · good to go', column: 'grounding' },
+    ]);
+  });
+  it('uses the recorded pass when lifecycle events are missing or belong to another pass', () => {
+    const result = attempt({
+      column: 'grounding',
+      at: '2026-11-16T10:04:00Z',
+      legacy_timeline: false,
+      jev_pass_id: 'other',
+      jev_started_at: '2026-11-16T10:03:00Z',
+    });
+    const lines = reviewTimeline(
+      [start, finish],
+      [{ column: 'grounding', attempts: [result] }],
+      card,
+      Date.parse('2026-11-16T10:06:00Z'),
+    );
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toEqual({
+      at: result.jev_started_at,
+      text: 'Jev · Grounding · good to go',
+      column: 'grounding',
+    });
+  });
+  it('shows a live review only until it finishes or its lease expires', () => {
+    expect(
+      reviewTimeline([start], [], card, Date.parse('2026-11-16T10:03:00Z'))[0]?.text,
+    ).toContain('reviewing');
+    expect(
+      reviewTimeline([start], [], card, Date.parse('2026-11-16T10:16:00Z'))[0]?.text,
+    ).not.toContain('reviewing');
+    expect(
+      reviewTimeline(
+        [start, { ...finish, payload: { ...finish.payload, status: 'failed' } }],
+        [],
+        card,
+        Date.parse('2026-11-16T10:06:00Z'),
+      )[0]?.text,
+    ).toContain('unavailable');
+  });
+  it('does not revive an abandoned pass when the same round is retried', () => {
+    const retry = {
+      ...start,
+      id: 12,
+      created_at: '2026-11-16T10:04:00Z',
+      payload: { ...start.payload, pass_id: 'retry' },
+    };
+    const lines = reviewTimeline(
+      [start, retry],
+      [],
+      { ...card, legacy_column: 'grounding' },
+      Date.parse('2026-11-16T10:06:00Z'),
+    );
+    expect(lines.map((line) => line.text)).toEqual([
+      'Jev · Grounding · review unavailable',
+      'Jev · Grounding · reviewing',
+    ]);
   });
 });

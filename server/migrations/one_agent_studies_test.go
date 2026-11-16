@@ -26,6 +26,7 @@ func TestOneAgentStudiesMigration(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
+	exec(read("0076_remove_ratings_and_preserve_run_history.down.sql"))
 	id := func(sql string, args ...any) uuid.UUID {
 		t.Helper()
 		var id uuid.UUID

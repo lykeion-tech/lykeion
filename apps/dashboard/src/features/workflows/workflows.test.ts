@@ -253,7 +253,7 @@ describe('Starting a study with a Workflow', () => {
       { id: 'a2', name: 'Ground agent', visibility: 'workspace', owner_id: 'u1', archived_at: null, stage: 'grounding' },
     ]);
     c.setQueryData(keys.members('w'), []);
-    for (const key of [keys.comments, keys.events, keys.runs, keys.ratings])
+    for (const key of [keys.comments, keys.events, keys.runs])
       c.setQueryData(key('w', 'c'), []);
     c.setQueryData(keys.records('w', 'c', 'experimentation'), []);
     c.setQueryData(keys.card('w', 'c'), {

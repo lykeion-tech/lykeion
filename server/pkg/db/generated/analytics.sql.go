@@ -62,7 +62,7 @@ func (q *Queries) AnalyticsEvents(ctx context.Context, arg AnalyticsEventsParams
 }
 
 const analyticsRuns = `-- name: AnalyticsRuns :many
-SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id, COALESCE(a.name, '')::text AS agent_name
+SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id, r.first_started_at, r.legacy_unverified_started, COALESCE(a.name, '')::text AS agent_name
 FROM agent_run r
 JOIN card c ON c.id = r.card_id AND c.workspace_id = r.workspace_id
 LEFT JOIN agent a ON a.id = r.agent_id AND a.workspace_id = r.workspace_id
@@ -80,59 +80,61 @@ type AnalyticsRunsParams struct {
 }
 
 type AnalyticsRunsRow struct {
-	ID                    uuid.UUID       `json:"id"`
-	WorkspaceID           uuid.UUID       `json:"workspace_id"`
-	CardID                *uuid.UUID      `json:"card_id"`
-	ResponsibleUserID     uuid.UUID       `json:"responsible_user_id"`
-	BoardColumn           string          `json:"board_column"`
-	Round                 int32           `json:"round"`
-	Role                  string          `json:"role"`
-	Harness               string          `json:"harness"`
-	Prompt                string          `json:"prompt"`
-	Skill                 string          `json:"skill"`
-	Status                string          `json:"status"`
-	QueueReason           *string         `json:"queue_reason"`
-	RuntimeID             *uuid.UUID      `json:"runtime_id"`
-	PrepareLeaseExpiresAt *time.Time      `json:"prepare_lease_expires_at"`
-	DispatchedAt          *time.Time      `json:"dispatched_at"`
-	StartedAt             *time.Time      `json:"started_at"`
-	CompletedAt           *time.Time      `json:"completed_at"`
-	Attempt               int32           `json:"attempt"`
-	MaxAttempts           int32           `json:"max_attempts"`
-	SessionID             string          `json:"session_id"`
-	ContinuityScope       string          `json:"continuity_scope"`
-	ProfileMode           string          `json:"profile_mode"`
-	PolicyDigest          string          `json:"policy_digest"`
-	Model                 string          `json:"model"`
-	Error                 string          `json:"error"`
-	FailureReason         *string         `json:"failure_reason"`
-	CostUsd               float64         `json:"cost_usd"`
-	LateUsageAt           *time.Time      `json:"late_usage_at"`
-	CreatedAt             time.Time       `json:"created_at"`
-	HandoffNote           string          `json:"handoff_note"`
-	InputLeaseExpiresAt   *time.Time      `json:"input_lease_expires_at"`
-	InputFetchExpiresAt   *time.Time      `json:"input_fetch_expires_at"`
-	InputFetchID          *uuid.UUID      `json:"input_fetch_id"`
-	InputOutcomes         json.RawMessage `json:"input_outcomes"`
-	AddonHash             string          `json:"addon_hash"`
-	AddonMcp              json.RawMessage `json:"addon_mcp"`
-	Kind                  string          `json:"kind"`
-	RequesterID           *uuid.UUID      `json:"requester_id"`
-	RequestedModel        string          `json:"requested_model"`
-	AgentID               *uuid.UUID      `json:"agent_id"`
-	Assignment            string          `json:"assignment"`
-	CancelReason          *string         `json:"cancel_reason"`
-	MachineName           *string         `json:"machine_name"`
-	MachineOwnerID        *uuid.UUID      `json:"machine_owner_id"`
-	CoresearchChatID      *uuid.UUID      `json:"coresearch_chat_id"`
-	CoresearchBuildID     *uuid.UUID      `json:"coresearch_build_id"`
-	RetryAfter            *time.Time      `json:"retry_after"`
-	InfraFailures         int32           `json:"infra_failures"`
-	AttachmentSnapshot    []uuid.UUID     `json:"attachment_snapshot"`
-	LabChatID             *uuid.UUID      `json:"lab_chat_id"`
-	LabPurpose            string          `json:"lab_purpose"`
-	PinnedRuntimeID       *uuid.UUID      `json:"pinned_runtime_id"`
-	AgentName             string          `json:"agent_name"`
+	ID                      uuid.UUID       `json:"id"`
+	WorkspaceID             uuid.UUID       `json:"workspace_id"`
+	CardID                  *uuid.UUID      `json:"card_id"`
+	ResponsibleUserID       uuid.UUID       `json:"responsible_user_id"`
+	BoardColumn             string          `json:"board_column"`
+	Round                   int32           `json:"round"`
+	Role                    string          `json:"role"`
+	Harness                 string          `json:"harness"`
+	Prompt                  string          `json:"prompt"`
+	Skill                   string          `json:"skill"`
+	Status                  string          `json:"status"`
+	QueueReason             *string         `json:"queue_reason"`
+	RuntimeID               *uuid.UUID      `json:"runtime_id"`
+	PrepareLeaseExpiresAt   *time.Time      `json:"prepare_lease_expires_at"`
+	DispatchedAt            *time.Time      `json:"dispatched_at"`
+	StartedAt               *time.Time      `json:"started_at"`
+	CompletedAt             *time.Time      `json:"completed_at"`
+	Attempt                 int32           `json:"attempt"`
+	MaxAttempts             int32           `json:"max_attempts"`
+	SessionID               string          `json:"session_id"`
+	ContinuityScope         string          `json:"continuity_scope"`
+	ProfileMode             string          `json:"profile_mode"`
+	PolicyDigest            string          `json:"policy_digest"`
+	Model                   string          `json:"model"`
+	Error                   string          `json:"error"`
+	FailureReason           *string         `json:"failure_reason"`
+	CostUsd                 float64         `json:"cost_usd"`
+	LateUsageAt             *time.Time      `json:"late_usage_at"`
+	CreatedAt               time.Time       `json:"created_at"`
+	HandoffNote             string          `json:"handoff_note"`
+	InputLeaseExpiresAt     *time.Time      `json:"input_lease_expires_at"`
+	InputFetchExpiresAt     *time.Time      `json:"input_fetch_expires_at"`
+	InputFetchID            *uuid.UUID      `json:"input_fetch_id"`
+	InputOutcomes           json.RawMessage `json:"input_outcomes"`
+	AddonHash               string          `json:"addon_hash"`
+	AddonMcp                json.RawMessage `json:"addon_mcp"`
+	Kind                    string          `json:"kind"`
+	RequesterID             *uuid.UUID      `json:"requester_id"`
+	RequestedModel          string          `json:"requested_model"`
+	AgentID                 *uuid.UUID      `json:"agent_id"`
+	Assignment              string          `json:"assignment"`
+	CancelReason            *string         `json:"cancel_reason"`
+	MachineName             *string         `json:"machine_name"`
+	MachineOwnerID          *uuid.UUID      `json:"machine_owner_id"`
+	CoresearchChatID        *uuid.UUID      `json:"coresearch_chat_id"`
+	CoresearchBuildID       *uuid.UUID      `json:"coresearch_build_id"`
+	RetryAfter              *time.Time      `json:"retry_after"`
+	InfraFailures           int32           `json:"infra_failures"`
+	AttachmentSnapshot      []uuid.UUID     `json:"attachment_snapshot"`
+	LabChatID               *uuid.UUID      `json:"lab_chat_id"`
+	LabPurpose              string          `json:"lab_purpose"`
+	PinnedRuntimeID         *uuid.UUID      `json:"pinned_runtime_id"`
+	FirstStartedAt          *time.Time      `json:"first_started_at"`
+	LegacyUnverifiedStarted bool            `json:"legacy_unverified_started"`
+	AgentName               string          `json:"agent_name"`
 }
 
 func (q *Queries) AnalyticsRuns(ctx context.Context, arg AnalyticsRunsParams) ([]AnalyticsRunsRow, error) {
@@ -197,6 +199,8 @@ func (q *Queries) AnalyticsRuns(ctx context.Context, arg AnalyticsRunsParams) ([
 			&i.LabChatID,
 			&i.LabPurpose,
 			&i.PinnedRuntimeID,
+			&i.FirstStartedAt,
+			&i.LegacyUnverifiedStarted,
 			&i.AgentName,
 		); err != nil {
 			return nil, err

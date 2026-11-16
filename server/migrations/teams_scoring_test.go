@@ -147,6 +147,13 @@ func TestFollowsFromOnlyOnEndToEnd(t *testing.T) {
 	env := testutil.Setup(t)
 	_, _, card := seedWorkspace(t, env)
 	ctx := context.Background()
+	latestDown, err := fs.ReadFile(migrations.FS, "0076_remove_ratings_and_preserve_run_history.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Owner.Exec(ctx, string(latestDown)); err != nil {
+		t.Fatal(err)
+	}
 	// 0030 drops follows_from; its down puts the column and its check back.
 	down, err := fs.ReadFile(migrations.FS, "0030_one_agent_studies.down.sql")
 	if err != nil {

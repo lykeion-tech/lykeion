@@ -213,7 +213,7 @@ func (q *Queries) LabAsker(ctx context.Context, arg LabAskerParams) (bool, error
 
 const labFact = `-- name: LabFact :one
 WITH readable_records AS NOT MATERIALIZED (
- SELECT r.id, r.workspace_id, r.card_id, r.board_column, r.round, r.kind, r.role, r.key, r.body, r.blob_key, r.agent_run_id, r.superseded_at, r.created_at FROM record r
+ SELECT r.id, r.workspace_id, r.card_id, r.board_column, r.round, r.kind, r.role, r.key, r.body, r.blob_key, r.agent_run_id, r.superseded_at, r.created_at, r.legacy_review_timeline FROM record r
  WHERE r.workspace_id=$1::uuid AND r.role <> 'reporter' AND
  (COALESCE(r.body->>'server','') <> 'attachments' OR EXISTS (
    SELECT 1 FROM attachment a WHERE a.workspace_id=r.workspace_id AND a.card_id=r.card_id
@@ -609,7 +609,7 @@ func (q *Queries) ListPrivateLabMessages(ctx context.Context, arg ListPrivateLab
 }
 
 const lockPrivateLabChatRuns = `-- name: LockPrivateLabChatRuns :many
-SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
+SELECT r.id, r.workspace_id, r.card_id, r.responsible_user_id, r.board_column, r.round, r.role, r.harness, r.prompt, r.skill, r.status, r.queue_reason, r.runtime_id, r.prepare_lease_expires_at, r.dispatched_at, r.started_at, r.completed_at, r.attempt, r.max_attempts, r.session_id, r.continuity_scope, r.profile_mode, r.policy_digest, r.model, r.error, r.failure_reason, r.cost_usd, r.late_usage_at, r.created_at, r.handoff_note, r.input_lease_expires_at, r.input_fetch_expires_at, r.input_fetch_id, r.input_outcomes, r.addon_hash, r.addon_mcp, r.kind, r.requester_id, r.requested_model, r.agent_id, r.assignment, r.cancel_reason, r.machine_name, r.machine_owner_id, r.coresearch_chat_id, r.coresearch_build_id, r.retry_after, r.infra_failures, r.attachment_snapshot, r.lab_chat_id, r.lab_purpose, r.pinned_runtime_id, r.first_started_at, r.legacy_unverified_started FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
  AND r.kind='aristotle' AND r.lab_chat_id= $1::uuid ORDER BY r.id FOR UPDATE
 `
 
@@ -675,6 +675,8 @@ func (q *Queries) LockPrivateLabChatRuns(ctx context.Context, chatID uuid.UUID) 
 			&i.LabChatID,
 			&i.LabPurpose,
 			&i.PinnedRuntimeID,
+			&i.FirstStartedAt,
+			&i.LegacyUnverifiedStarted,
 		); err != nil {
 			return nil, err
 		}

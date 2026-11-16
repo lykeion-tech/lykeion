@@ -292,6 +292,15 @@ export function studyActivity(
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
+export function runActivityAt(run: AgentRun): string | null {
+  return (
+    run.first_started_at ??
+    run.started_at ??
+    (run.legacy_unverified_started ? run.completed_at : null) ??
+    null
+  );
+}
+
 export function transcript(
   comments: Comment[],
   runs: AgentRun[],
@@ -300,7 +309,10 @@ export function transcript(
 ): TranscriptEntry[] {
   const out: TranscriptEntry[] = [
     ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.created_at, comment })),
-    ...runs.map((run) => ({ kind: 'run' as const, at: run.started_at ?? run.created_at, run })),
+    ...runs.flatMap((run) => {
+      const at = runActivityAt(run);
+      return at ? [{ kind: 'run' as const, at, run }] : [];
+    }),
     ...events
       .map((e) => ({
         kind: 'event' as const,

@@ -163,6 +163,9 @@ export interface ReviewItem {
   cites: string[];
 }
 export interface ReviewAttempt {
+  legacy_timeline?: boolean;
+  jev_pass_id?: string;
+  jev_started_at?: string;
   column: Column;
   attempt: number;
   round: number;
@@ -184,13 +187,6 @@ export interface ReviewColumn {
   route_back?: Record<string, unknown> | null;
   same_family?: boolean;
   objector?: { ran: boolean; reason?: string; same_family: boolean } | null;
-}
-
-// One column of a study offered to its owner for a Team rating.
-export interface ColumnRating {
-  column: Column;
-  rating: number | null;
-  dismissed: boolean;
 }
 
 export interface Card {
@@ -321,6 +317,8 @@ export interface AgentRun {
   runtime_id: string | null;
   dispatched_at: string | null;
   started_at: string | null;
+  first_started_at?: string | null;
+  legacy_unverified_started?: boolean;
   completed_at: string | null;
   attempt: number;
   max_attempts: number;

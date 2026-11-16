@@ -130,6 +130,13 @@ func (c *Client) NoulImages(ctx context.Context, state string, questions map[str
 // post sends the questions, and any images, and returns each id's raw
 // answer; it refuses an answer from another model and any id the reply
 // leaves out.
+type startKey struct{}
+
+// WithStart calls start immediately before a validated request is sent.
+func WithStart(ctx context.Context, start func()) context.Context {
+	return context.WithValue(ctx, startKey{}, start)
+}
+
 func (c *Client) post(ctx context.Context, state string, questions map[string]any, images map[string]Image) (map[string]json.RawMessage, error) {
 	if len(questions) == 0 {
 		return nil, errors.New("jev: no questions to ask")
@@ -164,6 +171,9 @@ func (c *Client) post(ctx context.Context, state string, questions map[string]an
 	h := c.HTTP
 	if h == nil {
 		h = &http.Client{Timeout: 60 * time.Second}
+	}
+	if start, ok := ctx.Value(startKey{}).(func()); ok {
+		start()
 	}
 	resp, err := h.Do(hreq)
 	if err != nil {

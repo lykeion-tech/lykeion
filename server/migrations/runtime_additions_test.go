@@ -39,6 +39,7 @@ func TestRuntimeAdditionsMigration(t *testing.T) {
 		return string(b)
 	}
 	// The columns this checks are dropped by 0030; its down puts them back.
+	exec(read("0076_remove_ratings_and_preserve_run_history.down.sql"))
 	exec(read("0030_one_agent_studies.down.sql"))
 	ins := `INSERT INTO attachment (workspace_id, uploader_id, card_id, name, content_type, size_bytes, sha256, blob_key)
 		VALUES ($1, $2, $3, 'a.zip', 'application/zip', $4, 'h', 'k')`

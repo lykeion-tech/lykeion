@@ -739,7 +739,6 @@ func TestAColumnNoTeamWorksIsScoredOnTheCoreQuestionsAlone(t *testing.T) {
 	l := newLab(t)
 	l.legacy = true
 	stub := l.jev(t, 200, levels(nil))
-	l.e.RatingDraw = always(true)
 	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
 	c := l.study(t, "grounding", false, &a)
 	l.done(t, c.ID)
@@ -758,8 +757,5 @@ func TestAColumnNoTeamWorksIsScoredOnTheCoreQuestionsAlone(t *testing.T) {
 	}
 	if !strings.Contains(calls[0].State, "No auditor checked this column: no Team works it.") {
 		t.Fatal("Jev was not told no auditor checked the column")
-	}
-	if all, _ := l.draws(t, c.ID); all != 0 {
-		t.Fatalf("%d draws without a Team", all)
 	}
 }
