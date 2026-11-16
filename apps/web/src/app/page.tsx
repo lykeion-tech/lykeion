@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, ArrowRight, Menu, X, FileText, ListTodo, Bot, Brain, Monitor, Link2, Maximize2 } from 'lucide-react';
+import { ArrowUpRight, ArrowRight, X, FileText, ListTodo, Bot, Brain, Monitor, Link2, Maximize2 } from 'lucide-react';
 import { loadSession } from '../bridge';
 import { typedWord } from '../typing';
 import DashboardPreview from './dashboard-preview';
+import SiteFooter from './site-footer';
+import { cliIconPaths } from '../../../../packages/cli-icons';
 
 const cases = [
   ['Follow a study on the board', 'See a research question on the board and follow its progress through the stages of a study.', 'board'],
@@ -39,13 +41,13 @@ function VideoPreview({ video }: { video: string[] }) {
 }
 
 function HeroPhrase() {
-  const [word, setWord] = useState('DISCOVERY');
+  const [word, setWord] = useState('DISCOVERY.');
   useEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let timer: ReturnType<typeof setInterval> | undefined;
     const sync = () => {
       clearInterval(timer);
-      if (motion.matches) { setWord('DISCOVERY'); return; }
+      if (motion.matches) { setWord('DISCOVERY.'); return; }
       const start = performance.now();
       timer = setInterval(() => setWord(typedWord(performance.now() - start)), 90);
     };
@@ -79,7 +81,6 @@ export default function Home() {
     const timer = window.setTimeout(() => setActive(i => (i + 1) % cases.length), 10000);
     return () => window.clearTimeout(timer);
   }, [active, canAnimate, casesVisible, rotationKey]);
-  const [menu, setMenu] = useState(false);
   const [cta, setCta] = useState('/app/#/signin');
   useEffect(() => {
     let live = true;
@@ -90,9 +91,10 @@ export default function Home() {
     }
     void session(); return () => { live = false; };
   }, []);
-  return <><header className="site-header"><div className="nav-inner"><a className="brand" href="#top" aria-label="Lykeion home"><img src="/lykeion.svg" alt=""/></a><nav className={menu ? 'nav-links open' : 'nav-links'} aria-label="Main navigation"><a href="#use-cases" onClick={() => setMenu(false)}>Platform</a><a href="#workspace" onClick={() => setMenu(false)}>Workspace</a><a href="#features" onClick={() => setMenu(false)}>Features</a></nav><div className="nav-actions"><a className="github" href="https://github.com/lykeion-tech/lykeion" aria-label="Lykeion on GitHub"><img src="/github.svg" alt="" width="17" height="17"/> <span>GitHub</span></a><a className="nav-login" href={cta}>Log in</a><a className="pill primary" href={cta}>Get started</a><button className="mobile-menu" aria-label={menu ? 'Close menu' : 'Open menu'} aria-expanded={menu} onClick={() => setMenu(!menu)}>{menu ? <X/> : <Menu/>}</button></div></div></header>
+  return <><header className="site-header"><div className="nav-inner"><a className="brand" href="#top" aria-label="Lykeion home"><img src="/lykeion.svg" alt=""/></a><div className="nav-actions"><a className="github" href="https://github.com/lykeion-tech/lykeion" aria-label="Lykeion on GitHub"><img src="/github.svg" alt="" width="17" height="17"/> <span>GitHub</span></a><a className="nav-login" href={cta}>Log in</a><a className="pill primary" href={cta}>Get started</a></div></div></header>
     <main id="top"><section className="hero"><div className="wrap"><h1>Research, better together.</h1><p>A workspace where agents carry out scientific work, evidence stays connected, and your lab can focus on <HeroPhrase/></p></div></section>
-    <section className="product-intro wrap"><h2>Lykeion</h2><p className="hero-origin"><mark>Designed</mark> and <mark>Engineered</mark> in 🇩🇰 by an 🇮🇹</p><div className="download-buttons"><button className="pill primary" disabled title="Coming soon">Download app</button><button className="pill demo-button" disabled title="Coming soon">Book a demo</button></div><ul className="product-features"><li><Bot size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Agents and Teams</strong><p>Work with one agent or choose a Team with roles for each stage.</p></div></li><li><Monitor size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Your machine</strong><p>Run supported agent CLIs in the operating system’s sandbox.</p></div></li><li><FileText size={18} aria-hidden="true"/><div><strong>Evidence with provenance</strong><p>Recorded sources and outputs connect work to evidence.</p></div></li></ul></section>
+    <div className="works-with" aria-label="Works with Claude Code and Codex"><span>Works with</span><span className="works-with-provider"><svg viewBox="0 0 24 24" width="18" height="18" fill="#D97757" aria-hidden="true"><path d={cliIconPaths.claude}/></svg>Claude Code</span><span className="works-with-provider"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d={cliIconPaths.codex}/></svg>Codex</span></div>
+    <section className="product-intro wrap"><h2>Lykeion</h2><p className="hero-origin"><mark>Designed</mark> and <mark>Engineered</mark> in 🇩🇰 by an 🇮🇹</p><div className="download-buttons"><a className="pill primary" href="/download/">Download app</a><a className="pill demo-button" href="/contact-sales/">Book a demo</a></div><ul className="product-features"><li><Bot size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Agents and Teams</strong><p>Work with one agent or choose a Team with roles for each stage.</p></div></li><li><Monitor size={18} strokeWidth={1.7} aria-hidden="true"/><div><strong>Your machine</strong><p>Run supported agent CLIs in the operating system’s sandbox.</p></div></li><li><FileText size={18} aria-hidden="true"/><div><strong>Evidence with provenance</strong><p>Recorded sources and outputs connect work to evidence.</p></div></li></ul></section>
     <div className="dashboard-landscape"><DashboardPreview/></div>
     <section className="intro wrap" id="use-cases"><h2>Your question. Your evidence.<br/>Your whole lab, working together.</h2><p>Turn a research question into a study that agents can work<br/>and people can steer.</p></section>
     <section className="cases wrap" ref={casesRef}><div className="section-kicker">USE CASES <span>{active + 1} / {cases.length}</span></div><div className="cases-grid"><div className="case-art"><img src={`/demo-use-cases/${photos[active][0]}`} alt={photos[active][1]}/></div><div className="accordion">{cases.map((item, i) => <div className="accordion-item" key={item[0]}>{active === i && canAnimate && casesVisible && <div className="case-progress" aria-hidden="true" key={`${i}-${rotationKey}`}/>}<button aria-expanded={active === i} onClick={() => { setActive(i); setRotationKey(k => k + 1); }}><span>{item[0]}</span><span>{active === i ? '−' : '+'}</span></button>{active === i && <div><p>{item[1]}</p><a href="#workspace" className="pill primary">Explore the platform <ArrowUpRight size={15}/></a></div>}</div>)}</div></div></section>
@@ -112,18 +114,7 @@ export default function Home() {
       </svg>
     </div></section>
     <div className="features-surface"><section className="features wrap" id="features"><div className="center-title"><h2>A workspace built for<br/>the whole research process.</h2><p>The tools around the board, together in one place.</p></div></section></div>
-    <section className="get-started wrap"><div><small>GET STARTED</small><h2>Give your next question<br/>to the lab.</h2><p>Open a workspace, connect a machine, and start a study.</p><a className="pill primary" href={cta}>Open your lab</a><a className="subtle-link" href="#use-cases">Explore Lykeion <ArrowRight size={16}/></a></div><div className="cta-art"><div className="download-buttons"><button className="pill primary" disabled title="Coming soon">Download app</button><button className="pill demo-button" disabled title="Coming soon">Book a demo</button></div></div></section>
+    <section className="get-started wrap"><div><small>GET STARTED</small><h2>Give your next question<br/>to the lab.</h2><p>Open a workspace, connect a machine, and start a study.</p><a className="pill primary" href={cta}>Open your lab</a><a className="subtle-link" href="#use-cases">Explore Lykeion <ArrowRight size={16}/></a></div><div className="cta-art"><div className="download-buttons"><a className="pill primary" href="/download/">Download app</a><a className="pill demo-button" href="/contact-sales/">Book a demo</a></div></div></section>
     <section className="resources wrap"><a href="#use-cases"><small>THE BOARD</small><h3>From a question to a study</h3><p>Follow the work across the board, with its evidence and outputs close at hand.</p><span>Explore the board <ArrowUpRight size={15}/></span></a><div><a href="#workspace"><small>WORKSPACE</small><h3>Around the board</h3><p>Meet the agents, Teams and tools that make up a Lykeion lab.</p></a><a href="#features"><small>CORESEARCH</small><h3>Work alongside your agents</h3><p>Experiment with files and runs, or write together in Cowrite.</p></a></div></section></main>
-    <footer className="footer">
-      <div className="footer-main wrap">
-        <div className="footer-intro"><strong>Lykeion</strong><p>A research lab where agents work<br/>and people steer.</p></div>
-        <nav className="footer-columns" aria-label="Footer navigation">
-          <div><h2>Compare</h2><span aria-disabled="true">vs. Claude Science</span><span aria-disabled="true">vs. Open Science</span><span aria-disabled="true">vs. K-Dense BYOK</span><span aria-disabled="true">vs. Elicit</span></div>
-          <div><h2>Community</h2><span aria-disabled="true">Forum</span><span aria-disabled="true">Discord</span></div>
-          <div><h2>Developers</h2><span aria-disabled="true">Documentation</span><a href="https://github.com/lykeion-tech/lykeion">GitHub</a><a href="https://github.com/lykeion-tech/lykeion/contribute">Contributing</a></div>
-          <div><h2>Company</h2><span aria-disabled="true">About</span><span aria-disabled="true">Contact</span></div>
-        </nav>
-      </div>
-      <div className="footer-bottom"><div className="wrap footer-bottom-inner"><div className="footer-copyright"><img src="/lykeion.svg" alt=""/><span aria-hidden="true">{'//'}</span><p>Copyright © 2026 Lykeion.<br/>All rights reserved.</p></div><div className="footer-bottom-links"><div><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div><a href="https://github.com/lykeion-tech/lykeion" aria-label="Lykeion on GitHub"><img src="/github.svg" width="15" height="15" alt=""/></a></div></div></div>
-    </footer></>;
+    <SiteFooter/></>;
 }

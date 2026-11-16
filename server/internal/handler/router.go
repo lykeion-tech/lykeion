@@ -46,6 +46,7 @@ func NewRouter(h *H) http.Handler {
 	r.Post("/api/webhooks/autoresearch/{token}", h.autoresearchWebhook)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	r.Get("/readyz", h.readyz)
+	r.Post("/api/contact-sales", h.contactSales)
 	r.Post("/auth/send-code", h.sendCode)
 	r.Post("/auth/verify-code", h.verifyCode)
 	r.Post("/auth/logout", h.logout)

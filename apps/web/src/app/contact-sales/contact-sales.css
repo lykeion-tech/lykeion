@@ -1,0 +1,20 @@
+.contact-page{min-height:calc(100vh - 75px);padding:96px 20px 112px;background:#f5f4f1}
+.contact-heading{text-align:center;margin:0 auto 36px}
+.contact-heading p{font-size:12px;letter-spacing:.15em;font-weight:600;color:#8995a2}
+.contact-heading h1{margin-top:8px;font-size:40px;line-height:1.2}
+.contact-form{width:min(100%,720px);margin:auto;padding:42px;border:1px solid #dfe7ed;border-radius:16px;background:#fff;box-shadow:0 1px 3px #1a35400a}
+.contact-form>label,.contact-row>label{display:block;font-size:14px;font-weight:500}
+.contact-form>label,.contact-row{margin-bottom:28px}
+.contact-row{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.contact-form label>span{color:#d34135}
+.contact-form input:not([type=checkbox]),.contact-form select,.contact-form textarea{display:block;width:100%;min-width:0;margin-top:7px;padding:11px 13px;border:1px solid #d0dbe4;border-radius:9px;background:#f8fafc;color:var(--ink);font:inherit;line-height:1.4}
+.contact-form input:not([type=checkbox]),.contact-form select{height:44px}
+.contact-form textarea{resize:vertical}
+.contact-form input:focus-visible,.contact-form select:focus-visible,.contact-form textarea:focus-visible{outline:3px solid #e7c148;outline-offset:2px}
+.contact-form small{display:block;margin-top:7px;color:#7d8994;font-size:12px;font-weight:400;line-height:1.5}
+.contact-privacy{color:#6d7c89;font-size:13px;line-height:1.6}
+.contact-privacy p{margin:0 0 18px}.contact-privacy label{display:flex;align-items:flex-start;gap:10px;margin:0 0 16px}.contact-privacy input{flex:none;width:16px;height:16px;margin:3px 0 0;accent-color:#006dd5}.contact-privacy a,.contact-success a{text-decoration:underline;text-underline-offset:3px}
+.contact-error{margin:20px 0 0;color:#a32d25;font-size:14px}.contact-submit{margin-top:16px;min-width:120px}.contact-submit:disabled{opacity:.65;cursor:wait}
+.contact-success h2{font-size:28px}.contact-success p{margin-top:14px;color:#657888}.contact-success a{display:inline-block;margin-top:22px;color:#006dd5}
+
+@media(max-width:700px){.contact-page{padding:68px 20px 80px}.contact-heading h1{font-size:32px}.contact-form{padding:28px 22px}.contact-row{grid-template-columns:1fr;gap:24px}.contact-form>label,.contact-row{margin-bottom:24px}}
