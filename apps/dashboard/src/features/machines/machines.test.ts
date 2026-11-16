@@ -11,7 +11,7 @@ async function renderMachine(
   sandbox?: string,
   previous?: { sandbox: string; status: 'online' | 'offline' },
   unhealthyReason?: string,
-  runtimeStatus: 'online' | 'offline' = 'online',
+  runtimeStatus: 'online' | 'offline' | 'unknown' = 'online',
   extra: {
     bases?: Record<string, string>;
     previousBases?: Record<string, string>;
@@ -115,6 +115,21 @@ describe('machine sandbox readiness', () => {
 });
 
 describe('runtime readiness', () => {
+  it('explains supported CLIs and how to investigate runtime health', async () => {
+    const html = await renderMachine(undefined, undefined, 'cli_missing');
+    expect(html).toContain('Claude Code and Codex are supported');
+    expect(html).toContain('Check daemon diagnostics below');
+    expect(html).not.toContain('Add custom runtime');
+  });
+  it('directs offline machines to instructions on that computer', async () => {
+    const html = await renderMachine(undefined, undefined, undefined, 'offline');
+    expect(html).toContain('Check the daemon on this computer');
+  });
+  it('retains unknown runtime status', async () => {
+    const html = await renderMachine(undefined, undefined, undefined, 'unknown');
+    expect(html).toContain('Not reported');
+  });
+
   it('retains offline status when a runtime also has a preflight failure', async () => {
     const html = await renderMachine(undefined, undefined, 'cli_missing', 'offline');
     expect(html).toContain('Offline · Needs attention');

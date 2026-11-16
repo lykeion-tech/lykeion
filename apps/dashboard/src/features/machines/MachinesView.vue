@@ -398,15 +398,8 @@ async function remove(d: Daemon) {
           <div class="runtime-heading">
             <div>
               <h2>Runtimes</h2>
-              <p>Agent CLIs appear automatically when the daemon detects them.</p>
+              <p>Claude Code and Codex are supported. Agent CLIs appear automatically when the daemon detects them.</p>
             </div>
-            <button
-              class="button primary"
-              disabled
-              title="Custom runtime configuration is not available in this version"
-            >
-              <Icon name="plus" :size="14" />Add custom runtime
-            </button>
           </div>
           <div class="runtime-table-scroll">
             <table class="machine-runtime-table" aria-label="Runtimes">
@@ -465,6 +458,13 @@ async function remove(d: Daemon) {
               </tbody>
             </table>
           </div>
+          <p v-if="!machine.online && !machine.localProfile" class="remote-limit">
+            Check the daemon on this computer using Daemon instructions.
+          </p>
+          <p v-else-if="machine.runtimes.some((r) => r.unhealthy_reason)" class="remote-limit">
+            Check daemon diagnostics below and use Daemon instructions on the computer to investigate.
+            <button class="text-button" @click="daemonSettings?.$el.scrollIntoView()">View diagnostics</button>
+          </p>
           <div class="remote-limit">
             <p>
               {{
