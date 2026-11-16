@@ -166,7 +166,10 @@ async function save(kind: 'skills' | 'connectors') {
       <p v-if="query.data.value?.team_member && !team" class="agent-hint">
         This agent's Team is not available to you.
       </p>
-      <p v-else-if="!canEdit && team?.source !== 'shipped'" class="agent-hint">
+      <p v-else-if="!canEdit && team?.source === 'shipped'" class="agent-hint">
+        Shipped Team capabilities are read-only.
+      </p>
+      <p v-else-if="!canEdit" class="agent-hint">
         Only the owner can change these capabilities.
       </p>
       <section class="capability-section" aria-labelledby="skills-heading">

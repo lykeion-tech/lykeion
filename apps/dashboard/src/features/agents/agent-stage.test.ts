@@ -250,6 +250,57 @@ async function mount(
 }
 
 describe('agent stage', () => {
+  it('opens instructions and customization from agent settings', async () => {
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({})], 'owner');
+    await t.click(/^Settings$/);
+    await t.click(/^Instructions$/);
+    expect(t.find('textarea', (n) => n.props['aria-label'] === 'Agent instructions')).toBeTruthy();
+    await t.click(/^Skills & connectors$/);
+    expect(t.text()).toContain('Skills');
+  });
+
+  it('shows a failed instruction save without discarding the draft', async () => {
+    request.mockRejectedValue(new Error('Save failed'));
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({})], 'owner');
+    await t.click(/^Settings$/);
+    await t.click(/^Instructions$/);
+    const input = t.find('textarea', (n) => n.props['aria-label'] === 'Agent instructions')!;
+    (input.props['onUpdate:modelValue'] as (value: string) => void)('Draft instructions');
+    await nextTick();
+    const form = t.find('form', () => true)!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    await nextTick();
+    expect(t.text()).toContain('Save failed');
+    expect((input as unknown as { value: string }).value).toBe('Draft instructions');
+  });
+
+  it('does not show an old workspace save error after switching', async () => {
+    let rejectSave!: (error: Error) => void;
+    request.mockImplementation((method: string, url: string) => method === 'PATCH'
+      ? new Promise((_resolve, reject) => { rejectSave = reject; })
+      : Promise.resolve(url === '/api/agents/a' ? agent({}) : []));
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({})], 'owner');
+    await t.click(/^Settings$/);
+    await t.click(/^Instructions$/);
+    const form = t.find('form', () => true)!;
+    const saving = (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    workspaceId.value = 'another-workspace';
+    await nextTick();
+    rejectSave(new Error('Old workspace failure'));
+    await saving;
+    await nextTick();
+    expect(t.text()).not.toContain('Old workspace failure');
+  });
+
+  it('keeps another owner’s instructions read-only without saving', async () => {
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({ owner_id: 'u2' })], 'member');
+    await t.click(/^Settings$/);
+    await t.click(/^Instructions$/);
+    expect(t.find('textarea', (n) => n.props['aria-label'] === 'Agent instructions')?.props.readonly).toBe(true);
+    expect(t.button(/^Save$/)).toBeFalsy();
+    expect(request.mock.calls.some((call) => call[0] === 'PATCH')).toBe(false);
+  });
+
   it('requires a stage in the create form and sends it', async () => {
     request.mockResolvedValue(agent({ id: 'new' }));
     const t = await mount(AgentsView, { create: true }, []);

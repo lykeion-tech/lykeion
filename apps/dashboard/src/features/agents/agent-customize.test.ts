@@ -70,6 +70,10 @@ it('saves standalone selections and keeps shipped Team capabilities read-only', 
   };
   await client.refetchQueries({ queryKey: ['ws', 'lab', 'agent-capabilities', 'agent'] });
   await nextTick();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await nextTick();
+  expect(textOf(root)).toContain('Shipped Team capabilities are read-only.');
+  expect(all(root).find((n) => n.tag === 'button' && textOf(n).includes('Add skill'))?.props.disabled).toBe(true);
   expect(textOf(root)).not.toContain('Duplicate the Agent');
   expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Save skills')).toBe(
     false,
