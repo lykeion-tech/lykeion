@@ -153,6 +153,23 @@ The Go integration tests start PostgreSQL and Redis containers through Docker. A
 
 `npm run test:e2e` builds and starts a throwaway lab (`TestUILab`) and a dashboard on port 1431, then drives them with Chromium. It needs `npx playwright install chromium`, or `PLAYWRIGHT_CHROMIUM_EXECUTABLE` set to a Chromium you already have.
 
+Documentation browser tests run separately, without the Go lab or dashboard. From a clean checkout, install both dependency sets and Chromium, then run the checked-in docs project:
+
+```sh
+npm ci
+npm ci --prefix apps/web
+npx playwright install chromium
+npm run test:e2e -- --config=playwright.docs.config.ts --project=docs
+```
+
+This starts the real Next.js site on port 1453 and shuts it down after testing. `LYK_DOCS_URL` targets an already-running site instead. The isolated Caddy deployment check stays skipped by default; after building `apps/web/out` and serving it with an isolated Caddy instance (no API upstream), opt in with:
+
+```sh
+LYK_DOCS_URL=http://127.0.0.1:1440 LYK_DOCS_DEPLOYMENT=1 npm run test:e2e -- --config=playwright.docs.config.ts --project=docs
+```
+
+The default Playwright configuration keeps the existing `setup`, `lab` and `lab-contract` suites and excludes `docs.spec.ts` from the lab project.
+
 After changing SQL, regenerate the queries with `GOMAXPROCS=2 go tool sqlc generate` in `server/`, and commit the files in `pkg/db/generated`.
 
 ## Lineage and licences

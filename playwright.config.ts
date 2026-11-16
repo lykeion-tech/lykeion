@@ -18,7 +18,7 @@ export default defineConfig({
     {
       name: 'lab',
       testMatch: '*.spec.ts',
-      testIgnore: 'lab.spec.ts',
+      testIgnore: ['lab.spec.ts', 'docs.spec.ts'],
       dependencies: ['setup'],
       use: { storageState: 'test-results/ui-lab/session.json' },
     },
