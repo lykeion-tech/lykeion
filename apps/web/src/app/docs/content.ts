@@ -53,7 +53,7 @@ Sign in and follow Laboratory onboarding. Choose an existing workspace or create
 
 ## 2. Connect a machine
 
-Open Machines in Settings and choose Add a machine. Follow the commands for your platform, including the CLI build prerequisites. Sign in to the same account. Wait for the computer to appear online, then inspect its available agent runtimes. See [connect a machine](/docs/connect-machine/) for the complete setup.
+Use the [download page](/download/) to install the desktop app, which includes the daemon. Sign in to your lab account and install and authenticate Claude Code or Codex on that computer. For a remote computer, use the prebuilt CLI instructions on the same page, choose your workspace and start the daemon. Linux also needs bubblewrap. Open Settings → Machines to confirm the computer and intended runtime are online. See [connect a machine](/docs/connect-machine/) for the complete setup.
 
 ## 3. Create the study
 
@@ -152,7 +152,7 @@ This tutorial takes you from an account to an inspectable research hand-in. Use 
 
 ## Prepare
 
-You need a signed-in Lykeion account, permission to use or create a workspace, and a computer with a supported authenticated agent CLI. Machine setup currently requires Go 1.26 and a Lykeion source checkout to build the CLI. If your lab supplies a connected machine, ask which runtime you may use.
+You need a signed-in Lykeion account, permission to use or create a workspace, and a computer with a supported authenticated agent CLI. The [download page](/download/) offers the desktop app with its daemon and a prebuilt CLI for remote computers. You do not need a source checkout for these hosted setup paths. If your lab supplies a connected machine, ask which runtime you may use.
 
 For the example, ask: How does sleep affect memory consolidation? Request a sourced account of current evidence, competing explanations and limits. Do not upload confidential participant data for a first exercise.
 
@@ -169,9 +169,11 @@ This capture shows the setup form, before submitting another workspace. Existing
 
 ## 2. Connect execution
 
-Open Settings, then Machines and Add a machine. Follow the platform-specific build, login and daemon instructions in [connect a machine](/docs/connect-machine/). Keep credentials in the terminal flow; do not paste them into a study.
+Install the desktop app from the [download page](/download/) for your own computer, or follow its prebuilt CLI instructions for a remote macOS / Linux machine. Install and authenticate Claude Code or Codex there; Linux also needs bubblewrap. For the CLI, sign in to Lykeion, choose your workspace and start the daemon. Then open Settings → Machines to check runtime availability. See [connect a machine](/docs/connect-machine/) for the steps; the source-build dialog is an alternative. Keep credentials in the terminal flow; do not paste them into a study.
 
-![Actual online Claude and Codex runtimes on the demonstration machine](/docs/machine-runtimes.jpg)
+[![Actual Claude Code and Codex runtime rows marked Online](/docs/machine-runtimes-detail.jpg)](/docs/machine-runtimes.jpg)
+
+Both demonstration runtimes show Online under Health. Open the image for the full runtime view.
 
 Check that the desired runtime is online and usable. A machine's presence in the list does not establish that every CLI on it is authenticated or healthy.
 
@@ -180,7 +182,7 @@ Check that the desired runtime is online and usable. A machine's presence in the
 1. Open Studies and create a study.
 2. Use the example question as the title. In the description, request citations, competing explanations and a list of inaccessible sources.
 3. Choose an appropriate agent or Team and review the stage scope. For your first exercise you can keep the scope bounded to Grounding.
-4. Check the selected machine and any required inputs, then select Create study.
+4. Check the assignee, stage scope and required inputs, then select Create study. Check a bound machine in the agent configuration, or availability in Settings → Machines; the manual study composer has no machine selector.
 5. Record the resulting study identifier so you can return to it.
 
 Use [studies](/docs/studies/) for assignment details and [Teams](/docs/teams/) for coordinated stage work.
@@ -189,7 +191,7 @@ Use [studies](/docs/studies/) for assignment details and [Teams](/docs/teams/) f
 
 Open the study from its board card. Read Activity, expand agent cards and look for a hand-in, a running attempt or an explicit blocker. Check Review before assuming the stage has passed.
 
-![The real DISC-1 study remains in Grounding with scoring unavailable](/docs/study-board.jpg)
+[![DISC-1 Grounding card waiting for unavailable scoring](/docs/study-board-detail.jpg)](/docs/study-board.jpg)
 
 The demonstration produced real hand-ins, but scoring was unavailable. This is a blocked intermediate state; it does not verify later stages. If you see the same condition, resolve the reported service issue rather than treating the study as Done.
 
@@ -197,7 +199,9 @@ The demonstration produced real hand-ins, but scoring was unavailable. This is a
 
 Read the hand-in and follow its source references. Compare the answer with your requested scope. Open Files for produced artifacts, Notebook for recorded computations and Review for available checks and their explanations. These surfaces can be empty when that kind of record has not been produced.
 
-![A real Searcher Grounding hand-in in DISC-1](/docs/study-progress.jpg)
+[![Searcher Grounding Team hand-in identity and Assignment heading](/docs/study-progress-detail.jpg)](/docs/study-progress.jpg)
+
+This detail identifies the Searcher hand-in. Open the image for the full study screenshot and its assignment and findings.
 
 This is a hand-in to inspect, not a passed validation. Record what the evidence supports, what remains unresolved and whether another stage is needed. See [evidence and results](/docs/evidence-and-results/).
 
@@ -361,7 +365,9 @@ Start from a study you can access in the selected workspace. The useful result i
 4. Open Notebook for recorded computation, including code, printed output and standard error where present.
 5. Open Review for the available checks and their explanations. Select a stage or check to inspect its details.
 
-![An actual Grounding hand-in in the demonstration study](/docs/study-progress.jpg)
+[![Searcher Grounding Team hand-in identity and Assignment heading](/docs/study-progress-detail.jpg)](/docs/study-progress.jpg)
+
+The detail identifies the hand-in. Open the image for the full assignment and findings in the actual study screenshot.
 
 The example shows a Searcher hand-in. Grounding scoring was unavailable, so this capture is not a passed review or a validated finding.
 
@@ -549,29 +555,39 @@ If no model is available, inspect [machine connection](/docs/connect-machine/) a
     section: 'Machine and execution',
     markdown: `# Connect a machine
 
-A machine is a computer whose Lykeion daemon exposes agent CLI runtimes. The hosted app needs one to execute agent work. You need a supported agent CLI installed and authenticated on that computer, plus Go 1.26 and a Lykeion source checkout for the current CLI build flow. Ask your lab for the checkout or an already connected machine if you do not have these prerequisites.
+A machine is a computer whose Lykeion daemon exposes agent CLI runtimes. The hosted app needs one to execute agent work. Install and authenticate Claude Code or Codex on the computer you want to connect. Choose the desktop app for your own computer or the prebuilt CLI for a remote machine; neither path requires building Lykeion from source.
 
-## Follow the platform instructions
+## Connect with the desktop app
 
-1. Open Settings, choose Machines and select Add a machine.
-2. Select macOS / Linux or Windows.
-3. In the checkout's server directory, run the build command displayed by the dialog.
-4. Copy its login command, replace the example email with your account and enter the emailed code in the terminal. Use the server address supplied by the hosted app.
-5. Start the daemon with the displayed command and wait for detection.
+1. Open the [download page](/download/) and choose the desktop app for your platform.
+2. Install it and sign in to your lab account. The app includes the agent daemon.
+3. Check Settings → Machines for this computer and its detected runtimes. Use its daemon controls to start execution when needed.
+4. Confirm that the intended Claude Code or Codex runtime is online and healthy before assigning work.
 
-For macOS or Linux, the dialog's sequence is:
+## Connect a remote computer with the prebuilt CLI
+
+Use the macOS / Linux instructions on the [download page](/download/). Linux also needs bubblewrap; macOS uses its built-in sandbox. Install and sign in to Claude Code or Codex on that machine first.
+
+Run the published installer, sign in to Lykeion, select your workspace and start the daemon:
 
 \`\`\`sh
-go build -o lyk ./cmd/lyk
-./lyk login --server 'https://app.lykeion.tech' --email you@lab.org
-./lyk daemon start
+curl -fsSL https://raw.githubusercontent.com/lykeion-tech/lykeion/main/scripts/install.sh | bash
+lyk login --email you@lab.org --server https://app.lykeion.tech
+lyk workspace switch <slug>
+lyk daemon start
 \`\`\`
 
-Use your actual hosted origin if it differs. On Windows, use the dialog's PowerShell commands for lyk.exe and keep the foreground daemon terminal open.
+Replace the email and workspace slug with your own, and enter the emailed code in the terminal. Follow the installer's PATH instructions if lyk is not found. These commands also work over SSH. Use your actual hosted origin if it differs.
+
+## Alternative: build from source
+
+The dashboard's Add a machine dialog also offers a source-build path. This alternative requires Go 1.26 and a Lykeion source checkout. Run its displayed build command from the checkout's server directory, then follow its login and daemon instructions. Choose the dialog's Windows tab for its PowerShell source-build commands and keep the foreground daemon terminal open. The prebuilt installer above is the macOS / Linux path.
 
 ## Confirm execution is ready
 
-![An actual paired machine in the demonstration workspace](/docs/connected-machine.jpg)
+[![The paired demonstration machine marked Online](/docs/connected-machine-detail.jpg)](/docs/connected-machine.jpg)
+
+The detail shows the demonstration Mac marked Online. Open the image for the full Machines view.
 
 Open the detected computer and inspect its runtimes. Confirm the intended CLI is online and healthy. The daemon discovers supported CLIs; a computer being online does not guarantee that every provider is authenticated.
 
@@ -580,8 +596,8 @@ Open the detected computer and inspect its runtimes. Confirm the intended CLI is
 On macOS or Linux, inspect status and logs:
 
 \`\`\`sh
-./lyk daemon status
-./lyk daemon logs
+lyk daemon status
+lyk daemon logs
 \`\`\`
 
 On Windows, read the foreground output. If no computer appears, check the account, hosted server address and network reachability. An address containing localhost refers to the computer running the command, so it cannot identify a remote hosted server.
@@ -636,7 +652,7 @@ Start with the state you can observe. Record the workspace, study identifier, ti
 ## Work is not starting
 
 1. Confirm the selected account and workspace.
-2. Open the study and inspect its assignee, scope and selected machine.
+2. Open the study and inspect its assignee and scope. Check a bound machine in the agent configuration; the manual study composer does not select a machine.
 3. Check Machines for the relevant runtime's online status and health.
 4. On the execution computer, check that the supported agent CLI is installed and authenticated.
 5. Read the study's latest activity and any explicit waiting reason.

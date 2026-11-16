@@ -55,3 +55,41 @@ describe('researcher guides', () => {
     }
   });
 });
+
+describe('hosted setup and actual study controls', () => {
+  it('leads setup journeys with desktop and prebuilt CLI paths', () => {
+    for (const slug of ['quickstart', 'complete-tutorial', 'connect-machine']) {
+      const text = getArticle(slug)!.markdown;
+      expect(text, slug).toContain('](/download/)');
+      expect(text, slug).toContain('desktop app');
+      expect(text, slug).toContain('prebuilt CLI');
+      expect(text.indexOf('desktop app'), slug).toBeLessThan(
+        text.indexOf('Go 1.26') < 0 ? text.length : text.indexOf('Go 1.26'),
+      );
+      expect(text, slug).not.toContain('Machine setup currently requires Go');
+    }
+    const machine = getArticle('connect-machine')!.markdown;
+    expect(machine).toContain('lyk workspace switch <slug>');
+    expect(machine).toContain('bubblewrap');
+    expect(machine).toContain('## Alternative: build from source');
+  });
+  it('checks the machine outside the manual study composer', () => {
+    const tutorial = getArticle('complete-tutorial')!.markdown;
+    expect(tutorial).not.toContain('Check the selected machine and any required inputs');
+    expect(tutorial).toContain('agent configuration');
+    expect(tutorial).toContain('Check the assignee, stage scope and required inputs');
+    expect(getArticle('troubleshooting')!.markdown).not.toContain(
+      'its assignee, scope and selected machine',
+    );
+  });
+  it('uses detail crops for status and research-record screenshots', () => {
+    for (const [slug, asset] of [
+      ['connect-machine', 'connected-machine-detail.jpg'],
+      ['complete-tutorial', 'machine-runtimes-detail.jpg'],
+      ['complete-tutorial', 'study-board-detail.jpg'],
+      ['complete-tutorial', 'study-progress-detail.jpg'],
+      ['evidence-and-results', 'study-progress-detail.jpg'],
+    ])
+      expect(getArticle(slug)!.markdown, slug).toContain(`/docs/${asset}`);
+  });
+});
