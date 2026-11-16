@@ -590,6 +590,7 @@ async function copySlug() {
                 ><textarea
                   v-model="description"
                   aria-label="Workspace description"
+                  class="workspace-description-input"
                   placeholder="What does this workspace focus on?"
                   :disabled="!isAdmin || busy"
                 /></label
@@ -926,6 +927,9 @@ async function copySlug() {
   text-align: right;
 }
 .setting-row input.workspace-name-input {
+  text-align: right;
+}
+.setting-row textarea.workspace-description-input {
   text-align: right;
 }
 .setting-row.about-row {
