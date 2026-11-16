@@ -160,6 +160,9 @@ export const relationships: [number, number][] = [
 export const connections = (index: number) =>
   relationships.flatMap(([a, b]) => (a === index ? [b] : b === index ? [a] : []));
 
+export const conceptNote =
+  'Lines show documented relationships, not automatic data flow or guaranteed execution.';
+
 export function learningMarkdown(slug: string): string {
   if (slug === 'scientific-stages')
     return `## Stage walkthrough
@@ -190,6 +193,8 @@ ${advancement}
 `;
   if (slug === 'core-concepts')
     return `## Concept relationships
+
+${conceptNote}
 
 ${concepts
   .map(

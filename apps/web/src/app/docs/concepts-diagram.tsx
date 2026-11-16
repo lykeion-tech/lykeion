@@ -2,7 +2,7 @@ import React from 'react';
 import { getArticle } from './content';
 import './learning.css';
 
-import { concepts, connections } from './learning-content';
+import { concepts, connections, conceptNote } from './learning-content';
 
 // Use the grid gutters so a relationship never crosses an unrelated concept.
 export function conceptPath(first: number, second: number) {
@@ -80,9 +80,7 @@ export function ConceptsDiagram() {
           </React.Fragment>
         ))}
       </fieldset>
-      <p className="learning-note">
-        Lines show documented relationships, not automatic data flow or guaranteed execution.
-      </p>
+      <p className="learning-note">{conceptNote}</p>
     </section>
   );
 }

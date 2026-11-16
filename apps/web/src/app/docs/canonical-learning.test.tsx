@@ -59,3 +59,17 @@ describe('canonical interactive learning content', () => {
     ).not.toContain('<script>');
   });
 });
+
+it('preserves the concept relationship caveat in canonical Markdown and the graphic', async () => {
+  const note =
+    'Lines show documented relationships, not automatic data flow or guaranteed execution.';
+  expect(getArticle('core-concepts')!.markdown).toContain(note);
+  const html = renderToStaticMarkup(
+    await ArticlePage({ params: Promise.resolve({ slug: 'core-concepts' }) }),
+  );
+  expect(
+    html.match(
+      /Lines show documented relationships, not automatic data flow or guaranteed execution\./g,
+    ),
+  ).toHaveLength(1);
+});
