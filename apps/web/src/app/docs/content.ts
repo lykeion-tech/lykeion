@@ -89,7 +89,7 @@ Before assigning research, separate the question you want answered from the soft
 1. Choose a **workspace**, the shared context for your lab's studies, colleagues and configuration.
 2. Create a **study**, a question or task with a description, assignee and stage scope.
 3. Assign an **agent**, a configured research role, or a **Team**, a coordinated group for a stage.
-4. Select a **machine**, the computer whose daemon exposes supported agent CLI runtimes. A **run** records one execution attempt.
+4. Open Settings → Machines to confirm the runtime needed by your agent or Team is online. A **machine** is the computer exposing those runtimes; a **run** records one execution attempt.
 5. Inspect the resulting activity, hand-ins, files, notebook records and review.
 
 A machine can expose more than one runtime. An agent's identity is reusable across work; its individual runs have their own progress and errors.
@@ -551,7 +551,7 @@ If no model is available, inspect [machine connection](/docs/connect-machine/) a
     slug: 'connect-machine',
     title: 'Connect a machine',
     description:
-      'Build and sign in to the Lykeion CLI, start its daemon and confirm an available agent runtime.',
+      'Connect the desktop app or prebuilt CLI and confirm an available agent runtime.',
     section: 'Machine and execution',
     markdown: `# Connect a machine
 

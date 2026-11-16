@@ -101,3 +101,11 @@ it('does not present native Windows commands as supported agent execution', () =
   expect(machine).not.toContain('keep the foreground daemon terminal open');
   expect(machine).not.toContain('On Windows, read the foreground output');
 });
+
+it('checks runtime availability in Settings after choosing an agent or Team', () => {
+  const concepts = getArticle('core-concepts')!.markdown;
+  expect(concepts).not.toContain('Select a **machine**');
+  expect(concepts).toContain('Settings → Machines');
+  expect(concepts).toContain('runtime needed by your agent or Team is online');
+  expect(getArticle('connect-machine')!.description).not.toMatch(/^Build/);
+});
