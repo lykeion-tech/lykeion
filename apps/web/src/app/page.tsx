@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, ArrowRight, X, FileText, ListTodo, Bot, Brain, Monitor, Link2, Maximize2 } from 'lucide-react';
+import { ArrowUpRight, X, FileText, ListTodo, Bot, Brain, Monitor, Link2, Maximize2 } from 'lucide-react';
 import { loadSession } from '../bridge';
 import { typedWord } from '../typing';
 import DashboardPreview from './dashboard-preview';
 import SiteFooter from './site-footer';
+import GetStarted from './get-started';
 import { cliIconPaths } from '../../../../packages/cli-icons';
 
 const cases = [
@@ -113,8 +114,8 @@ export default function Home() {
         <circle className="science-pulse pulse-one" r="4"><animateMotion dur="5s" repeatCount="indefinite" path="M145 188 L300 300 L455 180"/></circle><circle className="science-pulse pulse-two" r="4"><animateMotion dur="6s" repeatCount="indefinite" path="M460 440 L300 300 L138 435"/></circle>
       </svg>
     </div></section>
-    <div className="features-surface"><section className="features wrap" id="features"><div className="center-title"><h2>A workspace built for<br/>the whole research process.</h2><p>The tools around the board, together in one place.</p></div></section></div>
-    <section className="get-started wrap"><div><small>GET STARTED</small><h2>Give your next question<br/>to the lab.</h2><p>Open a workspace, connect a machine, and start a study.</p><a className="pill primary" href={cta}>Open your lab</a><a className="subtle-link" href="#use-cases">Explore Lykeion <ArrowRight size={16}/></a></div><div className="cta-art"><div className="download-buttons"><a className="pill primary" href="/download/">Download app</a><a className="pill demo-button" href="/contact-sales/">Book a demo</a></div></div></section>
-    <section className="resources wrap"><a href="#use-cases"><small>THE BOARD</small><h3>From a question to a study</h3><p>Follow the work across the board, with its evidence and outputs close at hand.</p><span>Explore the board <ArrowUpRight size={15}/></span></a><div><a href="#workspace"><small>WORKSPACE</small><h3>Around the board</h3><p>Meet the agents, Teams and tools that make up a Lykeion lab.</p></a><a href="#features"><small>CORESEARCH</small><h3>Work alongside your agents</h3><p>Experiment with files and runs, or write together in Cowrite.</p></a></div></section></main>
+    <section className="resources wrap"><div className="resource-board"><small>THE BOARD</small><h3>From a question to a study</h3><p>Follow the work across the board, with its evidence and outputs close at hand.</p></div><div className="resource-list"><div><small>WORKSPACE</small><h3>Around the board</h3><p>Meet the agents, Teams and tools that make up a Lykeion lab.</p></div><div><small>CORESEARCH</small><h3>Work alongside your agents</h3><p>Experiment with files and runs, or write together in Cowrite.</p></div></div></section>
+    <GetStarted cta={cta}/>
+</main>
     <SiteFooter/></>;
 }
