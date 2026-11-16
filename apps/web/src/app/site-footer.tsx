@@ -12,6 +12,6 @@ export default function SiteFooter() {
           <div><h2>Company</h2><Link href="/about/">About</Link><a href="/contact-sales/">Contact</a></div>
         </nav>
       </div>
-      <div className="footer-bottom"><div className="wrap footer-bottom-inner"><div className="footer-copyright"><img src="/lykeion.svg" alt=""/><span aria-hidden="true">{'//'}</span><p>Copyright © 2026 Lykeion.<br/>All rights reserved.</p></div><div className="footer-bottom-links"><div><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div><a href="https://github.com/lykeion-tech/lykeion" aria-label="Lykeion on GitHub"><img src="/github.svg" width="15" height="15" alt=""/></a></div></div></div>
+      <div className="footer-bottom"><div className="wrap footer-bottom-inner"><div className="footer-copyright"><img src="/lykeion.svg" alt=""/><span className="footer-slashes" aria-hidden="true"><span>/</span><span>/</span></span><p>Copyright © 2026 Lykeion.<br/>All rights reserved.</p></div><div className="footer-bottom-links"><div><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></div><a href="https://github.com/lykeion-tech/lykeion" aria-label="Lykeion on GitHub"><img src="/github.svg" width="24" height="24" alt=""/></a></div></div></div>
     </footer>;
 }
