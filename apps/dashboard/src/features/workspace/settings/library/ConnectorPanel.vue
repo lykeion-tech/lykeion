@@ -118,10 +118,11 @@ watch(
             class="connector-row"
             :class="{ chosen: showOpenAlex }"
             aria-label="OpenAlex"
+            aria-description="Built-in scientific connector"
             @click="showOpenAlex = true"
           >
             <div>
-              <strong>OpenAlex</strong>
+              <strong>OpenAlex</strong><small>Built-in scientific connector</small>
               <p>Papers, preprints and abstracts across all fields, arXiv included. Built in.</p>
             </div>
           </button>
@@ -133,10 +134,11 @@ watch(
               chosen: showDetail && selected === row.connector.name && kind === 'catalogue',
             }"
             :aria-label="row.connector.name"
+            aria-description="Scientific connector"
             @click="open(row.connector.name, 'catalogue')"
           >
             <div>
-              <strong>{{ row.connector.name }}</strong>
+              <strong>{{ row.connector.name }}</strong><small>Scientific connector</small>
               <p>{{ row.connector.purpose }}</p>
             </div>
           </button>
@@ -151,7 +153,7 @@ watch(
             <div>
               <strong>{{ row.connector.name }}</strong
               ><small
-                >Custom · {{ row.connector.transport === 'url' ? 'Remote URL' : 'Command' }}</small
+                >Custom MCP · {{ row.connector.transport === 'url' ? 'Remote URL' : 'Command' }}</small
               >
             </div>
           </button>
@@ -278,8 +280,9 @@ h3 {
   margin: 5px 0 0;
 }
 .connector-row small {
-  font-size: 13px;
-  margin-top: 6px;
+  display: inline;
+  margin: 0 0 0 10px;
+  font-size: 11px;
 }
 button:focus-visible {
   outline: 2px solid var(--primary-text);

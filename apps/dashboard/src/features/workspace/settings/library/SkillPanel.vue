@@ -59,6 +59,7 @@ function created(id: string) {
         <Icon name="plus" :size="14" />Add skill
       </button>
     </div>
+    <p class="assignment-note">Assign skills from an agent’s <RouterLink to="/agents">Capabilities</RouterLink>.</p>
     <CapabilityList
       v-model:query="query"
       v-model:field="field"
@@ -73,13 +74,14 @@ function created(id: string) {
           class="skill-row"
           :class="{ chosen: showDetail && selected === s.id }"
           :aria-label="s.name"
+          :aria-description="s.origin === 'bundled' ? 'Built-in skill' : 'Workspace skill'"
           @click="
             selected = s.id;
             showDetail = true;
             editing = false;
           "
         >
-          <strong>{{ s.name }}</strong
+          <strong>{{ s.name }}</strong><small>{{ s.origin === 'bundled' ? 'Built-in' : 'Workspace' }}</small
           ><span>{{ s.description }}</span>
         </button>
       </div>
@@ -114,6 +116,12 @@ function created(id: string) {
   align-items: center;
   gap: 6px;
 }
+.assignment-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.assignment-note a { color: var(--primary-text); }
 .skill-entry {
   display: flex;
   align-items: center;
@@ -139,6 +147,11 @@ function created(id: string) {
 .skill-row strong {
   font-size: 13px;
   font-weight: 500;
+}
+.skill-row small {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--muted);
 }
 .skill-row span {
   display: block;
