@@ -213,7 +213,6 @@ async function logOut() {
         :class="{ 'hide-scrollbar': step === 'Skills' || step === 'Connectors' }"
       >
         <template v-if="step === 'Welcome'">
-          <small class="muted">Welcome to Lykeion</small>
           <h2 class="hero">A lab for your next discovery.</h2>
           <p class="sub">
             Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace: you
@@ -568,9 +567,15 @@ async function logOut() {
   margin-bottom: 12px;
 }
 .stage-line {
+  width: 100%;
+  min-width: 0;
   display: flex;
   gap: 14px;
   font-size: 13.5px;
+}
+.stage-line > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .stage-line b {
   font-weight: 500;

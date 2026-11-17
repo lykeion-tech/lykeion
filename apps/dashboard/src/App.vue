@@ -1158,7 +1158,7 @@ onUnmounted(() => {
             rel="noopener noreferrer"
           >Workflows are ported from Terminal-Bench-Science ↗</a>
         </div>
-        <div v-else-if="(current === 'studies' && !cardId) || current === 'decisions'" class="study-heading">
+        <div v-else-if="(['studies', 'my-studies'].includes(current ?? '') && !cardId) || current === 'decisions'" class="study-heading">
           <h1>{{ heading }}</h1>
           <a
             class="header-doc-link"

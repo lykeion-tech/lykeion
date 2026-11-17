@@ -6551,7 +6551,7 @@
 }
 .coresearch.tsb-project-name,
 .coresearch .tsb-project-name {
-  font-size: var(--type-body);
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.45;
   letter-spacing: 0;

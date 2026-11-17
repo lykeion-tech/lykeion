@@ -13,7 +13,7 @@ async function toggle() {
   if (rect)
     position.value = {
       top: `${rect.bottom + 8}px`,
-      left: `${Math.max(8, Math.min(window.innerWidth - (props.adding ? 224 : 176) - 8, rect.right - (props.adding ? 224 : 176)))}px`,
+      left: `${Math.max(8, Math.min(window.innerWidth - 120 - 8, rect.right - 120))}px`,
     };
   await nextTick();
   panel.value?.showPopover?.();
@@ -85,8 +85,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', outside));
       ref="panel"
       popover="auto"
       role="menu"
-      class="fixed rounded-[10px] border border-line-strong bg-surface p-1 shadow-[0_18px_48px_rgba(0,0,0,0.6)]"
-      :class="adding ? 'w-56' : 'w-44'"
+      class="fixed w-[120px] rounded-[10px] border border-line-strong bg-surface p-1 shadow-[0_18px_48px_rgba(0,0,0,0.6)]"
       :style="position"
       @keydown="key"
     >

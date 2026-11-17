@@ -102,7 +102,7 @@ const author = computed(() => {
 <style scoped>
 .connector-modal,
 .connector-detail {
-  width: 620px;
+  width: 500px;
   max-width: 100%;
 }
 .connector-detail {
@@ -152,7 +152,6 @@ header {
 .body {
   padding: 16px 24px 24px;
   overflow: auto;
-  min-height: 250px;
 }
 .body h3 {
   font-size: 16px;
