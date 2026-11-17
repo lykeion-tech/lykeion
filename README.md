@@ -337,7 +337,9 @@ The preview uses its own `Lykeion Preview` data directory. It starts the local d
 
 ## Checks
 
-Run these one at a time:
+CI (`.github/workflows/ci.yml`) runs these on every pull request. `main` only accepts pull requests whose `frontend`, `website`, `go`, `go-macos` and `license/cla` checks pass; the Playwright suite runs in four `e2e` shards but is not required yet.
+
+To run them locally, one at a time:
 
 ```sh
 npm run typecheck

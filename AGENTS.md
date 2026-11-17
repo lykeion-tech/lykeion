@@ -76,4 +76,5 @@ Use test-created fake or missing agent CLI paths in ordinary tests. Run a real a
 - Test behavior that can fail, including authorization and data isolation where relevant. Do not claim a test, deployment or live check passed without evidence.
 - Keep comments concise and useful for non-obvious constraints; remove stale comments when changing behavior. Keep generated files and their source in sync.
 - Respect the user's requested branch, commit and delivery workflow. Preserve unrelated work, and do not push or deploy without authorization.
+- `main` is protected: changes reach it only through pull requests whose required checks pass (`frontend`, `website`, `go`, `go-macos` and `license/cla`, defined in `.github/workflows/ci.yml` and by CLA assistant). The `e2e` shards run on every pull request but are not required yet. Direct pushes and force-pushes to `main` are refused.
 - Keep these instructions current when architecture, commands or boundaries change. `CLAUDE.md` imports this file so the shared rules have one source of truth.
