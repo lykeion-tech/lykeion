@@ -10,15 +10,16 @@ import (
 
 // systemReads are what interpreters, compilers and their libraries load.
 // /private/var/select/sh picks the shell /bin/sh runs; timezone data backs
-// /etc/localtime; xcode_select_link, which `xcode-select -s` writes, tells the
-// /usr/bin developer-tool stubs (python3, git, …) which developer folder to use,
-// and without it they report the tools as missing. /opt/homebrew is added when
+// /etc/localtime; the developer-folder link `xcode-select -s` writes
+// (/private/var/select/developer_dir, xcode_select_link before macOS 26) tells
+// the /usr/bin developer-tool stubs (python3, git, …) which folder to use, and
+// without it they report the tools as missing. /opt/homebrew is added when
 // present.
 var systemReads = []string{
 	`(literal "/")`,
 	`(subpath "/usr")`, `(subpath "/bin")`, `(subpath "/sbin")`,
 	`(subpath "/System")`, `(subpath "/Library")`, `(subpath "/private/etc")`,
-	`(subpath "/private/var/db/timezone")`, `(literal "/private/var/select/sh")`, `(literal "/private/var/db/xcode_select_link")`,
+	`(subpath "/private/var/db/timezone")`, `(literal "/private/var/select/sh")`, `(literal "/private/var/select/developer_dir")`, `(literal "/private/var/db/xcode_select_link")`,
 	`(literal "/dev/null")`, `(literal "/dev/zero")`, `(literal "/dev/random")`, `(literal "/dev/urandom")`,
 	`(literal "/dev/tty")`, `(literal "/dev/dtracehelper")`, `(subpath "/dev/fd")`,
 }
