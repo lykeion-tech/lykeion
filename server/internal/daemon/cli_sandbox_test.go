@@ -478,7 +478,7 @@ if [ -d /proc/$$/fd ]; then
   [ "${fd##*/}" -le 2 ] && continue
   [ -e "$fd" ] || continue # the listing's own, already closed descriptor
   # dash reads this script through a descriptor of its own.
-  case "$(readlink "$fd")" in /memfd:lykeion-mcp* | "$(readlink -f "$0")") ;; *) exit 50 ;; esac
+  case "$(readlink "$fd")" in /memfd:lykeion-mcp* | "$(readlink -f "$0")") ;; *) echo "$fd $(readlink "$fd")" > "$PWD/leaked-descriptor"; exit 50 ;; esac
  done
 elif [ -e /dev/fd/3 ] || [ -e /dev/fd/4 ]; then exit 50; fi
 for marker in .agent-owned .agent-lock .agent-process .agent-exit .agent-exit.tmp; do
@@ -504,7 +504,8 @@ echo '{"type":"result","is_error":false,"session_id":"marker-session","modelUsag
 	}
 	result := <-sess.Done
 	if result.Err != nil || result.SessionID != "marker-session" {
-		t.Fatalf("real supervised sandbox failed marker protection: %+v", result)
+		leaked, _ := os.ReadFile(filepath.Join(run, "leaked-descriptor"))
+		t.Fatalf("real supervised sandbox failed marker protection: %+v %s", result, leaked)
 	}
 	if !builtBeforeRecord {
 		t.Fatal("test did not build sandbox before process record was published")
