@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { nextTick, ref } from 'vue';
+import { ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import SkillPanel from './settings/library/SkillPanel.vue';
