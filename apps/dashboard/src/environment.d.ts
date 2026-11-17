@@ -9,9 +9,9 @@ interface Window {
     cancelGoogleSignIn?(): void;
     reloadAfterAuthentication?(): boolean;
     updates?: {
-      available(): Promise<boolean>;
-      check(): Promise<{ state: 'current' | 'downloaded'; version: string } | { state: 'error'; category: 'unsupported' | 'unconfigured' | 'network' | 'invalid_metadata' | 'cache_full' | 'corrupt_state' | 'generic' }>;
-      cancel(): Promise<void>;
+      check(): Promise<
+        { state: 'current' | 'unavailable' | 'error' } | { state: 'downloaded'; version: string }
+      >;
     };
     cancelRequest?(id: string): void;
     requestDocument?: string;

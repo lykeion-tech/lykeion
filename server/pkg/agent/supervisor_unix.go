@@ -32,6 +32,10 @@ type processOwner struct {
 // The run's code may have planted a link where the marker is written, so the
 // temporary marker is removed and then created afresh (noclobber), never
 // written through what stands there; mv replaces a link at the marker itself.
+// The kernel sends SIGHUP and SIGCONT to a stopped group it considers orphaned
+// (macOS 26 does so while the host retires descendants), so the stopped
+// witness ignores SIGHUP, set only after its child exited, and stops again
+// until the host's SIGKILL.
 const supervisorScript = `nonce=$1
 marker=$2
 gate=$3
@@ -45,7 +49,8 @@ eval "exec ${gate}<&-"
 wait "$child"
 result=$?
 (umask 077; /bin/rm -f -- "$marker.tmp" && set -C && printf '%s %s\n' "$nonce" "$result" > "$marker.tmp") && /bin/mv -f -- "$marker.tmp" "$marker" || exit 125
-kill -STOP $$
+trap '' HUP
+while :; do kill -STOP $$; done
 `
 
 func supervised(ctx context.Context, original *exec.Cmd) (*exec.Cmd, *os.File, *os.File, string, error) {

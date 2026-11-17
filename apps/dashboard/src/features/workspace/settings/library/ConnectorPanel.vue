@@ -134,11 +134,10 @@ watch(
               chosen: showDetail && selected === row.connector.name && kind === 'catalogue',
             }"
             :aria-label="row.connector.name"
-            aria-description="Scientific connector"
             @click="open(row.connector.name, 'catalogue')"
           >
             <div>
-              <strong>{{ row.connector.name }}</strong><small>Scientific connector</small>
+              <strong>{{ row.connector.name }}</strong>
               <p>{{ row.connector.purpose }}</p>
             </div>
           </button>

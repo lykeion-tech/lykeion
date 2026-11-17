@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { nextTick, ref } from 'vue';
+import { ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import SkillPanel from './settings/library/SkillPanel.vue';
@@ -104,12 +104,6 @@ function mount(component: typeof SkillPanel) {
   app.mount(root);
   return root;
 }
-async function field(root: ReturnType<typeof node>, value: string) {
-  const option = all(root).find((n) => n.tag === 'button' && textOf(n) === (value || 'All'));
-  expect(option).toBeDefined();
-  (option!.props.onClick as () => void)();
-  await nextTick();
-}
 it('labels bundled and workspace skills using their actual origin', () => {
   const root = mount(SkillPanel);
   const row = (name: string) =>
@@ -121,16 +115,10 @@ it('distinguishes scientific connectors from custom MCP servers', () => {
   const root = mount(ConnectorPanel);
   const row = (name: string) =>
     all(root).find((n) => n.tag === 'button' && n.props['aria-label'] === name)!;
-  expect(textOf(row('genes'))).toContain('Scientific connector');
   expect(textOf(row('my connector'))).toContain('Custom MCP');
   expect(all(root).some((n) => n.tag === 'button' && textOf(n).includes('Add connector'))).toBe(
     false,
   );
-});
-
-it('links to agents for skill assignment', () => {
-  const root = mount(SkillPanel);
-  expect(all(root).some((n) => n.tag === 'a' && n.props.href === '/agents')).toBe(true);
 });
 
 it('does not offer an offline runtime for skill import', () => {

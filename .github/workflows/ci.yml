@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Tests mock Electron; only packaging needs its binary.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+  GOMAXPROCS: '2'
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The desktop packaging tests run Go; without Go 1.26 they download it.
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix apps/web
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  website:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix apps/web
+      - run: npm --prefix apps/web run typecheck
+      - run: npm run web:build
+
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Install bubblewrap and TeX Live, and enable the sandbox
+        # Ubuntu 24.04 blocks unprivileged user namespaces by default, which
+        # would make the sandbox tests skip instead of run. The Cowrite build
+        # tests need a real latexmk, biblatex and biber.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap python3-ipykernel latexmk texlive-latex-base texlive-latex-recommended texlive-bibtex-extra biber
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / true
+      - run: go vet ./...
+      - name: Check generated sqlc code is current
+        run: |
+          go tool sqlc generate
+          git diff --exit-code
+      # Testcontainers starts PostgreSQL and Redis on the runner's Docker.
+      - run: go test -p 1 -timeout 30m ./... -count=1
+
+  go-macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Start PostgreSQL 17 and Redis
+        # macOS runners have no Docker, so the tests use these through
+        # LYK_TEST_PG and LYK_TEST_REDIS instead of Testcontainers.
+        run: |
+          brew install postgresql@17 redis
+          brew services start postgresql@17
+          brew services start redis
+          pg="$(brew --prefix postgresql@17)/bin"
+          for _ in $(seq 30); do "$pg/pg_isready" -q -h 127.0.0.1 && break; sleep 1; done
+          "$pg/psql" -h 127.0.0.1 -d postgres -c "CREATE ROLE owner SUPERUSER LOGIN PASSWORD 'owner'"
+          for _ in $(seq 30); do redis-cli ping >/dev/null 2>&1 && break; sleep 1; done
+      - name: Install TeX and Python 3.14, and use the Command Line Tools
+        # The Seatbelt profile does not let sandboxed programs read
+        # /Applications, so the runner's default Xcode tools can't run there;
+        # the Command Line Tools under /Library can, as on most Macs. The
+        # runner's default python3 is 3.15, newer than studies support.
+        run: |
+          sudo xcode-select -s /Library/Developer/CommandLineTools
+          brew install python@3.14
+          echo "$(brew --prefix python@3.14)/libexec/bin" >> "$GITHUB_PATH"
+          brew install --cask basictex
+          echo /Library/TeX/texbin >> "$GITHUB_PATH"
+          sudo /Library/TeX/texbin/tlmgr update --self
+          sudo /Library/TeX/texbin/tlmgr install latexmk biblatex biber
+      - name: Daemon and agent sandbox tests (Seatbelt)
+        working-directory: server
+        env:
+          LYK_TEST_PG: postgres://owner:owner@127.0.0.1:5432/postgres?sslmode=disable
+          LYK_TEST_REDIS: redis://127.0.0.1:6379/0
+        run: go test -p 1 -timeout 30m -count=1 ./internal/daemon/... ./pkg/agent/...
+      - name: Show what the sandbox denied
+        if: failure()
+        run: |
+          log show --last 40m --style compact --predicate 'sender == "Sandbox"' \
+            | grep -o 'deny([0-9]*) [^ ]* .*' | sort | uniq -c | sort -rn | head -80
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    # Reported on every pull request but not required for merging yet.
+    # Four shards, each with its own test lab, keep a run near 15 minutes.
+    name: e2e (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Enable the bubblewrap sandbox
+        # The lab's daemon runs agent CLIs only inside the sandbox.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / true
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-results-${{ matrix.shard }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14

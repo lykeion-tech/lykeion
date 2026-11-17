@@ -105,11 +105,11 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
           title="New chat"
           @click="emit('newChat')"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M12 5v14M5 12h14"
               stroke="currentColor"
-              stroke-width="1.2"
+              stroke-width="1.75"
               stroke-linecap="round"
             />
           </svg>

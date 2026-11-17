@@ -303,6 +303,8 @@ describe('desktop release packaging', () => {
         }),
       ).toBe('clean');
     } finally {
+      // Go keeps a downloaded toolchain's module cache read-only.
+      execFileSync('chmod', ['-R', 'u+w', temp]);
       rmSync(temp, { recursive: true, force: true });
     }
   }, 30000);

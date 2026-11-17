@@ -54,6 +54,9 @@ const modifier =
 </template>
 
 <style scoped>
+h3 {
+  margin-bottom: 12px;
+}
 .shortcut-list {
   margin: 0;
   border: 1px solid var(--border);

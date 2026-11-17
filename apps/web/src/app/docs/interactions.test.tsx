@@ -11,7 +11,6 @@ describe('interactive learning without JavaScript', () => {
     const names = ['Grounding', 'Hypotheses', 'Experimentation', 'Validation'];
     const labels = [...html.matchAll(/data-stage="([^"]+)"/g)].map((match) => match[1]);
     expect(labels).toEqual(names);
-    expect(html).toContain('Simulated study');
     expect(html.match(/class="study-example-card"/g)).toHaveLength(12);
     for (const label of ['Inputs', 'Agents', 'Evidence', 'Gate', 'Result'])
       expect(html).toContain(label);

@@ -5,6 +5,7 @@ import (
 	"lykeion/server/internal/testutil"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStudyDescriptionControls(t *testing.T) {
@@ -102,6 +103,12 @@ func TestRunReactionsAreScopedToRunAndStudy(t *testing.T) {
 
 func TestStudyAttachmentOnlyReachesSubsequentRuns(t *testing.T) {
 	l := newTeamLabWith(t, testutil.PackOpts{Name: "snapshot", Stage: "hypotheses", Members: 2})
+	// The old run must exist before the attachment, or its snapshot holds it.
+	for deadline := time.Now().Add(5 * time.Second); l.queued(t) == 0; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the study's first run was never queued")
+		}
+	}
 	file := l.s.uploadData(t, l.jwt, l.ws, "new.csv", []byte("new input"))
 	if code := l.s.call(t, "POST", "/api/cards/"+l.card.ID+"/attachments", l.jwt, l.ws, map[string]any{"attachment_ids": []string{file}}, nil); code != 200 {
 		t.Fatalf("attach: %d", code)

@@ -523,10 +523,24 @@ func protectCoresearchSkills(p *sandbox.Policy, run string, cli agent.CLIPaths, 
 	}
 
 	for dir := filepath.Dir(run); ; dir = filepath.Dir(dir) {
-		maskParent(dir)
 		if dir == filepath.Dir(dir) {
+			// Only root can create entries in the filesystem root, and the
+			// Linux sandbox refuses to project it to hide an absent one, so
+			// hide just what exists there.
+			before := len(p.Hidden)
+			maskParent(dir)
+			kept := p.Hidden[:before]
+			for _, path := range p.Hidden[before:] {
+				if _, err := os.Lstat(path); err == nil {
+					kept = append(kept, path)
+				} else if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			p.Hidden = kept
 			break
 		}
+		maskParent(dir)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -24,7 +24,7 @@ export function StudyWalkthrough() {
         {stages.map((stage, index) => <div className={`stage-board-column stage-board-column-${index}`} key={stage.name}>
           <button type="button" disabled={!ready} className="stage-board-select" data-stage={stage.name} aria-label={`Explore ${stage.name} stage`} aria-controls={`stage-dialog-${index}`} aria-haspopup="dialog" onClick={() => dialogs.current[index]?.showModal()}>
             <span className="stage-board-heading"><span className="stage-board-dot" aria-hidden="true" /><strong>{stage.name}</strong><span>{examples[index].length}</span><span className="stage-board-plus" aria-hidden="true">+</span></span>
-            <span className="stage-board-cards">{examples[index].map((title, cardIndex) => <span className="study-example-card" key={title}><span>EXAMPLE-{examples.slice(0, index).reduce((sum, cards) => sum + cards.length, 0) + cardIndex + 1}</span><strong>{title}</strong><span>Simulated study</span></span>)}</span>
+            <span className="stage-board-cards">{examples[index].map((title, cardIndex) => <span className="study-example-card" key={title}><span>EXAMPLE-{examples.slice(0, index).reduce((sum, cards) => sum + cards.length, 0) + cardIndex + 1}</span><strong>{title}</strong></span>)}</span>
           </button>
           <dialog ref={node => { dialogs.current[index] = node; }} id={`stage-dialog-${index}`} className="stage-board-dialog" aria-labelledby={`stage-title-${index}`}>
             <form method="dialog"><button className="stage-board-close" aria-label="Close stage explanation">Close</button></form>

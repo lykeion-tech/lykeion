@@ -324,6 +324,35 @@ func prepareCoresearchCodexProject(dir, account string) error {
 		return err
 	}
 	defer root.Close()
+	info, err := root.Lstat(".codex")
+	if err == nil && info.IsDir() {
+		// Empty the folder in place. On Linux, removing it would detach the
+		// read-only mount a sandbox already running here holds on it, leaving
+		// that process a writable folder of the same name.
+		sub, err := root.OpenRoot(".codex")
+		if err != nil {
+			return err
+		}
+		defer sub.Close()
+		f, err := sub.Open(".")
+		if err != nil {
+			return err
+		}
+		names, err := f.Readdirnames(-1)
+		f.Close()
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			if err = sub.RemoveAll(name); err != nil {
+				return err
+			}
+		}
+		return root.Chmod(".codex", 0700)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err = root.RemoveAll(".codex"); err != nil {
 		return err
 	}

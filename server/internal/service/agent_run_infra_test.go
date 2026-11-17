@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -28,7 +29,12 @@ func (f *fixture) infraState(t *testing.T, run uuid.UUID) runInfra {
 		t.Fatal(err)
 	}
 	if wait != nil {
-		d := time.Duration(*wait * float64(time.Second))
+		// A held run waits until HeldUntil, which overflows a Duration;
+		// converting that float is undefined and wraps negative on amd64.
+		d := time.Duration(math.MaxInt64)
+		if *wait < float64(math.MaxInt64)/float64(time.Second) {
+			d = time.Duration(*wait * float64(time.Second))
+		}
 		s.Wait = &d
 	}
 	return s

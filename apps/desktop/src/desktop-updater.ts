@@ -19,7 +19,13 @@ type Updater = {
 // Updates download in the background and install when the app quits; quitting
 // leaves the daemon running, and the new app moves it to its own runtime only
 // once it is idle. macOS installs only an update signed by the same Developer ID.
-export function startDesktopUpdater(outDirectory: string, notify = true): () => void {
+export type UpdateCheck =
+  { state: 'current' | 'unavailable' | 'error' } | { state: 'downloaded'; version: string };
+
+export function startDesktopUpdater(
+  outDirectory: string,
+  notify = true,
+): { stop(): void; check(): Promise<UpdateCheck> } {
   const { autoUpdater } = createRequire(import.meta.url)(
     path.join(outDirectory, 'electron-updater.cjs'),
   ) as { autoUpdater: Updater };
@@ -32,7 +38,9 @@ export function startDesktopUpdater(outDirectory: string, notify = true): () => 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   let notified = '';
+  let downloaded = '';
   autoUpdater.on('update-downloaded', ({ version }) => {
+    downloaded = version;
     if (!notify || notified === version || !Notification.isSupported()) return;
     notified = version;
     new Notification({
@@ -41,21 +49,29 @@ export function startDesktopUpdater(outDirectory: string, notify = true): () => 
     }).show();
   });
   autoUpdater.on('error', (error) => console.error('Update failed:', error.message));
-  let checking: Promise<unknown> | null = null;
-  const check = () => {
-    checking ??= autoUpdater
+  let checking: Promise<UpdateCheck> | null = null;
+  const check = () =>
+    (checking ??= autoUpdater
       .checkForUpdates()
       .then((result) => result?.downloadPromise)
-      .catch((error: Error) => console.error('Update check failed:', error.message))
+      .then((): UpdateCheck =>
+        downloaded ? { state: 'downloaded', version: downloaded } : { state: 'current' },
+      )
+      .catch((error: Error): UpdateCheck => {
+        console.error('Update check failed:', error.message);
+        return { state: 'error' };
+      })
       .finally(() => {
         checking = null;
-      });
-  };
+      }));
   const first = setTimeout(check, startupDelay);
   const every = setInterval(check, checkInterval);
   every.unref();
-  return () => {
-    clearTimeout(first);
-    clearInterval(every);
+  return {
+    stop: () => {
+      clearTimeout(first);
+      clearInterval(every);
+    },
+    check,
   };
 }

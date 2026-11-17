@@ -246,10 +246,22 @@ func coreKernelFixture(t *testing.T) *coreFixture {
 	h := f.d.chats[f.work.ChatID]
 	h.study = study
 	must(t, os.MkdirAll(filepath.Join(study.Dir, "python", "bin"), 0700))
-	exe, e := os.Executable()
-	must(t, e)
-	must(t, os.Symlink(exe, filepath.Join(study.Dir, "python", "bin", "python")))
+	placeTestBinary(t, filepath.Join(study.Dir, "python", "bin", "python"))
 	return f
+}
+
+// placeTestBinary puts this test binary at path as a fake interpreter. It is
+// linked or copied, not symlinked: bubblewrap mounts the study folder but not
+// the test binary's build folder, so a symlink would point at nothing.
+func placeTestBinary(t *testing.T, path string) {
+	t.Helper()
+	exe, err := os.Executable()
+	must(t, err)
+	if os.Link(exe, path) != nil {
+		data, err := os.ReadFile(exe)
+		must(t, err)
+		must(t, os.WriteFile(path, data, 0700))
+	}
 }
 func TestCellClaimRunsInChatFolder(t *testing.T) {
 	f := coreKernelFixture(t)
@@ -1040,11 +1052,9 @@ func TestCoresearchSharedPythonRetiresSiblingSession(t *testing.T) {
 	}
 	_, err = setup.SetUpConda(t.Context(), version, nil, "")
 	must(t, err)
-	exe, err := os.Executable()
-	must(t, err)
 	python := filepath.Join(h.study.Dir, "python", "bin", "python")
 	must(t, os.Remove(python))
-	must(t, os.Symlink(exe, python))
+	placeTestBinary(t, python)
 	updated := f.work
 	updated.PythonVersion = &version
 	_, err = f.d.chat(t.Context(), updated)
