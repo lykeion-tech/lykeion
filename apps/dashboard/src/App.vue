@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { version } from '../../../package.json';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import { MessageCircle } from '@lucide/vue';
@@ -303,10 +304,13 @@ watch(
   { flush: 'sync' },
 );
 const feedbackText = ref('');
+const feedbackBusy = ref(false);
+const feedbackError = ref('');
 
 function clearAccountShell() {
   feedback.value = false;
   feedbackText.value = '';
+  feedbackError.value = '';
   paletteOpen.value = false;
   workspaceMenu.value = false;
   help.value = false;
@@ -686,7 +690,7 @@ async function logOut() {
 }
 
 function menuButtons(popup: HTMLElement | undefined) {
-  return [...(popup?.querySelectorAll<HTMLButtonElement>('[role=menuitem]:not(:disabled)') || [])];
+  return [...(popup?.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)') || [])];
 }
 async function toggleWorkspace() {
   help.value = false;
@@ -710,7 +714,7 @@ function popupKey(
   kind: 'workspace' | 'help',
 ) {
   const buttons = menuButtons(popup);
-  let index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  let index = buttons.indexOf(document.activeElement as HTMLElement);
   if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     event.preventDefault();
     if (event.key === 'Home') index = 0;
@@ -745,19 +749,36 @@ async function documentation() {
   help.value = false;
   try {
     if (window.lykeionDesktop) await window.lykeionDesktop.openDocumentation();
-    else window.open('https://github.com/lykeion-tech/lykeion', '_blank', 'noopener,noreferrer');
+    else window.open('https://app.lykeion.tech/docs/', '_blank', 'noopener,noreferrer');
   } catch {
     notify('Documentation could not be opened.');
   }
 }
-async function copyFeedback() {
+async function sendFeedback() {
+  const message = feedbackText.value.trim();
+  if (!message || feedbackBusy.value) return;
+  if (new TextEncoder().encode(message).length > 10000) {
+    feedbackError.value = 'Feedback is too long. Please shorten it and try again.';
+    return;
+  }
+  const epoch = authenticationEpoch();
+  feedbackBusy.value = true;
+  feedbackError.value = '';
   try {
-    await navigator.clipboard.writeText(feedbackText.value.trim());
-    notify('Feedback copied. Nothing has been sent.');
+    await api('POST', '/api/feedback', { message });
+    if (epoch === authenticationEpoch()) {
+      if (feedbackText.value.trim() === message) feedbackText.value = '';
+      feedback.value = false;
+      notify('Feedback sent. Thank you.');
+    }
   } catch {
-    notify('Clipboard access was unavailable. You can select and copy the feedback.');
+    if (epoch === authenticationEpoch())
+      feedbackError.value = 'Feedback could not be sent. Please try again.';
+  } finally {
+    feedbackBusy.value = false;
   }
 }
+
 function go(id: string) {
   void router.push('/' + id);
   workspaceMenu.value = false;
@@ -1192,19 +1213,20 @@ onUnmounted(() => {
     >
       <button role="menuitem" @click="documentation">
         <Icon name="book" />Docs<Icon name="external" :size="10" /></button
-      ><button role="menuitem" disabled title="A community invitation has not been configured">
-        <Icon name="users" />Discord<Icon name="external" :size="10" /></button
+      ><a role="menuitem" href="https://discord.gg/ed3jsMTs3" target="_blank" rel="noopener noreferrer" @click="help = false">
+        <img class="discord-icon" src="https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d8014ea898f3a4b2156c_Symbol.svg" alt="" />Discord<Icon name="external" :size="10" /></a
       ><button
         role="menuitem"
         @click="
           help = false;
+          feedbackError = '';
           feedback = true;
         "
       >
         <MessageCircle :size="16" :stroke-width="1.7" />Feedback
       </button>
       <div class="shell-menu-divider" />
-      <small class="shell-version">Frontend version 0.1.0</small>
+      <small class="shell-version">Version {{ version }}</small>
     </div>
     <template v-if="paletteOpen">
       <ConversationSearch v-if="paletteScope === 'conversations'" @close="paletteOpen = false" />
@@ -1212,7 +1234,7 @@ onUnmounted(() => {
       <CommandPalette v-else @close="paletteOpen = false" />
     </template>
     <Modal v-if="feedback" title="Feedback" @close="feedback = false"
-      ><form class="feedback-form" @submit.prevent="copyFeedback">
+      ><form class="feedback-form" @submit.prevent="sendFeedback">
         <header>
           <h2>Feedback</h2>
           <button
@@ -1225,19 +1247,21 @@ onUnmounted(() => {
           </button>
         </header>
         <p>
-          Describe the problem or suggestion. You can copy this draft; feedback delivery is not
-          configured.
+          Describe the problem or suggestion. Your feedback will be sent to noreply@lykeion.tech.
         </p>
         <textarea
           v-model="feedbackText"
           autofocus
+          maxlength="10000"
+          :disabled="feedbackBusy"
           aria-label="Feedback"
           placeholder="What would you like to improve?"
         />
+        <p v-if="feedbackError" role="alert">{{ feedbackError }}</p>
         <footer>
           <button class="button" type="button" @click="feedback = false">Close</button
-          ><button class="button primary" :disabled="!feedbackText.trim()">
-            <Icon name="copy" :size="14" />Copy feedback
+          ><button class="button primary" :disabled="!feedbackText.trim() || feedbackBusy">
+            {{ feedbackBusy ? 'Sending…' : 'Send feedback' }}
           </button>
         </footer>
       </form></Modal
@@ -1279,7 +1303,8 @@ onUnmounted(() => {
   font-size: 14px;
   backdrop-filter: blur(12px);
 }
-.shell-popup > button {
+.shell-popup > button,
+.shell-popup > a[role="menuitem"] {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1291,6 +1316,8 @@ onUnmounted(() => {
   font-size: 14px;
   line-height: 20px;
 }
+.shell-popup > a[role="menuitem"]:hover,
+.shell-popup > a[role="menuitem"]:focus-visible,
 .shell-popup > button:hover:not(:disabled),
 .shell-popup > button:focus-visible {
   background: color-mix(in srgb, var(--surface) 28%, transparent);
@@ -1354,7 +1381,12 @@ onUnmounted(() => {
   bottom: 48px;
   width: 214px;
 }
-.help-popup > button > .icon:last-child:not(:first-child) {
+.discord-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.help-popup > :is(button, a) > .icon:last-child:not(:first-child) {
   margin-left: 0;
   color: var(--muted);
 }

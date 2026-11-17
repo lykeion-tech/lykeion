@@ -534,15 +534,12 @@ async function copySlug() {
 
         <template v-else-if="section === 'tokens'">
           <h3>TypeSafe key</h3>
+          <p class="table-description typesafe-description">
+            Jev reviews the studies you own with your own TypeSafe key. Without one, you review
+            each stage yourself. The key is encrypted on the server and sent only to TypeSafe.
+          </p>
           <form class="setting-box typesafe-key" @submit.prevent="saveTypesafeKey">
             <div class="setting-row">
-              <span
-                >Jev review<small
-                  >Jev reviews the studies you own with your own TypeSafe key. Without one, you
-                  approve each stage yourself. The key is encrypted on the server and sent only to
-                  TypeSafe.</small
-                ></span
-              >
               <div class="inline-setting">
                 <template v-if="keySaved && !replacingKey"
                   ><span class="muted">Key saved</span
@@ -589,7 +586,7 @@ async function copySlug() {
               </div>
             </div>
           </form>
-          <h3>Personal tokens</h3>
+          <h3 class="tokens-section-heading">Personal tokens</h3>
           <p class="table-description">
             Personal <code>lyk_</code> tokens let scripts access your account. Keep them private.
             Tokens expire after 90 days. Revoking one makes any clients using it stop working.
@@ -1293,13 +1290,30 @@ async function copySlug() {
   min-height: 71px;
 }
 .table-layout .settings-heading {
-  margin-bottom: 8px;
+  margin-bottom: 28px;
+}
+.settings-body h3.tokens-section-heading {
+  margin-top: 32px;
 }
 .table-description {
   font-size: 14px;
   line-height: 22px;
   color: var(--muted);
   margin: 0;
+}
+.typesafe-description {
+  margin-bottom: 24px;
+}
+.typesafe-key .inline-setting {
+  flex: 1;
+  min-width: 0;
+}
+.typesafe-key .inline-setting input {
+  flex: 1;
+  width: 0 !important;
+}
+.typesafe-key .inline-setting .muted {
+  margin-right: auto;
 }
 .table-description code {
   background: var(--input);

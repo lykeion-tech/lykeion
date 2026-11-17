@@ -125,7 +125,7 @@ it('hides a newly created token after leaving the page', async () => {
 });
 it('saves a TypeSafe key once and then only says it is saved', async () => {
   const { root, client } = await mount('tokens');
-  expect(textOf(root)).toContain('approve each stage yourself');
+  expect(textOf(root)).toContain('review each stage yourself');
   const calls: Array<[string, RequestInit | undefined]> = [];
   vi.stubGlobal(
     'fetch',

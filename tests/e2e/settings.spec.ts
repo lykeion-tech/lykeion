@@ -137,7 +137,10 @@ test('a token is shown once, listed with 90 day expiry, and revoked', async ({ p
     const request = page.waitForRequest(
       (r) => r.method() === 'POST' && r.url().endsWith('/api/tokens'),
     );
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page
+      .locator('form.token-creation-form')
+      .getByRole('button', { name: 'Save key', exact: true })
+      .click();
     expect((await request).postDataJSON()).toEqual({ name });
     await expect(page.getByText("Copy it now. It won't be shown again.")).toBeVisible();
     expect(
@@ -591,7 +594,10 @@ for (const kind of ['account', 'token'] as const)
         await page.getByRole('textbox', { name: 'Name', exact: true }).blur();
       } else {
         await page.getByRole('textbox', { name: 'Token name' }).fill(tokenName);
-        await page.getByRole('button', { name: 'Create', exact: true }).click();
+        await page
+          .locator('form.token-creation-form')
+          .getByRole('button', { name: 'Save key', exact: true })
+          .click();
       }
       await held.started;
       if (kind === 'token') {

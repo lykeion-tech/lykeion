@@ -581,7 +581,7 @@ onUnmounted(() => {
     ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
   <p v-if="actionError" class="board-action-error" role="alert">{{ actionError }}</p>
-  <p v-if="cards.isPending.value" role="status">Loading studies…</p>
+  <p v-if="cards.isPending.value" class="board-loading" role="status">Loading studies…</p>
   <div v-if="cards.data.value && display.mode === 'Board'" class="board-scroll">
     <section
       v-for="column in boardColumns"
@@ -1622,5 +1622,8 @@ onUnmounted(() => {
   margin: 8px 20px;
   color: var(--error-text);
   font-size: 13px;
+}
+.board-loading {
+  margin-inline: 20px;
 }
 </style>
