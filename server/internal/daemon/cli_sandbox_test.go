@@ -471,7 +471,16 @@ func TestCLISandboxExecuteProtectsSupervisorMarkers(t *testing.T) {
 	bin := filepath.Join(home, "claude")
 	body := `#!/bin/sh
 IFS= read -r first || exit 46
-if [ -e /dev/fd/3 ] || [ -e /dev/fd/4 ]; then exit 50; fi
+if [ -d /proc/$$/fd ]; then
+ # Linux hands Claude its sealed MCP configuration as a descriptor; the
+ # supervisor's gate and the seccomp filter must not reach the agent.
+ for fd in /proc/$$/fd/*; do
+  [ "${fd##*/}" -le 2 ] && continue
+  [ -e "$fd" ] || continue # the listing's own, already closed descriptor
+  # dash reads this script through a descriptor of its own.
+  case "$(readlink "$fd")" in /memfd:lykeion-mcp* | "$(readlink -f "$0")") ;; *) exit 50 ;; esac
+ done
+elif [ -e /dev/fd/3 ] || [ -e /dev/fd/4 ]; then exit 50; fi
 for marker in .agent-owned .agent-lock .agent-process .agent-exit .agent-exit.tmp; do
  [ -f "$PWD/$marker" ] || exit 49
  if echo forged > "$PWD/$marker"; then exit 48; fi
@@ -861,6 +870,8 @@ func TestPreflightScratchGuardsSurviveDiscoveryCleanup(t *testing.T) {
 		t.Fatalf("discovery cleanup removed preflight guard: %v", err)
 	}
 	if sandboxAvailable {
+		// The supervisor publishes this before every launch; Linux binds it strictly.
+		must(t, os.WriteFile(filepath.Join(dir, ".agent-process"), []byte("test-owned-process-marker"), 0600))
 		if out, err := next.CombinedOutput(); err != nil {
 			t.Fatalf("preflight protections failed: %v: %s", err, out)
 		}
