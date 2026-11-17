@@ -69,3 +69,5 @@
 
 .get-started{margin-bottom:120px}
 @media(max-width:700px){.get-started{margin-bottom:80px}}
+
+.footer-bottom-links > .footer-social{grid-column:auto;display:flex;gap:16px;align-items:center;justify-self:end}.footer-social a{display:flex;align-items:center}.footer-social img{display:block}

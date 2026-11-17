@@ -127,12 +127,12 @@ onUnmounted(() => {
     >
       {{ options.find((x) => x.value === expiry)?.label }}<Icon name="down" :size="13" /></button
     ><button
-      class="button primary"
+      class="button"
       type="submit"
       :disabled="!available || pending || !name.trim()"
       :title="!available ? unavailableReason : undefined"
     >
-      {{ pending ? 'Creating…' : 'Create' }}
+      {{ pending ? 'Saving…' : 'Save key' }}
     </button>
   </form>
   <Teleport to="body"
