@@ -104,12 +104,6 @@ function mount(component: typeof SkillPanel) {
   app.mount(root);
   return root;
 }
-async function field(root: ReturnType<typeof node>, value: string) {
-  const option = all(root).find((n) => n.tag === 'button' && textOf(n) === (value || 'All'));
-  expect(option).toBeDefined();
-  (option!.props.onClick as () => void)();
-  await nextTick();
-}
 it('labels bundled and workspace skills using their actual origin', () => {
   const root = mount(SkillPanel);
   const row = (name: string) =>

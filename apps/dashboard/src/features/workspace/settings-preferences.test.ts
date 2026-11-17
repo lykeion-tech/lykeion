@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { h, nextTick, ref, ssrContextKey } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
-import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
+import { createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import SettingsView from './SettingsView.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
