@@ -377,7 +377,7 @@ After changing SQL, regenerate the queries with `GOMAXPROCS=2 go tool sqlc gener
 
 ## Contributing
 
-Contributions are welcome. Before your first pull request can be merged, read the [Contributor License Agreement](CLA.md) and agree to it in a comment on the pull request. You keep the copyright in your work; the agreement lets Lykeion stay open source and also be offered under other terms, such as commercial licences.
+Contributions are welcome. Before your first pull request can be merged, sign the [Contributor License Agreement](CLA.md): CLA assistant comments on your pull request with a link to sign it with your GitHub account. You keep the copyright in your work; the agreement lets Lykeion stay open source and also be offered under other terms, such as commercial licences.
 
 ## Licence
 

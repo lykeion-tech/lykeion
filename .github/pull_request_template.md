@@ -7,7 +7,6 @@
 
 
 <!--
-First contribution? Lykeion needs a signed Contributor License Agreement before your pull request can be merged.
-Read CLA.md, then comment on this pull request:
-"I have read the Lykeion Contributor License Agreement in CLA.md and I agree to its terms."
+First contribution? CLA assistant will comment with a link to the Lykeion Contributor License Agreement (CLA.md).
+Sign it from that comment; the pull request can be merged once its license/cla check passes.
 -->

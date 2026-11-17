@@ -42,8 +42,6 @@ To the extent permitted by law, You waive, or agree not to assert, any moral rig
 
 ## How to sign
 
-Before your first pull request can be merged, add this sentence as a comment on the pull request, from the GitHub account that made the Contribution:
+When you open your first pull request, CLA assistant comments on it with a link to this agreement. Follow the link, sign in with the GitHub account that made the Contribution and agree to the terms. The pull request's license/cla check passes once you have signed.
 
-> I have read the Lykeion Contributor License Agreement in CLA.md and I agree to its terms.
-
-Your signature applies to that pull request and to all your later Contributions. If you contribute on behalf of an employer or another organisation, say so in the same comment and confirm that you are authorised to sign for them.
+Your signature covers that pull request and all your later Contributions. You are asked to sign again only if this agreement changes. If you contribute on behalf of an employer or another organisation, say so in a comment on the pull request and confirm that you are authorised to sign for them.
