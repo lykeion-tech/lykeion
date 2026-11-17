@@ -337,15 +337,6 @@
   font-size: 13px;
   color: var(--muted);
 }
-.remote-limit p {
-  margin: 0;
-}
-.remote-limit .button {
-  font-size: 13px;
-}
-.daemon-instructions p {
-  line-height: 22px;
-}
 code {
   font:
     12px ui-monospace,

@@ -716,10 +716,6 @@ describe('Daemon settings mounted section', () => {
       await nextTick();
       expect(t.bridge.stop).toHaveBeenCalledTimes(1);
       expect(find('Stop').props.disabled).toBe(true);
-      const order = t.text();
-      expect(order.indexOf('Daemon instructions')).toBeLessThan(
-        order.indexOf('Auto-start on launch'),
-      );
     },
   );
   it.each([

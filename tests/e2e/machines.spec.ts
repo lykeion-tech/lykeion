@@ -603,12 +603,7 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
     await expect(page.getByText('Managed by Desktop', { exact: true })).toHaveCount(0);
     for (const name of ['View logs', 'Restart', 'Stop'])
       await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
-    await expect(
-      page.getByText(
-        'Remote controls and custom runtimes are unavailable. Use Daemon instructions on the computer.',
-        { exact: true },
-      ),
-    ).toBeVisible();
+    await expect(page.getByText('Daemon instructions')).toHaveCount(0);
     await page.screenshot({ path: `${refinementArtifacts}/detail-light.png` });
     await page.evaluate(async () => {
       const path = '/src/theme.ts';

@@ -6,9 +6,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"fmt"
-	"io/fs"
 	"sort"
-	"strings"
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/storage"
@@ -29,23 +27,11 @@ func Templates() []Template {
 	labels := []string{"Blank", "NeurIPS", "ICML", "ICLR", "ACL", "CVPR", "arXiv preprint", "Thesis"}
 	out := make([]Template, 0, len(ids))
 	for i, id := range ids {
-		files := map[string][]byte{}
-		_ = fs.WalkDir(templateFiles, "templates/"+id, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() {
-				body, e := templateFiles.ReadFile(path)
-				if e != nil {
-					return e
-				}
-				files[strings.TrimPrefix(path, "templates/"+id+"/")] = body
-			}
-			return nil
-		})
-		if _, ok := files["refs.bib"]; !ok {
-			files["refs.bib"] = []byte{}
+		body, err := templateFiles.ReadFile("templates/" + id + "/main.tex")
+		if err != nil {
+			panic(err)
 		}
+		files := map[string][]byte{"main.tex": body}
 		out = append(out, Template{id, labels[i], files})
 	}
 	return out

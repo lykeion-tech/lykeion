@@ -45,7 +45,7 @@ func TestCowriteSessionStarts(t *testing.T) {
 		t.Fatalf("shared project: %s %v %v", mode, private, err)
 	}
 	var count int
-	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file f JOIN coresearch_file_version v ON v.file_id=f.id WHERE f.project_id=$1 AND f.path IN ('main.tex','refs.bib') AND v.n=1`, out.ProjectID).Scan(&count); err != nil || count != 2 {
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM coresearch_file f JOIN coresearch_file_version v ON v.file_id=f.id WHERE f.project_id=$1 AND v.n=1`, out.ProjectID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("scaffold: %d %v", count, err)
 	}
 	if out.Conversation.SnapshotModel == nil || *out.Conversation.SnapshotModel != "test-model" || out.Run.RequestedModel != "test-model" {

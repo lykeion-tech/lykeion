@@ -17,8 +17,8 @@ func TestTemplatesShip(t *testing.T) {
 		if tmpl.ID != want[i] || tmpl.Label != labels[i] || len(tmpl.Files["main.tex"]) == 0 {
 			t.Fatalf("template %d %+v", i, tmpl)
 		}
-		if _, ok := tmpl.Files["refs.bib"]; !ok {
-			t.Fatalf("missing bibliography %s", tmpl.ID)
+		if len(tmpl.Files) != 1 {
+			t.Fatalf("template %s must contain only main.tex", tmpl.ID)
 		}
 		if tmpl.ID == "acl" || tmpl.ID == "cvpr" {
 			for path := range tmpl.Files {
@@ -29,9 +29,6 @@ func TestTemplatesShip(t *testing.T) {
 			if !strings.Contains(string(tmpl.Files["main.tex"]), "add the official") {
 				t.Fatal("style guidance missing")
 			}
-		}
-		if tmpl.ID == "arxiv" && len(tmpl.Files["arxiv.sty"]) == 0 {
-			t.Fatal("arxiv style missing")
 		}
 	}
 	notice, err := os.ReadFile("../../../NOTICE")

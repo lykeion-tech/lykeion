@@ -3,6 +3,7 @@ import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Aristotle from '../coresearch/Aristotle.vue';
+import OnboardingStageBoard from './OnboardingStageBoard.vue';
 import Icon from '../../ui/Icon.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import CapabilityList from './settings/library/CapabilityList.vue';
@@ -17,7 +18,7 @@ import { useLaboratories, useMe, useRuntimes, useWorkspaces } from '../../api/qu
 import type { Workspace } from '../../api/types';
 import LabChartScene from '../lab-chart/LabChartScene.vue';
 import { toPreviewChart } from '../lab-chart/preview';
-import { prefixFromSlug, randomWorkspaceName, slugFrom, stageIntro } from '../../lib/studies';
+import { prefixFromSlug, randomWorkspaceName, slugFrom } from '../../lib/studies';
 import { useWorkspaceTabs } from '../../state/workspace-tabs';
 
 const desktopSession = inject(daemonSessionKey, null);
@@ -213,19 +214,11 @@ async function logOut() {
         :class="{ 'hide-scrollbar': step === 'Skills' || step === 'Connectors' }"
       >
         <template v-if="step === 'Welcome'">
-          <small class="muted">Welcome to Lykeion</small>
           <h2 class="hero">A lab for your next discovery.</h2>
           <p class="sub">
-            Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace: you
-            set the questions, agents carry out the work.
+            Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace.
           </p>
-          <div v-for="(s, i) in stageIntro" :key="s.name" class="stage-line">
-            <span class="num">{{ i + 1 }}</span>
-            <div>
-              <b>{{ s.name }}</b>
-              <div class="muted">{{ s.line }}</div>
-            </div>
-          </div>
+          <OnboardingStageBoard />
         </template>
         <template v-else-if="step === 'Laboratory'">
           <h2>
@@ -295,7 +288,8 @@ async function logOut() {
               >
               <small v-if="prefixError" class="field-error">{{ prefixError }}</small>
               <label v-for="l in laboratories.data.value ?? []" :key="l.id" class="choice-head">
-                <span class="workspace-avatar">{{ l.name[0] }}</span><b>{{ l.name }}</b>
+                <span class="workspace-avatar">{{ l.name[0] }}</span
+                ><b>{{ l.name }}</b>
                 <input
                   v-model="laboratory"
                   type="radio"
@@ -566,24 +560,6 @@ async function logOut() {
   color: var(--muted);
   font-size: 13.5px;
   margin-bottom: 12px;
-}
-.stage-line {
-  display: flex;
-  gap: 14px;
-  font-size: 13.5px;
-}
-.stage-line b {
-  font-weight: 500;
-}
-.num {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  flex: none;
 }
 .field {
   display: flex;

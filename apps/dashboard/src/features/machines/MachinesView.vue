@@ -157,7 +157,7 @@ const unavailableFix = computed(() => unavailableBases.value.find((b) => b.fix)?
 const daemonSettings = ref<InstanceType<typeof DaemonSettings>>();
 const sharingDetails = ref(false);
 const sharingForm = ref<InstanceType<typeof MachineSharing>>();
-const dialog = ref<'' | 'add' | 'daemon' | 'rename'>('');
+const dialog = ref<'' | 'add' | 'rename'>('');
 defineExpose({
   openAdd: () => {
     dialog.value = 'add';
@@ -334,7 +334,7 @@ async function remove(d: Daemon) {
                 <button
                   class="button"
                   disabled
-                  title="Read logs on the computer using Daemon instructions"
+                  title="Read logs on the computer"
                 >
                   <Icon name="file" :size="14" />View logs
                 </button>
@@ -344,7 +344,7 @@ async function remove(d: Daemon) {
                   :title="
                     daemonSettings?.canControl
                       ? undefined
-                      : 'Restart on the computer using Daemon instructions'
+                      : 'Restart on the computer'
                   "
                   @click="
                     machine.localProfile && daemonSettings?.stopped
@@ -363,7 +363,7 @@ async function remove(d: Daemon) {
                   :title="
                     daemonSettings?.canControl
                       ? undefined
-                      : 'Stop on the computer using Daemon instructions'
+                      : 'Stop on the computer'
                   "
                   @click="daemonSettings?.stop()"
                 >
@@ -459,27 +459,15 @@ async function remove(d: Daemon) {
             </table>
           </div>
           <p v-if="!machine.online && !machine.localProfile" class="remote-limit">
-            Check the daemon on this computer using Daemon instructions.
+            Check the daemon on this computer.
           </p>
           <p v-else-if="machine.runtimes.some((r) => r.unhealthy_reason)" class="remote-limit">
             <template v-if="daemonSettings?.hasDiagnostics">
               Check daemon diagnostics below.
               <button class="text-button" @click="daemonSettings?.$el.scrollIntoView()">View diagnostics</button>
             </template>
-            <template v-else>Use Daemon instructions on the computer to investigate.</template>
+            <template v-else>Check the daemon on this computer to investigate.</template>
           </p>
-          <div class="remote-limit">
-            <p>
-              {{
-                daemonSettings?.managed
-                  ? 'Custom runtimes are unavailable. Use Daemon instructions for terminal commands.'
-                  : 'Remote controls and custom runtimes are unavailable. Use Daemon instructions on the computer.'
-              }}
-            </p>
-            <button class="button" @click="dialog = 'daemon'">
-              <Icon name="network" :size="14" />Daemon instructions
-            </button>
-          </div>
           <DaemonSettings
             ref="daemonSettings"
             :machine-id="machine.id"
@@ -576,25 +564,6 @@ async function remove(d: Daemon) {
     </div>
   </section>
   <AddComputerDialog v-if="dialog === 'add'" @close="dialog = ''" />
-  <Modal v-if="dialog === 'daemon'" title="Daemon" @close="dialog = ''"
-    ><div class="resource-form daemon-instructions">
-      <h2>Daemon</h2>
-      <p>
-        On macOS or Linux, <code>lyk daemon start</code> starts it in the background;
-        <code>lyk daemon status</code> and <code>lyk daemon logs</code> show what it is doing;
-        <code>lyk daemon stop</code> stops it.
-      </p>
-      <p>
-        On Windows, use <code>lyk.exe daemon run</code> and keep the terminal open. Read logs there;
-        press Ctrl+C to stop.
-      </p>
-      <p>
-        Use <code>./lyk</code> (macOS / Linux) or <code>.\lyk.exe</code> (Windows) when running a
-        CLI built in the current directory.
-      </p>
-      <button class="button" @click="dialog = ''">Done</button>
-    </div></Modal
-  >
   <Modal v-if="dialog === 'rename'" title="Rename machine" @close="dialog = ''"
     ><form class="resource-form" @submit.prevent="rename">
       <h2>Rename machine</h2>

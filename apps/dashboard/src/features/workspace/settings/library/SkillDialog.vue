@@ -295,7 +295,7 @@ async function cancelEdit() {
         <p>
           {{
             detail.data.value?.origin === 'bundled'
-              ? 'Bundled skills are read-only. Import your own skill under a different name to customize instructions.'
+              ? 'Bundled skills are read-only. Import your own skill to customize instructions.'
               : 'Only the importer and workspace admins can edit or delete this skill. Studies already using it keep their routed version.'
           }}
         </p>
