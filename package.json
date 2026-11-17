@@ -2,6 +2,7 @@
   "name": "lykeion",
   "version": "0.1.1",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite --config apps/dashboard/vite.config.ts --host 127.0.0.1",
