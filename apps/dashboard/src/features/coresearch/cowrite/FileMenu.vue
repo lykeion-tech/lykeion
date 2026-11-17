@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue';
-const props = defineProps<{ label: string; adding?: boolean }>();
+defineProps<{ label: string; adding?: boolean }>();
 const emit = defineEmits<{ select: [string] }>();
 const open = ref(false),
   trigger = ref<HTMLElement>(),
