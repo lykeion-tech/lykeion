@@ -188,9 +188,17 @@ defineExpose({
 });
 </script>
 <template>
-  <section class="daemon-settings" aria-labelledby="daemon-settings-heading">
-    <h2 id="daemon-settings-heading">Daemon</h2>
-    <p class="daemon-intro">Manage the daemon that runs your agents on this computer.</p>
+  <section class="daemon-settings" :aria-labelledby="available ? 'daemon-settings-heading' : undefined">
+    <template v-if="available">
+      <h2 id="daemon-settings-heading">Set up an agent tool</h2>
+      <p class="daemon-intro">
+        Install and sign in to at least one tool on this computer using the official
+        <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener noreferrer">Claude Code</a>
+        or
+        <a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noopener noreferrer">Codex</a>
+        guide.
+      </p>
+    </template>
     <p v-if="explanation" class="daemon-explanation">{{ explanation }}</p>
     <p v-if="error || (matches && snapshot?.error)" class="inline-error" role="alert">
       {{ error || snapshot?.error }}
@@ -198,10 +206,9 @@ defineExpose({
     <section
       v-if="available"
       class="tool-setup"
-      aria-labelledby="tool-setup-heading"
+      aria-labelledby="daemon-settings-heading"
     >
-      <h3 id="tool-setup-heading">Set up an agent tool</h3>
-      <LocalSetupCheck :account-id="accountId" :sign-in-problems="signInProblems" />
+      <LocalSetupCheck :account-id="accountId" :sign-in-problems="signInProblems" hide-intro />
       <template v-if="snapshot?.cliAvailable && snapshot.status !== 'unknown'">
         <p v-if="localProfile && snapshot?.status === 'stopped'" class="tool-guidance">
           After setup, select Start above to detect your tools.
@@ -276,9 +283,6 @@ defineExpose({
   font-size: 14px;
   line-height: 1.55;
 }
-.tool-setup h3 {
-  margin: 0 0 8px;
-}
 .tool-setup :deep(p) {
   margin: 0 0 12px;
   max-width: 72ch;
@@ -335,6 +339,11 @@ h2 {
   color: var(--muted);
   line-height: 18px;
   margin: 0 0 16px;
+}
+.daemon-intro a {
+  color: var(--primary-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .daemon-explanation {
   margin-top: 16px;

@@ -32,6 +32,7 @@
 }
 .directory-data-table tbody tr:hover {
   background: var(--hover);
+  border-radius: 6px;
 }
 .directory-data-table td:first-child a {
   display: flex;

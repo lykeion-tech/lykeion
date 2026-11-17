@@ -518,7 +518,8 @@ const invite = () =>
 }
 .people {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13.5px;
 }
 .people th {
@@ -535,8 +536,14 @@ const invite = () =>
 .members td:nth-child(3) > .select-picker {
   margin-left: -9px;
 }
-.people tbody tr:hover {
+.people tbody tr:hover td {
   background: var(--fill-card);
+}
+.people tbody tr:hover td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.people tbody tr:hover td:last-child {
+  border-radius: 0 6px 6px 0;
 }
 .colleague-toolbar {
   margin: 4px 0 14px;

@@ -59,7 +59,6 @@ function created(id: string) {
         <Icon name="plus" :size="14" />Add skill
       </button>
     </div>
-    <p class="assignment-note">Assign skills from an agent’s <RouterLink to="/agents">Capabilities</RouterLink>.</p>
     <CapabilityList
       v-model:query="query"
       v-model:field="field"
@@ -116,12 +115,6 @@ function created(id: string) {
   align-items: center;
   gap: 6px;
 }
-.assignment-note {
-  margin: 0 0 14px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.assignment-note a { color: var(--primary-text); }
 .skill-entry {
   display: flex;
   align-items: center;

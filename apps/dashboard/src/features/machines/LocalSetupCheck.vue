@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { verifying } from '../../api/auth-loss';
 import type { DesktopPrerequisites } from '../../../../desktop/src/daemon-types';
 
-const props = defineProps<{ accountId?: string; signInProblems?: string[] }>();
+const props = defineProps<{ accountId?: string; signInProblems?: string[]; hideIntro?: boolean }>();
 const providers = [
   {
     id: 'claude',
@@ -62,7 +62,7 @@ async function refresh() {
 }
 </script>
 <template>
-  <p>
+  <p v-if="!hideIntro">
     Install and sign in to at least one tool on this computer using the official
     <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener noreferrer"
       >Claude Code</a

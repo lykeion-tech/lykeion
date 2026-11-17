@@ -1320,8 +1320,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   margin: 0;
-  height: 44px;
-  padding: 4px 6px;
+  padding: 12px 6px 2px;
   gap: 12px;
 }
 .workspace-profile > span:last-child {
@@ -1336,7 +1335,7 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 20px;
   color: var(--muted);
-  padding: 0 6px 2px;
+  padding: 12px 6px 2px;
 }
 .workspace-popup .workspace-avatar {
   height: 18px;

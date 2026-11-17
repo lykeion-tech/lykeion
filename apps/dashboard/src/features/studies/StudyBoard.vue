@@ -523,9 +523,7 @@ onUnmounted(() => {
           @click="menu('display', $event)"
           @keydown.down.prevent="menu('display', $event)"
         >
-          <Icon name="filters" :size="14" /><span v-if="hiddenPropertyCount">{{
-            hiddenPropertyCount
-          }}</span>
+          <Icon name="filters" :size="14" />
         </button>
         <div
           v-if="popup === 'display'"
@@ -551,7 +549,7 @@ onUnmounted(() => {
             class="clear-filters"
             @click="display.properties = [...propertyNames]"
           >
-            Reset properties
+            Reset
           </button>
         </div>
       </div>
@@ -887,6 +885,11 @@ onUnmounted(() => {
 .display-popover {
   width: 258px;
   padding: 12px;
+}
+.display-popover > .clear-filters {
+  justify-content: flex-start;
+  padding-inline: 0;
+  color: var(--error-text);
 }
 .display-row {
   display: flex;

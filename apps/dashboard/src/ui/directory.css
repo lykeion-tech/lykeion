@@ -192,6 +192,7 @@
 }
 a.agent-row:hover {
   background: var(--hover);
+  border-radius: 6px;
 }
 .agent-head {
   padding: 6px 0;
