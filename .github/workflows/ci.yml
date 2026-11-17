@@ -132,6 +132,11 @@ jobs:
           LYK_TEST_PG: postgres://owner:owner@127.0.0.1:5432/postgres?sslmode=disable
           LYK_TEST_REDIS: redis://127.0.0.1:6379/0
         run: go test -p 1 -timeout 30m -count=1 ./internal/daemon/... ./pkg/agent/...
+      - name: Show what the sandbox denied
+        if: failure()
+        run: |
+          log show --last 40m --style compact --predicate 'sender == "Sandbox"' \
+            | grep -o 'deny([0-9]*) [^ ]* .*' | sort | uniq -c | sort -rn | head -80
       - run: npm ci
       - run: npm run build
 
