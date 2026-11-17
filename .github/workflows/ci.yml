@@ -160,6 +160,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Enable the bubblewrap sandbox
+        # The lab's daemon runs agent CLIs only inside the sandbox.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / true
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
