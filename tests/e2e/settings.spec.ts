@@ -72,6 +72,7 @@ test('Profile and Preferences save to the account and the device', async ({ page
     await expect(nav.getByRole('button')).toHaveText([
       'Profile',
       'Preferences',
+      'Shortcuts',
       'API Tokens',
       'Storage',
       'Machines',
