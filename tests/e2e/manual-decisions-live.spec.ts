@@ -151,7 +151,10 @@ test('real members and admin cannot see another member’s manual notes', async 
     await expect(p.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
       'Preserved offline live draft',
     );
-    await p.screenshot({ path: '/private/tmp/manual-decisions-live-offline.png', fullPage: true });
+    await p.screenshot({
+      path: test.info().outputPath('manual-decisions-live-offline.png'),
+      fullPage: true,
+    });
   } finally {
     for (const context of contexts) await context.close();
   }

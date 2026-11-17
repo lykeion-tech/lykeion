@@ -149,7 +149,7 @@ test('real sandboxed Codex proposes a note that is created only after human revi
     for (const context of contexts) await context.close();
   }
   await page.screenshot({
-    path: '/private/tmp/manual-decisions-online-created.png',
+    path: test.info().outputPath('manual-decisions-online-created.png'),
     fullPage: true,
   });
 });

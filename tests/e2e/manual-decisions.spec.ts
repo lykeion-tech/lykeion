@@ -174,7 +174,10 @@ test('blank creation is keyboard accessible, survives reload and archives only a
     'Review the replication protocol',
   );
   expect(writes.some((w) => w.path === '/api/decisions/manual')).toBe(false);
-  await page.screenshot({ path: '/private/tmp/manual-decisions-form.png', fullPage: true });
+  await page.screenshot({
+    path: test.info().outputPath('manual-decisions-form.png'),
+    fullPage: true,
+  });
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page).toHaveURL(/decisions\/note1/);
   expect(writes.filter((w) => w.path === '/api/decisions/manual')).toHaveLength(1);
@@ -189,7 +192,10 @@ test('AI draft keeps offline edits beside the conversation and remains usable on
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/decisions/new');
   await expect(page.getByRole('button', { name: /Create with AI/ })).toBeVisible();
-  await page.screenshot({ path: '/private/tmp/manual-decisions-start-mobile.png', fullPage: true });
+  await page.screenshot({
+    path: test.info().outputPath('manual-decisions-start-mobile.png'),
+    fullPage: true,
+  });
   await page.getByRole('button', { name: /Create with AI/ }).click();
   await page
     .getByRole('dialog', { name: 'Choose a machine' })
@@ -204,7 +210,10 @@ test('AI draft keeps offline edits beside the conversation and remains usable on
   ).toBeVisible();
   await expect(ask).toHaveValue('Help me plan a replication note');
   expect(writes.some((w) => w.path === '/api/decisions/manual')).toBe(false);
-  await page.screenshot({ path: '/private/tmp/manual-decisions-ai-mobile.png', fullPage: true });
+  await page.screenshot({
+    path: test.info().outputPath('manual-decisions-ai-mobile.png'),
+    fullPage: true,
+  });
   // The note form sits beside the conversation, so its edits need no window to open.
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('My note');
   await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('My note');
