@@ -248,7 +248,14 @@ func coreKernelFixture(t *testing.T) *coreFixture {
 	must(t, os.MkdirAll(filepath.Join(study.Dir, "python", "bin"), 0700))
 	exe, e := os.Executable()
 	must(t, e)
-	must(t, os.Symlink(exe, filepath.Join(study.Dir, "python", "bin", "python")))
+	// A link, not a symlink: bubblewrap mounts the study folder but not the
+	// test binary's build folder, so a symlink would point at nothing.
+	python := filepath.Join(study.Dir, "python", "bin", "python")
+	if os.Link(exe, python) != nil {
+		data, err := os.ReadFile(exe)
+		must(t, err)
+		must(t, os.WriteFile(python, data, 0700))
+	}
 	return f
 }
 func TestCellClaimRunsInChatFolder(t *testing.T) {
