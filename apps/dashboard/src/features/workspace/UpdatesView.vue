@@ -1,55 +1,34 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, ref } from 'vue';
 import { version } from '../../../../../package.json';
-import { updateErrorMessage } from './update-messages';
 
 const bridge = window.lykeionDesktop?.updates;
-const available = ref(false);
 const checking = ref(false);
 const message = ref('');
 let mounted = true;
-
-
-onMounted(async () => {
-  if (!bridge) return;
-  try {
-    const enabled = await bridge.available();
-    if (mounted) available.value = enabled;
-  } catch {
-    if (mounted) available.value = false;
-  }
-});
-
 onBeforeUnmount(() => {
   mounted = false;
-  if (checking.value) void bridge?.cancel().catch(() => {});
 });
 
 async function checkForUpdate() {
-  if (!bridge || !available.value || checking.value) return;
+  if (!bridge || checking.value) return;
   checking.value = true;
-  message.value = 'Checking for and downloading an update…';
+  message.value = 'Checking for updates…';
+  let text = 'The update check could not be completed. Check your connection and try again.';
   try {
     const result = await bridge.check();
-    if (!mounted) return;
-    message.value =
-      result.state === 'error' ? updateErrorMessage(result.category) : result.state === 'current'
-        ? 'Lykeion is up to date.'
-        : `Version ${result.version} was downloaded. Installation is not available yet.`;
+    if (result.state === 'current') text = 'Lykeion is up to date.';
+    else if (result.state === 'downloaded')
+      text = `Version ${result.version} is ready. It installs when you quit Lykeion.`;
+    else if (result.state === 'unavailable')
+      text =
+        'This copy of Lykeion does not update itself. Install a release from GitHub to get updates.';
   } catch {
-    if (mounted) message.value = 'The update check could not be completed. Try again later.';
-  } finally {
-    if (mounted) checking.value = false;
+    /* The default message covers a failed check. */
   }
-}
-
-async function cancelCheck() {
-  if (!bridge || !checking.value) return;
-  try {
-    await bridge.cancel();
-  } catch {
-    /* The interrupted check reports its own outcome. */
-  }
+  if (!mounted) return;
+  message.value = text;
+  checking.value = false;
 }
 </script>
 
@@ -62,31 +41,20 @@ async function cancelCheck() {
       </div>
       <div class="update-row">
         <div>
-          <span>Automatic background updates</span>
-          <p>Unavailable in this build. A desktop update provider has not been configured.</p>
+          <span>Automatic updates</span>
+          <p v-if="bridge">
+            Lykeion downloads new versions in the background and installs them when you quit.
+            Running work is not interrupted.
+          </p>
+          <p v-else>The web app always runs the latest version.</p>
         </div>
-        <button
-          class="update-switch"
-          role="switch"
-          aria-label="Automatic background updates"
-          aria-checked="false"
-          disabled
-        >
-          <span />
-        </button>
       </div>
-      <div class="update-row">
+      <div v-if="bridge" class="update-row">
         <div>
           <span>Check for updates</span>
-          <p v-if="!available">
-            Update checks will be available when a desktop update provider is connected.
-          </p>
-          <p v-else aria-live="polite">
-            {{ message || 'Check for and download an update. Installation is not yet available.' }}
-          </p>
+          <p aria-live="polite">{{ message || 'Lykeion also checks every hour.' }}</p>
         </div>
-        <button v-if="checking" class="button compact" @click="cancelCheck">Cancel</button>
-        <button v-else class="button compact" :disabled="!available" @click="checkForUpdate">
+        <button class="button compact" :disabled="checking" @click="checkForUpdate">
           Check now
         </button>
       </div>
@@ -131,20 +99,5 @@ async function cancelCheck() {
 }
 .update-row > button {
   flex-shrink: 0;
-}
-.update-switch {
-  width: 32px;
-  height: 18px;
-  border-radius: 20px;
-  background: var(--selected);
-  padding: 1px;
-  display: flex;
-  align-items: center;
-}
-.update-switch span {
-  height: 16px;
-  width: 16px;
-  border-radius: 50%;
-  background: var(--text);
 }
 </style>

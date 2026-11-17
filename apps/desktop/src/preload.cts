@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     platform: process.platform,
     openDocumentation: () => ipcRenderer.invoke('lykeion:open-documentation') as Promise<void>,
+    updates: Object.freeze({ check: () => ipcRenderer.invoke('lykeion:updates:check') }),
     ...(documentID
       ? {
           requestDocument: documentID,

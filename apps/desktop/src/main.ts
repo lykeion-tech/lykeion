@@ -21,7 +21,7 @@ import { DesktopAuthGate } from './desktop-auth-gate.js';
 import { DesktopGoogleAuth } from './desktop-google-auth.js';
 import { AuthenticationReload } from './desktop-auth-reload.js';
 import { DaemonRuntime } from './daemon-runtime.js';
-import { startDesktopUpdater } from './desktop-updater.js';
+import { startDesktopUpdater, type UpdateCheck } from './desktop-updater.js';
 import {
   clearAbandonedLogout,
   finalizeLogoutShutdown,
@@ -302,6 +302,7 @@ void app.whenReady().then(async () => {
   let packagedCLI: (() => Promise<boolean>) | undefined;
   let daemonRuntime: DaemonRuntime | undefined;
   let daemonRevision: string | undefined;
+  let updater: ReturnType<typeof startDesktopUpdater> | undefined;
   if (app.isPackaged) {
     let manifest: unknown;
     try {
@@ -324,7 +325,7 @@ void app.whenReady().then(async () => {
         build.daemonSHA256,
       );
       daemonRevision = build.commit;
-      startDesktopUpdater(directory);
+      updater = startDesktopUpdater(directory);
     }
   }
   daemon = new DaemonManager({
@@ -372,6 +373,16 @@ void app.whenReady().then(async () => {
     )
       throw new Error('Invalid sender');
     await shell.openExternal('https://github.com/lykeion-tech/lykeion');
+  });
+  ipcMain.handle('lykeion:updates:check', async (event): Promise<UpdateCheck> => {
+    if (
+      !window ||
+      !(developmentUrl
+        ? validDaemonSender(event, window.webContents)
+        : trustedDesktopFrame(event, window.webContents, apiOrigin))
+    )
+      throw new Error('Invalid sender');
+    return updater ? updater.check() : { state: 'unavailable' };
   });
   ipcMain.on('lykeion:open-external', (event, url: unknown) => {
     if (
