@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -32,7 +31,6 @@ import (
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/labindex"
 	"lykeion/server/internal/labmemory"
-	"lykeion/server/internal/lessons"
 	"lykeion/server/internal/migrate"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/realtime"
@@ -231,9 +229,6 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	publicURL := strings.TrimRight(getenv("PUBLIC_URL"), "/")
 	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: publicURL + "/mcp/sources", LabMCPURL: publicURL + "/mcp/lab"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
-	if key := getenv("TYPESAFE_API_KEY"); key != "" {
-		engine.Jev = &jev.Client{BaseURL: "https://api.typesafe.ai", Key: key, Model: jev.Model}
-	}
 	// Optional local embeddings: live record tools remain usable without Search.
 	var labIndex *labindex.Index
 	if endpoint := getenv("EMBEDDINGS_URL"); endpoint != "" {
@@ -250,7 +245,6 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 			slog.Warn("lab search unavailable; using live record tools")
 		}
 	}
-	writer := buildLessonWriter(st, labIndex, getenv("ANTHROPIC_API_KEY"), getenv("TYPESAFE_API_KEY"))
 	labTools := labmemory.Tools{Store: st, Blobs: blobs}
 	if labIndex != nil {
 		labTools.Index = labIndex
@@ -271,6 +265,17 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	if err != nil {
 		return err
 	}
+	// Jev reviews a study only under its owner's own TypeSafe key.
+	engine.JevKey = func(ctx context.Context, user uuid.UUID) (string, error) {
+		sealed, err := st.Global().GetUserTypesafeKey(ctx, user)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		return jev.OpenKey(secretKey, user, sealed)
+	}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: secretKey}
 	runs.OnSettlement = (&coresearch.Service{Store: st, Blobs: blobs}).OnSettlement((labmemory.Answers{Store: st}).SettlementHook(ap.OnSettlement(engine.OnSettlement)))
 	conn := &connectors.Client{HTTP: connectors.Guarded(), Secret: secretKey, Contact: getenv("CONTACT_EMAIL")}
@@ -290,9 +295,8 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 	h := &handler.H{Store: st, JWT: auth.Issuer{Secret: []byte(secret), TTL: 30 * 24 * time.Hour}, Mail: mail,
 		Limit: auth.Limiter{R: rdb}, Secure: getenv("COOKIE_SECURE") != "false", Hub: hub,
 		Autoresearch: ap, AgentRuns: runs, Blobs: blobs, Engine: engine, Sources: hosted.Handler(), Lab: labTools.Handler(), Connectors: conn,
-		LessonWritesEnabled: writer != nil,
-		Google:              auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
-		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped(),
+		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
+		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped(),
 		TrustedProxies: handler.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))}
 	if err := runs.CancelUnavailableLabRuns(ctx); err != nil {
 		return fmt.Errorf("cancel unavailable lab runs: %w", err)
@@ -373,31 +377,6 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		}
 	}()
 	defer func() { stopSweep(); <-sweepDone }()
-	if h.LessonWritesEnabled {
-		lessonCtx, stopLessons := context.WithCancel(ctx)
-		var lessonWorkers sync.WaitGroup
-		triggers := &lessons.Triggers{Store: st}
-		for _, worker := range []struct {
-			name string
-			tick func(context.Context) error
-		}{{"lesson triggers", triggers.Tick}, {"lesson sweep", triggers.Sweep}, {"lesson writer", writer.Tick}} {
-			lessonWorkers.Go(func() {
-				ticker := time.NewTicker(30 * time.Second)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-lessonCtx.Done():
-						return
-					case <-ticker.C:
-					}
-					if err := worker.tick(lessonCtx); err != nil && lessonCtx.Err() == nil {
-						slog.Warn(worker.name+" failed; will retry", "err", err)
-					}
-				}
-			})
-		}
-		defer func() { stopLessons(); lessonWorkers.Wait() }()
-	}
 	attachCtx, stopAttach := context.WithCancel(ctx)
 	attachDone := make(chan struct{})
 	go func() {
@@ -462,15 +441,6 @@ func shutdown(srv *http.Server, hub *realtime.Hub) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)
-}
-
-func buildLessonWriter(st *store.Store, index *labindex.Index, anthropicKey, jevKey string) *lessons.Writer {
-	anthropicKey, jevKey = strings.TrimSpace(anthropicKey), strings.TrimSpace(jevKey)
-	st.LessonsEnabled = anthropicKey != "" && jevKey != ""
-	if !st.LessonsEnabled {
-		return nil
-	}
-	return &lessons.Writer{Store: st, Index: index, Batcher: lessons.NewAnthropicBatcher(anthropicKey), Jev: &jev.Client{BaseURL: "https://api.typesafe.ai", Key: jevKey, Model: jev.Model}}
 }
 
 // Errors back off even when a pass also exhausted its budget.

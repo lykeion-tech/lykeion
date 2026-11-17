@@ -377,14 +377,11 @@ func TestLowRedoesOnceThenBlocks(t *testing.T) {
 }
 
 func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
-	for _, tc := range []string{"503", "no key"} {
+	for _, tc := range []string{"503"} {
 		t.Run(tc, func(t *testing.T) {
 			l := newLab(t)
 			l.legacy = true
 			stub := l.jev(t, 503, nil)
-			if tc == "no key" {
-				l.e.Jev = nil
-			}
 			var warned atomic.Int32
 			prev := slog.Default()
 			slog.SetDefault(slog.New(countHandler{msg: "scoring unavailable", n: &warned}))
@@ -406,10 +403,30 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if tc == "503" && len(stub.calls()) != 6 {
 				t.Fatalf("Jev asked %d times over two passes, want 3 attempts each", len(stub.calls()))
 			}
-			if tc == "no key" && warned.Load() != 1 {
-				t.Fatalf("with no key, %d passes tried to score after the owner heard", warned.Load())
-			}
 		})
+	}
+}
+
+func TestApprovingTheLastColumnWithoutAKeyFinishesTheStudy(t *testing.T) {
+	l := newLab(t)
+	l.legacy = true
+	stub := l.jev(t, 200, nil)
+	l.e.Jev = nil
+	a := l.agent(t, "Curie", "claude", "", "You are Curie.")
+	c := l.scoped(t, "grounding", "grounding", a)
+	l.done(t, c.ID)
+	if n := len(stub.calls()); n != 0 {
+		t.Fatalf("Jev asked %d times with no key", n)
+	}
+	var item uuid.UUID
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM inbox_item WHERE card_id = $1 AND cause = 'no_jev' AND status = 'open'", c.ID).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Decide(context.Background(), l.ws, item, l.owner, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.card(t, c.ID); got.State != "done" {
+		t.Fatalf("after approving the last column: %s %s", got.BoardColumn, got.State)
 	}
 }
 

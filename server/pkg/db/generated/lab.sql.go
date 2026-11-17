@@ -688,17 +688,6 @@ func (q *Queries) LockPrivateLabChatRuns(ctx context.Context, chatID uuid.UUID) 
 	return items, nil
 }
 
-const queueLabFlagRewrite = `-- name: QueueLabFlagRewrite :exec
-INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
-SELECT app_workspace(),$1::uuid,ARRAY['flag'],now()
-WHERE NOT EXISTS(SELECT 1 FROM lesson_job WHERE workspace_id=app_workspace() AND lesson_id= $1 AND status='queued' AND 'flag'=ANY(triggers))
-`
-
-func (q *Queries) QueueLabFlagRewrite(ctx context.Context, lessonID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, queueLabFlagRewrite, lessonID)
-	return err
-}
-
 const recordLabFlag = `-- name: RecordLabFlag :exec
 INSERT INTO lesson_flag(workspace_id,lesson_id,user_id,reason)
 VALUES(app_workspace(),$1,app_user(),$2)

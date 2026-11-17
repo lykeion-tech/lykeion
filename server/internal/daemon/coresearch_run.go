@@ -614,7 +614,7 @@ func (d *daemon) dispatchCoresearchSetup(parent context.Context, c coresearch.Cl
 		python = envs.DefaultPythonVersion
 	}
 	if !envs.ValidPythonVersion(python) {
-		return errors.New("python must be a version from 3.9 to 3.14")
+		return errors.New("python must be a version from 3.9 to 3.15")
 	}
 	if old := s.RecordedPython(); old != "" && old != python {
 		return envs.PythonConflict(old)

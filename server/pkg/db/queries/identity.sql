@@ -49,3 +49,13 @@ WHERE user_id = @user_id ORDER BY created_at DESC;
 -- name: RevokeToken :execrows
 UPDATE personal_access_token SET revoked_at = now()
 WHERE id = @id AND user_id = @user_id AND revoked_at IS NULL;
+
+-- name: SetUserTypesafeKey :exec
+INSERT INTO user_typesafe_key (user_id, ciphertext) VALUES (@user_id, @ciphertext)
+ON CONFLICT (user_id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = now();
+
+-- name: ClearUserTypesafeKey :exec
+DELETE FROM user_typesafe_key WHERE user_id = @user_id;
+
+-- name: GetUserTypesafeKey :one
+SELECT ciphertext FROM user_typesafe_key WHERE user_id = @user_id;

@@ -485,10 +485,7 @@ func recordKey(cite string) string {
 // runReview asks the column's reviewer. It reads blobs and asks Jev and the
 // sources, so no transaction is open.
 func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv reviewing) (review.Result, error) {
-	if e.Jev == nil {
-		return review.Result{}, errNoJev
-	}
-	p := &reviewPass{e: e, ws: ws, card: in.card, retry: e.retry(), renewed: e.now()}
+	p := &reviewPass{e: e, ws: ws, card: in.card, jev: e.JevFor(ctx, in.card.OwnerID), retry: e.retry(), renewed: e.now()}
 	a := retryAsker{p}
 	switch in.card.BoardColumn {
 	case board.Grounding:
@@ -624,6 +621,7 @@ type reviewPass struct {
 	e       *Engine
 	ws      uuid.UUID
 	card    db.Card
+	jev     *jev.Client // the study owner's; nil asks every question errNoJev
 	retry   *jev.Retry
 	renewed time.Time
 }
@@ -654,11 +652,14 @@ func (p *reviewPass) keep(ctx context.Context) error {
 type retryAsker struct{ p *reviewPass }
 
 func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string) (out map[string]float64, err error) {
+	if a.p.jev == nil {
+		return nil, errNoJev
+	}
 	if err := a.p.keep(ctx); err != nil {
 		return nil, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	err = a.p.retry.Do(ctx, func() (err error) {
-		out, err = a.p.e.Jev.Noul(ctx, state, qs)
+		out, err = a.p.jev.Noul(ctx, state, qs)
 		return err
 	})
 	if err != nil {
@@ -669,11 +670,14 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 
 // NoulImages is Noul with images; only a report's figure checks show Jev images.
 func (a retryAsker) NoulImages(ctx context.Context, state string, qs map[string]string, images map[string]jev.Image) (out map[string]float64, err error) {
+	if a.p.jev == nil {
+		return nil, errNoJev
+	}
 	if err := a.p.keep(ctx); err != nil {
 		return nil, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	err = a.p.retry.Do(ctx, func() (err error) {
-		out, err = a.p.e.Jev.NoulImages(ctx, state, qs, images)
+		out, err = a.p.jev.NoulImages(ctx, state, qs, images)
 		return err
 	})
 	if err != nil {
@@ -683,11 +687,14 @@ func (a retryAsker) NoulImages(ctx context.Context, state string, qs map[string]
 }
 
 func (a retryAsker) Choice(ctx context.Context, state, instructions string, options map[string]string) (out jev.Answer, err error) {
+	if a.p.jev == nil {
+		return jev.Answer{}, errNoJev
+	}
 	if err := a.p.keep(ctx); err != nil {
 		return jev.Answer{}, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	err = a.p.retry.Do(ctx, func() (err error) {
-		out, err = a.p.e.Jev.Choice(ctx, state, instructions, options)
+		out, err = a.p.jev.Choice(ctx, state, instructions, options)
 		return err
 	})
 	if err != nil {
@@ -761,7 +768,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			return err
 		}
 		if rerr != nil {
-			return scoringUnavailable(ctx, tx, c, rerr)
+			return e.gateUnjudged(ctx, tx, c, rerr)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -800,14 +807,8 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 				return err
 			}
 		default:
-			if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
-				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
-				if res.Decision == review.DecideCarry {
-					next.HandoffNote = review.CarryNote(res)
-				}
-			} else {
-				next.State = "done"
-				finished = true
+			if finished = advance(c, &next); !finished && res.Decision == review.DecideCarry {
+				next.HandoffNote = review.CarryNote(res)
 			}
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {

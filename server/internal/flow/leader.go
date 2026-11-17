@@ -173,17 +173,24 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	}
 	// Jev is asked before the study is locked: an answer can take a minute.
 	fit := fitUnavailable
-	if e.Jev != nil && t.Status == "completed" {
+	if t.Status == "completed" {
 		var h *handInBody
+		var owner uuid.UUID
 		err := e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) (err error) {
-			h, _, err = runHandIn(ctx, tx, t)
+			if h, _, err = runHandIn(ctx, tx, t); err != nil {
+				return err
+			}
+			c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: *t.CardID})
+			owner = c.OwnerID
 			return err
 		})
 		if err != nil {
 			return err
 		}
 		if h != nil && h.Status == "ask" && h.Decision != nil {
-			fit = e.fitCheck(ctx, *t.CardID, *h.Decision)
+			if j := e.JevFor(ctx, owner); j != nil {
+				fit = e.fitCheck(ctx, j, *t.CardID, *h.Decision)
+			}
 		}
 	}
 	return e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {

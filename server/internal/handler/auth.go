@@ -191,7 +191,12 @@ func (h *H) me(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, 200, u)
+	v, err := h.meView(r, u)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, v)
 }
 
 var careerStages = []string{"", "undergraduate", "masters", "phd", "postdoc", "research_staff", "faculty", "industry", "other"}
@@ -247,7 +252,12 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, 200, u)
+	v, err := h.meView(r, u)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, v)
 }
 
 func validUserAvatar(value string) bool {

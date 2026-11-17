@@ -283,10 +283,20 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 	var team *service.TeamClaim
 	var solo *db.FieldPack
 	var scope skill.Scope
+	var payer uuid.UUID // whose TypeSafe key routes: the study's owner, else who asked for the run
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
 		run, err := tx.Q.GetAgentRun(r.Context(), db.GetAgentRunParams{ID: role.AgentRunID, WorkspaceID: role.WorkspaceID})
 		if err != nil {
 			return err
+		}
+		if run.CardID != nil {
+			card, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: role.WorkspaceID, ID: *run.CardID})
+			if err != nil {
+				return err
+			}
+			payer = card.OwnerID
+		} else if run.RequesterID != nil {
+			payer = *run.RequesterID
 		}
 		if role.CardID != uuid.Nil {
 			scope = skill.Scope{Kind: "card", ID: role.CardID}
@@ -378,7 +388,7 @@ func (h *H) postTools(w http.ResponseWriter, r *http.Request) {
 			c.Skills = append(c.Skills, soloSkills...)
 		}
 	}
-	res, err := toolroute.Route(r.Context(), h.Engine.Jev, in.Need, c)
+	res, err := toolroute.Route(r.Context(), h.Engine.JevFor(r.Context(), payer), in.Need, c)
 	if err != nil {
 		slog.Warn("route tools", "agent_run", middleware.RoleFrom(r.Context()).AgentRunID, "err", err)
 		writeErr(w, 503, err.Error())

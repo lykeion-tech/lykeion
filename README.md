@@ -46,7 +46,7 @@ A workspace holds studies. Each study is a research question, and it moves acros
 | **Experimentation** | Plan and run the analysis on attached or public data, with recorded runs        |
 | **Validation**      | Check each hypothesis against its recorded runs and sources, and reproduce work |
 
-A study advances only when its gate passes. The server checks what it can verify mechanically, such as whether a cited source resolves, and where a stage uses it, [Jev](https://app.lykeion.tech/docs/jev/) (TypeSafe) reviews the work that needs judgment. Failed items go back for a limited redo. If the redo still fails, the study is blocked, and in some cases it asks its owner for a decision.
+A study advances only when its gate passes. The server checks what it can verify mechanically, such as whether a cited source resolves. When the study's owner has saved their own TypeSafe key in Settings, [Jev](https://app.lykeion.tech/docs/jev/) reviews the work that needs judgment; without a key, the owner reads the work and approves the stage or sends it back. Failed items go back for a limited redo. If the redo still fails, the study is blocked, and in some cases it asks its owner for a decision.
 
 Agents search the literature through Lykeion's sources server (OpenAlex, Europe PMC and arXiv), and every source they rely on is recorded. Attachments and the files agents save with `lyk output put` are recorded too. Every claim an agent keeps must cite a recorded source, so any conclusion can be traced back to where it came from.
 
@@ -150,7 +150,7 @@ JWT_SECRET=...                        # openssl rand -hex 32
 LYK_SECRET_KEY=...                    # openssl rand -base64 32; seals connector keys
 ```
 
-Optional settings turn on Google sign-in, sign-in emails over SMTP, Jev review (`TYPESAFE_API_KEY`) and an OpenAlex key. Then build and start it:
+Optional settings turn on Google sign-in, sign-in emails over SMTP and an OpenAlex key. Jev review needs no server setting: each person saves their own TypeSafe key in Settings, sealed with `LYK_SECRET_KEY`. Then build and start it:
 
 ```sh
 cd deploy
@@ -284,8 +284,7 @@ The server also applies migrations each time it starts.
 | `JWT_SECRET`                                                | Required, at least 32 bytes                                                                        |
 | `STORAGE`                                                   | `local:/abs/path` or `s3` (`S3_BUCKET`, `S3_REGION`, optional `S3_ENDPOINT` and AWS keys)          |
 | `PUBLIC_URL`                                                | Where people reach the dashboard. Used for invite links, sign-in redirects and the sources MCP URL |
-| `LYK_SECRET_KEY`                                            | Base64 of 32 bytes (`openssl rand -base64 32`). Seals connector keys on the server                 |
-| `TYPESAFE_API_KEY`                                          | Turns on Jev scoring. It stays on the server                                                       |
+| `LYK_SECRET_KEY`                                            | Base64 of 32 bytes (`openssl rand -base64 32`). Seals connector keys and personal TypeSafe keys on the server |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                  | Google sign-in. The redirect URI is `PUBLIC_URL` + `/auth/google/callback`                         |
 | `SMTP_ADDR`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS`          | Sign-in emails. Without SMTP, the server logs the codes instead                                    |
 | `OPENALEX_API_KEY`, `CONTACT_EMAIL`, `SOURCES_EXCLUDE_FILE` | Sources server settings                                                                            |
@@ -381,7 +380,7 @@ Contributions are welcome. Before your first pull request can be merged, sign th
 
 ## Licence
 
-Copyright (C) 2026 Domenico Diego Marono.
+Copyright (C) 2026 Lykeion.
 
 Lykeion is free software: you can redistribute it and/or modify it under the terms of the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). If you run a modified version of Lykeion as a network service, the licence requires you to offer its users the corresponding source code. For other licensing terms, contact the maintainer through the [website](https://app.lykeion.tech/contact-sales/).
 

@@ -144,11 +144,6 @@ WHERE workspace_id=app_workspace() AND id= @id RETURNING id;
 INSERT INTO lesson_flag(workspace_id,lesson_id,user_id,reason)
 VALUES(app_workspace(),@lesson_id,app_user(),@reason);
 
--- name: QueueLabFlagRewrite :exec
-INSERT INTO lesson_job(workspace_id,lesson_id,triggers,due_at)
-SELECT app_workspace(),@lesson_id::uuid,ARRAY['flag'],now()
-WHERE NOT EXISTS(SELECT 1 FROM lesson_job WHERE workspace_id=app_workspace() AND lesson_id= @lesson_id AND status='queued' AND 'flag'=ANY(triggers));
-
 -- name: LockPrivateLabChatRuns :many
 SELECT r.* FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.requester_id=app_user()
  AND r.kind='aristotle' AND r.lab_chat_id= @chat_id::uuid ORDER BY r.id FOR UPDATE;

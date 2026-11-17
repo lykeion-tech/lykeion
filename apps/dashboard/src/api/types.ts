@@ -24,6 +24,8 @@ export interface Me {
   created_at: string;
   career_stage: CareerStage;
   onboarded_at: string | null;
+  /** Absent from servers older than personal TypeSafe keys. */
+  typesafe_key_set?: boolean;
 }
 
 export interface Workspace {

@@ -51,7 +51,7 @@ const (
 // lets go when it runs out.
 const scoringLease = 10 * time.Minute
 
-var errNoJev = errors.New("the lab has no TypeSafe key")
+var errNoJev = errors.New("the study's owner has saved no TypeSafe key")
 
 // weakCriterion names the criterion a blocked study scored lowest on, as its
 // Decisions item says it.
@@ -106,6 +106,10 @@ func allWithdrawnText(column string, reasons []string) string {
 
 func doneText(number int32, column string) string {
 	return fmt.Sprintf("Study #%d is done, in its %s column.", number, title(column))
+}
+
+func noJevText(number int32, column string) string {
+	return fmt.Sprintf("Study #%d's %s column passed the server's checks. Jev did not review it because you have saved no TypeSafe key. Read the work, then approve the column or send it back.", number, title(column))
 }
 
 func unavailableText(number int32, column string) string {
@@ -317,14 +321,6 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
 			return err
 		}
-		// With no key nothing can change until the lab adds one, and the
-		// open item says this study has already tried.
-		if e.Jev == nil {
-			open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
-			if err != nil || open > 0 {
-				return err
-			}
-		}
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 		if err != nil {
 			return err
@@ -411,7 +407,8 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 }
 
 func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, values []ValueMatch) (map[string]jev.ScoreAnswer, error) {
-	if e.Jev == nil {
+	j := e.JevFor(ctx, in.card.OwnerID)
+	if j == nil {
 		return nil, errNoJev
 	}
 	qs := map[string]jev.ScoreQuestion{}
@@ -427,7 +424,7 @@ func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, va
 	for budget := maxJevInput - len(asked) - 256; ; budget /= 2 {
 		state := scoringState(in, quotes, values, budget)
 		err = retry.Do(ctx, func() (err error) {
-			out, err = e.Jev.Score(ctx, state, qs)
+			out, err = j.Score(ctx, state, qs)
 			return err
 		})
 		if !errors.Is(err, jev.ErrTooLong) || budget/2 < minJevInput {
@@ -633,7 +630,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		if jerr != nil {
-			return scoringUnavailable(ctx, tx, c, jerr)
+			return e.gateUnjudged(ctx, tx, c, jerr)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -670,13 +667,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 				return err
 			}
 		default:
-			last := board.StageIndex(c.BoardColumn) >= board.StageIndex(c.ScopeTo)
-			if i := board.StageIndex(c.BoardColumn); !last {
-				next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
-			} else {
-				next.State = "done"
-				finished = true
-			}
+			finished = advance(c, &next)
 		}
 		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
 			return err
@@ -693,6 +684,38 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 		e.goReport("check report", ws, in.card.ID, e.checkReport)
 	}
 	return moved, err
+}
+
+// advance moves next past c's column, or marks the study done on its last
+// column, and says whether the study finished.
+func advance(c db.Card, next *db.SaveCardFlowParams) bool {
+	if i := board.StageIndex(c.BoardColumn); i < board.StageIndex(c.ScopeTo) {
+		next.BoardColumn, next.Round, next.Redos = board.Stages[i+1], c.Round+1, 0
+		return false
+	}
+	next.State = "done"
+	return true
+}
+
+// gateUnjudged settles a column Jev could not judge. When the study's owner
+// saved no TypeSafe key the study blocks on the owner's decision to approve
+// the column, redo it, close or park the study; otherwise it waits as
+// scoringUnavailable says.
+func (e *Engine) gateUnjudged(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
+	if !errors.Is(cause, errNoJev) {
+		return scoringUnavailable(ctx, tx, c, cause)
+	}
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn,
+		State: "blocked", Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
+		return err
+	}
+	if err := holdForDecision(ctx, tx, c, "needs_decision", "no_jev", noJevText(c.Number, c.BoardColumn), e.now()); err != nil {
+		return err
+	}
+	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
+		return err
+	}
+	return emitSteered(ctx, tx, c.ID, store.System)
 }
 
 // scoringUnavailable leaves the study where it is and records that once, in

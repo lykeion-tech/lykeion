@@ -11,7 +11,7 @@ export default function PrivacyPage() {
           {'Lykeion'}
         </Link>
         <h1>{'Privacy Policy'}</h1>
-        <p className="updated">{'Last updated: 13 November 2026'}</p>
+        <p className="updated">{'Last updated: 17 November 2026'}</p>
         <h2>{'Who is responsible'}</h2>
         <p>
           {
@@ -22,12 +22,18 @@ export default function PrivacyPage() {
             ". If you need the controller's full name and postal address, for example to exercise your rights, ask at\n        the same address.\n      "
           }
         </p>
+        <h2>{'Our rule'}</h2>
+        <p>
+          {
+            "\n        Your research runs on your computer, through your own agent accounts. Lykeion's server keeps your workspace\n        so your lab can share it, and never hands your content to an AI company unless you turn that on.\n      "
+          }
+        </p>
         <h2>{'What we collect'}</h2>
         <ul>
           <li>
             <strong>{'Account:'}</strong>
             {
-              ' your email address, the name you give, your time zone and, if you sign in with\n          Google, your Google account ID, name and email. We never receive your Google password.\n        '
+              ' your email address, the name you give, your time zone and, if you sign in with\n          Google, your Google account ID, name and email. We never receive your Google password. If you save a\n          TypeSafe key, we store it encrypted and use it only to ask Jev about studies you own.\n        '
             }
           </li>
           <li>
@@ -39,7 +45,7 @@ export default function PrivacyPage() {
           <li>
             <strong>{'Your work:'}</strong>
             {
-              ' the content you and your agents put in a workspace: studies, files, comments,\n          reports, records of agent runs, Coresearch projects and conversations with Aristotle.\n        '
+              ' the content you and your agents put in a workspace: studies, files, comments,\n          reports, records of agent runs, Autoresearch runs, Coresearch projects, conversations with Aristotle, the\n          agents, Teams and skills you set up, Decisions and Inbox items, connectors (their keys are stored\n          encrypted) and the email addresses of people you invite.\n        '
             }
           </li>
           <li>
@@ -101,7 +107,7 @@ export default function PrivacyPage() {
           <li>
             <strong>{'TypeSafe AI, Inc.'}</strong>
             {
-              ' runs Jev, the AI model that reviews a study before it moves to the next stage. It receives the\n          study content under review, including attached images, but not your account details. It processes them in\n          the United States and does not use them to train its models.\n        '
+              ' runs Jev, the AI model that reviews a study before it moves to the next stage, only for studies whose\n          owner has saved their own TypeSafe key. It then receives the study content under review, including attached\n          images, but not your account details. It processes them in the United States and does not use them to train\n          its models. Without a key, nothing is sent to TypeSafe and the owner approves each stage.\n        '
             }
           </li>
         </ul>
@@ -130,9 +136,7 @@ export default function PrivacyPage() {
           {
             '. We answer within one month. You can also\n        complain to the Danish data protection authority,\n        '
           }
-          <a href="https://www.datatilsynet.dk">
-            {'Datatilsynet'}
-          </a>
+          <a href="https://www.datatilsynet.dk">{'Datatilsynet'}</a>
           {', or to the authority where you live.\n      '}
         </p>
         <h2>{'Age'}</h2>

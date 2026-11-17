@@ -18,7 +18,7 @@ import (
 const setupDescription = "Set up this study's environment: python chooses one Python version, conda adds packages from conda-forge then bioconda, and lock installs an explicit conda lock file or environment.yml inside the working folder or attachments. A study keeps one Python version; a new Python has only ipykernel, so install any other packages you need. lean selects a Lean toolchain with an optional mathlib revision; its shared base is built by the daemon and used read-only by the study. Setup has a 30 minute limit."
 
 type setupIn struct {
-	Python  string   `json:"python,omitempty" jsonschema:"Python version from 3.9 through 3.14; one version is kept per study"`
+	Python  string   `json:"python,omitempty" jsonschema:"Python version from 3.9 through 3.15; one version is kept per study"`
 	Conda   []string `json:"conda,omitempty" jsonschema:"package specs searched in conda-forge then bioconda"`
 	Lock    string   `json:"lock,omitempty" jsonschema:"path relative to the working folder or its attachments to an explicit conda lock file or environment.yml"`
 	Lean    string   `json:"lean,omitempty" jsonschema:"Lean toolchain, for example leanprover/lean4:v4.30.0"`

@@ -179,10 +179,9 @@ func TestChatsAreOwnerOnly(t *testing.T) {
 	}
 }
 
-func TestFlagSetsLessonAsideAndQueuesRewrite(t *testing.T) {
+func TestFlagSetsLessonAside(t *testing.T) {
 	s, _, b, _, ws, _ := csFixture(t)
-	for _, enabled := range []bool{false, true} {
-		s.H.LessonWritesEnabled = enabled
+	{
 		var id string
 		if err := s.Env.Owner.QueryRow(t.Context(), "INSERT INTO lesson(workspace_id,kind,text,model,checked_at) VALUES($1,'lab','lesson','model',now()) RETURNING id", ws).Scan(&id); err != nil {
 			t.Fatal(err)
@@ -195,7 +194,7 @@ func TestFlagSetsLessonAsideAndQueuesRewrite(t *testing.T) {
 			t.Fatal(code)
 		}
 		var aside, job, flag bool
-		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status='set_aside' AND set_aside_reason='flagged',EXISTS(SELECT 1 FROM lesson_job WHERE lesson_id=$1 AND triggers=ARRAY['flag'] AND due_at<=now()),EXISTS(SELECT 1 FROM lesson_flag WHERE lesson_id=$1 AND length(reason)=500) FROM lesson WHERE id=$1`, id).Scan(&aside, &job, &flag); err != nil || !aside || !flag || job != enabled {
+		if err := s.Env.Owner.QueryRow(t.Context(), `SELECT status='set_aside' AND set_aside_reason='flagged',EXISTS(SELECT 1 FROM lesson_job WHERE lesson_id=$1 AND triggers=ARRAY['flag'] AND due_at<=now()),EXISTS(SELECT 1 FROM lesson_flag WHERE lesson_id=$1 AND length(reason)=500) FROM lesson WHERE id=$1`, id).Scan(&aside, &job, &flag); err != nil || !aside || !flag || job {
 			t.Fatalf("flag %v %v %v %v", aside, job, flag, err)
 		}
 	}

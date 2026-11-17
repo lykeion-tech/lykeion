@@ -817,6 +817,10 @@ See [agents](/docs/agents/) for capability selection, [skills](/docs/skills/) fo
 
 Agents carry out the work in a study; Jev helps review research items before configured stages advance. It is an independent check on the work, not a progress meter or a grade for an agent. Open a study's Review surface to inspect the recorded checks, evidence and outstanding limits.
 
+## Your own TypeSafe key
+
+Jev is run by TypeSafe and reviews a study only under its owner's own TypeSafe key. Save yours in **Settings → API Tokens**; it is stored encrypted on the server and sent only to TypeSafe. Without a key, nothing is sent to TypeSafe: the server still runs its checks, and when a stage needs judgment the study asks its owner in [Decisions](/docs/decisions/) to approve the stage, redo it with guidance, close the study or park it.
+
 ## Review the work, item by item
 
 Review concerns the items a stage hands in: for example, sources in Grounding, hypotheses, experimental outputs and values, or assessments and verdicts in Validation. The checks depend on the stage and the item. A failed item can be sent back with a specific reason, while items that still stand can be retained. Study completion still depends on its configured scope and required review.
@@ -834,7 +838,7 @@ The precise checks and available evidence vary. Inspect the recorded questions a
 
 ## From checks to the next step
 
-Jev's answers contribute to recorded checks; Lykeion applies its review rules to the results. A stage may pass, carry an unclear item forward, or send failed work back for a limited redo. If the redo still fails, the study is blocked. In some cases the study asks its owner for a decision. An unavailable review service leaves work waiting rather than establishing a pass.
+Jev's answers contribute to recorded checks; Lykeion applies its review rules to the results. A stage may pass, carry an unclear item forward, or send failed work back for a limited redo. If the redo still fails, the study is blocked. In some cases the study asks its owner for a decision. When the owner has saved a key but TypeSafe cannot answer, the work waits rather than passing.
 
 Review can identify a weakest item where applicable, giving the Team a more specific starting point. Unclear is distinct from a pass or a failure, and a warning does not necessarily decide the stage. Open [Decisions](/docs/decisions/) when a person needs to respond, and use [scientific stages](/docs/scientific-stages/) to follow progress through the study's scope.
 `,

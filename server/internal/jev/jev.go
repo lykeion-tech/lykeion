@@ -19,6 +19,9 @@ import (
 // Model is the pinned model used for server-side scientific judgments.
 const Model = "jev-1.13.0"
 
+// BaseURL is TypeSafe's API.
+const BaseURL = "https://api.typesafe.ai"
+
 type Client struct {
 	BaseURL string
 	Key     string

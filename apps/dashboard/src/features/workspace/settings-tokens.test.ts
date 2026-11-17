@@ -123,3 +123,37 @@ it('hides a newly created token after leaving the page', async () => {
   await nextTick();
   expect(textOf(root)).not.toContain('lyk_disposable_fixture');
 });
+it('saves a TypeSafe key once and then only says it is saved', async () => {
+  const { root, client } = await mount('tokens');
+  expect(textOf(root)).toContain('approve each stage yourself');
+  const calls: Array<[string, RequestInit | undefined]> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return init?.method === 'PUT' ? new Response(null, { status: 204 }) : Response.json([]);
+    }),
+  );
+  const input = all(root).find((n) => n.props['aria-label'] === 'TypeSafe key')!;
+  expect(input.props.type).toBe('password');
+  (input.props['onUpdate:modelValue'] as (v: string) => void)(' ts-fixture-key ');
+  await nextTick();
+  const form = all(root).find(
+    (n) => n.tag === 'form' && n.props.class === 'setting-box typesafe-key',
+  )!;
+  (form.props.onSubmit as (e: unknown) => void)({ preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const put = calls.find(([, init]) => init?.method === 'PUT')!;
+  expect(put[0]).toContain('/api/me/typesafe-key');
+  expect(JSON.parse(String(put[1]!.body))).toEqual({ key: 'ts-fixture-key' });
+  client.setQueryData(keys.me, {
+    id: 'u',
+    name: 'Researcher',
+    email: 'r@example.test',
+    typesafe_key_set: true,
+  });
+  await nextTick();
+  expect(textOf(root)).toContain('Key saved');
+  expect(textOf(root)).not.toContain('ts-fixture-key');
+  expect(all(root).some((n) => n.props['aria-label'] === 'TypeSafe key')).toBe(false);
+});
