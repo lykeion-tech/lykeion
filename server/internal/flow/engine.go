@@ -32,11 +32,14 @@ type Engine struct {
 	Store     *store.Store
 	AgentRuns *service.AgentRuns
 	Blobs     storage.Storage
-	Jev       *jev.Client    // nil when the lab has no TypeSafe key
-	Sources   review.Sources // resolves Grounding's papers and datasets; nil reviews no Grounding column
-	Retry     func() *jev.Retry
-	Now       func() time.Time
-	Inline    bool // run kicks in the caller's goroutine; tests use it to stay deterministic
+	Jev       *jev.Client // when set, serves every study whatever its owner's key (tests)
+	// JevKey opens the TypeSafe key a person saved, or "" when they saved
+	// none. Jev reviews a study only under its owner's own key.
+	JevKey  func(ctx context.Context, user uuid.UUID) (string, error)
+	Sources review.Sources // resolves Grounding's papers and datasets; nil reviews no Grounding column
+	Retry   func() *jev.Retry
+	Now     func() time.Time
+	Inline  bool // run kicks in the caller's goroutine; tests use it to stay deterministic
 
 	reporting sync.Map // the report work in flight, by kind and study
 }
@@ -465,4 +468,25 @@ func (e *Engine) deferScoringForComments(ctx context.Context, tx *store.Tx, c db
 	}
 	_, err = e.followUp(ctx, tx, c, runs)
 	return true, err
+}
+
+// JevFor is Jev under user's own TypeSafe key, or nil when they saved none
+// or it cannot be opened, in which case the owner decides in Jev's place.
+func (e *Engine) JevFor(ctx context.Context, user uuid.UUID) *jev.Client {
+	if e.Jev != nil {
+		return e.Jev
+	}
+	if e.JevKey == nil || user == uuid.Nil {
+		return nil
+	}
+	key, err := e.JevKey(ctx, user)
+	if err != nil {
+		// ponytail: an unreadable key counts as none, so the owner is asked; retry here if lookups prove flaky.
+		slog.Warn("typesafe key unavailable", "user", user, "err", err)
+		return nil
+	}
+	if key == "" {
+		return nil
+	}
+	return &jev.Client{BaseURL: jev.BaseURL, Key: key, Model: jev.Model}
 }

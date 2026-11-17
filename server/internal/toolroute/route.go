@@ -39,8 +39,8 @@ const nameMax = 128
 // excerptMax bounds the text one question quotes from a description or section.
 const excerptMax = 600
 
-// ErrNoJev is routing asked of a lab with no TypeSafe key.
-var ErrNoJev = errors.New("Jev is unavailable: the lab has no TypeSafe key")
+// ErrNoJev is routing asked for a person who saved no TypeSafe key.
+var ErrNoJev = errors.New("Jev is unavailable: the study's owner has saved no TypeSafe key")
 
 type Skill struct {
 	Name, Domain, Description string

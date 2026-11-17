@@ -27,13 +27,18 @@ var (
 	optClose    = Option{"close", "Close as a negative result", "The study ends here and is recorded as a negative result."}
 	optPark     = Option{"park", "Park", "The study stops here; anyone who can open it may redo it later."}
 	optTryAgain = Option{"try_again", "Try again", "The parked runs are queued again on their machine."}
+	optApprove  = Option{"approve", "Approve", "The column passes and the study moves on, as if Jev had passed it."}
 )
 
 // StopOptions are the answers to a study's stop: parked runs can be tried
-// again, any other stop can be redone, closed or parked.
+// again, a column Jev did not judge can also be approved, and any stop can be
+// redone, closed or parked.
 func StopOptions(cause string) []Option {
-	if cause == "machine_failures" {
+	switch cause {
+	case "machine_failures":
 		return []Option{optTryAgain, optPark}
+	case "no_jev":
+		return []Option{optApprove, optRedo, optClose, optPark}
 	}
 	return []Option{optRedo, optClose, optPark}
 }

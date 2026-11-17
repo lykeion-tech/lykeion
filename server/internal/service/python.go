@@ -11,7 +11,7 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-var pythonVersion = regexp.MustCompile(`^3\.(9|1[0-4])$`)
+var pythonVersion = regexp.MustCompile(`^3\.(9|1[0-5])$`)
 
 func ValidPythonVersion(version string) bool { return pythonVersion.MatchString(version) }
 

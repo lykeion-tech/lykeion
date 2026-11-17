@@ -18,7 +18,7 @@ func (h *H) putPython(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"`
 	}
 	if err := readJSON(r, &in); err != nil || !service.ValidPythonVersion(in.Version) {
-		writeErr(w, 400, "version must be a Python version from 3.9 to 3.14")
+		writeErr(w, 400, "version must be a Python version from 3.9 to 3.15")
 		return
 	}
 	var conflict string

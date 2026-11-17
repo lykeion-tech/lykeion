@@ -4,7 +4,7 @@ Lykeion is a research lab where agents carry out scientific work and people stee
 
 ## Product and architecture
 
-- A workspace contains studies. Studies can move through Grounding, Hypotheses, Experimentation and Validation; server checks and, where configured, Jev review govern progression. A study can use stage Teams or a single agent. Preserve stage, gate, review and completion behavior when changing adjacent features.
+- A workspace contains studies. Studies can move through Grounding, Hypotheses, Experimentation and Validation; server checks and Jev review (under the owner's own TypeSafe key) or the owner's approval govern progression. A study can use stage Teams or a single agent. Preserve stage, gate, review and completion behavior when changing adjacent features.
 - Evidence and provenance are part of the product: use the sources server and recorded sources, attachments and outputs where the existing workflow requires them. Do not invent citations or bypass evidence checks.
 - The Go server owns workspace data and authorization. PostgreSQL row-level security isolates workspaces; Redis supports realtime and other services. The `lyk` CLI and local daemon run supported agent CLIs on users' machines.
 - Claude Code and Codex run inside the operating system sandbox. Preserve the no-sandbox, no-run boundary and the distinction between a user's machine and shared-machine access.
@@ -32,7 +32,7 @@ Use `README.md`, `server/README.md`, `apps/desktop/README.md` and the relevant p
 
 - Scope workspace reads, writes, events and cache keys to the correct workspace. Keep membership and authorization checks at the server boundary; UI restrictions alone do not grant or deny access.
 - Preserve the workspace transaction and RLS model. The server's serving role must not own tables or bypass RLS; migrations use separate credentials. See `server/README.md` before changing database roles or migration handling.
-- `TYPESAFE_API_KEY` stays on the server. Connector secrets are sealed on the server. Never pass a person's own `lyk_` token to an agent, print credentials, or commit secrets.
+- Jev runs only under the study owner's own TypeSafe key, sealed on the server; it never reaches agents or clients. Connector secrets are sealed on the server. Never pass a person's own `lyk_` token to an agent, print credentials, or commit secrets.
 - Preserve sandboxing, machine ownership, shared-run isolation and evidence boundaries. Do not widen access or weaken isolation as a convenience for a UI change.
 - Inspect data deletion, cancellation and revocation paths together. Avoid irreversible actions against the user's data or services without authorization.
 - Respect licenses when using third-party assets or code; check `NOTICE` and the upstream license before adding or copying material.

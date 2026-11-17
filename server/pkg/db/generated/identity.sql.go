@@ -21,6 +21,15 @@ func (q *Queries) BumpVerificationAttempts(ctx context.Context, email string) er
 	return err
 }
 
+const clearUserTypesafeKey = `-- name: ClearUserTypesafeKey :exec
+DELETE FROM user_typesafe_key WHERE user_id = $1
+`
+
+func (q *Queries) ClearUserTypesafeKey(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearUserTypesafeKey, userID)
+	return err
+}
+
 const createToken = `-- name: CreateToken :one
 INSERT INTO personal_access_token (user_id, token_hash, prefix, name, expires_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -90,6 +99,17 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.AvatarUrl,
 	)
 	return i, err
+}
+
+const getUserTypesafeKey = `-- name: GetUserTypesafeKey :one
+SELECT ciphertext FROM user_typesafe_key WHERE user_id = $1
+`
+
+func (q *Queries) GetUserTypesafeKey(ctx context.Context, userID uuid.UUID) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getUserTypesafeKey, userID)
+	var ciphertext []byte
+	err := row.Scan(&ciphertext)
+	return ciphertext, err
 }
 
 const getVerificationCode = `-- name: GetVerificationCode :one
@@ -165,6 +185,21 @@ func (q *Queries) RevokeToken(ctx context.Context, arg RevokeTokenParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setUserTypesafeKey = `-- name: SetUserTypesafeKey :exec
+INSERT INTO user_typesafe_key (user_id, ciphertext) VALUES ($1, $2)
+ON CONFLICT (user_id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = now()
+`
+
+type SetUserTypesafeKeyParams struct {
+	UserID     uuid.UUID `json:"user_id"`
+	Ciphertext []byte    `json:"ciphertext"`
+}
+
+func (q *Queries) SetUserTypesafeKey(ctx context.Context, arg SetUserTypesafeKeyParams) error {
+	_, err := q.db.Exec(ctx, setUserTypesafeKey, arg.UserID, arg.Ciphertext)
+	return err
 }
 
 const setVerificationCode = `-- name: SetVerificationCode :exec

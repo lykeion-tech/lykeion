@@ -292,7 +292,7 @@ func TestALegacyColumnIsScoredTheOldWay(t *testing.T) {
 }
 
 func TestReviewWithoutJevNeverMovesTheStudy(t *testing.T) {
-	for _, tc := range []string{"503", "no key", "no sources"} {
+	for _, tc := range []string{"503", "no sources"} {
 		t.Run(tc, func(t *testing.T) {
 			l := newLab(t)
 			status := 503
@@ -302,9 +302,6 @@ func TestReviewWithoutJevNeverMovesTheStudy(t *testing.T) {
 			l.jev(t, status, levels(nil))
 			if tc != "no sources" {
 				l.e.Sources = stubSources{}
-			}
-			if tc == "no key" {
-				l.e.Jev = nil
 			}
 			c := l.groundingStudy(t)
 			l.item(t, c.ID, review.KindPaper, paper(paperA))
@@ -321,6 +318,59 @@ func TestReviewWithoutJevNeverMovesTheStudy(t *testing.T) {
 				t.Fatalf("scoring_unavailable items: %q", items)
 			}
 		})
+	}
+}
+
+// Without the owner's TypeSafe key the server's checks still run, and the
+// owner approves the column in Jev's place.
+func TestNoKeyAsksTheOwnerToApproveTheColumn(t *testing.T) {
+	l := newLab(t)
+	stub := l.jev(t, 200, levels(nil))
+	l.e.Jev = nil
+	l.e.Sources = stubSources{}
+	c := l.groundingStudy(t)
+	l.item(t, c.ID, review.KindPaper, paper(paperA))
+	l.done(t, c.ID)
+	l.e.Kick(l.ws, c.ID)
+	if n := len(stub.calls()); n != 0 {
+		t.Fatalf("Jev asked %d times with no key", n)
+	}
+	got := l.card(t, c.ID)
+	if got.BoardColumn != "grounding" || got.State != "blocked" || got.Round != c.Round {
+		t.Fatalf("held: %s %s round %d", got.BoardColumn, got.State, got.Round)
+	}
+	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 || items[0] != noJevText(c.Number, "grounding") {
+		t.Fatalf("needs_decision items: %q", items)
+	}
+	var item uuid.UUID
+	if err := l.env.Owner.QueryRow(context.Background(), "SELECT id FROM inbox_item WHERE card_id = $1 AND cause = 'no_jev'", c.ID).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.e.Decide(context.Background(), l.ws, item, l.owner, "approve", ""); err != nil {
+		t.Fatal(err)
+	}
+	got = l.card(t, c.ID)
+	if got.BoardColumn != "hypotheses" || got.State != "working" || got.Round != c.Round+1 {
+		t.Fatalf("after approve: %s %s round %d", got.BoardColumn, got.State, got.Round)
+	}
+	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'outcome' AND body->>'verdict' = 'approved_by_owner'", c.ID); n != 1 {
+		t.Fatalf("%d approved outcomes", n)
+	}
+}
+
+func TestJevForUsesOnlyTheOwnersKey(t *testing.T) {
+	owner, other := uuid.New(), uuid.New()
+	e := &Engine{JevKey: func(_ context.Context, u uuid.UUID) (string, error) {
+		if u == owner {
+			return "owner-key", nil
+		}
+		return "", nil
+	}}
+	if j := e.JevFor(context.Background(), owner); j == nil || j.Key != "owner-key" {
+		t.Fatalf("owner's client: %+v", j)
+	}
+	if j := e.JevFor(context.Background(), other); j != nil {
+		t.Fatalf("a member with no key got %+v", j)
 	}
 }
 

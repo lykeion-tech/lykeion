@@ -15,6 +15,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/handin"
+	"lykeion/server/internal/jev"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -133,6 +134,11 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 	if restart {
 		e.Kick(ws, card)
 	}
+	if option == "approve" {
+		// A study its owner approved to the end gets its report checks, which
+		// mark themselves unavailable without a TypeSafe key.
+		e.goReport("check report", ws, card, e.checkReport)
+	}
 	return e.cancelParked(ctx, ws, user, cancel)
 }
 
@@ -201,6 +207,21 @@ func (e *Engine) applyOption(ctx context.Context, tx *store.Tx, c db.Card, user 
 		return false, cancel, nil
 	case "try_again":
 		return false, nil, service.ReleaseParkedRuns(ctx, tx, c.ID)
+	case "approve":
+		// approve passes the column in Jev's place, as its owner judged it.
+		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": "approved_by_owner", "by": user}); err != nil {
+			return false, nil, err
+		}
+		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working, Round: c.Round, Redos: c.Redos}
+		finished := advance(c, &next)
+		if err := tx.Q.SaveCardFlow(ctx, next); err != nil {
+			return false, nil, err
+		}
+		if finished {
+			return false, nil, e.finishStudy(ctx, tx, c)
+		}
+		// The next column starts like a redo's, so approve emits card.steered itself.
+		return true, nil, emitSteered(ctx, tx, c.ID, actor)
 	}
 	return false, nil, OptionError("option " + option + " cannot be applied")
 }
@@ -445,7 +466,7 @@ var fitOptions = map[string]string{
 
 // fitCheck asks Jev whether an agent's question is the researcher's to
 // answer. It runs with no transaction open.
-func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.DecisionIn) string {
+func (e *Engine) fitCheck(ctx context.Context, j *jev.Client, card uuid.UUID, d handin.DecisionIn) string {
 	questions := []handin.DecisionIn{d}
 	if d.QuestionSet != nil {
 		var cancel context.CancelFunc
@@ -463,7 +484,7 @@ func (e *Engine) fitCheck(ctx context.Context, card uuid.UUID, d handin.Decision
 		if ctx.Err() != nil {
 			return fitUnavailable
 		}
-		a, err := e.Jev.Choice(ctx, decisionState(question), fitQuestion, fitOptions)
+		a, err := j.Choice(ctx, decisionState(question), fitQuestion, fitOptions)
 		if err != nil {
 			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)
 			result = fitUnavailable

@@ -297,7 +297,7 @@ func TestJevChecksEveryQuestionInSet(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"kind":"scope","title":"Choose scope","body":"Several questions","options":null,"question_set":{"questions":[{"id":"one","prompt":"First question?","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false},{"id":"two","prompt":"Second question?","help_text":null,"required":false,"mode":"text","options":[],"allow_other":false}]},"expires_at":null,"from_member":null}`), &d); err != nil {
 		t.Fatal(err)
 	}
-	if got := l.e.fitCheck(context.Background(), uuid.New(), d); got != fitFits {
+	if got := l.e.fitCheck(context.Background(), l.e.Jev, uuid.New(), d); got != fitFits {
 		t.Fatalf("fit %q", got)
 	}
 	calls := s.calls()
@@ -367,7 +367,7 @@ func TestJevRejectsSetWhenAnyQuestionDoesNotFit(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"kind":"scope","title":"Scope","body":"Questions","options":null,"question_set":{"questions":[{"id":"a","prompt":"First question?","help_text":null,"required":true,"mode":"text","options":[],"allow_other":false},{"id":"b","prompt":"Second question?","help_text":null,"required":false,"mode":"text","options":[],"allow_other":false}]},"expires_at":null,"from_member":null}`), &d); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.fitCheck(context.Background(), uuid.New(), d); got != fitDecide || calls != 2 {
+	if got := e.fitCheck(context.Background(), e.Jev, uuid.New(), d); got != fitDecide || calls != 2 {
 		t.Fatalf("Jev verdict %q after %d calls", got, calls)
 	}
 }
@@ -390,7 +390,7 @@ func TestQuestionSetFitCheckBoundsSlowJev(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(30*time.Millisecond, cancel)
 	start := time.Now()
-	if got := e.fitCheck(ctx, uuid.New(), d); got != fitUnavailable {
+	if got := e.fitCheck(ctx, e.Jev, uuid.New(), d); got != fitUnavailable {
 		t.Fatalf("verdict %q", got)
 	}
 	if calls != 1 {
@@ -427,7 +427,7 @@ func TestJevRejectsLaterQuestionAfterUnavailable(t *testing.T) {
 	defer srv.Close()
 	e := &Engine{Jev: &jev.Client{BaseURL: srv.URL, Key: "k", Model: jev.Model}}
 	d := handin.DecisionIn{QuestionSet: &handin.QuestionSetIn{Questions: make([]handin.QuestionIn, 2)}}
-	if got := e.fitCheck(context.Background(), uuid.New(), d); got != fitDecide || calls != 2 {
+	if got := e.fitCheck(context.Background(), e.Jev, uuid.New(), d); got != fitDecide || calls != 2 {
 		t.Fatalf("verdict %q after %d calls", got, calls)
 	}
 }

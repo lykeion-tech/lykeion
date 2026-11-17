@@ -231,6 +231,26 @@ const revoke = (id: string) =>
     if (own.current() && created.value?.id === id) created.value = null;
     await refreshAccount(own, keys.tokens);
   });
+const typesafeKey = ref('');
+const replacingKey = ref(false);
+const keySaved = computed(() => me.data.value?.typesafe_key_set === true);
+function saveTypesafeKey() {
+  const key = typesafeKey.value.trim();
+  if (!key) return;
+  return save(async (own) => {
+    await api('PUT', '/api/me/typesafe-key', { key });
+    if (own.current()) {
+      typesafeKey.value = '';
+      replacingKey.value = false;
+    }
+    await refreshAccount(own, keys.me);
+  }, 'TypeSafe key saved.');
+}
+const removeTypesafeKey = () =>
+  save(async (own) => {
+    await api('DELETE', '/api/me/typesafe-key');
+    await refreshAccount(own, keys.me);
+  }, 'TypeSafe key removed.');
 const liveTokens = computed(() => (tokens.data.value ?? []).filter((t) => !t.revoked_at));
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -513,6 +533,63 @@ async function copySlug() {
         </template>
 
         <template v-else-if="section === 'tokens'">
+          <h3>TypeSafe key</h3>
+          <form class="setting-box typesafe-key" @submit.prevent="saveTypesafeKey">
+            <div class="setting-row">
+              <span
+                >Jev review<small
+                  >Jev reviews the studies you own with your own TypeSafe key. Without one, you
+                  approve each stage yourself. The key is encrypted on the server and sent only to
+                  TypeSafe.</small
+                ></span
+              >
+              <div class="inline-setting">
+                <template v-if="keySaved && !replacingKey"
+                  ><span class="muted">Key saved</span
+                  ><button
+                    type="button"
+                    class="button compact"
+                    :disabled="busy"
+                    @click="replacingKey = true"
+                  >
+                    Replace</button
+                  ><button
+                    type="button"
+                    class="text-button danger-text"
+                    :disabled="busy"
+                    @click="removeTypesafeKey"
+                  >
+                    Remove
+                  </button></template
+                ><template v-else
+                  ><input
+                    v-model="typesafeKey"
+                    type="password"
+                    autocomplete="off"
+                    aria-label="TypeSafe key"
+                    placeholder="TypeSafe API key"
+                  /><button
+                    type="submit"
+                    class="button compact"
+                    :disabled="busy || !typesafeKey.trim()"
+                  >
+                    Save key</button
+                  ><button
+                    v-if="replacingKey"
+                    type="button"
+                    class="text-button"
+                    @click="
+                      replacingKey = false;
+                      typesafeKey = '';
+                    "
+                  >
+                    Cancel
+                  </button></template
+                >
+              </div>
+            </div>
+          </form>
+          <h3>Personal tokens</h3>
           <p class="table-description">
             Personal <code>lyk_</code> tokens let scripts access your account. Keep them private.
             Tokens expire after 90 days. Revoking one makes any clients using it stop working.
@@ -667,7 +744,9 @@ async function copySlug() {
               <RouterLink to="/colleagues" class="button">Manage colleagues</RouterLink>
             </div>
           </div>
-          <p v-if="!isAdmin" class="muted">Only workspace owners and admins can edit workspace details and manage invitations.</p>
+          <p v-if="!isAdmin" class="muted">
+            Only workspace owners and admins can edit workspace details and manage invitations.
+          </p>
           <h3 class="subsequent-heading">Danger Zone</h3>
           <div class="setting-box">
             <div class="setting-row">
@@ -1226,7 +1305,11 @@ async function copySlug() {
   background: var(--input);
   border-radius: 3px;
   padding: 1px 4px;
-  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    12.5px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
 }
 .label-scope {
   width: max-content;

@@ -1067,6 +1067,12 @@ type User struct {
 	AvatarUrl   string     `json:"avatar_url"`
 }
 
+type UserTypesafeKey struct {
+	UserID     uuid.UUID `json:"user_id"`
+	Ciphertext []byte    `json:"ciphertext"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type VerificationCode struct {
 	Email     string    `json:"email"`
 	CodeHash  string    `json:"code_hash"`

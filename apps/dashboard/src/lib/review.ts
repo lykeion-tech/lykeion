@@ -233,7 +233,10 @@ export function legacyColumns(
     const outcome = outcomes.filter(latest).at(-1);
     return {
       column,
-      verdict: String(outcome?.body.verdict ?? ''),
+      verdict:
+        outcome?.body.verdict === 'approved_by_owner'
+          ? 'Approved by owner'
+          : String(outcome?.body.verdict ?? ''),
       criteria: scores.filter(latest).map((r) => ({
         name: String(r.body.criterion ?? ''),
         level: levels[Math.round(Number(r.body.level)) - 1] ?? '',

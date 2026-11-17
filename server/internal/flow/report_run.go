@@ -74,17 +74,20 @@ func setBuild(ctx context.Context, tx *store.Tx, b db.ReportBuild, status string
 // concepts, facts and links: those its quotes and phrases ground in the
 // study's text and Jev then accepts. Jev is asked with no transaction open. A
 // run that failed or could not do the work, or a Jev that cannot answer,
-// fails the build with nothing stored. A queued run whose pinned runtime is
+// fails the build with nothing stored. A study whose owner saved no TypeSafe
+// key keeps its report with no concepts, facts or links. A queued run whose pinned runtime is
 // gone can never be claimed, so it is cancelled and the build fails.
 func (e *Engine) judgeReport(ctx context.Context, ws, card uuid.UUID) error {
 	var in report.Input
 	var h handin.ReportHandIn
+	var owner uuid.UUID
 	ready := false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, card)
 		if err != nil || c.ID == uuid.Nil {
 			return err
 		}
+		owner = c.OwnerID
 		b, err := tx.Q.GetReportBuild(ctx, db.GetReportBuildParams{WorkspaceID: ws, CardID: card})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && b.Status != "queued" && b.Status != "judging" {
 			return nil
@@ -122,7 +125,7 @@ func (e *Engine) judgeReport(ctx context.Context, ws, card uuid.UUID) error {
 			return err
 		}
 		var probs []string
-		if h, probs = handin.ParseReport(raw); raw == nil || len(probs) > 0 || h.Status != "done" || e.Jev == nil {
+		if h, probs = handin.ParseReport(raw); raw == nil || len(probs) > 0 || h.Status != "done" {
 			return setBuild(ctx, tx, b, "failed")
 		}
 		if in, err = report.Load(ctx, tx, c); err != nil {
@@ -135,7 +138,11 @@ func (e *Engine) judgeReport(ctx context.Context, ws, card uuid.UUID) error {
 		return err
 	}
 	rep := report.Build(in)
-	judged, jerr := report.Judge(ctx, retryAsker{&reviewPass{e: e, ws: ws, retry: e.retry(), renewed: e.now()}}, rep, report.Ground(rep, h))
+	var judged report.Judged
+	var jerr error
+	if j := e.JevFor(ctx, owner); j != nil {
+		judged, jerr = report.Judge(ctx, retryAsker{&reviewPass{e: e, ws: ws, jev: j, retry: e.retry(), renewed: e.now()}}, rep, report.Ground(rep, h))
+	}
 	if jerr != nil {
 		slog.Warn("report judging unavailable", "card", card, "err", jerr)
 	}
@@ -216,7 +223,7 @@ func storeJudged(ctx context.Context, tx *store.Tx, card uuid.UUID, j report.Jud
 // answer, the checks are unavailable and nothing is stored.
 func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 	var in report.Input
-	ready := false
+	var j *jev.Client
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, card)
 		if err != nil || c.ID == uuid.Nil {
@@ -229,14 +236,14 @@ func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 		if err != nil {
 			return err
 		}
-		if ready = e.Jev != nil; !ready {
+		if j = e.JevFor(ctx, c.OwnerID); j == nil {
 			_, err = tx.Q.SetReportChecksStatus(ctx, db.SetReportChecksStatusParams{ChecksStatus: "unavailable", WorkspaceID: ws, CardID: card})
 			return err
 		}
 		in, err = report.Load(ctx, tx, c)
 		return err
 	})
-	if err != nil || !ready {
+	if err != nil || j == nil {
 		return err
 	}
 	rep := report.Build(in)
@@ -244,7 +251,7 @@ func (e *Engine) checkReport(ctx context.Context, ws, card uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	checks, jerr := report.CheckFindings(ctx, retryAsker{&reviewPass{e: e, ws: ws, retry: e.retry(), renewed: e.now()}}, rep, ev)
+	checks, jerr := report.CheckFindings(ctx, retryAsker{&reviewPass{e: e, ws: ws, jev: j, retry: e.retry(), renewed: e.now()}}, rep, ev)
 	if jerr != nil {
 		slog.Warn("report checks unavailable", "card", card, "err", jerr)
 	}

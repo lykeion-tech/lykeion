@@ -48,7 +48,7 @@ export const stages = [
 ];
 
 export const advancement =
-  'After hand-in, a Team’s auditor settles before required review; an individual agent goes straight to review. The server advances automatically within the configured scope when review passes, carrying unclear items when applicable. Ordinary item-review failures trigger one redo, then a block if still failing. Unavailable review services leave the study waiting. At the end of its scope, completion follows required review. An individual agent is restricted to its own stage.';
+  'After hand-in, a Team’s auditor settles before required review; an individual agent goes straight to review. The server advances automatically within the configured scope when review passes, carrying unclear items when applicable. Ordinary item-review failures trigger one redo, then a block if still failing. Jev’s checks run under the study owner’s own TypeSafe key; without one, the owner approves the stage in Decisions after the server’s checks. A TypeSafe outage leaves the study waiting. At the end of its scope, completion follows required review. An individual agent is restricted to its own stage.';
 export const concepts = [
   {
     name: 'Workspace',

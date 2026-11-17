@@ -20,7 +20,7 @@ var setupLimit = 30 * time.Minute
 // SetupLimit is how long one environment setup may take.
 func SetupLimit() time.Duration { return setupLimit }
 
-var pythonVersionPattern = regexp.MustCompile(`^3\.(9|1[0-4])$`)
+var pythonVersionPattern = regexp.MustCompile(`^3\.(9|1[0-5])$`)
 
 func ValidPythonVersion(v string) bool { return pythonVersionPattern.MatchString(v) }
 func PythonConflict(v string) error {
@@ -49,7 +49,7 @@ func (s *Study) RecordedPython() string   { return s.state().version }
 func (s *Study) PythonGeneration() uint64 { return s.state().generation }
 func (s *Study) RememberPython(v string) error {
 	if !ValidPythonVersion(v) {
-		return errors.New("python must be a version from 3.9 to 3.14")
+		return errors.New("python must be a version from 3.9 to 3.15")
 	}
 	s.state()
 	s.Bases.mu.Lock()
@@ -146,7 +146,7 @@ func (s *Study) SetUpConda(ctx context.Context, python string, pkgs []string, lo
 }
 func (s *Study) setUpConda(ctx context.Context, python string, pkgs []string, lock string) (string, error) {
 	if python != "" && !ValidPythonVersion(python) {
-		return "", errors.New("python must be a version from 3.9 to 3.14")
+		return "", errors.New("python must be a version from 3.9 to 3.15")
 	}
 	for _, p := range pkgs {
 		if strings.TrimSpace(p) == "" || strings.HasPrefix(p, "-") || strings.Contains(p, "::") || strings.ContainsAny(p, "/\\\x00\r\n") {

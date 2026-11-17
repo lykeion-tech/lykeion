@@ -21,7 +21,7 @@ func TestPythonRouteSetsOnce(t *testing.T) {
 	if c := l.s.call(t, "PUT", "/api/role/python", r.token, "", map[string]string{"version": "3.11"}, nil); c != 403 {
 		t.Fatalf("agent token %d", c)
 	}
-	for _, v := range []string{"3.8", "3.15", "3.11.1", "--help", ""} {
+	for _, v := range []string{"3.8", "3.16", "3.11.1", "--help", ""} {
 		if c := l.s.call(t, "PUT", "/api/role/python", r.callToken, "", map[string]string{"version": v}, nil); c != 400 {
 			t.Fatalf("invalid %q: %d", v, c)
 		}

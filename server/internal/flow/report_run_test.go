@@ -864,7 +864,7 @@ func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
+	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, jev: l.e.Jev, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -968,7 +968,7 @@ func TestReportNoveltyJudgedOnlyAgainstEachPapersOwnAbstract(t *testing.T) {
 			t.Fatalf("%s has evidence %q though its abstract was not found", id, s)
 		}
 	}
-	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
+	checks, err := report.CheckFindings(ctx, retryAsker{&reviewPass{e: l.e, ws: l.ws, jev: l.e.Jev, retry: l.e.retry(), renewed: l.e.now()}}, rep, ev)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -445,7 +445,8 @@ func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, 
 	if len(v.objections) == 0 {
 		return nil, nil
 	}
-	if e.Jev == nil {
+	j := e.JevFor(ctx, in.card.OwnerID)
+	if j == nil {
 		return nil, errNoJev
 	}
 	texts := review.RivalTexts(v.statuses, v.hs, int64(in.card.Round))
@@ -468,7 +469,7 @@ func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, 
 	for i, r := range v.objections {
 		objs[i] = records.Body[review.Objection](r)
 	}
-	p := &reviewPass{e: e, ws: ws, card: in.card, retry: e.retry(), renewed: e.now()}
+	p := &reviewPass{e: e, ws: ws, card: in.card, jev: j, retry: e.retry(), renewed: e.now()}
 	out, err := review.JudgeObjections(ctx, retryAsker{p}, objs, texts)
 	if err != nil {
 		err = fmt.Errorf("validation review: %w", err)
@@ -541,7 +542,7 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			return err
 		}
 		if jerr != nil {
-			return scoringUnavailable(ctx, tx, c, jerr)
+			return e.gateUnjudged(ctx, tx, c, jerr)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err

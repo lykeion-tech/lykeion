@@ -252,7 +252,7 @@ func (h *H) setSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pin.Jev.Enabled != nil {
-		writeErr(w, 400, "Jev is asked whenever the server has a TypeSafe key; there is no setting for it")
+		writeErr(w, 400, "Jev reviews a study when its owner has saved a TypeSafe key in Settings; there is no workspace setting for it")
 		return
 	}
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {

@@ -212,6 +212,8 @@ func NewRouter(h *H) http.Handler {
 		r.Get("/api/workflows/{slug}/files", h.getWorkflowFile)
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
+		r.Put("/api/me/typesafe-key", h.putTypesafeKey)
+		r.Delete("/api/me/typesafe-key", h.deleteTypesafeKey)
 		r.Post("/api/cli-token", h.cliToken)
 		r.With(personalOnly).Post("/daemon/storage", h.reportStorage)
 		r.Get("/api/tokens", h.listTokens)

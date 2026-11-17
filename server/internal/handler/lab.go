@@ -460,11 +460,5 @@ func (h *H) flagLabLesson(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	if h.LessonWritesEnabled {
-		if err = q.QueueLabFlagRewrite(ctx, id); err != nil {
-			fail(w, r, err)
-			return
-		}
-	}
 	w.WriteHeader(204)
 }

@@ -77,8 +77,6 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
       CONTACT_EMAIL: ${CONTACT_EMAIL:-}
     volumes: [blobs:/data/blobs]
