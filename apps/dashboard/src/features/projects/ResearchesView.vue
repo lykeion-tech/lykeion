@@ -301,7 +301,7 @@ async function save() {
       @edit="edit"
     />
     <template v-else-if="!id">
-      <Teleport to="#page-header-actions"
+      <Teleport defer to="#page-header-actions"
         ><button class="button primary" @click="edit">
           <Icon name="plus" :size="14" />New Project
         </button></Teleport

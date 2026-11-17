@@ -335,7 +335,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
         </div>
       </div></template
     ><template v-else
-      ><Teleport to="#page-header-actions">
+      ><Teleport defer to="#page-header-actions">
         <button class="button primary" @click="open()">
           <Icon name="plus" :size="14" />New autoresearch
         </button>

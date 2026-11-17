@@ -106,7 +106,7 @@ const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`;
     class="directory-page directory-table-page team-directory"
     :style="{ '--team-scrollbar-width': `${scrollbarWidth}px` }"
   >
-    <Teleport to="#page-header-actions">
+    <Teleport defer to="#page-header-actions">
       <RouterLink to="/teams/new" class="button primary directory-header-action"
         ><Icon name="plus" :size="14" />New team</RouterLink
       >
