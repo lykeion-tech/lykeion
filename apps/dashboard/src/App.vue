@@ -304,6 +304,7 @@ watch(
   { flush: 'sync' },
 );
 const feedbackText = ref('');
+const discordIcon = `${import.meta.env.BASE_URL}brand/discord.svg`;
 const feedbackBusy = ref(false);
 const feedbackError = ref('');
 
@@ -1214,7 +1215,7 @@ onUnmounted(() => {
       <button role="menuitem" @click="documentation">
         <Icon name="book" />Docs<Icon name="external" :size="10" /></button
       ><a role="menuitem" href="https://discord.gg/ed3jsMTs3" target="_blank" rel="noopener noreferrer" @click="help = false">
-        <img class="discord-icon" src="https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/66e3d8014ea898f3a4b2156c_Symbol.svg" alt="" />Discord<Icon name="external" :size="10" /></a
+        <img class="discord-icon" :src="discordIcon" alt="" />Discord<Icon name="external" :size="10" /></a
       ><button
         role="menuitem"
         @click="
