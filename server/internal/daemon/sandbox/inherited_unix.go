@@ -15,17 +15,24 @@ import (
 func init() { closeInheritedOnExec() }
 
 func closeInheritedOnExec() {
-	dir := "/dev/fd"
 	if runtime.GOOS == "linux" {
-		dir = "/proc/self/fd"
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if fd, err := strconv.Atoi(entry.Name()); err == nil && fd > 2 {
-			syscall.CloseOnExec(fd)
+		if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
+			for _, entry := range entries {
+				if fd, err := strconv.Atoi(entry.Name()); err == nil && fd > 2 {
+					syscall.CloseOnExec(fd)
+				}
+			}
+			return
 		}
+	}
+	// macOS's /dev/fd does not reliably list every open descriptor, so mark
+	// each possible one; unused numbers just fail.
+	limit := uint64(65536)
+	var rl syscall.Rlimit
+	if syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl) == nil && rl.Cur < limit {
+		limit = rl.Cur
+	}
+	for fd := 3; uint64(fd) < limit; fd++ {
+		syscall.CloseOnExec(fd)
 	}
 }
