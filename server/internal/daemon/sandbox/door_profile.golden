@@ -3,7 +3,7 @@
 (allow process-fork process-exec)
 (allow signal (target same-sandbox))
 (allow sysctl-read)
-(allow file-read* (literal "/") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/System") (subpath "/Library") (subpath "/private/etc") (subpath "/private/var/db/timezone") (literal "/private/var/select/sh") (literal "/dev/null") (literal "/dev/zero") (literal "/dev/random") (literal "/dev/urandom") (literal "/dev/tty") (literal "/dev/dtracehelper") (subpath "/dev/fd") (subpath "/opt/homebrew"))
+(allow file-read* (literal "/") (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/System") (subpath "/Library") (subpath "/private/etc") (subpath "/private/var/db/timezone") (literal "/private/var/select/sh") (literal "/private/var/db/xcode_select_link") (literal "/dev/null") (literal "/dev/zero") (literal "/dev/random") (literal "/dev/urandom") (literal "/dev/tty") (literal "/dev/dtracehelper") (subpath "/dev/fd") (subpath "/opt/homebrew"))
 (allow file-ioctl (literal "/dev/dtracehelper"))
 (allow file-read-metadata (literal "/etc") (literal "/tmp") (literal "/var") (literal "/opt") (literal "/private/var/db") (literal "/private/var") (literal "/private") (literal "/private/var/select"))
 (deny file-read* (subpath "/opt/homebrew/var") (subpath "/usr/local/var"))
