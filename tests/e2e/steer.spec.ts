@@ -12,16 +12,31 @@ async function actualCard(page: Page, id: string) {
   return response.json();
 }
 
-// The lab runs no agents, so the study list reports this study's agents as working.
+// Reports this study's agents as working until it ends: the study list says
+// an agent is running and the study stays in its working state. Where the lab
+// runs agents (CI enables the sandbox), the demo agent's run fails quickly and
+// would otherwise block the study before the composer is checked.
 async function agentsWorking(page: Page, id: string) {
   await page.route('**/api/cards', async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const response = await route.fetch();
-    const cards = (await response.json()) as { id: string; agent_running: boolean }[];
+    const cards = (await response.json()) as {
+      id: string;
+      agent_running: boolean;
+      ending: string;
+    }[];
     await route.fulfill({
       response,
-      json: cards.map((c) => (c.id === id ? { ...c, agent_running: true } : c)),
+      json: cards.map((c) =>
+        c.id === id && !c.ending ? { ...c, state: 'working', agent_running: true } : c,
+      ),
     });
+  });
+  await page.route(`**/api/cards/${id}`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    const card = (await response.json()) as { ending: string };
+    await route.fulfill({ response, json: card.ending ? card : { ...card, state: 'working' } });
   });
 }
 

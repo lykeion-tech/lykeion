@@ -325,12 +325,30 @@ func groupGone(t *testing.T, dir string) bool {
 	must(t, err)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
+		if syscall.Kill(-pgid, 0) == syscall.ESRCH || onlyDying(t, pgid) {
 			return true
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	return false
+}
+
+// onlyDying is whether every process left in group pgid is exiting (E) or a
+// zombie (Z). A killed process counts as alive to kill(2) until it is gone,
+// and on a loaded Mac a killed sandboxed sleep can stay exiting for seconds.
+func onlyDying(t *testing.T, pgid int) bool {
+	t.Helper()
+	out, err := exec.Command("ps", "-A", "-o", "pgid=,stat=").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && f[0] == strconv.Itoa(pgid) && !strings.ContainsAny(f[1], "EZ") {
+			return false
+		}
+	}
+	return true
 }
 
 func TestAScriptPastItsTimeLimitIsStopped(t *testing.T) {

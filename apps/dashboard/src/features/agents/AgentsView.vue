@@ -203,7 +203,7 @@ async function save() {
 </script>
 <template>
   <section ref="directory" class="directory-page agent-directory" :style="{ '--agent-scrollbar-width': `${scrollbarWidth}px` }">
-    <Teleport to="#page-header-actions">
+    <Teleport defer to="#page-header-actions">
       <button class="button primary directory-header-action" @click="edit">
         <Icon name="plus" :size="14" />New agent
       </button>

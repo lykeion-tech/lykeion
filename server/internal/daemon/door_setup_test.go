@@ -117,11 +117,19 @@ func TestSetupRunnerStopsInstallerChildren(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()
 	d := runDoor(t, l, dir, envs.Python)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.runSandboxed(ctx, nil, dir, "/bin/sh", "-c", "echo $$ > pgid; sleep 10 & wait")
+		done <- err
+	}()
+	// Cancel once the installer runs: starting the sandbox can take longer
+	// than any fixed delay on a loaded machine.
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(dir, "pgid")); return err == nil })
 	start := time.Now()
-	_, err := d.runSandboxed(ctx, nil, dir, "/bin/sh", "-c", "echo $$ > pgid; sleep 2 & wait")
-	if err == nil || time.Since(start) > time.Second {
+	cancel()
+	if err := <-done; err == nil || time.Since(start) > time.Second {
 		t.Fatalf("installer cancellation: %v after %s", err, time.Since(start))
 	}
 	if !groupGone(t, dir) {
