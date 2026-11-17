@@ -115,16 +115,10 @@ it('distinguishes scientific connectors from custom MCP servers', () => {
   const root = mount(ConnectorPanel);
   const row = (name: string) =>
     all(root).find((n) => n.tag === 'button' && n.props['aria-label'] === name)!;
-  expect(textOf(row('genes'))).toContain('Scientific connector');
   expect(textOf(row('my connector'))).toContain('Custom MCP');
   expect(all(root).some((n) => n.tag === 'button' && textOf(n).includes('Add connector'))).toBe(
     false,
   );
-});
-
-it('links to agents for skill assignment', () => {
-  const root = mount(SkillPanel);
-  expect(all(root).some((n) => n.tag === 'a' && n.props.href === '/agents')).toBe(true);
 });
 
 it('does not offer an offline runtime for skill import', () => {

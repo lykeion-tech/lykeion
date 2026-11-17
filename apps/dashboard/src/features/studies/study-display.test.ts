@@ -92,7 +92,7 @@ describe('study display controls', () => {
     await t.click('Display');
     await t.click('Question');
     expect(t.button('Display').props.title).toContain('1 hidden');
-    await t.click('Reset properties');
+    await t.click('Reset');
     expect(t.button('Question').props['aria-checked']).toBe(true);
     expect(t.button('Display').props.title).toBe('Display');
     expect(textOf(t.root)).toContain('Own study');
