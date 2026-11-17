@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"lykeion/server/internal/addon"
@@ -2183,9 +2184,22 @@ type Settlement struct {
 }
 
 func (s *AgentRuns) deliverAfterCommit(ctx context.Context, ws, run uuid.UUID) {
-	if err := s.deliverSettlement(ctx, ws, run); err != nil {
+	err := s.deliverSettlement(ctx, ws, run)
+	// Consumers settling runs of one workspace at once can deadlock or fail to
+	// serialize; the loser's claim was released, so delivering again is safe.
+	for attempt := 1; attempt < 4 && transientConflict(err); attempt++ {
+		err = s.deliverSettlement(ctx, ws, run)
+	}
+	if err != nil {
 		slog.Warn("settlement remains pending", "agent_run_id", run, "error", err)
 	}
+}
+
+// transientConflict is a deadlock or serialization failure, which succeeds
+// when tried again.
+func transientConflict(err error) bool {
+	var e *pgconn.PgError
+	return errors.As(err, &e) && (e.Code == "40P01" || e.Code == "40001")
 }
 
 func (s *AgentRuns) deliverSettlement(ctx context.Context, ws, run uuid.UUID) error {

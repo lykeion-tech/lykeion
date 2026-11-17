@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -266,17 +267,26 @@ func TestKernelSampleStallDoesNotBlockStop(t *testing.T) {
 // Kernels report their current CPU, not the average over their lifetime: one
 // that worked and went idle reads low, one that idled and got busy reads high.
 func TestSampleReportsCurrentCPU(t *testing.T) {
+	// Each kernel prints a line once it is in the state it is measured in,
+	// so a slow interpreter start on a loaded machine cannot shift the phases.
 	start := func(code string) int {
-		cmd := exec.Command("python3", "-c", "import time\ne = time.time() + 1.5\n"+code)
+		cmd := exec.Command("python3", "-c", "import sys, time\ne = time.time() + 1\n"+code)
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+		if _, err := bufio.NewReader(out).ReadString('\n'); err != nil {
+			t.Fatal(err)
+		}
 		return cmd.Process.Pid
 	}
-	idle := start("while time.time() < e: pass\ntime.sleep(30)")
-	busy := start("time.sleep(1.5)\nwhile True: pass")
-	time.Sleep(1700 * time.Millisecond)
+	// The idle kernel was busy before its first sample; the busy one idle.
+	idle := start("while time.time() < e: pass\nprint('idle', flush=True)\ntime.sleep(30)")
+	busy := start("print('busy', flush=True)\nwhile True: pass")
 	var idleM, busyM cpuMeter
 	for _, m := range []struct {
 		m   *cpuMeter

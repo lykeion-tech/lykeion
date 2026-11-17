@@ -650,13 +650,15 @@ func TestKeptHandInRefusedLaterStillReports(t *testing.T) {
 	if failed["failure_reason"] != agent.ReasonRuntimeOffline {
 		t.Fatalf("failure report = %v", failed)
 	}
-	left, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "*.json"))
-	must(t, err)
-	quarantined, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "quarantine", "*.json"))
-	must(t, err)
-	if len(left)+len(quarantined) != 0 {
-		t.Fatalf("outbox still holds %q, quarantine %q", left, quarantined)
-	}
+	// The daemon removes a delivered report after the server answers, so the
+	// outbox empties just after the failure report arrives.
+	waitFor(t, func() bool {
+		left, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "*.json"))
+		must(t, err)
+		quarantined, err := filepath.Glob(filepath.Join(f.cfg.StateDir, "outbox", "quarantine", "*.json"))
+		must(t, err)
+		return len(left)+len(quarantined) == 0
+	})
 }
 
 // A run cancelled while its hand-in is being posted keeps no hand-in: its

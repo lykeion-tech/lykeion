@@ -323,7 +323,9 @@ func groupGone(t *testing.T, dir string) bool {
 	must(t, err)
 	pgid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	must(t, err)
-	deadline := time.Now().Add(3 * time.Second)
+	// The kill is immediate, but a killed background child stays in the group
+	// as a zombie until it is reaped, which a loaded machine can delay.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
 			return true

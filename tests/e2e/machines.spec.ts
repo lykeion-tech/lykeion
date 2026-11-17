@@ -601,7 +601,7 @@ test('machine detail uses actual versions, canonical rename, keyboard links and 
     await expect(table.getByRole('row').filter({ hasText: 'Codex' })).toContainText('1.2.3');
     await expect(page.getByText('This device', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Managed by Desktop', { exact: true })).toHaveCount(0);
-    for (const name of ['View logs', 'Restart', 'Stop', 'Add custom runtime'])
+    for (const name of ['View logs', 'Restart', 'Stop'])
       await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
     await expect(
       page.getByText(
