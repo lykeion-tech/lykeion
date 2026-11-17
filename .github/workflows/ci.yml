@@ -67,12 +67,13 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Enable the bubblewrap sandbox
+      - name: Install bubblewrap and TeX Live, and enable the sandbox
         # Ubuntu 24.04 blocks unprivileged user namespaces by default, which
-        # would make the sandbox tests skip instead of run.
+        # would make the sandbox tests skip instead of run. The Cowrite build
+        # tests need a real latexmk, biblatex and biber.
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq bubblewrap
+          sudo apt-get install -yq --no-install-recommends bubblewrap latexmk texlive-latex-base texlive-latex-recommended texlive-bibtex-extra biber
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true
       - run: go vet ./...
@@ -81,7 +82,7 @@ jobs:
           go tool sqlc generate
           git diff --exit-code
       # Testcontainers starts PostgreSQL and Redis on the runner's Docker.
-      - run: go test -p 1 ./... -count=1
+      - run: go test -p 1 -timeout 30m ./... -count=1
 
   go-macos:
     runs-on: macos-latest
@@ -107,12 +108,22 @@ jobs:
           for _ in $(seq 30); do "$pg/pg_isready" -q -h 127.0.0.1 && break; sleep 1; done
           "$pg/psql" -h 127.0.0.1 -d postgres -c "CREATE ROLE owner SUPERUSER LOGIN PASSWORD 'owner'"
           for _ in $(seq 30); do redis-cli ping >/dev/null 2>&1 && break; sleep 1; done
+      - name: Install TeX and use the Command Line Tools
+        # The Seatbelt profile does not let sandboxed programs read
+        # /Applications, so the runner's default Xcode Python can't run there;
+        # the Command Line Tools under /Library can, as on most Macs.
+        run: |
+          sudo xcode-select -s /Library/Developer/CommandLineTools
+          brew install --cask basictex
+          echo /Library/TeX/texbin >> "$GITHUB_PATH"
+          sudo /Library/TeX/texbin/tlmgr update --self
+          sudo /Library/TeX/texbin/tlmgr install latexmk biblatex biber
       - name: Daemon and agent sandbox tests (Seatbelt)
         working-directory: server
         env:
           LYK_TEST_PG: postgres://owner:owner@127.0.0.1:5432/postgres?sslmode=disable
           LYK_TEST_REDIS: redis://127.0.0.1:6379/0
-        run: go test -p 1 -count=1 ./internal/daemon/... ./pkg/agent/...
+        run: go test -p 1 -timeout 30m -count=1 ./internal/daemon/... ./pkg/agent/...
       - run: npm ci
       - run: npm run build
 
