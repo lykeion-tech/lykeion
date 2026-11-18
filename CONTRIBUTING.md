@@ -8,6 +8,8 @@ Thanks for helping. Bug reports, feature ideas and pull requests are all welcome
 - **Features:** open a [feature request](https://github.com/lykeion-tech/lykeion/issues/new?template=feature_request.yml) that starts from the problem you have.
 - **Questions:** ask on [Discord](https://discord.gg/ed3jsMTs3) or read the [docs](https://app.lykeion.tech/docs/).
 
+New reports get the `triage` label. When a maintainer confirms a bug they label it `bug`, and Aristotle, the repository's maintenance agent, may pick it up and open a pull request for review.
+
 Never paste tokens, keys or private study content into an issue.
 
 ## Pull requests

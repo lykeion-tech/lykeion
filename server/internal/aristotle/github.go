@@ -1,5 +1,5 @@
 // Package aristotle is Aristotle Agent: it fixes GitHub issues assigned to
-// its own account, in Lykeion's run sandbox, and opens pull requests for
+// its own account or labelled bug, in Lykeion's run sandbox, and opens pull requests for
 // review. The GitHub token never enters the sandbox.
 package aristotle
 
@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -80,12 +81,21 @@ type Issue struct {
 	Title       string          `json:"title"`
 	Body        string          `json:"body"`
 	PullRequest json.RawMessage `json:"pull_request"`
+	Assignees   []User          `json:"assignees"`
 }
 
-// Assigned lists open issues (not pull requests) assigned to login.
-func (g *GitHub) Assigned(ctx context.Context, login string) ([]Issue, error) {
+type User struct {
+	Login string `json:"login"`
+}
+
+// BugLabel marks an issue a maintainer has confirmed. Only people with triage
+// access can add it, so it is safe to pick up without an assignment.
+const BugLabel = "bug"
+
+func (g *GitHub) issues(ctx context.Context, q url.Values) ([]Issue, error) {
 	var all []Issue
-	q := url.Values{"assignee": {login}, "state": {"open"}, "per_page": {"100"}, "sort": {"created"}, "direction": {"asc"}}
+	q.Set("state", "open")
+	q.Set("per_page", "100")
 	if err := g.do(ctx, "GET", "/repos/"+Repo+"/issues?"+q.Encode(), nil, &all); err != nil {
 		return nil, err
 	}
@@ -98,11 +108,40 @@ func (g *GitHub) Assigned(ctx context.Context, login string) ([]Issue, error) {
 	return issues, nil
 }
 
+// Work lists open issues assigned to login, and open `bug` issues nobody
+// else is assigned to, oldest first.
+func (g *GitHub) Work(ctx context.Context, login string) ([]Issue, error) {
+	mine, err := g.issues(ctx, url.Values{"assignee": {login}})
+	if err != nil {
+		return nil, err
+	}
+	bugs, err := g.issues(ctx, url.Values{"labels": {BugLabel}})
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int]bool{}
+	var work []Issue
+	for _, i := range append(mine, bugs...) {
+		if seen[i.Number] {
+			continue
+		}
+		seen[i.Number] = true
+		if len(i.Assignees) == 0 || slices.Contains(i.Assignees, User{login}) {
+			work = append(work, i)
+		}
+	}
+	slices.SortFunc(work, func(a, b Issue) int { return a.Number - b.Number })
+	return work, nil
+}
+
+// Assign claims an issue for login, so people see Aristotle has it.
+func (g *GitHub) Assign(ctx context.Context, issue int, login string) error {
+	return g.do(ctx, "POST", fmt.Sprintf("/repos/%s/issues/%d/assignees", Repo, issue), map[string][]string{"assignees": {login}}, nil)
+}
+
 type Comment struct {
 	Body string `json:"body"`
-	User struct {
-		Login string `json:"login"`
-	} `json:"user"`
+	User User   `json:"user"`
 }
 
 func (g *GitHub) Comments(ctx context.Context, issue int) ([]Comment, error) {

@@ -1,5 +1,6 @@
 // Command aristotle runs Aristotle Agent on this machine: it fixes issues in
-// lykeion-tech/lykeion assigned to its GitHub account and opens pull requests.
+// lykeion-tech/lykeion assigned to its GitHub account or labelled bug, and opens
+// pull requests.
 // It is an internal maintenance tool and is not shipped with lyk.
 package main
 
