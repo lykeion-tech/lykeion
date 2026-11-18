@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and discussion
+    url: https://discord.gg/ed3jsMTs3
+    about: Ask on the Lykeion Discord.
+  - name: Documentation
+    url: https://app.lykeion.tech/docs/
+    about: Guides for studies, agents, Aristotle and the CLI.
