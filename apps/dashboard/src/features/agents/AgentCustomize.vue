@@ -50,6 +50,7 @@ const selectedTeam = ref(0),
   skills = ref<string[]>([]),
   connectors = ref<Connector[]>([]),
   search = ref(''),
+  connectorSearch = ref(''),
   skillPickerOpen = ref(false),
   connectorPickerOpen = ref(false),
   busy = ref(false),
@@ -58,6 +59,7 @@ watch(
   () => [workspaceId.value, props.id],
   () => {
     selectedTeam.value = 0;
+    connectorSearch.value = '';
     skillPickerOpen.value = false;
     connectorPickerOpen.value = false;
     error.value = '';
@@ -85,22 +87,28 @@ watch([() => query.data.value, selectedTeam], resetSelection, { immediate: true 
 function cancelPicker() {
   skillPickerOpen.value = false;
   connectorPickerOpen.value = false;
+  connectorSearch.value = '';
   resetSelection();
 }
-function addConnector(event: Event) {
-  const select = event.target as HTMLSelectElement;
-  const value = select.value;
-  if (value.startsWith('workspace:')) {
-    const server = servers.data.value?.find((s) => s.id === value.slice(10));
-    if (
-      server &&
-      !connectors.value.some((c) => c.workspace === server.id || c.name === server.name)
-    )
-      connectors.value.push({ name: server.name, workspace: server.id });
-  } else if (value && !connectors.value.some((c) => c.name === value)) {
-    connectors.value.push({ name: value, catalogue: value });
+const connectorOptions = computed(() => {
+  const options: Connector[] = [...connectors.value];
+  for (const c of catalogue.data.value ?? []) {
+    if (!options.some((item) => item.name === c.name)) options.push({ name: c.name, catalogue: c.name });
   }
-  select.value = '';
+  for (const c of servers.data.value ?? []) {
+    if (!options.some((item) => item.workspace === c.id || item.name === c.name))
+      options.push({ name: c.name, workspace: c.id });
+  }
+  return options.sort((a, b) => a.name.localeCompare(b.name)).filter((c) =>
+    c.name.toLowerCase().includes(connectorSearch.value.toLowerCase()),
+  );
+});
+function toggleConnector(connector: Connector, event: Event) {
+  if ((event.target as HTMLInputElement).checked) {
+    if (!connectors.value.some((item) => item.name === connector.name)) connectors.value.push(connector);
+  } else {
+    connectors.value = connectors.value.filter((item) => item.name !== connector.name);
+  }
 }
 async function save(kind: 'skills' | 'connectors') {
   if (busy.value || !canEdit.value) return;
@@ -133,7 +141,10 @@ async function save(kind: 'skills' | 'connectors') {
       client.invalidateQueries({ queryKey: keys.agents(ws) }),
     ]);
     if (kind === 'skills') skillPickerOpen.value = false;
-    else connectorPickerOpen.value = false;
+    else {
+      connectorPickerOpen.value = false;
+      connectorSearch.value = '';
+    }
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -146,7 +157,7 @@ async function save(kind: 'skills' | 'connectors') {
   <section class="agent-pane agent-customize">
     <h2>Customize</h2>
     <p class="agent-lede">
-      Choose the skills and connectors this agent uses in future studies.
+      Choose the skills and connectors this agent uses in studies.
       <span v-if="!query.isPending.value && !query.isError.value && !canEdit && team?.source === 'shipped'">Shipped Team capabilities are read-only.</span>
     </p>
     <p v-if="query.isPending.value" role="status">Loading capabilities…</p>
@@ -275,44 +286,21 @@ async function save(kind: 'skills' | 'connectors') {
               : 'This agent has no assigned connectors.'
           }}</span>
         </div>
-        <ul v-else class="capability-rows">
-          <li v-for="(connector, index) in connectors" :key="connector.name">
-            <Icon name="plug" :size="16" /><span>{{ connector.name || 'Unnamed connector' }}</span
-            ><button
-              v-if="connectorPickerOpen"
-              type="button"
-              :disabled="busy"
-              :aria-label="`Remove connector ${connector.name}`"
-              @click="connectors.splice(index, 1)"
-            >
-              <Icon name="close" :size="14" />
-            </button>
+        <ul v-else class="capability-rows connector-rows" aria-label="Assigned connectors">
+          <li v-for="connector in connectors" :key="connector.name">
+            <Icon name="plug" :size="16" /><span>{{ connector.name || 'Unnamed connector' }}</span>
           </li>
         </ul>
         <div v-if="connectorPickerOpen" class="capability-picker">
-          <label class="picker-label" for="agent-connector-select">Choose connectors</label>
-          <select
-            id="agent-connector-select"
-            aria-label="Add connector"
-            :disabled="busy"
-            @change="addConnector"
-          >
-            <option value="">Select a connector…</option>
-            <optgroup label="Catalogue">
-              <option v-for="c in catalogue.data.value ?? []" :key="c.name" :value="c.name">
-                {{ c.name }}
-              </option>
-            </optgroup>
-            <optgroup label="Workspace">
-              <option
-                v-for="c in servers.data.value ?? []"
-                :key="c.id"
-                :value="`workspace:${c.id}`"
-              >
-                {{ c.name }}
-              </option>
-            </optgroup>
-          </select>
+          <label class="picker-label" for="agent-connector-search">Choose connectors</label>
+          <input id="agent-connector-search" v-model="connectorSearch" type="search" placeholder="Search connectors…" />
+          <fieldset class="capability-list" :disabled="busy" aria-label="Connectors">
+            <label v-for="connector in connectorOptions" :key="connector.name">
+              <input type="checkbox" :checked="connectors.some((item) => item.name === connector.name)" @change="toggleConnector(connector, $event)" />
+              {{ connector.name }}<small v-if="connector.workspace">Workspace</small>
+            </label>
+          </fieldset>
+          <p v-if="!connectorOptions.length" class="picker-empty" role="status">No connectors found.</p>
           <div class="picker-actions">
             <button type="button" class="button" :disabled="busy" @click="cancelPicker">
               Cancel</button
@@ -415,6 +403,7 @@ async function save(kind: 'skills' | 'connectors') {
   color: var(--muted);
   flex: none;
 }
+.connector-rows { max-height: 250px; overflow-y: auto; }
 .capability-picker {
   margin-top: 12px;
   padding: 16px;
@@ -451,6 +440,8 @@ async function save(kind: 'skills' | 'connectors') {
   align-items: center;
   gap: 8px;
 }
+.capability-list small { color: var(--muted); margin-left: auto; }
+.picker-empty { color: var(--muted); font-size: 13px; }
 .picker-actions {
   display: flex;
   justify-content: flex-end;

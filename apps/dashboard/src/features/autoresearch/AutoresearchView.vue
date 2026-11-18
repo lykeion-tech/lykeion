@@ -167,33 +167,24 @@ async function create() {
   busy.value = true;
   error.value = '';
   try {
-    const ap = await api<Autoresearch>('POST', '/api/autoresearch', {
-      title: name.value.trim(),
-      description: runbook.value,
-      execution_mode: mode.value,
-      assignee: assignee.value,
-      ...scope(assignee.value!),
-    });
+    const made = await api<{ autoresearch: Autoresearch; url?: string }>(
+      'POST',
+      '/api/autoresearch/with-trigger',
+      {
+        title: name.value.trim(),
+        description: runbook.value,
+        execution_mode: mode.value,
+        assignee: assignee.value,
+        ...scope(assignee.value!),
+        trigger:
+          trigger.value === 'schedule'
+            ? { kind: 'schedule', cron: scheduleCron(schedule), tz: schedule.timezone }
+            : { kind: 'webhook' },
+      },
+    );
     if (generation !== authenticationDataGeneration()) return;
-    // ponytail: two requests; a refused trigger leaves the autoresearch without one, said in a notice.
-    try {
-      const made = await api<{ url?: string }>(
-        'POST',
-        `/api/autoresearch/${ap.id}/triggers`,
-        trigger.value === 'schedule'
-          ? { kind: 'schedule', cron: scheduleCron(schedule), tz: schedule.timezone }
-          : { kind: 'webhook' },
-      );
-      if (generation !== authenticationDataGeneration()) return;
-      if (made.url) freshWebhooks.value[ap.id] = new URL(made.url, location.origin).href;
-    } catch (e) {
-      if (
-        (e instanceof Error && e.name === 'AbortError') ||
-        generation !== authenticationDataGeneration()
-      )
-        return;
-      notify(`Autoresearch created, but its trigger was refused: ${(e as Error).message}`);
-    }
+    const ap = made.autoresearch;
+    if (made.url) freshWebhooks.value[ap.id] = new URL(made.url, location.origin).href;
     editor.value = false;
     await client.invalidateQueries({ queryKey: keys.autoresearches(ws) });
     if (generation !== authenticationDataGeneration()) return;
@@ -248,8 +239,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 </script>
 <template>
   <section class="directory-page">
-    <template v-if="id"
-      ><RouterLink to="/autoresearch" class="text-button">← Autoresearch</RouterLink>
+    <template v-if="id">
       <div v-if="detail.data.value" class="research-detail">
         <header>
           <h1>{{ detail.data.value.title }}</h1>
@@ -263,20 +253,16 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
           </button>
           <button v-else class="button" @click="act('/resume')">Resume</button>
           <button
-            class="button"
+            class="button run-action"
             :disabled="detail.data.value.status !== 'active'"
             @click="act('/run').then(() => runs.refetch())"
           >
             <Icon name="play" :size="14" />Run now
           </button>
-          <button class="button" @click="remove">Delete</button>
+          <button class="button delete-action" @click="remove">Delete</button>
         </header>
-        <p class="muted">
-          {{ modes.find((m) => m.id === detail.data.value!.execution_mode)?.name }} ·
-          {{ detail.data.value.status === 'active' ? 'Active' : 'Paused' }}
-          <template v-if="detail.data.value.pause_reason">
-            · {{ detail.data.value.pause_reason }}</template
-          >
+        <p v-if="detail.data.value.pause_reason" class="muted">
+          {{ detail.data.value.pause_reason }}
         </p>
         <p class="muted">Assigned to {{ assigneeLine(detail.data.value) }}</p>
         <h2>Runbook</h2>
@@ -297,7 +283,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
               }}<small
                 >{{
                   t.kind === 'schedule'
-                    ? `${t.tz} · next run ${when(t.next_run_at)}`
+                    ? `${t.tz}${detail.data.value.status === 'active' && t.enabled && t.next_run_at ? ` · next run ${when(t.next_run_at)}` : ''}`
                     : 'Fires on each POST to its URL'
                 }}{{ t.enabled ? '' : ' · disabled' }}</small
               ></span
@@ -325,8 +311,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
               ></span
             ><span class="run-destination">{{
               r.card_id ? 'Open study' : r.report ? 'Open report' : 'View run'
-            }}</span
-            ><Icon name="right" :size="14" />
+            }}</span>
           </component>
           <p v-if="runs.error.value" class="inline-error" role="alert">
             {{ runs.error.value.message }} <button @click="runs.refetch()">Retry</button>
@@ -395,7 +380,7 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
             placeholder="# Goal&#10;What should the agent accomplish?&#10;&#10;# Steps&#10;1. ..."
           />
         </label>
-        <span class="field-label">Assign <small>Works every run</small></span>
+        <span class="field-label">Assign</span>
         <div class="property-line">
           <AssignPicker ref="picker" v-model="assignee" v-model:range="range" agents menu-below />
         </div>
@@ -590,6 +575,12 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 .research-detail > header {
   gap: 8px;
 }
+.run-action:not(:disabled) {
+  color: var(--accent);
+}
+.delete-action {
+  color: var(--error-text);
+}
 .runbook {
   white-space: pre-wrap;
 }
@@ -610,7 +601,8 @@ const failure = computed(() => (props.id ? detail.error.value : list.error.value
 .run-row:hover {
   background: var(--input);
 }
-.run-destination {
+.research-studies > .run-row > .run-destination {
+  flex: none;
   margin-left: auto;
   white-space: nowrap;
   padding: 4px 7px;

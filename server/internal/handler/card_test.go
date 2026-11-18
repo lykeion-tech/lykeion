@@ -650,8 +650,8 @@ func TestAStudyRefusesAgentsTheResearcherCannotUse(t *testing.T) {
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "team copy solo", "assignee": map[string]any{"type": "agent", "id": copyID}, "scope": grounding}, nil); code != 201 {
 		t.Errorf("a Team member's copy as a solo agent: %d", code)
 	}
-	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "built-in solo", "assignee": map[string]any{"type": "agent", "id": aristotle}, "scope": s.stageScope(t, aristotle)}, nil); code != 201 {
-		t.Errorf("a built-in agent as a solo agent: %d", code)
+	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "built-in solo", "assignee": map[string]any{"type": "agent", "id": aristotle}, "scope": s.stageScope(t, aristotle)}, nil); code != 400 {
+		t.Errorf("Aristotle as a solo agent: %d", code)
 	}
 	shared := s.newAgent(t, b, w.ID, "shared", "claude")
 	if code := s.call(t, "POST", "/api/cards", a, w.ID, map[string]any{"question": "shared", "assignee": map[string]any{"type": "agent", "id": shared},

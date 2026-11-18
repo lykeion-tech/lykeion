@@ -212,6 +212,11 @@ function keysDown(event: KeyboardEvent) {
 
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => picker.value?.unstaged ?? false);
+// A drafted study is opened under its drafting agent, so Aristotle is refused in both modes.
+const aristotleAssignee = computed(() => {
+  const id = mode.value === 'agent' ? draftingAgent.value : assignee.value?.type === 'agent' ? assignee.value.id : '';
+  return !!id && !!agents.data.value?.some((agent) => agent.id === id && agent.built_in_key === 'aristotle');
+});
 // A Workflow runs its method on the researcher's data.
 const needsData = computed(
   () => mode.value === 'manual' && !!workflowSlug.value && files.ids.value.length === 0,
@@ -222,6 +227,7 @@ const blocked = computed(
     (!!startDate.value && !!deadline.value && startDate.value > deadline.value) ||
     files.uploading.value ||
     files.failed.value ||
+    aristotleAssignee.value ||
     (mode.value === 'agent'
       ? !agentPrompt.value.trim() || !draftingAgent.value || files.items.value.length > 0
       : !question.value.trim() ||
@@ -580,6 +586,7 @@ onUnmounted(() => {
         </ul>
         <p v-if="files.error.value" class="composer-error" role="alert">{{ files.error.value }}</p>
       </div>
+      <p v-if="aristotleAssignee" class="composer-error" role="alert">Aristotle cannot be assigned to a study. Choose an agent with a research stage instead.</p>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
         <label class="icon-button attachment-button" for="composer-files-input" :title="filesHint">

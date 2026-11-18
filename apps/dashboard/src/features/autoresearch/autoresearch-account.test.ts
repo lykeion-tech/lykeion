@@ -85,8 +85,7 @@ it('does not navigate or show an old trigger error after the account changes', a
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string) => {
-      if (url === '/api/autoresearch') return Promise.resolve(Response.json({ id: 'private-a' }));
-      if (url.endsWith('/triggers'))
+      if (url === '/api/autoresearch/with-trigger')
         return new Promise<Response>((resolve) => {
           release = resolve;
         });
@@ -129,7 +128,7 @@ it('does not navigate or show an old trigger error after the account changes', a
   } as Event);
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   authenticationRestored();
-  release(Response.json({ url: 'https://private.example' }));
+  release(Response.json({ autoresearch: { id: 'private-a' }, url: 'https://private.example' }));
   await promise;
   await nextTick();
   expect(router.currentRoute.value.path).toBe('/autoresearch');
@@ -154,9 +153,10 @@ it.each(['loss', 'logout', 'switch'])(
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => {
-        if (url === '/api/autoresearch') return Promise.resolve(Response.json({ id: 'private-a' }));
-        if (url.endsWith('/triggers'))
-          return Promise.resolve(Response.json({ url: 'https://hooks.example/secret-a' }));
+        if (url === '/api/autoresearch/with-trigger')
+          return Promise.resolve(
+            Response.json({ autoresearch: { id: 'private-a' }, url: 'https://hooks.example/secret-a' }),
+          );
         if (url === '/auth/verify-code')
           return Promise.resolve(
             Response.json({ error: 'Invalid code' }, { status: 401 }),
@@ -231,9 +231,9 @@ it.each(['loss', 'logout', 'switch'])(
   },
 );
 
-it.each(['creation', 'trigger'])(
-  'stops continuation when identity changes after %s success',
-  async (stage) => {
+it(
+  'stops continuation when identity changes after creation success',
+  async () => {
     vi.stubGlobal('document', {
       addEventListener() {},
       removeEventListener() {},
@@ -243,17 +243,16 @@ it.each(['creation', 'trigger'])(
     vi.stubGlobal('Document', class Document {});
     vi.stubGlobal('ShadowRoot', class ShadowRoot {});
     vi.stubGlobal('location', { origin: 'https://app.example' });
-    let triggerCalls = 0;
+    let separateCalls = 0;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (url.endsWith('/triggers')) triggerCalls++;
-        const selected =
-          stage === 'creation' ? url === '/api/autoresearch' : url.endsWith('/triggers');
+        if (url === '/api/autoresearch' || url.endsWith('/triggers')) separateCalls++;
+        const selected = url === '/api/autoresearch/with-trigger';
         const result = Response.json(
-          url.endsWith('/triggers')
-            ? { url: 'https://hooks.example/secret-a' }
-            : { id: 'private-a' },
+          selected
+            ? { autoresearch: { id: 'private-a' }, url: 'https://hooks.example/secret-a' }
+            : [],
         );
         if (selected) {
           const original = result.text.bind(result);
@@ -307,7 +306,8 @@ it.each(['creation', 'trigger'])(
     } as Event);
     await promise;
     await nextTick();
-    expect(triggerCalls).toBe(stage === 'creation' ? 0 : 1);
+    // The Autoresearch and its trigger are created by one request.
+    expect(separateCalls).toBe(0);
     expect(router.currentRoute.value.path).toBe('/autoresearch');
     expect(notice.value).toBe('');
     app.unmount();

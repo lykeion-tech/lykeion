@@ -309,6 +309,7 @@ func NewRouter(h *H) http.Handler {
 
 			r.Get("/api/autoresearch", h.listAutoresearches)
 			r.Post("/api/autoresearch", h.createAutoresearch)
+			r.Post("/api/autoresearch/with-trigger", h.createAutoresearchWithTrigger)
 			r.Get("/api/autoresearch/{id}", h.getAutoresearch)
 			r.Patch("/api/autoresearch/{id}", h.updateAutoresearch)
 			r.Delete("/api/autoresearch/{id}", h.deleteAutoresearch)

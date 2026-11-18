@@ -105,7 +105,7 @@ const { openComposer } = useStudyComposer();
 const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
-const studyMenu = ref<{ id: string; x: number; y: number } | null>(null);
+const studyMenu = ref<{ id: string; x: number; y: number; alignRight: boolean } | null>(null);
 let workspaceGeneration = 0;
 watch(
   workspaceId,
@@ -130,11 +130,12 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton
   studyMenu.value = {
     id: card.id,
     x: fromButton
-      ? Math.min(rect.right - 120, window.innerWidth - 128)
+      ? Math.min(rect.right, window.innerWidth - 8)
       : event instanceof MouseEvent
         ? event.clientX
         : rect.left + 60,
     y: fromButton ? rect.bottom + 4 : event instanceof MouseEvent ? event.clientY : rect.bottom,
+    alignRight: fromButton,
   };
   void nextTick(() => document.querySelector<HTMLButtonElement>('.study-menu button')?.focus());
 }
@@ -763,7 +764,7 @@ onUnmounted(() => {
     class="board-menu study-menu"
     role="menu"
     aria-label="Study actions"
-    :style="{ left: studyMenu.x + 'px', top: studyMenu.y + 'px' }"
+    :style="{ left: studyMenu.x + 'px', top: studyMenu.y + 'px', transform: studyMenu.alignRight ? 'translateX(-100%)' : undefined }"
     @keydown="menuKeys"
   >
     <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete</button>
@@ -1604,8 +1605,8 @@ onUnmounted(() => {
   position: fixed;
   right: auto;
   top: auto;
-  width: 120px;
-  min-width: 120px;
+  width: max-content;
+  min-width: 0;
 }
 .study-menu hr {
   border: 0;

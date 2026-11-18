@@ -178,6 +178,34 @@ func TestAutoresearchInputIsChecked(t *testing.T) {
 	}
 }
 
+func TestAutoresearchCreateWithTriggerIsAtomic(t *testing.T) {
+	s := newServer(t)
+	tok := s.signIn(t, "atomic@lab.org")
+	w := s.workspace(t, tok, "lab")
+	agent := s.newAgent(t, tok, w.ID, "atomic", "claude")
+	in := map[string]any{"title": "Atomic", "execution_mode": "run_only", "assignee": map[string]any{"type": "agent", "id": agent}, "scope": s.stageScope(t, agent), "trigger": map[string]any{"kind": "schedule", "cron": "not a cron", "tz": "UTC"}}
+	if code := s.call(t, "POST", "/api/autoresearch/with-trigger", tok, w.ID, in, nil); code != 400 {
+		t.Fatalf("invalid schedule: %d", code)
+	}
+	var list []apView
+	s.call(t, "GET", "/api/autoresearch", tok, w.ID, nil, &list)
+	if len(list) != 0 {
+		t.Fatalf("invalid schedule created an autoresearch: %+v", list)
+	}
+	in["trigger"] = map[string]any{"kind": "schedule", "cron": "@daily", "tz": "UTC"}
+	var made struct {
+		Autoresearch apView `json:"autoresearch"`
+	}
+	if code := s.call(t, "POST", "/api/autoresearch/with-trigger", tok, w.ID, in, &made); code != 201 {
+		t.Fatalf("valid schedule: %d", code)
+	}
+	var got apView
+	s.call(t, "GET", "/api/autoresearch/"+made.Autoresearch.ID, tok, w.ID, nil, &got)
+	if len(got.Triggers) != 1 || got.Triggers[0].Kind != "schedule" {
+		t.Fatalf("trigger: %+v", got.Triggers)
+	}
+}
+
 func TestTriggerResponsesNeverShowSecrets(t *testing.T) {
 	s := newServer(t)
 	a := s.signIn(t, "a@lab.org")

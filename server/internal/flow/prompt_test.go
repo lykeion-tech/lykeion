@@ -355,6 +355,28 @@ func TestCustomReportTemplateReplacesHeadings(t *testing.T) {
 	}
 }
 
+func TestReportGuidanceForResearchers(t *testing.T) {
+	for _, role := range []string{"agent", "leader", "member", "auditor"} {
+		for _, custom := range []string{"", "## My findings"} {
+			p := Protocol(role, board.Grounding, board.Grounding, nil, custom)
+			for _, want := range []string{"focus on findings, evidence, limitations and decisions", "internal tools, routing, prompts, hand-in formats or retries", "unless the researcher asks or the detail explains a material limitation", "Keep source attribution and meaningful failures clear", "do not mention a recovered error", "Do not suggest the researcher needs to fix a problem that no longer blocks the answer", "omit HTTP status, cache details and database field names"} {
+				if !strings.Contains(p, want) {
+					t.Errorf("%s custom=%t: missing %q", role, custom != "", want)
+				}
+			}
+		}
+	}
+}
+
+func TestConnectorRecoveryGuidance(t *testing.T) {
+	p := Protocol("agent", board.Grounding, board.Grounding, nil)
+	for _, want := range []string{"search again by its exact name", "query parameters in `query`", "do not bypass sandbox or approval requirements", "report that limitation", "If discovery itself fails", "retry the corrected call once"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("missing connector recovery guidance %q", want)
+		}
+	}
+}
+
 func TestDefaultReportFormat(t *testing.T) {
 	if got := DefaultReportFormat("agent", board.Grounding); !strings.Contains(got, "Question and scope") || !strings.Contains(got, "Evidence gaps") {
 		t.Fatalf("grounding: %q", got)

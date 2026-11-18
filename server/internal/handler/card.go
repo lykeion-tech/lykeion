@@ -148,12 +148,15 @@ func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID, f
 	} else if err != nil {
 		return err
 	}
-	if from == "" {
-		return nil
-	}
 	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
 	if err != nil {
 		return err
+	}
+	if a.BuiltInKey == "aristotle" {
+		return refused
+	}
+	if from == "" {
+		return nil
 	}
 	return checkAgentStage(a, from, to)
 }

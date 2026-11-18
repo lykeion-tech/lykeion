@@ -104,9 +104,9 @@ it('saves standalone selections and keeps shipped Team capabilities read-only', 
   (addConnectors.props.onClick as () => void)();
   await nextTick();
   const connector = all(root).find(
-    (n) => n.tag === 'select' && n.props['aria-label'] === 'Add connector',
+    (n) => n.tag === 'input' && n.props.type === 'checkbox' && n.parent && textOf(n.parent).includes('ensembl'),
   )!;
-  (connector.props.onChange as (event: unknown) => void)({ target: { value: 'ensembl' } });
+  (connector.props.onChange as (event: unknown) => void)({ target: { checked: true } });
   await nextTick();
   const saveConnectors = all(root).find(
     (n) => n.tag === 'button' && textOf(n).trim() === 'Save connectors',

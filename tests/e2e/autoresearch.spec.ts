@@ -78,6 +78,7 @@ test('a template opens the editor, and the schedule reaches the server as cron',
 
   await page.getByRole('button', { name: 'Pause' }).click();
   await expect(page.getByRole('button', { name: 'Resume' })).toBeVisible();
+  await expect(page.getByText(/next run/)).toHaveCount(0);
   await expect
     .poll(
       async () =>
@@ -87,8 +88,9 @@ test('a template opens the editor, and the schedule reaches the server as cron',
     .toBe('paused');
   await page.getByRole('button', { name: 'Resume' }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await expect(page.getByText(/next run/)).toBeVisible();
 
-  await page.getByRole('link', { name: '← Autoresearch' }).click();
+  await page.getByRole('link', { name: 'Autoresearch', exact: true }).click();
   await expect(page.getByRole('link', { name: /Literature watch/ })).toBeVisible();
 });
 
@@ -143,6 +145,27 @@ test('an Autoresearch needs an assignee', async ({ page }) => {
   await expect(create).toBeEnabled();
 });
 
+test('an invalid schedule keeps the editor open without creating an Autoresearch', async ({
+  page,
+}) => {
+  const headers = await inFixture(page);
+  await page.goto('/#/autoresearch');
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New autoresearch' });
+  await dialog.getByRole('textbox', { name: 'Autoresearch name' }).fill('Invalid schedule');
+  await dialog.getByRole('textbox', { name: 'Runbook' }).fill('Watch.');
+  await assign(dialog, page, 'Watcher');
+  await dialog.getByRole('button', { name: 'Custom cron expression' }).click();
+  await dialog.getByLabel('Cron expression').fill('not a cron');
+  await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  const list = await (await page.request.get('/api/autoresearch', { headers })).json();
+  expect(list).toHaveLength(0);
+  await dialog.getByLabel('Cron expression').fill('0 9 * * *');
+  await dialog.getByRole('button', { name: 'Create autoresearch' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test('a Team set Autoresearch shows its range', async ({ page }) => {
   const headers = await inFixture(page);
   await labTeam(page.request, headers['X-Workspace-ID']!);
@@ -185,7 +208,7 @@ test('a single-Team Autoresearch sends no scope and shows the Team’s column', 
   const headers = await inFixture(page);
   await labTeam(page.request, headers['X-Workspace-ID']!);
   let sent: Record<string, unknown> = {};
-  await page.route('**/api/autoresearch', (route) => {
+  await page.route('**/api/autoresearch/with-trigger', (route) => {
     if (route.request().method() === 'POST') sent = route.request().postDataJSON();
     return route.continue();
   });

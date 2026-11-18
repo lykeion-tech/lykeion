@@ -19,6 +19,7 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import type { AgentDefinition, Card, Runtime } from '../../api/types';
 import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
 import EmojiIcon from '../../ui/EmojiIcon.vue';
 import { useStudyComposer } from '../../state/study-composer';
 import { backends, backendLabel } from '../../lib/backends';
@@ -47,6 +48,7 @@ const starters = ref<Starter[]>([]);
 const reportTemplate = ref('');
 const defaultReportTemplate = ref('');
 const builtin = computed(() => agent.value?.built_in_key === 'aristotle');
+const studyUnavailable = ref(false);
 const validStarters = computed(
   () =>
     starters.value.length <= 12 &&
@@ -325,7 +327,7 @@ function toggle(id: string) {
           <button
             v-if="!agent.archived_at && (agent.visibility === 'workspace' || mine)"
             class="button primary"
-            @click="openComposer({ type: 'agent', id })"
+            @click="builtin ? (studyUnavailable = true) : openComposer({ type: 'agent', id })"
           >
             <Icon name="plus" :size="14" />New study
           </button>
@@ -746,11 +748,30 @@ function toggle(id: string) {
     <p v-if="detail.error.value" class="inline-error agent-error" role="alert">
       {{ detail.error.value.message }} <button @click="detail.refetch()">Retry</button>
     </p>
+    <Modal v-if="studyUnavailable" class="study-unavailable" title="Study unavailable" aria-describedby="study-unavailable-description" @close="studyUnavailable = false">
+      <div class="study-unavailable-heading">
+        <span class="study-unavailable-icon" aria-hidden="true"><Icon name="bot" :size="20" /></span>
+        <h2>Study unavailable</h2>
+      </div>
+      <p id="study-unavailable-description">Aristotle cannot be assigned to a study. Choose an agent with a research stage instead.</p>
+      <div class="study-unavailable-actions">
+        <button class="button primary" @click="studyUnavailable = false">Got it</button>
+      </div>
+    </Modal>
   </section>
 </template>
 <style src="./agent-detail.css" />
 
 <style scoped>
+.study-unavailable {
+  width: min(420px, calc(100vw - 32px));
+  padding: 28px;
+}
+.study-unavailable-heading { display: flex; align-items: center; gap: 12px; }
+.study-unavailable-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--hover); color: var(--muted); }
+.study-unavailable h2 { margin: 0; font-size: 18px; }
+.study-unavailable p { margin: 16px 0 24px; color: var(--muted); line-height: 1.5; }
+.study-unavailable-actions { display: flex; justify-content: flex-end; }
 :deep(.aristotle-avatar .agent-avatar) {
   background: var(--palette-accent);
 }

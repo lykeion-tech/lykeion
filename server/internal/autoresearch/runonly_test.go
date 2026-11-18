@@ -92,6 +92,9 @@ func TestRunOnlyQueuesOneCardlessAgentRunWithTheGroundingServers(t *testing.T) {
 	if tk.Skill == "" || tk.Skill != skills.Role(Role, "run-only") || strings.Contains(tk.Skill, "LAB TEXT") {
 		t.Fatalf("skill:\n%s", tk.Skill)
 	}
+	if strings.Contains(tk.Skill, "lyk report") || strings.Contains(tk.Skill, "lyk_sources") || !strings.Contains(tk.Skill, "final") {
+		t.Fatalf("run-only skill contradicts the hand-in protocol:\n%s", tk.Skill)
+	}
 	if !strings.Contains(string(tk.AddonMcp), "lab-index") || len(tk.AddonHash) != 64 {
 		t.Fatalf("add-on: %s %q", tk.AddonMcp, tk.AddonHash)
 	}
