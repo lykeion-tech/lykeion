@@ -60,6 +60,7 @@ const assignableAgents = computed(() =>
     ? (agentList.data.value ?? []).filter(
         (a) =>
           !a.archived_at &&
+          (props.agents || a.built_in_key !== 'aristotle') &&
           !!a.stage &&
           (a.visibility === 'workspace' || a.owner_id === me.data.value?.id) &&
           (props.agentOnly

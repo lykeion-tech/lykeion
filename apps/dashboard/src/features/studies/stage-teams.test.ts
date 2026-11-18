@@ -499,8 +499,8 @@ describe('AssignPicker', () => {
       expect(groups).toEqual(['Built-in Teams', 'Custom Teams', 'Team sets', 'Agents']);
       const menu = p.text();
       expect(menu.slice(menu.indexOf('Agents'))).toContain('Solo agent');
-      for (const visible of ['Aristotle', 'Team copy']) expect(menu).toContain(visible);
-      for (const hidden of ['Colleague private', 'Retired agent'])
+      for (const visible of ['Team copy']) expect(menu).toContain(visible);
+      for (const hidden of ['Aristotle', 'Colleague private', 'Retired agent'])
         expect(menu).not.toContain(hidden);
       expect(menu).not.toContain('Manage agents');
       await p.click(/^SSolo agent$/);
@@ -1393,6 +1393,22 @@ describe('the one-row New study window', () => {
         prompt: 'Draft a study about sleep',
       });
       expect(fetch.mock.calls.some((call) => call[0] === '/api/cards')).toBe(false);
+    } finally {
+      t.unmount();
+    }
+  });
+
+  it('refuses Aristotle as the drafting agent before sending anything', async () => {
+    const fetch = posting();
+    vi.stubGlobal('fetch', fetch);
+    const t = await mount(CreateStudy, () => ({ assignee: { type: 'agent', id: 'a2' } }), '/', seedStudy);
+    try {
+      expect(t.text()).toContain('Aristotle cannot be assigned to a study');
+      await t.click(/^Switch to Agent$/);
+      await t.fill('Describe the study for the agent', 'Draft a study about sleep');
+      expect(t.text()).toContain('Aristotle cannot be assigned to a study');
+      await t.submit();
+      expect(fetch.mock.calls.some((call) => call[0] === '/api/study-drafts')).toBe(false);
     } finally {
       t.unmount();
     }

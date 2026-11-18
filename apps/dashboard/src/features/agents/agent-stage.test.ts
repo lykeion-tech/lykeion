@@ -368,6 +368,8 @@ describe('agent stage', () => {
     const detail = await mount(AgentDetail, { id: 'x' }, [ari], 'owner', '/x?tab=settings');
     expect(detail.find('select', (n) => n.props['aria-label'] === 'Agent stage')).toBeUndefined();
     expect(detail.text()).toContain('No stage');
+    await detail.click(/^New study$/);
+    expect(detail.text()).toContain('Aristotle cannot be assigned to a study');
   });
 
   it("gives Aristotle's list icon the accent background its floating window uses", async () => {

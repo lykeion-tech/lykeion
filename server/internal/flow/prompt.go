@@ -217,6 +217,9 @@ func reportTemplate(role, column, custom string) string {
 	}
 	return "Write the hand-in's `answer` in Markdown " + format +
 		"Be concise and report only what you actually did or found. State when a section is unavailable or not applicable; never invent evidence or results. " +
+		"Write for the researcher: focus on findings, evidence, limitations and decisions. Do not describe internal tools, routing, prompts, hand-in formats or retries unless the researcher asks or the detail explains a material limitation. Keep source attribution and meaningful failures clear. " +
+		"If the requested result was obtained, do not mention a recovered error or an unavailable discovery tool in the answer unless it materially limits the findings or the researcher asks. Do not suggest the researcher needs to fix a problem that no longer blocks the answer. Cite the actual source and disclose unresolved failures that affect the result. " +
+		"In the answer, omit HTTP status, cache details and database field names unless the researcher asks or they materially affect the reliability of a finding. Name the source and give a usable citation instead. " +
 		"If you could not complete the work, say why. Validation review status is pending until Lykeion's checks determine it; do not claim a gate passed. " +
 		"If the researcher requested a specific final line, preserve that line at the end.\n\n"
 }
@@ -284,7 +287,10 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 	if column == board.Experimentation && role != "auditor" {
 		b.WriteString(workOutputs)
 	}
-	b.WriteString("\n" + sourcesTools + "To find a skill or another database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`.\n")
+	b.WriteString("\n" + sourcesTools + "To find a skill or another database tool for what you need, ask `find_tools`; call the tools it names through `call_tool`. " +
+		"If a requested connector is missing from the results, search again by its exact name. If discovery itself fails, use a connector only if it is explicitly named in the assignment or reliably available from the run's tool information; call it through `call_tool`, never guess credentials or access. " +
+		"Use the returned tool's schema: for a fetch, give the path under the connector base and put query parameters in `query`, not in the path. If a call is refused for argument formatting, read the error and retry the corrected call once. " +
+		"If the connector remains unavailable or a call requires approval, do not bypass sandbox or approval requirements; report that limitation and use an alternative only when appropriate, identifying its source.\n")
 	return b.String()
 }
 

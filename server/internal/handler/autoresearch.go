@@ -95,7 +95,17 @@ func (h *H) autoresearchTx(w http.ResponseWriter, r *http.Request, edit bool, fn
 	return answer(w, r, err)
 }
 
+type triggerIn struct {
+	Kind          string          `json:"kind"`
+	Cron          string          `json:"cron"`
+	Tz            string          `json:"tz"`
+	Provider      string          `json:"provider"`
+	SigningSecret string          `json:"signing_secret"`
+	Filters       json.RawMessage `json:"filters"`
+}
+
 type autoresearchIn struct {
+	Trigger       *triggerIn  `json:"trigger"`
 	Title         *string     `json:"title"`
 	Description   *string     `json:"description"`
 	ExecutionMode string      `json:"execution_mode"`
@@ -142,9 +152,21 @@ func (h *H) listAutoresearches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
+	h.createAutoresearchWithMode(w, r, false)
+}
+
+func (h *H) createAutoresearchWithTrigger(w http.ResponseWriter, r *http.Request) {
+	h.createAutoresearchWithMode(w, r, true)
+}
+
+func (h *H) createAutoresearchWithMode(w http.ResponseWriter, r *http.Request, withTrigger bool) {
 	var in autoresearchIn
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid autoresearch: "+err.Error())
+		return
+	}
+	if withTrigger && in.Trigger == nil {
+		writeErr(w, 400, "trigger is required")
 		return
 	}
 	if in.ExecutionMode != "create_card" && in.ExecutionMode != "run_only" {
@@ -152,6 +174,7 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ap db.Autoresearch
+	var triggerResult map[string]any
 	err := in.apply(&ap)
 	if err == nil && (in.Assignee == nil || in.Assignee.Type == "member") {
 		err = cardInputError("assignee must be an agent or a Team")
@@ -196,10 +219,22 @@ func (h *H) createAutoresearch(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if withTrigger {
+			var err error
+			triggerResult, err = h.insertTrigger(r, tx, ap, user, *in.Trigger)
+			if err != nil {
+				return err
+			}
+		}
 		return tx.Emit(r.Context(), "autoresearch.created", nil, store.User(user), map[string]any{"autoresearch_id": ap.ID, "title": ap.Title})
 	})
 	if answer(w, r, err) {
-		writeJSON(w, 201, ap)
+		if withTrigger {
+			triggerResult["autoresearch"] = ap
+			writeJSON(w, 201, triggerResult)
+		} else {
+			writeJSON(w, 201, ap)
+		}
 	}
 }
 
@@ -458,96 +493,99 @@ func (h *H) listAutoresearchRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) createTrigger(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{}
+	var out map[string]any
 	ok := h.autoresearchTx(w, r, true, func(tx *store.Tx, ap db.Autoresearch, user uuid.UUID) error {
-		var in struct {
-			Kind          string          `json:"kind"`
-			Cron          string          `json:"cron"`
-			Tz            string          `json:"tz"`
-			Provider      string          `json:"provider"`
-			SigningSecret string          `json:"signing_secret"`
-			Filters       json.RawMessage `json:"filters"`
-		}
+		var in triggerIn
 		if err := readJSON(r, &in); err != nil {
 			return cardInputError("invalid trigger: " + err.Error())
 		}
-		if in.Tz == "" {
-			u, err := tx.Q.GetUser(r.Context(), user)
-			if err != nil {
-				return err
-			}
-			in.Tz = u.Timezone
-		}
-		if _, err := autoresearch.Zone(in.Tz); err != nil {
-			return cardInputError(err.Error())
-		}
-		p := db.CreateTriggerParams{ID: uuid.New(), WorkspaceID: tx.WS, AutoresearchID: ap.ID, Kind: in.Kind, Tz: in.Tz,
-			Provider: "generic", Filters: json.RawMessage(`[]`), CreatedBy: user}
-		token := ""
-		switch in.Kind {
-		case "schedule":
-			if in.Provider != "" || in.SigningSecret != "" || len(in.Filters) > 0 {
-				return cardInputError("a schedule takes only cron and tz")
-			}
-			next, err := autoresearch.NextRun(in.Cron, in.Tz, time.Now())
-			if err != nil {
-				return cardInputError(err.Error())
-			}
-			p.Cron, p.NextRunAt = strings.TrimSpace(in.Cron), &next
-		case "webhook":
-			if in.Cron != "" {
-				return cardInputError("a webhook takes no cron")
-			}
-			if in.Provider != "" {
-				p.Provider = in.Provider
-			}
-			if p.Provider != "generic" && p.Provider != "github" {
-				return cardInputError("provider must be generic or github")
-			}
-			fs, err := autoresearch.ParseFilters(in.Filters)
-			if err != nil {
-				return cardInputError(err.Error())
-			}
-			p.Filters, err = json.Marshal(fs)
-			if err != nil {
-				return err
-			}
-			if in.SigningSecret != "" {
-				if p.Provider != "github" {
-					return cardInputError("only github webhooks are signed; a generic webhook relies on its URL token")
-				}
-				if len(in.SigningSecret) > 256 {
-					return cardInputError("signing_secret must be at most 256 bytes")
-				}
-				sealed, err := seal.Seal(h.Autoresearch.Key, []byte(in.SigningSecret), p.ID[:])
-				if errors.Is(err, seal.ErrNoKey) {
-					return cardInputError("the server has no LYK_SECRET_KEY, so it cannot store a signing secret")
-				}
-				if err != nil {
-					return err
-				}
-				p.SigningSecretEnc = sealed
-			}
-			var hash string
-			token, hash, _ = auth.NewToken(autoresearch.WebhookPrefix)
-			p.TokenHash = &hash
-		default:
-			return cardInputError("kind must be schedule or webhook")
-		}
-		t, err := tx.Q.CreateTrigger(r.Context(), p)
-		if err != nil {
-			return err
-		}
-		out["trigger"] = viewTrigger(t)
-		if token != "" {
-			out["token"], out["url"] = token, "/api/webhooks/autoresearch/"+token
-		}
-		return tx.Emit(r.Context(), "autoresearch_trigger.created", nil, store.User(user),
-			map[string]any{"autoresearch_id": ap.ID, "trigger_id": t.ID, "kind": t.Kind})
+		var err error
+		out, err = h.insertTrigger(r, tx, ap, user, in)
+		return err
 	})
 	if ok {
 		writeJSON(w, 201, out)
 	}
+}
+
+func (h *H) insertTrigger(r *http.Request, tx *store.Tx, ap db.Autoresearch, user uuid.UUID, in triggerIn) (map[string]any, error) {
+	out := map[string]any{}
+	if in.Tz == "" {
+		u, err := tx.Q.GetUser(r.Context(), user)
+		if err != nil {
+			return nil, err
+		}
+		in.Tz = u.Timezone
+	}
+	if _, err := autoresearch.Zone(in.Tz); err != nil {
+		return nil, cardInputError(err.Error())
+	}
+	p := db.CreateTriggerParams{ID: uuid.New(), WorkspaceID: tx.WS, AutoresearchID: ap.ID, Kind: in.Kind, Tz: in.Tz,
+		Provider: "generic", Filters: json.RawMessage(`[]`), CreatedBy: user}
+	token := ""
+	switch in.Kind {
+	case "schedule":
+		if in.Provider != "" || in.SigningSecret != "" || len(in.Filters) > 0 {
+			return nil, cardInputError("a schedule takes only cron and tz")
+		}
+		next, err := autoresearch.NextRun(in.Cron, in.Tz, time.Now())
+		if err != nil {
+			return nil, cardInputError(err.Error())
+		}
+		p.Cron, p.NextRunAt = strings.TrimSpace(in.Cron), &next
+	case "webhook":
+		if in.Cron != "" {
+			return nil, cardInputError("a webhook takes no cron")
+		}
+		if in.Provider != "" {
+			p.Provider = in.Provider
+		}
+		if p.Provider != "generic" && p.Provider != "github" {
+			return nil, cardInputError("provider must be generic or github")
+		}
+		fs, err := autoresearch.ParseFilters(in.Filters)
+		if err != nil {
+			return nil, cardInputError(err.Error())
+		}
+		p.Filters, err = json.Marshal(fs)
+		if err != nil {
+			return nil, err
+		}
+		if in.SigningSecret != "" {
+			if p.Provider != "github" {
+				return nil, cardInputError("only github webhooks are signed; a generic webhook relies on its URL token")
+			}
+			if len(in.SigningSecret) > 256 {
+				return nil, cardInputError("signing_secret must be at most 256 bytes")
+			}
+			sealed, err := seal.Seal(h.Autoresearch.Key, []byte(in.SigningSecret), p.ID[:])
+			if errors.Is(err, seal.ErrNoKey) {
+				return nil, cardInputError("the server has no LYK_SECRET_KEY, so it cannot store a signing secret")
+			}
+			if err != nil {
+				return nil, err
+			}
+			p.SigningSecretEnc = sealed
+		}
+		var hash string
+		token, hash, _ = auth.NewToken(autoresearch.WebhookPrefix)
+		p.TokenHash = &hash
+	default:
+		return nil, cardInputError("kind must be schedule or webhook")
+	}
+	t, err := tx.Q.CreateTrigger(r.Context(), p)
+	if err != nil {
+		return nil, err
+	}
+	out["trigger"] = viewTrigger(t)
+	if token != "" {
+		out["token"], out["url"] = token, "/api/webhooks/autoresearch/"+token
+	}
+	if err := tx.Emit(r.Context(), "autoresearch_trigger.created", nil, store.User(user),
+		map[string]any{"autoresearch_id": ap.ID, "trigger_id": t.ID, "kind": t.Kind}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func triggerID(r *http.Request) (uuid.UUID, error) {

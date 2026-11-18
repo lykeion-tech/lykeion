@@ -160,7 +160,7 @@ test('starts a new study with the viewed agent selected', async ({ page }) => {
   await expect(page.getByRole('dialog')).toContainText('Study agent');
 });
 
-test('starts a new study with a Team copy or built-in Agent selected', async ({ page }) => {
+test('starts a new study with a Team copy, and explains Aristotle cannot take one', async ({ page }) => {
   const { f, headers } = await inFixture(page);
   const team = await labPack(page.request, 'agent-study-team', f.workspace_id, {
     stage: 'grounding',
@@ -171,14 +171,20 @@ test('starts a new study with a Team copy or built-in Agent selected', async ({ 
   const bootstrap = await page.request.post('/api/coresearch/bootstrap', { headers });
   expect(bootstrap.status()).toBe(200);
   const builtin = (await bootstrap.json()).agent;
-  for (const agent of [copies[0], builtin]) {
-    await page.goto('/#/agents/' + agent.id);
-    await page.getByRole('button', { name: 'New study' }).click();
-    await expect(
-      page.getByRole('dialog').getByRole('button', { name: `Assignee: ${agent.name}` }),
-    ).toBeVisible();
-    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
-  }
+  await page.goto('/#/agents/' + copies[0].id);
+  await page.getByRole('button', { name: 'New study' }).click();
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: `Assignee: ${copies[0].name}` }),
+  ).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+
+  await page.goto('/#/agents/' + builtin.id);
+  await page.getByRole('button', { name: 'New study' }).click();
+  const unavailable = page.getByRole('dialog', { name: 'Study unavailable' });
+  await expect(unavailable).toContainText('Aristotle cannot be assigned to a study');
+  await expect(unavailable.getByRole('button', { name: /^Assignee:/ })).toHaveCount(0);
+  await unavailable.getByRole('button', { name: 'Got it' }).click();
+  await expect(unavailable).toHaveCount(0);
 });
 
 test('the agent page shows its studies and edits instructions, profile and access', async ({
