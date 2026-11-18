@@ -24,8 +24,8 @@ export default function AboutPage() {
       </section>
       <div className="about-cards" aria-label="Contact and resources">
         <a href="/contact-sales/"><small>CONTACT</small><strong>Contact sales</strong></a>
-        <div aria-disabled="true"><small>HOW LICENSING WORKS</small><strong>Licensing FAQ</strong></div>
-        <div aria-disabled="true"><small>COMMUNITY</small><strong>Discord</strong></div>
+        <a href="https://github.com/lykeion-tech/lykeion/blob/main/LICENSE"><small>HOW LICENSING WORKS</small><strong>Licensing FAQ</strong></a>
+        <a href="https://discord.gg/ed3jsMTs3"><small>COMMUNITY</small><strong>Discord</strong></a>
         <a href="https://github.com/lykeion-tech/lykeion"><small>SOURCE CODE &amp; ISSUES</small><strong>GitHub</strong></a>
       </div>
     </div></main>

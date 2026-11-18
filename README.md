@@ -25,7 +25,7 @@
   <a href="https://github.com/lykeion-tech/lykeion/releases/latest">Latest release</a>
 </p>
 
-![A Lykeion lab board with studies moving through Grounding, Hypotheses, Experimentation and Validation](apps/web/public/lab-board.webp)
+![Lykeion’s study board showing a demo research question](apps/web/public/demo-use-cases/01-board.webp)
 
 ## Why Lykeion
 
@@ -50,13 +50,22 @@ A study advances only when its gate passes. The server checks what it can verify
 
 Agents search the literature through Lykeion's sources server (OpenAlex, Europe PMC and arXiv), and every source they rely on is recorded. Attachments and the files agents save with `lyk output put` are recorded too. Every claim an agent keeps must cite a recorded source, so any conclusion can be traced back to where it came from.
 
-![An evidence assessment with its recorded sources and saved outputs](apps/web/public/demo/evidence.webp)
+![A study’s research question and recorded activity](apps/web/public/demo-use-cases/02-study.webp)
 
 ## Build your lab.
 
 _Give every stage the right researchers, and every researcher the right tools._
 
-![The Grounding Team: a leader, a searcher, a verifier and an auditor, each with its own instructions](apps/web/public/demo/team.webp)
+<table>
+  <tr>
+    <td width="50%"><img src="apps/web/public/demo-use-cases/03-agents.webp" alt="Agents available in the demo workspace"></td>
+    <td width="50%"><img src="apps/web/public/demo-use-cases/04-teams.webp" alt="Research Teams for the four study stages"></td>
+  </tr>
+  <tr>
+    <td align="center">Agents</td>
+    <td align="center">Teams</td>
+  </tr>
+</table>
 
 - **[Agents](https://app.lykeion.tech/docs/agents/) →** Reusable research roles, each with instructions, a stage, capabilities and a machine to run on.
 - **[Teams](https://app.lykeion.tech/docs/teams/) →** A leader and members for one stage. Four stage Teams ship with Lykeion; duplicate one to make it your own.
@@ -68,29 +77,20 @@ _Give every stage the right researchers, and every researcher the right tools._
 
 _It starts as a question. It ends as cited evidence, tested hypotheses and a report._
 
-![Ask Aristotle answering a question about a study, with links to the evidence behind each statement](apps/web/public/demo/aristotle.webp)
+![Aristotle’s agent details, role and capabilities in the lab](apps/web/public/demo-use-cases/05-aristotle.webp)
 
 - **[Start a study](https://app.lykeion.tech/docs/studies/) →** Write the question, its boundaries and the output you want, then assign it to an agent or a Team.
 - **[Autoresearch](https://app.lykeion.tech/docs/autoresearch/) →** Run a saved research runbook on a schedule or from a webhook, such as a weekly literature watch.
 - **[Ask Aristotle](https://app.lykeion.tech/docs/aristotle/) →** Lykeion's research coordinator answers questions about your workspace and shows the evidence behind each answer.
 - **[Coresearch](https://app.lykeion.tech/docs/coresearch/) →** Shared projects with an Experiment mode (files, notebook kernels and recorded runs) and a Cowrite mode, where people and agents edit a LaTeX paper together.
 
-<table>
-  <tr>
-    <td width="50%"><img src="apps/web/public/demo/cowrite.webp" alt="Cowrite: a LaTeX paper edited together with an agent, next to its compiled PDF"></td>
-    <td width="50%"><img src="apps/web/public/demo-photos/06-lab.webp" alt="The Lab chart: the laboratory's rooms and the agents working in them"></td>
-  </tr>
-  <tr>
-    <td align="center">Cowrite</td>
-    <td align="center">The Lab chart</td>
-  </tr>
-</table>
+![The Lab chart showing the laboratory’s connected rooms](apps/web/public/demo-use-cases/06-lab.webp)
 
 ## Stay in the loop.
 
 _Which agent did this? What did it run? What is it based on? Open the study._
 
-![A run transcript: each step the agent took, its errors and retries, and the files it saved](apps/web/public/demo/run.webp)
+![The Decisions page showing study questions awaiting the researcher’s input](apps/web/public/demo-preview/demo-decisions.webp)
 
 - **[Runs](https://app.lykeion.tech/docs/runs/) →** Read every attempt: its steps, tool calls, errors and hand-in, next to the files it produced.
 - **[Evidence and results](https://app.lykeion.tech/docs/evidence-and-results/) →** Open a study's Files, Notebook and Review to check what an agent says it delivered.
