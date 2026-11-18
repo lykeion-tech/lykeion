@@ -1,6 +1,8 @@
 name: Bug report
 description: Something in Lykeion doesn't work as it should.
-labels: [bug]
+# Maintainers add `bug` after triage: Aristotle picks up `bug` issues, so a
+# form must never apply it on the reporter's behalf.
+labels: [triage]
 body:
   - type: textarea
     id: what

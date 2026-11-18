@@ -101,7 +101,7 @@ func (a *Agent) mark(n int, outcome string) error {
 
 // Pass works every assigned issue not yet handled, oldest first.
 func (a *Agent) Pass(ctx context.Context) error {
-	issues, err := a.GitHub.Assigned(ctx, a.Me.Login)
+	issues, err := a.GitHub.Work(ctx, a.Me.Login)
 	if err != nil {
 		return err
 	}
@@ -157,6 +157,11 @@ func (a *Agent) Work(ctx context.Context, i Issue) (string, error) {
 	defer os.RemoveAll(run)
 	if err := a.Git.Checkout(ctx, mirror, filepath.Join(run, "repo"), branch, base); err != nil {
 		return "", err
+	}
+	if len(i.Assignees) == 0 {
+		if err := a.GitHub.Assign(ctx, i.Number, a.Me.Login); err != nil {
+			return "", err
+		}
 	}
 	if err := a.GitHub.Comment(ctx, i.Number, "I'm looking into this."+Footer); err != nil {
 		return "", err

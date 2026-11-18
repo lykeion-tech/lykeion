@@ -2,6 +2,7 @@ package aristotle
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,18 +79,33 @@ func TestImportChecksCommits(t *testing.T) {
 	}
 }
 
-func TestGitHubAssignedSkipsPulls(t *testing.T) {
+func TestGitHubWork(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" || r.URL.Query().Get("assignee") != "aristotle-agent" {
-			http.Error(w, "bad request", 400)
-			return
+		q := r.URL.Query()
+		switch {
+		case r.Header.Get("Authorization") != "Bearer tok":
+			http.Error(w, "unauthorized", 401)
+		case q.Get("assignee") == "aristotle-agent":
+			// Assigned issues, including a pull request to skip.
+			w.Write([]byte(`[{"number":7,"assignees":[{"login":"aristotle-agent"}]},{"number":2,"pull_request":{}}]`))
+		case q.Get("labels") == "bug":
+			// Unassigned bugs are taken; one a person has claimed is not; 7 repeats.
+			w.Write([]byte(`[{"number":3},{"number":5,"assignees":[{"login":"someone"}]},{"number":7,"assignees":[{"login":"aristotle-agent"}]}]`))
+		default:
+			http.Error(w, "unexpected query", 400)
 		}
-		w.Write([]byte(`[{"number":1,"title":"bug"},{"number":2,"pull_request":{}}]`))
 	}))
 	defer srv.Close()
 	g := &GitHub{Base: srv.URL, Token: "tok", Client: srv.Client()}
-	issues, err := g.Assigned(context.Background(), "aristotle-agent")
-	if err != nil || len(issues) != 1 || issues[0].Number != 1 {
-		t.Fatalf("got %+v, %v", issues, err)
+	issues, err := g.Work(context.Background(), "aristotle-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int
+	for _, i := range issues {
+		got = append(got, i.Number)
+	}
+	if fmt.Sprint(got) != "[3 7]" {
+		t.Fatalf("got %v, want [3 7]", got)
 	}
 }
