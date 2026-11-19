@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAB, labFixture } from './lab';
+import { LAB, labFixture, openStudyDetails } from './lab';
 
 test('Execution shows Runs directly and Properties shows the details directly', async ({
   page,
@@ -16,6 +16,7 @@ test('Execution shows Runs directly and Properties shows the details directly', 
     if (await back.isVisible()) await back.click();
     await meta.getByRole('button', { name: surface, exact: true }).click();
   };
+  await openStudyDetails(page);
   await choose('Properties');
   const properties = meta.getByRole('heading', { name: 'Properties', level: 2, exact: true });
   await expect(properties).toBeVisible();

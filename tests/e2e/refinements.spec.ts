@@ -1,9 +1,10 @@
 import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
-import { LAB, labFixture } from './lab';
+import { LAB, labFixture, openStudyDetails } from './lab';
 
 // Opens one of the study's right-pane surfaces from the chooser.
 async function openSurface(page: Page, surface: string) {
+  await openStudyDetails(page);
   const pane = page.getByRole('complementary', { name: 'Right pane', exact: true });
   const back = pane.getByRole('button', { name: 'Back to surfaces', exact: true });
   if (await back.isVisible()) await back.click();
@@ -36,9 +37,10 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   // A study's assignee is shown, not offered.
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
+  // The details pane starts closed on each visit and reopens at its default width.
   await page.goto(`/#/studies/${f.card_id}`);
-  await expect(inspector).toHaveCSS('width', '640px');
   await openSurface(page, 'Properties');
+  await expect(inspector).toHaveCSS('width', '240px');
   await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveAttribute(
     'data-value',
     research.id,
@@ -47,8 +49,8 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   await expect(inspector.locator('.execution-log .run-metrics')).toBeVisible();
   await page.evaluate(() => localStorage.setItem('lykeion.study-inspector-width', '364'));
   await page.reload();
-  await expect(inspector).toHaveCSS('width', '240px');
   await openSurface(page, 'Timeline');
+  await expect(inspector).toHaveCSS('width', '240px');
   const dialog = inspector.locator('.execution-log');
   await expect(dialog.getByText('Latest-attempt time', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Attempt 2', { exact: false }).first()).toBeVisible();
@@ -99,6 +101,7 @@ test('both separators persist pointer and keyboard sizes without collapsing afte
   await page.goto(`/#/studies/${f.card_id}`);
   await page.reload();
   await expect(page.locator('.sidebar')).toHaveCSS('width', '279px');
+  await openStudyDetails(page);
   await expect(pane).toHaveCSS('width', '240px');
 });
 

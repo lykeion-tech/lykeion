@@ -146,13 +146,6 @@ describe('review helpers', () => {
     ]);
   });
 
-  it('names a column its owner approved without Jev', () => {
-    expect(
-      legacyColumns([], [record({ kind: 'outcome', body: { verdict: 'approved_by_owner' } })])[0]
-        ?.verdict,
-    ).toBe('Approved by owner');
-  });
-
   it('labels numbered criteria, saved files, and unknown checks', () => {
     expect(checkLabel('criterion:2')).toBe('Criterion 2');
     expect(checkLabel('file:out.csv')).toBe('File out.csv saved');

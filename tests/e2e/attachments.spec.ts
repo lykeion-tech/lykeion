@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { labWorkspace } from './lab';
+import { labWorkspace, openStudyDetails } from './lab';
 
 const question = `Does ALDH1A3 track with insulin loss? ${Date.now()}`;
 
@@ -36,6 +36,7 @@ test('attach a CSV to a new study, see it listed, download the same bytes', asyn
   await expect(dialog).toHaveCount(0);
 
   await page.getByText(question).first().click();
+  await openStudyDetails(page);
   await page
     .getByRole('complementary', { name: 'Right pane' })
     .getByRole('button', { name: 'Properties', exact: true })

@@ -132,7 +132,6 @@ describe('Coresearch workspace', () => {
     const { root } = await mount(RightPaneTabs, {
       tabs: PANE_TABS,
       activeId: 'notebook',
-      paneMode: 'split',
     });
     expect(
       all(root)
@@ -300,7 +299,8 @@ describe('Coresearch workspace', () => {
       }),
     );
     const { root, settle } = await mount(MembersDialog, { projectId: 'p', editable: true });
-    expect(button(root, 'Remove Ada')!.props.disabled).toBe(true);
+    expect(button(root, 'Remove Ada')).toBeUndefined();
+    expect(textOf(root)).toContain('The last project owner cannot be removed.');
     expect(
       all(root)
         .filter((n) => n.tag === 'option' && n.props.value)
@@ -317,7 +317,56 @@ describe('Coresearch workspace', () => {
       method: 'POST',
       body: { user_id: 'other', role: 'member' },
     });
+    await vi.waitFor(() => expect(button(root, 'Remove Grace')).toBeTruthy());
+    expect(button(root, 'Add member')).toBeUndefined();
+    expect(textOf(root)).toContain('No other workspace members to add.');
   });
+  it('links to Colleagues instead of showing a picker in a one-person workspace', async () => {
+    const { root } = await mount(MembersDialog, { projectId: 'p', editable: true }, (client) =>
+      client.setQueryData(keys.members('lab'), [{ user_id: 'me', name: 'Ada' }]),
+    );
+    expect(all(root).find((n) => n.tag === 'a' && n.props.href === '/colleagues')).toBeTruthy();
+    expect(textOf(root)).toContain('Invite a colleague');
+    expect(all(root).some((n) => n.tag === 'select')).toBe(false);
+  });
+  it.each(['project', 'workspace'] as const)(
+    'shows loading and retries the %s roster',
+    async (scope) => {
+      const projectRoster = scope === 'project';
+      let finish!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+      const load = vi
+        .fn()
+        .mockReturnValueOnce(pending)
+        .mockResolvedValueOnce(
+          Response.json(
+            projectRoster
+              ? [{ user_id: 'me', role: 'owner' }]
+              : [
+                  { user_id: 'me', name: 'Ada' },
+                  { user_id: 'other', name: 'Grace' },
+                ],
+          ),
+        );
+      vi.stubGlobal('fetch', load);
+      const { root } = await mount(MembersDialog, { projectId: 'p', editable: true }, (client) =>
+        client.removeQueries({
+          queryKey: projectRoster ? keys.coresearchMembers('lab', 'p') : keys.members('lab'),
+        }),
+      );
+      expect(textOf(root)).toContain('Loading members…');
+      expect(button(root, 'Add member')).toBeUndefined();
+      finish(Response.json({ error: 'Roster unavailable' }, { status: 503 }));
+      const retryLabel = `Retry loading ${scope} members`;
+      await vi.waitFor(() => expect(button(root, retryLabel)).toBeTruthy());
+      expect(button(root, 'Add member')).toBeUndefined();
+      (button(root, retryLabel)!.props.onClick as () => void)();
+      await vi.waitFor(() => expect(button(root, 'Add member')).toBeTruthy());
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
   it('caps files at ten and keeps an opened file beyond the cap visible', async () => {
     const files = Array.from({ length: 12 }, (_, i) => ({
       id: String(i),
@@ -465,7 +514,7 @@ it.each(['', '   '])('members dialog uses email or ID when name is blank: %j', a
       { user_id: 'other', role: 'member' },
     ]);
   });
-  expect(button(dialog.root, 'Remove ada@example.org')).toBeTruthy();
+  expect(textOf(dialog.root)).toContain('ada@example.org');
   expect(button(dialog.root, 'Remove other')).toBeTruthy();
 });
 

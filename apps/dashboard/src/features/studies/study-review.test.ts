@@ -96,6 +96,9 @@ function setup(
   });
   client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], reviews);
   client.setQueryData(keys.card('w', 'c'), { id: 'c', board_column: current });
+  client.setQueryData(keys.members('w'), [
+    { user_id: 'reviewer', name: 'Grace Reviewer', email: 'grace@lab.test' },
+  ]);
   if (legacy) {
     client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'score'], legacy.scores);
     client.setQueryData([...keys.recordsAll('w', 'c'), 'kind', 'outcome'], legacy.outcomes);
@@ -642,12 +645,13 @@ it('shows a finished legacy study in the old form', async () => {
   expect(all(root).some((n) => n.props['aria-label'] === 'Review stages')).toBe(false);
 });
 
-it('fetches legacy records only after an empty review, and stops using them when an attempt arrives', async () => {
+it('shows human approvals alongside Jev attempts and loads legacy scores only for an empty review', async () => {
   const fetch = vi.fn(async (_path: string) => Response.json([]));
   vi.stubGlobal('fetch', fetch);
   const { root, client } = setup();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(fetch).not.toHaveBeenCalled();
+  await vi.waitFor(() =>
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/cards/c/records?kind=outcome']),
+  );
   client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], []);
   await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   expect(fetch.mock.calls.map((args) => String(args[0])).sort()).toEqual([
@@ -655,8 +659,19 @@ it('fetches legacy records only after an empty review, and stops using them when
     '/api/cards/c/records?kind=score',
   ]);
   client.setQueryData([...keys.recordsAll('w', 'c'), 'review'], columns());
+  client.setQueryData(
+    [...keys.recordsAll('w', 'c'), 'kind', 'outcome'],
+    [
+      {
+        id: 'approval',
+        board_column: 'hypotheses',
+        body: { verdict: 'approved_by_owner', by: 'reviewer' },
+      },
+    ],
+  );
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(spokeButtons(root)).toHaveLength(4);
+  expect(textOf(root)).toContain('Hypotheses · Approved by Grace Reviewer');
   expect(textOf(root)).not.toContain('Reviewed under the old scoring');
 });
 

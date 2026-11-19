@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import QuestionSetOptions from './QuestionSetOptions.vue';
 import { keys } from '../../api/keys';
 import { useMembers } from '../../api/queries';
@@ -22,7 +22,10 @@ const decider = computed(() => {
   const member = members.data.value?.find((m) => m.user_id === id);
   return member ? member.name || member.email : '';
 });
-const answerable = computed(() => props.item.can_answer && props.item.status === 'open' && options.value.length > 0);
+const conflicted = ref(false);
+const answerable = computed(
+  () => !conflicted.value && props.item.can_answer && props.item.status === 'open' && options.value.length > 0,
+);
 const systemRedo = computed(() => props.item.kind !== 'agent_decision' && selected.value === 'redo');
 const canSubmit = computed(() => answerable.value && !!selected.value && !busy.value && (!systemRedo.value || !!guidance.value.trim()));
 function choose(option: string) {
@@ -39,15 +42,22 @@ async function submit() {
       option: selected.value,
       ...(systemRedo.value ? { guidance: guidance.value.trim() } : {}),
     });
-    await Promise.all([
-      client.invalidateQueries({ queryKey: keys.decisionsAll(props.item.workspace_id) }),
-      client.invalidateQueries({ queryKey: keys.decisionCount(props.item.workspace_id) }),
-    ]);
+    await refresh();
   } catch (e) {
     error.value = (e as Error).message;
+    if (e instanceof ApiError && e.status === 409) {
+      conflicted.value = true;
+      await refresh();
+    }
   } finally {
     busy.value = false;
   }
+}
+function refresh() {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: keys.decisionsAll(props.item.workspace_id) }),
+    client.invalidateQueries({ queryKey: keys.decisionCount(props.item.workspace_id) }),
+  ]);
 }
 </script>
 <template>
@@ -75,7 +85,7 @@ async function submit() {
     <p v-else class="decision-outcome">
       {{ decisionOutcome(item) }}<template v-if="decider"> · by {{ decider }}</template><template v-if="item.decided_at"> · {{ timeAgo(item.decided_at) }}</template><template v-if="item.guidance"> · “{{ item.guidance }}”</template>
     </p>
-    <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
+    <p v-if="error && item.status === 'open'" role="alert" class="inline-error">{{ error }}</p>
   </div>
 </template>
 <style scoped>

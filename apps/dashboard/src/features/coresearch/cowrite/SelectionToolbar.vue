@@ -98,13 +98,13 @@ watch(mode, async () => {
 });
 onMounted(() => {
   box.value?.showPopover?.();
-  window.addEventListener('scroll', gone, true);
+  window.addEventListener('scroll', outside, true);
   window.addEventListener('resize', gone);
   window.addEventListener('keydown', key);
   window.addEventListener('pointerdown', outside);
 });
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', gone, true);
+  window.removeEventListener('scroll', outside, true);
   window.removeEventListener('resize', gone);
   window.removeEventListener('keydown', key);
   window.removeEventListener('pointerdown', outside);

@@ -8,6 +8,7 @@ import DecisionOptions from './DecisionOptions.vue';
 import DecisionMeta from './DecisionMeta.vue';
 import DecisionsView from './DecisionsView.vue';
 import { invalidationsFor } from '../../api/realtime';
+import { ApiError } from '../../api/client';
 import { keys } from '../../api/keys';
 import type { DecisionItem } from '../../api/types';
 
@@ -15,7 +16,10 @@ const api = vi.fn();
 const invalidateQueries = vi.fn();
 const count = ref<{ open: number; due_soon: number } | undefined>({ open: 3, due_soon: 0 });
 const me = ref<{ id: string } | undefined>({ id: 'me' });
-vi.mock('../../api/client', () => ({ api: (...args: unknown[]) => api(...args) }));
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
+  api: (...args: unknown[]) => api(...args),
+}));
 vi.mock('@tanstack/vue-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 const rows = ref<DecisionItem[]>([]);
 const cards = ref<any[]>([]);
@@ -126,6 +130,16 @@ it('stages a choice and submits it only after explicit confirmation', async () =
   await click(buttonFor(root, 'Submit'));
   expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/decide', { option: 'park' });
   expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.decisionsAll('w1') });
+});
+
+it('refreshes a stale Decision after a conflict and removes Submit', async () => {
+  api.mockRejectedValueOnce(new ApiError(409, 'This decision is no longer open'));
+  const root = mount(DecisionOptions, { item: item() });
+  await click(buttonFor(root, 'Park'));
+  await click(buttonFor(root, 'Submit'));
+  expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.decisionsAll('w1') });
+  expect(buttonFor(root, 'Submit')).toBeUndefined();
+  expect(textOf(root)).toContain('This decision is no longer open');
 });
 
 it('requires redo guidance, retaining it across a failed submission', async () => {
@@ -337,6 +351,22 @@ const questionSet = {
     { id: 'note', prompt: 'Additional context?', help_text: null, required: false, mode: 'text', allow_other: false, options: [] },
   ],
 };
+
+it('refreshes a stale questionnaire after a conflict and removes Submit', async () => {
+  api.mockRejectedValueOnce(new ApiError(409, 'This decision is no longer open'));
+  const root = mount(DecisionOptions, {
+    item: item({
+      kind: 'agent_decision',
+      options: [],
+      question_set: { questions: [questionSet.questions[0]] },
+    } as never),
+  });
+  await click(buttonFor(root, 'Children'));
+  await click(buttonFor(root, 'Submit'));
+  expect(api).toHaveBeenCalledWith('POST', '/api/decisions/d1/answers', expect.anything());
+  expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.decisionsAll('w1') });
+  expect(buttonFor(root, 'Submit')).toBeUndefined();
+});
 
 it('stages a complete question set, with custom answer replacing multiple selections, and submits atomically', async () => {
   api.mockResolvedValue(undefined);

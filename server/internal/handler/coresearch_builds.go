@@ -358,7 +358,7 @@ func (h *H) daemonCoresearchBuildFinish(w http.ResponseWriter, r *http.Request) 
 				return coresearchFenceError(e)
 			}
 			if row.Status == "ok" {
-				_, e = tx.Q.InsertBuildVersion(r.Context(), db.InsertBuildVersionParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Title: fmt.Sprintf("Build %d", b.Seq), ByUserID: &b.RequestedBy, BuildID: &b.ID, Files: b.Sources})
+				e = tx.Q.InsertBuildVersionIfMainTexChanged(r.Context(), db.InsertBuildVersionIfMainTexChangedParams{WorkspaceID: tx.WS, ProjectID: b.ProjectID, Title: fmt.Sprintf("Build %d", b.Seq), ByUserID: &b.RequestedBy, BuildID: &b.ID, Files: b.Sources})
 				if e != nil {
 					return e
 				}

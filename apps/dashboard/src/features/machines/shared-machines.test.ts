@@ -556,6 +556,7 @@ describe('Shared machines', () => {
     );
     try {
       expect(t.text()).not.toContain('Runs on: Bench');
+      await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
       expect(t.text()).toContain('Runs on: Bench');
       expect(t.text()).toContain('no longer shared');
@@ -782,6 +783,7 @@ describe('Shared machines', () => {
     const t = await mount(StudyDetail, () => ({ id: 'c' }));
     try {
       expect(t.text()).not.toContain('Runs on: Bench');
+      await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
       expect(t.text()).toContain('Runs on: Bench');
       expect(t.text()).toContain(

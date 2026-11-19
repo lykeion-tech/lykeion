@@ -2904,6 +2904,7 @@
   --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --chrome-row-h: 36px;
+  --rightpane-header-height: 44px;
   --chrome-pill-h: 28px;
   --type-meta: 13px;
   --type-small: 13px;
@@ -3080,6 +3081,9 @@
   flex-shrink: 0;
   padding: 0 12px;
   container-type: inline-size;
+}
+.coresearch .cowrite-image-preview-row {
+  min-height: var(--rightpane-header-height);
 }
 .coresearch.task-main[data-column='conversation'] .task-stage-row,
 .coresearch .task-main[data-column='conversation'] .task-stage-row {
@@ -3337,7 +3341,7 @@
 .coresearch.task-rightpane-card > .ms-pane > .ms-pane-head,
 .coresearch .task-rightpane-card > .ms-pane > .ms-pane-head {
   height: auto;
-  min-height: 44px;
+  min-height: var(--rightpane-header-height);
   box-sizing: border-box;
   padding: 6px 0;
 }
@@ -8407,7 +8411,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
+  min-height: var(--rightpane-header-height);
   box-sizing: border-box;
   padding: 6px 0;
   flex: 0 0 auto;
@@ -9071,7 +9075,6 @@
 .coresearch .ms-version-card {
   border-radius: 10px;
   background: var(--surface-2);
-  overflow: hidden;
 }
 .coresearch.ms-version,
 .coresearch .ms-version {
@@ -9108,9 +9111,7 @@
 .coresearch.ms-version-title,
 .coresearch .ms-version-title {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: var(--type-body);
   font-weight: 400;
   line-height: 1.5;

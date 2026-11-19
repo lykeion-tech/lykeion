@@ -109,9 +109,31 @@ UPDATE coresearch_build SET started_at=coalesce(started_at,now()) WHERE workspac
 UPDATE coresearch_build SET lease_expires_at=clock_timestamp()+interval '2 minutes' WHERE workspace_id= @workspace_id AND id= @id AND claim_token= @claim_token AND status='running' AND lease_expires_at>clock_timestamp();
 -- name: FinishCoresearchBuild :one
 UPDATE coresearch_build SET status= @status,pdf_blob=sqlc.narg(pdf_blob),pdf_size= @pdf_size,log_size= @log_size,synctex_size= @synctex_size,log_blob=sqlc.narg(log_blob),synctex_blob=sqlc.narg(synctex_blob),pages=sqlc.narg(pages),failure_reason=sqlc.narg(failure_reason),receipt_sha= @receipt_sha,finished_at=now() WHERE workspace_id= @workspace_id AND id= @id AND status='running' AND claim_token= @claim_token AND lease_expires_at>clock_timestamp() RETURNING *;
--- name: InsertBuildVersion :one
+-- name: InsertBuildVersionIfMainTexChanged :exec
+WITH previous AS (
+    SELECT seq, files FROM coresearch_version
+    WHERE workspace_id = @workspace_id AND project_id = @project_id
+    ORDER BY seq DESC LIMIT 1
+), manuscript AS (
+    SELECT (ref->>'file_id')::uuid AS file_id, ref->>'sha256' AS sha256
+    FROM jsonb_array_elements(@files::jsonb) AS source(ref)
+    WHERE ref->>'path' = 'main.tex'
+)
 INSERT INTO coresearch_version(workspace_id,project_id,seq,title,by_user_id,build_id,files)
-VALUES( @workspace_id, @project_id,(SELECT coalesce(max(seq),0)+1 FROM coresearch_version WHERE project_id= @project_id), @title, @by_user_id, @build_id, @files) RETURNING *;
+SELECT @workspace_id, @project_id, coalesce(previous.seq, 0) + 1,
+       @title, @by_user_id, @build_id, @files::jsonb
+FROM manuscript
+JOIN coresearch_file_version AS initial
+    ON initial.workspace_id = @workspace_id AND initial.file_id = manuscript.file_id AND initial.n = 1
+LEFT JOIN previous ON true
+WHERE manuscript.sha256 <> coalesce(
+    (
+        SELECT ref->>'sha256'
+        FROM jsonb_array_elements(previous.files) AS source(ref)
+        WHERE ref->>'path' = 'main.tex'
+    ),
+    initial.sha256
+);
 -- name: CoresearchBuildBlob :one
 SELECT v.* FROM coresearch_file_version v WHERE v.workspace_id= @workspace_id AND v.sha256= @sha256 AND EXISTS(
  SELECT 1 FROM coresearch_build b JOIN coresearch_member m ON m.workspace_id=b.workspace_id AND m.project_id=b.project_id AND m.user_id=b.requested_by

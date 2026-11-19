@@ -1352,12 +1352,34 @@ func (q *Queries) HeartbeatCoresearchSetup(ctx context.Context, arg HeartbeatCor
 	return result.RowsAffected(), nil
 }
 
-const insertBuildVersion = `-- name: InsertBuildVersion :one
+const insertBuildVersionIfMainTexChanged = `-- name: InsertBuildVersionIfMainTexChanged :exec
+WITH previous AS (
+    SELECT seq, files FROM coresearch_version
+    WHERE workspace_id = $1 AND project_id = $2
+    ORDER BY seq DESC LIMIT 1
+), manuscript AS (
+    SELECT (ref->>'file_id')::uuid AS file_id, ref->>'sha256' AS sha256
+    FROM jsonb_array_elements($6::jsonb) AS source(ref)
+    WHERE ref->>'path' = 'main.tex'
+)
 INSERT INTO coresearch_version(workspace_id,project_id,seq,title,by_user_id,build_id,files)
-VALUES( $1, $2,(SELECT coalesce(max(seq),0)+1 FROM coresearch_version WHERE project_id= $2), $3, $4, $5, $6) RETURNING id, workspace_id, project_id, seq, title, by_user_id, build_id, files, created_at
+SELECT $1, $2, coalesce(previous.seq, 0) + 1,
+       $3, $4, $5, $6::jsonb
+FROM manuscript
+JOIN coresearch_file_version AS initial
+    ON initial.workspace_id = $1 AND initial.file_id = manuscript.file_id AND initial.n = 1
+LEFT JOIN previous ON true
+WHERE manuscript.sha256 <> coalesce(
+    (
+        SELECT ref->>'sha256'
+        FROM jsonb_array_elements(previous.files) AS source(ref)
+        WHERE ref->>'path' = 'main.tex'
+    ),
+    initial.sha256
+)
 `
 
-type InsertBuildVersionParams struct {
+type InsertBuildVersionIfMainTexChangedParams struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	ProjectID   uuid.UUID       `json:"project_id"`
 	Title       string          `json:"title"`
@@ -1366,8 +1388,8 @@ type InsertBuildVersionParams struct {
 	Files       json.RawMessage `json:"files"`
 }
 
-func (q *Queries) InsertBuildVersion(ctx context.Context, arg InsertBuildVersionParams) (CoresearchVersion, error) {
-	row := q.db.QueryRow(ctx, insertBuildVersion,
+func (q *Queries) InsertBuildVersionIfMainTexChanged(ctx context.Context, arg InsertBuildVersionIfMainTexChangedParams) error {
+	_, err := q.db.Exec(ctx, insertBuildVersionIfMainTexChanged,
 		arg.WorkspaceID,
 		arg.ProjectID,
 		arg.Title,
@@ -1375,19 +1397,7 @@ func (q *Queries) InsertBuildVersion(ctx context.Context, arg InsertBuildVersion
 		arg.BuildID,
 		arg.Files,
 	)
-	var i CoresearchVersion
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.ProjectID,
-		&i.Seq,
-		&i.Title,
-		&i.ByUserID,
-		&i.BuildID,
-		&i.Files,
-		&i.CreatedAt,
-	)
-	return i, err
+	return err
 }
 
 const listCoresearchBuilds = `-- name: ListCoresearchBuilds :many

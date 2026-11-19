@@ -455,6 +455,7 @@ describe('Starting a study with a Workflow', () => {
       { workflow: 'b', workflow_release: 'v0.1.0' },
     );
     try {
+      await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
       expect(t.text()).toContain('Zeta flow · v0.1.0');
       expect(t.text()).not.toContain('Workflow: Zeta');
@@ -470,6 +471,7 @@ describe('Starting a study with a Workflow', () => {
     );
     const t = await mountStudy(StudyDetail, { id: 'c' }, { workflow: 'gone' }, false);
     try {
+      await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
       expect(t.text()).not.toContain('no longer available');
     } finally {
@@ -481,6 +483,7 @@ describe('Starting a study with a Workflow', () => {
     vi.stubGlobal('fetch', posting());
     const t = await mountStudy(StudyDetail, { id: 'c' }, { workflow: 'gone' });
     try {
+      await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
       expect(t.text()).toContain('This workflow is no longer available');
     } finally {

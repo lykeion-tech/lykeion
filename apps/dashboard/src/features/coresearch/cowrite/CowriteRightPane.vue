@@ -30,11 +30,9 @@ const emit = defineEmits<{
   redo: [];
   goToSource: [path: string, line: number];
   deleteComment: [id: string];
-  focus: [value: boolean];
 }>();
 const tools = ref(false),
-  active = ref('info'),
-  focus = ref(false);
+  active = ref('info');
 const tabs = [
   { id: 'info', label: 'Project Info' },
   { id: 'versions', label: 'Versions' },
@@ -43,8 +41,6 @@ const tabs = [
 ];
 function close() {
   tools.value = false;
-  focus.value = false;
-  emit('focus', false);
 }
 </script>
 <template>
@@ -53,13 +49,8 @@ function close() {
       ><RightPaneTabs
         :tabs="tabs"
         :active-id="active"
-        :pane-mode="focus ? 'focus' : 'split'"
         @select="active = $event"
         @close-tab="close"
-        @toggle-focus="
-          focus = !focus;
-          emit('focus', focus);
-        "
         @close-pane="close" />
       <div class="task-rightpane-card">
         <ProjectInfoPane v-if="active === 'info'" :sources="sources" /><VersionsPane

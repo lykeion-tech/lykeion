@@ -14,6 +14,7 @@ const props = defineProps<{
   file?: FileRow;
   selectedN?: number;
   inWorkspaceTab?: boolean;
+  previewOnly?: boolean;
 }>();
 const emit = defineEmits<{ 'update:selectedN': [number | undefined] }>();
 const files = useCoresearchFiles(() => props.project.id);
@@ -133,7 +134,13 @@ function step(n: number | undefined) {
 }
 </script>
 <template>
-  <section class="artifact-pane" role="tabpanel" aria-label="Files" data-testid="artifact-pane">
+  <section
+    class="artifact-pane"
+    :class="{ 'task-rightpane-card': previewOnly }"
+    role="tabpanel"
+    aria-label="Files"
+    data-testid="artifact-pane"
+  >
     <p v-if="!file" class="nbp-empty">Choose a saved file from Files.</p>
     <template v-else
       ><header class="art-header">
@@ -226,7 +233,7 @@ function step(n: number | undefined) {
           }}
         </p>
         <div v-else class="viz-root">
-          <div class="viz-toolbar">
+          <div v-if="!previewOnly" class="viz-toolbar">
             <div class="viz-tabs" role="tablist" aria-label="Artifact">
               <button
                 v-for="t in tabs"

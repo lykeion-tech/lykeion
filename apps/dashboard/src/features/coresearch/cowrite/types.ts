@@ -60,6 +60,8 @@ export interface Version {
   title: string;
   by_user_id: string | null;
   build_id: string | null;
+  compiled_by_name?: string;
+  contributor_names?: string[];
   files: { file_id: string; path: string; n: number }[];
   created_at: string;
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { keys } from '../../api/keys';
 import type { DecisionItem, DecisionQuestion, DecisionQuestionAnswer } from '../../api/types';
 
@@ -13,7 +13,10 @@ const choices = reactive<Record<string, string[]>>({});
 const custom = reactive<Record<string, boolean>>({});
 const text = reactive<Record<string, string>>({});
 const questions = computed(() => props.item.question_set?.questions ?? []);
-const answerable = computed(() => props.item.can_answer && props.item.status === 'open');
+const conflicted = ref(false);
+const answerable = computed(
+  () => !conflicted.value && props.item.can_answer && props.item.status === 'open',
+);
 const answered = (q: DecisionQuestion) =>
   q.mode === 'text' || custom[q.id] ? !!text[q.id]?.trim() : !!choices[q.id]?.length;
 const valid = computed(() =>
@@ -63,15 +66,22 @@ async function submit() {
   error.value = '';
   try {
     await api('POST', `/api/decisions/${props.item.id}/answers`, { answers });
-    await Promise.all([
-      client.invalidateQueries({ queryKey: keys.decisionsAll(props.item.workspace_id) }),
-      client.invalidateQueries({ queryKey: keys.decisionCount(props.item.workspace_id) }),
-    ]);
+    await refresh();
   } catch (e) {
     error.value = (e as Error).message;
+    if (e instanceof ApiError && e.status === 409) {
+      conflicted.value = true;
+      await refresh();
+    }
   } finally {
     busy.value = false;
   }
+}
+function refresh() {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: keys.decisionsAll(props.item.workspace_id) }),
+    client.invalidateQueries({ queryKey: keys.decisionCount(props.item.workspace_id) }),
+  ]);
 }
 </script>
 <template>
@@ -153,7 +163,7 @@ async function submit() {
     >
       An answer cannot exceed 100,000 characters.
     </p>
-    <p v-if="error" role="alert" class="inline-error">{{ error }}</p>
+    <p v-if="error && item.status === 'open'" role="alert" class="inline-error">{{ error }}</p>
     <button
       v-if="answerable"
       type="button"

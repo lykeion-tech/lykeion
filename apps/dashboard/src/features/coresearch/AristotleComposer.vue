@@ -396,7 +396,7 @@ const inline = (text?: string) =>
             :clis="clis"
             empty-label="No CLI available"
             :model-value="selectedModel"
-            :show-model="modelChosen"
+            :display="mode === 'experiment' ? 'model' : modelChosen ? 'cli-and-model' : undefined"
             :disabled="!draft || busy"
             @update:model-value="emit('update:selectedModel', $event)"
             @update:cli="emit('update:cli', $event)"

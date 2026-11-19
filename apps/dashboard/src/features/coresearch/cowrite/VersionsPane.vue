@@ -17,6 +17,13 @@ const props = defineProps<{
 const restoring = ref<number>(),
   menu = ref<number>(),
   lines = ref(new Map<number, { added: number; removed: number }>());
+function compiler(version: Version) {
+  return (
+    version.compiled_by_name ||
+    props.people.find((person) => person.id === version.by_user_id)?.name ||
+    'Unknown'
+  );
+}
 const days = computed(() => {
   const groups: { day: string; versions: Version[] }[] = [];
   for (const version of [...props.versions].sort((a, b) => b.seq - a.seq)) {
@@ -128,7 +135,7 @@ async function restoreVersion(v: Version) {
     </header>
     <div class="ms-version-list">
       <p v-if="!versions.length" class="ms-pane-empty">
-        No versions yet — a build records one, and so does Save version.
+        No versions yet. Edit main.tex and compile to save a version.
       </p>
       <section v-for="day in days" v-else :key="day.day" class="ms-version-day">
         <h3 class="ms-version-dayhead">{{ day.day }}</h3>
@@ -141,9 +148,11 @@ async function restoreVersion(v: Version) {
           >
             <div class="ms-version-body">
               <span class="ms-version-chip">v{{ v.seq }}</span
-              ><span class="ms-version-title">{{
-                people.find((p) => p.id === v.by_user_id)?.name ?? v.title
-              }}</span
+              ><span class="ms-version-title">
+                {{ v.build_id || v.by_user_id ? `Compiled by ${compiler(v)}` : v.title }}
+                <span v-if="v.contributor_names?.length" class="block type-meta text-fg-subtle">
+                  Contributors: {{ v.contributor_names.join(', ') }}
+                </span> </span
               ><span
                 v-if="lines.has(v.seq)"
                 class="ms-version-lines"

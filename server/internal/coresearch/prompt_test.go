@@ -50,6 +50,15 @@ func TestCowriteSelectionPrompt(t *testing.T) {
 	}
 }
 
+func TestCowritePromptAnswersInPlainProse(t *testing.T) {
+	p := Prompt(PromptIn{Mode: "cowrite"})
+	for _, want := range []string{"Answer the researcher directly in natural prose", "Keep internal commands and implementation details in the activity log"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("Cowrite response guidance missing %q", want)
+		}
+	}
+}
+
 func TestPromptNamesSelectedCapabilitiesForCurrentTurn(t *testing.T) {
 	p := Prompt(PromptIn{Message: "analyze", Capabilities: &Capabilities{Skills: []string{"aeon"}, Connectors: []string{"ensembl"}}})
 	for _, value := range []string{"aeon", "ensembl"} {

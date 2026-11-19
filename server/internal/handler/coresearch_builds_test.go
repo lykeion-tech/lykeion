@@ -95,6 +95,82 @@ func TestBuildQueueRules(t *testing.T) {
 		t.Fatal(c)
 	}
 }
+func TestBuildVersionsTrackMainTexChanges(t *testing.T) {
+	s, a, b, ws, p, f := paperFixture(t)
+	root := csProjects + "/" + p.ID
+	for token, name := range map[string]string{a: "Ada", b: "Grace"} {
+		if c := s.call(t, "PATCH", "/api/me", token, "", map[string]string{"name": name}, nil); c != 200 {
+			t.Fatalf("set display name: %d", c)
+		}
+	}
+	daemon := csRegister(t, s, a, ws, "own", "claude")
+	if c := s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil); c != 200 {
+		t.Fatal(c)
+	}
+	initialFigure := []byte{0x89, 'P', 'N', 'G', 0, 1}
+	code, figure := csUpload(t, s, a, ws, p.ID, "figure.png", 0, false, initialFigure)
+	if code != 201 {
+		t.Fatal(code)
+	}
+	compile := func(wantBuilds, wantVersions int, wantContributors ...string) {
+		t.Helper()
+		var build db.CoresearchBuild
+		if c := s.call(t, "POST", root+"/builds", a, ws, nil, &build); c != 201 {
+			t.Fatalf("queue build: %d", c)
+		}
+		work := csWork(t, s, a, "own", daemon)
+		if len(work.Builds) != 1 || work.Builds[0].ID != build.ID {
+			t.Fatalf("claim build: %+v", work.Builds)
+		}
+		if c := finishBuildTest(t, s, a, ws, work.Builds[0], "ok"); c != 204 {
+			t.Fatalf("finish build: %d", c)
+		}
+		var builds []publicBuild
+		if c := s.call(t, "GET", root+"/builds", b, ws, nil, &builds); c != 200 || len(builds) != wantBuilds {
+			t.Fatalf("build history: status %d, got %d, want %d", c, len(builds), wantBuilds)
+		}
+		for _, entry := range builds {
+			if entry.Status != "ok" || !entry.HasPDF {
+				t.Fatalf("build history lost a successful PDF: %+v", entry)
+			}
+		}
+		var versions []struct {
+			db.CoresearchVersion
+			CompiledByName   string   `json:"compiled_by_name"`
+			ContributorNames []string `json:"contributor_names"`
+		}
+		if c := s.call(t, "GET", root+"/versions", b, ws, nil, &versions); c != 200 || len(versions) != wantVersions {
+			t.Fatalf("version history: status %d, got %d, want %d", c, len(versions), wantVersions)
+		}
+		if len(versions) > 0 && (versions[0].CompiledByName != "Ada" || !reflect.DeepEqual(versions[0].ContributorNames, wantContributors)) {
+			t.Fatalf("version attribution: compiler %q, contributors %v, want %v", versions[0].CompiledByName, versions[0].ContributorNames, wantContributors)
+		}
+	}
+	compile(1, 0)
+	compile(2, 0)
+	if c := s.call(t, "PATCH", root+"/files/"+figure.FileID.String(), a, ws, map[string]string{"path": "renamed.png"}, nil); c != 200 {
+		t.Fatalf("rename figure: %d", c)
+	}
+	compile(3, 0)
+	if c, _ := csUpload(t, s, a, ws, p.ID, "renamed.png", int(figure.N), false, []byte{0x89, 'P', 'N', 'G', 0, 2}); c != 201 {
+		t.Fatalf("replace figure: %d", c)
+	}
+	compile(4, 0)
+	if c := s.call(t, "POST", root+"/docs/"+f+"/steps", a, ws, map[string]any{"base": 0, "client_id": "a", "steps": []any{[]any{6, []any{0, "first edit"}}}}, nil); c != 200 {
+		t.Fatalf("edit main.tex: %d", c)
+	}
+	compile(5, 1, "Ada")
+	compile(6, 1, "Ada")
+	if c, _ := csUpload(t, s, a, ws, p.ID, "appendix.tex", 0, false, []byte("Appendix text")); c != 201 {
+		t.Fatalf("add appendix: %d", c)
+	}
+	compile(7, 1, "Ada")
+	if c := s.call(t, "POST", root+"/docs/"+f+"/steps", b, ws, map[string]any{"base": 1, "client_id": "b", "steps": []any{[]any{16, []any{0, "second edit"}}}}, nil); c != 200 {
+		t.Fatalf("edit main.tex again: %d", c)
+	}
+	compile(8, 2, "Grace")
+}
+
 func finishBuildTest(t *testing.T, s *server, who, ws string, b coresearch.ClaimedBuild, status string) int {
 	t.Helper()
 	var data bytes.Buffer
@@ -218,8 +294,14 @@ func TestBuildSettlementOnlyAppliedHunks(t *testing.T) {
 }
 
 func TestBuildLeaseAndReceipt(t *testing.T) {
-	s, owner, a, ws, p, _ := paperFixture(t)
+	s, owner, a, ws, p, f := paperFixture(t)
 	root := csProjects + "/" + p.ID
+	if c := s.call(t, "GET", root+"/docs/"+f, a, ws, nil, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if c := s.call(t, "POST", root+"/docs/"+f+"/steps", a, ws, map[string]any{"base": 0, "client_id": "a", "steps": []any{[]any{[]any{6, "edited"}}}}, nil); c != 200 {
+		t.Fatal(c)
+	}
 	ref := csRegister(t, s, a, ws, "own", "claude")
 	var first, next db.CoresearchBuild
 	s.call(t, "POST", root+"/builds", a, ws, nil, &first)

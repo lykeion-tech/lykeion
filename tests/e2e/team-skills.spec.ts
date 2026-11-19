@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labPack, labWorkspace, labFixture, openAgentTranscript } from './lab';
+import { labPack, labWorkspace, labFixture, openAgentTranscript, openStudyDetails } from './lab';
 
 test('Team agent skills save in place, and not while a study uses the Team', async ({ page }) => {
   const ws = await labWorkspace(page.request);
@@ -49,6 +49,7 @@ test('run header has only the agent name and age, and Properties icons share a c
   const f = await labFixture(page.request);
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), f.workspace_id);
   await page.goto(`/#/studies/${f.card_id}`);
+  await openStudyDetails(page);
   await page.getByRole('button', { name: 'Properties', exact: true }).click();
   const rows = page.locator('.study-meta > .property-row');
   const centers: number[] = [];

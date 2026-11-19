@@ -12,7 +12,7 @@ const props = defineProps<{
   openUp?: boolean;
   cliOnly?: boolean;
   modelOnly?: boolean;
-  showModel?: boolean;
+  display?: 'model' | 'cli-and-model';
   emptyLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
@@ -46,6 +46,11 @@ const label = computed(
     props.models.find((m) => m.value === props.modelValue)?.label ??
     (props.modelValue || 'Default'),
 );
+const visibleLabel = computed(() => {
+  if (!props.cli || props.display === 'model') return label.value;
+  const name = cliLabel(props.cli);
+  return props.display === 'cli-and-model' ? `${name} · ${label.value}` : name;
+});
 function outside(e: Event) {
   if (!root.value?.contains(e.target as Node)) open.value = false;
 }
@@ -82,7 +87,7 @@ onUnmounted(() => {
       @click="toggle"
     >
       <CliIcon v-if="cli === 'claude' || cli === 'codex'" :cli="cli" />
-      <span class="cli-pill-name">{{ cli ? (showModel ? `${cliLabel(cli)} · ${label}` : cliLabel(cli)) : label }}</span>
+      <span class="cli-pill-name">{{ visibleLabel }}</span>
       <svg
         class="cli-chevron"
         :data-open="open"

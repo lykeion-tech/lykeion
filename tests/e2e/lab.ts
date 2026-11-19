@@ -14,6 +14,11 @@ import {
 export const LAB = `http://${process.env.LYK_UI_LAB_ADDR || '127.0.0.1:18080'}`;
 export const EMAIL = 'ana@lab.test';
 
+export async function openStudyDetails(page: Page) {
+  const toggle = page.getByRole('button', { name: 'Toggle details', exact: true });
+  if ((await toggle.getAttribute('aria-pressed')) === 'false') await toggle.click();
+}
+
 export async function chooseCompact(page: Page, label: string, choice: string | number) {
   await page.getByRole('combobox', { name: label, exact: true }).click();
   const options = page.getByRole('listbox', { name: label, exact: true }).getByRole('option');
