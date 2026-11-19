@@ -29,9 +29,16 @@ func fakeAPIs(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	work := `{"id":"https://openalex.org/W2","title":"No effect","doi":"https://doi.org/10.1/b","publication_year":2020,"is_retracted":true,"abstract_inverted_index":{"no":[0],"effect":[1]}}`
 	mux.HandleFunc("/oa/works", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"results":[` + work + `]}`)) })
-	mux.HandleFunc("/oa/works/W2", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(work)) })
+	mux.HandleFunc("/oa/works/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oa/works/W2", "/oa/works/doi:10.1/b":
+			w.Write([]byte(work))
+		default:
+			http.NotFound(w, r)
+		}
+	})
 	mux.HandleFunc("/epmc/search", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"resultList":{"result":[{"id":"1","source":"MED","pmcid":"PMC1","doi":"10.1/a","title":"X raises Y","abstractText":"abs","pubYear":"2021","pubTypeList":{"pubType":["research-article"]}}]}}`))
+		w.Write([]byte(`{"resultList":{"result":[{"id":"1","source":"MED","pmcid":"PMC1","pmid":"1","doi":"10.1/a","title":"X raises Y","abstractText":"abs","pubYear":"2021","pubTypeList":{"pubType":["research-article"]}}]}}`))
 	})
 	mux.HandleFunc("/epmc/PMC1/fullTextXML", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<article><body><p>X raised Y by 40% in mice.</p></body></article>`))
@@ -106,6 +113,8 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		{"search_literature", map[string]any{"database": "europepmc", "query": "x y"}},
 		{"fetch_text", map[string]any{"source_id": "europepmc:PMC1"}},
 		{"fetch_text", map[string]any{"source_id": "openalex:W2"}},
+		{"fetch_text", map[string]any{"source_id": "doi:10.1/b"}},
+		{"fetch_text", map[string]any{"source_id": "pmid:1"}},
 		{"search_literature", map[string]any{"database": "arxiv", "query": "attention"}},
 		{"fetch_text", map[string]any{"source_id": "arxiv:1706.03762"}},
 		{"open_dataset", map[string]any{"accession": "GSE1"}},
@@ -116,6 +125,16 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		}
 		if res.IsError {
 			t.Fatalf("%s: %v %+v", c.name, err, res)
+		}
+	}
+
+	for alias, message := range map[string]string{
+		"pmid:1 OR SRC:MED": "require a positive numeric PMID",
+		"pmid:2":            "not found",
+	} {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "fetch_text", Arguments: map[string]any{"source_id": alias}})
+		if err != nil || !res.IsError || !strings.Contains(textOf(res), message) {
+			t.Fatalf("%s: expected %q, got %+v (%v)", alias, message, res, err)
 		}
 	}
 
@@ -140,6 +159,16 @@ func TestHostedToolsRecordOnTheCard(t *testing.T) {
 		}
 		if ax, ok := v.ByKey("fetch", "arxiv:1706.03762"); !ok || records.Body[struct{ Database string }](ax).Database != "arxiv" {
 			t.Errorf("arXiv fetch not recorded: %+v", ax)
+		}
+		for alias, provider := range map[string]string{"doi:10.1/b": "openalex", "pmid:1": "europepmc"} {
+			got, ok := v.ByKey("fetch", alias)
+			body := records.Body[struct {
+				Database string
+				FullText bool `json:"full_text"`
+			}](got)
+			if !ok || body.Database != provider || (alias == "pmid:1" && !body.FullText) {
+				t.Errorf("%s did not record its %s provenance: %+v", alias, provider, got)
+			}
 		}
 		if w2, _ := v.ByKey("fetch", "openalex:W2"); !records.Body[struct{ Retracted bool }](w2).Retracted {
 			t.Error("retraction not recorded")

@@ -96,10 +96,20 @@ const outputFiles = useKindRecords(() => props.id, 'output');
 const generatedFiles = computed(() => {
   if (!outputFiles.isSuccess.value) return [];
   const seen = new Set<string>();
-  return (outputFiles.data.value ?? []).filter((file) => {
-    if (!file.key || seen.has(file.key)) return false;
+  const counts = new Map<string, number>();
+  const files = (outputFiles.data.value ?? []).flatMap((file) => {
+    if (!file.key || seen.has(file.key)) return [];
     seen.add(file.key);
-    return true;
+    const name = typeof file.body.name === 'string' ? file.body.name : file.key;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+    return [{ ...file, name }];
+  });
+  return files.map((file) => {
+    if (counts.get(file.name) === 1) return { ...file, provenance: '' };
+    const position = agentRuns.value.findIndex((run) => run.id === file.agent_run_id) + 1;
+    const stage = columnName(file.board_column);
+    const provenance = `${stage} · ${position ? `Run ${position}` : `Round ${file.round}`} · ${file.key}`;
+    return { ...file, provenance };
   });
 });
 const review = useCardReview(() => props.id);
@@ -683,13 +693,14 @@ function pin() {
                 @click="previewOutput(file.key)"
               >
                 <StudyFileThumbnail
-                  :name="typeof file.body.name === 'string' ? file.body.name : file.key"
+                  :name="file.name"
                   :size="
                     typeof file.body.size_bytes === 'number' ? file.body.size_bytes : undefined
                   "
                   :url="`/api/cards/${encodeURIComponent(id)}/outputs/${encodeURIComponent(file.key)}`"
                 />
-                <span>{{ typeof file.body.name === 'string' ? file.body.name : file.key }}</span>
+                <span>{{ file.name }}</span>
+                <small v-if="file.provenance" :title="file.provenance">{{ file.provenance }}</small>
               </button>
             </div>
           </section>
@@ -1857,6 +1868,12 @@ function pin() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.generated-file > small {
+  display: block;
+  padding: 0 8px 8px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .activity-group > summary {
   display: list-item;

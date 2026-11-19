@@ -56,6 +56,26 @@ func TestAnswerResumesTheSameSession(t *testing.T) {
 		!strings.Contains(q[0].Prompt, `The researcher answered your question "Which population?": Children — Ages 6 to 12. — answered by owner@lab.org at `) {
 		t.Fatalf("the lead's next run: %+v", q)
 	}
+	for _, stage := range []string{"experimentation", "validation"} {
+		got.BoardColumn = stage
+		l.in(t, func(tx *store.Tx) error {
+			prompt, _, err := l.e.runPrompt(context.Background(), tx, got, "leader", "")
+			if err == nil && (!strings.Contains(prompt, "Decision "+item.String()) ||
+				!strings.Contains(prompt, `"Which population?": Children — The study looks at children only. — Ages 6 to 12.`) ||
+				!strings.Contains(prompt, "Question context: The question reads two ways.")) {
+				t.Errorf("%s omitted the recorded researcher answer: %s", stage, prompt)
+			}
+			return err
+		})
+	}
+	other := l.study(t, "hypotheses", true, nil)
+	l.in(t, func(tx *store.Tx) error {
+		prompt, _, err := l.e.runPrompt(context.Background(), tx, other, "leader", "")
+		if err == nil && strings.Contains(prompt, "Decision "+item.String()) {
+			t.Error("another study received the decision")
+		}
+		return err
+	})
 }
 
 // An agent's question accepts only the options the agent offered.
@@ -200,7 +220,8 @@ func TestExpiredAgentDecisionWakesTheLead(t *testing.T) {
 	}
 	q := l.runs(t, c.ID)
 	if len(q) != 1 || q[0].Role != "leader" || q[0].Scope != lead.ContinuityScope ||
-		!strings.Contains(q[0].Prompt, `Your question "Which population?" expired without an answer. Continue without it.`) {
+		!strings.Contains(q[0].Prompt, `Your question "Which population?" expired without an answer.`) ||
+		!strings.Contains(q[0].Prompt, "Expiry does not authorize a choice the researcher reserved.") {
 		t.Fatalf("the lead's next run: %+v", q)
 	}
 	if n := l.count(t, "SELECT count(*) FROM event WHERE type = 'inbox.resolved' AND payload->>'inbox_item_id' = $1", item.String()); n != 1 {

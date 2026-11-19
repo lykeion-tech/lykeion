@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -186,7 +187,7 @@ type HitsOut struct {
 	Results []Hit `json:"results"`
 }
 type FetchIn struct {
-	SourceID string `json:"source_id" jsonschema:"an id returned by search_literature or open_dataset.metadata_sources"`
+	SourceID string `json:"source_id" jsonschema:"a source ID from search_literature or open_dataset metadata, or a doi: or pmid: reference from an earlier stage"`
 }
 type FetchOut struct {
 	SourceKind string `json:"source_kind,omitempty"`
@@ -284,6 +285,20 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Fetch literature full text or its abstract, or one GEO accession's depositor metadata projection. Metadata is not full paper text or verified dataset files; truncated metadata cannot establish absence or completeness. Only fetched sources can be cited, and quotes must be copied from this text."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in FetchIn) (*mcp.CallToolResult, FetchOut, error) {
 			dbName, id, _ := strings.Cut(in.SourceID, ":")
+			if h.Exclude.Match(in.SourceID) {
+				return nil, FetchOut{}, fmt.Errorf("%s is not available on this server", in.SourceID)
+			}
+			var pmid string
+			switch dbName {
+			case "doi":
+				dbName, id = "openalex", in.SourceID
+			case "pmid":
+				if n, err := strconv.ParseUint(id, 10, 64); err != nil || n == 0 {
+					return nil, FetchOut{}, fmt.Errorf("pmid: references require a positive numeric PMID")
+				}
+				pmid = id
+				dbName, id = "europepmc", "MED:"+id
+			}
 			var d Doc
 			var err error
 			switch dbName {
@@ -293,7 +308,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 					d, err = oa.Get(ctx, id)
 				}
 			case "europepmc":
-				d, err = h.EPMC.Get(ctx, id)
+				d, err = h.EPMC.get(ctx, id, pmid)
 			case "arxiv":
 				if h.AX == nil {
 					return nil, FetchOut{}, fmt.Errorf("arxiv is not offered on this server")
@@ -302,7 +317,7 @@ func (h *Hosted) server(role middleware.Role) *mcp.Server {
 			case "geo":
 				d, err = h.GEO.Metadata(ctx, id)
 			default:
-				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex:, europepmc:, arxiv: or geo:")
+				return nil, FetchOut{}, fmt.Errorf("source id must start with openalex:, europepmc:, arxiv:, geo:, doi:, or pmid:")
 			}
 			if err != nil {
 				return nil, FetchOut{}, err

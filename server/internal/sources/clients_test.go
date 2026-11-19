@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,28 @@ import (
 	"testing"
 	"time"
 )
+
+type sourceRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f sourceRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestEuropePMCUsesAbstractWhenFullTextTimesOut(t *testing.T) {
+	httpClient := &http.Client{Transport: sourceRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/search" {
+			const metadata = `{"resultList":{"result":[{"pmcid":"PMC1","abstractText":"Recorded abstract"}]}}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(metadata))}, nil
+		}
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) > europePMCFullTextBudget {
+			t.Fatal("optional full-text request has no short deadline")
+		}
+		return nil, context.DeadlineExceeded
+	})}
+	doc, err := (EuropePMC{Base: "https://sources.test", HTTP: httpClient}).Get(t.Context(), "PMC1")
+	if err != nil || doc.Text != "Recorded abstract" || doc.FullText {
+		t.Fatalf("abstract fallback: %+v, %v", doc, err)
+	}
+}
 
 // TestUpstreamCallsAreBounded pins the default client's bounds, then shows
 // each bound cuts a stalled upstream.

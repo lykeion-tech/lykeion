@@ -211,7 +211,7 @@ func (d *Door) Start() error {
 				mcp.AddTool(srv, &mcp.Tool{Name: "find_tools", Description: findToolsDescription}, d.findTools)
 				mcp.AddTool(srv, &mcp.Tool{Name: "list_source_tools", Description: "List built-in source tools and their exact input schemas without Jev."}, d.listSourceTools)
 				mcp.AddTool(srv, &mcp.Tool{Name: "search_literature", Description: "Search the recorded literature sources. Choose database openalex, europepmc or arxiv."}, d.searchLiterature)
-				mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Read a source using its source_id returned by search_literature."}, d.fetchText)
+				mcp.AddTool(srv, &mcp.Tool{Name: "fetch_text", Description: "Read a source by its search result ID or a DOI or PMID reference passed from an earlier study stage."}, d.fetchText)
 			}
 			if d.Leader {
 				mcp.AddTool(srv, &mcp.Tool{Name: "ask_member", Description: askMemberDescription}, d.askMember)
@@ -774,7 +774,7 @@ type literatureSearchIn struct {
 	Query    string `json:"query" jsonschema:"Search terms"`
 }
 type literatureFetchIn struct {
-	SourceID string `json:"source_id" jsonschema:"Source ID returned by the literature search"`
+	SourceID string `json:"source_id" jsonschema:"Source ID returned by literature search, or an earlier stage's doi: or pmid: reference"`
 }
 
 func (d *Door) searchLiterature(ctx context.Context, req *mcp.CallToolRequest, in literatureSearchIn) (*mcp.CallToolResult, any, error) {

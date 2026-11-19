@@ -100,6 +100,9 @@ func TestExcludedPapersAreHiddenFromSearchAndFetch(t *testing.T) {
 	if res := call("fetch_text", map[string]any{"source_id": "openalex:W2"}); !res.IsError {
 		t.Errorf("fetch read the excluded paper: %s", textOf(res))
 	}
+	if res := call("fetch_text", map[string]any{"source_id": "doi:10.1/b"}); !res.IsError {
+		t.Errorf("fetch by DOI read the excluded paper: %s", textOf(res))
+	}
 	if res := call("search_literature", map[string]any{"database": "europepmc", "query": "x y"}); res.IsError || !strings.Contains(textOf(res), "PMC1") {
 		t.Errorf("search hid a paper not excluded: %s", textOf(res))
 	}

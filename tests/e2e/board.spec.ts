@@ -48,7 +48,7 @@ test('the board shows six columns and a new study arriving live in its column', 
   await expect(shown).toBeVisible({ timeout: 30_000 });
   await expect(shown).toContainText(`BETA-${study.number}`);
   await expect(shown).toContainText(/Updated (just now|\d+m ago)/);
-  await expect(page.getByRole('status', { name: /agents working/ })).toBeVisible();
+  await expect(page.getByRole('status', { name: /stud(?:y|ies) running/ })).toBeVisible();
 
   await shown.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${artifacts}/populated-board.png`, fullPage: true });

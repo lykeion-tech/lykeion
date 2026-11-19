@@ -112,6 +112,19 @@ func TestQuestionSetAnswerAtomicAndResume(t *testing.T) {
 	}
 }
 
+func TestDecisionContextPreservesLaterChoice(t *testing.T) {
+	set := sampleQuestions()
+	set.Questions[0], set.Questions[2] = set.Questions[2], set.Questions[0]
+	answers := []QuestionAnswer{
+		{QuestionID: "details", Text: strptr(strings.Repeat("x", 4000))},
+		{QuestionID: "population", OptionIDs: []string{"children"}},
+	}
+	context := questionSetAnswerText(set, answers, true)
+	if len(context) >= 3000 || !strings.Contains(context, "[truncated]") || !strings.Contains(context, "Children (children)") {
+		t.Fatalf("long free text hid the later choice: %q", context)
+	}
+}
+
 func TestQuestionSetConcurrentAnswersOneWins(t *testing.T) {
 	l := newLab(t)
 	agent := l.agent(t, "Scope racer", "claude", "", "Ask.")

@@ -156,12 +156,9 @@ func (b *geoCountingBody) Read(p []byte) (int, error) {
 }
 func (*geoCountingBody) Close() error { return nil }
 
-type geoRoundTrip func(*http.Request) (*http.Response, error)
-
-func (f geoRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func TestGEOMetadataBoundariesReadCeiling(t *testing.T) {
 	body := &geoCountingBody{remaining: 3 * 1024 * 1024}
-	h := &http.Client{Transport: geoRoundTrip(func(*http.Request) (*http.Response, error) {
+	h := &http.Client{Transport: sourceRoundTrip(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: body, Header: make(http.Header)}, nil
 	})}
 	if _, err := (GEO{HTTP: h}).Metadata(context.Background(), "GSE1"); err == nil {

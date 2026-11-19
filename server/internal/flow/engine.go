@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/review"
@@ -267,6 +268,25 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 	}
 	if earlier != "" {
 		p += "\n" + earlier
+	}
+	decisions, err := tx.Q.StudyAgentDecisionAnswers(ctx, db.StudyAgentDecisionAnswersParams{WorkspaceID: tx.WS, CardID: c.ID})
+	if err != nil {
+		return "", nil, err
+	}
+	var answers strings.Builder
+	for _, decision := range decisions {
+		answer, err := decisionAnswerNote(decision, true)
+		if err != nil {
+			return "", nil, err
+		}
+		if excerpt, truncated := Excerpt(answer, 3000); truncated {
+			answer = excerpt + " [truncated]"
+		}
+		fmt.Fprintf(&answers, "Decision %s at %s: %s\n", decision.ID, decision.DecidedAt.UTC().Format(time.RFC3339), answer)
+	}
+	if answers.Len() > 0 {
+		p += "\nThe following Decision answers were recorded by Lykeion, newest first. Use them as evidence of the researcher's choices for this study.\n" +
+			fence.Untrusted("Recorded researcher Decision answers", answers.String())
 	}
 	if c.BoardColumn == board.Validation && role != "auditor" {
 		mode, err := validationMode(ctx, tx, c.ID)

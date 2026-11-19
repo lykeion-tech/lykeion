@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/service"
@@ -247,37 +248,56 @@ func (e *Engine) cancelParked(ctx context.Context, ws, user uuid.UUID, runs []uu
 	return nil
 }
 
+func decisionAnswerNote(item db.InboxItem, withContext bool) (string, error) {
+	title, body, _ := strings.Cut(item.Text, "\n")
+	var note string
+	if len(item.QuestionSet) > 0 {
+		var set handin.QuestionSetIn
+		var answers []QuestionAnswer
+		if err := json.Unmarshal(item.QuestionSet, &set); err != nil {
+			return "", err
+		}
+		if err := json.Unmarshal(item.Answers, &answers); err != nil {
+			return "", err
+		}
+		note = "The researcher answered your question \"" + title + "\":" + questionSetAnswerText(set, answers, withContext)
+	} else {
+		var options []service.Option
+		if err := json.Unmarshal(item.Options, &options); err != nil {
+			return "", err
+		}
+		label := item.ChosenOption
+		var consequence string
+		if i := slices.IndexFunc(options, func(o service.Option) bool { return o.ID == item.ChosenOption }); i >= 0 {
+			label = options[i].Label
+			consequence = options[i].Consequence
+		}
+		note = "The researcher answered your question \"" + title + "\": " + label
+		if withContext && consequence != "" {
+			note += " — " + consequence
+		}
+	}
+	if item.Guidance != "" {
+		note += " — " + item.Guidance
+	}
+	if body = strings.TrimSpace(body); withContext && body != "" {
+		note += "\nQuestion context: " + body
+	}
+	return note, nil
+}
+
 // resumeAfterDecision wakes the lead that asked item, once it is answered or
 // expired: the study works again in the same round, so the lead's next run
 // has the asking run's continuity scope and resumes its session, with the
 // outcome as its note.
 func (e *Engine) resumeAfterDecision(ctx context.Context, tx *store.Tx, c db.Card, item db.InboxItem) error {
 	title, _, _ := strings.Cut(item.Text, "\n")
-	note := "Your question \"" + title + "\" expired without an answer. Continue without it."
+	note := "Your question \"" + title + "\" expired without an answer. Continue only with work that does not need that answer. Expiry does not authorize a choice the researcher reserved."
 	if item.Status == "decided" {
-		if len(item.QuestionSet) > 0 {
-			var set handin.QuestionSetIn
-			var answers []QuestionAnswer
-			if err := json.Unmarshal(item.QuestionSet, &set); err != nil {
-				return err
-			}
-			if err := json.Unmarshal(item.Answers, &answers); err != nil {
-				return err
-			}
-			note = "The researcher answered your question \"" + title + "\":" + questionSetAnswerText(set, answers)
-		} else {
-			var options []service.Option
-			if err := json.Unmarshal(item.Options, &options); err != nil {
-				return err
-			}
-			label := item.ChosenOption
-			if i := slices.IndexFunc(options, func(o service.Option) bool { return o.ID == item.ChosenOption }); i >= 0 {
-				label = options[i].Label
-			}
-			note = "The researcher answered your question \"" + title + "\": " + label
-		}
-		if item.Guidance != "" {
-			note += " — " + item.Guidance
+		var err error
+		note, err = decisionAnswerNote(item, false)
+		if err != nil {
+			return err
 		}
 		if item.DecidedBy != nil && item.DecidedAt != nil {
 			u, err := tx.Q.GetUser(ctx, *item.DecidedBy)
@@ -460,13 +480,13 @@ const (
 )
 
 var fitOptions = map[string]string{
-	fitFits:   "It is of its tagged kind (scope, change_question, ethics, cost or access), and only the researcher can settle it.",
-	fitDecide: "It is not of its tagged kind, or it is a choice of method, tools, analysis, evidence or a retry that the agent can make itself.",
+	fitFits:   "It is of its tagged kind and only the researcher can settle it. A choice explicitly reserved for the researcher in the study brief fits scope, even if it concerns the method.",
+	fitDecide: "It is not of its tagged kind, or it is a choice of method, tools, analysis, evidence or a retry that the brief left to the agent. Do not assume the researcher reserved a choice based only on what the agent says.",
 }
 
 // fitCheck asks Jev whether an agent's question is the researcher's to
 // answer. It runs with no transaction open.
-func (e *Engine) fitCheck(ctx context.Context, j *jev.Client, card uuid.UUID, d handin.DecisionIn) string {
+func (e *Engine) fitCheck(ctx context.Context, j *jev.Client, card uuid.UUID, brief string, d handin.DecisionIn) string {
 	questions := []handin.DecisionIn{d}
 	if d.QuestionSet != nil {
 		var cancel context.CancelFunc
@@ -484,7 +504,8 @@ func (e *Engine) fitCheck(ctx context.Context, j *jev.Client, card uuid.UUID, d 
 		if ctx.Err() != nil {
 			return fitUnavailable
 		}
-		a, err := j.Choice(ctx, decisionState(question), fitQuestion, fitOptions)
+		state := fence.Untrusted("Researcher's study brief", brief) + fence.Untrusted("Agent's proposed decision", decisionState(question))
+		a, err := j.Choice(ctx, state, fitQuestion, fitOptions)
 		if err != nil {
 			slog.Warn("jev fit check failed; raising the decision on the server's checks", "card", card, "err", err)
 			result = fitUnavailable
