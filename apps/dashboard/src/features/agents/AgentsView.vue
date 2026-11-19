@@ -349,7 +349,12 @@ async function save() {
             <label :class="{ selected: draft.visibility === 'private' }"><input v-model="draft.visibility" type="radio" value="private" /><span><b>Private</b><small>Only you can assign</small></span></label>
           </div>
         </fieldset>
-        <label>Stage<select v-model="draft.stage" required aria-label="Agent stage"><option v-for="s in stages" :key="s" :value="s">{{ columnName(s) }}</option></select></label>
+        <div class="new-agent-model-field">
+          <span>Stage</span>
+          <div class="coresearch new-agent-model-picker new-agent-stage-picker">
+            <ModelSwitcher v-model="draft.stage" :models="stages.map((stage) => ({ value: stage, label: columnName(stage) }))" label="Stage" open-up />
+          </div>
+        </div>
         <div class="new-agent-model-field">
           <span>Harness</span>
           <div class="coresearch new-agent-model-picker">
@@ -358,7 +363,7 @@ async function save() {
         </div>
         <div class="new-agent-model-field">
           <span>Model</span>
-          <div class="coresearch new-agent-model-picker">
+          <div class="coresearch new-agent-model-picker new-agent-model-picker--compact">
             <ModelSwitcher v-model="draft.model" :models="modelChoices" label="Model" open-up />
           </div>
         </div>
@@ -407,6 +412,23 @@ async function save() {
 }
 .coresearch.new-agent-model-picker :deep(.cli-chevron) {
   color: var(--text);
+}
+.new-agent-stage-picker :deep(.cli-menu) {
+  background: var(--input);
+  width: 200px;
+  max-width: 100%;
+}
+.new-agent-model-picker--compact :deep(.cli-switcher) {
+  width: fit-content;
+  max-width: 100%;
+}
+.new-agent-model-picker--compact :deep(.cli-pill) {
+  gap: 8px;
+}
+.new-agent-model-picker--compact :deep(.cli-menu) {
+  left: 0;
+  right: auto;
+  max-width: calc(100vw - 64px);
 }
 
 .agent-directory .agent-row > :not(:first-child) {

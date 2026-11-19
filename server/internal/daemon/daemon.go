@@ -182,8 +182,8 @@ type daemon struct {
 	scratches         map[string]bool
 	// bases are the machine's language bases; nil when the daemon has none.
 	bases *envs.Bases
-	// sandboxErr is why the sandbox failed its check at start; analysis code
-	// runs nowhere while it is set.
+	// Analysis code is blocked while the latest sandbox check has failed.
+	sandboxMu  sync.RWMutex
 	sandboxErr error
 	// setUpConda rebuilds a rerun's conda environment; nil means
 	// (*envs.Study).SetUpConda.
@@ -289,8 +289,8 @@ func Run(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("announce daemon readiness: %w", err)
 		}
 	}
-	if d.sandboxErr = sandbox.Check(ctx); d.sandboxErr != nil {
-		slog.Warn("agents can't run on this machine: the sandbox isn't available", "err", d.sandboxErr)
+	if err := d.refreshSandboxStatus(ctx); err != nil {
+		slog.Warn("agents can't run on this machine: the sandbox isn't available", "err", err)
 	}
 	background := func(fn func()) { d.wg.Add(1); go func() { defer d.wg.Done(); fn() }() }
 	background(func() { d.every(ctx, cfg.Heartbeat, d.heartbeat) })
@@ -425,8 +425,8 @@ func (d *daemon) heartbeat(ctx context.Context) {
 		bases = d.bases.States()
 	}
 	bases["sandbox"] = "ready"
-	if d.sandboxErr != nil {
-		bases["sandbox"] = envs.Failed(d.sandboxErr)
+	if err := d.sandboxStatus(); err != nil {
+		bases["sandbox"] = envs.Failed(err)
 	}
 	for i := 0; i < len(refs); i += 64 {
 		body := map[string]any{"runtimes": refs[i:min(i+64, len(refs))], "models": models}
@@ -442,7 +442,7 @@ func (d *daemon) heartbeat(ctx context.Context) {
 	}
 }
 func (d *daemon) claim(ctx context.Context) {
-	if d.sandboxErr != nil {
+	if d.sandboxStatus() != nil {
 		return
 	}
 	d.mu.Lock()

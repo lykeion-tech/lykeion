@@ -76,6 +76,20 @@ var (
 	}
 )
 
+func (d *daemon) refreshSandboxStatus(ctx context.Context) error {
+	err := checkSandbox(ctx)
+	d.sandboxMu.Lock()
+	d.sandboxErr = err
+	d.sandboxMu.Unlock()
+	return err
+}
+
+func (d *daemon) sandboxStatus() error {
+	d.sandboxMu.RLock()
+	defer d.sandboxMu.RUnlock()
+	return d.sandboxErr
+}
+
 // preflight checks one CLI the way a study run uses it: it starts and
 // reports its version, knows the schema flag, the sandbox works, the door
 // answers, and a one-turn hello inside the sandbox, with the door as its MCP
@@ -97,7 +111,7 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 	if !strings.Contains(help, probe.flag) {
 		return agent.ReasonCLITooOld, harness + " has no " + probe.flag
 	}
-	if err := checkSandbox(ctx); err != nil {
+	if err := d.refreshSandboxStatus(ctx); err != nil {
 		return agent.ReasonSandbox, err.Error()
 	}
 
@@ -136,7 +150,7 @@ func (d *daemon) preflight(ctx context.Context, harness string) (reason string, 
 	if harness == "claude" {
 		opts.MaxTurns = 1
 	}
-	door := &Door{Server: d.cfg.Server, Sources: d.sourcesURL(), Harness: harness, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
+	door := &Door{Server: d.cfg.Server, Sources: d.sourcesURL(), Harness: harness, PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxStatus(),
 		Child: func() agent.ExecOptions { return opts }}
 	if err := door.Start(); err != nil {
 		return agent.ReasonDoor, err.Error()
@@ -377,7 +391,7 @@ var transient = map[string]bool{agent.ReasonProviderNetwork: true, "timeout": tr
 
 // selfClearing are the causes a machine may be flagged for that its owner
 // needn't fix, so its CLI is checked again soon.
-var selfClearing = map[string]bool{agent.ReasonRuntimeOffline: true, "timeout": true, agent.ReasonProviderNetwork: true, agent.ReasonDoor: true, agent.ReasonCLIBroken: true}
+var selfClearing = map[string]bool{agent.ReasonRuntimeOffline: true, "timeout": true, agent.ReasonProviderNetwork: true, agent.ReasonDoor: true, agent.ReasonCLIBroken: true, agent.ReasonSandbox: true}
 
 // recheck asks for a CLI's preflight after a run failed with reason. A fence
 // breach asks for none: the hello can't see its cause, and only the owner or

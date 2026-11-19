@@ -304,9 +304,8 @@ describe('agent stage', () => {
   it('requires a stage in the create form and sends it', async () => {
     request.mockResolvedValue(agent({ id: 'new' }));
     const t = await mount(AgentsView, { create: true }, []);
-    const select = t.find('select', (n) => n.props['aria-label'] === 'Agent stage')!;
-    expect(select).toBeTruthy();
-    expect(select.children.filter((n) => n.tag === 'option').map(textOf)).toEqual([
+    await t.click(/^Stage: Grounding$/);
+    expect(t.options()).toEqual([
       'Grounding',
       'Hypotheses',
       'Experimentation',
@@ -314,7 +313,7 @@ describe('agent stage', () => {
     ]);
     const name = t.find('input', (n) => n.props['aria-label'] === 'Agent name')!;
     (name.props['onUpdate:modelValue'] as (v: string) => void)('Reader');
-    (select.props['onUpdate:modelValue'] as (v: string) => void)('validation');
+    await t.click(/^Validation$/);
     await nextTick();
     const form = t.find('form', () => true)!;
     await (form.props.onSubmit as (e: unknown) => Promise<void>)({ preventDefault() {} });

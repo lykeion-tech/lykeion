@@ -76,6 +76,7 @@ type rerunStep struct {
 	Of           string `json:"of"`
 	ExitStatus   int    `json:"exit_status"`
 	OutputSHA256 string `json:"output_sha256"`
+	Stderr       string `json:"stderr,omitempty"`
 }
 
 // startRerun queues, once per Validation round, the job that replays the
@@ -265,7 +266,15 @@ func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in Rer
 	for _, s := range in.Steps {
 		steps[s.Key] = s
 		sum := sha256.Sum256([]byte(s.Output))
-		body.Steps = append(body.Steps, rerunStep{Of: s.Key, ExitStatus: s.ExitStatus, OutputSHA256: hex.EncodeToString(sum[:])})
+		step := rerunStep{Of: s.Key, ExitStatus: s.ExitStatus, OutputSHA256: hex.EncodeToString(sum[:])}
+		if s.ExitStatus != 0 {
+			const stderrLimit = 4096
+			step.Stderr = strings.ToValidUTF8(s.Error[:min(len(s.Error), stderrLimit)], "")
+			if len(s.Error) > stderrLimit {
+				step.Stderr += "\n[stderr truncated]"
+			}
+		}
+		body.Steps = append(body.Steps, step)
 	}
 	var kept []db.Record
 	for _, o := range in.Outputs {
@@ -424,7 +433,7 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	n, isNumber := parseNumber(strings.TrimSpace(v.Value))
 	switch {
 	case len(texts) == 0 && failed != 0:
-		return false, fmt.Sprintf("rerun exited with status %d, reported %s", failed, v.Value)
+		return false, fmt.Sprintf("rerun exited with status %d before reproducing %s", failed, v.Value)
 	case len(texts) == 0:
 		return false, noScriptNote
 	case !isNumber:

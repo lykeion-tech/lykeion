@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,6 +15,21 @@ import (
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
+
+func TestRerunPreservesFailedStderr(t *testing.T) {
+	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, RerunResult{Steps: []RerunStepResult{
+		{Key: "failed", ExitStatus: 1, Error: "FileNotFoundError\n" + strings.Repeat("abc", 2000)},
+		{Key: "passed", Error: "a warning"},
+	}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Steps[0]
+	if got.ExitStatus != 1 || !strings.HasPrefix(got.Stderr, "FileNotFoundError") || !strings.HasSuffix(got.Stderr, "[stderr truncated]") ||
+		len(got.Stderr) >= 5000 || result.Steps[1].Stderr != "" {
+		t.Fatalf("unexpected stderr capture, %d bytes for failure and %q for success", len(got.Stderr), result.Steps[1].Stderr)
+	}
+}
 
 // rerunStudy is a study that handed in Experimentation round 1 with the given
 // runs and a value auc cited to the first, now at Validation round round.

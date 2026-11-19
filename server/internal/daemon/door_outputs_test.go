@@ -36,6 +36,12 @@ func newOutputsServer(t *testing.T) *outputsServer {
 			o.asked = append(o.asked, in)
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"skills":[],"tools":[{"server":"sources","tool":"search_literature"}]}`))
+		case r.URL.Path == "/api/role/outputs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"outputs":[{"key":"r3","name":"notes.txt","stage":"experimentation","round":1}]}`))
+		case r.URL.Path == "/api/role/outputs/r3":
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("original"))
 		case r.URL.Path == "/api/role/outputs/by-name":
 			switch r.URL.Query().Get("name") {
 			case "notes.txt":
@@ -85,6 +91,15 @@ func TestOnlyAHandInDoorOffersReadOutputAndFindTools(t *testing.T) {
 func TestReadOutputAnswersTextAndNamesTheRest(t *testing.T) {
 	o := newOutputsServer(t)
 	d := handInDoor(t, o.URL)
+	if got, err := doorTool(t, d, "list_outputs", map[string]any{"name": "notes.txt"}); err != nil || !strings.Contains(got, `"key":"r3"`) {
+		t.Fatalf("catalog: %q %v", got, err)
+	}
+	if got, err := doorTool(t, d, "read_output", map[string]any{"key": "r3"}); err != nil || got != "original" {
+		t.Fatalf("exact output: %q %v", got, err)
+	}
+	if _, err := doorTool(t, d, "read_output", map[string]any{"key": "r3", "name": "notes.txt"}); err == nil {
+		t.Fatal("a name and key together should be rejected")
+	}
 	if got, err := doorTool(t, d, "read_output", map[string]any{"name": "notes.txt"}); err != nil || got != "hello" {
 		t.Fatalf("text: %q %v", got, err)
 	}
@@ -104,6 +119,21 @@ func TestReadOutputAnswersTextAndNamesTheRest(t *testing.T) {
 		if a != "Bearer ltk_run" {
 			t.Fatalf("outputs read with %q, want the run's token", a)
 		}
+	}
+}
+
+func TestPlanningDoorDefersCodeTools(t *testing.T) {
+	d := &Door{HandIn: true, Planning: true}
+	must(t, d.Start())
+	t.Cleanup(d.Close)
+	got := doorTools(t, d)
+	for _, name := range []string{"run_code", "run_script", "set_up_environment"} {
+		if slices.Contains(got, name) {
+			t.Errorf("planning exposed %s", name)
+		}
+	}
+	if !slices.Contains(got, "list_outputs") || !slices.Contains(got, "search_literature") {
+		t.Fatalf("planning needs access to evidence: %v", got)
 	}
 }
 

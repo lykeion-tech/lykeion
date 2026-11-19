@@ -248,8 +248,8 @@ func (d *daemon) runBuild(parent context.Context, w coresearch.WorkContext, b co
 		durable, e = d.queueCoresearch(w, "builds", b.ID, meta, outputs)
 		resultErr = errors.Join(resultErr, e)
 	}()
-	if d.sandboxErr != nil {
-		return fmt.Errorf("%s %w", buildInstallMessage, d.sandboxErr)
+	if err := d.sandboxStatus(); err != nil {
+		return fmt.Errorf("%s %w", buildInstallMessage, err)
 	}
 	if err := d.coreAPI(w.WorkspaceID).Do(parent, "POST", d.coreWorkPath(w, "builds/"+b.ID.String()+"/start"), nil, nil); err != nil {
 		return err

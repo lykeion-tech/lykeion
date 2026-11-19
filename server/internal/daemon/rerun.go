@@ -199,8 +199,8 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	// No sandbox, no rerun: nothing is built or run before it is known to work.
-	if d.sandboxErr != nil {
-		ended(unsandboxed(d.sandboxErr))
+	if err := d.sandboxStatus(); err != nil {
+		ended(unsandboxed(err))
 		return nil
 	}
 	if d.bases == nil {

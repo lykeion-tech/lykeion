@@ -108,7 +108,13 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
 				doorAnswers = func(context.Context, *Door) error { return errors.New("no answer") }
 			}
 			d := &daemon{cfg: Config{Home: t.TempDir(), StateDir: t.TempDir(), Harnesses: map[string]string{tc.harness: bin}, NewBackend: agent.New}}
+			if tc.want == "" {
+				d.sandboxErr = brokenSandbox
+			}
 			reason, detail := d.preflight(t.Context(), tc.harness)
+			if tc.want == "" && d.sandboxStatus() != nil {
+				t.Fatal("a successful sandbox check should clear the startup failure")
+			}
 			if reason != tc.want {
 				t.Fatalf("reason %q (%s), want %q", reason, detail, tc.want)
 			}
@@ -339,7 +345,7 @@ func TestPreflightRechecksSoonWhileASelfClearingCauseHolds(t *testing.T) {
 	for _, tc := range []struct {
 		reason string
 		soon   bool
-	}{{agent.ReasonDoor, true}, {agent.ReasonCLIBroken, true}, {agent.ReasonSignIn, false}, {"provider_quota", false}} {
+	}{{agent.ReasonDoor, true}, {agent.ReasonCLIBroken, true}, {agent.ReasonSandbox, true}, {agent.ReasonSignIn, false}, {"provider_quota", false}} {
 		t.Run(tc.reason, func(t *testing.T) {
 			var calls atomic.Int32
 			d := &daemon{rechecks: make(chan string, 4), cfg: Config{Harnesses: map[string]string{"claude": "claude"}, Preflight: func(context.Context, string) (string, string) {

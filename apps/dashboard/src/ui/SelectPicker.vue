@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, useId } from 'vue';
 import Icon from './Icon.vue';
 
-const props = withDefaults(defineProps<{ minWidth?: number }>(), { minWidth: 180 });
+const props = withDefaults(defineProps<{ minWidth?: number; align?: 'start' | 'end' }>(), { minWidth: 180 });
 
 type Choice = { value: string; label: string; disabled: boolean; group: string };
 const root = ref<HTMLElement>(),
@@ -103,9 +103,10 @@ function positionPopup() {
   const top = bounds.bottom + height + 6 <= window.innerHeight - 8
     ? bounds.bottom + 6
     : bounds.top - height - 6;
+  const left = props.align === 'end' ? bounds.right - width : bounds.left;
   position.value = {
     width,
-    left: Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8)),
+    left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
     top: Math.max(8, Math.min(top, window.innerHeight - height - 8)),
   };
 }

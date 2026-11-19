@@ -94,17 +94,25 @@ func validatedFromOwnRecords(t *testing.T, rerunFirst bool) {
 		return tx.Q.InsertCardTeam(ctx, db.InsertCardTeamParams{WorkspaceID: l.ws, CardID: c.ID, BoardColumn: "experimentation", PackID: l.pack.ID})
 	})
 	const hyp = "Fertilizer makes seedlings taller."
+	const categorical = "Seedlings cross the growth target."
+	observed := "growth target outcome"
 	l.put(t, c.ID, "hypotheses", 1, review.KindHypothesis, "leader", review.HypothesisBody{Text: hyp,
 		Prediction: review.Prediction{Shape: "direction", Direction: "increase"}, Control: review.Control{Text: "untreated seedlings"}, Cites: []string{"r1"}})
+	l.put(t, c.ID, "hypotheses", 1, review.KindHypothesis, "leader", review.HypothesisBody{Text: categorical,
+		Prediction: review.Prediction{Shape: "outcomes", Outcomes: []string{"target reached", "target missed"}, Chosen: "target reached"}, Control: review.Control{Text: "untreated seedlings"}, Cites: []string{"r1"}})
 
 	l.move(t, c.ID, "experimentation", 1)
 	l.e.Kick(l.ws, c.ID)
 	ref, lead := l.claimOne(t, c.ID, "role")
-	const printed = "n 20\ndifference 4.465\nt = 8.698, df = 36.88, p = 1.83e-10\n"
+	const printed = "n 20\ndifference 4.465\nt = 8.698, df = 36.88, p = 1.83e-10\nresult: target reached\n"
 	script := l.putBy(t, lead, "run", map[string]any{"tool": "run_script", "language": "python", "path": "analysis.py", "script": "print(...)", "exit_status": 0, "output": printed})
 	l.putBy(t, lead, "output", map[string]any{"name": "results.csv", "size_bytes": 10, "sha256": "s"})
 	in := map[string]any{"status": "done", "answer": "Fertilized seedlings were taller.", "reason": nil, "replies": []any{}, "outputs": []string{"results.csv"},
-		"values": []any{map[string]any{"name": "difference", "value": "4.465", "file": "results.csv"}, map[string]any{"name": "n", "value": "20", "file": "analysis.py"}}}
+		"values": []any{
+			map[string]any{"name": "difference", "value": "4.465", "file": "results.csv"},
+			map[string]any{"name": "n", "value": "20", "file": "analysis.py"},
+			map[string]any{"name": observed, "value": "target reached", "file": "analysis.py"},
+		}}
 	raw, _ := json.Marshal(in)
 	hs := handin.HandIns{Runs: l.e.AgentRuns, SentBack: l.e.SentBack}
 	if probs, err := hs.Submit(ctx, l.owner, ref, lead.ID, raw); err != nil || len(probs) > 0 {
@@ -124,6 +132,7 @@ func validatedFromOwnRecords(t *testing.T, rerunFirst bool) {
 	}
 	l.item(t, c.ID, review.KindAssessment, review.Assessment{Hypothesis: hyp, Measurement: "difference",
 		Test: &statcheck.Test{Kind: "t", Statistic: 8.698, StatDigits: 3, DF1: 36.88, P: 1.83e-10, PDigits: 12, PBound: "="}})
+	l.item(t, c.ID, review.KindAssessment, review.Assessment{Hypothesis: categorical, Measurement: observed, Observed: &observed})
 	l.done(t, c.ID)
 	l.settleAuditor(t, c.ID)
 	if !rerunFirst {
@@ -132,7 +141,7 @@ func validatedFromOwnRecords(t *testing.T, rerunFirst bool) {
 	l.e.Kick(l.ws, c.ID)
 	l.object(t, c.ID)
 	final := l.statuses(t, c.ID, true)
-	if len(final) != 1 || final[0].Status != review.Supported {
+	if len(final) != 2 || slices.ContainsFunc(final, func(f statusRecord) bool { return f.Status != review.Supported }) {
 		t.Fatalf("final statuses: %+v", final)
 	}
 }

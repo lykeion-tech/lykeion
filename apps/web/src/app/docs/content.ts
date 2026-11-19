@@ -362,6 +362,8 @@ A submitted answer is recorded with the decision. The study can then continue ac
 
 Select a report to read the hand-in, explore its evidence graph and open the Report pane. Use its tabs and source details to follow what the study recorded. A report is a starting point for inspection, not a substitute for checking the evidence.
 
+When Validation has recorded findings, the report header summarizes their final outcomes. The recorded agent hand-in below preserves the agent's account from the time it was submitted.
+
 Decisions can also contain private notes you create for yourself. Review a note before saving it, and use its controls to edit or resolve it. See [evidence and results](/docs/evidence-and-results/) for reading research outputs and [Jev](/docs/jev/) for how configured study review works.
 `,
   },
@@ -382,6 +384,8 @@ Start from a study you can access in the selected workspace. The useful result i
 3. Open Files to browse generated artifacts and attached material. Search or switch between grid and list views when the collection grows.
 4. Open Notebook for recorded computation, including code, printed output and standard error where present.
 5. Open Review for the available checks and their explanations. Select a stage or check to inspect its details.
+
+For a failed Validation replay, open **Full log** on the rerun card in Activity to see the script's exit status and any recorded standard error.
 
 [![Searcher Grounding Team hand-in identity and Assignment heading](/docs/study-progress-detail.jpg)](/docs/study-progress.jpg)
 

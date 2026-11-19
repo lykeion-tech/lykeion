@@ -28,6 +28,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	studyarchive "lykeion/server/internal/archive"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/daemon/envs"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/records"
@@ -360,7 +361,8 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	door := &Door{RunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt, Lab: lab, NoTools: report, labURL: d.labURL(), Guest: guest != "", Leader: c.Leader, HandIn: c.OutputSchema != "", Server: d.cfg.Server, Sources: d.sourcesURL(), RunToken: c.Token, CallToken: c.CallToken, Connectors: c.Connectors, WorkspaceConnectors: c.WorkspaceConnectors, Addons: c.MCP, Harness: c.AgentRun.Harness, Study: study, ServiceEnv: services.Env(), PrivatePaths: private, PrivateRoots: []string{d.cfg.Home},
-		SandboxErr: d.sandboxErr, Child: func() agent.ExecOptions {
+		Planning:   c.OutputSchema != "" && (c.AgentRun.BoardColumn == board.Grounding || c.AgentRun.BoardColumn == board.Hypotheses),
+		SandboxErr: d.sandboxStatus(), Child: func() agent.ExecOptions {
 			if guest != "" {
 				return guestDoorOptions(opts)
 			}

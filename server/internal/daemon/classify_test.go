@@ -28,6 +28,7 @@ func TestClassify(t *testing.T) {
 		{"claude sign in", "claude", errors.New("exit status 1"), "Invalid API key · Please run /login", agent.ReasonSignIn},
 		{"claude expired", "claude", errors.New("exit status 1"), "API Error: 401 OAuth token has expired", agent.ReasonSignIn},
 		{"claude expired oauth session", "claude", errors.New("Failed to authenticate: OAuth session expired and could not be refreshed"), "", agent.ReasonSignIn},
+		{"claude revoked oauth", "claude", errors.New("exit status 1"), "Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.", agent.ReasonSignIn},
 		{"claude not logged in", "claude", errors.New("Not logged in"), "", agent.ReasonSignIn},
 		{"codex sign in", "codex", errors.New("exit status 1"), "ERROR: unexpected status 401 Unauthorized: Missing bearer", agent.ReasonSignIn},
 		{"codex not logged in", "codex", errors.New("exit status 1"), "Error: not logged in", agent.ReasonSignIn},

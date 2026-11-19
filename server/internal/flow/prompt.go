@@ -108,7 +108,7 @@ const (
 // cleared when the run ends, so files are kept in outputs/ and named, never
 // reached by a run-folder path.
 const keptFiles = "Leave any file you want kept, or want the leader or a later run to read, in `outputs/` in the run folder: it is saved when the run ends, and everything else is deleted. " +
-	"`read_output` reads a file saved earlier in this study, by its name; refer to a saved file by that name, never by a path in a run folder.\n"
+	"`list_outputs` lists saved files with their stage, round, run and exact key. Use `read_output` with that key to pin a file from a particular run, especially when a filename is reused. Reading by name selects the newest file. Never use a path in another run's folder.\n"
 
 // sourcesTools names the sources server's tools, which find_tools does not list.
 const sourcesTools = "Literature and datasets come from Lykeion's sources server, called through `call_tool` with `\"server\": \"sources\"`. " +
@@ -118,13 +118,13 @@ const sourcesTools = "Literature and datasets come from Lykeion's sources server
 	"Call `list_source_tools` for the current input schemas; this does not require Jev. " +
 	"Fetch with the exact returned source ID, never a guessed identifier. Reuse a fetched source's already returned text while it remains in context; re-fetch only for a concrete reason, such as missing/truncated context or checking changed content. " +
 	"A no-text result is unavailable evidence: search through the sources server for an accessible record, or state the limitation. Never invent quotations or treat a search abstract as fetched evidence. " +
-	"Read routed skills from the sections returned by `find_tools`. Saved output names, skill paths and tool-call receipts are separate references: `read_output` accepts only an exact saved output name, never a source ID, skill path or receipt.\n"
+	"Read routed skills from the sections returned by `find_tools`. `read_output` accepts an exact saved output name or key, never a source ID, skill path or receipt.\n"
 
 // workOutputs tells an Experimentation run how its code runs and how the
 // files its scripts wrote are kept, since the run folder is cleared when the
 // run ends, and that the packages its code needs are its own to install.
 const workOutputs = "Run Python, R or Julia through `run_code` (a live session, for exploring) and `run_script` (a saved script run start to finish, for results), never through the shell: both run in the study's environment. " +
-	"Every reported number comes from a `run_script` run, and the files your results come from go in `outputs/`. " +
+	"Every reported measurement and observed outcome comes from a `run_script` run, and the files your results come from go in `outputs/`. " +
 	"Code must perform the claimed work. Placeholder prints are not analytical evidence. Use the run tool's documented code input; do not rely on opening `/dev/stdin`.\n" +
 	"Install any package you need into the study's folder from your code runs, or with `set_up_environment`; it needs no approval.\n"
 
@@ -154,17 +154,17 @@ func itemsPrompt(column string) string {
 			"and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n"
 	case board.Experimentation:
 		return "- `outputs`: the names of the files in `outputs/` the results come from. At least one is required: the table or figure your values come from.\n" +
-			"- `values`: each reported number: `name` says what it measures, `value` is the number as printed, and `file` names the saved output file or the `run_script` script that shows it. " +
-			"The number must appear in that file or in that script's recorded output.\n" +
+			"- `values`: each reported measurement or observed outcome: `name` says what it measures, `value` is the exact number or outcome label, and `file` names the saved output file or the `run_script` script that shows it. " +
+			"For each hypothesis with named outcomes, have the script calculate which outcome occurred and print or save its exact registered label. Hand that label in as a separate value with a name specific to the hypothesis, alongside any numeric measurements. If no registered outcome was observed, say why without inventing one.\n" +
 			replies +
 			"Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
 	case board.Validation:
 		return "- `assessments`, when the study has hypotheses and recorded script runs in Experimentation: one for every hypothesis of the study, with `hypothesis` (its text, exactly as it was handed in), " +
-			"`measurement` (the name of the recorded value that measures it: the effect itself, such as a difference, or the treated group's raw value), " +
+			"`measurement` (the name of the recorded value that measures it: the effect itself, such as a difference, or the treated group's raw value. For named outcomes, use the recorded outcome value if there is no separate numeric measurement), " +
 			"`control` (the name of the recorded value holding the control group's raw value, when `measurement` is the treated group's raw value; null when `measurement` is already the effect), " +
 			"`test` (the statistical test exactly as a recorded script run printed it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2` (null when the test has none), `p` and `p_bound` (=, < or >); null when there is none. Lykeion looks for its statistic and p in the rerun's output, so a test no run printed makes the hypothesis invalid) " +
 			"and `observed` (for a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise). " +
-			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the numbers itself; you set no status.\n" +
+			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the recorded measurements and observed outcomes; you set no status.\n" +
 			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
 			"`source` (an attached file's name, the name of a file the study saved in Experimentation, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +
 			"- `flagged_errors`, otherwise: each passage that is wrong, with its `source`, the `quote` copied word for word, and the `problem`.\n" +
@@ -243,6 +243,14 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 		fmt.Fprintf(&b, "You are the %s member of this Team, on the study's %s column. The leader gave you one task; your prompt says what it is.\n\n", role, title(column))
 	}
 	fmt.Fprintf(&b, "What the column delivers: %s.\n\n", deliverables[column])
+	switch column {
+	case board.Grounding:
+		b.WriteString("Gather and document evidence. Defer testing predictions, simulations and study scripts to Experimentation. This also applies to delegated tasks.\n\n")
+	case board.Hypotheses:
+		b.WriteString("Specify predictions, controls and the test plan before any study scripts run. Defer running experiments to Experimentation, including when delegating.\n\n")
+	case board.Validation:
+		b.WriteString("Check the recorded Experimentation work and its replay. Use the exact saved artifact keys when inspecting files. Keep supplementary checks distinct from the original experiment.\n\n")
+	}
 	if i, j := board.StageIndex(scopeFrom), board.StageIndex(column); i >= 0 && i < j {
 		fmt.Fprintf(&b, "Earlier columns of this study (%s) came before yours, and your prompt lists what they handed in. Their papers and datasets count as sources here, by their ids, and `read_output` reads the files they saved.\n\n",
 			strings.Join(board.Stages[i:j], ", "))
@@ -258,7 +266,7 @@ func Protocol(role, column, scopeFrom string, m *pack.Manifest, templates ...str
 		b.WriteString("\nHow you run the column:\n" +
 			"1. Decide the next task and give it to the member who fits it with `ask_member`. Say only what the member cannot read in the study for themselves.\n" +
 			"2. Wait for the result with `member_result`. It waits up to 10 minutes; while the member is still `working`, call it again. One member works at a time, so wait for one member's result before you ask the next.\n" +
-			"3. A member hands in the same fields you do. Copy the items you keep into your own hand-in, edited as needed: only your hand-in counts. Pass a member's files on by their saved names (`read_output` reads them), never by a path in its run folder.\n" +
+			"3. A member hands in the same fields you do. Copy the items you keep into your own hand-in, edited as needed: only your hand-in counts. Pass along the exact saved output key when referring to a member's file.\n" +
 			"4. When no member fits a task, do it yourself.\n" +
 			"5. When the column delivers what it must, end with your hand-in.\n" +
 			"6. A member that hands in `ask` brings you its question. Decide it yourself if you can; if only the researcher can, end with your own `ask` hand-in, naming the member in `from_member`. " +
