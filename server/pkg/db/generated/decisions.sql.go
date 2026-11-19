@@ -994,3 +994,74 @@ func (q *Queries) SetDecisionTriage(ctx context.Context, arg SetDecisionTriagePa
 	)
 	return err
 }
+
+const studyAgentDecisionAnswers = `-- name: StudyAgentDecisionAnswers :many
+SELECT id, workspace_id, card_id, user_id, kind, text, read_at, created_at, resolved_at, autoresearch_run_id, runtime_id, cause, options, default_option, status, expires_at, reminded_at, chosen_option, guidance, decided_by, decided_at, raised_by, raised_run_id, from_member, decision_kind, decide_by, decide_by_date, snoozed_until, kept, archived_at, touched_at, question_set, answers, title, context, deadline FROM inbox_item
+WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND kind = 'agent_decision' AND status = 'decided' AND decided_by IS NOT NULL AND decided_at IS NOT NULL
+  AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
+ORDER BY decided_at DESC, id DESC
+LIMIT 20
+`
+
+type StudyAgentDecisionAnswersParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) StudyAgentDecisionAnswers(ctx context.Context, arg StudyAgentDecisionAnswersParams) ([]InboxItem, error) {
+	rows, err := q.db.Query(ctx, studyAgentDecisionAnswers, arg.WorkspaceID, arg.CardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.UserID,
+			&i.Kind,
+			&i.Text,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.AutoresearchRunID,
+			&i.RuntimeID,
+			&i.Cause,
+			&i.Options,
+			&i.DefaultOption,
+			&i.Status,
+			&i.ExpiresAt,
+			&i.RemindedAt,
+			&i.ChosenOption,
+			&i.Guidance,
+			&i.DecidedBy,
+			&i.DecidedAt,
+			&i.RaisedBy,
+			&i.RaisedRunID,
+			&i.FromMember,
+			&i.DecisionKind,
+			&i.DecideBy,
+			&i.DecideByDate,
+			&i.SnoozedUntil,
+			&i.Kept,
+			&i.ArchivedAt,
+			&i.TouchedAt,
+			&i.QuestionSet,
+			&i.Answers,
+			&i.Title,
+			&i.Context,
+			&i.Deadline,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

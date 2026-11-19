@@ -248,6 +248,12 @@ const matchingCards = computed(() =>
   ),
 );
 const waitingCount = computed(() => boardActivity(matchingCards.value).waiting);
+const runningStudyCount = computed(
+  () => matchingCards.value.filter((card) => card.running_clis?.length ?? card.agent_running).length,
+);
+const runningStudyLabel = computed(
+  () => `${runningStudyCount.value} ${runningStudyCount.value === 1 ? 'study' : 'studies'} running`,
+);
 const workingGroups = computed(() => {
   const groups = new Map<string, { key: string; harnesses: string[]; name: string }>();
   for (const card of matchingCards.value) {
@@ -402,11 +408,11 @@ onUnmounted(() => {
       <div class="working-control">
         <span
           class="button compact working-chip"
-          :class="{ 'working-has-agents': workingGroups.length }"
+          :class="{ 'working-has-agents': runningStudyCount }"
           role="status"
           :aria-label="
             cards.isSuccess.value
-              ? `${workingGroups.length} agents working${waitingCount ? `, ${waitingCount} waiting` : ''}`
+              ? `${runningStudyLabel}${waitingCount ? `, ${waitingCount} waiting` : ''}`
               : 'Agent activity unavailable'
           "
           :aria-description="workingDescription || undefined"
@@ -432,7 +438,7 @@ onUnmounted(() => {
               >+{{ workingGroups.length - 3 }}</span
             >
           </span>
-          {{ cards.isSuccess.value ? workingGroups.length : '—' }} agents working<template
+          {{ cards.isSuccess.value ? runningStudyLabel : '— studies running' }}<template
             v-if="cards.isSuccess.value && waitingCount"
             >, {{ waitingCount }} waiting</template
           >

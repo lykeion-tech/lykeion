@@ -158,7 +158,7 @@ func (e *Engine) AnswerQuestionSet(ctx context.Context, ws, item, user uuid.UUID
 	})
 }
 
-func questionSetAnswerText(set handin.QuestionSetIn, answers []QuestionAnswer) string {
+func questionSetAnswerText(set handin.QuestionSetIn, answers []QuestionAnswer, withContext bool) string {
 	byID := make(map[string]QuestionAnswer, len(answers))
 	for _, a := range answers {
 		byID[a.QuestionID] = a
@@ -175,14 +175,24 @@ func questionSetAnswerText(set handin.QuestionSetIn, answers []QuestionAnswer) s
 			if q.Mode != "text" {
 				b.WriteString("Custom: ")
 			}
-			b.WriteString(*a.Text)
+			text := *a.Text
+			if withContext {
+				if excerpt, truncated := Excerpt(text, 512); truncated {
+					text = excerpt + " [truncated]"
+				}
+			}
+			b.WriteString(text)
 			continue
 		}
 		labels := make([]string, 0, len(a.OptionIDs))
 		for _, id := range a.OptionIDs {
 			for _, o := range q.Options {
 				if o.ID == id {
-					labels = append(labels, o.Label+" ("+o.ID+")")
+					label := o.Label + " (" + o.ID + ")"
+					if withContext && o.Consequence != "" {
+						label += " — " + o.Consequence
+					}
+					labels = append(labels, label)
 					break
 				}
 			}

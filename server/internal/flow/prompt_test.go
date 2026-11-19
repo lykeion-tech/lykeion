@@ -240,12 +240,18 @@ func TestTheValidationHandInNamesValuesAsTheReviewReadsThem(t *testing.T) {
 }
 
 // Leads and members are told which questions reach the researcher, that
-// method, tools, evidence and retries never do, and that a member's question
-// goes through its leader.
+// delegated methods and tools stay with the agent, and that a member's
+// question goes through its leader.
 func TestTheProtocolSaysWhenToAsk(t *testing.T) {
 	for _, role := range []string{"leader", "agent", "Curie"} {
 		p := Protocol(role, board.Hypotheses, "", nil)
-		for _, want := range []string{"`scope`", "`change_question`", "`ethics`", "`cost`", "`access`", "Never ask about method, tools, evidence or retries"} {
+		for _, want := range []string{
+			"`scope`", "`change_question`", "`ethics`", "`cost`", "`access`",
+			"Never ask about method, tools, evidence or retries that the researcher left to you",
+			"the researcher explicitly reserves a choice or an approval for Decisions",
+			"`status: ask` and wait for the actual answer",
+			"does not substitute for the researcher's recorded Decision answer",
+		} {
 			if !strings.Contains(p, want) {
 				t.Errorf("%s is not told %s", role, want)
 			}

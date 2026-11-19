@@ -94,6 +94,14 @@ RETURNING id;
 SELECT EXISTS (SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
   AND kind = 'agent_decision' AND status = 'open');
 
+-- name: StudyAgentDecisionAnswers :many
+SELECT * FROM inbox_item
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND kind = 'agent_decision' AND status = 'decided' AND decided_by IS NOT NULL AND decided_at IS NOT NULL
+  AND (jsonb_array_length(options) > 0 OR question_set IS NOT NULL)
+ORDER BY decided_at DESC, id DESC
+LIMIT 20;
+
 -- An agent's question to the researcher; the partial unique index keeps one
 -- open per study.
 -- name: InsertAgentDecision :exec

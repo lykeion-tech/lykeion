@@ -1854,7 +1854,7 @@ it('shows generated files at the end of activity and opens the exact output', as
   vi.stubGlobal(
     'fetch',
     vi.fn(async (path: string) =>
-      path.includes('/outputs/o1')
+      path.includes('/outputs/o2')
         ? new Response(new Blob(['result']), { status: 200 })
         : Response.json([]),
     ),
@@ -1881,6 +1881,17 @@ it('shows generated files at the end of activity and opens the exact output', as
             role: 'agent',
             agent_run_id: null,
           },
+          {
+            id: 'r2',
+            key: 'o2',
+            kind: 'output',
+            body: { name: 'result.txt', size_bytes: 6 },
+            created_at: '2026-01-02',
+            board_column: 'experimentation',
+            round: 2,
+            role: 'agent',
+            agent_run_id: null,
+          },
         ],
       );
     },
@@ -1889,8 +1900,10 @@ it('shows generated files at the end of activity and opens the exact output', as
     expect(t.text()).toContain('FILES GENERATED');
     const gallery = t.nodes().find((n) => n.props['aria-label'] === 'Generated files')!;
     expect(textOf(gallery)).toContain('result.txt');
+    expect(textOf(gallery)).toContain('Experimentation · Round 1 · o1');
+    expect(textOf(gallery)).toContain('Experimentation · Round 2 · o2');
     expect(textOf(gallery)).not.toContain('upload.txt');
-    await t.click(/result\.txt/);
+    await t.click(/Experimentation · Round 2 · o2/);
     await vi.waitFor(() => expect(t.text()).toContain('Download'));
   } finally {
     t.unmount();

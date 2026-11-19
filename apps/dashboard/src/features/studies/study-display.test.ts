@@ -141,7 +141,7 @@ describe('study display controls', () => {
     ]);
     await t.settle();
     const indicator = all(t.root).find(
-      (n) => n.props.role === 'status' && n.props['aria-label'] === '2 agents working',
+      (n) => n.props.role === 'status' && n.props['aria-label'] === '3 studies running',
     )!;
     expect(indicator.tag).toBe('span');
     expect(indicator.props.onClick).toBeUndefined();
@@ -158,12 +158,12 @@ describe('study display controls', () => {
   it('keeps waiting studies visible separately from working groups', async () => {
     const t = await mount();
     t.client.setQueryData(keys.cards('lab'), [
-      card('Running', 'me', { running_clis: [{ board_column: 'grounding', harness: 'claude' }] }),
+      card('Running on an older server', 'me', { agent_running: true }),
       card('Waiting', 'me', { queued: true, waiting: 'Waiting for a machine' }),
     ]);
     await t.settle();
     expect(
-      all(t.root).find((n) => n.props['aria-label'] === '1 agents working, 1 waiting'),
+      all(t.root).find((n) => n.props['aria-label'] === '1 study running, 1 waiting'),
     ).toBeTruthy();
   });
   it('limits the icon stack and reports the remaining groups', async () => {
@@ -178,7 +178,7 @@ describe('study display controls', () => {
       ),
     );
     await t.settle();
-    const indicator = all(t.root).find((n) => n.props['aria-label'] === '4 agents working')!;
+    const indicator = all(t.root).find((n) => n.props['aria-label'] === '4 studies running')!;
     expect(indicator).toBeTruthy();
     expect(all(t.root).filter((n) => n.props['data-cli']).length).toBe(3);
     expect(textOf(indicator)).toContain('+1');

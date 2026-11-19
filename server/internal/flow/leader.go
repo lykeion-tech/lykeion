@@ -176,12 +176,14 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 	if t.Status == "completed" {
 		var h *handInBody
 		var owner uuid.UUID
+		var brief string
 		err := e.Store.InWorkspace(ctx, t.WorkspaceID, uuid.Nil, func(tx *store.Tx) (err error) {
 			if h, _, err = runHandIn(ctx, tx, t); err != nil {
 				return err
 			}
 			c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: *t.CardID})
 			owner = c.OwnerID
+			brief = c.Question
 			return err
 		})
 		if err != nil {
@@ -189,7 +191,7 @@ func (e *Engine) afterRun(ctx context.Context, t db.AgentRun) error {
 		}
 		if h != nil && h.Status == "ask" && h.Decision != nil {
 			if j := e.JevFor(ctx, owner); j != nil {
-				fit = e.fitCheck(ctx, j, *t.CardID, *h.Decision)
+				fit = e.fitCheck(ctx, j, *t.CardID, brief, *h.Decision)
 			}
 		}
 	}

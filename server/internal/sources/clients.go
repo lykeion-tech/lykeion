@@ -414,9 +414,16 @@ func (e EuropePMC) Search(ctx context.Context, q string) ([]Hit, error) {
 
 var tags = regexp.MustCompile(`<[^>]+>`)
 
+const europePMCFullTextBudget = 10 * time.Second
+
 // Get takes "PMC123" or "SRC:ID" and returns open full text when Europe PMC
-// has it, otherwise the abstract.
+// has it, otherwise the abstract. An available abstract bounds the wait for
+// optional full text, including any upstream retry delays.
 func (e EuropePMC) Get(ctx context.Context, id string) (Doc, error) {
+	return e.get(ctx, id, "")
+}
+
+func (e EuropePMC) get(ctx context.Context, id, pmid string) (Doc, error) {
 	q := "PMCID:" + id
 	if !strings.HasPrefix(id, "PMC") {
 		src, ext, ok := strings.Cut(id, ":")
@@ -433,8 +440,20 @@ func (e EuropePMC) Get(ctx context.Context, id string) (Doc, error) {
 		return Doc{}, fmt.Errorf("europepmc: %s %w", id, ErrNotFound)
 	}
 	d := Doc{Hit: hits[0], Text: hits[0].Abstract}
-	if strings.HasPrefix(id, "PMC") {
-		if xml, err := get(ctx, e.HTTP, e.Base+"/"+id+"/fullTextXML"); err == nil {
+	fullTextID := id
+	if pmid != "" {
+		if d.PMID != pmid && d.ID != "europepmc:MED:"+pmid {
+			return Doc{}, fmt.Errorf("europepmc: %s %w", id, ErrNotFound)
+		}
+		fullTextID = strings.TrimPrefix(d.ID, "europepmc:")
+	}
+	if strings.HasPrefix(fullTextID, "PMC") {
+		if strings.TrimSpace(d.Text) != "" {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, europePMCFullTextBudget)
+			defer cancel()
+		}
+		if xml, err := get(ctx, e.HTTP, e.Base+"/"+url.PathEscape(fullTextID)+"/fullTextXML"); err == nil {
 			if txt := strings.Join(strings.Fields(html.UnescapeString(tags.ReplaceAllString(string(xml), " "))), " "); txt != "" {
 				d.Text, d.FullText = txt, true
 			}

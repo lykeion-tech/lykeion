@@ -164,13 +164,13 @@ describe('study page scope', () => {
     expect(textOf(t.root)).toContain('Other study');
     expect(t.button('All')).toBeUndefined();
     expect(t.button('Mine')).toBeUndefined();
-    expect(all(t.root).find((n) => n.props['aria-label'] === '2 agents working')).toBeTruthy();
+    expect(all(t.root).find((n) => n.props['aria-label'] === '2 studies running')).toBeTruthy();
   });
-  it('scopes board, list, agent count and study links to the current owner', async () => {
+  it('scopes board, list, running study count and study links to the current owner', async () => {
     const t = await mount('mine');
     expect(textOf(t.root)).toContain('Own study');
     expect(textOf(t.root)).not.toContain('Other study');
-    expect(all(t.root).find((n) => n.props['aria-label'] === '1 agents working')).toBeTruthy();
+    expect(all(t.root).find((n) => n.props['aria-label'] === '1 study running')).toBeTruthy();
     const own = all(t.root).find((n) => n.props['data-card'] === 'Own study')!;
     (own.props.onClick as () => void)();
     await t.settle();
@@ -213,7 +213,7 @@ describe('study page scope', () => {
     t.props.scope = 'workspace';
     await t.settle();
     expect(textOf(t.root)).toContain('Other study');
-    expect(all(t.root).find((n) => n.props['aria-label'] === '2 agents working')).toBeTruthy();
+    expect(all(t.root).find((n) => n.props['aria-label'] === '2 studies running')).toBeTruthy();
   });
   it('preserves project All/Members/Agents tabs and their filters', async () => {
     const t = await mount(undefined, 'project');
