@@ -37,9 +37,10 @@ test('inspector resize and real Project persist; disclosures and Runs use record
   // A study's assignee is shown, not offered.
   await expect(inspector.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveCount(0);
   await expect(inspector.locator('.property-row', { hasText: 'Assignee' })).toBeVisible();
+  // The details pane starts closed on each visit and reopens at its default width.
   await page.goto(`/#/studies/${f.card_id}`);
   await openSurface(page, 'Properties');
-  await expect(inspector).toHaveCSS('width', '640px');
+  await expect(inspector).toHaveCSS('width', '240px');
   await expect(inspector.getByRole('combobox', { name: 'Project', exact: true })).toHaveAttribute(
     'data-value',
     research.id,
