@@ -23,6 +23,48 @@ function pdf() {
     .join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
   return Buffer.from(s);
 }
+test('Cowrite file previews have a rounded panel and a download header without tabs', async ({
+  page,
+}) => {
+  await cowriteFixture(page);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>';
+  const head = { n: 1, size: svg.length, file_id: 'figure' };
+  await page.route('**/api/coresearch/projects/p/files', (route) =>
+    route.fulfill({ json: [{ id: 'figure', path: 'figure.svg', head }] }),
+  );
+  await page.route('**/api/coresearch/projects/p/files/figure/versions', (route) =>
+    route.fulfill({ json: [head] }),
+  );
+  await page.route('**/api/coresearch/projects/p/files/figure/versions/1/content', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: svg,
+    }),
+  );
+  await page.goto('/#/coresearch/p/chat?file=figure.svg');
+  const preview = page.getByRole('tabpanel', { name: 'Files', exact: true }).filter({
+    has: page.getByRole('button', { name: 'Download', exact: true }),
+  });
+  await expect(preview).toBeVisible();
+  await expect(preview.getByRole('tablist')).toHaveCount(0);
+  await expect(preview).toHaveCSS('border-top-left-radius', '12px');
+  const compiler = page.locator('.ms-pdf-body');
+  await expect
+    .poll(async () => (await preview.boundingBox())?.y)
+    .toBe((await compiler.boundingBox())?.y);
+  await page.evaluate(() => {
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (!this.hasAttribute('download')) return click.call(this);
+      document.documentElement.dataset.downloadUrl = this.getAttribute('href') ?? '';
+    };
+  });
+  await preview.locator('header').getByRole('button', { name: 'Download', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-download-url',
+    '/api/coresearch/projects/p/files/figure/versions/1/content?download=1&workspace=lab',
+  );
+});
 test('Cowrite edits, keeps an agent hunk, compiles actual PDF bytes and opens Versions', async ({
   page,
 }) => {
@@ -64,6 +106,9 @@ test('Cowrite edits, keeps an agent hunk, compiles actual PDF bytes and opens Ve
               seq: 1,
               title: 'Build #1',
               by_user_id: 'me',
+              build_id: 'build1',
+              compiled_by_name: 'Ada Lovelace',
+              contributor_names: ['Grace Hopper'],
               created_at: '2026-10-28T10:00:00Z',
               files: [{ file_id: 'main', path: 'main.tex', n: 1 }],
             },
@@ -89,7 +134,19 @@ test('Cowrite edits, keeps an agent hunk, compiles actual PDF bytes and opens Ve
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
   await page.getByRole('tab', { name: 'Versions', exact: true }).click();
   await expect(page.getByTestId('manuscript-version')).toContainText('v1');
-  await expect(page.getByTestId('manuscript-version')).toContainText('Ada Lovelace');
+  await expect(page.getByTestId('manuscript-version')).toContainText('Compiled by Ada Lovelace');
+  await expect(page.getByTestId('manuscript-version')).toContainText('Contributors: Grace Hopper');
+  await expect(page.getByTestId('manuscript-version')).toHaveCount(1);
+  const more = page.getByRole('button', { name: 'More for version 1' });
+  await more.click();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  const restore = page.getByRole('menuitem', { name: 'Restore this version' });
+  expect(
+    await restore.evaluate((item) => {
+      const { x, y, width, height } = item.getBoundingClientRect();
+      return item.contains(document.elementFromPoint(x + width / 2, y + height - 2));
+    }),
+  ).toBe(true);
   await page.getByRole('button', { name: 'Close panel' }).click();
   await expect(page.locator('.pdf-text-layer')).toContainText('A real Cowrite PDF');
 });
@@ -180,6 +237,17 @@ test('the session pill names the model by the label its runtime reported', async
   models = [];
   await page.reload();
   await expect(page.getByRole('button', { name: 'Model: sonnet', exact: true })).toBeVisible();
+});
+test('the Cowrite session shows its runner default when there is no named model', async ({
+  page,
+}) => {
+  await cowriteFixture(page);
+  await page.route('**/api/runtimes', (route) => route.fulfill({ json: [] }));
+  await page.goto('/#/coresearch/p/chat');
+  await expect(
+    page.getByRole('button', { name: 'CLI and model: Claude Code · Default' }),
+  ).toBeDisabled();
+  await expect(page.getByText('No CLI available', { exact: true })).toHaveCount(0);
 });
 test('the model menu stays inside a 900 px viewport', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

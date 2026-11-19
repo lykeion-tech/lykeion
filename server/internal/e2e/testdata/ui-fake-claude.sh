@@ -36,6 +36,10 @@ esac
 # The daemon's preflight hello is answered as a real Claude Code would.
 case "$prompt" in
   *'Reply with {'*'ok'*'true}.'*) echo '{"type":"result","is_error":false,"session_id":"hello","structured_output":{"ok":true}}'; exit 0 ;;
+  *'You are working in a shared Cowrite paper.'*)
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"I can help revise the manuscript. What would you like to work on first?"}]}}'
+    echo '{"type":"result","is_error":false}'
+    exit 0 ;;
 esac
 case "$prompt" in
   *"You are the autoresearch role"*)

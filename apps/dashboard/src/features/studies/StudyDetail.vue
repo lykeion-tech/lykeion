@@ -70,7 +70,6 @@ import {
 import { reviewTimeline } from '../../lib/review';
 import { notify } from '../../state/notice';
 import { usePins } from '../../state/pins';
-import { readText, writeText } from '../../storage';
 import { composerAvailability, deliveryLine } from './comment-delivery';
 const typesafeIcon = `${import.meta.env.BASE_URL}brand/typesafe.png`;
 
@@ -307,8 +306,7 @@ const composerUnavailable = computed(() =>
 const composerHint = computed(() =>
   c.value?.state === 'done' || !!c.value?.ending ? undefined : composerUnavailable.value,
 );
-const showMeta = ref(readText('lykeion.study-meta') !== 'false');
-watch(showMeta, (v) => writeText('lykeion.study-meta', String(v)));
+const showMeta = ref(false);
 let attachmentRequest = 0;
 async function previewAttachment(attachment: { id: string }) {
   const visit = generation,
@@ -376,6 +374,7 @@ watch(
   [workspaceId, () => props.id],
   () => {
     generation++;
+    showMeta.value = false;
     activeSurface.value = null;
     reviewRequest.value = null;
     notebookRun.value = null;

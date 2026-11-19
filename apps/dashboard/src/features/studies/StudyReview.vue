@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue';
-import { useCard, useCardReview, useKindRecords } from '../../api/queries';
+import { useCard, useCardReview, useKindRecords, useMembers } from '../../api/queries';
 import { workspaceId } from '../../api/session';
 import type { CheckStatus, Column, ReviewAttempt } from '../../api/types';
 import {
@@ -17,6 +17,7 @@ import { columnName } from '../../lib/studies';
 const props = defineProps<{ cardId: string; request?: { column: Column } | null }>();
 const card = useCard(() => props.cardId);
 const review = useCardReview(() => props.cardId);
+const members = useMembers();
 const stages: Column[] = ['grounding', 'hypotheses', 'experimentation', 'validation'];
 const byTime = (a: ReviewAttempt, b: ReviewAttempt) => Date.parse(a.at) - Date.parse(b.at);
 const columns = computed(() =>
@@ -144,15 +145,30 @@ const tiles = computed(() =>
 
 const loadLegacy = computed(() => review.isSuccess.value && !newest.value);
 const scores = useKindRecords(() => props.cardId, 'score', loadLegacy);
-const outcomes = useKindRecords(() => props.cardId, 'outcome', loadLegacy);
+const outcomes = useKindRecords(() => props.cardId, 'outcome');
+const approvals = computed(() =>
+  (outcomes.data.value ?? [])
+    .filter((outcome) => outcome.body.verdict === 'approved_by_owner')
+    .map((outcome) => {
+      const approver = members.data.value?.find((member) => member.user_id === outcome.body.by);
+      return {
+        id: outcome.id,
+        column: outcome.board_column,
+        name: approver?.name || approver?.email,
+      };
+    }),
+);
+const legacyOutcomes = computed(() =>
+  (outcomes.data.value ?? []).filter((outcome) => outcome.body.verdict !== 'approved_by_owner'),
+);
 const historyError = computed(() => scores.error.value ?? outcomes.error.value);
 function retryHistory() {
   if (scores.isError.value) void scores.refetch();
   if (outcomes.isError.value) void outcomes.refetch();
 }
 const legacy = computed(() =>
-  loadLegacy.value && outcomes.data.value?.length
-    ? legacyColumns(scores.data.value ?? [], outcomes.data.value)
+  loadLegacy.value && legacyOutcomes.value.length
+    ? legacyColumns(scores.data.value ?? [], legacyOutcomes.value)
     : [],
 );
 const checksOpen = ref(false);
@@ -279,6 +295,17 @@ const unlinkedObjections = computed(() =>
 <template>
   <section class="study-review surface-content type-body" aria-label="Study review">
     <h2 class="review-heading">Review</h2>
+    <section v-if="approvals.length" class="stage-approvals" aria-label="Stage approvals">
+      <h2>Stage approvals</h2>
+      <p v-for="approval in approvals" :key="approval.id">
+        {{ columnName(approval.column) }} ·
+        {{ approval.name ? `Approved by ${approval.name}` : 'Approved' }}
+      </p>
+    </section>
+    <p v-if="newest && outcomes.error.value" class="inline-error" role="alert">
+      {{ outcomes.error.value.message }}
+      <button class="text-button" @click="retryHistory">Retry approvals</button>
+    </p>
     <p v-if="review.isPending.value" class="review-empty" role="status">Loading review…</p>
     <p v-else-if="review.isError.value" class="inline-error" role="alert">
       {{ review.error.value?.message }}
@@ -306,7 +333,7 @@ const unlinkedObjections = computed(() =>
         </p>
       </section>
     </section>
-    <template v-else>
+    <template v-else-if="newest || !approvals.length">
       <div class="fingerprint-panel">
         <p v-if="!newest" class="review-empty">
           Jev reviews each column when its agents finish. Nothing to review yet.
@@ -816,6 +843,7 @@ footer {
   margin-top: 16px;
 }
 .validation-details h2,
+.stage-approvals h2,
 .legacy-review h2 {
   font-size: 14px;
   font-weight: 600;

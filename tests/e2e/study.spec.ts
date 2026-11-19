@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { newStudy, openAgentTranscript } from './lab';
+import { newStudy, openAgentTranscript, openStudyDetails } from './lab';
 
 test('the study opens with its description and identifiable runs, keeping the question in its assignment', async ({
   page,
@@ -59,6 +59,7 @@ test('the study opens with its description and identifiable runs, keeping the qu
     if (await back.isVisible()) await back.click();
     await meta.getByRole('button', { name: name, exact: true }).click();
   };
+  await openStudyDetails(page);
   await surface('Properties');
   await expect(meta.locator('.metadata-owner')).toContainText('Ana Ruiz');
   await expect(meta.getByText('Grounding')).toBeVisible();
@@ -340,6 +341,7 @@ async function deleteFromBoard(page: import('@playwright/test').Page, id: string
 
 // Opens one of the study's right-pane surfaces from the chooser.
 async function openSurface(page: import('@playwright/test').Page, name: string) {
+  await openStudyDetails(page);
   const pane = page.getByRole('complementary', { name: 'Right pane', exact: true });
   await pane.getByRole('button', { name, exact: true }).click();
   return pane;
@@ -801,6 +803,7 @@ test('the study shows its description without evidence in details', async ({ pag
   await expect(description).not.toContainText('Audit recorded');
   await expect(description).not.toContainText('The protein lookup is recorded.');
   const pane = page.getByRole('complementary', { name: 'Right pane' });
+  await openStudyDetails(page);
   await pane.getByRole('button', { name: 'Properties', exact: true }).click();
   await expect(pane.getByLabel('Machine', { exact: true })).toHaveCount(0);
   await expect(pane).toContainText('Runs on:');
@@ -813,6 +816,7 @@ test('Properties stays the same width on the right and resizes inward', async ({
   await page.goto(`/#/studies/${study.id}`);
   const area = page.getByRole('region', { name: 'Study', exact: true });
   const properties = area.getByRole('complementary', { name: 'Right pane' });
+  await openStudyDetails(page);
   await properties.getByRole('button', { name: 'Properties', exact: true }).click();
   const splitter = area.getByRole('separator', { name: 'Resize right pane' });
   await expect(properties).toHaveCSS('width', '240px');

@@ -84,7 +84,7 @@ func (h *H) coresearchChanges(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *H) coresearchPaperVersions(w http.ResponseWriter, r *http.Request) {
-	var out []db.CoresearchVersion
+	var out []db.ListCoresearchVersionsRow
 	e := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
 		p, e := coresearchProject(r, tx, ws, who, false, false)
 		if e != nil {
@@ -97,7 +97,7 @@ func (h *H) coresearchPaperVersions(w http.ResponseWriter, r *http.Request) {
 		return e
 	})
 	if out == nil {
-		out = []db.CoresearchVersion{}
+		out = []db.ListCoresearchVersionsRow{}
 	}
 	if paperAnswer(w, r, e) {
 		writeJSON(w, 200, out)

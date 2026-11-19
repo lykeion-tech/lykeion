@@ -1611,6 +1611,22 @@ onUnmounted(() => {
 .application .sidebar.cowrite-context-rail .task-sidebar :is(div, button, span, p, strong, small) {
   color: #666a6d;
 }
+[data-theme='dark'] .application .sidebar.cowrite-context-rail .task-sidebar
+  :is(div, button, span, p, strong, small, .tsb-member-list) {
+  color: var(--muted);
+}
+[data-theme='dark'] .application .sidebar.cowrite-context-rail .task-sidebar
+  :is(
+    .tsb-project-name,
+    .tsb-members-title,
+    .ms-outline > div,
+    .tsb-switch-tab[aria-selected='true'],
+    .tsb-file-open[aria-current] .tsb-file-name,
+    .tsb-chat-open[aria-current] .tsb-chat-title,
+    .ms-outline-row[aria-current]
+  ) {
+  color: var(--text);
+}
 .application .cowrite-context-rail > .sidebar-brand {
   margin: 0 10px 12px;
 }

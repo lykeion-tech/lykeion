@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { labWorkspace, newStudy } from './lab';
+import { labWorkspace, newStudy, openStudyDetails } from './lab';
 
 const stopButton = (page: Page) => page.getByRole('button', { name: 'Stop study', exact: true });
 const sendButton = (page: Page) => page.getByRole('button', { name: 'Send', exact: true });
@@ -75,6 +75,7 @@ test('Stop ends the study after confirmation and removes the composer', async ({
   page.once('dialog', (d) => d.accept());
   await stopButton(page).click();
   const pane = page.getByRole('complementary', { name: 'Right pane' });
+  await openStudyDetails(page);
   await pane.getByRole('button', { name: 'Properties', exact: true }).click();
   await expect(pane.locator('.ending-chip')).toHaveText('Stopped');
   await expect(pane.locator('.ending-reason')).toHaveText('Stopped by user');
@@ -117,6 +118,7 @@ test('a stopped study keeps its full long reason inside the right pane', async (
   expect(stopped.status()).toBeLessThan(300);
   await page.goto(`/#/studies/${study.id}`);
   const meta = page.getByRole('complementary', { name: 'Right pane' });
+  await openStudyDetails(page);
   await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   const ending = meta.locator('.ending-reason');
   await expect(ending).toHaveText(reason);

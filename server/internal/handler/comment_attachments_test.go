@@ -38,8 +38,18 @@ func TestCommentAttachmentsAreScopedAndNotStudyInputs(t *testing.T) {
 	if code := s.call(t, "GET", path, jwt, ws.ID, nil, nil); code != 200 {
 		t.Fatalf("download: %d", code)
 	}
+	browserPath := path + "?download=1&workspace=" + ws.ID
+	colleague := s.member(t, jwt, ws.ID, "comment-reader@lab.org", "member")
+	for _, viewer := range []string{jwt, colleague} {
+		if code := s.call(t, "GET", browserPath, viewer, "", nil, nil); code != 200 {
+			t.Fatalf("browser download: %d", code)
+		}
+	}
 	other := s.signIn(t, "outside-comment@lab.org")
 	otherWS := s.workspace(t, other, "outside")
+	if code := s.call(t, "GET", browserPath, other, "", nil, nil); code != 404 {
+		t.Fatalf("foreign browser download: %d", code)
+	}
 	if code := s.call(t, "GET", path, other, otherWS.ID, nil, nil); code != 404 {
 		t.Fatalf("foreign download: %d", code)
 	}

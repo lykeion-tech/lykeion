@@ -33,7 +33,43 @@ UPDATE coresearch_change SET status= @status,decided_by= @decided_by,decided_at=
 -- name: ListCoresearchChanges :many
 SELECT * FROM coresearch_change WHERE workspace_id= @workspace_id AND file_id= @file_id AND (sqlc.arg(status)::text='' OR status=sqlc.arg(status)::text) ORDER BY created_at,id;
 -- name: ListCoresearchVersions :many
-SELECT * FROM coresearch_version WHERE workspace_id= @workspace_id AND project_id= @project_id ORDER BY seq DESC;
+WITH manuscripts AS (
+    SELECT v.id, main.ref, lag(main.ref) OVER (ORDER BY v.seq) AS previous
+    FROM coresearch_version v
+    LEFT JOIN LATERAL (
+        SELECT ref FROM jsonb_array_elements(v.files) AS source(ref) WHERE ref->>'path' = 'main.tex'
+    ) main ON true
+    WHERE v.workspace_id = @workspace_id AND v.project_id = @project_id
+)
+SELECT v.*, coalesce(nullif(btrim(compiler.name), ''), '')::text AS compiled_by_name,
+       ARRAY(
+           SELECT CASE WHEN authors.author_user_id IS NULL THEN 'AI agent'
+                       ELSE coalesce(nullif(btrim(editor.name), ''), 'Unnamed collaborator') END AS name
+           FROM (
+               SELECT step.author_user_id
+               FROM coresearch_doc_step step
+               WHERE step.workspace_id = v.workspace_id AND step.file_id = (main.ref->>'file_id')::uuid
+                 AND step.version <= (main.ref->>'doc_version')::bigint
+                 AND step.version > CASE WHEN main.ref->>'file_id' = main.previous->>'file_id'
+                     THEN coalesce((main.previous->>'doc_version')::bigint, 0) ELSE 0 END
+               UNION
+               SELECT file_version.author_user_id
+               FROM coresearch_file_version file_version
+               WHERE main.ref->>'doc_version' IS NULL
+                 AND file_version.workspace_id = v.workspace_id
+                 AND file_version.file_id = (main.ref->>'file_id')::uuid
+                 AND file_version.n = (main.ref->>'n')::int
+                 AND (file_version.author_user_id IS NOT NULL OR file_version.agent_run_id IS NOT NULL)
+           ) authors
+           LEFT JOIN "user" editor ON editor.id = authors.author_user_id
+           WHERE main.ref->>'sha256' IS DISTINCT FROM main.previous->>'sha256'
+           ORDER BY name, authors.author_user_id
+       )::text[] AS contributor_names
+FROM coresearch_version v
+JOIN manuscripts main ON main.id = v.id
+LEFT JOIN "user" compiler ON compiler.id = v.by_user_id
+WHERE v.workspace_id = @workspace_id AND v.project_id = @project_id
+ORDER BY v.seq DESC;
 -- name: GetCoresearchVersion :one
 SELECT * FROM coresearch_version WHERE workspace_id= @workspace_id AND project_id= @project_id AND seq= @seq;
 -- name: ListCoresearchRetainedFiles :many

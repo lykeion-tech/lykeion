@@ -70,6 +70,7 @@ it('Tools opens the four permanent tabs in source order and Close returns to PDF
       .filter((n) => n.props.role === 'tab')
       .map(textOf),
   ).toEqual(['Project Info', 'Versions', 'Comments', 'Logs']);
+  expect(all(root).some((n) => n.props['aria-label'] === 'Expand panel')).toBe(false);
   expect(
     all(root)
       .filter((n) => String(n.props['aria-label']).startsWith('Close '))

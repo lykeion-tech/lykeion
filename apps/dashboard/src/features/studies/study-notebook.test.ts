@@ -326,11 +326,7 @@ it('opens the Notebook from the study pane and can jump to the same run again', 
     client.clear();
   });
   await nextTick();
-  expect(
-    all(root)
-      .filter((n) => n.props.class === 'surface-choice')
-      .map(textOf),
-  ).toEqual(['Timeline', 'Review', 'Notebook', 'Files', 'Properties']);
+  expect(all(root).some((n) => n.props.class === 'surface-choice')).toBe(false);
   expect(detail.value?.openNotebookAt).toBeTypeOf('function');
   detail.value!.openNotebookAt('run-1');
   await nextTick();

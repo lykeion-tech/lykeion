@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labFixture } from './lab';
+import { labFixture, openStudyDetails } from './lab';
 
 const artifacts =
   '.superpowers/sdd/2026-10-15-study-inspector-refinements/task-layout-corrections-artifacts';
@@ -15,6 +15,8 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(`/#/studies/${f.card_id}`);
   const meta = page.locator('aside[aria-label="Right pane"]');
+  await expect(meta).toHaveCount(0);
+  await openStudyDetails(page);
   await meta.getByRole('button', { name: 'Properties', exact: true }).click();
   const splitter = page.getByRole('separator', { name: 'Resize right pane' });
   const main = page.locator('.task-main');
@@ -54,6 +56,8 @@ test('Properties follows the study with its left-edge resizer and preserves coll
   await page.mouse.up();
   await expect(meta).toHaveCSS('width', '240px');
   await page.reload();
+  await expect(meta).toHaveCount(0);
+  await openStudyDetails(page);
   await expect(meta).toHaveCSS('width', '240px');
   await page.screenshot({ path: `${artifacts}/left-properties-1920.png` });
   await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).first().click();

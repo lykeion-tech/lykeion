@@ -320,6 +320,15 @@ async function mount(
   };
 }
 
+async function openStudySurface(t: Awaited<ReturnType<typeof mount>>, label: RegExp) {
+  const toggle = t.nodes().find((n) => n.props['aria-label'] === 'Toggle details');
+  if (toggle?.props['aria-pressed'] === false) {
+    (toggle.props.onClick as () => void)();
+    await nextTick();
+  }
+  await t.click(label);
+}
+
 async function mountPicker(agents = false, lastSet: Picked | null = null, oneAgent = false) {
   const assignee = ref<Picked | null>(null);
   const range = ref<Range>({ from: 'grounding', to: 'validation' });
@@ -1144,7 +1153,7 @@ it('does not put validation status lines above study activity', async () => {
     expect(t.nodes().some((n) => n.tag === 'ul' && n.props['aria-label'] === 'Validation')).toBe(
       false,
     );
-    expect(t.button(/^Review$/)).toBeTruthy();
+    await openStudySurface(t, /^Review$/);
   } finally {
     t.unmount();
   }
@@ -1306,7 +1315,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       expect(t.text()).toContain('Attached files');
       expect(t.text()).not.toContain('Study variables');
       expect(t.text()).not.toContain('DATASET');
@@ -1323,7 +1332,7 @@ describe('hidden services, no study variables', () => {
       (c) => seedStudy(c, { services }),
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       expect(t.text()).not.toContain('This study has hidden services:');
     } finally {
       t.unmount();
@@ -1341,7 +1350,7 @@ describe('hidden services, no study variables', () => {
         }),
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       expect(t.text()).toContain(
         "This study has hidden services: grader, database. Hidden services can't be fully isolated on every machine; don't use them to keep secrets.",
       );
@@ -1519,7 +1528,7 @@ describe('a study worked by one agent', () => {
       (c) => seedStudy(c, { assignee_type: 'agent', assignee_id: 'a1', teams: {} }),
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       expect(t.text()).toContain('Solo agent');
       expect(t.text()).not.toContain('No auditor');
     } finally {
@@ -1540,7 +1549,7 @@ describe('a study worked by one agent', () => {
         }),
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       expect(t.text()).toContain('My Team');
       expect(t.text()).not.toContain('No auditor');
     } finally {
@@ -1570,7 +1579,7 @@ describe('study Properties status', () => {
         },
       );
       try {
-        await t.click(/^Properties$/);
+        await openStudySurface(t, /^Properties$/);
         const stage = t
           .nodes()
           .find((n) => n.props.class === 'property-row' && textOf(n).includes('Stage'))!;
@@ -1596,7 +1605,7 @@ describe('study Properties status', () => {
       },
     );
     try {
-      await t.click(/^Properties$/);
+      await openStudySurface(t, /^Properties$/);
       const stage = () =>
         t.nodes().find((n) => n.props.class === 'property-row' && textOf(n).includes('Stage'))!;
       expect(textOf(stage())).toBe('StageGrounding');
@@ -1732,7 +1741,7 @@ describe('study right-pane surfaces', () => {
       seedStudy,
     );
     try {
-      await t.click(/^Timeline$/);
+      await openStudySurface(t, /^Timeline$/);
       const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
       (maximize.props.onClick as () => void)();
       await nextTick();
@@ -1748,10 +1757,22 @@ describe('study right-pane surfaces', () => {
     }
   });
 
-  it('opens the chooser and shows properties, execution and files one at a time', async () => {
-    const t = await mount(StudyDetail, () => ({ id: 'c' }), '/', seedStudy);
+  it('starts with details closed for each study and opens surfaces on request', async () => {
+    const id = ref('c');
+    const t = await mount(StudyDetail, () => ({ id: id.value }), '/', (client) => {
+      seedStudy(client);
+      client.setQueryData(keys.card('w', 'next'), {
+        ...client.getQueryData<Record<string, unknown>>(keys.card('w', 'c')),
+        id: 'next',
+        title: 'Next study',
+      });
+    });
     try {
       const toggle = () => t.nodes().find((n) => n.props['aria-label'] === 'Toggle details');
+      expect(toggle()?.props['aria-pressed']).toBe(false);
+      expect(t.text()).not.toContain('Open a surface');
+      (toggle()!.props.onClick as () => void)();
+      await nextTick();
       expect(t.text()).toContain('Open a surface');
       expect(toggle()?.props['aria-pressed']).toBe(true);
       expect(t.text()).not.toContain('Grounding criteria');
@@ -1781,6 +1802,12 @@ describe('study right-pane surfaces', () => {
       }
       (toggle()!.props.onClick as () => void)();
       await nextTick();
+      expect(toggle()?.props['aria-pressed']).toBe(false);
+      expect(t.text()).not.toContain('Open a surface');
+      (toggle()!.props.onClick as () => void)();
+      await nextTick();
+      id.value = 'next';
+      await vi.waitFor(() => expect(t.text()).toContain('Next study'));
       expect(toggle()?.props['aria-pressed']).toBe(false);
       expect(t.text()).not.toContain('Open a surface');
     } finally {
@@ -1815,7 +1842,7 @@ it('keeps uploaded and generated files out of the description', async () => {
   );
   try {
     expect(t.nodes().some((n) => n.props['aria-label'] === 'Study attachments')).toBe(false);
-    await t.click(/^Files$/);
+    await openStudySurface(t, /^Files$/);
     expect(t.text()).toContain('input.txt');
     expect(t.text()).toContain('generated.csv');
   } finally {
@@ -1901,7 +1928,7 @@ it('opens an attachment in Files and returns to the gallery using the pane back 
     },
   );
   try {
-    await t.click(/^Files$/);
+    await openStudySurface(t, /^Files$/);
     await t.click(/input\.txt/);
     await vi.waitFor(() => expect(t.text()).toContain('Download'));
     const back = t.nodes().find((n) => n.props['aria-label'] === 'Back to surfaces')!;
@@ -1921,7 +1948,7 @@ it('opens an attachment in Files and returns to the gallery using the pane back 
         .onClick as () => void
     )();
     await nextTick();
-    await t.click(/^Properties$/);
+    await openStudySurface(t, /^Properties$/);
     const attached = t.nodes().find((n) => n.props['aria-label'] === 'Attached files')!;
     const propertyFile = all(attached).find(
       (n) => n.tag === 'button' && textOf(n).includes('input.txt'),
@@ -1973,7 +2000,7 @@ it('does not show an attachment preview after switching studies during the fetch
     },
   );
   try {
-    await t.click(/^Files$/);
+    await openStudySurface(t, /^Files$/);
     await t.click(/input\.txt/);
     await vi.waitFor(() => expect(finish).toBeDefined());
     id.value = 'another-study';
@@ -2042,7 +2069,7 @@ it('lists each saved study output separately with its stage and run provenance',
     },
   );
   try {
-    await t.click(/^Files$/);
+    await openStudySurface(t, /^Files$/);
     expect(
       t
         .nodes()

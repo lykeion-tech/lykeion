@@ -333,7 +333,7 @@ describe('Aristotle UI', () => {
     ]);
     await settle();
     const picker = byLabel(root, 'CLI and model: Codex · Default');
-    expect(picker).toBeTruthy();
+    expect(textOf(picker).trim()).toBe('Default');
     await (picker.props.onClick as () => Promise<void>)();
     await settle();
     expect(byLabel(root, 'Codex')).toBeTruthy();
@@ -359,13 +359,13 @@ describe('Aristotle UI', () => {
     ]);
     await settle();
     const indicator = byLabel(root, 'CLI and model: Claude Code · Sonnet');
-    expect(indicator).toBeTruthy();
+    expect(textOf(indicator).trim()).toBe('Sonnet');
     await (indicator.props.onClick as () => Promise<void>)();
     await settle();
     expect(byLabel(root, 'CLI')).toBeTruthy();
     (byLabel(root, 'Opus').props.onClick as () => void)();
     await settle();
-    expect(textOf(byLabel(root, 'CLI and model: Claude Code · Opus'))).toContain('Opus');
+    expect(textOf(byLabel(root, 'CLI and model: Claude Code · Opus')).trim()).toBe('Opus');
   });
   it('shows uncached welcome history errors and restores history on explicit retry', async () => {
     let resolveHistory!: (value: Response) => void;

@@ -4,12 +4,10 @@ import type { RightPaneTab } from './pane-tabs';
 const props = defineProps<{
   tabs: RightPaneTab[];
   activeId: string;
-  paneMode: 'split' | 'focus';
 }>();
 const emit = defineEmits<{
   select: [id: string];
   closeTab: [id: string];
-  toggleFocus: [];
   closePane: [];
 }>();
 const band = ref<HTMLElement>();
@@ -114,33 +112,6 @@ watch(() => [props.activeId, props.tabs], reveal, { deep: true });
       </span>
     </div>
     <div class="rightpane-actions">
-      <button
-        type="button"
-        class="art-icon-btn"
-        :aria-pressed="paneMode === 'focus'"
-        :aria-label="paneMode === 'focus' ? 'Show conversation' : 'Expand panel'"
-        @click="emit('toggleFocus')"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.75"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path
-            :d="
-              paneMode === 'focus'
-                ? 'M3 8h5V3M21 8h-5V3M16 21v-5h5M8 21v-5H3'
-                : 'M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5'
-            "
-          />
-        </svg>
-      </button>
       <button
         type="button"
         class="art-icon-btn rightpane-close"

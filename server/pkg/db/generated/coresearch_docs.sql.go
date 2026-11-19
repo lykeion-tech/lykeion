@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -701,7 +702,43 @@ func (q *Queries) ListCoresearchRetainedFiles(ctx context.Context, arg ListCores
 }
 
 const listCoresearchVersions = `-- name: ListCoresearchVersions :many
-SELECT id, workspace_id, project_id, seq, title, by_user_id, build_id, files, created_at FROM coresearch_version WHERE workspace_id= $1 AND project_id= $2 ORDER BY seq DESC
+WITH manuscripts AS (
+    SELECT v.id, main.ref, lag(main.ref) OVER (ORDER BY v.seq) AS previous
+    FROM coresearch_version v
+    LEFT JOIN LATERAL (
+        SELECT ref FROM jsonb_array_elements(v.files) AS source(ref) WHERE ref->>'path' = 'main.tex'
+    ) main ON true
+    WHERE v.workspace_id = $1 AND v.project_id = $2
+)
+SELECT v.id, v.workspace_id, v.project_id, v.seq, v.title, v.by_user_id, v.build_id, v.files, v.created_at, coalesce(nullif(btrim(compiler.name), ''), '')::text AS compiled_by_name,
+       ARRAY(
+           SELECT CASE WHEN authors.author_user_id IS NULL THEN 'AI agent'
+                       ELSE coalesce(nullif(btrim(editor.name), ''), 'Unnamed collaborator') END AS name
+           FROM (
+               SELECT step.author_user_id
+               FROM coresearch_doc_step step
+               WHERE step.workspace_id = v.workspace_id AND step.file_id = (main.ref->>'file_id')::uuid
+                 AND step.version <= (main.ref->>'doc_version')::bigint
+                 AND step.version > CASE WHEN main.ref->>'file_id' = main.previous->>'file_id'
+                     THEN coalesce((main.previous->>'doc_version')::bigint, 0) ELSE 0 END
+               UNION
+               SELECT file_version.author_user_id
+               FROM coresearch_file_version file_version
+               WHERE main.ref->>'doc_version' IS NULL
+                 AND file_version.workspace_id = v.workspace_id
+                 AND file_version.file_id = (main.ref->>'file_id')::uuid
+                 AND file_version.n = (main.ref->>'n')::int
+                 AND (file_version.author_user_id IS NOT NULL OR file_version.agent_run_id IS NOT NULL)
+           ) authors
+           LEFT JOIN "user" editor ON editor.id = authors.author_user_id
+           WHERE main.ref->>'sha256' IS DISTINCT FROM main.previous->>'sha256'
+           ORDER BY name, authors.author_user_id
+       )::text[] AS contributor_names
+FROM coresearch_version v
+JOIN manuscripts main ON main.id = v.id
+LEFT JOIN "user" compiler ON compiler.id = v.by_user_id
+WHERE v.workspace_id = $1 AND v.project_id = $2
+ORDER BY v.seq DESC
 `
 
 type ListCoresearchVersionsParams struct {
@@ -709,15 +746,29 @@ type ListCoresearchVersionsParams struct {
 	ProjectID   uuid.UUID `json:"project_id"`
 }
 
-func (q *Queries) ListCoresearchVersions(ctx context.Context, arg ListCoresearchVersionsParams) ([]CoresearchVersion, error) {
+type ListCoresearchVersionsRow struct {
+	ID               uuid.UUID       `json:"id"`
+	WorkspaceID      uuid.UUID       `json:"workspace_id"`
+	ProjectID        uuid.UUID       `json:"project_id"`
+	Seq              int32           `json:"seq"`
+	Title            string          `json:"title"`
+	ByUserID         *uuid.UUID      `json:"by_user_id"`
+	BuildID          *uuid.UUID      `json:"build_id"`
+	Files            json.RawMessage `json:"files"`
+	CreatedAt        time.Time       `json:"created_at"`
+	CompiledByName   string          `json:"compiled_by_name"`
+	ContributorNames []string        `json:"contributor_names"`
+}
+
+func (q *Queries) ListCoresearchVersions(ctx context.Context, arg ListCoresearchVersionsParams) ([]ListCoresearchVersionsRow, error) {
 	rows, err := q.db.Query(ctx, listCoresearchVersions, arg.WorkspaceID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CoresearchVersion
+	var items []ListCoresearchVersionsRow
 	for rows.Next() {
-		var i CoresearchVersion
+		var i ListCoresearchVersionsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
@@ -728,6 +779,8 @@ func (q *Queries) ListCoresearchVersions(ctx context.Context, arg ListCoresearch
 			&i.BuildID,
 			&i.Files,
 			&i.CreatedAt,
+			&i.CompiledByName,
+			&i.ContributorNames,
 		); err != nil {
 			return nil, err
 		}

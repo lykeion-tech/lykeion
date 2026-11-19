@@ -116,7 +116,6 @@ const fileID = ref(''),
   tab = ref<'files' | 'chats'>('files'),
   namingNew = ref(false),
   membersOpen = ref(false),
-  focused = ref(false),
   compiling = ref(false),
   refusedAfter = ref<number | null>(null),
   drawerOpen = ref(true);
@@ -737,13 +736,18 @@ async function build() {
       aria-label="Upload manuscript files"
       @change="upload"
     />
-    <div
-      class="task-columns"
-      :data-pane-mode="focused ? 'focus' : 'split'"
-      style="--task-utility-width: 50%"
-    >
+    <div class="task-columns" data-pane-mode="split" style="--task-utility-width: 50%">
       <div class="task-main" data-column="paper">
-        <div class="task-stage-row" />
+        <div
+          class="task-stage-row"
+          :class="{
+            'cowrite-image-preview-row':
+              file &&
+              !editable &&
+              !missing &&
+              /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|tiff?|heic|heif)$/i.test(file.path),
+          }"
+        />
         <p v-if="error" class="tab-strip-error" role="alert">{{ error }}</p>
         <p v-if="missing" class="tab-strip-error" role="alert">This file is no longer available.</p>
         <div class="task-main-body">
@@ -770,6 +774,7 @@ async function build() {
                 v-else-if="file && !editable && !missing"
                 :project="project"
                 :file="file"
+                preview-only
               />
               <p v-else class="ms-pane-empty">
                 {{ files.isPending.value ? 'Loading files…' : 'This file is not available.' }}
@@ -810,6 +815,9 @@ async function build() {
                     :active-run="activeRun"
                     :selected-model="model"
                     :models="sessionModels"
+                    :cli="model ? undefined : chat.cli"
+                    :clis="model ? undefined : [chat.cli]"
+                    model-chosen
                     :attachments="attachments"
                     :initial-capabilities="composerCapabilities"
                     @capabilities="composerCapabilities = $event"
@@ -850,7 +858,6 @@ async function build() {
         @redo="editor?.redo()"
         @go-to-source="jumpSource"
         @delete-comment="deleteComment"
-        @focus="focused = $event"
       />
     </div>
     <MembersDialog
