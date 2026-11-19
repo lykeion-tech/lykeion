@@ -66,6 +66,14 @@ test('Teams uses the reference table and opens the reference-size scientific cre
     modal.getByRole('textbox', { name: 'Description', exact: true }),
   ).not.toHaveAttribute('maxlength');
   await expect(modal.getByRole('heading', { name: 'Leader Agent', exact: true })).toBeVisible();
+  const leader = modal.getByRole('combobox', { name: 'Leader agent', exact: true });
+  await leader.click();
+  const choices = modal.getByRole('listbox', { name: 'Leader agent', exact: true });
+  await expect(choices).toBeVisible();
+  const triggerBounds = (await leader.boundingBox())!;
+  const menuBounds = (await choices.boundingBox())!;
+  expect(menuBounds.x + menuBounds.width).toBeCloseTo(triggerBounds.x + triggerBounds.width, 0);
+  await page.keyboard.press('Escape');
   await expect(
     modal.getByRole('heading', { name: 'Additional Members', exact: true }),
   ).toBeVisible();

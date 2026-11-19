@@ -225,7 +225,7 @@ async function create() {
           The leader coordinates the Team and chooses who works next.
         </p>
         <div class="slot">
-          <SelectPicker
+          <SelectPicker align="end"
             ><select v-model="leader.agent" aria-label="Leader agent">
               <option value="" disabled>Choose an agent</option>
               <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
@@ -253,7 +253,7 @@ async function create() {
               placeholder="Name, for example bioinformatician"
               maxlength="32"
             />
-            <SelectPicker
+            <SelectPicker align="end"
               ><select v-model="m.agent" aria-label="Member agent">
                 <option value="" disabled>Choose an agent</option>
                 <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>
@@ -410,7 +410,7 @@ async function create() {
         <h2>Independent Auditor</h2>
         <p class="section-description">The auditor checks the work before scoring.</p>
         <div class="slot">
-          <SelectPicker
+          <SelectPicker align="end"
             ><select v-model="auditor.agent" aria-label="Auditor agent">
               <option value="" disabled>Choose an agent</option>
               <option v-for="a in usable" :key="a.id" :value="a.id">{{ a.name }}</option>

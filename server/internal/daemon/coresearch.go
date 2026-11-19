@@ -58,8 +58,8 @@ func (d *daemon) coreAPI(ws uuid.UUID) *apiclient.Client {
 	return &apiclient.Client{Server: d.api.Server, Token: d.api.Token, HTTP: d.api.HTTP, Workspace: ws.String()}
 }
 func (d *daemon) checkChat(ctx context.Context, w coresearch.WorkContext) error {
-	if d.sandboxErr != nil {
-		return d.sandboxErr
+	if err := d.sandboxStatus(); err != nil {
+		return err
 	}
 	if w.ChatID == uuid.Nil || w.ProjectID == uuid.Nil || w.WorkspaceID == uuid.Nil || d.id == "" {
 		return errors.New("invalid Coresearch identity")
@@ -798,7 +798,7 @@ func (d *daemon) runCoresearchTurn(ctx context.Context, c claimed) (localErr err
 		}
 		door := &Door{RunID: c.AgentRun.ID, Attempt: c.AgentRun.Attempt, Coresearch: true, Server: d.cfg.Server, RunToken: c.Token, CallToken: c.CallToken,
 			WorkspaceConnectors: c.WorkspaceConnectors, Harness: c.AgentRun.Harness, Study: study,
-			PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxErr,
+			PrivatePaths: private, PrivateRoots: []string{d.cfg.Home}, SandboxErr: d.sandboxStatus(),
 			Child: func() agent.ExecOptions { return opts }}
 		if err := door.Start(); err != nil {
 			fail(err)

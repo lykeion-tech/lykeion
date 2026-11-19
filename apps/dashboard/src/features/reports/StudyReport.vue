@@ -8,7 +8,7 @@ import SurfacePane from '../../ui/SurfacePane.vue';
 import { lazyRecordedMarkdown } from '../../ui/lazy-recorded-markdown';
 import ReportGraph from './ReportGraph.vue';
 import ReportPane from './ReportPane.vue';
-import { handInPhrases, kindName, noticesOf, placeLinks } from './report-sections';
+import { handInPhrases, kindName, noticesOf, overviewOf, placeLinks, statusOf } from './report-sections';
 import { shownReport } from './shown-report';
 
 const RecordedMarkdown = lazyRecordedMarkdown();
@@ -18,6 +18,16 @@ const report = computed(() => query.data.value);
 const noReport = computed(
   () => query.error.value instanceof ApiError && query.error.value.status === 409,
 );
+const validationSummary = computed(() => {
+  if (!report.value) return '';
+  const counts = overviewOf(report.value);
+  const statuses = (['supported', 'caveated', 'refuted', 'inconclusive', 'invalid'] as const)
+    .filter((status) => counts[status] > 0);
+  return statuses.map((status) => {
+    const label = statusOf(status, 'finding').word;
+    return statuses.length === 1 ? label : `${counts[status]} ${label.toLowerCase()}`;
+  }).join(' · ');
+});
 
 const selected = ref<string | null>(null);
 const graphSelection = ref(0);
@@ -169,11 +179,13 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
         <header class="report-header">
           <div class="report-heading">
             <h1>{{ studyDisplayTitle(report.title) }}</h1>
+            <p v-if="validationSummary" class="type-caption">Validation · {{ validationSummary }}</p>
             <p v-if="report.hand_in" class="type-caption hand-in-by">{{ handInBy }}</p>
           </div>
         </header>
         <section class="hand-in" aria-label="Hand-in report">
           <template v-if="report.hand_in">
+            <h2 class="type-caption">Recorded agent hand-in</h2>
             <div class="hand-in-text" :class="{ folded: overflows && !expanded }">
               <div ref="handInBody" @click="clickRef">
                 <RecordedMarkdown :key="linksKey" :content="report.hand_in.text" />

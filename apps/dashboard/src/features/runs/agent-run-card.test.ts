@@ -116,7 +116,7 @@ function setup(
   extra: Partial<AgentRun> = {},
   runtime: Runtime | null = null,
   replies: Comment[] = [],
-  overrides?: RunMessage[],
+  overrides?: unknown[],
   agent: AgentDefinition | null = visibleAgent,
 ) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
@@ -290,6 +290,18 @@ it('keeps the final answer visible and opens its transcript separately', async (
   (close.props.onClick as () => void)();
   await nextTick();
   expect(all(root).some((n) => n.props.class === 'agent-turn')).toBe(false);
+});
+it('labels a completed rerun with a failed script and displays its recorded error', async () => {
+  const { root } = setup({ kind: 'rerun', status: 'completed', answer: '' }, null, [], [{
+    agent_run_id: run.id,
+    body: { steps: [{ of: 'r28', exit_status: 1, stderr: 'FileNotFoundError: data.csv' }] },
+  }]);
+  await vi.waitFor(() => expect(textOf(root)).toContain('Replay failed'));
+  const log = all(root).find((n) => n.props['aria-label'] === 'Open full log')!;
+  (log.props.onClick as () => void)();
+  await nextTick();
+  expect(textOf(root)).toContain('Script r28 · Exit status 1');
+  expect(textOf(root)).toContain('FileNotFoundError: data.csv');
 });
 it('adds a reaction without opening the full log', async () => {
   const { root, fetch } = setup();

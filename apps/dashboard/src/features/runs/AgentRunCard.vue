@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import Icon from '../../ui/Icon.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
 import type { AgentDefinition, AgentRun, Comment, Runtime } from '../../api/types';
-import { useCard, useMembers, useRunMessages, uploadAttachment } from '../../api/queries';
+import { useCard, useKindRecords, useMembers, useRunMessages, uploadAttachment } from '../../api/queries';
 import { useAttachments } from '../../lib/attachments';
 import CommentFiles from '../studies/CommentFiles.vue';
 import CommentFilePicker from '../studies/CommentFilePicker.vue';
@@ -41,9 +41,21 @@ const stoppable = computed(() => ['queued', 'dispatched', 'running'].includes(pr
 const logOpen = ref(false);
 const stopping = ref(false);
 const stopError = ref('');
+const isRerun = computed(() => props.run.kind === 'rerun');
+const reruns = useKindRecords(() => props.studyId, 'rerun', isRerun);
+const rerun = computed(() => reruns.data.value?.find((record) => record.agent_run_id === props.run.id)?.body);
+const replaySteps = computed(() =>
+  (Array.isArray(rerun.value?.steps) ? rerun.value.steps : []) as {
+    of: string;
+    exit_status: number;
+    stderr?: string;
+  }[],
+);
+const replayFailure = computed(() => typeof rerun.value?.failure === 'string' ? rerun.value.failure : '');
+const replayFailed = computed(() => Boolean(replayFailure.value) || replaySteps.value.some((step) => step.exit_status !== 0));
 const finalMessages = useRunMessages(
   () => props.run,
-  () => props.run.status === 'completed' && !props.run.answer,
+  () => !isRerun.value && props.run.status === 'completed' && !props.run.answer,
 );
 // A report run hands in the study's report as concepts, facts and links, not
 // as prose, so its card says what it wrote and where to read it.
@@ -218,7 +230,7 @@ function replyStatus(item: Comment) {
 }
 const state = computed(
   () =>
-    ({
+    replayFailed.value ? 'Replay failed' : ({
       queued: 'Queued',
       dispatched: 'Working',
       running: 'Working',
@@ -233,7 +245,7 @@ const lastActive = computed(
 </script>
 <template>
   <section class="run-card-group">
-    <article class="agent-card" :data-status="run.status">
+    <article class="agent-card" :data-status="replayFailed ? 'failed' : run.status">
       <div class="run-header-row">
         <div class="run-header" :aria-label="`${name} (${state}), Run ${position}`">
           <RouterLink
@@ -278,7 +290,15 @@ const lastActive = computed(
         ><RunReactions :study-id="studyId" :run-id="run.id" />
       </div>
       <div :id="`run-transcript-${run.id}`" class="run-result">
-        <p v-if="reportSummary">
+        <p v-if="isRerun && run.status === 'completed'">
+          {{
+            replayFailed ? 'Replay failed. Open the full log for details.'
+            : rerun ? 'Replay finished. See Study Review for the validation outcome.'
+            : reruns.isPending.value ? 'Loading replay results…'
+            : 'Replay results are unavailable.'
+          }}
+        </p>
+        <p v-else-if="reportSummary">
           {{ reportSummary.text }}
           <RouterLink
             v-if="reportSummary.done"
@@ -325,7 +345,20 @@ const lastActive = computed(
               Close
             </button>
           </header>
+          <template v-if="isRerun && rerun">
+            <p v-if="replayFailure" role="alert">{{ replayFailure }}</p>
+            <div v-for="step in replaySteps" :key="step.of">
+              <p>Script {{ step.of }} · Exit status {{ step.exit_status }}</p>
+              <pre v-if="step.stderr" class="replay-stderr" aria-label="Standard error">{{ step.stderr }}</pre>
+              <p v-else-if="step.exit_status !== 0">No standard error was recorded.</p>
+            </div>
+          </template>
+          <p v-else-if="isRerun && run.status === 'completed'">
+            {{ reruns.isPending.value ? 'Loading replay results…' : 'Replay results are unavailable.' }}
+            <button v-if="reruns.isError.value" type="button" @click="reruns.refetch()">Retry</button>
+          </p>
           <RunTurn
+            v-else
             :run="run"
             :study="studyCard.data.value"
             @open-output="
@@ -527,6 +560,10 @@ const lastActive = computed(
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+}
+.replay-stderr {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .machine-notice {

@@ -85,7 +85,7 @@ func TestExperimentationRunsAreToldToSaveOutputs(t *testing.T) {
 	}
 	for _, col := range []string{"grounding", "hypotheses", "validation"} {
 		for _, role := range []string{"leader", "agent", "Curie"} {
-			if p := Protocol(role, col, "", nil); !strings.Contains(p, put) || !strings.Contains(p, "never by a path in a run folder") || strings.Contains(p, install) {
+			if p := Protocol(role, col, "", nil); !strings.Contains(p, put) || !strings.Contains(p, "Never use a path in another run's folder") || !strings.Contains(p, "list_outputs") || strings.Contains(p, install) {
 				t.Errorf("%s on %s is not told how files are kept, or is told to install:\n%s", role, col, p)
 			}
 		}
@@ -274,7 +274,7 @@ func TestStudyInstructionsExplainReferenceTypesAndHandInExample(t *testing.T) {
 	for _, col := range board.Stages {
 		for _, role := range []string{"leader", "agent", "member", "auditor"} {
 			p := Protocol(role, col, col, nil)
-			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "tool-call receipts", "siblings of `answer`"} {
+			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "never a source ID, skill path or receipt", "siblings of `answer`"} {
 				if !strings.Contains(p, want) {
 					t.Errorf("%s/%s lacks %q", col, role, want)
 				}
@@ -325,7 +325,7 @@ func TestEveryShippedRoleExplainsEvidenceAndUsesItsSchema(t *testing.T) {
 		roles := append([]pack.Member{p.Manifest.Leader, p.Manifest.Auditor}, p.Manifest.Members...)
 		for _, role := range roles {
 			instructions := role.Agent.Instructions
-			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "tool-call receipts", "siblings of `answer`", "Placeholder prints", "documented code input"} {
+			for _, want := range []string{"exact returned source ID", "already returned text", "no-text result", "sections returned by `find_tools`", "never a source ID, skill path or receipt", "siblings of `answer`", "Placeholder prints", "documented code input"} {
 				if !strings.Contains(instructions, want) {
 					t.Errorf("%s/%s missing %s", name, role.Name, want)
 				}

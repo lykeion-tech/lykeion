@@ -273,6 +273,50 @@ func (h *H) roleOutputByName(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *H) roleOutputCatalog(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name != "" {
+		var err error
+		if name, err = cleanOutputName(name); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+	}
+	type output struct {
+		Key   string     `json:"key"`
+		Name  string     `json:"name"`
+		Stage string     `json:"stage"`
+		Round int32      `json:"round"`
+		Run   *uuid.UUID `json:"run_id"`
+	}
+	files := []output{}
+	truncated := false
+	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		recs, err := tx.Q.CardKindRecords(r.Context(), db.CardKindRecordsParams{WorkspaceID: role.WorkspaceID, CardID: role.CardID, Kind: "output"})
+		if err != nil {
+			return err
+		}
+		for i := len(recs) - 1; i >= 0; i-- {
+			rec := recs[i]
+			var meta struct{ Name string }
+			if json.Unmarshal(rec.Body, &meta) != nil || meta.Name == "" || (name != "" && meta.Name != name) {
+				continue
+			}
+			if len(files) == 100 {
+				truncated = true
+				break
+			}
+			files = append(files, output{rec.Key, meta.Name, rec.BoardColumn, rec.Round, rec.AgentRunID})
+		}
+		return nil
+	})
+	if err != nil {
+		roleError(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"outputs": files, "truncated": truncated})
+}
+
 // roleOutput streams one of the run's own study's outputs to its daemon.
 func (h *H) roleOutput(w http.ResponseWriter, r *http.Request) {
 	var rec db.Record

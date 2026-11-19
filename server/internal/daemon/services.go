@@ -112,7 +112,7 @@ func (d *daemon) startServices(ctx context.Context, c claimed, study *envs.Study
 	clients := map[string]bool{}
 	for _, spec := range c.Services {
 		failure := fmt.Errorf("hidden service %s did not start; see the daemon log", spec.Name)
-		if len(c.Services) > 4 || study == nil || c.AgentRun.CardID == nil || d.sandboxErr != nil || !serviceName.MatchString(spec.Name) || seen[spec.Name] {
+		if len(c.Services) > 4 || study == nil || c.AgentRun.CardID == nil || d.sandboxStatus() != nil || !serviceName.MatchString(spec.Name) || seen[spec.Name] {
 			return out, failure
 		}
 		seen[spec.Name] = true

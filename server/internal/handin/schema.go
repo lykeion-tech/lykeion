@@ -86,7 +86,9 @@ var schemas = map[Kind]string{
 		"replies", list(reply())),
 	Experimentation: buildStudy(
 		"outputs", list(str()),
-		"values", list(object("name", str(), "value", str(), "file", str())),
+		"values", list(object("name", str(),
+			"value", desc(str(), "The exact number or observed outcome label printed by the script or saved in its output."),
+			"file", str())),
 		"replies", list(reply())),
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),

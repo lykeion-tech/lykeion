@@ -119,7 +119,14 @@ test('New agent opens the Create Agent form, and /agents/new opens it directly',
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create Agent', exact: true });
-  await expect(dialog.getByRole('textbox', { name: 'Agent name', exact: true })).toBeVisible();
+  const name = dialog.getByRole('textbox', { name: 'Agent name', exact: true });
+  await expect(name).toBeVisible();
+  const model = dialog.getByRole('button', { name: /^Model:/ });
+  expect((await model.boundingBox())!.width).toBeLessThan((await name.boundingBox())!.width * 0.75);
+  await dialog.getByRole('button', { name: 'Stage: Grounding' }).click();
+  await expect(dialog.getByRole('listbox', { name: 'Stage options' })).toHaveCSS('width', '200px');
+  await dialog.getByRole('option', { name: 'Validation', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Stage: Validation' })).toBeVisible();
   await page.screenshot({ path: `${artifacts}/agent-create.png` });
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);

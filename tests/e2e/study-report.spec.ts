@@ -137,7 +137,9 @@ test("a finished study's report opens from Decisions with its hand-in, graph and
     .locator(`a[href="#/decisions/${item.id}"]`)
     .click();
   await expect(page.getByRole('heading', { name: study.title })).toBeVisible();
+  await expect(page.getByText('Validation · 1 supported · 1 supported with caveats')).toBeVisible();
   const handIn = page.getByRole('region', { name: 'Hand-in report' });
+  await expect(handIn.getByRole('heading', { name: 'Recorded agent hand-in' })).toBeVisible();
   await expect(handIn).toContainText('The study found that glucose raises insulin secretion.');
   await expect(handIn).toContainText('end-of-hand-in');
   const body = handIn.locator('.hand-in-text');

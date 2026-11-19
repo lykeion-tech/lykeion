@@ -18,7 +18,7 @@ func (d *Door) timeTools(next mcp.MethodHandler) mcp.MethodHandler {
 		tool := "unknown"
 		if p, ok := req.GetParams().(*mcp.CallToolParamsRaw); ok {
 			switch p.Name {
-			case "call_tool", "list_connectors", "run_code", "run_script", "set_up_environment", "read_output", "find_tools", "list_source_tools", "search_literature", "fetch_text", "ask_member", "member_result":
+			case "call_tool", "list_connectors", "run_code", "run_script", "set_up_environment", "read_output", "list_outputs", "find_tools", "list_source_tools", "search_literature", "fetch_text", "ask_member", "member_result":
 				tool = p.Name
 			}
 		}

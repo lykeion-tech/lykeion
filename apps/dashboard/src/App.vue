@@ -1380,7 +1380,10 @@ onUnmounted(() => {
 .help-popup {
   left: 184px;
   bottom: 48px;
-  width: 214px;
+  width: max-content;
+}
+.help-popup > :is(button, a[role="menuitem"]) {
+  padding-right: 16px;
 }
 .discord-icon {
   width: 16px;

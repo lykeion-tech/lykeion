@@ -216,8 +216,8 @@ func (d *daemon) cliSandboxWithRetention(runDir string, study *envs.Study, readO
 				return nil, err
 			}
 		}
-		if d.sandboxErr != nil {
-			return nil, sandbox.PolicyError(fmt.Errorf("CLI sandbox unavailable: %w", d.sandboxErr))
+		if err := d.sandboxStatus(); err != nil {
+			return nil, sandbox.PolicyError(fmt.Errorf("CLI sandbox unavailable: %w", err))
 		}
 		p, err := d.cliPolicy(runDir, study, readOnly, cli, guest)
 		if err != nil {

@@ -18,6 +18,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 )
@@ -497,6 +499,26 @@ func TestReadOutputByName(t *testing.T) {
 	if code, body := byName(leader.token, "b.txt"); code != 200 || len(body) != 40 {
 		t.Fatalf("the other file: %d, %d bytes", code, len(body))
 	}
+	catalogPath := "/api/role/outputs?name=" + url.QueryEscape("results/a.txt")
+	code, catalog := l.s.blobRequest(t, "GET", catalogPath, leader.token, nil)
+	var listed struct {
+		Outputs []struct {
+			Key   string
+			Name  string
+			Stage string
+			RunID uuid.UUID `json:"run_id"`
+		}
+	}
+	if code != http.StatusOK || json.Unmarshal(catalog, &listed) != nil || len(listed.Outputs) != 2 {
+		t.Fatalf("catalog: %d %s", code, catalog)
+	}
+	old := listed.Outputs[1]
+	if old.Name != "results/a.txt" || old.Stage != "hypotheses" || old.RunID.String() != leader.id {
+		t.Fatalf("output provenance: %+v", old)
+	}
+	if code, body := l.s.blobRequest(t, "GET", "/api/role/outputs/"+old.Key, leader.token, nil); code != 200 || len(body) != 300 {
+		t.Fatalf("old file by exact key: %d, %d bytes", code, len(body))
+	}
 	if code, _ := byName(leader.token, "missing.txt"); code != 404 {
 		t.Fatalf("no such name: %d", code)
 	}
@@ -521,5 +543,11 @@ func TestReadOutputByName(t *testing.T) {
 	}
 	if code, _ := byName(other.token, "b.txt"); code != 404 {
 		t.Fatalf("another study's run: %d", code)
+	}
+	if code, body := l.s.blobRequest(t, "GET", catalogPath, other.token, nil); code != 200 || !strings.Contains(string(body), `"outputs":[]`) {
+		t.Fatalf("another study's catalog: %d %s", code, body)
+	}
+	if code, _ := l.s.blobRequest(t, "GET", "/api/role/outputs/"+old.Key, other.token, nil); code != 404 {
+		t.Fatalf("another study's exact file: %d", code)
 	}
 }

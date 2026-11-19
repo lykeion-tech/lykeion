@@ -18,7 +18,7 @@ var (
 	// Sandbox launch failures that reach the daemon as text, not as sandbox.ErrPolicy.
 	sandboxSignatures = []string{"sandbox failed to start", "install bubblewrap", "no sandbox on", "sandbox policy", "sandbox path", "sandbox carved", "sandbox read folder", "sandbox restricted", "sandbox grant", "sandbox started but", "bwrap:", "sandbox-exec:"}
 	signInSignatures  = map[string][]string{
-		"claude": {"please run /login", "oauth token has expired", "oauth session expired and could not be refreshed", "invalid api key"},
+		"claude": {"please run /login", "oauth token has expired", "oauth token revoked", "oauth session expired and could not be refreshed", "invalid api key"},
 		"codex":  {"refresh_token_reused", "refresh token was already used"},
 	}
 )
