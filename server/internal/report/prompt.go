@@ -15,7 +15,7 @@ const promptIntro = "This study is finished. Below is its recorded evidence: the
 // kind, label and quote, each fenced as untrusted and cut so the whole stays
 // within review.MaxState, then the task. It names no person and no record
 // id other than the node ids.
-func Prompt(rep Report) string {
+func Prompt(rep Report, replay string) string {
 	task := fmt.Sprintf("\nTask: propose concepts, facts and links about this study's own text.\n"+
 		"- A concept is something the text names, with a short key, a label and one type: %s.\n"+
 		"- A fact states subject, relation, object about concepts, with a quote copied word for word from one node's text and that node's id as source_node. Give at most %d concepts and %d facts; each quote is at most %d bytes.\n"+
@@ -44,6 +44,12 @@ func Prompt(rep Report) string {
 	hand := "(the study has no hand-in)"
 	if rep.HandIn != nil {
 		hand = rep.HandIn.Text
+	}
+	if replay != "" {
+		const instruction = "For replay claims, use the official automatic replay record. Treat a separate agent execution as an independent check.\n"
+		b.WriteString(instruction)
+		room -= len(instruction)
+		add("Official automatic replay", replay)
 	}
 	if add("The study's hand-in", hand) {
 		for i, n := range rep.Nodes {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -112,7 +113,7 @@ func TestUILab(t *testing.T) {
 	hub := &realtime.Hub{Store: st, Redis: env.Redis}
 	st.Publish = hub.Publish
 	blobs := storage.Local{Dir: t.TempDir()}
-	runs := &service.AgentRuns{Store: st, MCPURL: base + "/mcp/sources"}
+	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: base + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: []byte("0123456789abcdef0123456789abcdef")}
 	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
@@ -128,6 +129,18 @@ func TestUILab(t *testing.T) {
 		h.Shipped = os.DirFS(dir)
 	}
 	if realCodex {
+		// Test review orchestration without submitting synthetic study text to a public index.
+		openAlex := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/works" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"results":[]}`)
+		}))
+		t.Cleanup(openAlex.Close)
+		hosted.OA = sources.OpenAlex{Base: openAlex.URL, HTTP: openAlex.Client()}
+		engine.Sources = sources.Lookup{OpenAlex: hosted.OA, Arxiv: hosted.AX, EuropePMC: hosted.EPMC, GEO: hosted.GEO, Exclude: hosted.Exclude}
 		runs.LabMCPURL = base + "/mcp/lab"
 		runs.OnSettlement = (labmemory.Answers{Store: st}).SettlementHook(runs.OnSettlement)
 		h.Lab = (labmemory.Tools{Store: st, Blobs: blobs}).Handler()
@@ -527,9 +540,16 @@ func TestUILab(t *testing.T) {
 	}
 	daemonDone := make(chan error, 1)
 	daemonState, daemonHome := t.TempDir(), t.TempDir()
+	envDir := ""
+	if realCodex {
+		envDir = os.Getenv("LYK_UI_ENV_DIR")
+		if envDir == "" {
+			envDir = t.TempDir()
+		}
+	}
 	go func() {
 		daemonDone <- daemon.Run(ctx, daemon.Config{Server: base, Token: tok.Token, StateDir: daemonState, Home: daemonHome,
-			Device: "lab-mac", Harnesses: harnesses, Slots: 4,
+			Device: "lab-mac", Harnesses: harnesses, Slots: 4, EnvDir: envDir,
 			Poll: 200 * time.Millisecond, Heartbeat: time.Second, Flush: 200 * time.Millisecond})
 	}()
 

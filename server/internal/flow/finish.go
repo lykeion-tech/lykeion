@@ -55,9 +55,13 @@ func (e *Engine) queueReport(ctx context.Context, tx *store.Tx, c db.Card) error
 		if err != nil {
 			return err
 		}
+		replay := ""
+		if rec := replayOf(in.Records, final.Round); final.BoardColumn == "validation" && rec != nil {
+			replay = replayEvidence(*rec)
+		}
 		run, err := sp.Q.InsertReportAgentRun(ctx, db.InsertReportAgentRunParams{WorkspaceID: sp.WS, CardID: c.ID, AgentID: final.AgentID,
 			BoardColumn: final.BoardColumn, Round: final.Round, Harness: final.Harness, PinnedRuntimeID: final.RuntimeID,
-			Prompt: report.Prompt(report.Build(in)), Skill: reportSkill()})
+			Prompt: report.Prompt(report.Build(in), replay), Skill: reportSkill()})
 		if err != nil {
 			return err
 		}

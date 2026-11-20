@@ -20,7 +20,7 @@ import {
 } from '../../api/queries';
 import { formatSize, useAttachments } from '../../lib/attachments';
 import type { Card } from '../../api/types';
-import { studyNumber, type Picked, type Range } from '../../lib/studies';
+import { coversStage, studyNumber, type Picked, type Range } from '../../lib/studies';
 import { notify } from '../../state/notice';
 import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
@@ -136,6 +136,16 @@ const teamColumns = computed(() => picker.value?.teamColumns ?? []);
 const sendsRange = computed(
   () => !(assignee.value && teamColumns.value.length === 1 && !picker.value?.set),
 );
+const includesHypotheses = computed(() =>
+  coversStage('hypotheses', sendsRange.value ? range.value : null, teamColumns.value),
+);
+const validatesExperiments = computed(() => {
+  const scope = sendsRange.value ? range.value : null;
+  return (
+    coversStage('experimentation', scope, teamColumns.value) &&
+    coversStage('validation', scope, teamColumns.value)
+  );
+});
 // The last set is the Teams of the creator's newest end-to-end study that had Teams.
 const lastSetId = computed(
   () =>
@@ -549,6 +559,13 @@ onUnmounted(() => {
             <ComposerCalendar v-if="menu === 'deadline'" v-model="deadline" kind="due" @close="closeMenu" />
           </div>
         </div>
+        <p v-if="mode === 'manual' && includesHypotheses" class="composer-hint">
+          If you’re supplying the study data, attach it as a file so Hypotheses can cite it.
+        </p>
+        <p v-if="mode === 'manual' && validatesExperiments" class="composer-hint">
+          Validation needs a recorded statistical test for a directional hypothesis. Plan it before
+          Experimentation. For deterministic checks, specify a named outcome or numeric range.
+        </p>
       </div>
       <p v-if="startDate && deadline && startDate > deadline" class="composer-error" role="alert">
         Start date must be on or before the due date.
@@ -597,6 +614,7 @@ onUnmounted(() => {
           type="file"
           multiple
           class="visually-hidden"
+          aria-label="Attach files"
           aria-describedby="composer-files-hint"
           @change="pick"
         />
@@ -862,6 +880,11 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.composer-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 .property-line {
   position: relative;

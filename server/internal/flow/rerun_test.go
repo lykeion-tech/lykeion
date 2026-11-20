@@ -2,6 +2,8 @@ package flow
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"maps"
 	"strings"
@@ -227,15 +229,43 @@ func TestAReportedTestIsFoundOnlyByTheDigitRule(t *testing.T) {
 	}
 }
 
-func TestAValueFoundInAnyFileTheRerunSavedIsReproduced(t *testing.T) {
-	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"fit.py","cites":["run:x1"]}`)}}
+func TestRerunOnlyUsesTheMeasurementsOwnFile(t *testing.T) {
+	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"out/metrics.txt","cites":["run:x1"]}`)}}
 	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "done"}}
 	if ok, notes := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); !ok["f1"] {
-		t.Fatalf("a saved file of another name: %v %v", ok, notes)
+		t.Fatalf("the matching file from a single-step replay: %v %v", ok, notes)
 	}
-	// A value citing no replayed script is not found in an unrelated file.
-	values = []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"other.txt","cites":[]}`)}}
-	if ok, _ := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); ok["f1"] {
-		t.Fatal("a value no replayed script made was found in another file")
+	if ok, _ := reproduce(values, steps, map[string]string{"out/other.txt": "f1 1.50"}, 0); ok["f1"] {
+		t.Fatal("a value was found in an unrelated file")
+	}
+}
+
+func TestRerunDoesNotBorrowMeasurementsAcrossScripts(t *testing.T) {
+	values := []db.Record{
+		{Kind: "value", Body: []byte(`{"name":"failed","value":"73","file":"outputs/probe.txt","cites":["run:x2"]}`)},
+		{Kind: "value", Body: []byte(`{"name":"ambiguous","value":"42","file":"outputs/probe.txt","cites":["run:x1","run:x2"]}`)},
+		{Kind: "value", Body: []byte(`{"name":"control","value":"42","file":"control.py","cites":["run:x1"],"script_run":true}`)},
+	}
+	steps := map[string]RerunStepResult{"x1": {Output: "42"}, "x2": {ExitStatus: 17, Error: "missing marker"}}
+	ok, notes := reproduce(values, steps, map[string]string{"outputs/probe.txt": "73"}, 0)
+	if ok["failed"] || ok["ambiguous"] || !ok["control"] ||
+		!strings.Contains(notes["failed"], "status 17") || !strings.Contains(notes["ambiguous"], "exact script") {
+		t.Fatalf("wrong replay attribution: %v %v", ok, notes)
+	}
+}
+
+func TestRerunMatchesAnArtifactOnlyToItsProducingScript(t *testing.T) {
+	const file = "outputs/probe.txt"
+	v := valueRecord{Value: "73", File: file, Cites: []string{"run:x2"}}
+	files := map[string]string{file: "73"}
+	sum := sha256.Sum256([]byte(files[file]))
+	hashes := map[string]string{file: hex.EncodeToString(sum[:])}
+	steps := map[string]RerunStepResult{"x1": {OutputHashes: hashes}, "x2": {Output: "done"}}
+	if ok, _ := reproduced(v, steps, files, 0); ok {
+		t.Fatal("an earlier script's artifact reproduced the measurement")
+	}
+	steps["x2"] = RerunStepResult{Output: "done", OutputHashes: hashes}
+	if ok, note := reproduced(v, steps, files, 0); !ok {
+		t.Fatalf("the producing script's artifact did not reproduce the measurement: %s", note)
 	}
 }

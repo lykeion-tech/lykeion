@@ -31,7 +31,7 @@ func TestReportPromptFencesEvidence(t *testing.T) {
 			t.Fatalf("node %s carries the email", n.ID)
 		}
 	}
-	p := Prompt(rep)
+	p := Prompt(rep, "")
 	if len(p) > review.MaxState {
 		t.Fatalf("prompt is %d bytes, over %d", len(p), review.MaxState)
 	}
@@ -70,7 +70,7 @@ func TestReportPromptFitsMaxState(t *testing.T) {
 	for i := range 40 {
 		rep.Nodes = append(rep.Nodes, Node{ID: "rec:r" + strings.Repeat("1", i+1), Kind: "paper", Label: "L", Quote: strings.Repeat("q", 5000)})
 	}
-	p := Prompt(rep)
+	p := Prompt(rep, strings.Repeat("official", 5000))
 	if len(p) > review.MaxState {
 		t.Fatalf("prompt is %d bytes, over %d", len(p), review.MaxState)
 	}

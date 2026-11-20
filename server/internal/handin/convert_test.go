@@ -507,6 +507,31 @@ func TestAValueFromASavedOutputCitesTheScriptRunsOfTheRunThatSavedIt(t *testing.
 	}
 }
 
+func TestAValueCanPinItsProducingScript(t *testing.T) {
+	saver, other := uuid.New(), uuid.New()
+	by := func(r db.Record, run uuid.UUID) db.Record { r.AgentRunID, r.Round = &run, 1; return r }
+	ev := NewEvidence([]db.Record{
+		by(rec(board.Experimentation, "run", "x1", map[string]any{"tool": "run_script", "path": "control.py", "exit_status": 0}), saver),
+		by(rec(board.Experimentation, "run", "x2", map[string]any{"tool": "run_script", "path": "probe.py", "exit_status": 0}), saver),
+		by(rec(board.Experimentation, "run", "x3", map[string]any{"tool": "run_script", "path": "other.py", "exit_status": 0}), other),
+		by(rec(board.Experimentation, "output", "o2", map[string]any{"name": "outputs/probe.csv"}), saver),
+	})
+	h := parsed(t, Experimentation, `{"status":"done","answer":"The script printed a result.","reason":null,"replies":[],"outputs":["outputs/probe.csv"],
+		"values":[{"name":"probe","value":"73","file":"outputs/probe.csv","run":"run:x2"}]}`)
+	recs, probs := Convert(Experimentation, true, h, ev, Review{})
+	if len(probs) > 0 {
+		t.Fatal(probs)
+	}
+	if v := body(t, recs[1]); !slices.Equal(v["cites"].([]any), []any{"run:x2"}) {
+		t.Fatalf("value lost its script attribution: %v", v)
+	}
+	wrong := "run:x3"
+	h.Values[0].Run = &wrong
+	if _, probs := Convert(Experimentation, true, h, ev, Review{}); len(probs) != 1 {
+		t.Fatalf("an unrelated script was accepted: %v", probs)
+	}
+}
+
 func TestAHypothesisMayCiteAnAttachedFile(t *testing.T) {
 	ev := NewEvidence([]db.Record{
 		rec(board.Hypotheses, "call", "c4", map[string]any{"server": "attachments", "tool": "read", "args": map[string]any{"name": "results.pdf"}, "answer": "Table 2"}),

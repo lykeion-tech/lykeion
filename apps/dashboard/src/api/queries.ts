@@ -5,6 +5,7 @@ import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
   AgentDefinition,
+  AgentStudyWork,
   LabChart,
   Laboratory,
   StorageReport,
@@ -302,6 +303,8 @@ export const useLabChart = () =>
 export const useLaboratories = () =>
   useQuery({ queryKey: keys.laboratories, queryFn: () => api<Laboratory[]>('GET', '/api/laboratories') });
 export const useAgents = () => list<AgentDefinition>(keys.agents, '/api/agents');
+export const useAgentWork = (id: MaybeRefOrGetter<string>) =>
+  ofCard<AgentStudyWork[]>(id, keys.agentWork, (agent) => `/api/agents/${agent}/work`);
 export function useAgent(id: MaybeRefOrGetter<string>) {
   const client = useQueryClient();
   return useQuery({

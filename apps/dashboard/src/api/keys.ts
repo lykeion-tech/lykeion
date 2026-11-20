@@ -77,6 +77,8 @@ export const keys = {
   labChart: (ws: string) => ['lab-chart', ws] as const,
   laboratories: ['laboratories'] as const,
   agent: (ws: string, id: string) => ['ws', ws, 'agent', id] as const,
+  agentWorkAll: (ws: string) => ['ws', ws, 'agent-work'] as const,
+  agentWork: (ws: string, id: string) => ['ws', ws, 'agent-work', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
   teams: (ws: string, domain = '', stage = '') =>

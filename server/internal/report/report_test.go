@@ -79,6 +79,76 @@ func hasEdge(r Report, from, to, kind string) bool {
 	return slices.Contains(r.Edges, Edge{From: from, To: to, Kind: kind})
 }
 
+func TestReportShowsTheReplayForTheFinishedRound(t *testing.T) {
+	s := newStudy("experimentation", "validation")
+	s.rec("validation", "rerun", "r1", 1, nil, map[string]any{"steps": []map[string]any{{"of": "x1", "exit_status": 0}}})
+	s.rec("validation", "rerun", "r2", 2, nil, map[string]any{"steps": []map[string]any{{"of": "x2", "exit_status": 17, "stderr": "missing marker"}}})
+	s.rec("validation", "outcome", "r3", 2, nil, map[string]string{"verdict": "high"})
+	r := Build(s.in)
+	if r.Replay == nil || len(r.Replay.Steps) != 1 {
+		t.Fatalf("wrong replay: %+v", r.Replay)
+	}
+	if step := r.Replay.Steps[0]; step.Of != "x2" || step.ExitStatus != 17 || step.Stderr != "missing marker" {
+		t.Fatalf("wrong replay step: %+v", step)
+	}
+}
+
+func TestBuildDistinguishesOutputsWithTheSamePath(t *testing.T) {
+	s := newStudy("experimentation", "validation")
+	first := s.run("experimentation", "Leader")
+	second := s.run("experimentation", "Auditor")
+	name := "outputs/summary.csv"
+	s.rec("experimentation", "output", "o1", 1, &first, map[string]string{"name": name})
+	s.rec("experimentation", "output", "o2", 1, &second, map[string]string{"name": name})
+	s.rec("experimentation", "value", "r1", 1, &first, map[string]string{"name": "first slope", "file": name})
+	s.rec("experimentation", "value", "r2", 1, &second, map[string]string{"name": "second slope", "file": name})
+	s.rec("experimentation", "value", "r3", 1, nil, map[string]string{"name": "ambiguous slope", "file": name})
+	for i, f := range []struct{ key, measurement string }{{"r4", "r1"}, {"r5", "r2"}, {"r6", "r3"}} {
+		s.rec("validation", "validation_status", f.key, 2, nil, map[string]any{
+			"hypothesis": []string{"first", "second", "ambiguous"}[i], "status": "supported", "cites": []string{f.measurement}, "final": true,
+		})
+	}
+	s.in.Build = &db.ReportBuild{Status: "done", ChecksStatus: "done"}
+	s.in.Concepts = []db.ReportConcept{{Key: "slope", Label: "Slope"}}
+	s.in.Facts = []db.ReportFact{{Subject: "slope", Relation: "mentioned_in", Object: "out:" + name, SourceNode: "out:" + name}}
+	s.in.Checks = []db.ReportCheck{
+		{NodeID: "rec:r4", CheckID: "table:out:" + name, Status: review.Pass},
+		{NodeID: "rec:r5", CheckID: "table:out:" + name, Status: review.Pass},
+	}
+
+	r := Build(s.in)
+	for _, pair := range []struct {
+		id, finding, agent string
+		run                uuid.UUID
+	}{{"rec:o1", "rec:r4", "Leader", first}, {"rec:o2", "rec:r5", "Auditor", second}} {
+		n := nodeOf(t, r, pair.id)
+		if n.Kind != "output" || n.RunID == nil || *n.RunID != pair.run || n.Agent != pair.agent {
+			t.Fatalf("output provenance: %+v", n)
+		}
+		if !hasEdge(r, "run:"+pair.run.String(), pair.id, "produced") || !hasEdge(r, pair.id, pair.finding, "supports") {
+			t.Errorf("missing provenance edges for %s: %v", pair.id, r.Edges)
+		}
+		if hasEdge(r, pair.id, "rec:r6", "supports") {
+			t.Errorf("ambiguous path should not be attributed to %s", pair.id)
+		}
+	}
+	if nodeOf(t, r, "rec:o1").Label == nodeOf(t, r, "rec:o2").Label {
+		t.Error("identical paths need distinguishable labels")
+	}
+	if hasEdge(r, "rec:o2", "rec:r4", "supports") || hasEdge(r, "rec:o1", "rec:r5", "supports") {
+		t.Errorf("an output supported a finding from another run: %v", r.Edges)
+	}
+	if fact := nodeOf(t, r, "concept:slope").Facts[0]; fact.Object != "rec:o2" || fact.SourceNode != "rec:o2" {
+		t.Errorf("historical fact reference: %+v", fact)
+	}
+	if got := nodeOf(t, r, "rec:r5").Checks; len(got) != 1 || got[0].ID != "table:rec:o2" {
+		t.Errorf("historical check reference: %+v", got)
+	}
+	if got := nodeOf(t, r, "rec:r4").Checks; len(got) != 0 {
+		t.Errorf("a historical check of the newest artifact applied to the earlier one: %+v", got)
+	}
+}
+
 func TestBuildFullStudy(t *testing.T) {
 	s := newStudy("grounding", "validation")
 	gRun := s.run("grounding", "Librarian")
@@ -153,8 +223,8 @@ func TestBuildFullStudy(t *testing.T) {
 	finding, exp := "rec:r12", "run:"+eRun.String()
 	for _, e := range []Edge{
 		{"question", "rec:r1", "uses"}, {"question", "rec:r2", "uses"}, {"question", "rec:r4", "tests"},
-		{"rec:r1", "rec:r4", "grounds"}, {"rec:r4", exp, "tested_by"}, {exp, "out:fig.png", "produced"},
-		{"rec:r4", finding, "tests"}, {"out:fig.png", finding, "supports"}, {"obj:" + obj.ID.String(), finding, "challenges"},
+		{"rec:r1", "rec:r4", "grounds"}, {"rec:r4", exp, "tested_by"}, {exp, "rec:o1", "produced"},
+		{"rec:r4", finding, "tests"}, {"rec:o1", finding, "supports"}, {"obj:" + obj.ID.String(), finding, "challenges"},
 		{"doubt:grounding:r1", finding, "challenges"}, {"doubt:grounding:r2", "question", "challenges"},
 	} {
 		if !hasEdge(r, e.From, e.To, e.Kind) {

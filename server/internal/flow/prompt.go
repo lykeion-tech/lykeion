@@ -65,6 +65,9 @@ func prompt(c db.Card, role string, comments []db.Comment, researchContext strin
 		listed := make([]string, len(files))
 		for i, f := range files {
 			listed[i] = f.DiskName
+			if c.BoardColumn == board.Hypotheses && f.Name != "" && f.DiskName != f.Name {
+				listed[i] = fmt.Sprintf("%q (cite as %q)", f.DiskName, f.Name)
+			}
 		}
 		fmt.Fprintf(&b, "\nAttached files (read-only) are in ./attachments: %s\n", strings.Join(listed, ", "))
 	}
@@ -151,13 +154,15 @@ func itemsPrompt(column string) string {
 			"  - `prediction_shape` is `direction`, `outcomes` or `range`; then fill that shape's fields: for `direction`, `direction` (`increase`, `decrease` or `no_change`); for `outcomes`, the named `outcomes` and the `chosen` one; " +
 			"for `range`, `low`, `high` and `uncertainty` (such as a 90% interval). Leave the other shapes' fields null or empty;\n" +
 			"  - `control`: the baseline it is compared with, or `no_control`: why there is none (give exactly one);\n" +
-			"  - `cites`: the ids it rests on, at least one: the DOI, arXiv or PubMed ids or accessions of the study's Grounding papers and datasets, or of sources you looked up through Lykeion's sources in this study.\n" +
+			"  - `cites`: at least one source the hypothesis rests on. Use the DOI, arXiv or PubMed ids or accessions of the study's Grounding papers and datasets or of sources you looked up through Lykeion's sources in this study. " +
+			"For study attachments, read the file from `./attachments` and cite its original filename. The server already records study attachments as sources; no lookup tool or separate call is needed to cite them.\n" +
 			replies +
+			"Validation requires a recorded statistical test for a directional prediction. If a deterministic study has no appropriate inferential test, preregister a named outcome or a bounded numerical range that its replay can check directly. " +
 			"Jev checks that each prediction is specific enough to be proven wrong and that its cited evidence supports it (a cited source must itself report the effect you predict, so a prediction stronger or more precise than its sources fails), " +
 			"and fails a hypothesis whose cited evidence already holds the answer: never look up this study's own answer.\n"
 	case board.Experimentation:
 		return "- `outputs`: the names of the files in `outputs/` the results come from. At least one is required: the table or figure your values come from.\n" +
-			"- `values`: each reported measurement or observed outcome: `name` says what it measures, `value` is the exact number or outcome label, and `file` names the saved output file or the `run_script` script that shows it. " +
+			"- `values`: each reported measurement or observed outcome: `name` says what it measures, `value` is the exact number or outcome label, and `file` names the saved output file or the execution reference returned by `run_script` if its printed output shows the value. When naming a saved output, set `run` to the exact execution reference returned by the script that produced the measurement, especially when the agent ran multiple scripts. Otherwise pass null. " +
 			"For each hypothesis with named outcomes, have the script calculate which outcome occurred and print or save its exact registered label. Hand that label in as a separate value with a name specific to the hypothesis, alongside any numeric measurements. If no registered outcome was observed, say why without inventing one.\n" +
 			replies +
 			"Jev checks that each number is described correctly; a number described wrongly is flagged as a warning.\n"
@@ -167,7 +172,7 @@ func itemsPrompt(column string) string {
 			"`control` (the name of the recorded value holding the control group's raw value, when `measurement` is the treated group's raw value; null when `measurement` is already the effect), " +
 			"`test` (the statistical test exactly as a recorded script run printed it: `kind` is t, F, chi2, r or z, with `statistic`, `df1`, `df2` (null when the test has none), `p` and `p_bound` (=, < or >); null when there is none. Lykeion looks for its statistic and p in the rerun's output, so a test no run printed makes the hypothesis invalid) " +
 			"and `observed` (for a hypothesis that names outcomes, the name of the recorded value whose text is the outcome seen, one of the named outcomes; null otherwise). " +
-			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the recorded measurements and observed outcomes; you set no status.\n" +
+			"Lykeion reruns the study's scripts in a fresh environment and sets each hypothesis's status from the recorded measurements and observed outcomes; you set no status. Hand in the assessments even when a replay failed, and use the official automatic replay record in the assignment to explain what happened.\n" +
 			"- `verdicts`, otherwise: each claim you checked, with `claim`, `verdict` (`supported`, `refuted` or `not_enough_info`), " +
 			"`source` (an attached file's name, the name of a file the study saved in Experimentation, or the id of a source the study looked up through Lykeion's sources) and `quote`, the passage the verdict rests on, copied word for word.\n" +
 			"- `flagged_errors`, otherwise: each passage that is wrong, with its `source`, the `quote` copied word for word, and the `problem`.\n" +
@@ -186,43 +191,40 @@ const auditorHandIn = "Your prompt holds the leader's answer and the items it ha
 	"An item you could not check against a source is a concern, never a pass. " +
 	"Leave `replies` empty and `decision` null. You hand in no items and ask no members.\n"
 
-// DefaultReportFormat is the Markdown headings a role's hand-in answer uses in
-// a column when its agent has no report template of its own.
-func DefaultReportFormat(role, column string) string {
-	var headings string
-	switch role {
-	case "auditor":
-		headings = "Conclusion; Concerns; References"
-	case "leader", "agent":
-		switch column {
-		case board.Grounding:
-			headings = "Question and scope; Findings; Sources; Disagreements and limitations; Evidence gaps"
-		case board.Hypotheses:
-			headings = "Hypotheses; Predictions and controls; Supporting sources; Alternatives and uncertainty"
-		case board.Experimentation:
-			headings = "Objective; Data and method; Results; Outputs and reproducibility; Limitations or failures"
-		case board.Validation:
-			headings = "What was checked; Assessments or verdicts and evidence; Objections and limitations; Review status"
-		}
-	default:
-		headings = "Assignment; Findings; Handoff"
-	}
-	if headings == "" {
-		headings = "Assignment; Findings; Handoff"
-	}
-	return "## " + strings.ReplaceAll(headings, "; ", "\n\n## ")
+// DefaultReportTemplate is the reporting text shown in Settings and given
+// to a study agent with no custom reporting instructions.
+func DefaultReportTemplate(role, column string) string {
+	return strings.TrimSpace(reportTemplate(role, column, ""))
 }
 
 func reportTemplate(role, column, custom string) string {
-	format := "using this template:\n" + DefaultReportFormat(role, column) + "\n"
-	if strings.TrimSpace(custom) != "" {
-		format = "using this template:\n" + custom + "\n"
+	format := strings.TrimSpace(custom)
+	if format == "" {
+		format = "Describe the assignment, report what you found, and explain what the leader should carry forward."
+		switch role {
+		case "auditor":
+			format = "Give your audit conclusion, explain any concerns and their implications, and cite the evidence you checked."
+		case "leader", "agent":
+			switch column {
+			case board.Grounding:
+				format = "State the research question and scope. Summarize the findings and explain what each source contributes. Describe disagreements, limitations, and gaps in the evidence."
+			case board.Hypotheses:
+				format = "State each hypothesis, its testable prediction, and the control or comparison. Explain the supporting evidence, plausible alternatives, and uncertainty."
+			case board.Experimentation:
+				format = "State the objective, describe the data and method, and give the observed results. Identify the saved outputs and what is needed to reproduce them. Describe limitations and failures that affect the results."
+			case board.Validation:
+				format = "Explain what was checked and give each assessment or verdict with its evidence. State objections, limitations, and the current review status."
+			}
+		}
+		format = "Write the hand-in answer in free form, without required headings. " + format
+	} else {
+		format = "Write the hand-in answer using these reporting instructions:\n" + format
 	}
-	return "Write the hand-in's `answer` in Markdown " + format +
-		"Be concise and report only what you actually did or found. State when a section is unavailable or not applicable; never invent evidence or results. " +
-		"Write for the researcher: focus on findings, evidence, limitations and decisions. Do not describe internal tools, routing, prompts, hand-in formats or retries unless the researcher asks or the detail explains a material limitation. Keep source attribution and meaningful failures clear. " +
+	return format + "\n\n" +
+		"Be concise and report only what you actually did or found. State when something is unavailable or not applicable; never invent evidence or results. " +
+		"Write for the researcher: focus on findings, evidence, limitations and decisions. Do not describe internal tools, routing, prompts, hand-in formats or retries unless the researcher asks or the detail explains a material limitation. Keep source attribution and meaningful failures clear.\n\n" +
 		"If the requested result was obtained, do not mention a recovered error or an unavailable discovery tool in the answer unless it materially limits the findings or the researcher asks. Do not suggest the researcher needs to fix a problem that no longer blocks the answer. Cite the actual source and disclose unresolved failures that affect the result. " +
-		"In the answer, omit HTTP status, cache details and database field names unless the researcher asks or they materially affect the reliability of a finding. Name the source and give a usable citation instead. " +
+		"In the answer, omit HTTP status, cache details and database field names unless the researcher asks or they materially affect the reliability of a finding. Name the source and give a usable citation instead.\n\n" +
 		"If you could not complete the work, say why. Validation review status is pending until Lykeion's checks determine it; do not claim a gate passed. " +
 		"If the researcher requested a specific final line, preserve that line at the end.\n\n"
 }

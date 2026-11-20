@@ -77,6 +77,7 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 	}
 	used := map[string]bool{}
 	for _, f := range h.Facts {
+		f.SourceNode = resolveOutputID(f.SourceNode, rep.legacyOutputs)
 		n, ok := nodes[f.SourceNode]
 		if !ok || !keys[f.Subject] {
 			continue
@@ -90,6 +91,7 @@ func Ground(rep Report, h handin.ReportHandIn) Proposals {
 		}
 		f.Quote = q
 		if f.Relation == "mentioned_in" {
+			f.Object = resolveOutputID(f.Object, rep.legacyOutputs)
 			if _, ok := nodes[f.Object]; !ok {
 				continue
 			}

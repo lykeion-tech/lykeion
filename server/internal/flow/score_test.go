@@ -400,6 +400,9 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 1 {
 				t.Fatalf("scoring_unavailable items: %v", items)
 			}
+			if n := warned.Load(); n != 1 {
+				t.Fatalf("scoring unavailable logged %d warnings for one outage, want 1", n)
+			}
 			if tc == "503" && len(stub.calls()) != 6 {
 				t.Fatalf("Jev asked %d times over two passes, want 3 attempts each", len(stub.calls()))
 			}

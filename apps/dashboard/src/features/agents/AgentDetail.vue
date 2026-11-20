@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/vue-query';
 import { api, ApiError } from '../../api/client';
 import {
   useAgent,
+  useAgentWork,
   useAgents,
   useCards,
   useMe,
@@ -118,6 +119,8 @@ const denied = computed(
   () => detail.error.value instanceof ApiError && [403, 404].includes(detail.error.value.status),
 );
 const agent = computed(() => (denied.value ? undefined : detail.data.value));
+const work = useAgentWork(() => (builtin.value ? '' : agent.value?.id ?? ''));
+const workLoading = computed(() => !builtin.value && (work.isPending.value || cards.isPending.value));
 const available = computed(
   () => !!agent.value && agentAvailable(agent.value, runtimes.data.value ?? [], me.data.value?.id),
 );
@@ -179,12 +182,18 @@ const owner = computed(() => {
   return m ? m.name || m.email : 'Former member';
 });
 const harnessName = backendLabel;
+const studyWork = computed(() => new Map(work.data.value?.map((row) => [row.card_id, row.active_role])));
+const directlyAssigned = (card: Card) => card.assignee_type === 'agent' && card.assignee_id === props.id;
+const activeRole = (card: Card) =>
+  studyWork.value.get(card.id) ?? (directlyAssigned(card) ? card.role || (card.queued ? 'Queued' : '') : '');
 const assigned = computed(() =>
   (cards.data.value ?? [])
-    .filter((c) => c.assignee_type === 'agent' && c.assignee_id === props.id)
+    .filter((c) => directlyAssigned(c) || studyWork.value.has(c.id))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
 );
-const active = computed(() => assigned.value.filter((c) => !c.ending && (c.queued || c.role)));
+const active = computed(() =>
+  assigned.value.filter((c) => !c.ending && c.board_column !== 'done' && activeRole(c)),
+);
 const groups = computed(() =>
   boardColumns.map((col) => ({
     ...col,
@@ -407,7 +416,12 @@ function toggle(id: string) {
                 </template>
               </dl>
               <h3>Studies</h3>
-              <div class="agent-stats">
+              <p v-if="workLoading" class="muted" role="status">Loading study activity…</p>
+              <p v-if="work.isError.value" class="muted" role="status">
+                Team study activity is unavailable.
+                <button type="button" class="text-button" @click="work.refetch()">Retry</button>
+              </p>
+              <div v-if="!workLoading" class="agent-stats">
                 <div>
                   <b>{{ active.length }}</b
                   ><small>in progress</small>
@@ -443,7 +457,7 @@ function toggle(id: string) {
               <h2>
                 Now<small v-if="active.length">{{ `${active.length} in progress` }}</small>
               </h2>
-              <p v-if="!active.length" class="muted">No assigned study is running.</p>
+              <p v-if="!active.length && !workLoading" class="muted">No study work in progress.</p>
               <RouterLink
                 v-for="c in active"
                 :key="c.id"
@@ -451,11 +465,11 @@ function toggle(id: string) {
                 class="agent-study"
                 ><small>{{ number(c) }}</small
                 ><span>{{ studyDisplayTitle(c.title || c.question) }}</span
-                ><em>{{ c.role || 'Queued' }}</em></RouterLink
+                ><em>{{ activeRole(c) }}</em></RouterLink
               >
               <hr />
               <h2>Recent work</h2>
-              <p v-if="!assigned.length" class="muted">No studies assigned yet.</p>
+              <p v-if="!assigned.length && !workLoading" class="muted">No study work yet.</p>
               <RouterLink
                 v-for="c in assigned.slice(0, 8)"
                 :key="c.id"
@@ -485,7 +499,7 @@ function toggle(id: string) {
                 @click="toggle(g.id)"
               >
                 <Icon name="down" :size="12" /><span class="stage-ring" />{{ g.name
-                }}<small>{{ g.cards.length }}</small>
+                }}<small v-if="!workLoading">{{ g.cards.length }}</small>
               </button>
               <template v-if="!collapsed.includes(g.id)">
                 <RouterLink
@@ -497,7 +511,7 @@ function toggle(id: string) {
                   ><span>{{ studyDisplayTitle(c.title || c.question) }}</span
                   ><em>{{ timeAgo(c.updated_at) }}</em></RouterLink
                 >
-                <p v-if="!g.cards.length" class="agent-group-empty">No studies</p>
+                <p v-if="!g.cards.length && !workLoading" class="agent-group-empty">No studies</p>
               </template>
             </section>
           </div>
@@ -634,8 +648,12 @@ function toggle(id: string) {
                 </div>
               </div>
               <h3>Study report template</h3>
-              <p class="agent-hint">
-                Choose how this agent responds and presents its findings in a Study.
+              <p v-if="!builtin" class="agent-hint">
+                {{
+                  customAgent
+                    ? 'Customize how this agent reports its findings in new Study runs.'
+                    : 'These instructions tell this agent how to report its findings in a Study.'
+                }}
               </p>
               <p v-if="builtin" class="agent-hint">This agent does not run Studies.</p>
               <textarea

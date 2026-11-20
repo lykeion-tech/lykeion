@@ -172,10 +172,16 @@ func ScriptRuns(exp []db.Record, file string) []string {
 // saved, empty when it saved none. Code run with run_code is never replayed.
 func (st Standing) RerunSteps() []RerunStep {
 	cited := map[string]bool{}
+	outputs := map[string][]string{}
 	for _, v := range st.Values {
-		for _, c := range valueOf(v).Cites {
+		value := valueOf(v)
+		for _, c := range value.Cites {
 			if k, ok := strings.CutPrefix(c, "run:"); ok {
 				cited[k] = true
+				if len(value.Cites) == 1 && !value.ScriptRun && strings.HasPrefix(value.File, "outputs/") &&
+					!slices.Contains(outputs[k], value.File) {
+					outputs[k] = append(outputs[k], value.File)
+				}
 			}
 		}
 	}
@@ -185,7 +191,11 @@ func (st Standing) RerunSteps() []RerunStep {
 			runs = append(runs, r)
 		}
 	}
-	return RerunSteps(runs)
+	steps := RerunSteps(runs)
+	for i := range steps {
+		steps[i].OutputPaths = outputs[steps[i].Key]
+	}
+	return steps
 }
 
 // RerunSteps are the script runs in recs that exited 0, in order, each with

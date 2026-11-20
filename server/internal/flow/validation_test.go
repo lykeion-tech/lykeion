@@ -52,13 +52,20 @@ func (l *lab) objector(t *testing.T, c db.Card, brief string) (db.AgentRun, bool
 	return l.latestRun(t, c.ID, "objector"), same
 }
 
-func TestSameFamilyObjectorWhenTheOtherIsOffline(t *testing.T) {
+func TestCodexObjectorHonorsTheValidationHarness(t *testing.T) {
 	l := newLab(t)
 	l.online(t, "d1", "claude", "codex")
 	c := l.validationLead(t, "codex")
 	run, same := l.objector(t, c, "brief")
-	if run.Harness != "claude" || same || run.AgentID != nil || run.RequestedModel != "" {
-		t.Fatalf("other family online: harness %q, same %v, agent %v, model %q", run.Harness, same, run.AgentID, run.RequestedModel)
+	if run.Harness != "codex" || !same || run.AgentID != nil || run.RequestedModel != "" {
+		t.Fatalf("Codex with both families online: harness %q, same %v, agent %v, model %q", run.Harness, same, run.AgentID, run.RequestedModel)
+	}
+	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE runtime SET status = 'offline' WHERE harness = 'codex'"); err != nil {
+		t.Fatal(err)
+	}
+	c = l.validationLead(t, "codex")
+	if run, same := l.objector(t, c, "brief"); run.Harness != "codex" || !same {
+		t.Fatalf("offline Codex must stay selected: harness %q, same %v", run.Harness, same)
 	}
 	if _, err := l.env.Owner.Exec(context.Background(), "UPDATE runtime SET status = 'offline' WHERE harness = 'claude'"); err != nil {
 		t.Fatal(err)
@@ -79,6 +86,35 @@ func TestSameFamilyObjectorWhenTheOtherIsOffline(t *testing.T) {
 	c = l.validationLead(t, "claude")
 	if run, same = l.objector(t, c, "brief"); run.Harness != "codex" || same {
 		t.Fatalf("none online: harness %q, same %v", run.Harness, same)
+	}
+}
+
+func TestValidationStartsItsLeadWithTheOfficialReplay(t *testing.T) {
+	l := newLab(t)
+	l.online(t, "d1", "claude", "codex")
+	c := modeAStudy(t, l, nil)
+	l.e.Kick(l.ws, c.ID)
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND role='leader'", c.ID); n != 0 {
+		t.Fatalf("queued %d Validation leads before official replay", n)
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND kind='rerun'", c.ID); n != 1 {
+		t.Fatalf("queued %d reruns, want 1", n)
+	}
+	l.put(t, c.ID, c.BoardColumn, c.Round, "rerun", "server", rerunBody{
+		Steps:      []rerunStep{{Of: "x2", ExitStatus: 17, Stderr: "missing marker"}},
+		Reproduced: map[string]bool{"auc": false},
+		Notes:      map[string]string{"auc": "did not reproduce"},
+	})
+	l.e.Kick(l.ws, c.ID)
+	l.e.Kick(l.ws, c.ID)
+	run := l.latestRun(t, c.ID, "leader")
+	for _, want := range []string{"Official automatic replay", "x2", "17", "missing marker", "did not reproduce"} {
+		if !strings.Contains(run.Prompt, want) {
+			t.Fatalf("Validation lead missing %q in replay evidence", want)
+		}
+	}
+	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id=$1 AND role='leader'", c.ID); n != 1 {
+		t.Fatalf("queued %d Validation leads after replay", n)
 	}
 }
 
@@ -204,7 +240,6 @@ func TestNoStatusesBeforeTheRerun(t *testing.T) {
 	l.jev(t, 200, levels(nil))
 	l.online(t, "d1", "claude", "codex")
 	c := modeAStudy(t, l, nil)
-	l.assess(t, c.ID)
 	l.e.Kick(l.ws, c.ID)
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun' AND status = 'queued'", c.ID); n != 1 {
 		t.Fatalf("%d rerun jobs queued, want 1", n)
@@ -221,6 +256,7 @@ func TestNoStatusesBeforeTheRerun(t *testing.T) {
 	// The rerun's result moves it on.
 	l.putRerun(t, c, true)
 	l.e.Kick(l.ws, c.ID)
+	l.assess(t, c.ID)
 	if ss := l.statuses(t, c.ID, false); len(ss) != 1 || ss[0].Status != review.Supported {
 		t.Fatalf("statuses after the rerun: %+v", ss)
 	}
@@ -495,7 +531,7 @@ func TestARerunRefusedAtClaimIsQueuedAgain(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))
 	c := modeAStudy(t, l, nil)
-	l.assess(t, c.ID)
+	l.e.Kick(l.ws, c.ID)
 	first := l.latestRun(t, c.ID, "rerun")
 	l.settle(t, first, "failed", "runtime_access_denied", "This machine is no longer shared with you; choose another for this study.")
 	if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind = 'rerun'", c.ID); n != 0 {
@@ -516,7 +552,7 @@ func TestACancelledRerunIsQueuedAgain(t *testing.T) {
 	l := newLab(t)
 	l.jev(t, 200, levels(nil))
 	c := modeAStudy(t, l, nil)
-	l.assess(t, c.ID)
+	l.e.Kick(l.ws, c.ID)
 	first := l.latestRun(t, c.ID, "rerun")
 	l.settle(t, first, "cancelled", "", "")
 	if n := l.count(t, "SELECT count(*) FROM agent_run WHERE card_id = $1 AND kind = 'rerun' AND status = 'queued' AND id <> $2", c.ID, first.ID); n != 1 {

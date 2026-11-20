@@ -351,7 +351,7 @@ async function save() {
         </fieldset>
         <div class="new-agent-model-field">
           <span>Stage</span>
-          <div class="coresearch new-agent-model-picker new-agent-stage-picker">
+          <div class="coresearch new-agent-model-picker">
             <ModelSwitcher v-model="draft.stage" :models="stages.map((stage) => ({ value: stage, label: columnName(stage) }))" label="Stage" open-up />
           </div>
         </div>
@@ -413,8 +413,7 @@ async function save() {
 .coresearch.new-agent-model-picker :deep(.cli-chevron) {
   color: var(--text);
 }
-.new-agent-stage-picker :deep(.cli-menu) {
-  background: var(--input);
+.new-agent-model-picker :deep(.cli-menu[aria-label='Stage options']) {
   width: 200px;
   max-width: 100%;
 }

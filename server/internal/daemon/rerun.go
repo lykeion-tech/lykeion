@@ -2,9 +2,12 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -35,10 +38,11 @@ type rerunResult struct {
 }
 
 type rerunStep struct {
-	Key        string `json:"key"`
-	ExitStatus int    `json:"exit_status"`
-	Output     string `json:"output"`
-	Error      string `json:"error"`
+	Key          string             `json:"key"`
+	ExitStatus   int                `json:"exit_status"`
+	Output       string             `json:"output"`
+	Error        string             `json:"error"`
+	OutputHashes *map[string]string `json:"output_hashes,omitempty"`
 }
 
 type rerunOutput struct {
@@ -278,6 +282,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		var output, errText string
 		status := -1
+		before := rerunOutputHashes(root, s.OutputPaths)
 		if err != nil {
 			errText = "the script could not be written: " + err.Error()
 		} else if output, errText, status, err = door.execScript(runCtx, door.Study, s.Path, s.Language, s.Script); err != nil {
@@ -286,7 +291,13 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		body := map[string]any{"key": s.Key, "exit_status": status, "output": output, "error": errText}
 		fitBody(body, share)
-		result.Steps = append(result.Steps, rerunStep{Key: s.Key, ExitStatus: status, Output: body["output"].(string), Error: body["error"].(string)})
+		step := rerunStep{Key: s.Key, ExitStatus: status, Output: body["output"].(string), Error: body["error"].(string)}
+		if status == 0 && len(s.OutputPaths) > 0 {
+			hashes := rerunOutputHashes(root, s.OutputPaths)
+			maps.DeleteFunc(hashes, func(name, hash string) bool { return before[name] == hash })
+			step.OutputHashes = &hashes
+		}
+		result.Steps = append(result.Steps, step)
 	}
 	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
 	// An earlier attempt's outputs are kept as it saved them.
@@ -306,8 +317,44 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	for _, name := range slices.Sorted(maps.Keys(sums)) {
 		result.Outputs = append(result.Outputs, rerunOutput{Name: name, TextSHA256: sums[name]})
 	}
+	for i := range result.Steps {
+		if hashes := result.Steps[i].OutputHashes; hashes != nil {
+			maps.DeleteFunc(*hashes, func(name, hash string) bool { return sums[name] != hash })
+		}
+	}
 	settle("")
 	return nil
+}
+
+// Only a measured output changed by this script can attest to its replay.
+func rerunOutputHashes(root *os.Root, paths []string) map[string]string {
+	const maxEvidenceBytes = 8 << 20
+	hashes := make(map[string]string, len(paths))
+	for _, name := range paths {
+		if !strings.HasPrefix(name, "outputs/") || !fs.ValidPath(name) {
+			continue
+		}
+		info, err := root.Lstat(name)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxEvidenceBytes || linkCount(info) > 1 {
+			continue
+		}
+		f, err := root.Open(name)
+		if err != nil {
+			continue
+		}
+		now, err := f.Stat()
+		if err != nil || !os.SameFile(now, info) {
+			f.Close()
+			continue
+		}
+		hash := sha256.New()
+		n, err := io.Copy(hash, io.LimitReader(f, maxEvidenceBytes+1))
+		f.Close()
+		if err == nil && n <= maxEvidenceBytes {
+			hashes[name] = hex.EncodeToString(hash.Sum(nil))
+		}
+	}
+	return hashes
 }
 
 // protectedStep refuses a script path the rerun keeps for itself: its

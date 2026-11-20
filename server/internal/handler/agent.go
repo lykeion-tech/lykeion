@@ -229,11 +229,31 @@ func (h *H) getAgent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if out.BuiltInKey == "" {
-			out.DefaultReportTemplate = flow.DefaultReportFormat(role, out.Stage)
+			out.DefaultReportTemplate = flow.DefaultReportTemplate(role, out.Stage)
 		}
 		return nil
 	})
 	agentFail(w, r, err, out, 200)
+}
+
+func (h *H) getAgentWork(w http.ResponseWriter, r *http.Request) {
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	var work []store.AgentStudyWork
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+		if err != nil {
+			return err
+		}
+		if !agentVisible(r, a, user) {
+			return pgx.ErrNoRows
+		}
+		work, err = tx.AgentStudyWork(r.Context(), id)
+		return err
+	})
+	agentFail(w, r, err, work, 200)
 }
 
 func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {

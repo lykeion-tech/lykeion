@@ -91,6 +91,13 @@ describe('event to query map', () => {
       has(type, keys.cards('w1'));
     }
   });
+  it('refreshes Agent Work when a study run changes state', () => {
+    for (const type of ['agent_run.started', 'agent_run.requeued', 'agent_run.completed']) {
+      has(type, keys.agentWorkAll('w1'));
+      expect(invalidationsFor('w1', ev(type, null))).not.toContainEqual(keys.agentWorkAll('w1'));
+    }
+    expect(invalidationsFor('w1', ev('agent_run.usage_updated'))).not.toContainEqual(keys.agentWorkAll('w1'));
+  });
   it('late usage invalidates all analytics filters only in its own workspace', () => {
     const client = new QueryClient();
     const all = [...keys.analytics('w1'), 'UTC', 'all', 'daily', '30d'];

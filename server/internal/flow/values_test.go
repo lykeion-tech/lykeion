@@ -255,7 +255,7 @@ func TestAValueBeyondTheInlineCutStillMatches(t *testing.T) {
 
 func TestTheProtocolTellsAgentsAboutRuns(t *testing.T) {
 	s := Protocol("agent", "experimentation", "", nil)
-	for _, want := range []string{"run_script", "run_code", "`file` names the saved output file or the `run_script` script"} {
+	for _, want := range []string{"run_script", "run_code", "`file` names the saved output file or the execution reference", "set `run` to the exact execution reference"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("no %q in:\n%s", want, s)
 		}

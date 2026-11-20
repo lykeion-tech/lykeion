@@ -848,18 +848,25 @@ func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
 		rec("o1", "output", "plot", maker, map[string]any{"name": "plot.png", "content_type": "image/png", "size_bytes": buf.Len()}),
 		rec("o2", "output", "", maker, map[string]any{"name": "out/fig.pdf", "content_type": "application/pdf"}),
 		rec("o3", "output", "", other, map[string]any{"name": "none.pdf", "content_type": "application/pdf"}),
+		rec("o4", "output", "", other, map[string]any{"name": "out/fig.pdf", "content_type": "application/pdf"}),
 		rec("r1", "run", "", maker, map[string]any{"tool": "run_script", "path": "plot.py", "script": "import pylab; pylab.savefig('fig.pdf')"}),
 		rec("r2", "run", "", maker, map[string]any{"tool": "run_code", "code": "print('unrelated')"}),
 		// A script of none.pdf's run that never names it is not its producing script.
 		rec("r3", "run", "", other, map[string]any{"tool": "run_code", "code": "print('other')"}),
+		rec("r4", "run", "", other, map[string]any{"tool": "run_script", "path": "chart.py", "script": "import canvas; canvas.save('fig.pdf')"}),
 	}}
 	rep := report.Report{Nodes: []report.Node{
-		{ID: "out:plot.png", Kind: "output", ContentType: "image/png"},
-		{ID: "out:out/fig.pdf", Kind: "output", ContentType: "application/pdf"},
-		{ID: "out:none.pdf", Kind: "output", ContentType: "application/pdf"},
+		{ID: "rec:o1", Kind: "output", ContentType: "image/png"},
+		{ID: "rec:o2", Kind: "output", ContentType: "application/pdf"},
+		{ID: "rec:o3", Kind: "output", ContentType: "application/pdf"},
+		{ID: "rec:o4", Kind: "output", ContentType: "application/pdf"},
 		{ID: "rec:f1", Kind: "finding", Quote: "IL6 rises"},
-	}, Edges: []report.Edge{{From: "out:plot.png", To: "rec:f1", Kind: "supports"}, {From: "out:out/fig.pdf", To: "rec:f1", Kind: "supports"},
-		{From: "out:none.pdf", To: "rec:f1", Kind: "supports"}}}
+	}, Edges: []report.Edge{
+		{From: "rec:o1", To: "rec:f1", Kind: "supports"},
+		{From: "rec:o2", To: "rec:f1", Kind: "supports"},
+		{From: "rec:o3", To: "rec:f1", Kind: "supports"},
+		{From: "rec:o4", To: "rec:f1", Kind: "supports"},
+	}}
 	ev, err := l.e.reportEvidence(ctx, in, rep)
 	if err != nil {
 		t.Fatal(err)
@@ -872,11 +879,13 @@ func TestReportFiguresJudgedFromImageOrScript(t *testing.T) {
 	for _, c := range checks {
 		got[c.CheckID] = c
 	}
-	if len(checks) != 2 || got["figure:out:plot.png"].Basis != "image" || got["figure:out:out/fig.pdf"].Basis != "script" {
+	if len(checks) != 3 || got["figure:rec:o1"].Basis != "image" || got["figure:rec:o2"].Basis != "script" || got["figure:rec:o4"].Basis != "script" {
 		t.Fatalf("checks %+v", checks)
 	}
-	if s := got["figure:out:out/fig.pdf"].Evidence; !strings.Contains(s, "savefig('fig.pdf')") || strings.Contains(s, "unrelated") {
-		t.Fatalf("script evidence %q", s)
+	if first, second := got["figure:rec:o2"].Evidence, got["figure:rec:o4"].Evidence; !strings.Contains(first, "pylab.savefig('fig.pdf')") ||
+		strings.Contains(first, "unrelated") || strings.Contains(first, "canvas") || !strings.Contains(second, "canvas.save('fig.pdf')") ||
+		strings.Contains(second, "pylab") {
+		t.Fatalf("script evidence for same-path outputs: first %q, second %q", first, second)
 	}
 	var images int
 	for _, req := range stub.calls() {

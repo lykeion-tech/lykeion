@@ -88,7 +88,7 @@ var schemas = map[Kind]string{
 		"outputs", list(str()),
 		"values", list(object("name", str(),
 			"value", desc(str(), "The exact number or observed outcome label printed by the script or saved in its output."),
-			"file", str())),
+			"file", str(), "run", desc(nullStr(), "Exact run:KEY of the script that produced this value in a saved output, or null when the file is already a run:KEY or no script produced it."))),
 		"replies", list(reply())),
 	Auditor: build(
 		"concerns", list(object("item", str(), "concern", str())),

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -138,7 +139,9 @@ func TestAgentReportTemplate(t *testing.T) {
 	var initial struct {
 		Default string `json:"default_report_template"`
 	}
-	if code := s.call(t, "GET", "/api/agents/"+id, a, w.ID, nil, &initial); code != 200 || initial.Default == "" {
+	if code := s.call(t, "GET", "/api/agents/"+id, a, w.ID, nil, &initial); code != 200 ||
+		!strings.Contains(initial.Default, "Write the hand-in answer in free form") ||
+		!strings.Contains(initial.Default, "never invent evidence") || strings.Contains(initial.Default, "##") {
 		t.Fatalf("default template: %d %+v", code, initial)
 	}
 	var out struct {

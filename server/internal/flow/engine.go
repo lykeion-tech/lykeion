@@ -137,7 +137,8 @@ func (e *Engine) Advance(ctx context.Context, ws, id uuid.UUID) error {
 		if err != nil {
 			return err
 		}
-		if len(runs) == 0 {
+		if len(runs) == 0 || c.BoardColumn == board.Validation &&
+			!slices.ContainsFunc(runs, func(r db.AgentRun) bool { return leads(r.Role) }) {
 			return e.Start(ctx, tx, c)
 		}
 		pending, err := e.followUp(ctx, tx, c, runs)
@@ -202,21 +203,29 @@ func (e *Engine) worker(ctx context.Context, tx *store.Tx, c db.Card) (string, *
 // Start enqueues the first run of the study's current column, in the
 // caller's transaction: the leader's on a Team column, the study's agent's
 // otherwise. A redone column's first run carries the reason for the redo.
-// A Validation round that checks the study's runs also starts their rerun.
+// Validation waits for its automatic replay before briefing the lead.
 func (e *Engine) Start(ctx context.Context, tx *store.Tx, c db.Card) error {
 	role, m, a, err := e.worker(ctx, tx, c)
 	if err != nil {
 		return err
 	}
-	if _, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote); err != nil || c.BoardColumn != board.Validation {
-		return err
+	if c.BoardColumn == board.Validation {
+		mode, err := validationMode(ctx, tx, c.ID)
+		if err != nil {
+			return err
+		}
+		if mode == modeRuns {
+			if err := e.startRerun(ctx, tx, c); err != nil {
+				return err
+			}
+			replay, err := roundReplay(ctx, tx, c)
+			if err != nil || replay == nil {
+				return err
+			}
+		}
 	}
-	// A Validation round that checks the study's runs replays them while
-	// its lead works.
-	if mode, err := validationMode(ctx, tx, c.ID); err != nil || mode != modeRuns {
-		return err
-	}
-	return e.startRerun(ctx, tx, c)
+	_, err = e.enqueue(ctx, tx, c, role, m, a, c.HandoffNote)
+	return err
 }
 
 // enqueue queues one run of role on the study's current column. The run
@@ -288,12 +297,22 @@ func (e *Engine) runPrompt(ctx context.Context, tx *store.Tx, c db.Card, role, n
 		p += "\nThe following Decision answers were recorded by Lykeion, newest first. Use them as evidence of the researcher's choices for this study.\n" +
 			fence.Untrusted("Recorded researcher Decision answers", answers.String())
 	}
-	if c.BoardColumn == board.Validation && role != "auditor" {
-		mode, err := validationMode(ctx, tx, c.ID)
+	if c.BoardColumn == board.Validation {
+		replay, err := roundReplay(ctx, tx, c)
 		if err != nil {
 			return "", nil, err
 		}
-		p += "\n" + modeLines[mode] + "\n"
+		if replay != nil {
+			p += "\nUse Lykeion's official automatic replay record for replay claims. A separate script execution is an independent check.\n" +
+				fence.Untrusted("Official automatic replay", replayEvidence(*replay))
+		}
+		if role != "auditor" {
+			mode, err := validationMode(ctx, tx, c.ID)
+			if err != nil {
+				return "", nil, err
+			}
+			p += "\n" + modeLines[mode] + "\n"
+		}
 	}
 	if note != "" {
 		p += "\n" + note + "\n"

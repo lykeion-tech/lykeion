@@ -174,9 +174,6 @@ const paneSurface = computed({
     activeSurface.value = surface;
   },
 });
-watch(activeSurface, (surface) => {
-  if (surface === 'properties') paneFocused.value = false;
-});
 const notebookRun = ref<string | null>(null);
 const notebookScrollRequest = ref(0);
 const studySurfaces = [
@@ -773,7 +770,6 @@ function pin() {
       v-model:active="paneSurface"
       v-model:focused="paneFocused"
       :surfaces="studySurfaces"
-      :maximizable="activeSurface !== 'properties'"
       :default-width="240"
       :restore-width="false"
       hide-title
@@ -801,21 +797,16 @@ function pin() {
           </div>
           <p v-if="stoppedReason(c)" class="ending-reason">{{ stoppedReason(c) }}</p>
           <div class="property-row">
-            <small>Assignee</small
-            ><span class="avatar property-avatar property-icon">{{
-              c.assignee_type === 'agent'
-                ? (agents.data.value?.find((a) => a.id === c?.assignee_id)?.name[0] ?? 'A')
-                : c.assignee_id
-                  ? name(c.assignee_id)[0]
-                  : '?'
-            }}</span
-            ><span class="v"
-              ><template v-if="c.assignee_type === 'team' && assignedTeams.length"
-                >Team:
-                <template v-for="(team, i) in assignedTeams" :key="team"
-                  ><span v-if="i">, </span><TeamName :name="team" /></template></template
-              ><template v-else>{{ assigneeName }}</template></span
-            >
+            <small>Assignee</small>
+            <ul v-if="c.assignee_type === 'team' && assignedTeams.length" class="property-list">
+              <li v-for="team in assignedTeams" :key="team"><TeamName :name="team" /></li>
+            </ul>
+            <div v-else class="v">
+              <span v-if="c.assignee_id" class="avatar property-avatar property-icon">{{
+                assigneeName[0]
+              }}</span>
+              {{ assigneeName }}
+            </div>
           </div>
           <div v-if="c.workflow" class="property-row">
             <small>Workflow</small>
@@ -833,37 +824,39 @@ function pin() {
               >
             </span>
           </div>
-          <div class="property-row">
-            <label for="study-research">Project</label
-            ><span class="property-icon"><Icon name="folder" :size="13" /></span
-            ><SelectPicker
-              ><select
-                id="study-research"
-                aria-label="Project"
-                :value="c.research_id ?? ''"
-                :disabled="propertyBusy || researches.isPending.value"
-                @change="
-                  saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
-                "
-              >
-                <option value="">No project</option>
-                <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
-                  {{ r.name }}
-                </option>
-              </select></SelectPicker
-            ><RouterLink
-              v-if="c.research_id"
-              :to="'/projects/' + c.research_id"
-              aria-label="Open Project"
-              ><Icon name="right" :size="12"
-            /></RouterLink>
+          <div class="property-row property-project">
+            <label for="study-research">Project</label>
+            <div class="v">
+              <SelectPicker>
+                <select
+                  id="study-research"
+                  aria-label="Project"
+                  :value="c.research_id ?? ''"
+                  :disabled="propertyBusy || researches.isPending.value"
+                  @change="
+                    saveProperty({ research_id: ($event.target as HTMLSelectElement).value || null })
+                  "
+                >
+                  <option value="">No project</option>
+                  <option v-for="r in researches.data.value ?? []" :key="r.id" :value="r.id">
+                    {{ r.name }}
+                  </option>
+                </select>
+              </SelectPicker>
+              <RouterLink
+                v-if="c.research_id"
+                :to="'/projects/' + c.research_id"
+                aria-label="Open Project"
+                ><Icon name="right" :size="12"
+              /></RouterLink>
+            </div>
           </div>
-          <div class="study-machine type-caption">
-            <span
-              >Runs on:
-              {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}</span
-            >
-            <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
+          <div class="property-row">
+            <small>Runs on</small>
+            <div class="property-machine">
+              {{ c.machine_label || (c.machine ? 'Unavailable machine' : 'My machines') }}
+              <p v-if="c.machine_notice" role="status">{{ c.machine_notice }}</p>
+            </div>
           </div>
           <div
             v-for="read in [
@@ -897,7 +890,7 @@ function pin() {
             </div>
             <template v-if="c.attachments.length">
               <small>Attached files</small>
-              <ul class="v attached-files" aria-label="Attached files">
+              <ul class="property-list attached-files" aria-label="Attached files">
                 <li v-for="a in c.attachments" :key="a.id">
                   <button type="button" class="text-button" @click="previewAttachment(a)">
                     {{ a.name }}
@@ -951,7 +944,16 @@ function pin() {
   transform: translateY(-0.5px);
 }
 .study-meta.surface-content {
-  padding: 24px 20px 24px;
+  padding: 16px 20px 24px;
+  --property-label-width: 68px;
+  --property-column-gap: 10px;
+  line-height: 1.4;
+}
+.study-detail :deep(.surface-focused .study-meta.surface-content) {
+  --property-label-width: 88px;
+}
+.study-detail :deep(.surface-body:has(> .study-meta.surface-content)) {
+  scrollbar-width: none;
 }
 .surface-content > h2 {
   font-size: 16px;
@@ -1954,22 +1956,35 @@ function pin() {
   font-weight: 600;
 }
 .property-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
+  display: grid;
+  grid-template-columns: var(--property-label-width) minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--property-column-gap);
+  padding-block: 6px;
   font-size: 13px;
 }
 .property-row > small,
 .property-row > label {
-  width: 64px;
-  flex: none;
   color: var(--muted);
   font-size: 13px;
 }
 .property-row .v {
   margin: 0;
-  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.property-list {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.property-project {
+  align-items: center;
+}
+.property-project .v {
+  flex-wrap: nowrap;
 }
 .property-row select {
   border: 0;
@@ -2004,10 +2019,10 @@ function pin() {
 }
 .details-body {
   display: grid;
-  grid-template-columns: 75px minmax(0, 1fr);
-  gap: 14px 6px;
-  align-items: center;
-  margin-top: 20px;
+  grid-template-columns: var(--property-label-width) minmax(0, 1fr);
+  gap: 12px var(--property-column-gap);
+  align-items: start;
+  margin-top: 6px;
 }
 .study-pane-toggle:hover {
   background: color-mix(in srgb, var(--text) 12%, transparent);
@@ -2020,19 +2035,25 @@ function pin() {
   font-size: 13px;
   margin: 0;
 }
-.details-body .attached-files,
 .details-body .services-note {
   grid-column: 1 / -1;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+.attached-files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+}
 .attached-files small {
-  margin-left: 6px;
   color: var(--muted);
 }
 .attached-files .text-button {
   font-size: 13px;
   padding: 0;
+  min-width: 0;
+  text-align: left;
   text-decoration: underline;
 }
 .details-body .v input {
@@ -2051,17 +2072,8 @@ function pin() {
 </style>
 
 <style scoped>
-.study-machine {
-  padding: 16px 0 0;
-  color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-}
-.study-machine p {
-  flex-basis: 100%;
-  margin: 0;
+.property-machine p {
+  margin: 4px 0 0;
   color: var(--error-text);
 }
 </style>

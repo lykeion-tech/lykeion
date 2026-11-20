@@ -146,6 +146,10 @@ export interface StudyReport {
   stages: string[];
   finished_at: string;
   hand_in: ReportHandIn | null;
+  replay?: {
+    steps: { of: string; exit_status: number; stderr?: string }[] | null;
+    failure: string | null;
+  };
   nodes: ReportNode[];
   edges: ReportEdge[];
   steering: ReportSteering[];
@@ -190,6 +194,11 @@ export interface ReviewColumn {
   route_back?: Record<string, unknown> | null;
   same_family?: boolean;
   objector?: { ran: boolean; reason?: string; same_family: boolean } | null;
+}
+
+export interface AgentStudyWork {
+  card_id: string;
+  active_role: string;
 }
 
 export interface Card {

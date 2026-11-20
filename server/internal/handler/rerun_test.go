@@ -86,7 +86,10 @@ type rerunClaim struct {
 	} `json:"agent_run"`
 	Token string
 	Rerun *struct {
-		Steps       []struct{ Key, Path, Language, Script, Packages string }
+		Steps []struct {
+			Key, Path, Language, Script, Packages string
+			OutputPaths                           []string `json:"output_paths"`
+		}
 		Python      string
 		Attachments []any
 		Saved       []struct{ Name, Sha256 string }
@@ -213,18 +216,22 @@ func TestRerunResultMarksReproduced(t *testing.T) {
 	l.script(t, "x2", "eval.py", 0, "")
 	l.record(t, "experimentation", "value", "r1", map[string]any{"name": "auc", "value": "0.873", "file": "fit.py", "cites": []string{"run:x1"}}, nil)
 	l.record(t, "experimentation", "value", "r2", map[string]any{"name": "acc", "value": "0.912", "file": "eval.py", "cites": []string{"run:x2"}}, nil)
-	l.record(t, "experimentation", "value", "r3", map[string]any{"name": "f1", "value": "1.5", "file": "metrics.txt", "cites": []string{}}, nil)
+	const metrics = "outputs/metrics.txt"
+	l.record(t, "experimentation", "value", "r3", map[string]any{"name": "f1", "value": "1.5", "file": metrics, "cites": []string{"run:x1"}}, nil)
 	l.enqueue(t)
 	cl := l.claim(t)
-	l.upload(t, cl.Token, "metrics.txt", "f1 = 1.50\n")
+	if !slices.Equal(cl.Rerun.Steps[0].OutputPaths, []string{metrics}) || len(cl.Rerun.Steps[1].OutputPaths) != 0 {
+		t.Fatalf("wrong per-script evidence requested: %+v", cl.Rerun.Steps)
+	}
+	l.upload(t, cl.Token, metrics, "f1 = 1.50\n")
 	if c := l.s.call(t, "POST", "/api/role/records", cl.Token, "", map[string]any{"kind": "value", "body": map[string]any{"name": "acc", "value": "0.912"}}, nil); c != 403 {
 		t.Fatalf("a run wrote its own rerun record: %d", c)
 	}
 	out := map[string]any{"steps": []map[string]any{
-		{"key": "x1", "exit_status": 0, "output": "auc=0.8731\n", "error": ""},
+		{"key": "x1", "exit_status": 0, "output": "auc=0.8731\n", "error": "", "output_hashes": map[string]string{metrics: hexSHA("f1 = 1.50\n")}},
 		{"key": "x2", "exit_status": 0, "output": "acc 0.874\n", "error": ""},
 		{"key": "x9", "exit_status": 0, "output": "0.912\n", "error": ""},
-	}, "outputs": []map[string]string{{"name": "metrics.txt", "text_sha256": hexSHA("f1 = 1.50\n")}}, "failure": nil}
+	}, "outputs": []map[string]string{{"name": metrics, "text_sha256": hexSHA("f1 = 1.50\n")}}, "failure": nil}
 	if c := l.result(t, cl, out); c != 200 {
 		t.Fatalf("result %d", c)
 	}
