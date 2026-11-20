@@ -796,16 +796,21 @@ function pin() {
             </div>
           </div>
           <p v-if="stoppedReason(c)" class="ending-reason">{{ stoppedReason(c) }}</p>
-          <div class="property-row">
+          <div class="property-row property-assignee">
             <small>Assignee</small>
-            <ul v-if="c.assignee_type === 'team' && assignedTeams.length" class="property-list">
-              <li v-for="team in assignedTeams" :key="team"><TeamName :name="team" /></li>
-            </ul>
-            <div v-else class="v">
-              <span v-if="c.assignee_id" class="avatar property-avatar property-icon">{{
-                assigneeName[0]
+            <div class="v">
+              <span v-if="c.assignee_type === 'team'" class="property-icon">
+                <Icon name="team" :size="13" />
+              </span>
+              <span v-else class="avatar property-avatar property-icon" aria-hidden="true">{{
+                c.assignee_id ? assigneeName[0] : '?'
               }}</span>
-              {{ assigneeName }}
+              <ul v-if="c.assignee_type === 'team' && assignedTeams.length" class="property-list">
+                <li v-for="(team, index) in assignedTeams" :key="team">
+                  <span v-if="index === 0">Team: </span><TeamName :name="team" />
+                </li>
+              </ul>
+              <span v-else>{{ assigneeName }}</span>
             </div>
           </div>
           <div v-if="c.workflow" class="property-row">
@@ -827,6 +832,7 @@ function pin() {
           <div class="property-row property-project">
             <label for="study-research">Project</label>
             <div class="v">
+              <span class="property-icon"><Icon name="folder" :size="13" /></span>
               <SelectPicker>
                 <select
                   id="study-research"
@@ -1977,14 +1983,19 @@ function pin() {
   gap: 4px;
   list-style: none;
   margin: 0;
+  min-width: 0;
   padding: 0;
   overflow-wrap: anywhere;
 }
 .property-project {
   align-items: center;
 }
+.property-assignee .v,
 .property-project .v {
   flex-wrap: nowrap;
+}
+.property-assignee .v {
+  align-items: flex-start;
 }
 .property-row select {
   border: 0;
