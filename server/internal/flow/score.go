@@ -575,7 +575,7 @@ func evidence(summary string, cited []db.Record, budget int) string {
 		}
 		return b.String()
 	}
-	for len(cited) > 0 && len(build("", 0)) > budget/2 {
+	for len(cited) > 0 && len(build(cutMark, 0)) > budget {
 		cited = cited[:len(cited)-1]
 		dropped++
 	}
@@ -721,11 +721,11 @@ func (e *Engine) gateUnjudged(ctx context.Context, tx *store.Tx, c db.Card, caus
 // scoringUnavailable leaves the study where it is and records that once, in
 // an item Decisions does not show; the next pass retries.
 func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
-	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
 	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
 	if err != nil || open > 0 {
 		return err
 	}
+	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
 	return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
 		Text: unavailableText(c.Number, c.BoardColumn)})
 }

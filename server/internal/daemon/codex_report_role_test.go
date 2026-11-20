@@ -88,13 +88,13 @@ func (g codexRig) run(t *testing.T, kind, role, scope string) (stdin, args, agen
 
 const reportRole = "# Reporter ROLE-MARKER"
 
-// A report run's strict Codex settings read no AGENTS.md, so its role
-// travels in the prompt, once; a study run still reads it from AGENTS.md.
+// A Codex hand-in must receive its reporting instructions even when the
+// CLI does not read the managed AGENTS.md.
 func TestCodexReportRunGetsItsRoleOnce(t *testing.T) {
 	for _, c := range []struct {
 		name, kind   string
 		rolesInStdin int
-	}{{"report", "report", 1}, {"study", "", 0}} {
+	}{{"report", "report", 1}, {"study", "role", 1}, {"legacy", "", 0}} {
 		t.Run(c.name, func(t *testing.T) {
 			stdin, args, doc := newCodexRig(t).run(t, c.kind, reportRole, "")
 			if n := strings.Count(stdin, "ROLE-MARKER"); n != c.rolesInStdin {

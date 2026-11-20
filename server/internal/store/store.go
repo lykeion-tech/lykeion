@@ -112,6 +112,32 @@ func (t *Tx) AgentHasLiveStudyRuns(ctx context.Context, agent uuid.UUID) (bool, 
 	return live, err
 }
 
+type AgentStudyWork struct {
+	CardID     uuid.UUID `json:"card_id"`
+	ActiveRole string    `json:"active_role"`
+}
+
+func (t *Tx) AgentStudyWork(ctx context.Context, agent uuid.UUID) ([]AgentStudyWork, error) {
+	rows, err := t.raw.Query(ctx, `SELECT DISTINCT ON (card_id) card_id,
+  CASE WHEN status IN ('queued','dispatched','running') THEN role ELSE '' END AS active_role
+FROM agent_run
+WHERE workspace_id=$1 AND agent_id=$2 AND kind='role' AND card_id IS NOT NULL
+ORDER BY card_id, (status IN ('queued','dispatched','running')) DESC, created_at DESC, id DESC`, t.WS, agent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	work := []AgentStudyWork{}
+	for rows.Next() {
+		var entry AgentStudyWork
+		if err := rows.Scan(&entry.CardID, &entry.ActiveRole); err != nil {
+			return nil, err
+		}
+		work = append(work, entry)
+	}
+	return work, rows.Err()
+}
+
 func (t *Tx) AgentTeams(ctx context.Context, agent uuid.UUID) ([]db.TeamAgent, error) {
 	rows, err := t.raw.Query(ctx, `SELECT workspace_id, pack_id, user_id, member, agent_id FROM team_agent WHERE workspace_id=$1 AND agent_id=$2 ORDER BY pack_id, member`, t.WS, agent)
 	if err != nil {

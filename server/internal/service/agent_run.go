@@ -197,11 +197,12 @@ type ClaimedCoresearch struct {
 // RerunStep is a recorded script run a rerun replays: the run record's key,
 // what it ran, and the package list it saved, empty when that list is gone.
 type RerunStep struct {
-	Key      string `json:"key"`
-	Path     string `json:"path"`
-	Language string `json:"language"`
-	Script   string `json:"script"`
-	Packages string `json:"packages"`
+	Key         string   `json:"key"`
+	Path        string   `json:"path"`
+	Language    string   `json:"language"`
+	Script      string   `json:"script"`
+	Packages    string   `json:"packages"`
+	OutputPaths []string `json:"output_paths,omitempty"`
 	// packagesSHA names the saved list's blob, read once the claim's
 	// transaction is closed.
 	packagesSHA string

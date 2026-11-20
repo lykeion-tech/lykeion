@@ -96,9 +96,10 @@ type Hypothesis struct {
 	Cites           []string `json:"cites"`
 }
 type Value struct {
-	Name  string `json:"name"`
-	Value string `json:"value"` // text, so decimals stay exact
-	File  string `json:"file"`
+	Name  string  `json:"name"`
+	Value string  `json:"value"` // text, so decimals stay exact
+	File  string  `json:"file"`
+	Run   *string `json:"run,omitempty"`
 }
 type Concern struct {
 	Item    string `json:"item"`

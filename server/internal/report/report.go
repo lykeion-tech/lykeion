@@ -25,6 +25,7 @@ type Report struct {
 	Stages     []string   `json:"stages"`      // board.Stages from scope_from to scope_to
 	FinishedAt time.Time  `json:"finished_at"` // the newest outcome record in the last column
 	HandIn     *HandIn    `json:"hand_in"`     // nil when the last column has no summary record
+	Replay     *Replay    `json:"replay,omitempty"`
 	Nodes      []Node     `json:"nodes"`
 	Edges      []Edge     `json:"edges"`
 	Steering   []Steering `json:"steering"` // comments and answered decisions, oldest first
@@ -33,6 +34,8 @@ type Report struct {
 	Extras  string `json:"extras"`  // concepts and links: pending|ready|none
 	Checks  string `json:"checks"`  // figure, table and novelty checks: pending|ready|unavailable|none
 	Machine string `json:"machine"` // the machine the report run waits for, while Extras is pending
+
+	legacyOutputs map[string]string // older report runs named the newest output at a path
 }
 
 // Link ties the hand-in's bytes [Start, End) to a graph node.
@@ -60,8 +63,17 @@ type HandIn struct {
 	At        time.Time `json:"at"`
 }
 
+type Replay struct {
+	Steps []struct {
+		Of         string `json:"of"`
+		ExitStatus int    `json:"exit_status"`
+		Stderr     string `json:"stderr,omitempty"`
+	} `json:"steps"`
+	Failure *string `json:"failure"`
+}
+
 type Node struct {
-	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "out:<output name>", "obj:<record id>", "doubt:<column>:<item key>"
+	ID      string          `json:"id"`   // "question", or "rec:<record key>", "run:<agent_run id>", "obj:<record id>", "doubt:<column>:<item key>"
 	Kind    string          `json:"kind"` // question|paper|dataset|hypothesis|experiment|output|finding|objection|doubt
 	Label   string          `json:"label"`
 	PaperID string          `json:"paper_id,omitempty"`
@@ -99,20 +111,25 @@ type Steering struct {
 }
 
 type builder struct {
-	in    Input
-	live  []db.Record
-	byKey map[string]db.Record
-	runs  map[uuid.UUID]db.StudyRunsRow
-	nodes []Node
-	order map[string]string // node id → the record or item key it sorts by
-	edges []Edge
+	in            Input
+	live          []db.Record
+	byKey         map[string]db.Record
+	runs          map[uuid.UUID]db.StudyRunsRow
+	nodes         []Node
+	order         map[string]string // node id → the record or item key it sorts by
+	edges         []Edge
+	outputs       map[string][]db.Record
+	legacyOutputs map[string]string
 }
 
 // Build makes the report from in's rows alone: no model, nothing inferred.
 // A row a rule does not name stays out of the graph.
 func Build(in Input) Report {
 	c := in.Card
-	b := &builder{in: in, byKey: map[string]db.Record{}, runs: map[uuid.UUID]db.StudyRunsRow{}, order: map[string]string{}}
+	b := &builder{
+		in: in, byKey: map[string]db.Record{}, runs: map[uuid.UUID]db.StudyRunsRow{}, order: map[string]string{},
+		outputs: map[string][]db.Record{}, legacyOutputs: map[string]string{},
+	}
 	for _, r := range in.Records {
 		if r.SupersededAt == nil {
 			b.live = append(b.live, r)
@@ -217,17 +234,22 @@ func Build(in Input) Report {
 	}
 
 	// Outputs.
-	for _, r := range b.live {
-		if r.Kind != "output" {
-			continue
-		}
+	outputs := b.of("", "output")
+	for _, r := range outputs {
+		name := records.Body[struct{ Name string }](r).Name
+		b.outputs[name] = append(b.outputs[name], r)
+	}
+	for _, r := range outputs {
 		body := records.Body[struct {
 			Name        string `json:"name"`
 			ContentType string `json:"content_type"`
 		}](r)
 		n := b.recNode(r, "output")
-		// ponytail: two outputs saved under one name share a node, the newest kept.
-		n.ID, n.Label, n.ContentType = "out:"+body.Name, body.Name, body.ContentType
+		n.Label, n.ContentType = body.Name, body.ContentType
+		if len(b.outputs[body.Name]) > 1 {
+			n.Label = r.Key + " · " + body.Name
+		}
+		b.legacyOutputs["out:"+body.Name] = n.ID
 		b.add(n, r.Key)
 		if r.AgentRunID != nil && b.has("run:"+r.AgentRunID.String()) {
 			b.edge("run:"+r.AgentRunID.String(), n.ID, "produced")
@@ -303,8 +325,8 @@ func Build(in Input) Report {
 		}
 		for _, k := range s.Cites {
 			if v, ok := b.byKey[k]; ok && v.Kind == "value" {
-				if file := records.Body[struct{ File string }](v).File; file != "" && b.has("out:"+file) {
-					b.edge("out:"+file, n.ID, "supports")
+				if output := b.valueOutput(v); output != "" {
+					b.edge(output, n.ID, "supports")
 				}
 			}
 		}
@@ -347,10 +369,9 @@ func Build(in Input) Report {
 			case target.Kind == "value":
 				hit = slices.Contains(measures(f), records.Body[struct{ Name string }](target).Name)
 			case target.Kind == "output":
-				name := records.Body[struct{ Name string }](target).Name
 				hit = slices.ContainsFunc(values, func(v db.Record) bool {
-					x := records.Body[struct{ Name, File string }](v)
-					return x.File == name && slices.Contains(measures(f), x.Name)
+					name := records.Body[struct{ Name string }](v).Name
+					return b.valueOutput(v) == "rec:"+target.Key && slices.Contains(measures(f), name)
 				})
 			}
 			if hit {
@@ -399,6 +420,15 @@ func Build(in Input) Report {
 	}
 	if r, ok := b.newest(c.ScopeTo, "outcome"); ok {
 		rep.FinishedAt = r.CreatedAt
+		if c.ScopeTo == board.Validation {
+			for _, replay := range slices.Backward(b.of(board.Validation, "rerun")) {
+				if replay.Round == r.Round {
+					result := records.Body[Replay](replay)
+					rep.Replay = &result
+					break
+				}
+			}
+		}
 	}
 	for _, cm := range in.Comments {
 		rep.Steering = append(rep.Steering, Steering{Kind: "comment", Author: cm.AuthorID, Text: cm.Body, At: cm.CreatedAt})
@@ -431,6 +461,7 @@ func Build(in Input) Report {
 	})
 	b.concepts()
 	rep.Nodes, rep.Edges = b.nodes, b.edges
+	rep.legacyOutputs = b.legacyOutputs
 	rep.Links, rep.Extras, rep.Checks, rep.Machine = b.links(rep.HandIn), "none", "none", ""
 	if bd := in.Build; bd != nil {
 		switch bd.Status {
@@ -504,6 +535,50 @@ func itemOf(res review.Result, key string) (review.Item, bool) {
 
 func (b *builder) recNode(r db.Record, kind string) Node {
 	return Node{ID: "rec:" + r.Key, Kind: kind, RunID: r.AgentRunID, Agent: b.agentOf(r.AgentRunID), Column: r.BoardColumn}
+}
+
+// A path reused by several outputs needs a producing run to identify the evidence.
+func (b *builder) valueOutput(value db.Record) string {
+	body := records.Body[struct {
+		File  string
+		Cites []string
+	}](value)
+	citedRuns := map[uuid.UUID]bool{}
+	for _, ref := range body.Cites {
+		if key, ok := strings.CutPrefix(ref, "run:"); ok {
+			if r := b.byKey[key]; r.Kind == "run" && r.AgentRunID != nil {
+				citedRuns[*r.AgentRunID] = true
+			}
+		}
+	}
+	var available, cited, submitted []db.Record
+	for _, r := range b.outputs[body.File] {
+		if !value.CreatedAt.IsZero() && r.CreatedAt.After(value.CreatedAt) {
+			continue
+		}
+		available = append(available, r)
+		if r.AgentRunID != nil {
+			if citedRuns[*r.AgentRunID] {
+				cited = append(cited, r)
+			}
+			if value.AgentRunID != nil && *r.AgentRunID == *value.AgentRunID {
+				submitted = append(submitted, r)
+			}
+		}
+	}
+	for _, candidates := range [][]db.Record{cited, submitted, available} {
+		if len(candidates) == 1 {
+			return "rec:" + candidates[0].Key
+		}
+	}
+	return ""
+}
+
+func resolveOutputID(id string, aliases map[string]string) string {
+	if replacement := aliases[id]; replacement != "" {
+		return replacement
+	}
+	return id
 }
 
 func (b *builder) agentOf(run *uuid.UUID) string {
@@ -580,9 +655,18 @@ func (b *builder) judgedChecks() {
 	contradicted := map[string]bool{}
 	confirmed := map[string]bool{}
 	for _, c := range b.in.Checks {
+		c.NodeID = resolveOutputID(c.NodeID, b.legacyOutputs)
 		i := slices.IndexFunc(b.nodes, func(n Node) bool { return n.ID == c.NodeID })
 		if i < 0 {
 			continue
+		}
+		kind, target, _ := strings.Cut(c.CheckID, ":")
+		if current := b.legacyOutputs[target]; current != "" && (kind == "figure" || kind == "table") {
+			// Keep an old check only where the file it judged still supports the finding.
+			if !slices.Contains(b.edges, Edge{From: current, To: c.NodeID, Kind: "supports"}) {
+				continue
+			}
+			c.CheckID = kind + ":" + current
 		}
 		ck := review.Check{ID: c.CheckID, By: "jev", Question: c.Question, P: &c.P, Status: c.Status, Detail: c.Evidence, Basis: c.Basis}
 		if paper, ok := strings.CutPrefix(c.CheckID, "novelty:"); ok {
@@ -627,6 +711,10 @@ func (b *builder) concepts() {
 	}
 	factsOf := map[string][]Fact{}
 	for _, f := range b.in.Facts {
+		f.SourceNode = resolveOutputID(f.SourceNode, b.legacyOutputs)
+		if f.Relation == "mentioned_in" {
+			f.Object = resolveOutputID(f.Object, b.legacyOutputs)
+		}
 		factsOf[f.Subject] = append(factsOf[f.Subject], Fact{f.Subject, f.Relation, f.Object, f.Quote, f.SourceNode, f.P})
 		from := "concept:" + f.Subject
 		switch {

@@ -82,6 +82,7 @@ async function mount(
   client.setQueryData(keys.workspaces, [{ id: 'lab', role: 'owner' }]);
   client.setQueryData(keys.workspace('lab'), {});
   client.setQueryData(keys.cards('lab'), []);
+  client.setQueryData(keys.agentWork('lab', 'aristotle'), []);
   client.setQueryData(keys.members('lab'), []);
   client.setQueryData(
     keys.runtimes('lab'),

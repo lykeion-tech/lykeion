@@ -243,6 +243,13 @@ func (c *converter) experimentation(h HandIn) {
 			file = path
 			scriptRun = true
 		}
+		if run := strings.TrimSpace(deref(v.Run)); run != "" {
+			if !slices.Contains(runs, run) {
+				c.problem("value %d: %s does not identify a recorded script run for %s", i+1, run, v.File)
+				continue
+			}
+			runs = []string{run}
+		}
 		switch {
 		case v.File == "":
 			c.problem("value %d: name the saved output or script run that shows the value", i+1)

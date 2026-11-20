@@ -37,10 +37,11 @@ const (
 // RerunStepResult is one replayed script as the daemon reports it, under the
 // key of the run record it replays.
 type RerunStepResult struct {
-	Key        string `json:"key"`
-	ExitStatus int    `json:"exit_status"`
-	Output     string `json:"output"`
-	Error      string `json:"error"`
+	Key          string            `json:"key"`
+	ExitStatus   int               `json:"exit_status"`
+	Output       string            `json:"output"`
+	Error        string            `json:"error"`
+	OutputHashes map[string]string `json:"output_hashes,omitempty"`
 }
 
 // RerunOutput is a file the rerun saved through the outputs upload, named as
@@ -77,6 +78,53 @@ type rerunStep struct {
 	ExitStatus   int    `json:"exit_status"`
 	OutputSHA256 string `json:"output_sha256"`
 	Stderr       string `json:"stderr,omitempty"`
+}
+
+func roundReplay(ctx context.Context, tx *store.Tx, c db.Card) (*db.Record, error) {
+	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: board.Validation})
+	return replayOf(recs, c.Round), err
+}
+
+func replayOf(recs []db.Record, round int32) *db.Record {
+	for _, r := range slices.Backward(recs) {
+		if r.Kind == "rerun" && r.Round == round {
+			return &r
+		}
+	}
+	return nil
+}
+
+func replayEvidence(rec db.Record) string {
+	body := records.Body[rerunBody](rec)
+	lines := []string{fmt.Sprintf("Recorded replay %s (Validation round %d)", rec.Key, rec.Round)}
+	if rec.AgentRunID != nil {
+		lines = append(lines, "Replay run ID: "+rec.AgentRunID.String())
+	}
+	if body.Failure != nil {
+		lines = append(lines, "Replay failure: "+*body.Failure)
+	}
+	if len(body.Steps) == 0 {
+		lines = append(lines, "No scripts were recorded as replayed.")
+	}
+	for _, step := range body.Steps {
+		line := fmt.Sprintf("Script run:%s: exit status %d", step.Of, step.ExitStatus)
+		if step.Stderr != "" {
+			stderr, shortened := Excerpt(oneLine(step.Stderr), 800)
+			line += "; stderr: " + stderr
+			if shortened {
+				line += " [excerpt]"
+			}
+		}
+		lines = append(lines, line)
+	}
+	for _, name := range slices.Sorted(maps.Keys(body.Reproduced)) {
+		if body.Reproduced[name] {
+			lines = append(lines, fmt.Sprintf("Measurement %q was reproduced", name))
+		} else {
+			lines = append(lines, fmt.Sprintf("Measurement %q was not reproduced: %s", name, body.Notes[name]))
+		}
+	}
+	return capped(lines, 7500)
 }
 
 // startRerun queues, once per Validation round, the job that replays the
@@ -409,31 +457,31 @@ func reproduce(recs []db.Record, steps map[string]RerunStepResult, files map[str
 // the nearest misleads.
 func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[string]string, tolerance float64) (bool, string) {
 	var texts []string
-	failed := 0
-	for _, c := range v.Cites {
-		s, ok := steps[strings.TrimPrefix(c, "run:")]
-		switch {
-		case !ok:
-		case s.ExitStatus != 0:
-			failed = s.ExitStatus
-		default:
-			texts = append(texts, s.Output)
+	if len(v.Cites) > 1 {
+		return false, "no exact script run was recorded for this measurement"
+	}
+	if len(v.Cites) == 0 {
+		return false, noScriptNote
+	}
+	step, ok := steps[strings.TrimPrefix(v.Cites[0], "run:")]
+	if !ok {
+		return false, noScriptNote
+	}
+	if step.ExitStatus != 0 {
+		return false, fmt.Sprintf("rerun exited with status %d before reproducing %s", step.ExitStatus, v.Value)
+	}
+	if text, found := files[v.File]; found && !v.ScriptRun {
+		sum := sha256.Sum256([]byte(text))
+		// Older daemons can identify a file's producer only when one step ran.
+		if step.OutputHashes[v.File] == hex.EncodeToString(sum[:]) || step.OutputHashes == nil && len(steps) == 1 {
+			texts = append(texts, text)
 		}
 	}
-	// As in the Experimentation check, a value a replayed script made may
-	// be in any file the rerun saved; one no replayed script made only in
-	// the file it names.
-	if len(texts) > 0 && !v.ScriptRun {
-		for _, name := range slices.Sorted(maps.Keys(files)) {
-			texts = append(texts, files[name])
-		}
-	} else if text, ok := files[v.File]; ok && !v.ScriptRun && len(texts) == 0 {
-		texts = append(texts, text)
+	if step.Output != "" {
+		texts = append(texts, step.Output)
 	}
 	n, isNumber := parseNumber(strings.TrimSpace(v.Value))
 	switch {
-	case len(texts) == 0 && failed != 0:
-		return false, fmt.Sprintf("rerun exited with status %d before reproducing %s", failed, v.Value)
 	case len(texts) == 0:
 		return false, noScriptNote
 	case !isNumber:

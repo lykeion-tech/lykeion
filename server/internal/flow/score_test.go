@@ -400,6 +400,9 @@ func TestScoringWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 1 {
 				t.Fatalf("scoring_unavailable items: %v", items)
 			}
+			if n := warned.Load(); n != 1 {
+				t.Fatalf("scoring unavailable logged %d warnings for one outage, want 1", n)
+			}
 			if tc == "503" && len(stub.calls()) != 6 {
 				t.Fatalf("Jev asked %d times over two passes, want 3 attempts each", len(stub.calls()))
 			}
@@ -587,10 +590,10 @@ func TestTheStateFitsJevsLimit(t *testing.T) {
 	if !strings.Contains(calls[0].State, "[cut:") {
 		t.Fatal("no cut mark in the state")
 	}
-	// The last record cited is the first a cut would drop; its key depends on
-	// what else the study recorded first, so it is read, not assumed.
-	if !strings.Contains(calls[0].State, "Record "+cites[len(cites)-1]+" ") {
-		t.Fatal("the cut dropped a record instead of shortening it")
+	for _, key := range cites {
+		if !strings.Contains(calls[0].State, "Record "+key+" ") {
+			t.Fatalf("the cut dropped record %s instead of shortening it", key)
+		}
 	}
 }
 

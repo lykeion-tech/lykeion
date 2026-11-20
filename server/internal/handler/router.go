@@ -343,6 +343,7 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/agents", h.listAgents)
 			r.Post("/api/agents", h.createAgent)
 			r.Get("/api/agents/{id}", h.getAgent)
+			r.Get("/api/agents/{id}/work", h.getAgentWork)
 			r.Post("/api/agents/{id}/duplicate", h.duplicateAgent)
 			r.Get("/api/agents/{id}/customize", h.getAgentCapabilities)
 			r.Put("/api/agents/{id}/customize", h.saveAgentCapabilities)

@@ -477,8 +477,8 @@
 .coresearch.agent-model-picker .cli-menu {
   background: var(--surface);
 }
-.coresearch.agent-model-picker .cli-menu[aria-label='Stage options'],
-.coresearch.agent-model-picker .cli-menu[aria-label='Harness options'] {
+.coresearch.agent-model-picker
+  .cli-menu:is([aria-label='Stage options'], [aria-label='Harness options']) {
   width: 200px;
   max-width: 100%;
 }

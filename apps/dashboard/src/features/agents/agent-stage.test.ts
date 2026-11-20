@@ -7,7 +7,7 @@ import AgentDetail from './AgentDetail.vue';
 import AssignPicker from '../../ui/AssignPicker.vue';
 import { workspaceId } from '../../api/session';
 import { keys } from '../../api/keys';
-import type { AgentDefinition } from '../../api/types';
+import type { AgentDefinition, AgentStudyWork, Card } from '../../api/types';
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock('../coresearch/Aristotle.vue', () => ({ default: { render: () => null } }));
@@ -154,6 +154,8 @@ async function mount(
   agents: AgentDefinition[],
   role = 'owner',
   path = '/',
+  studies: Card[] = [],
+  studyWork: AgentStudyWork[] | null = [],
 ) {
   workspaceId.value = 'w';
   vi.stubGlobal('window', {
@@ -184,10 +186,13 @@ async function mount(
   client.setQueryData(keys.workspaces, [{ id: 'w', name: 'Lab', role }]);
   client.setQueryData(keys.agents('w'), agents);
   for (const a of agents) client.setQueryData(keys.agent('w', a.id), a);
+  if (studyWork) {
+    for (const a of agents) client.setQueryData(keys.agentWork('w', a.id), studyWork);
+  }
   client.setQueryData(keys.runtimes('w'), runtimeRows);
   client.setQueryData(keys.members('w'), memberRows);
   client.setQueryData(keys.workspace('w'), { name: 'Lab', display_prefix: 'L' });
-  client.setQueryData(keys.cards('w'), []);
+  client.setQueryData(keys.cards('w'), studies);
   client.setQueryData(keys.teams('w', '', ''), [
     { id: 't1', name: 'Grounders', source: 'shipped', added: true, manifest: {} },
   ]);
@@ -250,6 +255,35 @@ async function mount(
 }
 
 describe('agent stage', () => {
+  it('lists team studies according to the agent’s own recorded runs', async () => {
+    request.mockImplementation(async (_method: string, url: string) =>
+      url === '/api/agents/a/work'
+        ? [
+            { card_id: 'active', active_role: 'leader' },
+            { card_id: 'earlier', active_role: '' },
+          ]
+        : [],
+    );
+    const study = (id: string, title: string, extra: Partial<Card> = {}): Card =>
+      ({ id, title, board_column: 'grounding', assignee_type: 'team', role: 'auditor',
+        state: 'working', updated_at: '2026-11-01T10:00:00Z', ...extra }) as Card;
+    const t = await mount(AgentDetail, { id: 'a' }, [agent({})], 'owner', '/', [
+      study('active', 'Leading this study'),
+      study('earlier', 'Contributed in a previous stage'),
+      study('never', 'Team membership without a run'),
+      study('direct', 'Direct assignment', { assignee_type: 'agent', assignee_id: 'a', role: '' }),
+    ], null);
+    const now = t.find('div', (n) => n.props.class === 'agent-activity')!;
+    expect(textOf(now).split('Recent work')[0]).toContain('1 in progress');
+    expect(textOf(now).split('Recent work')[0]).toContain('Leading this studyleader');
+    expect(textOf(now).split('Recent work')[0]).not.toContain('Contributed in a previous stage');
+    await t.click(/^Work$/);
+    expect(t.text()).toContain('Leading this study');
+    expect(t.text()).toContain('Contributed in a previous stage');
+    expect(t.text()).toContain('Direct assignment');
+    expect(t.text()).not.toContain('Team membership without a run');
+  });
+
   it('opens instructions and customization from agent settings', async () => {
     const t = await mount(AgentDetail, { id: 'a' }, [agent({})], 'owner');
     await t.click(/^Settings$/);

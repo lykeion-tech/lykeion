@@ -437,10 +437,9 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		}
 		prompt = launchComments.Prompt + skillsNote(c.Skills)
 	}
-	// A report run's Codex reads no AGENTS.md, so, like a lab question, it
-	// gets its role at the head of the prompt that starts its session. A
-	// resumed session, and every re-ask, already holds it.
-	roleInPrompt := report && role != "" && c.AgentRun.Harness != "claude"
+	// Give Codex its study protocol at launch even if project document
+	// discovery is disabled. Resumed sessions already have the role.
+	roleInPrompt := (report || c.AgentRun.Kind == "role") && role != "" && c.AgentRun.Harness == "codex"
 	if roleInPrompt && opts.Resume == "" {
 		prompt = role + "\n\n" + prompt
 	}

@@ -28,30 +28,27 @@ func TestThePromptListsTheFiles(t *testing.T) {
 	if p := prompt(c, "agent", nil, "", nil); strings.Contains(p, "attachments") {
 		t.Fatalf("a study without files mentions attachments:\n%s", p)
 	}
+	c.BoardColumn = board.Hypotheses
+	if p := prompt(c, "agent", nil, "", files); !strings.Contains(p, `"data.csv" (cite as "../Data.csv")`) {
+		t.Fatalf("the Hypotheses prompt must distinguish the local path from the citation name:\n%s", p)
+	}
 }
 
 func TestStageReportTemplatesForEveryStudyRole(t *testing.T) {
-	stages := map[string][]string{
-		board.Grounding:       {"Question and scope", "Findings", "Sources", "Disagreements and limitations", "Evidence gaps"},
-		board.Hypotheses:      {"Hypotheses", "Predictions and controls", "Supporting sources", "Alternatives and uncertainty"},
-		board.Experimentation: {"Objective", "Data and method", "Results", "Outputs and reproducibility", "Limitations or failures"},
-		board.Validation:      {"What was checked", "Assessments or verdicts and evidence", "Objections and limitations", "Review status"},
+	stages := map[string]string{
+		board.Grounding:       "research question and scope",
+		board.Hypotheses:      "testable prediction",
+		board.Experimentation: "data and method",
+		board.Validation:      "assessment or verdict",
 	}
-	for column, headings := range stages {
-		for _, role := range []string{"leader", "agent"} {
-			p := Protocol(role, column, column, nil)
-			for _, h := range headings {
-				if !strings.Contains(p, h) {
-					t.Errorf("%s %s missing %q", column, role, h)
-				}
+	for column, guidance := range stages {
+		for role, want := range map[string]string{"leader": guidance, "agent": guidance, "member": "carry forward", "auditor": "audit conclusion"} {
+			template := DefaultReportTemplate(role, column)
+			if !strings.Contains(template, want) || !strings.Contains(template, "never invent evidence") || strings.Contains(template, "##") {
+				t.Errorf("%s/%s has the wrong reporting instructions: %s", column, role, template)
 			}
-		}
-		for role, headings := range map[string][]string{"member": {"Assignment", "Findings", "Handoff"}, "auditor": {"Conclusion", "Concerns", "References"}} {
-			p := Protocol(role, column, column, nil)
-			for _, h := range headings {
-				if !strings.Contains(p, h) {
-					t.Errorf("%s %s missing %q", column, role, h)
-				}
+			if !strings.Contains(Protocol(role, column, column, nil), template) {
+				t.Errorf("%s/%s Settings template differs from the run protocol", column, role)
 			}
 		}
 	}
@@ -150,6 +147,9 @@ func TestItemsPromptPerColumn(t *testing.T) {
 	}
 	if !strings.Contains(itemsPrompt(board.Hypotheses), "Grounding papers and datasets") {
 		t.Errorf("the Hypotheses prompt does not say a hypothesis may cite Grounding papers")
+	}
+	if !strings.Contains(itemsPrompt(board.Hypotheses), "cite its original filename") {
+		t.Errorf("the Hypotheses prompt does not say how to cite an attachment")
 	}
 	if !strings.Contains(itemsPrompt(board.Experimentation), "At least one is required") {
 		t.Errorf("the Experimentation prompt does not ask for an output file")
@@ -352,10 +352,10 @@ func TestEveryShippedRoleExplainsEvidenceAndUsesItsSchema(t *testing.T) {
 	}
 }
 
-func TestCustomReportTemplateReplacesHeadings(t *testing.T) {
+func TestCustomReportTemplateReplacesDefaultFormat(t *testing.T) {
 	for _, role := range []string{"agent", "leader", "member", "auditor"} {
-		p := reportTemplate(role, board.Grounding, "## My findings")
-		if !strings.Contains(p, "## My findings") || strings.Contains(p, "Question and scope; Findings") || !strings.Contains(p, "never invent evidence") {
+		p := reportTemplate(role, board.Grounding, "Start with one sentence stating the finding.")
+		if !strings.Contains(p, "Start with one sentence stating the finding.") || strings.Contains(p, "without required headings") || !strings.Contains(p, "never invent evidence") {
 			t.Errorf("%s: unexpected template: %s", role, p)
 		}
 	}
@@ -380,14 +380,5 @@ func TestConnectorRecoveryGuidance(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Errorf("missing connector recovery guidance %q", want)
 		}
-	}
-}
-
-func TestDefaultReportFormat(t *testing.T) {
-	if got := DefaultReportFormat("agent", board.Grounding); !strings.Contains(got, "Question and scope") || !strings.Contains(got, "Evidence gaps") {
-		t.Fatalf("grounding: %q", got)
-	}
-	if got := DefaultReportFormat("auditor", board.Grounding); !strings.Contains(got, "Concerns") || strings.Contains(got, "Question and scope") {
-		t.Fatalf("auditor: %q", got)
 	}
 }

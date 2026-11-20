@@ -183,6 +183,17 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
             <p v-if="report.hand_in" class="type-caption hand-in-by">{{ handInBy }}</p>
           </div>
         </header>
+        <details v-if="report.replay" class="report-notice report-replay">
+          <summary>Official automatic replay</summary>
+          <p v-if="report.replay.failure === 'environment'">The replay environment could not be rebuilt.</p>
+          <p v-else-if="!report.replay.steps?.length">No scripts were recorded as replayed.</p>
+          <ul v-else>
+            <li v-for="step in report.replay.steps" :key="step.of">
+              Script {{ step.of }} · Exit status {{ step.exit_status }}
+              <pre v-if="step.stderr" aria-label="Standard error">{{ step.stderr }}</pre>
+            </li>
+          </ul>
+        </details>
         <section class="hand-in" aria-label="Hand-in report">
           <template v-if="report.hand_in">
             <h2 class="type-caption">Recorded agent hand-in</h2>
@@ -353,6 +364,16 @@ const showToggle = computed(() => !(paneOpen.value && (paneFocused.value || narr
   border-radius: 8px;
   background: var(--surface);
   color: var(--muted);
+}
+.report-replay summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.report-replay pre {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .report-graph-frame {
   position: relative;

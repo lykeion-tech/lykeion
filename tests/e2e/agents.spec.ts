@@ -115,6 +115,9 @@ test('the Agents list filters Mine, All and Archived through one compact Filter 
 test('New agent opens the Create Agent form, and /agents/new opens it directly', async ({
   page,
 }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'dawn' })),
+  );
   await inFixture(page);
   await page.goto('/#/agents');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
@@ -123,8 +126,27 @@ test('New agent opens the Create Agent form, and /agents/new opens it directly',
   await expect(name).toBeVisible();
   const model = dialog.getByRole('button', { name: /^Model:/ });
   expect((await model.boundingBox())!.width).toBeLessThan((await name.boundingBox())!.width * 0.75);
-  await dialog.getByRole('button', { name: 'Stage: Grounding' }).click();
-  await expect(dialog.getByRole('listbox', { name: 'Stage options' })).toHaveCSS('width', '200px');
+  const colors = [];
+  for (const label of ['Stage', 'Harness', 'Model']) {
+    const picker = dialog.getByRole('button', { name: new RegExp(`^${label}:`) });
+    const trigger = await picker.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await picker.click();
+    const menu = dialog.getByRole('listbox', { name: `${label} options` });
+    const selected = menu.getByRole('option', { selected: true });
+    colors.push({
+      trigger,
+      menu: await menu.evaluate((el) => getComputedStyle(el).backgroundColor),
+      selected: await selected.evaluate((el) => getComputedStyle(el).backgroundColor),
+      check: await selected.locator('svg path').evaluate((el) => getComputedStyle(el).stroke),
+    });
+    await selected.click();
+  }
+  expect(colors[0]).toEqual(colors[1]);
+  expect(colors[0]).toEqual(colors[2]);
+  const stage = dialog.getByRole('button', { name: 'Stage: Grounding' });
+  await stage.click();
+  const stageOptions = dialog.getByRole('listbox', { name: 'Stage options' });
+  await expect(stageOptions).toHaveCSS('width', '200px');
   await dialog.getByRole('option', { name: 'Validation', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Stage: Validation' })).toBeVisible();
   await page.screenshot({ path: `${artifacts}/agent-create.png` });

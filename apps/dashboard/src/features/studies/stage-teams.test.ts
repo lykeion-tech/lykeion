@@ -1458,6 +1458,24 @@ describe('the one-row New study window', () => {
     }
   });
 
+  it('explains the Validation test requirement before a full study starts', async () => {
+    vi.stubGlobal('fetch', posting());
+    const t = await mount(CreateStudy, () => ({}), '/', seedStudy);
+    try {
+      expect(t.text()).toContain(
+        'Validation needs a recorded statistical test for a directional hypothesis.',
+      );
+      expect(t.text()).toContain('For deterministic checks, specify a named outcome or numeric range.');
+      expect(t.text()).toContain('attach it as a file so Hypotheses can cite it');
+      await t.click(/^Assignees$/);
+      await t.click(/^Hypotheses Team/);
+      expect(t.text()).not.toContain('Validation needs a recorded statistical test');
+      expect(t.text()).toContain('attach it as a file so Hypotheses can cite it');
+    } finally {
+      t.unmount();
+    }
+  });
+
   it('posts the selected agent for a solo study', async () => {
     const fetch = posting();
     vi.stubGlobal('fetch', fetch);
@@ -1780,7 +1798,14 @@ describe('study right-pane surfaces', () => {
       for (const label of ['Properties', 'Timeline', 'Files']) {
         await t.click(new RegExp(`^${label}$`));
         if (label === 'Properties') {
-          expect(t.nodes().some((n) => n.props['aria-label'] === 'Maximize pane')).toBe(false);
+          const maximize = t.nodes().find((n) => n.props['aria-label'] === 'Maximize pane')!;
+          (maximize.props.onClick as () => void)();
+          await nextTick();
+          const restore = t.nodes().find((n) => n.props['aria-label'] === 'Restore pane size')!;
+          expect(restore.props['aria-pressed']).toBe(true);
+          (restore.props.onClick as () => void)();
+          await nextTick();
+          expect(t.nodes().some((n) => n.props['aria-label'] === 'Maximize pane')).toBe(true);
           expect(t.text()).toContain('Owner');
           expect(t.text()).toContain('Due date');
           expect(t.text()).toContain('Created');

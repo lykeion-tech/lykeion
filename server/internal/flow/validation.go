@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"lykeion/server/internal/board"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
@@ -44,12 +45,9 @@ const objectorAssignment = "Look for errors in the study's Validation statuses."
 
 // enqueueObjector queues the blind objector on the card's Validation round
 // with brief as its whole prompt: a system run with no agent, the harness's
-// default model and no skill. It runs on the other CLI family from the
-// column's lead run; when no runtime that could claim the study's runs has
-// that family online and one has the lead's, it runs on the lead's family,
-// and sameFamily says so. With no lead run it takes whichever family is
-// online, Claude Code first. When nothing that fits is online it waits like
-// any run. Its session is always fresh, so it shares no history with any run.
+// default model and no skill. A Codex lead keeps the Objector on Codex
+// unless the study explicitly selected Claude for auditing. Other studies
+// keep the cross-family preference. Its session is always fresh.
 func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, brief string) (sameFamily bool, err error) {
 	runs, err := tx.Q.RoundAgentRuns(ctx, db.RoundAgentRunsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round})
 	if err != nil {
@@ -66,6 +64,11 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 		return tx.Q.CardHasOnlineRuntime(ctx, db.CardHasOnlineRuntimeParams{WorkspaceID: tx.WS, CardID: c.ID, Harness: h})
 	}
 	harness := otherFamily[lead]
+	codexOnly := ptrOr(c.StudyCli) == "codex" && ptrOr(c.AuditorCli) == "codex" ||
+		lead == "codex" && (c.AuditorCli == nil || *c.AuditorCli == "codex")
+	if codexOnly {
+		harness, sameFamily = "codex", lead == "codex"
+	}
 	if harness == "" {
 		harness = "claude"
 		if lead == "" {
@@ -86,7 +89,7 @@ func (e *Engine) enqueueObjector(ctx context.Context, tx *store.Tx, c db.Card, b
 	if err != nil {
 		return false, err
 	}
-	if !ok && lead != "" {
+	if !ok && lead != "" && !codexOnly {
 		if sameFamily, err = online(lead); err != nil {
 			return false, err
 		}
@@ -291,6 +294,7 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 				}
 			}
 			brief, _ := review.ObjectorBrief(v.statuses, v.hs, names(v.values), names(v.outputs), int64(c.Round))
+			brief += "\n" + fence.Untrusted("Official automatic replay", replayEvidence(*rerun))
 			if _, err := e.enqueueObjector(ctx, tx, c, brief); err != nil {
 				return err
 			}

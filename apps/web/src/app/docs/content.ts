@@ -332,6 +332,12 @@ Lykeion presents research in four stages: Grounding, Hypotheses, Experimentation
 
 A completed hand-in is not sufficient evidence that a stage passed. A study moves to Done only after every configured stage and required review finishes. If scoring or another required service is unavailable, preserve that distinction in your own notes.
 
+## Plan what Validation will check
+
+For a directional hypothesis such as “the filter reduces mean error,” plan a statistical test before Experimentation and have the experiment script record the test statistic and p-value. Validation can reproduce a directional result and still mark it inconclusive when the test is missing.
+
+For a deterministic check, specify a named outcome or numeric range in Hypotheses and have the script record the result. Validation checks that the recorded result reproduces and matches the prediction.
+
 ## Check evidence before continuing
 
 Compare the study's outputs with its question and scope. Use [evidence and results](/docs/evidence-and-results/) to inspect files, notebook records and review. The demonstration study in these guides has Grounding hand-ins and is waiting for scoring.
@@ -472,7 +478,7 @@ An agent with no stage needs an appropriate stage selection before stage-specifi
 
 ## Edit with a concrete purpose
 
-If you have edit access, use the agent's settings to adjust its instructions, stage or execution configuration. For a custom agent, set a Study report template in General settings to format its hand-in answer. The default format uses the agent’s stage headings; changes apply to new runs. Required evidence and review checks still apply. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
+If you have edit access, use the agent's settings to adjust its instructions, stage or execution configuration. For a custom agent, set a Study report template in General settings to format its hand-in answer. The default template shows the reporting instructions Lykeion gives the agent for its stage and role. Custom instructions apply to new runs. Required evidence and review checks still apply. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
 
 Access settings control who can assign studies to the agent. Check those settings and the machine's availability when another colleague cannot use it. Some machine configurations only execute their owner's studies; read the restriction shown by the product.
 

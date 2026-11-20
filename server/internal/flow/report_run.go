@@ -318,12 +318,15 @@ func (e *Engine) reportEvidence(ctx context.Context, in report.Input, rep report
 			supports[ed.From] = true
 		}
 	}
-	// The newest output under a name is its node, as the report keeps it.
-	newest := map[string]db.Record{}
-	for _, r := range outputs {
-		newest["out:"+records.Body[struct{ Name string }](r).Name] = r
-	}
-	for id, r := range newest {
+	for _, n := range rep.Nodes {
+		if n.Kind != "output" {
+			continue
+		}
+		id := n.ID
+		r, ok := byKey[strings.TrimPrefix(id, "rec:")]
+		if !ok || r.Kind != "output" {
+			continue
+		}
 		if f, ok := files[r.Key]; ok {
 			ev.Texts[id] = f
 		}

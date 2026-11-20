@@ -204,9 +204,10 @@ func listing(t *testing.T, dir string) (string, time.Time) {
 }
 
 func TestRerunReplaysScriptsInAFreshFolder(t *testing.T) {
+	measured := []string{"outputs/auc.txt"}
 	steps := []service.RerunStep{
-		{Key: "run1", Path: "src/make.py", Language: envs.Python, Script: "mkdir -p outputs && echo 0.873 > outputs/auc.txt && echo made\n"},
-		{Key: "run2", Path: "report.py", Language: envs.Python, Script: "cat outputs/auc.txt\n"},
+		{Key: "run1", Path: "src/make.py", Language: envs.Python, Script: "mkdir -p outputs && echo 0.873 > outputs/auc.txt && echo made\n", OutputPaths: measured},
+		{Key: "run2", Path: "report.py", Language: envs.Python, Script: "cat outputs/auc.txt\n", OutputPaths: measured},
 		{Key: "run3", Path: "env.py", Language: envs.Python, Script: "env\n"},
 	}
 	// The daemon's own token is in its environment; neither it nor the
@@ -239,6 +240,11 @@ func TestRerunReplaysScriptsInAFreshFolder(t *testing.T) {
 		t.Fatalf("failure %v", rc.srv.result["failure"])
 	}
 	sum := sha256.Sum256([]byte("0.873\n"))
+	firstHashes, _ := first["output_hashes"].(map[string]any)
+	secondHashes, ok := second["output_hashes"].(map[string]any)
+	if firstHashes["outputs/auc.txt"] != hex.EncodeToString(sum[:]) || !ok || len(secondHashes) != 0 {
+		t.Fatalf("artifact attribution did not distinguish producing and reading: %v %v", first["output_hashes"], second["output_hashes"])
+	}
 	outputs := rc.srv.result["outputs"].([]any)
 	if len(outputs) != 1 || outputs[0].(map[string]any)["name"] != "outputs/auc.txt" || outputs[0].(map[string]any)["text_sha256"] != hex.EncodeToString(sum[:]) {
 		t.Fatalf("outputs %v", outputs)

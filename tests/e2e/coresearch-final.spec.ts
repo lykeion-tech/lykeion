@@ -13,7 +13,8 @@ test('sidebar New opens the study composer even from Coresearch', async ({ page 
   const composer = page.getByRole('dialog');
   await expect(composer.getByRole('textbox', { name: 'Study title', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#\/coresearch\/conversations\/welcome$/);
-  await expect(composer.locator('.composer-hint')).toHaveCount(0);
+  await expect(composer.getByText(/attach it as a file so Hypotheses can cite it/)).toBeVisible();
+  await expect(composer.getByText(/Validation needs a recorded statistical test/)).toBeVisible();
 });
 
 for (const theme of ['ash', 'midnight']) {

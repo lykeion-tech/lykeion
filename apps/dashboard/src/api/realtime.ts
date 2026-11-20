@@ -122,7 +122,13 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
     case 'comment':
       return own(keys.comments);
     case 'agent_run':
-      return [keys.cards(ws), keys.runtimes(ws), keys.analytics(ws), ...own(keys.runs, keys.card)];
+      return [
+        keys.cards(ws),
+        keys.runtimes(ws),
+        keys.analytics(ws),
+        ...own(keys.runs, keys.card),
+        ...(card && e.type !== 'agent_run.usage_updated' ? [keys.agentWorkAll(ws)] : []),
+      ];
     case 'inbox':
     case 'decision':
       return [keys.decisionsAll(ws), keys.decisionCount(ws)];

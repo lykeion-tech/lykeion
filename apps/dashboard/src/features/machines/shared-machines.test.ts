@@ -555,10 +555,10 @@ describe('Shared machines', () => {
       (c) => c.setQueryData(keys.me, { id: 'u2' }),
     );
     try {
-      expect(t.text()).not.toContain('Runs on: Bench');
+      expect(t.text()).not.toContain('Runs on');
       await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
-      expect(t.text()).toContain('Runs on: Bench');
+      expect(t.text()).toMatch(/Runs on\s*Bench/);
       expect(t.text()).toContain('no longer shared');
       expect(t.all().some((n) => n.props['aria-label'] === 'Machine')).toBe(false);
       expect(bodies(f)).toHaveLength(0);
@@ -782,10 +782,10 @@ describe('Shared machines', () => {
     const f = fetching();
     const t = await mount(StudyDetail, () => ({ id: 'c' }));
     try {
-      expect(t.text()).not.toContain('Runs on: Bench');
+      expect(t.text()).not.toContain('Runs on');
       await t.click(/^Toggle details$/);
       await t.click(/^Properties$/);
-      expect(t.text()).toContain('Runs on: Bench');
+      expect(t.text()).toMatch(/Runs on\s*Bench/);
       expect(t.text()).toContain(
         "This study's machine is no longer shared with you; choose another.",
       );

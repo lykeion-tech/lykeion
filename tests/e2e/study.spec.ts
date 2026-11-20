@@ -806,7 +806,7 @@ test('the study shows its description without evidence in details', async ({ pag
   await openStudyDetails(page);
   await pane.getByRole('button', { name: 'Properties', exact: true }).click();
   await expect(pane.getByLabel('Machine', { exact: true })).toHaveCount(0);
-  await expect(pane).toContainText('Runs on:');
+  await expect(pane.getByText('Runs on', { exact: true })).toBeVisible();
   await expect(pane.getByText('View evidence and activity')).toHaveCount(0);
   await expect(pane.getByRole('region', { name: 'Audit' })).toHaveCount(0);
 });
