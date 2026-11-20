@@ -590,10 +590,10 @@ func TestTheStateFitsJevsLimit(t *testing.T) {
 	if !strings.Contains(calls[0].State, "[cut:") {
 		t.Fatal("no cut mark in the state")
 	}
-	// The last record cited is the first a cut would drop; its key depends on
-	// what else the study recorded first, so it is read, not assumed.
-	if !strings.Contains(calls[0].State, "Record "+cites[len(cites)-1]+" ") {
-		t.Fatal("the cut dropped a record instead of shortening it")
+	for _, key := range cites {
+		if !strings.Contains(calls[0].State, "Record "+key+" ") {
+			t.Fatalf("the cut dropped record %s instead of shortening it", key)
+		}
 	}
 }
 

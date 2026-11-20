@@ -575,7 +575,7 @@ func evidence(summary string, cited []db.Record, budget int) string {
 		}
 		return b.String()
 	}
-	for len(cited) > 0 && len(build("", 0)) > budget/2 {
+	for len(cited) > 0 && len(build(cutMark, 0)) > budget {
 		cited = cited[:len(cited)-1]
 		dropped++
 	}
