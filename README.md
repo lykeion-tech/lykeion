@@ -124,6 +124,10 @@ _Your machines, your data, your rules._
 
 The one prerequisite: the computer that runs agents needs Claude Code or Codex installed and signed in. Lykeion drives them; it doesn't ship them.
 
+### Operate your lab from Claude Code or Codex
+
+Use the [Lykeion CLI skill](https://github.com/lykeion-tech/lykeion-cli) to inspect studies, check pending Decisions, and operate your lab from Claude Code or Codex through your signed-in `lyk` CLI. The skill repository has installation instructions for both clients.
+
 ### Your first study in five minutes
 
 **1. Open a workspace.** Sign in and follow the laboratory onboarding. Create a workspace, or join your lab's, and keep the default laboratory for your first study.

@@ -619,6 +619,10 @@ lyk daemon start
 
 Replace the email and workspace slug with your own, and enter the emailed code in the terminal. Follow the installer's PATH instructions if lyk is not found. These commands also work over SSH. Use your actual hosted origin if it differs.
 
+## Operate your lab from Claude Code or Codex
+
+Once \`lyk whoami\` shows your Lykeion account, install the [Lykeion CLI skill](https://github.com/lykeion-tech/lykeion-cli) in Claude Code or Codex. It uses your existing CLI sign-in to inspect the board, check pending Decisions, and work with studies and Autoresearch.
+
 ## Alternative: build from source
 
 The dashboard's Add a machine dialog also offers a source-build path. This alternative requires Go 1.26 and a Lykeion source checkout. Run its displayed build command from the checkout's server directory, then follow its login and daemon instructions. The dialog also displays Windows build commands, but building or starting a daemon does not supply the missing Windows sandbox. Use a macOS or Linux execution machine for agent runs.
