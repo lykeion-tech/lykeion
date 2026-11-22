@@ -122,12 +122,17 @@ func TestDraftStudyRefusesRemovedMember(t *testing.T) {
 		t.Fatalf("accept: %d", c)
 	}
 	memberID := s.userID(t, member)
+	// A member with an online runtime would pass every other check.
+	if c := s.call(t, "POST", "/api/daemon/register", s.personalToken(t, member), "", map[string]any{"workspace_id": ws.ID, "daemon_id": "gone-device", "harnesses": []string{"claude"}}, nil); c != 200 {
+		t.Fatalf("register: %d", c)
+	}
 	if c := s.call(t, "DELETE", "/api/workspaces/"+ws.ID+"/members/"+memberID, owner, "", nil, nil); c/100 != 2 {
 		t.Fatalf("remove: %d", c)
 	}
 	_, err := s.H.DraftStudy(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(memberID), StudyDraftIn{AgentID: agent, Prompt: "x", Priority: "none"})
-	if err == nil {
-		t.Fatal("removed member queued a draft")
+	var inputErr cardInputError
+	if !errors.As(err, &inputErr) || err.Error() != "you are no longer a member of this workspace" {
+		t.Fatalf("removed member: %v", err)
 	}
 	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE workspace_id=$1`, ws.ID); n != 0 {
 		t.Fatalf("draft rows: %d", n)

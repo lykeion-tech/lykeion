@@ -78,7 +78,9 @@ func (h *H) DraftStudy(ctx context.Context, ws, user uuid.UUID, in StudyDraftIn)
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
 			return err
 		}
-		if _, err := tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: ws, UserID: user}); err != nil {
+		if _, err := tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: ws, UserID: user}); errors.Is(err, pgx.ErrNoRows) {
+			return cardInputError("you are no longer a member of this workspace")
+		} else if err != nil {
 			return err
 		}
 		var err error
