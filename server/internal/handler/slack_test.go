@@ -304,6 +304,10 @@ func TestSlackLinkRoute(t *testing.T) {
 	if n := s.count(t, `SELECT count(*) FROM slack_binding WHERE workspace_id=$1`, ws.ID); n != 1 {
 		t.Fatalf("bindings: %d", n)
 	}
+	// connect + link: other tabs refresh the binding
+	if n := s.count(t, `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='slack.changed'`, ws.ID); n != 2 {
+		t.Fatalf("slack.changed events: %d", n)
+	}
 }
 
 // slackCmdFixture connects Slack and binds UOWNER to the owner.

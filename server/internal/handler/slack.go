@@ -328,6 +328,13 @@ func (h *H) postSlackLink(w http.ResponseWriter, r *http.Request) {
 			err = conflict("That Slack user is already linked")
 		}
 	}
+	if err == nil {
+		// Through the request transaction: Redeem's own would wait on its
+		// workspace lock. Other tabs refresh the binding.
+		err = h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
+			return tx.Emit(r.Context(), "slack.changed", nil, store.User(user), nil)
+		})
+	}
 	if answer(w, r, err) {
 		writeJSON(w, 200, map[string]string{"slack_user_id": slackUser, "team_name": team})
 	}
