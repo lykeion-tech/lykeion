@@ -79,14 +79,16 @@ WHERE workspace_id = @workspace_id AND repo_owner = lower(@repo_owner::text)
 -- name: SetGithubSnapshot :execrows
 UPDATE github_pull_request SET ci_state = sqlc.narg(ci_state), ci_passed = @ci_passed, ci_total = @ci_total,
   ci_failing = COALESCE(@ci_failing::text[], '{}'), mergeability = sqlc.narg(mergeability),
-  snapshot_at = @observed_at::timestamptz, snapshot_stale = false, updated_at = now()
+  snapshot_at = @observed_at::timestamptz, snapshot_attempt_at = @observed_at::timestamptz, snapshot_stale = false, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND installation_id = @installation_id
-  AND head_sha = @head_sha AND state IN ('open', 'draft');
+  AND head_sha = @head_sha AND state IN ('open', 'draft')
+  AND (snapshot_attempt_at IS NULL OR snapshot_attempt_at < @observed_at);
 
 -- name: MarkGithubSnapshotStale :execrows
-UPDATE github_pull_request SET snapshot_stale = true, updated_at = now()
+UPDATE github_pull_request SET snapshot_attempt_at = @observed_at::timestamptz, snapshot_stale = true, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND installation_id = @installation_id
-  AND head_sha = @head_sha AND state IN ('open', 'draft');
+  AND head_sha = @head_sha AND state IN ('open', 'draft')
+  AND (snapshot_attempt_at IS NULL OR snapshot_attempt_at < @observed_at);
 
 -- name: ListPullRequestsForCard :many
 SELECT sqlc.embed(p), l.source
@@ -154,7 +156,7 @@ SELECT EXISTS (SELECT 1 FROM github_webhook_delivery WHERE id = @id);
 SELECT id, number FROM card WHERE workspace_id = @workspace_id AND number = ANY(@numbers::integer[]);
 
 -- name: ListGithubSnapshotTargets :many
-SELECT p.id, p.number, p.head_sha, p.snapshot_at, c.created_at AS connected_at,
+SELECT p.id, p.number, p.head_sha, c.created_at AS connected_at,
   statement_timestamp()::timestamptz AS observed_at
 FROM github_pull_request p
 JOIN github_connection c USING (workspace_id, installation_id)

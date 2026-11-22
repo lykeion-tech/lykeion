@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,23 +132,41 @@ func (s *Service) fetchSnapshot(ctx context.Context, id int64, owner, repo strin
 		return nil, "", err
 	}
 	path := "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
-	var pr struct {
-		State          string
-		Head           struct{ SHA string }
-		MergeableState string `json:"mergeable_state"`
-	}
-	if err := s.get(ctx, token, fmt.Sprintf("%s/pulls/%d", path, n), &pr); err != nil {
-		return nil, "", err
-	}
-	if pr.State == "closed" {
-		return nil, "", nil
-	}
-	sha := pr.Head.SHA
-	if sha == "" || pr.State != "open" {
-		return nil, "", errors.New("invalid GitHub snapshot pull request")
-	}
-	if !slices.ContainsFunc(targets, func(t snapshotTarget) bool { return t.HeadSha == sha }) {
-		return nil, sha, nil
+	prPath := fmt.Sprintf("%s/pulls/%d", path, n)
+	var sha, mergeableState string
+	for attempt := 0; ; attempt++ {
+		var pr struct {
+			State          string
+			Head           struct{ SHA string }
+			Mergeable      json.RawMessage
+			MergeableState string `json:"mergeable_state"`
+		}
+		if err := s.get(ctx, token, prPath, &pr); err != nil {
+			return nil, sha, err
+		}
+		if pr.State == "closed" {
+			return nil, "", nil
+		}
+		sha = pr.Head.SHA
+		if sha == "" || pr.State != "open" {
+			return nil, "", errors.New("invalid GitHub snapshot pull request")
+		}
+		if !slices.ContainsFunc(targets, func(t snapshotTarget) bool { return t.HeadSha == sha }) {
+			return nil, sha, nil
+		}
+		if string(pr.Mergeable) != "null" {
+			mergeableState = pr.MergeableState
+			break
+		}
+		// An explicit null starts GitHub's mergeability calculation. Give it one follow-up read.
+		if attempt == 1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, sha, ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
 	commit := path + "/commits/" + url.PathEscape(sha)
 	var runs []CheckRun
@@ -176,7 +195,7 @@ func (s *Service) fetchSnapshot(ctx context.Context, id int64, owner, repo strin
 		}
 	}
 	ci, passed, total, failing := rollup(runs, statuses)
-	return &db.SetGithubSnapshotParams{CiState: ci, CiPassed: int32(passed), CiTotal: int32(total), CiFailing: failing, Mergeability: mergeability(pr.MergeableState)}, sha, nil
+	return &db.SetGithubSnapshotParams{CiState: ci, CiPassed: int32(passed), CiTotal: int32(total), CiFailing: failing, Mergeability: mergeability(mergeableState)}, sha, nil
 }
 
 func (s *Service) writeSnapshot(ctx context.Context, id int64, owner, repo string, target snapshotTarget, snap *db.SetGithubSnapshotParams) error {
@@ -210,17 +229,9 @@ func (s *Service) writeSnapshot(ctx context.Context, id int64, owner, repo strin
 		var n int64
 		var changed bool
 		if snap == nil {
-			// A successful refresh completed during this request. Its fresh snapshot wins.
-			if current.SnapshotStale || !reflect.DeepEqual(current.SnapshotAt, target.SnapshotAt) {
-				return nil
-			}
-			n, err = tx.Q.MarkGithubSnapshotStale(ctx, db.MarkGithubSnapshotStaleParams{WorkspaceID: tx.WS, InstallationID: id, ID: target.ID, HeadSha: target.HeadSha})
-			changed = current.SnapshotAt != nil
+			n, err = tx.Q.MarkGithubSnapshotStale(ctx, db.MarkGithubSnapshotStaleParams{WorkspaceID: tx.WS, InstallationID: id, ID: target.ID, HeadSha: target.HeadSha, ObservedAt: target.ObservedAt})
+			changed = current.SnapshotAt != nil && !current.SnapshotStale
 		} else {
-			// Use the database read time so a slower response cannot replace a newer observation.
-			if current.SnapshotAt != nil && current.SnapshotAt.After(target.ObservedAt) {
-				return nil
-			}
 			params := *snap
 			params.ObservedAt = target.ObservedAt
 			params.WorkspaceID, params.InstallationID, params.ID, params.HeadSha = tx.WS, id, target.ID, target.HeadSha

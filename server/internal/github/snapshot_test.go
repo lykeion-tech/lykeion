@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,8 @@ func TestSnapshotWritten(t *testing.T) {
 			if r.URL.Query().Get("page") == "" {
 				w.Header().Set("Link", `<?page=2>; rel="next"`)
 			}
-			fmt.Fprint(w, `{"statuses":[{"context":"build","state":"success"}]}`)
+			fmt.Fprint(w, `{"statuses":[{"context"
+ "errors":"build","state":"success"}]}`)
 		default:
 			t.Errorf("unexpected %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -198,10 +200,12 @@ func TestSnapshotLateResponsePreservesNewerSuccess(t *testing.T) {
 							return
 						}
 						w.WriteHeader(response)
-						fmt.Fprint(w, `{"statuses":[{"context":"build","state":"pending"}]}`)
+						fmt.Fprint(w, `{"statuses":[{"context"
+ "errors":"build","state":"pending"}]}`)
 						return
 					}
-					fmt.Fprint(w, `{"statuses":[{"context":"build","state":"success"}]}`)
+					fmt.Fprint(w, `{"statuses":[{"context"
+ "errors":"build","state":"success"}]}`)
 				default:
 					http.NotFound(w, r)
 				}
@@ -277,5 +281,126 @@ func TestSnapshotRechecksConnectionAfterGitHubFetch(t *testing.T) {
 	}
 	if row := f.row(t); row.SnapshotStale || row.SnapshotAt != nil {
 		t.Fatalf("disconnected target changed: %+v", row)
+	}
+}
+
+func TestSnapshotNewerOutageWinsInEitherCompletionOrder(t *testing.T) {
+	for _, firstToFinish := range []int{0, 1} {
+		t.Run(fmt.Sprint(firstToFinish), func(t *testing.T) {
+			var calls atomic.Int32
+			started := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+			release := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+			done := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+			f := newSnapshotFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/app/installations/42/access_tokens":
+					fmt.Fprint(w, `{"token":"fake"}`)
+				case "/repos/org/repo/pulls/1":
+					fmt.Fprint(w, `{"state":"open","head":{"sha":"abc"}}`)
+				case "/repos/org/repo/commits/abc/check-runs":
+					fmt.Fprint(w, `{"check_runs":[]}`)
+				case "/repos/org/repo/commits/abc/status":
+					i := int(calls.Add(1) - 1)
+					close(started[i])
+					select {
+					case <-release[i]:
+					case <-r.Context().Done():
+						return
+					}
+					if i == 1 {
+						http.Error(w, "outage", 502)
+						return
+					}
+					fmt.Fprint(w, `{"statuses":[{"context"
+ "errors":"build","state":"success"}]}`)
+				default:
+					http.NotFound(w, r)
+				}
+			})
+			if _, err := f.env.Owner.Exec(t.Context(), `update github_pull_request set ci_state='pending',snapshot_at=now()`); err != nil {
+				t.Fatal(err)
+			}
+			for i := range done {
+				go func() { defer close(done[i]); f.s.refresh(t.Context(), 42, "org", "repo", 1) }()
+				select {
+				case <-started[i]:
+				case <-time.After(3 * time.Second):
+					t.Fatal("refresh did not reach upstream")
+				}
+			}
+			close(release[firstToFinish])
+			<-done[firstToFinish]
+			first := f.row(t)
+			close(release[1-firstToFinish])
+			<-done[1-firstToFinish]
+			row := f.row(t)
+			if !row.SnapshotStale || row.SnapshotAt == nil || !row.SnapshotAt.Equal(*first.SnapshotAt) || row.CiState == nil || *row.CiState != *first.CiState {
+				t.Fatalf("newer outage not retained: %+v", row)
+			}
+		})
+	}
+}
+
+func TestSnapshotRetriesExplicitNullMergeability(t *testing.T) {
+	for _, tc := range []struct {
+		name, first, second string
+		reads               int32
+		want                string
+	}{
+		{"calculated", `,"mergeable":null,"mergeable_state":"unknown"`, `,"mergeable":true,"mergeable_state":"clean"`, 2, "mergeable"},
+		{"still pending", `,"mergeable":null`, `,"mergeable":null`, 2, ""},
+		{"omitted", `,"mergeable_state":"unknown"`, "", 1, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var reads atomic.Int32
+			f := newSnapshotFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/app/installations/42/access_tokens":
+					fmt.Fprint(w, `{"token":"fake"}`)
+				case "/repos/org/repo/pulls/1":
+					fields := tc.first
+					if reads.Add(1) > 1 {
+						fields = tc.second
+					}
+					fmt.Fprintf(w, `{"state":"open","head":{"sha":"abc"}%s}`, fields)
+				case "/repos/org/repo/commits/abc/check-runs":
+					fmt.Fprint(w, `{"check_runs":[]}`)
+				case "/repos/org/repo/commits/abc/status":
+					fmt.Fprint(w, `{"statuses":[]}`)
+				default:
+					http.NotFound(w, r)
+				}
+			})
+			f.s.refresh(t.Context(), 42, "org", "repo", 1)
+			row := f.row(t)
+			if reads.Load() != tc.reads || row.SnapshotAt == nil || row.CiState != nil || (row.Mergeability == nil) != (tc.want == "") || row.Mergeability != nil && *row.Mergeability != tc.want {
+				t.Fatalf("reads %d row %+v", reads.Load(), row)
+			}
+		})
+	}
+}
+
+func TestSnapshotMergeabilityRetryHonorsDeadline(t *testing.T) {
+	var reads atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app/installations/42/access_tokens":
+			fmt.Fprint(w, `{"token":"fake"}`)
+		case "/repos/org/repo/pulls/1":
+			reads.Add(1)
+			fmt.Fprint(w, `{"state":"open","head":{"sha":"abc"},"mergeable":null}`)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(api.Close)
+	s := Service{Config: Config{AppID: 1, PrivateKey: testAppKey(t), APIURL: api.URL}}
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	defer cancel()
+	targets := []snapshotTarget{{ListGithubSnapshotTargetsRow: db.ListGithubSnapshotTargetsRow{HeadSha: "abc"}}}
+	_, _, err := s.fetchSnapshot(ctx, 42, "org", "repo", 1, targets)
+	if !errors.Is(err, context.DeadlineExceeded) || reads.Load() != 1 {
+		t.Fatalf("got %d PR reads and error %v", reads.Load(), err)
 	}
 }

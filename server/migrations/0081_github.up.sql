@@ -43,6 +43,7 @@ CREATE TABLE github_pull_request (
   ci_failing text[] NOT NULL DEFAULT '{}',
   mergeability text CHECK (mergeability IN ('mergeable', 'conflicting', 'blocked', 'behind')),
   snapshot_at timestamptz,
+  snapshot_attempt_at timestamptz,
   snapshot_stale boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

@@ -112,7 +112,7 @@ func (q *Queries) GetGithubConnection(ctx context.Context, arg GetGithubConnecti
 }
 
 const getGithubPullRequestByRepo = `-- name: GetGithubPullRequestByRepo :one
-SELECT id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_stale, created_at, updated_at FROM github_pull_request
+SELECT id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_attempt_at, snapshot_stale, created_at, updated_at FROM github_pull_request
 WHERE workspace_id = $1 AND repo_owner = lower($2::text)
   AND repo_name = lower($3::text) AND number = $4
 `
@@ -160,6 +160,7 @@ func (q *Queries) GetGithubPullRequestByRepo(ctx context.Context, arg GetGithubP
 		&i.CiFailing,
 		&i.Mergeability,
 		&i.SnapshotAt,
+		&i.SnapshotAttemptAt,
 		&i.SnapshotStale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -411,7 +412,7 @@ func (q *Queries) ListGithubConnections(ctx context.Context, workspaceID uuid.UU
 }
 
 const listGithubSnapshotTargets = `-- name: ListGithubSnapshotTargets :many
-SELECT p.id, p.number, p.head_sha, p.snapshot_at, c.created_at AS connected_at,
+SELECT p.id, p.number, p.head_sha, c.created_at AS connected_at,
   statement_timestamp()::timestamptz AS observed_at
 FROM github_pull_request p
 JOIN github_connection c USING (workspace_id, installation_id)
@@ -432,12 +433,11 @@ type ListGithubSnapshotTargetsParams struct {
 }
 
 type ListGithubSnapshotTargetsRow struct {
-	ID          uuid.UUID  `json:"id"`
-	Number      int32      `json:"number"`
-	HeadSha     string     `json:"head_sha"`
-	SnapshotAt  *time.Time `json:"snapshot_at"`
-	ConnectedAt time.Time  `json:"connected_at"`
-	ObservedAt  time.Time  `json:"observed_at"`
+	ID          uuid.UUID `json:"id"`
+	Number      int32     `json:"number"`
+	HeadSha     string    `json:"head_sha"`
+	ConnectedAt time.Time `json:"connected_at"`
+	ObservedAt  time.Time `json:"observed_at"`
 }
 
 func (q *Queries) ListGithubSnapshotTargets(ctx context.Context, arg ListGithubSnapshotTargetsParams) ([]ListGithubSnapshotTargetsRow, error) {
@@ -460,7 +460,6 @@ func (q *Queries) ListGithubSnapshotTargets(ctx context.Context, arg ListGithubS
 			&i.ID,
 			&i.Number,
 			&i.HeadSha,
-			&i.SnapshotAt,
 			&i.ConnectedAt,
 			&i.ObservedAt,
 		); err != nil {
@@ -513,7 +512,7 @@ func (q *Queries) ListLinksForPR(ctx context.Context, arg ListLinksForPRParams) 
 }
 
 const listPullRequestsForCard = `-- name: ListPullRequestsForCard :many
-SELECT p.id, p.workspace_id, p.installation_id, p.repo_owner, p.repo_name, p.number, p.title, p.state, p.html_url, p.branch, p.body_keys, p.author_login, p.author_avatar_url, p.additions, p.deletions, p.changed_files, p.head_sha, p.merged_at, p.closed_at, p.pr_created_at, p.pr_updated_at, p.ci_state, p.ci_passed, p.ci_total, p.ci_failing, p.mergeability, p.snapshot_at, p.snapshot_stale, p.created_at, p.updated_at, l.source
+SELECT p.id, p.workspace_id, p.installation_id, p.repo_owner, p.repo_name, p.number, p.title, p.state, p.html_url, p.branch, p.body_keys, p.author_login, p.author_avatar_url, p.additions, p.deletions, p.changed_files, p.head_sha, p.merged_at, p.closed_at, p.pr_created_at, p.pr_updated_at, p.ci_state, p.ci_passed, p.ci_total, p.ci_failing, p.mergeability, p.snapshot_at, p.snapshot_attempt_at, p.snapshot_stale, p.created_at, p.updated_at, l.source
 FROM github_pull_request p
 JOIN github_pr_link l ON l.workspace_id = p.workspace_id AND l.pr_id = p.id
 WHERE l.workspace_id = $1 AND l.card_id = $2
@@ -567,6 +566,7 @@ func (q *Queries) ListPullRequestsForCard(ctx context.Context, arg ListPullReque
 			&i.GithubPullRequest.CiFailing,
 			&i.GithubPullRequest.Mergeability,
 			&i.GithubPullRequest.SnapshotAt,
+			&i.GithubPullRequest.SnapshotAttemptAt,
 			&i.GithubPullRequest.SnapshotStale,
 			&i.GithubPullRequest.CreatedAt,
 			&i.GithubPullRequest.UpdatedAt,
@@ -613,12 +613,14 @@ func (q *Queries) LockActiveGithubConnection(ctx context.Context, arg LockActive
 }
 
 const markGithubSnapshotStale = `-- name: MarkGithubSnapshotStale :execrows
-UPDATE github_pull_request SET snapshot_stale = true, updated_at = now()
-WHERE workspace_id = $1 AND id = $2 AND installation_id = $3
-  AND head_sha = $4 AND state IN ('open', 'draft')
+UPDATE github_pull_request SET snapshot_attempt_at = $1::timestamptz, snapshot_stale = true, updated_at = now()
+WHERE workspace_id = $2 AND id = $3 AND installation_id = $4
+  AND head_sha = $5 AND state IN ('open', 'draft')
+  AND (snapshot_attempt_at IS NULL OR snapshot_attempt_at < $1)
 `
 
 type MarkGithubSnapshotStaleParams struct {
+	ObservedAt     time.Time `json:"observed_at"`
 	WorkspaceID    uuid.UUID `json:"workspace_id"`
 	ID             uuid.UUID `json:"id"`
 	InstallationID int64     `json:"installation_id"`
@@ -627,6 +629,7 @@ type MarkGithubSnapshotStaleParams struct {
 
 func (q *Queries) MarkGithubSnapshotStale(ctx context.Context, arg MarkGithubSnapshotStaleParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGithubSnapshotStale,
+		arg.ObservedAt,
 		arg.WorkspaceID,
 		arg.ID,
 		arg.InstallationID,
@@ -709,9 +712,10 @@ func (q *Queries) SetGithubImportState(ctx context.Context, arg SetGithubImportS
 const setGithubSnapshot = `-- name: SetGithubSnapshot :execrows
 UPDATE github_pull_request SET ci_state = $1, ci_passed = $2, ci_total = $3,
   ci_failing = COALESCE($4::text[], '{}'), mergeability = $5,
-  snapshot_at = $6::timestamptz, snapshot_stale = false, updated_at = now()
+  snapshot_at = $6::timestamptz, snapshot_attempt_at = $6::timestamptz, snapshot_stale = false, updated_at = now()
 WHERE workspace_id = $7 AND id = $8 AND installation_id = $9
   AND head_sha = $10 AND state IN ('open', 'draft')
+  AND (snapshot_attempt_at IS NULL OR snapshot_attempt_at < $6)
 `
 
 type SetGithubSnapshotParams struct {
@@ -828,7 +832,7 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, number) DO UPDATE SET
   updated_at = now()
 WHERE github_pull_request.pr_updated_at <= EXCLUDED.pr_updated_at
   AND (github_pull_request.state <> 'merged' OR EXCLUDED.state = 'merged')
-RETURNING id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_stale, created_at, updated_at
+RETURNING id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_attempt_at, snapshot_stale, created_at, updated_at
 `
 
 type UpsertGithubPullRequestParams struct {
@@ -908,6 +912,7 @@ func (q *Queries) UpsertGithubPullRequest(ctx context.Context, arg UpsertGithubP
 		&i.CiFailing,
 		&i.Mergeability,
 		&i.SnapshotAt,
+		&i.SnapshotAttemptAt,
 		&i.SnapshotStale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
