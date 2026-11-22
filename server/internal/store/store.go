@@ -310,9 +310,14 @@ func (s *Store) InWorkspace(ctx context.Context, ws, user uuid.UUID, fn func(*Tx
 	return s.run(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, fn)
 }
 
+// InWorkspaceOn runs one tenant transaction on a session reserved by the caller.
+func (s *Store) InWorkspaceOn(ctx context.Context, conn *pgxpool.Conn, ws, user uuid.UUID, fn func(*Tx) error) error {
+	return s.runWith(ctx, conn, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{}, fn)
+}
+
 // InWorkspaceReadCommitted gives cleanup a fresh snapshot after acquiring locks.
 func (s *Store) InWorkspaceReadCommitted(ctx context.Context, ws, user uuid.UUID, fn func(*Tx) error) error {
-	return s.runWith(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, fn)
+	return s.runWith(ctx, s.Pool, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, fn)
 }
 
 // InWorkspaceSnapshot is used for hand-ins that validate several related facts.
@@ -320,7 +325,7 @@ func (s *Store) InWorkspaceReadCommitted(ctx context.Context, ws, user uuid.UUID
 // its checks. A rolled-back attempt publishes no events.
 func (s *Store) InWorkspaceSnapshot(ctx context.Context, ws, user uuid.UUID, fn func(*Tx) error) error {
 	for attempt := 1; ; attempt++ {
-		err := s.runWith(ctx, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.Serializable}, fn)
+		err := s.runWith(ctx, s.Pool, ws, map[string]string{"app.workspace_id": ws.String(), "app.user_id": user.String()}, pgx.TxOptions{IsoLevel: pgx.Serializable}, fn)
 		var e *pgconn.PgError
 		if attempt >= 4 || !errors.As(err, &e) || e.Code != "40001" {
 			return err
@@ -338,11 +343,15 @@ func (s *Store) AsUser(ctx context.Context, user uuid.UUID, email string, fn fun
 func (s *Store) Global() *db.Queries { return db.New(s.Pool) }
 
 func (s *Store) run(ctx context.Context, ws uuid.UUID, settings map[string]string, fn func(*Tx) error) error {
-	return s.runWith(ctx, ws, settings, pgx.TxOptions{}, fn)
+	return s.runWith(ctx, s.Pool, ws, settings, pgx.TxOptions{}, fn)
 }
 
-func (s *Store) runWith(ctx context.Context, ws uuid.UUID, settings map[string]string, opts pgx.TxOptions, fn func(*Tx) error) error {
-	tx, err := s.Pool.BeginTx(ctx, opts)
+type txStarter interface {
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
+
+func (s *Store) runWith(ctx context.Context, source txStarter, ws uuid.UUID, settings map[string]string, opts pgx.TxOptions, fn func(*Tx) error) error {
+	tx, err := source.BeginTx(ctx, opts)
 	if err != nil {
 		return err
 	}

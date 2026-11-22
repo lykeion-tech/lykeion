@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"lykeion/server/internal/github"
+	"lykeion/server/internal/store"
 )
 
 type githubWebhooks struct{ *server }
@@ -418,4 +420,41 @@ func TestWebhookConcurrentMirrorResolution(t *testing.T) {
 	}
 	f.count(t, 2, "select count(*) from github_pull_request")
 	f.count(t, 0, "select count(*) from github_pr_link")
+}
+
+func TestWebhookMirrorWithinOnePoolSlot(t *testing.T) {
+	f := newMirrorFixture(t)
+	f.connect(t, f.ws)
+	f.study(t, "first")
+	other := f.workspace(t, f.token, "other").ID
+	f.connect(t, other)
+	// The workspace write must reuse the same backend which holds the PR advisory lock.
+	f.exec(t, `create function assert_pr_lock() returns trigger language plpgsql as $$
+ begin if not exists(select from pg_locks where pid=pg_backend_pid() and locktype='advisory' and granted)
+ then raise exception 'PR write used an extra database session'; end if; return new; end $$;
+ create trigger assert_pr_lock before insert on github_pull_request for each row execute function assert_pr_lock()`)
+	cfg := f.Env.App.Config()
+	cfg.MinConns = 0
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	svc := &github.Service{Store: &store.Store{Pool: pool}, Config: f.H.GitHub.Config}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	body, err := json.Marshal(f.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.Handle(ctx, "pull_request", "pooled", body); err != nil {
+		t.Fatal(err)
+	}
+	f.count(t, 2, "select count(*) from github_pull_request")
+	f.links(t, 1)
+	var locks int
+	if err = pool.QueryRow(ctx, "select count(*) from pg_locks where pid=pg_backend_pid() and locktype='advisory'").Scan(&locks); err != nil || locks != 0 {
+		t.Fatalf("locks after release: %d (%v)", locks, err)
+	}
 }

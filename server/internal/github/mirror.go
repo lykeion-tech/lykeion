@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -44,33 +45,42 @@ func (p PullRequest) state() string {
 var errNoMirrorTarget = errors.New("GitHub installation has no active connection")
 
 func (s *Service) mirror(ctx context.Context, installation int64, pr PullRequest) error {
-	return s.withMirrorLock(ctx, installation, pr, func() error {
-		return s.mirrorLocked(ctx, installation, pr)
+	return s.withMirrorLock(ctx, installation, pr, func(conn *pgxpool.Conn) error {
+		return s.mirrorLocked(ctx, conn, installation, pr)
 	})
 }
 
 // Serialize identifier resolution and its writes across server instances.
-// The callback only uses the database. Its workspace transactions need free pool slots.
-func (s *Service) withMirrorLock(ctx context.Context, installation int64, pr PullRequest, apply func() error) error {
-	conn, err := pgx.ConnectConfig(ctx, s.Store.Pool.Config().ConnConfig.Copy())
+// Reuse the locked session for each workspace transaction to stay within the pool budget.
+func (s *Service) withMirrorLock(ctx context.Context, installation int64, pr PullRequest, apply func(*pgxpool.Conn) error) error {
+	key := fmt.Sprintf("github/mirror/%d/%s/%s/%d", installation, strings.ToLower(pr.Owner), strings.ToLower(pr.Repo), pr.Number)
+	digest := sha256.Sum256([]byte(key))
+	lock := int64(binary.BigEndian.Uint64(digest[:8]))
+	conn, err := s.Store.Pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
+	acquired := false
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_ = conn.Close(closeCtx)
+		var released bool
+		if acquired && conn.QueryRow(cleanup, "SELECT pg_advisory_unlock($1)", lock).Scan(&released) == nil && released {
+			conn.Release()
+			return
+		}
+		// A canceled lock/unlock may have reached PostgreSQL. Never reuse an uncertain session.
+		_ = conn.Hijack().Close(cleanup)
 	}()
-	key := fmt.Sprintf("github/mirror/%d/%s/%s/%d", installation, strings.ToLower(pr.Owner), strings.ToLower(pr.Repo), pr.Number)
-	digest := sha256.Sum256([]byte(key))
-	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", int64(binary.BigEndian.Uint64(digest[:8]))); err != nil {
+	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lock); err != nil {
 		return err
 	}
-	return apply()
+	acquired = true
+	return apply(conn)
 }
 
-func (s *Service) mirrorLocked(ctx context.Context, installation int64, pr PullRequest) error {
-	targets, err := s.mirrorTargets(ctx, installation, pr)
+func (s *Service) mirrorLocked(ctx context.Context, conn *pgxpool.Conn, installation int64, pr PullRequest) error {
+	targets, err := s.mirrorTargets(ctx, conn, installation, pr)
 	if err != nil {
 		return err
 	}
@@ -81,7 +91,7 @@ func (s *Service) mirrorLocked(ctx context.Context, installation int64, pr PullR
 		return ErrWebhookPayload
 	}
 	for _, target := range targets {
-		if err := s.mirrorTargetPR(ctx, installation, pr, target); err != nil {
+		if err := s.mirrorTargetPR(ctx, conn, installation, pr, target); err != nil {
 			return err
 		}
 	}
@@ -94,8 +104,8 @@ type mirrorTarget struct {
 	cards     map[string]uuid.UUID
 }
 
-func (s *Service) mirrorTargets(ctx context.Context, installation int64, p PullRequest) ([]mirrorTarget, error) {
-	rows, err := db.New(s.Store.Pool).GithubInstallationWorkspaces(ctx, installation)
+func (s *Service) mirrorTargets(ctx context.Context, conn *pgxpool.Conn, installation int64, p PullRequest) ([]mirrorTarget, error) {
+	rows, err := db.New(conn).GithubInstallationWorkspaces(ctx, installation)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +120,7 @@ func (s *Service) mirrorTargets(ctx context.Context, installation int64, p PullR
 				v, _ := strconv.ParseInt(strings.TrimPrefix(k, target.prefix+"-"), 10, 32)
 				numbers = append(numbers, int32(v))
 			}
-			err = s.Store.InWorkspace(ctx, row.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
+			err = s.Store.InWorkspaceOn(ctx, conn, row.WorkspaceID, uuid.Nil, func(tx *store.Tx) error {
 				cards, err := tx.Q.GithubMatchCards(ctx, db.GithubMatchCardsParams{WorkspaceID: tx.WS, Numbers: numbers})
 				if err != nil {
 					return err
@@ -140,8 +150,8 @@ func (s *Service) mirrorTargets(ctx context.Context, installation int64, p PullR
 
 // mirrorTargetPR writes a single workspace after installation-wide identifier resolution.
 // Imports can also check the locked connection's creation time before calling applyMirror.
-func (s *Service) mirrorTargetPR(ctx context.Context, installation int64, p PullRequest, target mirrorTarget) error {
-	return s.Store.InWorkspace(ctx, target.workspace, uuid.Nil, func(tx *store.Tx) error {
+func (s *Service) mirrorTargetPR(ctx context.Context, conn *pgxpool.Conn, installation int64, p PullRequest, target mirrorTarget) error {
+	return s.Store.InWorkspaceOn(ctx, conn, target.workspace, uuid.Nil, func(tx *store.Tx) error {
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, tx.WS); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
