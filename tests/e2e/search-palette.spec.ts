@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labWorkspace } from './lab';
 
 test('search opens with researches and standalone and nested studies, previews and navigates', async ({

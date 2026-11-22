@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { LAB, labFixture, labPack } from './lab';
 
 const artifacts = 'test-results/ui-lab/agents';

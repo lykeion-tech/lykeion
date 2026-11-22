@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labCode, labSignIn } from './lab';
 
 test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
@@ -129,7 +129,9 @@ test('signing in and switching accounts refreshes the shell without a reload', a
       workspaceIds[index],
     );
     if (index === 1) {
-      await expect(menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ })).toHaveCount(0);
+      await expect(
+        menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ }),
+      ).toHaveCount(0);
       await page.screenshot({
         path: 'test-results/ui-lab/task11-account-switch.png',
         fullPage: true,
@@ -261,6 +263,7 @@ test('a real invitation returns through email sign-in and joins the invited work
   await page.keyboard.type(await labCode(page.request, email));
   await expect(page).toHaveURL(/#\/onboarding$/);
   await page.getByRole('button', { name: "I've done this before" }).click();
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await expect(page).toHaveURL(/#\/studies$/);
   await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
     'Invitation lab',
@@ -331,6 +334,14 @@ for (const destination of ['inbox', 'settings']) {
       release = resolve;
     });
     let first = true;
+    // Disconnect only once the page has opened and subscribed; a socket closed
+    // before it opens is a failed connect, which retries without the banner.
+    let subscribed = false;
+    page.on('websocket', (socket) =>
+      socket.on('framesent', ({ payload }) => {
+        if (JSON.parse(String(payload)).type === 'subscribe') subscribed = true;
+      }),
+    );
     await page.routeWebSocket('**/ws', async (route) => {
       if (!first) await gate;
       first = false;
@@ -342,7 +353,7 @@ for (const destination of ['inbox', 'settings']) {
     });
     try {
       await page.goto(`/#/${destination}`);
-      await expect.poll(() => Boolean(disconnect)).toBe(true);
+      await expect.poll(() => subscribed).toBe(true);
       disconnect();
       await expect(page.getByText('Reconnecting…', { exact: true })).toBeVisible();
       await page.screenshot({

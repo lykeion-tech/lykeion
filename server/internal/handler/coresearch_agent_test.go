@@ -25,6 +25,9 @@ func TestCoresearchSelectedAgent(t *testing.T) {
 	if out.Run.AgentID == nil || *out.Run.AgentID != selected.ID {
 		t.Fatal("run missing selected agent attribution")
 	}
+	if strings.Contains(out.Run.Prompt, "lyk research-directory") {
+		t.Fatal("custom Coresearch agent got Aristotle's directory guidance")
+	}
 	if code := s.call(t, "DELETE", "/api/agents/"+selected.ID.String(), a, ws, nil, nil); code != 409 {
 		t.Fatalf("delete running agent: %d", code)
 	}
@@ -37,6 +40,13 @@ func TestCoresearchSelectedAgent(t *testing.T) {
 	claims := csClaim(t, s, a, runtime)
 	if len(claims) != 1 || claims[0].AgentRun.RequestedModel != "selected-model" || !strings.Contains(claims[0].AgentRun.Prompt, "Selected instructions") {
 		t.Fatalf("claim did not use selected agent: %+v", claims)
+	}
+	runtime.Attempt = claims[0].AgentRun.Attempt
+	if err := s.H.AgentRuns.Start(t.Context(), uuid.MustParse(s.userID(t, a)), runtime, claims[0].AgentRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.call(t, "GET", runDirectoryPath, claims[0].Token, "", nil, nil); code != 404 {
+		t.Fatalf("custom Coresearch agent reached Aristotle's directory: %d", code)
 	}
 	in["request_id"] = uuid.NewString()
 	if code := s.call(t, "POST", "/api/coresearch/conversations", b, ws, in, nil); code != 404 {

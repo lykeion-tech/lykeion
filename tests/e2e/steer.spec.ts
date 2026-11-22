@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { labWorkspace, newStudy, openStudyDetails } from './lab';
 
 const stopButton = (page: Page) => page.getByRole('button', { name: 'Stop study', exact: true });

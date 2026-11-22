@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labFixture, labTeam } from './lab';
 
 test('Agent and Team emoji persist after reload and appear in their lists', async ({ page }) => {

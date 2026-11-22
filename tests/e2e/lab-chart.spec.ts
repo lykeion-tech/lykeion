@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 test('the Lab menu lists Lykeion after Settings and opens the lab chart', async ({ page }) => {
   await page.goto('/#/studies');

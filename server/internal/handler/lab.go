@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	"lykeion/server/pkg/agent"
 	db "lykeion/server/pkg/db/generated"
@@ -198,36 +200,37 @@ func (h *H) deleteLabChat(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	runs, err := tx.Q.LockPrivateLabChatRuns(ctx, chat.ID)
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	if _, err = tx.Q.DeletePrivateLabChat(ctx, chat.ID); err != nil {
-		fail(w, r, err)
-		return
-	}
-	if err = tx.PurgeDeletedLabChat(ctx, chat.ID); err != nil {
-		fail(w, r, err)
-		return
-	}
-	for _, run := range runs {
-		if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
-			if err = h.AgentRuns.CancelInTx(ctx, tx, user(r), run); err != nil {
-				fail(w, r, err)
-				return
-			}
-		}
-		if err = tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: tx.WS, AgentRunID: run.ID}); err != nil {
-			fail(w, r, err)
-			return
-		}
-	}
-	if err = tx.Q.DeletePrivateLabMessages(ctx, chat.ID); err != nil {
+	if err = DeleteLabChatInTx(ctx, tx, h.AgentRuns, user(r), chat); err != nil {
 		fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteLabChatInTx deletes a private lab chat, cancels its live runs and purges
+// its data. The caller holds LockWorkspaceExecution and has read the chat.
+func DeleteLabChatInTx(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, user uuid.UUID, chat db.LabChat) error {
+	locked, err := tx.Q.LockPrivateLabChatRuns(ctx, chat.ID)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Q.DeletePrivateLabChat(ctx, chat.ID); err != nil {
+		return err
+	}
+	if err = tx.PurgeDeletedLabChat(ctx, chat.ID); err != nil {
+		return err
+	}
+	for _, run := range locked {
+		if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
+			if err = runs.CancelInTx(ctx, tx, user, run); err != nil {
+				return err
+			}
+		}
+		if err = tx.Q.DeleteAgentRunTokens(ctx, db.DeleteAgentRunTokensParams{WorkspaceID: tx.WS, AgentRunID: run.ID}); err != nil {
+			return err
+		}
+	}
+	return tx.Q.DeletePrivateLabMessages(ctx, chat.ID)
 }
 
 func privateLabChat(r *http.Request, tx *store.Tx) (db.LabChat, error) {

@@ -50,4 +50,12 @@ it.each([
   const html = await renderToString(app);
   expect(html).toContain('Continue with email');
   expect(html.includes('Continue with Google')).toBe(!desktop);
+  const downloadPrompt = html.match(
+    /Prefer the Desktop app\?\s+<a\b[^>]*href="https:\/\/app\.lykeion\.tech\/download\/"[^>]*>\s*Download\s*<\/a>/,
+  );
+  if (desktop) {
+    expect(html).not.toContain('Prefer the Desktop app?');
+  } else {
+    expect(downloadPrompt?.index ?? -1).toBeGreaterThan(html.indexOf('Continue with Google'));
+  }
 });

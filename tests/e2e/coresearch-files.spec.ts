@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installFilesFixture, openFilePage, openSavedFile } from './coresearch-files-fixture';
 test('active chat turns display the ring spinner beside Working', async ({ page }) => {
   await installFilesFixture(page);

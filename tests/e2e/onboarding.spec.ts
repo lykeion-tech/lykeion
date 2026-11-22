@@ -2,8 +2,16 @@ import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
 import { labSignIn } from './lab';
 test.use({ storageState: { cookies: [], origins: [] } });
-const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'];
+const steps = ['Welcome', 'Research Profile', 'Laboratory', 'Customize', 'Machines'];
 const shots = 'test-results/ui2-task16';
+async function closeReleaseHighlights(page: Page) {
+  await page.getByRole('button', { name: 'Close release highlights', exact: true }).click();
+}
+// Finishing onboarding marks the current release as seen.
+async function expectNoReleaseHighlights(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'What’s new in Lykeion' })).toBeHidden();
+}
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
   await page.goto('/#/onboarding');
@@ -14,18 +22,19 @@ test('five steps, Back and skips create a real workspace without a profile save'
 }) => {
   await newcomer(page, 'five');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await expect(page.getByRole('textbox', { name: 'Research context' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Your career stage' })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Zebrafish lab');
   await expect(page.getByRole('textbox', { name: 'URL' })).toHaveValue('zebrafish-lab');
   await page.getByRole('textbox', { name: 'Card prefix' }).fill('ZFISH');
   await page.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(page.getByRole('heading', { name: 'Customize', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible();
   await expect(page.getByRole('switch')).toHaveCount(0);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Machines' })).toBeVisible();
@@ -42,6 +51,7 @@ test('five steps, Back and skips create a real workspace without a profile save'
 test('failed workspace creation stays on Laboratory and retries once', async ({ page }) => {
   await newcomer(page, 'retry');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Retry lab');
   let failed = false;
   await page.route('**/api/workspaces', async (route) => {
@@ -55,9 +65,82 @@ test('failed workspace creation stays on Laboratory and retries once', async ({ 
   await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
   expect(await (await page.request.get('/api/workspaces')).json()).toEqual([]);
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Customize');
   expect(await (await page.request.get('/api/workspaces')).json()).toHaveLength(1);
 });
+
+test('publishes the profile only after workspace confirmation and retries on the same workspace', async ({
+  browser,
+  page,
+}) => {
+  await newcomer(page, 'profile');
+  await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await expect(page.locator('[aria-current=step]')).toHaveText('Research Profile');
+  await expect(page.locator('textarea')).toHaveCount(1);
+  await page
+    .getByRole('textbox', { name: 'Professional background' })
+    .fill('Longitudinal study design');
+  await page.getByRole('button', { name: 'Save profile and continue' }).click();
+  await page.getByRole('textbox', { name: 'Workspace name' }).fill('Research profile lab');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(page.getByRole('heading', { name: 'Publish your research profile' })).toBeVisible();
+  await expect(page.getByText('Research profile lab', { exact: true })).toBeVisible();
+  await expect(page.getByText('Longitudinal study design', { exact: true })).toBeVisible();
+
+  const [workspace] = await (await page.request.get('/api/workspaces')).json();
+  const me = await (await page.request.get('/api/me')).json();
+  const path = `/api/workspaces/${workspace.id}/members/${me.id}/research-profile`;
+  const headers = { 'X-Workspace-ID': workspace.id };
+  expect(await (await page.request.get(path, { headers })).json()).toEqual({ profile: null });
+
+  await page.route(`**/api/workspaces/${workspace.id}/research-profile`, (route) => route.abort(), {
+    times: 1,
+  });
+  const publish = page.getByRole('button', { name: 'Publish profile and continue' });
+  await publish.click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await publish.click();
+  await expect(page.locator('[aria-current=step]')).toHaveText('Customize');
+  expect(await (await page.request.get('/api/workspaces')).json()).toHaveLength(1);
+  expect(await (await page.request.get(path, { headers })).json()).toMatchObject({
+    profile: { identity: 'Longitudinal study design' },
+  });
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
+  await page.getByRole('button', { name: 'Enter workspace' }).click();
+  await expect(page).toHaveURL(/#\/studies$/);
+  await expectNoReleaseHighlights(page);
+  const peer = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  try {
+    const email = 'onboarding-profile-viewer@lab.test';
+    const invite = await page.request.post(`/api/workspaces/${workspace.id}/invitations`, {
+      headers,
+      data: { email, role: 'member' },
+    });
+    expect(invite.status()).toBe(201);
+    const view = await peer.newPage();
+    await labSignIn(view.request, email);
+    expect(
+      (await view.request.post(`/api/invitations/${(await invite.json()).token}/accept`)).status(),
+    ).toBe(200);
+    expect((await view.request.patch('/api/me', { data: { onboarded: true } })).status()).toBe(200);
+    await view.goto(`/#/colleagues/${me.id}`);
+    await closeReleaseHighlights(view);
+    await expect(view.getByText('Longitudinal study design', { exact: true })).toBeVisible();
+
+    await page.goto('/#/settings?tab=profile');
+    await page
+      .getByRole('textbox', { name: 'Professional background' })
+      .fill('Updated longitudinal expertise.\n\nI can help design diary studies.');
+    await page.getByRole('button', { name: 'Save profile', exact: true }).click();
+    await expect(page.getByText('Profile updated in shared workspaces.')).toBeVisible();
+    await expect
+      .poll(() => view.locator('.profile-identity').innerText())
+      .toBe('Updated longitudinal expertise.\n\nI can help design diary studies.');
+  } finally {
+    await peer.close();
+  }
+});
+
 test('existing-member resume preserves saved career and context and Settings still edits career', async ({
   browser,
   page,
@@ -102,7 +185,6 @@ test('existing-member resume preserves saved career and context and Settings sti
     await page.getByRole('radio', { name: ws.name, exact: true }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.locator('[aria-current=step]')).toHaveText('Machines');
     expect(writes).toEqual([]);
     expect((await (await page.request.get('/api/me')).json()).career_stage).toBe('postdoc');
@@ -111,6 +193,7 @@ test('existing-member resume preserves saved career and context and Settings sti
     ).toBe('Saved research context');
     await page.getByRole('button', { name: 'Enter workspace' }).click();
     await expect(page).toHaveURL(/#\/studies$/);
+    await expectNoReleaseHighlights(page);
     await page.goto('/#/settings?tab=profile');
     await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'phd');
     await expect
@@ -124,6 +207,8 @@ test('existing-member resume preserves saved career and context and Settings sti
 test('bypass without a workspace resumes at the new Laboratory step', async ({ page }) => {
   await newcomer(page, 'bypass');
   await page.getByRole('button', { name: "I've done this before" }).click();
+  await expect(page.locator('[aria-current=step]')).toHaveText('Research Profile');
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await expect(page).toHaveURL(/#\/onboarding\?step=workspace$/);
   await expect(page.locator('[aria-current=step]')).toHaveText('Laboratory');
 });
@@ -147,6 +232,8 @@ test('library pages read real shared data with four palettes and reachable respo
   ).toBe(201);
   const connectors = await (await page.request.get('/api/connectors', { headers })).json();
   expect((await page.request.patch('/api/me', { data: { onboarded: true } })).status()).toBe(200);
+  await page.goto('/#/settings/preferences');
+  await closeReleaseHighlights(page);
   const canvases: string[] = [];
   for (const palette of ['ash', 'midnight', 'dawn', 'pale']) {
     await page.goto('/#/settings/preferences');
@@ -169,7 +256,6 @@ test('library pages read real shared data with four palettes and reachable respo
       true,
     );
     await page.screenshot({ path: `${shots}/${palette}-wizard-skills-narrow.png` });
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Connectors', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -193,9 +279,7 @@ test('library pages read real shared data with four palettes and reachable respo
   }
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.locator('[aria-current=step]')).toHaveText('Customize');
   const next = page.getByRole('button', { name: 'Continue', exact: true });
   await next.focus();
   await expect(next).toBeFocused();
@@ -210,6 +294,7 @@ test('a failed prefix save retries the created workspace without creating a dupl
 }) => {
   await newcomer(page, 'prefix-retry');
   await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Prefix retry lab');
   await page.getByRole('textbox', { name: 'Card prefix' }).fill('PREFIX');
   let fail = true;
@@ -222,7 +307,7 @@ test('a failed prefix save retries the created workspace without creating a dupl
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  await expect(page.locator('[aria-current=step]')).toHaveText('Skills');
+  await expect(page.locator('[aria-current=step]')).toHaveText('Customize');
   const saved = await (await page.request.get('/api/workspaces')).json();
   expect(saved).toHaveLength(1);
   expect(saved[0].display_prefix).toBe('PREFIX');
@@ -332,14 +417,15 @@ test('every step is wide and keeps Aristotle centred over the content', async ({
   await oneLine();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await page.getByRole('button', { name: 'Skip profile' }).click();
   await check();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Centred lab');
   await page.getByRole('textbox', { name: 'Card prefix' }).fill('CTR');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  for (const heading of ['Skills', 'Connectors', 'Machines']) {
+  for (const heading of ['Customize', 'Machines']) {
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
     await check();
-    if (heading === 'Connectors') {
+    if (heading === 'Customize') {
       await expect(page.locator('.onboarding-card').first()).toBeVisible();
       await expect(page.locator('.onboarding-card .availability')).toHaveCount(0);
     }

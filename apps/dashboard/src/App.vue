@@ -10,6 +10,8 @@ import { usePaneResize } from './lib/resize';
 import { studyDisplayTitle } from './lib/studies';
 import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
+import ReleaseHighlights from './features/workspace/ReleaseHighlights.vue';
+import { markReleaseSeen, shouldShowRelease } from './features/workspace/release-highlights';
 import CommandPalette from './ui/CommandPalette.vue';
 import ConversationSearch from './features/coresearch/ConversationSearch.vue';
 import { startConversationDraft } from './features/coresearch/aristotle';
@@ -38,6 +40,7 @@ import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
 import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
+import { landedOn, rememberSlackLink, takeSlackLink } from './lib/slack-return';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
 import { accountViewBlocked, useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
@@ -143,6 +146,7 @@ watch(
   ([, signedOut, lost]) => {
     if (verifying.value || (!signedOut && !lost) || route.meta.public) return;
     if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+    rememberSlackLink(route.path, route.fullPath);
     void router.replace('/signin');
   },
   { immediate: true },
@@ -390,6 +394,7 @@ watch(
       const signedOut = authenticationIsLost() || state.wasLost === true;
       if (!user || (signedOut && !state.accepted)) {
         if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+        rememberSlackLink(route.path, route.fullPath);
         if (state.resumed) {
           await desktopSession.clearForIdentityChange();
           if (!current()) return;
@@ -434,11 +439,12 @@ watch(
         client.setQueryData(keys.me, user);
         if (state.accepted && route.path === '/signin') {
           const invite = readText('lykeion.invite', 'session');
-          const target = invite ? '/invite/' + encodeURIComponent(invite) : '/studies';
+          const slack = takeSlackLink();
+          const target = slack || (invite ? '/invite/' + encodeURIComponent(invite) : '/studies');
           switchingAccount.value = true;
           await router.replace(target);
           if (!current()) return;
-          if (route.path !== target) throw new Error('Account navigation was blocked');
+          if (!landedOn(route, target)) throw new Error('Account navigation was blocked');
           if (invite) writeText('lykeion.invite', '', 'session');
           switchingAccount.value = false;
         }
@@ -473,10 +479,12 @@ watch(
       if (!current()) return;
       const invite =
         route.params.token || (route.path === '/signin' && readText('lykeion.invite', 'session'));
-      const target = invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies';
+      const slack = route.path === '/signin' ? takeSlackLink() : '';
+      const target =
+        slack || (invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies');
       await router.replace(target);
       if (!current()) return;
-      if (route.path !== target) throw new Error('Account navigation was blocked');
+      if (!landedOn(route, target)) throw new Error('Account navigation was blocked');
       if (invite) writeText('lykeion.invite', '', 'session');
       lastAccount = user.id;
       workspaceTabs.confirmAccountSwitch();
@@ -640,6 +648,30 @@ const onboardingTarget = computed(() => {
   if (!m.onboarded_at) return '/onboarding';
   return list.length ? '' : '/onboarding?step=workspace';
 });
+const releaseAccount = computed(() =>
+  route.meta.bare ||
+  authLost.value ||
+  unauthorized.value ||
+  verifying.value ||
+  switchingAccount.value ||
+  shellPending.value ||
+  shellFailure.value ||
+  onboardingTarget.value
+    ? undefined
+    : me.data.value?.id,
+);
+const showReleaseHighlights = ref(false);
+watch(
+  releaseAccount,
+  (account) => {
+    showReleaseHighlights.value = Boolean(account) && shouldShowRelease(account!);
+  },
+  { immediate: true },
+);
+function acknowledgeRelease() {
+  if (releaseAccount.value) markReleaseSeen(releaseAccount.value);
+  showReleaseHighlights.value = false;
+}
 watch(
   [onboardingTarget, () => route.meta.bare, unauthorized, verifying, authLost],
   ([target, bare, signedOut, checking, lost]) => {
@@ -1203,6 +1235,7 @@ onUnmounted(() => {
       :workflow="composer.workflow"
       @close="closeComposer()"
     />
+    <ReleaseHighlights v-if="showReleaseHighlights" @close="acknowledgeRelease" />
     <div
       v-if="help"
       id="help-menu"

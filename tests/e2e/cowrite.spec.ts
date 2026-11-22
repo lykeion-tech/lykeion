@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { cowriteFixture } from './cowrite-editor-fixture';
 import { installAristotleFixture } from './aristotle-fixture';
 function pdf() {

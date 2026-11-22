@@ -19,6 +19,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.6
+	github.com/slack-go/slack v0.35.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.44.0

@@ -27,6 +27,8 @@ Lykeion brings studies, research agents and collaborators into a shared workspac
 
 You are ready when your workspace opens and the intended machine appears online. A workspace alone does not supply an executing agent CLI; your machine needs its own supported, authenticated runtime.
 
+After an update, Lykeion shows the new features when you return to your workspace. Open Settings → Updates → **What’s new** to review the current version’s highlights again.
+
 ## Choose your starting point
 
 Follow the [quickstart](/docs/quickstart/) for a short first study, or the [complete tutorial](/docs/complete-tutorial/) for a more deliberate walkthrough. [Core concepts](/docs/core-concepts/) explains the difference between a study, an agent and a run.
@@ -52,7 +54,7 @@ Start with a modest literature question, for example: How does sleep affect memo
 
 ## 1. Open a workspace
 
-Sign in and follow Laboratory onboarding. Choose an existing workspace or create one with a name, URL and card prefix. Continue through Skills and Connectors. Keep the default laboratory for your first attempt unless your lab has instructed otherwise.
+Sign in and follow onboarding. Add your research profile after Welcome, then choose an existing workspace or create one with a name, URL and card prefix. Choose whether to publish your profile to that workspace. The Customize step brings Skills and Connectors together. Keep the default laboratory for your first attempt unless your lab has instructed otherwise.
 
 ## 2. Connect a machine
 
@@ -263,6 +265,12 @@ Colleagues are the people in your selected workspace. Workspace roles are Owner,
 3. Open their details to inspect their profile and workspace role. Their Studies tab shows visible studies owned by or assigned to them.
 
 This view helps you identify who is responsible for work without changing its assignment. A person's workspace membership and an agent's execution configuration are separate. See [agents](/docs/agents/).
+
+## Share your research profile
+
+During onboarding, describe your research in your own words in the **Professional background** field and optionally add links to your work. You can choose whether to publish the profile to the workspace you join or create. Colleagues can read the published version in your Overview, and Aristotle can use it in Coresearch when suggesting collaborators.
+
+In Settings → Profile, you can edit your research identity and links. **Save profile** updates the published version in workspaces where you’ve already shared it. If you haven’t shared it anywhere, the saved profile stays private.
 
 ## Invite someone
 
@@ -741,6 +749,8 @@ Use Coresearch for ongoing research work organized around a project and its conv
 
 For an existing conversation, execution settings are retained. If a desired runtime is absent from the picker, check your own online, healthy runtimes in [Machines](/docs/connect-machine/).
 
+When you're planning a study, ask Aristotle who could lead it, contribute a method, or review the work. It can consult the research profiles published to your current workspace and explain which experience supports a suggestion. Open the suggested colleague's Overview to read the profile and decide who to involve. See [sharing a research profile](/docs/members-and-roles/).
+
 ## Inspect the project surfaces
 
 In a research project, open the experiment surfaces to inspect Notebook, Files and Compute. Use Files to find project material and Notebook to inspect recorded computation. Read the conversation alongside the artifacts it references. Writing projects use their own writing surface.
@@ -820,6 +830,121 @@ Ask an appropriately configured agent to perform a narrow source lookup. Inspect
 If it fails, check its enabled state and error, the relevant credential and the execution machine's connectivity. Ask an administrator when configuration controls are unavailable. Record inaccessible sources as a research limitation rather than silently substituting invented evidence.
 
 See [agents](/docs/agents/) for capability selection, [skills](/docs/skills/) for working instructions and [troubleshooting](/docs/troubleshooting/) for diagnosing an unsuccessful lookup.
+`,
+  },
+  {
+    slug: 'slack',
+    title: 'Slack',
+    description:
+      'Connect Aristotle to a Slack workspace, link your account and ask questions or draft studies from Slack.',
+    section: 'Collaboration',
+    markdown: `# Slack
+
+Slack lets members of a Slack workspace talk to Aristotle without opening the dashboard. Each question runs [Ask Aristotle](/docs/aristotle/) on the asker's own connected machine, and the answer arrives in Slack with citations that link back to Lykeion. Only the workspace owner sets it up; members then link their own accounts.
+
+## Set up Slack (owner)
+
+1. Open Settings → Communication in your Lykeion workspace. Only the workspace owner can connect, manage or disconnect Slack.
+2. Copy the Slack app manifest shown on the page with the Copy button.
+3. At api.slack.com, choose Create app from manifest, paste the manifest and install the app to your Slack workspace.
+4. Back in Lykeion, paste the bot token (it starts with xoxb-) and the app-level token (it starts with xapp-).
+5. Choose a drafting agent. It must be visible to the whole workspace, not archived, and assigned to a stage; it is the agent that /study runs.
+6. Save.
+
+Lykeion keeps both tokens sealed on the server and never shows them again. A Lykeion workspace has one Slack app. If you host Lykeion yourself, the server needs LYK_SECRET_KEY set before Slack is available.
+
+## Link your account
+
+The bot is Aristotle. The first time you message it, Aristotle replies privately with a link. Open it while signed in to Lykeion and confirm. The link is valid for 15 minutes and works once. The email on your Slack profile must be confirmed and match your Lykeion account's email, or the link is refused.
+
+You can see and remove your link in Settings → Communication → Your accounts. Removing it means you link again the next time you message Aristotle.
+
+## Ask in a DM or a channel
+
+Send Aristotle a direct message, or @mention it in a channel. Aristotle runs the question on your own connected machine. If none is online it replies "Your machine is offline. Connect it in Lykeion and ask again." Connect one as described in [machine connection](/docs/connect-machine/) and ask again.
+
+In a DM, your messages continue the same conversation until you send /new. In a channel, Aristotle answers in the thread, and each Slack thread is its own conversation. Two people in the same thread each get their own private conversation. Conversations started in Slack also appear in Ask Aristotle in the dashboard. Only questions asked from Slack are answered in Slack.
+
+Answers in a Slack channel are visible to everyone in that channel, including people outside this workspace. Ask sensitive questions in a DM. Citations are links to Lykeion; opening one still requires Lykeion access.
+
+Aristotle does not read Slack files yet. If your message has files it replies "Aristotle can't read Slack files yet; I answered from your text only."
+
+## Commands
+
+- /study <request> drafts a study with the workspace's drafting agent on your machine and sends you the link in a DM when it is ready. Review the draft in Lykeion before you start it; see [studies](/docs/studies/).
+- /new starts a new conversation.
+- /clear deletes the current DM conversation after you confirm.
+- /help lists the commands.
+
+## Disconnect
+
+The owner can disconnect Slack in Settings → Communication. Questions asked from Slack stop; a study draft already in progress still finishes in Lykeion. Conversations stay in Ask Aristotle. If Slack revokes the app, the page shows Reconnect needed; paste fresh tokens to restore it.
+
+Success means Aristotle answers your DM in Slack, the answer cites records in Lykeion, and the conversation appears in Ask Aristotle. If it does not, check your link, your machine and the tokens in Settings → Communication.
+`,
+  },
+  {
+    slug: 'github',
+    title: 'GitHub',
+    description:
+      'Connect GitHub repositories to your workspace and follow pull requests from your studies.',
+    section: 'Collaboration',
+    markdown: `# GitHub
+
+Connect a GitHub account or organization to see its pull requests on your [studies](/docs/studies/). The integration is read-only. Lykeion makes no changes on GitHub, and the connection gives agents no repository access. Merging a pull request never changes the study stage. Study progression follows the [scientific stages](/docs/scientific-stages/) and their review rules.
+
+## Connect GitHub
+
+1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**. If the app is already installed, choose **Connect existing installation**, paste its GitHub settings URL, and select **Authorize installation**. Use \`https://github.com/settings/installations/<id>\` for a personal installation or \`https://github.com/organizations/<login>/settings/installations/<id>\` for an organization.
+2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
+3. For a new installation, select the GitHub account or organization and the repositories to share. Authorize the app on GitHub for either connection method. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
+4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
+
+If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
+
+Lykeion imports open pull requests, including drafts, from the connected repositories. Settings shows **Importing open pull requests…** while the initial import runs. An interrupted import resumes when the server restarts. If Settings shows **Open pull request import failed.**, a workspace owner can select **Retry import** on the active connection. Pull requests already merged or closed are outside the initial import. When repositories are added to the installation, Lykeion imports their open pull requests as well.
+
+## Link pull requests to a study
+
+Use the study identifier shown in Lykeion, such as \`LYK-12\`, which combines the workspace's study prefix and the study number. With **Auto-link pull requests** enabled, Lykeion matches the ID as a whole token in the branch name or title, ignoring case. In the description, put it immediately after a closing keyword, as in \`Closes LYK-12\` or \`Fixes: LYK-12\`. The accepted keywords are close, closes, closed, fix, fixes, fixed, resolve, resolves and resolved, in any case with an optional colon. A bare mention in the description does not link.
+
+One pull request can name several studies. If an ID names a study in more than one workspace connected to the same installation, link it by hand in the intended workspace. Automatic links follow changes to the references in the pull request. The owner can turn off **Auto-link pull requests** in Settings → Code to stop new automatic links and keep existing ones.
+
+To link by hand, open a study's details pane, select **Add pull request** (+) under **Pull requests**, paste the GitHub pull request URL and select **Link pull request**. Any workspace member can add or remove a link. For a repository outside the connection, Lykeion shows “That repository isn't connected to this workspace.”
+
+To unlink it, open the row's actions menu and choose **Remove from study**. Lykeion remembers the removal and never automatically links that pull request to that study again. You can still add it by hand.
+
+## Read a pull request row
+
+Each row opens the pull request on GitHub and shows its repository, number, title, author, state, lines added and deleted, and files changed. States are **Open**, **Draft**, **Merged** and **Closed**. Open and draft pull requests can show whether checks passed, failed or are still running, along with mergeability when GitHub reports it. A **stale** label means Lykeion is showing the last available result. Merged and closed rows show the final state without checks or mergeability.
+
+## Disconnect or uninstall
+
+In Settings → Code, the workspace owner can choose **Disconnect** for an account. The pull requests and links already recorded in that workspace stay visible and stop updating through that connection. The app stays installed on GitHub. A suspended installation appears as **Suspended on GitHub** and resumes updating when unsuspended.
+
+Uninstall the app in GitHub to revoke the installation across every Lykeion workspace that connected it. Removing individual repositories in GitHub stops updates for those repositories.
+
+## Set up the GitHub App on a self-hosted server
+
+Register one GitHub App for your Lykeion server. Set \`PUBLIC_URL\` to the server's public HTTPS URL. For a local development lab, register a separate GitHub App and expose the local server through an HTTPS tunnel. Set \`PUBLIC_URL\` to the tunnel's public URL and use that host for both URLs below.
+
+1. Set **Metadata**, **Pull requests**, **Checks** and **Commit statuses** to read-only under repository permissions.
+2. Enable **Request user authorization (OAuth) during installation**. Set the callback URL to \`https://<host>/api/github/setup\`.
+3. Activate the webhook, set its URL to \`https://<host>/api/webhooks/github\` and enter a webhook secret. Subscribe to **Pull request**, **Check suite**, **Check run** and **Status**. GitHub Apps receive **Installation** and **Installation repositories** events automatically.
+4. If users need to install the app on GitHub accounts or organizations outside the account that owns the app, select **Any account** under **Where can this GitHub App be installed?**
+
+See [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) and [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#installation) in GitHub's documentation.
+
+Set these six environment variables on the Lykeion server.
+
+- \`GITHUB_APP_SLUG\` is the slug in the GitHub App's install URL.
+- \`GITHUB_APP_ID\` is the numeric App ID.
+- \`GITHUB_APP_PRIVATE_KEY\` is the contents of the generated PEM private key.
+- \`GITHUB_APP_CLIENT_ID\` is the App's OAuth client ID.
+- \`GITHUB_APP_CLIENT_SECRET\` is the App's OAuth client secret.
+- \`GITHUB_WEBHOOK_SECRET\` is the same secret you entered for the webhook.
+
+Connect requires all six values. If the server is missing any, Settings shows “GitHub isn't configured on this server.” Webhook signature verification uses the webhook secret.
 `,
   },
   {

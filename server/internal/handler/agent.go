@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,12 +28,13 @@ var errAgentArchived = errors.New("agent is archived")
 var errAgentBuiltinArchive = errors.New("built-in agents cannot be archived")
 var errAgentForbidden = errors.New("only the owner or an admin can edit this agent")
 
-func agentAdmin(r *http.Request) bool {
-	role := middleware.WorkspaceFrom(r.Context()).Role
+func agentAdmin(r *http.Request) bool { return ctxAdmin(r.Context()) }
+func ctxAdmin(ctx context.Context) bool {
+	role := middleware.WorkspaceFrom(ctx).Role
 	return role == "owner" || role == "admin"
 }
-func agentVisible(r *http.Request, a db.Agent, user uuid.UUID) bool {
-	return a.Visibility == "workspace" || a.OwnerID == user || agentAdmin(r)
+func agentVisible(ctx context.Context, a db.Agent, user uuid.UUID) bool {
+	return a.Visibility == "workspace" || a.OwnerID == user || ctxAdmin(ctx)
 }
 func validateAgent(a db.Agent) error {
 	if utf8.RuneCountInString(a.Name) < 1 || utf8.RuneCountInString(a.Name) > 64 {
@@ -195,7 +197,7 @@ func (h *H) getAgent(w http.ResponseWriter, r *http.Request) {
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		var err error
 		out.Agent, err = tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
-		if err == nil && !agentVisible(r, out.Agent, user) {
+		if err == nil && !agentVisible(r.Context(), out.Agent, user) {
 			return pgx.ErrNoRows
 		}
 		if err != nil {
@@ -247,7 +249,7 @@ func (h *H) getAgentWork(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		work, err = tx.AgentStudyWork(r.Context(), id)
@@ -298,7 +300,7 @@ func (h *H) updateAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
@@ -400,7 +402,7 @@ func (h *H) archiveAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
@@ -443,7 +445,7 @@ func (h *H) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		if a.OwnerID != user && !agentAdmin(r) {

@@ -107,6 +107,9 @@ async function google() {
         </svg>
         Continue with Google
       </button>
+      <p v-if="!desktop" class="download-prompt">
+        Prefer the Desktop app? <a href="https://app.lykeion.tech/download/">Download</a>
+      </p>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     </form>
     <form v-else class="signin-card" @submit.prevent="verify">
@@ -207,6 +210,17 @@ async function google() {
   text-align: center;
   font-size: 12.5px;
   color: var(--muted);
+}
+.download-prompt {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+.download-prompt a {
+  color: var(--primary-text);
+  text-decoration: underline;
 }
 .signin-card .inline-error {
   margin: 0;

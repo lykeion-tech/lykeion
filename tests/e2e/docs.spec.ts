@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 const origin = process.env.LYK_DOCS_URL || 'http://127.0.0.1:1440';
 

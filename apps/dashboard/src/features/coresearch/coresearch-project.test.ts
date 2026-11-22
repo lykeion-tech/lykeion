@@ -392,6 +392,18 @@ describe('Coresearch workspace', () => {
     expect(textOf(root)).toContain('print("safe")');
     expect(button(root, 'Copy')).toBeTruthy();
   });
+  it('routes assistant profile links within the dashboard without enabling other relative links', async () => {
+    const profile = '/colleagues/80c96564-812e-4b40-8f8f-8ea0a1bbcefb';
+    const text = `[Researcher](${profile}) [Invalid](${profile}?x=1) [Settings](/settings)`;
+    const html = async (colleagueLinks: boolean) => {
+      const { root } = await mount(AssistantMessage, { text, colleagueLinks });
+      return all(root).map((n) => n.props.innerHTML ?? '').join('');
+    };
+    const assistant = await html(true);
+    expect(assistant).toContain(`href="#${profile}">Researcher</a>`);
+    expect(assistant.match(/href=/g)).toHaveLength(1);
+    expect(await html(false)).not.toContain('href=');
+  });
   it('keeps fenced code and continuation paragraphs inside their Markdown containers', async () => {
     const { root } = await mount(AssistantMessage, {
       text: '3. First item\n\n   ```python\n   print(1)\n   ```\n\n   Continued within item\n\n4. Second item\n\n> Quote\n>\n> ```python\n> print(2)\n> ```\n>\n> After quote code',

@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext } from '@playwright/test';
+import { expect, test, type BrowserContext } from './test';
 import { labSignIn, labWorkspace, newStudy } from './lab';
 
 test('real members and admin cannot see another member’s manual notes', async ({

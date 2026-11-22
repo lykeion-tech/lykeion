@@ -703,6 +703,11 @@ function tabKey(event: KeyboardEvent, index: number) {
   color: var(--muted);
   font-size: 13px;
 }
+.canvas-heading strong {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+}
 .canvas-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -797,8 +802,6 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .team-detail-page .team-inspector h2 {
   color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
 }
 @container (max-width: 1000px) {
   .team-studio {
@@ -821,12 +824,11 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 
 .team-detail-page .agent-pane > h2:first-child {
-  font-size: 16px;
-  font-weight: 500;
   margin-bottom: 30px;
 }
 .team-detail-page h2 {
-  font-size: 14px;
+  font-size: 18px;
+  line-height: 24px;
   font-weight: 600;
   margin: 0 0 12px;
 }

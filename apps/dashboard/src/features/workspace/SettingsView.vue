@@ -9,8 +9,11 @@ import StoragePanel from './settings/StoragePanel.vue';
 import MachinesView from '../machines/MachinesView.vue';
 import UpdatesView from './UpdatesView.vue';
 import AnalyticsPanel from './settings/AnalyticsPanel.vue';
+import ResearchProfilePanel from './settings/ResearchProfilePanel.vue';
 import SkillPanel from './settings/library/SkillPanel.vue';
 import ConnectorPanel from './settings/library/ConnectorPanel.vue';
+import CodePanel from './settings/CodePanel.vue';
+import CommunicationPanel from './settings/CommunicationPanel.vue';
 import TokenCreationForm from './settings/TokenCreationForm.vue';
 import ShortcutReference from './settings/ShortcutReference.vue';
 import TimeZonePicker from '../../ui/TimeZonePicker.vue';
@@ -69,9 +72,10 @@ const groups = computed(() =>
       title: workspace.data.value?.name ?? 'Workspace',
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
-        { id: 'colleagues', label: 'Colleagues', icon: 'users' },
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
+        { id: 'communication', label: 'Communication', icon: 'chat' },
+        { id: 'code', label: 'Code', icon: 'code' },
       ],
     },
   ]
@@ -89,10 +93,11 @@ const titles: Record<string, string> = {
   general: 'General',
   skills: 'Skills',
   connectors: 'Connectors',
+  communication: 'Communication',
+  code: 'Code',
 };
 function open(id: string) {
-  if (id === 'colleagues') void router.push('/colleagues');
-  else void router.push({ path: '/settings', query: { tab: id } });
+  void router.push({ path: '/settings', query: { tab: id } });
 }
 function hydrate(w: Workspace | undefined, reset = false) {
   const previous = reset ? undefined : baseline;
@@ -350,6 +355,7 @@ async function leaveOrDelete(kind: 'leave' | 'delete') {
     if (generation !== transition || workspaceId.value) return;
     // Keep the shell's mounted observers while it selects a remaining workspace.
     const refreshed = client.resetQueries({ queryKey: keys.workspaces });
+    void client.invalidateQueries({ queryKey: keys.researchProfiles });
     void router.replace('/studies');
     await refreshed;
   });
@@ -388,19 +394,15 @@ async function copySlug() {
           <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
           ><strong>{{ group.title }}</strong>
         </header>
-        <template v-for="item in group.items" :key="item.id">
-          <RouterLink v-if="item.id === 'colleagues'" to="/colleagues" class="settings-link">
-            <Icon :name="item.icon" />{{ item.label }}
-          </RouterLink>
-          <button
-            v-else
-            :class="{ selected: section === item.id }"
-            :aria-current="section === item.id ? 'page' : undefined"
-            @click="open(item.id)"
-          >
-            <Icon :name="item.icon" />{{ item.label }}
-          </button>
-        </template>
+        <button
+          v-for="item in group.items"
+          :key="item.id"
+          :class="{ selected: section === item.id }"
+          :aria-current="section === item.id ? 'page' : undefined"
+          @click="open(item.id)"
+        >
+          <Icon :name="item.icon" />{{ item.label }}
+        </button>
       </section>
       <p v-if="!groups.length" class="no-match">No matching settings.</p>
     </nav>
@@ -418,7 +420,7 @@ async function copySlug() {
           >
             <Icon name="plus" />Add a machine
           </button>
-          <span v-if="section === 'general'" class="scope-badge"
+          <span v-if="['general', 'communication', 'code'].includes(section)" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
           >
         </header>
@@ -435,6 +437,8 @@ async function copySlug() {
         <UpdatesView v-else-if="section === 'updates'" />
         <SkillPanel v-else-if="section === 'skills'" />
         <ConnectorPanel v-else-if="section === 'connectors'" />
+        <CommunicationPanel v-else-if="section === 'communication'" />
+        <CodePanel v-else-if="section === 'code'" :key="workspaceId" />
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
@@ -490,6 +494,7 @@ async function copySlug() {
               ></label
             >
           </div>
+          <ResearchProfilePanel :key="me.data.value?.id" />
           <section aria-label="Usage analytics"><AnalyticsPanel /></section>
         </template>
 
@@ -778,21 +783,6 @@ async function copySlug() {
 .notifications-layout .settings-heading {
   margin-bottom: 31px;
 }
-.code-layout .settings-heading {
-  margin-bottom: 32px;
-}
-.code-layout .code-host {
-  min-height: 106px;
-}
-.code-layout .repositories-empty {
-  min-height: 78px;
-}
-.code-layout .subsection-toolbar {
-  margin-top: 31px;
-}
-.code-layout .setting-row:not(.code-host) {
-  min-height: 71px;
-}
 
 .desktop-settings {
   display: flex;
@@ -880,8 +870,7 @@ async function copySlug() {
   font-size: 12px;
   font-weight: 400;
 }
-.settings-rail button,
-.settings-rail .settings-link {
+.settings-rail button {
   height: 32px;
   margin-bottom: 1px;
   border-radius: 6px;
@@ -894,8 +883,7 @@ async function copySlug() {
   color: var(--muted);
   font-size: 14px;
 }
-.settings-rail button:hover,
-.settings-rail .settings-link:hover {
+.settings-rail button:hover {
   background: var(--input);
 }
 .settings-rail button.selected {
@@ -1608,29 +1596,6 @@ async function copySlug() {
   font-size: 13px;
   color: var(--muted);
 }
-.code-host {
-  min-height: 108px;
-  gap: 12px;
-  align-items: flex-start;
-}
-.code-host > span:nth-child(2) {
-  flex: 1;
-  line-height: 22px;
-  padding-top: 2px;
-}
-.code-host > .button {
-  align-self: center;
-}
-.code-host-icon {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  height: 36px;
-  width: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  flex: none;
-}
 .inline-muted {
   display: inline !important;
   margin-left: 6px;
@@ -1646,17 +1611,6 @@ async function copySlug() {
 }
 .subsection-toolbar .section-description {
   margin-bottom: 14px;
-}
-.repositories-empty {
-  min-height: 80px;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-.repository-url {
-  font-size: 13px;
-  overflow-wrap: anywhere;
 }
 .career-box {
   padding: 14px 16px 16px;

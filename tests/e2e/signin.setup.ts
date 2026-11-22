@@ -36,5 +36,10 @@ setup('sign in by email code', async ({ page }) => {
   expect(
     (await page.request.patch('/api/me', { data: { name: 'Ana Ruiz', onboarded: true } })).status(),
   ).toBe(200);
+  const workspacePage = await page.context().newPage();
+  await workspacePage.goto('/#/studies');
+  const highlights = workspacePage.getByRole('dialog', { name: 'What’s new in Lykeion' });
+  await expect(highlights).toBeVisible();
+  await highlights.getByRole('button', { name: 'Close release highlights' }).click();
   await page.context().storageState({ path: 'test-results/ui-lab/session.json' });
 });

@@ -42,7 +42,7 @@ func (h *H) getAgentCapabilities(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		links, err := tx.AgentTeams(r.Context(), id)
@@ -125,7 +125,7 @@ func (h *H) saveAgentCapabilities(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		if a.OwnerID != user && !agentAdmin(r) {
@@ -181,7 +181,7 @@ func (h *H) saveAgentCapabilities(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, a, user) {
+		if !agentVisible(r.Context(), a, user) {
 			return pgx.ErrNoRows
 		}
 		if a.OwnerID != user && !agentAdmin(r) {

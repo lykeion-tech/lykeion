@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 
 test('opens Coresearch with the conversation unobstructed on a narrow screen', async ({ page }) => {

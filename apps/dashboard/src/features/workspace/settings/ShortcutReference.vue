@@ -59,6 +59,7 @@ h3 {
 }
 .shortcut-list {
   margin: 0;
+  background: var(--input);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;

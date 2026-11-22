@@ -215,7 +215,10 @@ function cancelSlide(element: Element) {
         @pointerdown="resize.pointerdown($event)"
         @keydown="resize.keydown"
       />
-      <header class="surface-header">
+      <header
+        v-if="active || single || !hideTitle || !floating || narrow || focused"
+        class="surface-header"
+      >
         <button
           v-if="active && !single"
           class="surface-icon"
@@ -388,12 +391,11 @@ function cancelSlide(element: Element) {
 }
 
 .surface-chooser {
-  margin: 0 auto auto;
-  position: relative;
-  top: calc(35% - 28px);
+  margin: auto;
   width: calc(100% - 40px);
   max-width: 90%;
-  padding: 18px 0;
+  /* The last choice contributes 9px beneath its label. */
+  padding: 18px 0 9px;
 }
 .surface-pane .surface-chooser h2 {
   text-align: center;

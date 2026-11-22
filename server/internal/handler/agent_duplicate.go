@@ -28,7 +28,7 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, source, user) {
+		if !agentVisible(r.Context(), source, user) {
 			return pgx.ErrNoRows
 		}
 		if err := refuseLaboratory(source); err != nil {
@@ -119,7 +119,7 @@ func (h *H) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !agentVisible(r, current, user) {
+		if !agentVisible(r.Context(), current, user) {
 			return pgx.ErrNoRows
 		}
 		if err := refuseLaboratory(current); err != nil {

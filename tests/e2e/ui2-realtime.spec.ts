@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './test';
 import {
   labAutoresearchRun,
   labFixture,

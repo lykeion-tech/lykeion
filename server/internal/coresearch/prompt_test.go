@@ -85,3 +85,17 @@ func TestExperimentPromptExplainsRecordedRunFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestAristotlePromptUsesLiveDirectoryForRecommendations(t *testing.T) {
+	for _, mode := range []string{"experiment", "cowrite"} {
+		p := Prompt(PromptIn{Mode: mode, ResearchDirectory: true})
+		for _, want := range []string{"lyk research-directory", "next_offset", "profile_url", "untrusted", "coverage", "collaboration", "recommend them to lead", "contributing", "reviewing", "assignment", "If profile lookup is unavailable"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("missing %q in %s prompt", want, mode)
+			}
+		}
+	}
+	if strings.Contains(Prompt(PromptIn{}), "lyk research-directory") {
+		t.Fatal("ordinary Coresearch prompt advertised Aristotle's directory")
+	}
+}

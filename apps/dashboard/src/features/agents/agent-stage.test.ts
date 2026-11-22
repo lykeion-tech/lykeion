@@ -274,7 +274,7 @@ describe('agent stage', () => {
       study('direct', 'Direct assignment', { assignee_type: 'agent', assignee_id: 'a', role: '' }),
     ], null);
     const now = t.find('div', (n) => n.props.class === 'agent-activity')!;
-    expect(textOf(now).split('Recent work')[0]).toContain('1 in progress');
+    expect(textOf(now.children.find((n) => n.tag === 'h2')!).trim()).toBe('In progress1');
     expect(textOf(now).split('Recent work')[0]).toContain('Leading this studyleader');
     expect(textOf(now).split('Recent work')[0]).not.toContain('Contributed in a previous stage');
     await t.click(/^Work$/);

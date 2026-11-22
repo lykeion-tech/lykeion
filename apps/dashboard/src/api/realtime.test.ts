@@ -20,6 +20,14 @@ const has = (type: string, key: readonly unknown[], card: string | null = 'c1') 
   expect(invalidationsFor('w1', ev(type, card))).toContainEqual(key);
 
 describe('event to query map', () => {
+  it('refreshes the published profile in the event workspace and the owner profile', () => {
+    const event = { ...ev('research_profile.updated', null), payload: { user_id: 'u1' } };
+    expect(invalidationsFor('w1', event)).toEqual([
+      [...keys.colleagueProfiles('w1'), 'u1'],
+      keys.researchProfile('u1'),
+    ]);
+    expect(invalidationsFor('w2', event)).toEqual([]);
+  });
   it('refreshes the Lab Chart on run, agent, runtime, decision and member events', () => {
     for (const type of ['agent_run.queued', 'agent.updated', 'laboratory.installed', 'decision.opened', 'member.joined'])
       has(type, keys.labChart('w1'));
@@ -385,7 +393,7 @@ describe('useRealtimeSync', () => {
     sockets[0]!.onopen!({});
     await settle();
     expect(client.getQueryState(keys.cards('w1'))?.isInvalidated).toBe(true);
-    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces]);
+    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces, keys.researchProfiles]);
   });
 
   it.each([{ queryKey: keys.cards('w1') }, { queryKey: keys.workspaces }])(
@@ -462,6 +470,8 @@ describe('useRealtimeSync', () => {
       keys.storage('w1'),
       keys.analytics('w1'),
       keys.members('w1'),
+      keys.colleagueProfile('w1', 'u1', 'u2'),
+      keys.researchProfile('u2'),
       keys.invitations('w1'),
       keys.workspaces,
     ];
@@ -474,7 +484,7 @@ describe('useRealtimeSync', () => {
     await vi.advanceTimersByTimeAsync(500);
     sockets[1]!.onopen!({});
     await settle();
-    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces]);
+    expect(keysInvalidated()).toEqual([keys.ws('w1'), keys.workspaces, keys.researchProfiles]);
     scoped.forEach((key) => expect(client.getQueryState(key)?.isInvalidated).toBe(true));
     expect(client.getQueryState(keys.cards('w2'))?.isInvalidated).toBe(false);
   });
@@ -760,4 +770,12 @@ describe('delayed cursor reads', () => {
       client.clear();
     }
   });
+});
+
+it('invalidates GitHub settings and only the linked study in its workspace', () => {
+  expect(invalidationsFor('w1', ev('github.changed', null))).toEqual([['ws', 'w1', 'github']]);
+  expect(invalidationsFor('w1', ev('github.pr.changed'))).toEqual([
+    ['ws', 'w1', 'cards', 'c1', 'pull-requests'],
+  ]);
+  expect(invalidationsFor('w2', ev('github.pr.changed'))).toEqual([]);
 });

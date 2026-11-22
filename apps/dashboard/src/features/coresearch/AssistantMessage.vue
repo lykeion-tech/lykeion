@@ -9,10 +9,11 @@ export default defineComponent({
     prose: Boolean,
     live: Boolean,
     redactLocalPaths: Boolean,
+    colleagueLinks: Boolean,
   },
   setup(props) {
     return () => {
-      const tokens = parseMarkdownBlocks(props.text, props.redactLocalPaths);
+      const tokens = parseMarkdownBlocks(props.text, props.redactLocalPaths, props.colleagueLinks);
       let index = 0;
       function children(): VNode[] {
         const nodes: VNode[] = [];

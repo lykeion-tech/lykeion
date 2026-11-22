@@ -8,10 +8,32 @@ import { workspaceId } from '../../api/session';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 
 const calls = vi.hoisted(() => [] as { method: string; path: string; body: unknown }[]);
+const shareProfile = vi.hoisted(() => vi.fn(async (_workspace: string, _revision: string) => {}));
+vi.mock('../../api/research-profile', async () => {
+  const { ref } = await import('vue');
+  const draft = {
+    identity: 'Research background',
+    links: [],
+  };
+  const state = { draft, draft_revision: 'draft-revision', workspace_ids: [] };
+  return {
+    emptyResearchProfile: () => ({ ...draft, identity: '' }),
+    hasResearchProfileContent: (profile: typeof draft) => Boolean(profile.identity),
+    useResearchProfile: () => ({
+      data: ref(state),
+      isPending: ref(false),
+      isError: ref(false),
+    }),
+    saveResearchProfile: vi.fn(async () => state),
+    shareResearchProfile: shareProfile,
+    updateResearchProfileCache: vi.fn(),
+  };
+});
 vi.mock('lottie-web/build/player/lottie_light', () => ({
   default: { loadAnimation: () => ({ destroy() {} }) },
 }));
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ApiError: (await importOriginal<typeof import('../../api/client')>()).ApiError,
   api: vi.fn(async (method: string, path: string, body: unknown) => {
     calls.push({ method, path, body });
     return method === 'POST' ? { id: 'new-lab', name: 'x', slug: 'x' } : [];
@@ -35,6 +57,7 @@ afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
   vi.unstubAllGlobals();
   calls.length = 0;
+  shareProfile.mockReset();
 });
 
 async function mount(query: string, existing = false) {
@@ -73,11 +96,13 @@ async function mount(query: string, existing = false) {
 const scene = (root: ReturnType<typeof node>) => all(root).find((n) => n.tag === 'lab-scene');
 
 describe('onboarding Laboratory step', () => {
-  it('lists the steps with Laboratory second', async () => {
+  it('puts Research Profile after Welcome and groups capabilities under Customize', async () => {
     const { root } = await mount('');
     const t = textOf(root);
-    expect(t.indexOf('Laboratory')).toBeGreaterThan(t.indexOf('Welcome'));
-    expect(t.indexOf('Laboratory')).toBeLessThan(t.indexOf('Skills'));
+    expect(t.indexOf('Research Profile')).toBeGreaterThan(t.indexOf('Welcome'));
+    expect(t.indexOf('Laboratory')).toBeGreaterThan(t.indexOf('Research Profile'));
+    expect(t.indexOf('Customize')).toBeGreaterThan(t.indexOf('Laboratory'));
+    expect(t).not.toContain('Connectors');
     expect(t).not.toContain('Workspace');
   });
 
@@ -132,9 +157,12 @@ describe('onboarding Laboratory step', () => {
 
   it('renders no preview for an existing workspace', async () => {
     const { root } = await mount('', true);
-    const start = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Set up your lab'))!;
+    const start = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Set up your lab'),
+    )!;
     (start.props.onClick as () => void)();
     await nextTick();
+    await click(root, 'Skip profile');
     expect(textOf(root)).toContain('Continue with Home');
     expect(scene(root)).toBeUndefined();
   });
@@ -144,7 +172,9 @@ describe('onboarding Laboratory step', () => {
     const random = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Random'))!;
     (random.props.onClick as () => void)();
     await nextTick();
-    const create = all(root).find((n) => n.tag === 'button' && textOf(n).includes('Create workspace'))!;
+    const create = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).includes('Create workspace'),
+    )!;
     (create.props.onClick as () => void)();
     await vi.waitFor(() => expect(calls[0]).toBeDefined());
     expect(calls[0]).toMatchObject({
@@ -154,4 +184,31 @@ describe('onboarding Laboratory step', () => {
     });
     expect(calls[0]!.body).toMatchObject({ name: expect.any(String), slug: expect.any(String) });
   });
+
+  it('requires confirmation and retries profile publication without making another workspace', async () => {
+    const { root } = await mount('');
+    await click(root, 'Set up your lab');
+    await click(root, 'Save profile and continue');
+    await click(root, 'Random');
+    await click(root, 'Create workspace');
+    expect(textOf(root)).toContain('Publish your research profile');
+    expect(shareProfile).not.toHaveBeenCalled();
+    shareProfile.mockRejectedValueOnce(new Error('Publication failed'));
+    await click(root, 'Publish profile and continue');
+    expect(textOf(root)).toContain('Publication failed');
+    await click(root, 'Publish profile and continue');
+    expect(shareProfile.mock.calls).toEqual([
+      ['new-lab', 'draft-revision'],
+      ['new-lab', 'draft-revision'],
+    ]);
+    expect(calls.filter(({ method }) => method === 'POST')).toHaveLength(1);
+    expect(textOf(root)).toContain('Instruction packs agents can use');
+    expect(textOf(root)).toContain('Connections agents can use');
+  });
 });
+
+async function click(root: ReturnType<typeof node>, label: string) {
+  const button = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === label)!;
+  await (button.props.onClick as () => unknown)();
+  await nextTick();
+}

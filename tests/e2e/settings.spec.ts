@@ -7,7 +7,7 @@ import {
   type Browser,
   type Page,
   type Route,
-} from '@playwright/test';
+} from './test';
 import { labSignIn } from './lab';
 
 test.use({ trace: 'off', screenshot: 'off' });
@@ -80,6 +80,8 @@ test('Profile and Preferences save to the account and the device', async ({ page
       'General',
       'Skills',
       'Connectors',
+      'Communication',
+      'Code',
     ]);
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Ana Settings');
     await page.getByRole('textbox', { name: 'Name', exact: true }).blur();

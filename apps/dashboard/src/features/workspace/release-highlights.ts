@@ -1,0 +1,99 @@
+import { version } from '../../../../../package.json';
+import { readText, writeText } from '../../storage';
+
+type Highlight = {
+  title: string;
+  description: string;
+  icon: string;
+  color: 'blue' | 'green' | 'violet';
+  details: [string, string, string];
+};
+
+// Each release includes its own reviewed copy and feature illustration.
+const releases: Record<string, readonly Highlight[]> = {
+  '0.1.9': [
+    {
+      title: 'Ask Aristotle from Slack',
+      description:
+        'Message Aristotle directly or @mention it in a channel. It answers in the thread, runs on your own machine, and cites the same evidence you’d see in Lykeion.',
+      icon: 'chat',
+      color: 'blue',
+      details: ['Slack message', 'Aristotle', 'Answer in thread'],
+    },
+    {
+      title: 'See the code behind a study',
+      description:
+        'Connect GitHub and pull requests that name a study, like LYK-12, appear on it with their checks and merge status. Lykeion only reads GitHub, and merging never moves a study.',
+      icon: 'code',
+      color: 'green',
+      details: ['Pull request', 'LYK-12', 'CI · Merge status'],
+    },
+    {
+      title: 'Research profiles',
+      description:
+        'Share your research profile with a workspace. When you plan a study, Aristotle can suggest colleagues whose background fits the work.',
+      icon: 'user',
+      color: 'violet',
+      details: ['Your profile', 'Research directory', 'Colleague suggestions'],
+    },
+  ],
+  '0.1.8': [
+    {
+      title: 'Inspect the replay behind a study',
+      description:
+        'Open a Study Report to inspect the automatic replay. Validation uses the original inputs and preserves where each piece of evidence came from.',
+      icon: 'play',
+      color: 'blue',
+      details: ['Original inputs', 'Automatic replay', 'Validation'],
+    },
+    {
+      title: 'Keep evidence files distinct',
+      description:
+        'Outputs with the same filename stay separate, so you can trace each file back to the run that produced it.',
+      icon: 'file',
+      color: 'green',
+      details: ['First run', 'Same filename', 'Second run'],
+    },
+    {
+      title: 'See how agents are set up',
+      description:
+        'Read the full default reporting instructions in Agent Settings and see team assignments in an agent’s work history.',
+      icon: 'team',
+      color: 'violet',
+      details: ['Agent Settings', 'Reporting instructions', 'Team history'],
+    },
+  ],
+};
+
+export const releaseHighlights = releases[version];
+
+export function isNewerRelease(current: string, previous: string): boolean {
+  const stable = /^\d+\.\d+\.\d+$/;
+  if (!stable.test(current) || !stable.test(previous)) return false;
+  const prior = previous.split('.').map(Number);
+  const difference = current
+    .split('.')
+    .map((part, index) => Number(part) - prior[index])
+    .find((part) => part !== 0);
+  return (difference ?? 0) > 0;
+}
+
+const seenKey = (account: string) => `lykeion.releaseHighlights:${account}`;
+
+// Shown once per account and device: when this version has cards and the
+// account last dismissed an older version, or none. Unreadable storage shows
+// nothing rather than showing on every visit.
+export function shouldShowRelease(account: string): boolean {
+  const previous = readText(seenKey(account));
+  return (
+    Boolean(releaseHighlights?.length) &&
+    (previous === null || (previous !== undefined && isNewerRelease(version, previous)))
+  );
+}
+
+// Records this version as seen: on dismissal, and when an account finishes
+// onboarding, so new accounts start without a "What's new" for a release
+// they never used the previous version of.
+export function markReleaseSeen(account: string) {
+  writeText(seenKey(account), version);
+}

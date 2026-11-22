@@ -677,6 +677,75 @@ type FieldPackApproval struct {
 	ApprovedAt  time.Time `json:"approved_at"`
 }
 
+type GithubConnection struct {
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	InstallationID   int64      `json:"installation_id"`
+	AccountLogin     string     `json:"account_login"`
+	AccountType      string     `json:"account_type"`
+	AccountAvatarUrl string     `json:"account_avatar_url"`
+	ConnectedBy      uuid.UUID  `json:"connected_by"`
+	Status           string     `json:"status"`
+	LifecycleAt      *time.Time `json:"lifecycle_at"`
+	ImportState      string     `json:"import_state"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+type GithubPrLink struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      uuid.UUID  `json:"card_id"`
+	PrID        uuid.UUID  `json:"pr_id"`
+	Source      string     `json:"source"`
+	MatchedKey  string     `json:"matched_key"`
+	LinkedBy    *uuid.UUID `json:"linked_by"`
+	LinkedAt    time.Time  `json:"linked_at"`
+}
+
+type GithubPrUnlink struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	PrID        uuid.UUID `json:"pr_id"`
+}
+
+type GithubPullRequest struct {
+	ID                uuid.UUID  `json:"id"`
+	WorkspaceID       uuid.UUID  `json:"workspace_id"`
+	InstallationID    int64      `json:"installation_id"`
+	RepoOwner         string     `json:"repo_owner"`
+	RepoName          string     `json:"repo_name"`
+	Number            int32      `json:"number"`
+	Title             string     `json:"title"`
+	State             string     `json:"state"`
+	HtmlUrl           string     `json:"html_url"`
+	Branch            string     `json:"branch"`
+	BodyKeys          []string   `json:"body_keys"`
+	AuthorLogin       string     `json:"author_login"`
+	AuthorAvatarUrl   string     `json:"author_avatar_url"`
+	Additions         int32      `json:"additions"`
+	Deletions         int32      `json:"deletions"`
+	ChangedFiles      int32      `json:"changed_files"`
+	HeadSha           string     `json:"head_sha"`
+	MergedAt          *time.Time `json:"merged_at"`
+	ClosedAt          *time.Time `json:"closed_at"`
+	PrCreatedAt       time.Time  `json:"pr_created_at"`
+	PrUpdatedAt       time.Time  `json:"pr_updated_at"`
+	CiState           *string    `json:"ci_state"`
+	CiPassed          int32      `json:"ci_passed"`
+	CiTotal           int32      `json:"ci_total"`
+	CiFailing         []string   `json:"ci_failing"`
+	Mergeability      *string    `json:"mergeability"`
+	SnapshotAt        *time.Time `json:"snapshot_at"`
+	SnapshotAttemptAt *time.Time `json:"snapshot_attempt_at"`
+	SnapshotStale     bool       `json:"snapshot_stale"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type GithubWebhookDelivery struct {
+	ID         string    `json:"id"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
 type InboxItem struct {
 	ID                uuid.UUID       `json:"id"`
 	WorkspaceID       uuid.UUID       `json:"workspace_id"`
@@ -952,6 +1021,21 @@ type Research struct {
 	DueDate     *time.Time `json:"due_date"`
 }
 
+type ResearchProfileDraft struct {
+	UserID  uuid.UUID       `json:"user_id"`
+	Profile json.RawMessage `json:"profile"`
+}
+
+type ResearchProfilePublication struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+type ResearchProfileSnapshot struct {
+	UserID  uuid.UUID       `json:"user_id"`
+	Profile json.RawMessage `json:"profile"`
+}
+
 type RunCommentSnapshot struct {
 	WorkspaceID  uuid.UUID `json:"workspace_id"`
 	AgentRunID   uuid.UUID `json:"agent_run_id"`
@@ -1017,6 +1101,65 @@ type RuntimeSkillRequest struct {
 	ResultBlobKey string          `json:"result_blob_key"`
 	Error         string          `json:"error"`
 	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type SlackBinding struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	InstallationID uuid.UUID `json:"installation_id"`
+	SlackUserID    string    `json:"slack_user_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type SlackChat struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	InstallationID uuid.UUID `json:"installation_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	Channel        string    `json:"channel"`
+	ThreadTs       string    `json:"thread_ts"`
+	LabChatID      uuid.UUID `json:"lab_chat_id"`
+}
+
+type SlackInstallation struct {
+	ID                 uuid.UUID  `json:"id"`
+	WorkspaceID        uuid.UUID  `json:"workspace_id"`
+	AppID              string     `json:"app_id"`
+	TeamID             string     `json:"team_id"`
+	TeamName           string     `json:"team_name"`
+	BotUserID          string     `json:"bot_user_id"`
+	BotTokenCiphertext []byte     `json:"bot_token_ciphertext"`
+	AppTokenCiphertext []byte     `json:"app_token_ciphertext"`
+	DraftingAgentID    *uuid.UUID `json:"drafting_agent_id"`
+	InstalledBy        uuid.UUID  `json:"installed_by"`
+	Status             string     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type SlackLinkToken struct {
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	InstallationID uuid.UUID  `json:"installation_id"`
+	SlackUserID    string     `json:"slack_user_id"`
+	TokenHash      string     `json:"token_hash"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	UsedAt         *time.Time `json:"used_at"`
+}
+
+type SlackPost struct {
+	ID             uuid.UUID  `json:"id"`
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	InstallationID uuid.UUID  `json:"installation_id"`
+	UserID         uuid.UUID  `json:"user_id"`
+	Channel        string     `json:"channel"`
+	ThreadTs       string     `json:"thread_ts"`
+	MessageTs      string     `json:"message_ts"`
+	Kind           string     `json:"kind"`
+	AgentRunID     *uuid.UUID `json:"agent_run_id"`
+	AutoresearchID *uuid.UUID `json:"autoresearch_id"`
+	Status         string     `json:"status"`
+	Attempts       int32      `json:"attempts"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type StageAddon struct {

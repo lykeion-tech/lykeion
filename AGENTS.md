@@ -72,6 +72,7 @@ Use test-created fake or missing agent CLI paths in ordinary tests. Run a real a
 
 ## Changes and delivery
 
+- Before publishing any Lykeion release, design and review the centered release cards and their content for that version. Add one card per new feature to `apps/dashboard/src/features/workspace/release-highlights.ts` and check the experience on desktop and web.
 - Keep changes scoped and use existing patterns before adding dependencies or abstractions. Read the connected code, tests and callers before changing behavior.
 - Test behavior that can fail, including authorization and data isolation where relevant. Do not claim a test, deployment or live check passed without evidence.
 - Keep comments concise and useful for non-obvious constraints; remove stale comments when changing behavior. Keep generated files and their source in sync.

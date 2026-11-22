@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './test';
 import { chooseCompact, labPack, withBuiltInTeams } from './lab';
 
 async function workspace(request: APIRequestContext) {

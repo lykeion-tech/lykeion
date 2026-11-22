@@ -60,6 +60,11 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.skills(ws),
         ...(typeof e.payload.skill_id === 'string' ? [keys.skill(ws, e.payload.skill_id)] : []),
       ];
+    case 'github':
+      if (e.type === 'github.changed') return [keys.github(ws)];
+      return e.type === 'github.pr.changed' ? own(keys.studyPullRequests) : [];
+    case 'slack':
+      return [keys.slack(ws)];
     case 'connector':
       return e.payload.origin === 'custom'
         ? [
@@ -136,6 +141,12 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
       // A machine going offline or being flagged changes which studies wait
       // on it; any study's runs may name it.
       return [keys.runtimes(ws), keys.storage(ws), keys.cards(ws), ['ws', ws, 'card']];
+    case 'research_profile': {
+      const account = e.payload.user_id;
+      return typeof account === 'string'
+        ? [[...keys.colleagueProfiles(ws), account], keys.researchProfile(account)]
+        : [keys.colleagueProfiles(ws), keys.researchProfiles];
+    }
     case 'member':
       return [
         keys.decisionsAll(ws),
@@ -144,6 +155,8 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.coresearchConversations(ws),
         ['ws', ws, 'coresearch'],
         keys.members(ws),
+        keys.colleagueProfiles(ws),
+        keys.researchProfiles,
         keys.workspaces,
         keys.agents(ws),
         ['ws', ws, 'agent'],
@@ -245,7 +258,7 @@ export function useRealtimeSync(
       connected.value = true;
       reconnecting.value = false;
       s.send(JSON.stringify({ type: 'subscribe', workspace: ws, cursor }));
-      void refresh([keys.ws(ws), keys.workspaces], current);
+      void refresh([keys.ws(ws), keys.workspaces, keys.researchProfiles], current);
       opened = true;
     };
     s.onmessage = (m) => {

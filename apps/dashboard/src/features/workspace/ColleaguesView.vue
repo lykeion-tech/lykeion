@@ -8,6 +8,8 @@ import Modal from '../../ui/Modal.vue';
 import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
+import { useColleagueResearchProfile } from '../../api/research-profile';
+import PublishedResearchProfile from './PublishedResearchProfile.vue';
 import {
   useCards,
   useInvitations,
@@ -40,6 +42,9 @@ const roleFilter = ref<'all' | Role>('all');
 const detailTab = ref<'overview' | 'studies' | 'access'>('overview');
 const selectedMember = computed(() =>
   (members.data.value ?? []).find((m) => m.user_id === route.params.memberId),
+);
+const researchProfile = useColleagueResearchProfile(() =>
+  detailTab.value === 'overview' ? (selectedMember.value?.user_id ?? '') : '',
 );
 const filteredMembers = computed(() =>
   (members.data.value ?? []).filter(
@@ -230,6 +235,28 @@ const invite = () =>
               </button>
             </nav>
             <div class="colleague-panel" v-if="detailTab === 'overview'">
+              <div class="colleague-panel-heading">
+                <h3>Research profile</h3>
+                <router-link
+                  v-if="selectedMember.user_id === me.data.value?.id"
+                  :to="{ path: '/settings', query: { tab: 'profile' } }"
+                  class="button"
+                  aria-label="Edit research profile"
+                >
+                  Edit
+                </router-link>
+              </div>
+              <p v-if="researchProfile.isPending.value" class="muted">Loading research profile…</p>
+              <p v-else-if="researchProfile.error.value" class="inline-error" role="alert">
+                {{ researchProfile.error.value.message }}
+              </p>
+              <PublishedResearchProfile
+                v-else-if="researchProfile.data.value?.profile"
+                class="colleague-profile-box"
+                :profile="researchProfile.data.value.profile"
+              />
+              <p v-else class="muted">No research profile is published here.</p>
+              <hr />
               <h3>Studies</h3>
               <p class="muted">
                 {{
@@ -644,9 +671,6 @@ const invite = () =>
 .colleague-properties {
   padding: 20px;
 }
-.colleague-properties h3 {
-  margin-top: 0;
-}
 .colleague-info dl {
   display: grid;
   grid-template-columns: 95px minmax(0, 1fr);
@@ -684,8 +708,27 @@ const invite = () =>
 .colleague-panel {
   padding: 24px;
 }
+.colleague-properties h3,
 .colleague-panel h3 {
   margin-top: 0;
+  font-size: 18px;
+  line-height: 24px;
+}
+.colleague-panel-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.colleague-panel-heading h3 {
+  margin: 0;
+}
+.colleague-profile-box {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 .colleague-panel hr {
   border: 0;

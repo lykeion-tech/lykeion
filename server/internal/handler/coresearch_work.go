@@ -25,8 +25,14 @@ import (
 
 // coresearchRunTx retains the run identity throughout its cardless transaction.
 func (h *H) coresearchRunTx(r *http.Request, write bool, fn func(*store.Tx, db.CoresearchChat, uuid.UUID) error) error {
+	return h.coresearchRunTxAs(r, write, middleware.RoleFrom(r.Context()).AgentRunID, func(tx *store.Tx, chat db.CoresearchChat, run db.AgentRun) error {
+		return fn(tx, chat, run.ID)
+	})
+}
+
+func (h *H) coresearchRunTxAs(r *http.Request, write bool, actor uuid.UUID, fn func(*store.Tx, db.CoresearchChat, db.AgentRun) error) error {
 	role := middleware.RoleFrom(r.Context())
-	return h.Store.InWorkspace(r.Context(), role.WorkspaceID, role.AgentRunID, func(tx *store.Tx) error {
+	return h.Store.InWorkspace(r.Context(), role.WorkspaceID, actor, func(tx *store.Tx) error {
 		if _, e := tx.Q.LockWorkspaceForMutation(r.Context(), tx.WS); e != nil {
 			return e
 		}
@@ -38,6 +44,9 @@ func (h *H) coresearchRunTx(r *http.Request, write bool, fn func(*store.Tx, db.C
 			return e
 		}
 		if run.Kind != "coresearch" || run.CoresearchChatID == nil || run.RequesterID == nil {
+			return pgx.ErrNoRows
+		}
+		if actor != role.AgentRunID && actor != *run.RequesterID {
 			return pgx.ErrNoRows
 		}
 		if _, e = tx.Q.LockMember(r.Context(), db.LockMemberParams{WorkspaceID: tx.WS, UserID: *run.RequesterID}); e != nil {
@@ -64,7 +73,7 @@ func (h *H) coresearchRunTx(r *http.Request, write bool, fn func(*store.Tx, db.C
 		if e != nil {
 			return e
 		}
-		return fn(tx, c, role.AgentRunID)
+		return fn(tx, c, run)
 	})
 }
 func (h *H) coresearchWorkTx(r *http.Request, write bool, chatID uuid.UUID, fn func(*store.Tx, db.CoresearchChat, *uuid.UUID) error) error {

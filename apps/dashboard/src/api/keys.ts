@@ -48,6 +48,8 @@ export const keys = {
   coresearchEnvironment: (ws: string, id: string) =>
     ['ws', ws, 'coresearch', id, 'environment'] as const,
   me: ['me'] as const,
+  researchProfiles: ['research-profile'] as const,
+  researchProfile: (account: string) => ['research-profile', account] as const,
   workspaces: ['workspaces'] as const,
   tokens: ['tokens'] as const,
   storage: (ws: string) => ['ws', ws, 'storage'] as const,
@@ -80,6 +82,9 @@ export const keys = {
   agentWorkAll: (ws: string) => ['ws', ws, 'agent-work'] as const,
   agentWork: (ws: string, id: string) => ['ws', ws, 'agent-work', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
+  colleagueProfiles: (ws: string) => ['ws', ws, 'research-profile'] as const,
+  colleagueProfile: (ws: string, member: string, viewer: string) =>
+    ['ws', ws, 'research-profile', member, viewer] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
   teams: (ws: string, domain = '', stage = '') =>
     ['ws', ws, 'packs', 'store', domain, stage] as const,
@@ -89,6 +94,10 @@ export const keys = {
   skill: (ws: string, id: string) => ['ws', ws, 'skill', id] as const,
   skillFile: (ws: string, id: string, revision: number, path: string) =>
     ['ws', ws, 'skill', id, 'files', revision, path] as const,
+  github: (ws: string) => ['ws', ws, 'github'] as const,
+  studyPullRequests: (ws: string, card: string) =>
+    ['ws', ws, 'cards', card, 'pull-requests'] as const,
+  slack: (ws: string) => ['ws', ws, 'slack'] as const,
   connectors: (ws: string) => ['ws', ws, 'connectors'] as const,
   openAlex: (ws: string) => ['ws', ws, 'connectors', 'openalex'] as const,
   workspaceMCP: (ws: string) => ['ws', ws, 'mcp-servers'] as const,

@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { LAB, labFixture, labRealtime } from './lab';
 
 const shots = 'test-results/ui2/task18/screenshots';
@@ -137,12 +137,13 @@ test('two owner clients observe real daemon registration, expiry and return with
     const wizard = await context.newPage();
     await wizard.goto('/#/onboarding');
     await wizard.getByRole('button', { name: 'Set up your lab' }).click();
+    await wizard.getByRole('button', { name: 'Skip profile' }).click();
     await wizard
       .getByRole('radio', { name: workspace.name, exact: true })
       .and(wizard.locator(`[value="${f.workspace_id}"]`))
       .check();
     await wizard.getByRole('button', { name: 'Continue', exact: true }).click();
-    for (const step of ['Skills', 'Connectors', 'Machines']) {
+    for (const step of ['Customize', 'Machines']) {
       await expect(wizard.locator('[aria-current=step]')).toHaveText(step);
       if (step !== 'Machines')
         await wizard.getByRole('button', { name: 'Continue', exact: true }).click();

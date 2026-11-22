@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { labWorkspace, labSignIn, LAB, labSkillFolder } from './lab';
 import { rmSync } from 'node:fs';
 import type { SkillSummary, SkillFileMeta } from '../../apps/dashboard/src/api/types';

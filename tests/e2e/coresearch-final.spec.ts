@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 import { installFilesFixture } from './coresearch-files-fixture';
 
@@ -13,8 +13,16 @@ test('sidebar New opens the study composer even from Coresearch', async ({ page 
   const composer = page.getByRole('dialog');
   await expect(composer.getByRole('textbox', { name: 'Study title', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#\/coresearch\/conversations\/welcome$/);
-  await expect(composer.getByText(/attach it as a file so Hypotheses can cite it/)).toBeVisible();
-  await expect(composer.getByText(/Validation needs a recorded statistical test/)).toBeVisible();
+  const bestPractices = composer.getByText('Best practices', { exact: true });
+  await expect(bestPractices).toBeVisible();
+  const dataTip = composer.getByText(/attach it as a file so Hypotheses can cite it/);
+  await expect(dataTip).toBeHidden();
+  await bestPractices.focus();
+  await bestPractices.press('Enter');
+  await expect(dataTip).toBeVisible();
+  await expect(
+    composer.getByRole('listitem').filter({ hasText: /Validation needs a recorded statistical test/ }),
+  ).toBeVisible();
 });
 
 for (const theme of ['ash', 'midnight']) {

@@ -75,6 +75,10 @@ func RequestBounds(next http.Handler) http.Handler {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/role/tools" {
 			requestTimeout = ToolsRequestTimeout
 		}
+		// GitHub setup may paginate two repository lists to verify ownership.
+		if r.Method == http.MethodGet && r.URL.Path == "/api/github/setup" {
+			requestTimeout = 2 * time.Minute
+		}
 		if workspaceMCPBrokerPost(r) {
 			requestTimeout = 5 * time.Minute
 		}

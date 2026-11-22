@@ -455,7 +455,7 @@ function toggle(id: string) {
           <div v-if="tab === 'overview'" class="agent-overview">
             <div class="agent-activity">
               <h2>
-                Now<small v-if="active.length">{{ `${active.length} in progress` }}</small>
+                In progress<small v-if="active.length">{{ active.length }}</small>
               </h2>
               <p v-if="!active.length && !workLoading" class="muted">No study work in progress.</p>
               <RouterLink

@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labWorkspace, newStudy } from './lab';
 
 test('Storage uses live owner-only measurements and omits unsupported controls', async ({

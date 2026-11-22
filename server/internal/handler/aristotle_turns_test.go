@@ -49,6 +49,11 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	if out.Conversation.SnapshotModel == nil || *out.Conversation.SnapshotModel != "frozen-model" || out.Run.RequestedModel != "frozen-model" || !strings.Contains(out.Run.Prompt, "Frozen instructions") {
 		t.Fatalf("snapshot not applied: %+v %+v", out.Conversation, out.Run)
 	}
+	for _, guidance := range []string{"lyk research-directory", "next_offset", "untrusted", "profile_url", "recommend them to lead", "contributing", "reviewing", "interests", "coverage", "assign"} {
+		if !strings.Contains(out.Run.Prompt, guidance) {
+			t.Errorf("missing directory guidance %q", guidance)
+		}
+	}
 	if _, e := s.Env.Owner.Exec(t.Context(), `UPDATE runtime SET models='[{"value":"frozen-model"}]'::jsonb WHERE id=$1`, ref.RuntimeID); e != nil {
 		t.Fatal(e)
 	}

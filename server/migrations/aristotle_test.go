@@ -134,7 +134,7 @@ func TestLabEventsAfterAdvances(t *testing.T) {
 
 func TestAristotleMigrationReversible(t *testing.T) {
 	env := testutil.Setup(t)
-	for _, name := range []string{"0060_decision_draft_receipt.down.sql", "0059_decision_builder_machine.down.sql", "0058_project_delete.down.sql", "0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0054_manual_decisions.down.sql", "0053_lab_chat_deletion.down.sql"} {
+	for _, name := range []string{"0080_slack.down.sql", "0060_decision_draft_receipt.down.sql", "0059_decision_builder_machine.down.sql", "0058_project_delete.down.sql", "0057_manual_draft_application.down.sql", "0056_manual_draft_archives.down.sql", "0055_manual_decision_drafts.down.sql", "0054_manual_decisions.down.sql", "0053_lab_chat_deletion.down.sql"} {
 		q, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)

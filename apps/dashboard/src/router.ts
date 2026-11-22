@@ -29,6 +29,7 @@ import WorkflowDetail from './features/workflows/WorkflowDetail.vue';
 import SettingsView from './features/workspace/SettingsView.vue';
 import SignInView from './features/workspace/SignInView.vue';
 import AcceptInvite from './features/workspace/AcceptInvite.vue';
+import SlackLinkView from './features/workspace/SlackLinkView.vue';
 import OnboardingView from './features/workspace/OnboardingView.vue';
 
 declare module 'vue-router' {
@@ -128,6 +129,11 @@ const routes: RouteRecordRaw[] = [
     component: AcceptInvite,
     meta: { bare: true, title: 'Invitation' },
     props: (route) => ({ token: param(route, 'token') ?? '' }),
+  },
+  {
+    path: '/slack/link',
+    component: SlackLinkView,
+    meta: { page: 'slack-link', title: 'Link Slack', bare: true },
   },
   { path: '/onboarding', component: OnboardingView, meta: { bare: true, title: 'Set up' } },
   {

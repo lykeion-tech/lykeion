@@ -27,6 +27,7 @@ import (
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/embed"
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/github"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/labindex"
@@ -36,11 +37,13 @@ import (
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/seal"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/slack"
 	"lykeion/server/internal/sources"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/team"
 	"lykeion/server/migrations"
+	db "lykeion/server/pkg/db/generated"
 )
 
 func newStorage(ctx context.Context, getenv func(string) string) (storage.Storage, error) {
@@ -298,11 +301,30 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped(),
 		TrustedProxies: handler.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))}
+	githubConfig, configErr := github.ConfigFromEnv(getenv)
+	if configErr != nil {
+		slog.Warn("GitHub App configuration invalid", "err", configErr)
+		githubConfig = github.Config{WebhookSecret: getenv("GITHUB_WEBHOOK_SECRET")}
+	}
+	h.GitHub = &github.Service{Background: ctx, Store: st, Config: githubConfig, PublicURL: h.PublicURL, StateSecret: h.JWT.Secret}
+	if githubConfig.CanConnect() {
+		go h.GitHub.ResumeImports(ctx)
+	}
+	h.Slack = &slack.Service{Store: st, Key: secretKey, Redis: rdb, AgentRuns: runs, Drafter: h, PublicURL: h.PublicURL,
+		DeleteChat: func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error {
+			return handler.DeleteLabChatInTx(ctx, tx, runs, user, chat)
+		}}
 	if err := runs.CancelUnavailableLabRuns(ctx); err != nil {
 		return fmt.Errorf("cancel unavailable lab runs: %w", err)
 	}
 	if err := runs.RecoverSettlements(ctx); err != nil {
 		return fmt.Errorf("recover settlements: %w", err)
+	}
+	if secretKey != nil { // Slack tokens are sealed: no key, no connections
+		slackCtx, stopSlack := context.WithCancel(ctx)
+		slackDone := make(chan struct{})
+		go func() { defer close(slackDone); h.Slack.Run(slackCtx) }()
+		defer func() { stopSlack(); <-slackDone }()
 	}
 	engineCtx, stopEngine := context.WithCancel(ctx)
 	engineDone := make(chan struct{})

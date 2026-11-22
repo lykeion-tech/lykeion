@@ -23,6 +23,7 @@ import (
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/localfiles"
 	"lykeion/server/internal/daemon/kernels"
+	"lykeion/server/internal/fence"
 )
 
 const coresearchAPI = "/api/run/coresearch"
@@ -63,6 +64,30 @@ func coresearchClient() (*apiclient.Client, error) {
 	return c, nil
 }
 func coresearchPreRun(*cobra.Command, []string) error { return nil }
+
+func researchDirectoryCmd(e *env) *cobra.Command {
+	var offset, limit int32
+	cmd := &cobra.Command{
+		Use: "research-directory", Short: "Read a page of published research profiles in your Aristotle conversation's workspace",
+		Args: cobra.NoArgs, PersistentPreRunE: coresearchPreRun,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := coresearchClient()
+			if err != nil {
+				return err
+			}
+			var page json.RawMessage
+			endpoint := fmt.Sprintf("%s/research-directory?offset=%d&limit=%d", coresearchAPI, offset, limit)
+			if err := c.Do(cmd.Context(), http.MethodGet, endpoint, nil, &page); err != nil {
+				return err
+			}
+			_, err = fmt.Fprint(e.out, fence.Untrusted("workspace research directory", string(page)))
+			return err
+		},
+	}
+	cmd.Flags().Int32Var(&offset, "offset", 0, "next_offset from the previous page")
+	cmd.Flags().Int32Var(&limit, "limit", 3, "maximum colleagues per page (1–5)")
+	return cmd
+}
 
 type coresearchReply struct {
 	ID            string          `json:"id"`

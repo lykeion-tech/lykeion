@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 test('members, invitations and the last-owner rule', async ({ page }) => {
   await page.goto('/#/colleagues');
@@ -35,7 +35,7 @@ test('members, invitations and the last-owner rule', async ({ page }) => {
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-20-artifacts';
 import { labFixture, labSignIn, labWorkspace } from './lab';
-import type { APIRequestContext, BrowserContext, Page } from '@playwright/test';
+import type { APIRequestContext, BrowserContext, Page } from './test';
 const headers = (ws: string) => ({ 'X-Workspace-ID': ws });
 const colleagueSessions = new Map<string, Awaited<ReturnType<BrowserContext['cookies']>>>();
 const roster = (page: Page) => page.getByRole('table', { name: 'Members', exact: true });
