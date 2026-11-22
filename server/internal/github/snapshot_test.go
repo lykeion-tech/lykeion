@@ -101,8 +101,7 @@ func TestSnapshotWritten(t *testing.T) {
 			if r.URL.Query().Get("page") == "" {
 				w.Header().Set("Link", `<?page=2>; rel="next"`)
 			}
-			fmt.Fprint(w, `{"statuses":[{"context"
- "errors":"build","state":"success"}]}`)
+			fmt.Fprint(w, `{"statuses":[{"context":"build","state":"success"}]}`)
 		default:
 			t.Errorf("unexpected %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -200,12 +199,10 @@ func TestSnapshotLateResponsePreservesNewerSuccess(t *testing.T) {
 							return
 						}
 						w.WriteHeader(response)
-						fmt.Fprint(w, `{"statuses":[{"context"
- "errors":"build","state":"pending"}]}`)
+						fmt.Fprint(w, `{"statuses":[{"context":"build","state":"pending"}]}`)
 						return
 					}
-					fmt.Fprint(w, `{"statuses":[{"context"
- "errors":"build","state":"success"}]}`)
+					fmt.Fprint(w, `{"statuses":[{"context":"build","state":"success"}]}`)
 				default:
 					http.NotFound(w, r)
 				}
@@ -311,8 +308,7 @@ func TestSnapshotNewerOutageWinsInEitherCompletionOrder(t *testing.T) {
 						http.Error(w, "outage", 502)
 						return
 					}
-					fmt.Fprint(w, `{"statuses":[{"context"
- "errors":"build","state":"success"}]}`)
+					fmt.Fprint(w, `{"statuses":[{"context":"build","state":"success"}]}`)
 				default:
 					http.NotFound(w, r)
 				}
@@ -331,6 +327,9 @@ func TestSnapshotNewerOutageWinsInEitherCompletionOrder(t *testing.T) {
 			close(release[firstToFinish])
 			<-done[firstToFinish]
 			first := f.row(t)
+			if firstToFinish == 0 && (first.CiState == nil || *first.CiState != "passed" || first.SnapshotStale) {
+				t.Errorf("older attempt completed first without storing a fresh passed result: %+v", first)
+			}
 			close(release[1-firstToFinish])
 			<-done[1-firstToFinish]
 			row := f.row(t)
