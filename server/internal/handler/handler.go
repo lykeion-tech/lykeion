@@ -25,6 +25,7 @@ import (
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
+	"lykeion/server/internal/slack"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/workspacemcp"
@@ -42,6 +43,7 @@ type H struct {
 	Hub          *realtime.Hub
 	Connectors   *connectors.Client // seals connector keys; Contact decides whether contact-bound connectors are ready
 	Engine       *flow.Engine
+	Slack        *slack.Service
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
 	Sources      http.Handler

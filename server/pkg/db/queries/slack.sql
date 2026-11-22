@@ -5,8 +5,8 @@ SELECT * FROM slack_installation WHERE workspace_id = app_workspace();
 SELECT * FROM slack_installation WHERE workspace_id = app_workspace() AND id = @id;
 
 -- name: CreateSlackInstallation :one
-INSERT INTO slack_installation (workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by)
-VALUES (app_workspace(), @app_id, @team_id, @team_name, @bot_user_id, @bot_token_ciphertext, @app_token_ciphertext, @drafting_agent_id, @installed_by)
+INSERT INTO slack_installation (id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by)
+VALUES (@id, app_workspace(), @app_id, @team_id, @team_name, @bot_user_id, @bot_token_ciphertext, @app_token_ciphertext, @drafting_agent_id, @installed_by)
 RETURNING *;
 
 -- name: SetSlackInstallationStatus :one
@@ -84,3 +84,7 @@ WHERE workspace_id = app_workspace() AND installation_id = @installation_id
 SELECT * FROM lab_message
 WHERE workspace_id = app_workspace() AND agent_run_id = @agent_run_id AND kind IN ('answer', 'failure')
 ORDER BY created_at DESC LIMIT 1;
+
+-- name: SetSlackDraftingAgent :one
+UPDATE slack_installation SET drafting_agent_id = @drafting_agent_id, updated_at = now()
+WHERE workspace_id = app_workspace() RETURNING *;

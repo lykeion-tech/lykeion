@@ -224,7 +224,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/lab/chats" || route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/autoresearch/with-trigger" || route == "/api/cards" || route == "/api/study-drafts" || route == "/api/lab-chart" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/decisions/manual" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/lab/chats" || route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/autoresearch/with-trigger" || route == "/api/cards" || route == "/api/study-drafts" || strings.HasPrefix(route, "/api/slack") || route == "/api/lab-chart" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/decisions/manual" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID

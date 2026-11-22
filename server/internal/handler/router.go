@@ -384,6 +384,12 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
+			r.Get("/api/slack", h.getSlack)
+			r.With(middleware.RequireOwner).Put("/api/slack", h.putSlack)
+			r.With(middleware.RequireOwner).Patch("/api/slack", h.patchSlack)
+			r.With(middleware.RequireOwner).Delete("/api/slack", h.deleteSlack)
+			r.Delete("/api/slack/binding", h.deleteSlackBinding)
+
 			r.Get("/api/lab-chart", h.labChart)
 			r.Get("/api/decisions", h.listDecisions)
 			r.Get("/api/decisions/count", h.countDecisions)

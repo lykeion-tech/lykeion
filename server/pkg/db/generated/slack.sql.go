@@ -49,12 +49,13 @@ func (q *Queries) CreateSlackBinding(ctx context.Context, arg CreateSlackBinding
 }
 
 const createSlackInstallation = `-- name: CreateSlackInstallation :one
-INSERT INTO slack_installation (workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by)
-VALUES (app_workspace(), $1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO slack_installation (id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by)
+VALUES ($1, app_workspace(), $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by, status, created_at, updated_at
 `
 
 type CreateSlackInstallationParams struct {
+	ID                 uuid.UUID  `json:"id"`
 	AppID              string     `json:"app_id"`
 	TeamID             string     `json:"team_id"`
 	TeamName           string     `json:"team_name"`
@@ -67,6 +68,7 @@ type CreateSlackInstallationParams struct {
 
 func (q *Queries) CreateSlackInstallation(ctx context.Context, arg CreateSlackInstallationParams) (SlackInstallation, error) {
 	row := q.db.QueryRow(ctx, createSlackInstallation,
+		arg.ID,
 		arg.AppID,
 		arg.TeamID,
 		arg.TeamName,
@@ -451,6 +453,32 @@ type MarkSlackPostParams struct {
 func (q *Queries) MarkSlackPost(ctx context.Context, arg MarkSlackPostParams) error {
 	_, err := q.db.Exec(ctx, markSlackPost, arg.Status, arg.ID)
 	return err
+}
+
+const setSlackDraftingAgent = `-- name: SetSlackDraftingAgent :one
+UPDATE slack_installation SET drafting_agent_id = $1, updated_at = now()
+WHERE workspace_id = app_workspace() RETURNING id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by, status, created_at, updated_at
+`
+
+func (q *Queries) SetSlackDraftingAgent(ctx context.Context, draftingAgentID *uuid.UUID) (SlackInstallation, error) {
+	row := q.db.QueryRow(ctx, setSlackDraftingAgent, draftingAgentID)
+	var i SlackInstallation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.AppID,
+		&i.TeamID,
+		&i.TeamName,
+		&i.BotUserID,
+		&i.BotTokenCiphertext,
+		&i.AppTokenCiphertext,
+		&i.DraftingAgentID,
+		&i.InstalledBy,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setSlackInstallationStatus = `-- name: SetSlackInstallationStatus :one

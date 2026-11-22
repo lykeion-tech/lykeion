@@ -1,0 +1,252 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"lykeion/server/internal/seal"
+	"lykeion/server/internal/slack"
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
+)
+
+const slackVisibilityNote = "An answer to a question asked in a Slack channel is visible to everyone in that channel, including people outside this workspace."
+
+func (h *H) slackReady(w http.ResponseWriter) bool {
+	if h.Slack == nil {
+		writeErr(w, 503, "Slack is unavailable")
+		return false
+	}
+	return true
+}
+
+type slackBindingView struct {
+	SlackUserID string `json:"slack_user_id"`
+}
+
+type slackView struct {
+	Connected       bool              `json:"connected"`
+	Status          string            `json:"status,omitempty"`
+	TeamName        string            `json:"team_name,omitempty"`
+	DraftingAgentID *uuid.UUID        `json:"drafting_agent_id"`
+	MyBinding       *slackBindingView `json:"my_binding"`
+	VisibilityNote  string            `json:"visibility_note"`
+}
+
+// getSlack reports whether Slack is connected and the caller's own link. It
+// never carries a token.
+func (h *H) getSlack(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	out := slackView{VisibilityNote: slackVisibilityNote}
+	err := h.inWS(r, func(tx *store.Tx, _, _ uuid.UUID) error {
+		inst, err := tx.Q.GetSlackInstallation(r.Context())
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		out.Connected, out.Status, out.TeamName, out.DraftingAgentID = true, inst.Status, inst.TeamName, inst.DraftingAgentID
+		mine, err := tx.Q.ListMySlackBindings(r.Context())
+		if err != nil {
+			return err
+		}
+		for _, b := range mine {
+			if b.InstallationID == inst.ID {
+				out.MyBinding = &slackBindingView{SlackUserID: b.SlackUserID}
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// putSlack verifies both tokens, seals them and connects the workspace.
+func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	var in struct {
+		BotToken        string    `json:"bot_token"`
+		AppToken        string    `json:"app_token"`
+		DraftingAgentID uuid.UUID `json:"drafting_agent_id"`
+	}
+	if err := readJSON(r, &in); err != nil || in.BotToken == "" || in.AppToken == "" || in.DraftingAgentID == uuid.Nil {
+		writeErr(w, 400, "bot token, app token and drafting agent are required")
+		return
+	}
+	if len(h.Slack.Key) == 0 {
+		writeErr(w, 503, "this server cannot store keys: it has no LYK_SECRET_KEY")
+		return
+	}
+	identity, err := h.Slack.Verify(r.Context(), in.BotToken, in.AppToken)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	var out slackView
+	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		ctx := r.Context()
+		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+			return err
+		}
+		if _, err := tx.Q.GetSlackInstallation(ctx); err == nil {
+			return conflict("Slack is already connected")
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err := DraftingAgentUsable(ctx, tx, ws, in.DraftingAgentID); err != nil {
+			return err
+		}
+		id := uuid.New()
+		bot, err := h.Slack.Seal(ws, id, "bot", in.BotToken)
+		if err != nil {
+			return err
+		}
+		app, err := h.Slack.Seal(ws, id, "app", in.AppToken)
+		if err != nil {
+			return err
+		}
+		inst, err := tx.Q.CreateSlackInstallation(ctx, db.CreateSlackInstallationParams{ID: id, AppID: identity.AppID, TeamID: identity.TeamID,
+			TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
+			DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+		if err != nil {
+			return err
+		}
+		out = slackView{Connected: true, Status: inst.Status, TeamName: inst.TeamName, DraftingAgentID: inst.DraftingAgentID, VisibilityNote: slackVisibilityNote}
+		return tx.Emit(ctx, "slack.changed", nil, store.User(user), nil)
+	})
+	switch {
+	case isUnique(err):
+		err = conflict("That Slack app is already connected")
+	case errors.Is(err, seal.ErrNoKey):
+		err = cardInputError(err.Error())
+	}
+	if answer(w, r, err) {
+		writeJSON(w, 200, out)
+	}
+}
+
+// patchSlack changes the agent that drafts studies.
+func (h *H) patchSlack(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	var in struct {
+		DraftingAgentID uuid.UUID `json:"drafting_agent_id"`
+	}
+	if err := readJSON(r, &in); err != nil || in.DraftingAgentID == uuid.Nil {
+		writeErr(w, 400, "choose a drafting agent")
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		ctx := r.Context()
+		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+			return err
+		}
+		if _, err := tx.Q.GetSlackInstallation(ctx); err != nil {
+			return err
+		}
+		if err := DraftingAgentUsable(ctx, tx, ws, in.DraftingAgentID); err != nil {
+			return err
+		}
+		if _, err := tx.Q.SetSlackDraftingAgent(ctx, &in.DraftingAgentID); err != nil {
+			return err
+		}
+		return tx.Emit(ctx, "slack.changed", nil, store.User(user), nil)
+	})
+	if answer(w, r, err) {
+		w.WriteHeader(204)
+	}
+}
+
+// deleteSlack disconnects Slack: it stops the runs Slack asked for and removes
+// the installation with its bindings, tokens, chats and posts. Lab chats stay.
+func (h *H) deleteSlack(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		ctx := r.Context()
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
+		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+			return err
+		}
+		inst, err := tx.Q.GetSlackInstallation(ctx)
+		if err != nil {
+			return err
+		}
+		ids, err := tx.Q.ListSlackRunIDs(ctx, inst.ID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: id, WorkspaceID: ws})
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return err
+			}
+			if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
+				if err := h.AgentRuns.CancelInTx(ctx, tx, user, run); err != nil {
+					return err
+				}
+			}
+		}
+		if err := tx.Q.DeleteSlackInstallation(ctx, inst.ID); err != nil {
+			return err
+		}
+		return tx.Emit(ctx, "slack.changed", nil, store.User(user), nil)
+	})
+	if answer(w, r, err) {
+		w.WriteHeader(204)
+	}
+}
+
+// deleteSlackBinding unlinks the caller's own Slack account.
+func (h *H) deleteSlackBinding(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
+		ctx := r.Context()
+		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
+			return err
+		}
+		mine, err := tx.Q.ListMySlackBindings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, b := range mine {
+			if _, err := tx.Q.DeleteMySlackBinding(ctx, db.DeleteMySlackBindingParams{InstallationID: b.InstallationID, SlackUserID: b.SlackUserID}); err != nil {
+				return err
+			}
+		}
+		return tx.Emit(ctx, "slack.changed", nil, store.User(user), nil)
+	})
+	if answer(w, r, err) {
+		w.WriteHeader(204)
+	}
+}
+
+// SlackDraft queues a study draft asked for in Slack. The drafting agent is
+// checked on every call; there is no fallback.
+func (h *H) SlackDraft(ctx context.Context, ws, user uuid.UUID, in slack.DraftIn) (uuid.UUID, error) {
+	err := h.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error { return DraftingAgentUsable(ctx, tx, ws, in.AgentID) })
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return h.DraftStudy(ctx, ws, user, StudyDraftIn{AgentID: in.AgentID, Prompt: in.Prompt, Priority: in.Priority})
+}
