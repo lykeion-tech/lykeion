@@ -3,7 +3,7 @@ import { LAB, labFixture, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
-test('each board column opens the new study composer', async ({ page }) => {
+test('board columns omit add buttons and sidebar New opens the study composer', async ({ page }) => {
   await page.goto('/#/studies');
   for (const name of [
     'Grounding',
@@ -14,11 +14,11 @@ test('each board column opens the new study composer', async ({ page }) => {
     'Blocked',
   ]) {
     const column = page.getByRole('region', { name, exact: true });
-    await column.getByRole('button', { name: 'New study', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New study' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(column).toBeVisible();
+    await expect(column.getByRole('button', { name: 'New study', exact: true })).toHaveCount(0);
   }
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'New study' })).toBeVisible();
 });
 
 test('the board shows six columns and a new study arriving live in its column', async ({

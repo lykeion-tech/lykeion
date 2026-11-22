@@ -66,11 +66,15 @@ it.each([
     const root = await mount([{ ...pr, state, ci_state, mergeability, snapshot_stale: true }]);
     const link = all(root).find((n) => n.tag === 'a')!;
     expect(link.props).toMatchObject({ href: pr.html_url, target: '_blank' });
-    for (const s of ['lab/science #1', 'Data', 'ada', '+3 −2 · 4 files', label!, merge!])
+    for (const s of ['lab/science #1', 'Data', 'ada', label!, merge!])
       expect(textOf(link)).toContain(s);
     if (ci) expect(textOf(link)).toContain(ci + ' (stale)');
   },
 );
+it('shows the files changed before signed insertion and deletion counts', async () => {
+  const root = await mount([{ ...pr, changed_files: 1, additions: 1, deletions: 0 }]);
+  expect(textOf(root)).toMatch(/1 file changed,\s*\+1 insertion\(\+\),\s*-0 deletions\(-\)/);
+});
 it.each(['merged', 'closed'])('hides CI and mergeability for %s', async (state) => {
   const root = await mount([{ ...pr, state }]);
   expect(textOf(root)).toContain(state === 'merged' ? 'Merged' : 'Closed');

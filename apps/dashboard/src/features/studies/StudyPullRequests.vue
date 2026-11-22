@@ -146,10 +146,17 @@ async function save(id?: string) {
             }}</span
             >{{ pr.author_login }}</span
           >
-          <span class="size"
-            >+{{ pr.additions }} −{{ pr.deletions }} · {{ pr.changed_files }}
-            {{ pr.changed_files === 1 ? 'file' : 'files' }}</span
-          >
+          <span class="size">
+            <span>{{ pr.changed_files }} {{ pr.changed_files === 1 ? 'file' : 'files' }} changed,</span>
+            <span>
+              <span class="insertions"
+                >+{{ pr.additions }} {{ pr.additions === 1 ? 'insertion' : 'insertions' }}(+)</span
+              >,
+            </span>
+            <span class="deletions">
+              -{{ pr.deletions }} {{ pr.deletions === 1 ? 'deletion' : 'deletions' }}(-)
+            </span>
+          </span>
           <template v-if="pr.state === 'open' || pr.state === 'draft'">
             <span v-if="ci(pr)">{{ ci(pr) }}{{ pr.snapshot_stale ? ' (stale)' : '' }}</span>
             <span v-if="mergeLabels[pr.mergeability ?? '']"
@@ -235,7 +242,16 @@ li a:focus-visible strong {
   flex-wrap: wrap;
 }
 .size {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 4px;
   font-variant-numeric: tabular-nums;
+}
+.insertions {
+  color: color-mix(in srgb, var(--stage-validation-dot) 55%, var(--text));
+}
+.deletions {
+  color: var(--danger-text);
 }
 .row-actions {
   position: absolute;

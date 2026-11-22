@@ -559,13 +559,24 @@ onUnmounted(() => {
             <ComposerCalendar v-if="menu === 'deadline'" v-model="deadline" kind="due" @close="closeMenu" />
           </div>
         </div>
-        <p v-if="mode === 'manual' && includesHypotheses" class="composer-hint">
-          If you’re supplying the study data, attach it as a file so Hypotheses can cite it.
-        </p>
-        <p v-if="mode === 'manual' && validatesExperiments" class="composer-hint">
-          Validation needs a recorded statistical test for a directional hypothesis. Plan it before
-          Experimentation. For deterministic checks, specify a named outcome or numeric range.
-        </p>
+        <details
+          v-if="mode === 'manual' && (includesHypotheses || validatesExperiments)"
+          class="composer-tips"
+        >
+          <summary>Best practices</summary>
+          <ul>
+            <li v-if="includesHypotheses">
+              If you’re supplying the study data, attach it as a file so Hypotheses can cite it.
+            </li>
+            <template v-if="validatesExperiments">
+              <li>
+                Validation needs a recorded statistical test for a directional hypothesis. Plan it
+                before Experimentation.
+              </li>
+              <li>For deterministic checks, specify a named outcome or numeric range.</li>
+            </template>
+          </ul>
+        </details>
       </div>
       <p v-if="startDate && deadline && startDate > deadline" class="composer-error" role="alert">
         Start date must be on or before the due date.
@@ -881,10 +892,20 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 6px;
 }
-.composer-hint {
-  margin: 0;
+.composer-tips {
   color: var(--muted);
   font-size: 12px;
+}
+.composer-tips summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.composer-tips ul {
+  margin: 6px 0 0;
+  padding-inline-start: 20px;
+}
+.composer-tips li + li {
+  margin-top: 4px;
 }
 .property-line {
   position: relative;

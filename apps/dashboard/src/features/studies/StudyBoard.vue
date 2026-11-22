@@ -52,7 +52,6 @@ import {
 } from '../../lib/studies';
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
-import { useStudyComposer } from '../../state/study-composer';
 const metadataObservers = new WeakMap<
   HTMLElement,
   { resize?: ResizeObserver; mutation?: MutationObserver }
@@ -101,7 +100,6 @@ const members = useMembers();
 const agents = useAgents();
 const researches = useResearches();
 const workspace = useWorkspace();
-const { openComposer } = useStudyComposer();
 const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
@@ -601,14 +599,7 @@ onUnmounted(() => {
         <span v-if="column.id === 'blocked'" class="blocked-stage-icon" aria-hidden="true">❌</span>
         <span v-else-if="column.id === 'done'" class="done-stage-icon" aria-hidden="true">✅</span>
         <span v-else class="stage-dot" /><strong>{{ column.name }}</strong
-        ><span>{{ grouped[column.id].length }}</span
-        ><button
-          class="icon-button push-right"
-          aria-label="New study"
-          @click="openComposer(undefined, projectId)"
-        >
-          <Icon name="plus" :size="14" />
-        </button>
+        ><span>{{ grouped[column.id].length }}</span>
       </header>
       <div class="board-cards">
         <div v-for="card in grouped[column.id]" :key="card.id" class="study-card">
