@@ -6,6 +6,7 @@ CREATE TABLE github_connection (
   account_avatar_url text NOT NULL DEFAULT '',
   connected_by uuid NOT NULL REFERENCES "user",
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  lifecycle_at timestamptz,
   import_state text NOT NULL DEFAULT 'pending' CHECK (import_state IN ('pending', 'running', 'done', 'failed')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

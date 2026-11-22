@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -42,6 +44,32 @@ func (p PullRequest) state() string {
 var errNoMirrorTarget = errors.New("GitHub installation has no active connection")
 
 func (s *Service) mirror(ctx context.Context, installation int64, pr PullRequest) error {
+	return s.withMirrorLock(ctx, installation, pr, func() error {
+		return s.mirrorLocked(ctx, installation, pr)
+	})
+}
+
+// Serialize identifier resolution and its writes across server instances.
+// The callback only uses the database. Its workspace transactions need free pool slots.
+func (s *Service) withMirrorLock(ctx context.Context, installation int64, pr PullRequest, apply func() error) error {
+	conn, err := pgx.ConnectConfig(ctx, s.Store.Pool.Config().ConnConfig.Copy())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = conn.Close(closeCtx)
+	}()
+	key := fmt.Sprintf("github/mirror/%d/%s/%s/%d", installation, strings.ToLower(pr.Owner), strings.ToLower(pr.Repo), pr.Number)
+	digest := sha256.Sum256([]byte(key))
+	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock($1)", int64(binary.BigEndian.Uint64(digest[:8]))); err != nil {
+		return err
+	}
+	return apply()
+}
+
+func (s *Service) mirrorLocked(ctx context.Context, installation int64, pr PullRequest) error {
 	targets, err := s.mirrorTargets(ctx, installation, pr)
 	if err != nil {
 		return err

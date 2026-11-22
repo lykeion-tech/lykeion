@@ -678,16 +678,17 @@ type FieldPackApproval struct {
 }
 
 type GithubConnection struct {
-	WorkspaceID      uuid.UUID `json:"workspace_id"`
-	InstallationID   int64     `json:"installation_id"`
-	AccountLogin     string    `json:"account_login"`
-	AccountType      string    `json:"account_type"`
-	AccountAvatarUrl string    `json:"account_avatar_url"`
-	ConnectedBy      uuid.UUID `json:"connected_by"`
-	Status           string    `json:"status"`
-	ImportState      string    `json:"import_state"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	InstallationID   int64      `json:"installation_id"`
+	AccountLogin     string     `json:"account_login"`
+	AccountType      string     `json:"account_type"`
+	AccountAvatarUrl string     `json:"account_avatar_url"`
+	ConnectedBy      uuid.UUID  `json:"connected_by"`
+	Status           string     `json:"status"`
+	LifecycleAt      *time.Time `json:"lifecycle_at"`
+	ImportState      string     `json:"import_state"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type GithubPrLink struct {

@@ -2,12 +2,14 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/github"
@@ -229,7 +231,8 @@ func TestUninstallRemovesConnections(t *testing.T) {
 	b := f.workspace(t, f.token, "other").ID
 	f.connect(t, b)
 	f.send(t)
-	for _, action := range []string{"suspend", "unsuspend", "suspend", "deleted"} {
+	for i, action := range []string{"suspend", "unsuspend", "suspend", "deleted"} {
+		f.payload["installation"] = map[string]any{"id": 42, "updated_at": time.Unix(int64(i)+1000, 0).UTC()}
 		f.payload["action"] = action
 		f.post(t, "installation", uuid.NewString(), f.payload, true, 200)
 		switch action {
@@ -314,4 +317,105 @@ func TestWebhookSimultaneousDuplicate(t *testing.T) {
 	// A second upsert would replace updated_at with its own transaction time.
 	f.count(t, 1, "select count(*) from github_pull_request where created_at=updated_at")
 	f.count(t, 1, "select count(*) from github_webhook_delivery")
+}
+
+func TestWebhookStaleUnsuspend(t *testing.T) {
+	f := newMirrorFixture(t)
+	f.connect(t, f.ws)
+	status := func(action, version string) {
+		t.Helper()
+		f.payload["action"] = action
+		f.payload["installation"] = map[string]any{"id": 42, "updated_at": version}
+		f.post(t, "installation", uuid.NewString(), f.payload, true, 200)
+	}
+	status("suspend", "2026-11-01T12:00:00-04:00")
+	f.payload["installation"] = map[string]any{"id": 42, "updated_at": "2026-11-01T12:00:00.000-04:00", "suspended_at": "2026-11-01T16:10:00Z"}
+	f.post(t, "installation", uuid.NewString(), f.payload, true, 200)
+	status("unsuspend", "2026-11-01T16:05:00Z")
+	f.count(t, 1, "select count(*) from github_connection where status='suspended'")
+	status("unsuspend", "2026-11-01T16:10:00Z")
+	f.count(t, 1, "select count(*) from github_connection where status='suspended'")
+	f.count(t, 1, "select count(*) from event where type='github.changed'")
+	f.payload["installation"] = map[string]any{"id": 42}
+	f.post(t, "installation", uuid.NewString(), f.payload, true, 400)
+	f.count(t, 1, "select count(*) from github_connection where status='suspended'")
+	status("unsuspend", "2026-11-01T16:11:00Z")
+	f.count(t, 1, "select count(*) from github_connection where status='active'")
+}
+func TestWebhookMergedTerminalSameSecond(t *testing.T) {
+	f := newMirrorFixture(t)
+	f.connect(t, f.ws)
+	f.study(t, "first")
+	f.send(t)
+	f.pr["title"] = "edited LYK-1"
+	f.send(t)
+	f.count(t, 1, "select count(*) from github_pull_request where title='edited LYK-1'")
+	f.pr["merged"] = true
+	f.pr["state"] = "closed"
+	f.send(t)
+	f.pr["merged"] = false
+	f.pr["state"] = "open"
+	f.pr["title"] = "no key"
+	f.send(t)
+	f.links(t, 1)
+	f.count(t, 1, "select count(*) from github_pull_request where state='merged'")
+}
+
+func TestWebhookConcurrentMirrorResolution(t *testing.T) {
+	f := newMirrorFixture(t)
+	f.connect(t, f.ws)
+	f.study(t, "first")
+	other := f.workspace(t, f.token, "other").ID
+	f.idleCard(t, f.token, other, "other")
+	f.exec(t, "update workspace set card_prefix='LYK' where id=$1", other)
+	// Pause the first mirror after it resolves a unique study and before its write.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	tx, err := f.Env.Owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err = tx.Exec(ctx, "select id from workspace where id=$1 for update", f.ws); err != nil {
+		t.Fatal(err)
+	}
+	start := func(s *github.Service) <-chan error {
+		t.Helper()
+		body, err := json.Marshal(f.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- s.Handle(ctx, "pull_request", uuid.NewString(), body) }()
+		return done
+	}
+	waitForLock := func(pattern string) {
+		t.Helper()
+		for ctx.Err() == nil {
+			var n int
+			if err := f.Env.Owner.QueryRow(ctx, "select count(*) from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like $1", pattern).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n > 0 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("query never waited: %s", pattern)
+	}
+	first := start(f.H.GitHub)
+	waitForLock("%LockWorkspaceForMutation%")
+	f.connect(t, other)
+	second := start(&github.Service{Store: f.H.Store, Config: f.H.GitHub.Config})
+	waitForLock("%pg_advisory_lock%")
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, done := range []<-chan error{first, second} {
+		if err = <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.count(t, 2, "select count(*) from github_pull_request")
+	f.count(t, 0, "select count(*) from github_pr_link")
 }

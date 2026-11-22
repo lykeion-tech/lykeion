@@ -84,7 +84,7 @@ func (q *Queries) GetGithubAutoLink(ctx context.Context, workspaceID uuid.UUID) 
 }
 
 const getGithubConnection = `-- name: GetGithubConnection :one
-SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, import_state, created_at, updated_at FROM github_connection WHERE workspace_id = $1 AND installation_id = $2
+SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, lifecycle_at, import_state, created_at, updated_at FROM github_connection WHERE workspace_id = $1 AND installation_id = $2
 `
 
 type GetGithubConnectionParams struct {
@@ -103,6 +103,7 @@ func (q *Queries) GetGithubConnection(ctx context.Context, arg GetGithubConnecti
 		&i.AccountAvatarUrl,
 		&i.ConnectedBy,
 		&i.Status,
+		&i.LifecycleAt,
 		&i.ImportState,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -373,7 +374,7 @@ func (q *Queries) IsGithubUnlinked(ctx context.Context, arg IsGithubUnlinkedPara
 }
 
 const listGithubConnections = `-- name: ListGithubConnections :many
-SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, import_state, created_at, updated_at FROM github_connection WHERE workspace_id = $1
+SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, lifecycle_at, import_state, created_at, updated_at FROM github_connection WHERE workspace_id = $1
 ORDER BY created_at, installation_id
 `
 
@@ -394,6 +395,7 @@ func (q *Queries) ListGithubConnections(ctx context.Context, workspaceID uuid.UU
 			&i.AccountAvatarUrl,
 			&i.ConnectedBy,
 			&i.Status,
+			&i.LifecycleAt,
 			&i.ImportState,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -517,7 +519,7 @@ func (q *Queries) ListPullRequestsForCard(ctx context.Context, arg ListPullReque
 }
 
 const lockActiveGithubConnection = `-- name: LockActiveGithubConnection :one
-SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, import_state, created_at, updated_at FROM github_connection
+SELECT workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, lifecycle_at, import_state, created_at, updated_at FROM github_connection
 WHERE workspace_id = $1 AND installation_id = $2 AND status = 'active'
 FOR UPDATE
 `
@@ -538,6 +540,7 @@ func (q *Queries) LockActiveGithubConnection(ctx context.Context, arg LockActive
 		&i.AccountAvatarUrl,
 		&i.ConnectedBy,
 		&i.Status,
+		&i.LifecycleAt,
 		&i.ImportState,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -596,18 +599,24 @@ func (q *Queries) SetGithubAutoLink(ctx context.Context, arg SetGithubAutoLinkPa
 }
 
 const setGithubConnectionStatus = `-- name: SetGithubConnectionStatus :execrows
-UPDATE github_connection SET status = $1, updated_at = now()
-WHERE workspace_id = $2 AND installation_id = $3 AND status <> $1
+UPDATE github_connection SET status = $1, lifecycle_at = $2::timestamptz, updated_at = now()
+WHERE workspace_id = $3 AND installation_id = $4
 `
 
 type SetGithubConnectionStatusParams struct {
 	Status         string    `json:"status"`
+	LifecycleAt    time.Time `json:"lifecycle_at"`
 	WorkspaceID    uuid.UUID `json:"workspace_id"`
 	InstallationID int64     `json:"installation_id"`
 }
 
 func (q *Queries) SetGithubConnectionStatus(ctx context.Context, arg SetGithubConnectionStatusParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setGithubConnectionStatus, arg.Status, arg.WorkspaceID, arg.InstallationID)
+	result, err := q.db.Exec(ctx, setGithubConnectionStatus,
+		arg.Status,
+		arg.LifecycleAt,
+		arg.WorkspaceID,
+		arg.InstallationID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -682,7 +691,7 @@ ON CONFLICT (workspace_id, installation_id) DO UPDATE SET
   status = 'active',
   import_state = 'pending',
   updated_at = now()
-RETURNING workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, import_state, created_at, updated_at
+RETURNING workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, lifecycle_at, import_state, created_at, updated_at
 `
 
 type UpsertGithubConnectionParams struct {
@@ -712,6 +721,7 @@ func (q *Queries) UpsertGithubConnection(ctx context.Context, arg UpsertGithubCo
 		&i.AccountAvatarUrl,
 		&i.ConnectedBy,
 		&i.Status,
+		&i.LifecycleAt,
 		&i.ImportState,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -751,6 +761,7 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, number) DO UPDATE SET
   ),
   updated_at = now()
 WHERE github_pull_request.pr_updated_at <= EXCLUDED.pr_updated_at
+  AND (github_pull_request.state <> 'merged' OR EXCLUDED.state = 'merged')
 RETURNING id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_stale, created_at, updated_at
 `
 

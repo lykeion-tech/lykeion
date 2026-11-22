@@ -27,8 +27,8 @@ FOR UPDATE;
 DELETE FROM github_connection WHERE workspace_id = @workspace_id AND installation_id = @installation_id;
 
 -- name: SetGithubConnectionStatus :execrows
-UPDATE github_connection SET status = @status, updated_at = now()
-WHERE workspace_id = @workspace_id AND installation_id = @installation_id AND status <> @status;
+UPDATE github_connection SET status = @status, lifecycle_at = @lifecycle_at::timestamptz, updated_at = now()
+WHERE workspace_id = @workspace_id AND installation_id = @installation_id;
 
 -- name: SetGithubImportState :execrows
 UPDATE github_connection SET import_state = @import_state, updated_at = now()
@@ -68,6 +68,7 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, number) DO UPDATE SET
   ),
   updated_at = now()
 WHERE github_pull_request.pr_updated_at <= EXCLUDED.pr_updated_at
+  AND (github_pull_request.state <> 'merged' OR EXCLUDED.state = 'merged')
 RETURNING *;
 
 -- name: GetGithubPullRequestByRepo :one

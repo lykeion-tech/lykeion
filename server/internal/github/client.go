@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -19,12 +20,13 @@ import (
 )
 
 type Service struct {
-	Store       *store.Store
-	Config      Config
-	HTTP        *http.Client
-	PublicURL   string
-	StateSecret []byte
-	now         func() time.Time
+	deliveryLocks [64]sync.Mutex
+	Store         *store.Store
+	Config        Config
+	HTTP          *http.Client
+	PublicURL     string
+	StateSecret   []byte
+	now           func() time.Time
 }
 
 func (s *Service) currentTime() time.Time {

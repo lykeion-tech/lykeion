@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/maphash"
 	"math/rand/v2"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,22 +51,25 @@ func (d pullRequestData) pull(repo githubRepository) PullRequest {
 }
 
 type webhookPayload struct {
-	Installation      struct{ ID int64 }
+	Installation struct {
+		ID          int64
+		UpdatedAt   time.Time `json:"updated_at"`
+		SuspendedAt time.Time `json:"suspended_at"`
+	}
 	Action            string
 	Repository        githubRepository
 	PullRequest       pullRequestData    `json:"pull_request"`
 	RepositoriesAdded []githubRepository `json:"repositories_added"`
 }
 
-// A fixed set of locks bounds memory and serializes concurrent copies of one delivery.
-var deliveryLocks [64]sync.Mutex
 var deliveryHash = maphash.MakeSeed()
 
 func (s *Service) Handle(ctx context.Context, event, delivery string, body []byte) error {
 	if delivery == "" || len(delivery) > 256 || event == "" {
 		return ErrWebhookPayload
 	}
-	guard := &deliveryLocks[maphash.String(deliveryHash, delivery)%uint64(len(deliveryLocks))]
+	// Bound the number of locks while serializing duplicate deliveries in this service.
+	guard := &s.deliveryLocks[maphash.String(deliveryHash, delivery)%uint64(len(s.deliveryLocks))]
 	guard.Lock()
 	defer guard.Unlock()
 	q := db.New(s.Store.Pool)
@@ -94,8 +96,15 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 		if err != nil || len(workspaces) == 0 {
 			return err
 		}
+		version := p.Installation.UpdatedAt
+		if p.Action == "suspend" && p.Installation.SuspendedAt.After(version) {
+			version = p.Installation.SuspendedAt
+		}
+		if p.Action != "deleted" && version.IsZero() {
+			return ErrWebhookPayload
+		}
 		for _, ws := range workspaces {
-			if err := s.installationLifecycle(ctx, ws, id, p.Action); err != nil {
+			if err := s.installationLifecycle(ctx, ws, id, p.Action, version); err != nil {
 				return err
 			}
 		}
@@ -130,7 +139,7 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 	return nil
 }
 
-func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id int64, action string) error {
+func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id int64, action string, version time.Time) error {
 	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -148,7 +157,21 @@ func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id in
 			if action == "suspend" {
 				status = "suspended"
 			}
-			n, err = tx.Q.SetGithubConnectionStatus(ctx, db.SetGithubConnectionStatusParams{WorkspaceID: ws, InstallationID: id, Status: status})
+			current, readErr := tx.Q.GetGithubConnection(ctx, db.GetGithubConnectionParams{WorkspaceID: ws, InstallationID: id})
+			if errors.Is(readErr, pgx.ErrNoRows) {
+				return nil
+			}
+			if readErr != nil {
+				return readErr
+			}
+			// Timestamps can tie. Keep the installation suspended until a later unsuspend.
+			if last := current.LifecycleAt; last != nil && (version.Before(*last) || version.Equal(*last) && (status == "active" || current.Status == status)) {
+				return nil
+			}
+			n, err = tx.Q.SetGithubConnectionStatus(ctx, db.SetGithubConnectionStatusParams{WorkspaceID: ws, InstallationID: id, Status: status, LifecycleAt: version})
+			if err != nil || current.Status == status {
+				return err
+			}
 		}
 		if err != nil || n == 0 {
 			return err
