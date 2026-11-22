@@ -7,7 +7,8 @@ import { useMembers, useWorkspace, useWorkspaces } from '../../../api/queries';
 import { selectWorkspace, workspaceId } from '../../../api/session';
 
 const github = useGitHub();
-const { connectGitHub, disconnectGitHub, setGitHubAutoLink } = useGitHubMutations();
+const { connectGitHub, disconnectGitHub, setGitHubAutoLink, retryGitHubImport } =
+  useGitHubMutations();
 const workspaces = useWorkspaces();
 const members = useMembers();
 const workspace = useWorkspace();
@@ -31,6 +32,8 @@ const connectedWorkspace = computed(() =>
 );
 const busy = ref(false);
 const continuation = ref('');
+const existingForm = ref(false);
+const installationUrl = ref('');
 const route = useRoute();
 const router = useRouter();
 watch(
@@ -55,6 +58,8 @@ watch(
   workspaceId,
   () => {
     visit++;
+    existingForm.value = false;
+    installationUrl.value = '';
     continuation.value = '';
     error.value = '';
     completed.value = false;
@@ -80,12 +85,17 @@ async function act(operation: () => Promise<void>) {
     if (started === visit) busy.value = false;
   }
 }
-async function connect() {
+async function connect(existing?: string) {
   const started = visit;
   const workspace = workspaceId.value;
-  const { url } = await connectGitHub();
+  const { url } = await connectGitHub(existing);
   if (started !== visit || workspace !== workspaceId.value || !owner.value) return;
-  if (!url?.startsWith('https://github.com/apps/'))
+  const target = new URL(url);
+  const validPath =
+    existing === undefined
+      ? /^\/apps\/[\w-]+\/installations\/new$/.test(target.pathname)
+      : target.pathname === '/login/oauth/authorize';
+  if (target.origin !== 'https://github.com' || target.username || target.password || !validPath)
     throw new Error('Invalid GitHub installation link.');
   if (window.lykeionDesktop) continuation.value = url;
   else window.location.assign(url);
@@ -139,6 +149,33 @@ function disconnect(id: number, login: string) {
           {{ connections.length ? 'Add account or organization' : 'Connect GitHub' }}
         </button>
       </div>
+      <div v-if="owner && settings?.configured" class="app-row">
+        <button
+          class="text-button"
+          :aria-expanded="existingForm"
+          :disabled="busy"
+          @click="existingForm = !existingForm"
+        >
+          Connect existing installation
+        </button>
+        <form
+          v-if="existingForm"
+          class="installation-form"
+          @submit.prevent="act(() => connect(installationUrl.trim()))"
+        >
+          <label for="github-installation-url">GitHub installation settings URL</label>
+          <input
+            id="github-installation-url"
+            type="url"
+            required
+            :value="installationUrl"
+            @input="installationUrl = ($event.target as HTMLInputElement).value"
+          />
+          <button class="button" :disabled="busy || !installationUrl.trim()">
+            Authorize installation
+          </button>
+        </form>
+      </div>
       <div v-if="owner && continuation" class="app-row">
         <span class="name"
           ><small>Sign in to Lykeion in your browser with the same owner account.</small></span
@@ -154,7 +191,16 @@ function disconnect(id: number, login: string) {
           <small v-if="['pending', 'running'].includes(c.import_state)"
             >Importing open pull requests…</small
           >
+          <small v-else-if="c.import_state === 'failed'">Open pull request import failed.</small>
         </span>
+        <button
+          v-if="owner && c.status === 'active' && c.import_state === 'failed'"
+          class="button"
+          :disabled="busy"
+          @click="act(() => retryGitHubImport(c.installation_id))"
+        >
+          Retry import
+        </button>
         <button
           v-if="owner"
           class="button"
@@ -204,6 +250,18 @@ function disconnect(id: number, login: string) {
 }
 .app-row .name {
   flex: 1 1 150px;
+}
+.installation-form {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.installation-form input {
+  min-width: 0;
+}
+.installation-form .button {
+  justify-self: start;
 }
 .auto-link {
   width: 32px;

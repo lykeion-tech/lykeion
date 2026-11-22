@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -32,52 +33,69 @@ func (s *Service) stateMAC(payload string) []byte {
 	return mac.Sum(nil)
 }
 
-func (s *Service) InstallURL(ws, user uuid.UUID) (string, error) {
+var installationSettingsURL = regexp.MustCompile(`^https://github[.]com/(?:organizations/[a-zA-Z0-9-]+/)?settings/installations/([1-9][0-9]*)/?$`)
+
+func (s *Service) InstallURL(ws, user uuid.UUID, settingsURL string) (string, error) {
 	if len(s.StateSecret) == 0 || ws == uuid.Nil || user == uuid.Nil {
 		return "", errors.New("missing GitHub setup identity")
 	}
-	u, err := endpoint(s.Config.webURL(), "/apps/"+url.PathEscape(s.Config.Slug)+"/installations/new")
+	expiry := s.currentTime().Add(10 * time.Minute).Unix()
+	claims := fmt.Sprintf("%s|%s|%d|%s", ws, user, expiry, uuid.NewString())
+	path := "/apps/" + url.PathEscape(s.Config.Slug) + "/installations/new"
+	query := url.Values{}
+	if settingsURL != "" {
+		match := installationSettingsURL.FindStringSubmatch(strings.TrimSpace(settingsURL))
+		if match == nil {
+			return "", &UserError{"Paste the GitHub installation settings URL for the account or organization."}
+		}
+		if _, err := strconv.ParseInt(match[1], 10, 64); err != nil {
+			return "", &UserError{"Invalid GitHub installation ID."}
+		}
+		claims += "|" + match[1]
+		path = "/login/oauth/authorize"
+		query.Set("client_id", s.Config.ClientID)
+	}
+	u, err := endpoint(s.Config.webURL(), path)
 	if err != nil {
 		return "", err
 	}
-	expiry := s.currentTime().Add(10 * time.Minute).Unix()
-	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%s|%s|%d|%s", ws, user, expiry, uuid.NewString())))
-	state := payload + "." + base64.RawURLEncoding.EncodeToString(s.stateMAC(payload))
-	u.RawQuery = url.Values{"state": {state}}.Encode()
+	payload := base64.RawURLEncoding.EncodeToString([]byte(claims))
+	query.Set("state", payload+"."+base64.RawURLEncoding.EncodeToString(s.stateMAC(payload)))
+	u.RawQuery = query.Encode()
 	return u.String(), nil
 }
 
-func (s *Service) verifyState(state string) (uuid.UUID, uuid.UUID, error) {
+type setupIdentity struct {
+	workspace, user uuid.UUID
+	installation    int64 // zero for a new installation
+}
+
+func (s *Service) verifyState(state string) (setupIdentity, error) {
 	invalid := &UserError{"This GitHub connection request is invalid or expired. Connect again."}
 	payload, tag, ok := strings.Cut(state, ".")
 	mac, err := base64.RawURLEncoding.Strict().DecodeString(tag)
 	if !ok || len(s.StateSecret) == 0 || err != nil || !hmac.Equal(mac, s.stateMAC(payload)) {
-		return uuid.Nil, uuid.Nil, invalid
+		return setupIdentity{}, invalid
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	parts := strings.Split(string(raw), "|")
-	if err != nil || len(parts) != 4 || parts[3] == "" {
-		return uuid.Nil, uuid.Nil, invalid
+	if err != nil || (len(parts) != 4 && len(parts) != 5) || parts[3] == "" {
+		return setupIdentity{}, invalid
 	}
 	ws, werr := uuid.Parse(parts[0])
 	user, uerr := uuid.Parse(parts[1])
 	expiry, eerr := strconv.ParseInt(parts[2], 10, 64)
 	if werr != nil || uerr != nil || eerr != nil || ws == uuid.Nil || user == uuid.Nil || s.currentTime().Unix() >= expiry {
-		return uuid.Nil, uuid.Nil, invalid
+		return setupIdentity{}, invalid
 	}
-	return ws, user, nil
-}
-
-// CheckSetupSession binds the signed install request to the returning browser's session.
-func (s *Service) CheckSetupSession(state string, user uuid.UUID) error {
-	_, expected, err := s.verifyState(state)
-	if err != nil {
-		return err
+	id := setupIdentity{workspace: ws, user: user}
+	if len(parts) == 5 {
+		id.installation, err = strconv.ParseInt(parts[4], 10, 64)
+		if err != nil || id.installation <= 0 {
+			return setupIdentity{}, invalid
+		}
 	}
-	if user != expected {
-		return &UserError{"Sign in to Lykeion in this browser with the account that started the GitHub connection, then connect again."}
-	}
-	return nil
+	return id, nil
 }
 
 func (s *Service) exchangeCode(ctx context.Context, code string) (_ string, err error) {
@@ -157,7 +175,10 @@ func (s *Service) repositoryPermissions(ctx context.Context, token, path string)
 
 func (s *Service) ownedAccount(ctx context.Context, userToken string, installationID int64) (installationAccount, error) {
 	var user struct{ ID int64 }
-	var installation struct{ Account installationAccount }
+	var installation struct {
+		Account     installationAccount
+		SuspendedAt *time.Time `json:"suspended_at"`
+	}
 	if err := s.get(ctx, userToken, "/user", &user); err != nil {
 		return installationAccount{}, err
 	}
@@ -167,6 +188,9 @@ func (s *Service) ownedAccount(ctx context.Context, userToken string, installati
 	}
 	if err := s.get(ctx, jwt, fmt.Sprintf("/app/installations/%d", installationID), &installation); err != nil {
 		return installationAccount{}, err
+	}
+	if installation.SuspendedAt != nil {
+		return installationAccount{}, &UserError{"This GitHub installation is suspended. Unsuspend it on GitHub, then connect again."}
 	}
 	account := installation.Account
 	if account.ID <= 0 || user.ID <= 0 || account.Login == "" {
@@ -203,10 +227,22 @@ func (s *Service) ownedAccount(ctx context.Context, userToken string, installati
 	return installationAccount{}, &UserError{ownershipRefusal}
 }
 
-func (s *Service) Complete(ctx context.Context, state, code string, installationID int64) (uuid.UUID, error) {
-	ws, user, err := s.verifyState(state)
+func (s *Service) Complete(ctx context.Context, state, code string, callbackIDs []string, sessionUser uuid.UUID) (uuid.UUID, error) {
+	id, err := s.verifyState(state)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	ws, user := id.workspace, id.user
+	if user != sessionUser {
+		return uuid.Nil, &UserError{"Sign in to Lykeion in this browser with the account that started the GitHub connection, then connect again."}
+	}
+	installationID := id.installation
+	if len(callbackIDs) > 0 {
+		got, err := strconv.ParseInt(callbackIDs[0], 10, 64)
+		if len(callbackIDs) != 1 || err != nil || got <= 0 || (installationID != 0 && got != installationID) {
+			return uuid.Nil, &UserError{"Invalid GitHub installation. Connect again."}
+		}
+		installationID = got
 	}
 	if !s.Config.CanConnect() || code == "" || installationID <= 0 {
 		return uuid.Nil, errors.New("invalid GitHub setup request")
@@ -243,6 +279,8 @@ func (s *Service) Complete(ctx context.Context, state, code string, installation
 	if err != nil {
 		return uuid.Nil, err
 	}
-	go s.runImport(s.background(ctx), conn)
+	if conn.ImportState == "pending" || conn.ImportState == "running" {
+		go s.runImport(s.background(ctx), conn)
+	}
 	return ws, nil
 }

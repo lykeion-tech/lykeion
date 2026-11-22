@@ -343,7 +343,16 @@ export function useGitHubMutations() {
     await client.invalidateQueries({ queryKey: key });
   }
   return {
-    connectGitHub: () => api<{ url: string }>('POST', '/api/github/connect'),
+    connectGitHub: (installationUrl?: string) =>
+      api<{ url: string }>(
+        'POST',
+        installationUrl === undefined ? '/api/github/connect' : '/api/github/connect/existing',
+        installationUrl === undefined ? undefined : { installation_url: installationUrl },
+        undefined,
+        { workspace: ws.value },
+      ),
+    retryGitHubImport: (id: number) =>
+      change(keys.github(ws.value), 'POST', `/api/github/connections/${id}/retry`),
     setGitHubAutoLink: (auto_link: boolean) =>
       change(keys.github(ws.value), 'PATCH', '/api/github', { auto_link }),
     disconnectGitHub: (id: number) =>

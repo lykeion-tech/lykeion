@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"lykeion/server/internal/github"
 	"lykeion/server/internal/middleware"
@@ -185,5 +186,114 @@ func TestGitHubDisconnectKeepsLinks(t *testing.T) {
 		if n := s.count(t, "SELECT count(*) FROM "+tc.table+" WHERE workspace_id=$1", ws.ID); n != tc.want {
 			t.Fatal(tc.table, n)
 		}
+	}
+}
+
+func TestGitHubConnectExisting(t *testing.T) {
+	s := newServer(t)
+	exchanges := useFakeGitHub(t, s)
+	owner := s.signIn(t, "owner@lab.org")
+	a := s.workspace(t, owner, "first")
+	b := s.workspace(t, owner, "second")
+	member := s.member(t, owner, b.ID, "m@lab.org", "member")
+	newSetup := githubSetupPath(t, s, owner, a.ID)
+	if loc := githubCallback(t, s, strings.Replace(newSetup, "installation_id=1&", "", 1), owner); !strings.Contains(loc, "github_error=") || exchanges.Load() != 0 {
+		t.Fatal("unbound new installation accepted", loc)
+	}
+	if loc := githubCallback(t, s, newSetup, owner); !strings.HasSuffix(loc, a.ID) {
+		t.Fatal(loc)
+	}
+	const route = "/api/github/connect/existing"
+	body := map[string]string{"installation_url": "https://github.com/organizations/lab/settings/installations/1"}
+	if c := s.call(t, "POST", route, member, b.ID, body, nil); c != 403 {
+		t.Fatalf("member: %d", c)
+	}
+	for _, raw := range []string{"", "https://elsewhere.test/settings/installations/1", "https://github.com/settings/installations/0", "https://github.com/settings/installations/1?redirect=bad", "https://github.com/settings/installations/2/other"} {
+		if c := s.call(t, "POST", route, owner, b.ID, map[string]string{"installation_url": raw}, nil); c != 400 {
+			t.Fatalf("invalid settings URL %q: %d", raw, c)
+		}
+	}
+	for _, raw := range []string{body["installation_url"], "https://github.com/settings/installations/1"} {
+		var out struct{ URL string }
+		if c := s.call(t, "POST", route, owner, b.ID, map[string]string{"installation_url": raw}, &out); c != 200 {
+			t.Fatalf("connect existing: %d", c)
+		}
+		u, err := url.Parse(out.URL)
+		if err != nil || u.Path != "/login/oauth/authorize" || u.Query().Get("client_id") != "client" || u.Query().Get("state") == "" {
+			t.Fatal("wrong authorization URL")
+		}
+		path := "/api/github/setup?code=c&state=" + url.QueryEscape(u.Query().Get("state"))
+		before := exchanges.Load()
+		for _, bad := range []struct{ path, cookie string }{{path, member}, {path + "&installation_id=2", owner}, {path + "&installation_id=0", owner}} {
+			if loc := githubCallback(t, s, bad.path, bad.cookie); !strings.Contains(loc, "github_error=") || exchanges.Load() != before {
+				t.Fatal("invalid session or installation reached exchange", loc)
+			}
+		}
+		if loc := githubCallback(t, s, path, owner); !strings.HasSuffix(loc, "github=connected&github_workspace="+b.ID) {
+			t.Fatal(loc)
+		}
+		waitGitHubImport(t, s, b.ID)
+	}
+	if n := s.count(t, `select count(*) from event where workspace_id=$1 and type='github.changed' and actor_type='system'`, b.ID); n != 2 {
+		t.Fatalf("duplicate confirmation restarted completed import: %d state changes", n)
+	}
+	if n := s.count(t, `select count(*) from github_connection where installation_id=1`); n != 2 {
+		t.Fatalf("connected workspaces: %d", n)
+	}
+}
+
+func waitGitHubImport(t *testing.T, s *server, ws string) {
+	t.Helper()
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); {
+		if s.count(t, `select count(*) from github_connection where workspace_id=$1 and import_state='done'`, ws) == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("import did not finish")
+}
+
+func TestGitHubRetryFailedImport(t *testing.T) {
+	s := newServer(t)
+	useFakeGitHub(t, s)
+	owner := s.signIn(t, "owner@lab.org")
+	a := s.workspace(t, owner, "first")
+	b := s.workspace(t, owner, "second")
+	member := s.member(t, owner, a.ID, "m@lab.org", "member")
+	s.mustUpdate(t, `insert into github_connection(workspace_id,installation_id,account_login,account_type,connected_by,import_state) select workspace_id,1,'lab','User',user_id,'failed' from member where workspace_id=$1 and role='owner'`, a.ID)
+	const path = "/api/github/connections/1/retry"
+	if c := s.call(t, "POST", path, member, a.ID, nil, nil); c != 403 {
+		t.Fatalf("member retry %d", c)
+	}
+	if c := s.call(t, "POST", path, owner, b.ID, nil, nil); c != 404 {
+		t.Fatalf("other workspace %d", c)
+	}
+	s.mustUpdate(t, `update github_connection set status='suspended' where workspace_id=$1`, a.ID)
+	if c := s.call(t, "POST", path, owner, a.ID, nil, nil); c != 404 {
+		t.Fatalf("suspended %d", c)
+	}
+	s.mustUpdate(t, `update github_connection set status='active' where workspace_id=$1`, a.ID)
+	// If the scheduling event cannot be recorded, the state update rolls back too.
+	if _, err := s.Env.Owner.Exec(t.Context(), `alter table event add constraint reject_retry_event check (type <> 'github.changed') not valid`); err != nil {
+		t.Fatal(err)
+	}
+	if c := s.call(t, "POST", path, owner, a.ID, nil, nil); c != 500 {
+		t.Fatalf("retry event failure %d", c)
+	}
+	if n := s.count(t, `select count(*) from github_connection where workspace_id=$1 and import_state='failed'`, a.ID); n != 1 {
+		t.Fatal("failed schedule changed import state")
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `alter table event drop constraint reject_retry_event`); err != nil {
+		t.Fatal(err)
+	}
+	if c := s.call(t, "POST", path, owner, a.ID, nil, nil); c != 204 {
+		t.Fatalf("owner retry %d", c)
+	}
+	waitGitHubImport(t, s, a.ID)
+	if c := s.call(t, "POST", path, owner, a.ID, nil, nil); c != 409 {
+		t.Fatalf("already done %d", c)
+	}
+	if n := s.count(t, `select count(*) from event where workspace_id=$1 and type='github.changed' and actor_type='user'`, a.ID); n != 1 {
+		t.Fatalf("retry events %d", n)
 	}
 }

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func importFixture(t *testing.T, handler http.HandlerFunc) snapshotFixture {
@@ -389,5 +392,66 @@ func TestImportAddedRedeliveryAfterSigningCredentialsRestored(t *testing.T) {
 				t.Fatalf("redelivery made %d list requests", lists.Load())
 			}
 		})
+	}
+}
+
+func TestSequentialImportsClearAmbiguousPeerLink(t *testing.T) {
+	f := importFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		switch path := r.URL.Path; {
+		case path == "/installation/repositories":
+			fmt.Fprint(w, `{"repositories":[{"full_name":"org/lab"}]}`)
+		case path == "/repos/org/lab/pulls":
+			fmt.Fprint(w, `[{"number":1},{"number":2},{"number":3},{"number":4},{"number":5},{"number":6},{"number":7},{"number":8}]`)
+		case strings.HasPrefix(path, "/repos/org/lab/pulls/"):
+			fmt.Fprintf(w, `{"number":%s,"title":"LYK-1","state":"open","head":{"sha":"abc"},"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-02T00:00:00Z"}`, strings.TrimPrefix(path, "/repos/org/lab/pulls/"))
+		case path == "/repos/org/lab/commits/abc/check-runs":
+			fmt.Fprint(w, `{"check_runs":[]}`)
+		case path == "/repos/org/lab/commits/abc/status":
+			fmt.Fprint(w, `{"statuses":[]}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	ctx := t.Context()
+	f.s.Import(ctx, f.ws, 42)
+	importState(t, f, "done")
+	var before time.Time
+	if err := f.env.Owner.QueryRow(ctx, `select p.updated_at from github_pull_request p join github_pr_link l on l.pr_id=p.id where l.source='auto' and p.number=1`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	// Only PR 1's automatic link is eligible. Preserve manual, old-prefix, unlinked,
+	// newer, foreign-installation and merged mirrors. PR 8 has no peer mirror.
+	if _, err := f.env.Owner.Exec(ctx, `update github_pr_link set source='manual' where pr_id=(select id from github_pull_request where number=2);
+	update github_pr_link set matched_key='OLD-1' where pr_id=(select id from github_pull_request where number=3);
+	with removed as (delete from github_pr_link where pr_id=(select id from github_pull_request where number=4) returning workspace_id,card_id,pr_id)
+	insert into github_pr_unlink select * from removed;
+	update github_pull_request set pr_updated_at='2025-01-03' where number=5;
+	update github_pull_request set installation_id=43 where number=6;
+	update github_pull_request set state='merged' where number=7;
+	delete from github_pull_request where number=8`); err != nil {
+		t.Fatal(err)
+	}
+	var peer uuid.UUID
+	if err := f.env.Owner.QueryRow(ctx, `insert into workspace(id,slug,name,card_prefix) values(gen_random_uuid(),'second','Second','LYK') returning id`).Scan(&peer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `insert into card(workspace_id,number,title,question,owner_id,board_column) select $1,1,'Second study','Question',id,'grounding' from "user"`, peer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Owner.Exec(ctx, `insert into github_connection(workspace_id,installation_id,account_login,account_type,connected_by) select $1,42,'org','Organization',id from "user"`, peer); err != nil {
+		t.Fatal(err)
+	}
+	f.s.Import(ctx, peer, 42)
+	var retained []int32
+	var mirrors, tombstones int
+	var after time.Time
+	err := f.env.Owner.QueryRow(ctx, `select
+		array(select p.number from github_pr_link l join github_pull_request p on p.id=l.pr_id order by p.number),
+		(select count(*) from github_pull_request),
+		(select count(*) from github_pr_unlink),
+		updated_at from github_pull_request where workspace_id=$1 and number=1`, f.ws).Scan(&retained, &mirrors, &tombstones, &after)
+	if err != nil || !slices.Equal(retained, []int32{2, 3, 5, 6, 7}) || mirrors != 15 || tombstones != 1 || !after.Equal(before) {
+		t.Fatalf("linked PRs %v, mirrors %d, tombstones %d, peer rewritten %t: %v", retained, mirrors, tombstones, !after.Equal(before), err)
 	}
 }

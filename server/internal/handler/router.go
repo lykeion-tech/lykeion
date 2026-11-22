@@ -399,6 +399,8 @@ func NewRouter(h *H) http.Handler {
 			r.Delete("/api/cards/{id}/pull-requests/{pr}", h.unlinkStudyPR)
 			r.Get("/api/github", h.getGitHub)
 			r.With(middleware.RequireOwner).Post("/api/github/connect", h.connectGitHub)
+			r.With(middleware.RequireOwner).Post("/api/github/connect/existing", h.connectExistingGitHub)
+			r.With(middleware.RequireOwner).Post("/api/github/connections/{installation}/retry", h.retryGitHubImport)
 			r.With(middleware.RequireOwner).Patch("/api/github", h.patchGitHub)
 			r.With(middleware.RequireOwner).Delete("/api/github/connections/{installation}", h.disconnectGitHub)
 			r.Get("/api/slack", h.getSlack)

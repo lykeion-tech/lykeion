@@ -12,6 +12,64 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteAmbiguousGithubLinks = `-- name: DeleteAmbiguousGithubLinks :many
+DELETE FROM github_pr_link l USING github_pull_request p
+WHERE l.workspace_id = $1 AND p.workspace_id = l.workspace_id AND p.id = l.pr_id
+  AND p.installation_id = $2 AND p.repo_owner = lower($3::text)
+  AND p.repo_name = lower($4::text) AND p.number = $5
+  AND p.pr_updated_at <= $6::timestamptz AND p.state <> 'merged'
+  AND l.source = 'auto' AND l.matched_key = ANY($7::text[])
+  AND EXISTS (
+    SELECT 1 FROM github_installation_workspaces($2::bigint) AS origin
+    WHERE origin.workspace_id = $8::uuid AND origin.connected_at = $9::timestamptz
+  )
+RETURNING l.card_id
+`
+
+type DeleteAmbiguousGithubLinksParams struct {
+	WorkspaceID       uuid.UUID `json:"workspace_id"`
+	InstallationID    int64     `json:"installation_id"`
+	RepoOwner         string    `json:"repo_owner"`
+	RepoName          string    `json:"repo_name"`
+	Number            int32     `json:"number"`
+	ProviderUpdatedAt time.Time `json:"provider_updated_at"`
+	MatchedKeys       []string  `json:"matched_keys"`
+	OriginWorkspace   uuid.UUID `json:"origin_workspace"`
+	OriginConnectedAt time.Time `json:"origin_connected_at"`
+}
+
+// A scoped import may only remove an ambiguous auto-link from a peer's existing mirror.
+// Recheck the initiating generation in the same statement as the peer deletion.
+func (q *Queries) DeleteAmbiguousGithubLinks(ctx context.Context, arg DeleteAmbiguousGithubLinksParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, deleteAmbiguousGithubLinks,
+		arg.WorkspaceID,
+		arg.InstallationID,
+		arg.RepoOwner,
+		arg.RepoName,
+		arg.Number,
+		arg.ProviderUpdatedAt,
+		arg.MatchedKeys,
+		arg.OriginWorkspace,
+		arg.OriginConnectedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var card_id uuid.UUID
+		if err := rows.Scan(&card_id); err != nil {
+			return nil, err
+		}
+		items = append(items, card_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteGithubConnection = `-- name: DeleteGithubConnection :execrows
 DELETE FROM github_connection WHERE workspace_id = $1 AND installation_id = $2
 `
@@ -193,7 +251,7 @@ func (q *Queries) GithubInstallationLifecycleWorkspaces(ctx context.Context, ins
 }
 
 const githubInstallationWorkspaces = `-- name: GithubInstallationWorkspaces :many
-SELECT workspace_id::uuid AS workspace_id, card_prefix::text AS card_prefix, slug::text AS slug
+SELECT workspace_id::uuid AS workspace_id, card_prefix::text AS card_prefix, slug::text AS slug, connected_at::timestamptz AS connected_at
 FROM github_installation_workspaces($1::bigint)
 `
 
@@ -201,6 +259,7 @@ type GithubInstallationWorkspacesRow struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	CardPrefix  string    `json:"card_prefix"`
 	Slug        string    `json:"slug"`
+	ConnectedAt time.Time `json:"connected_at"`
 }
 
 func (q *Queries) GithubInstallationWorkspaces(ctx context.Context, installationID int64) ([]GithubInstallationWorkspacesRow, error) {
@@ -212,7 +271,12 @@ func (q *Queries) GithubInstallationWorkspaces(ctx context.Context, installation
 	var items []GithubInstallationWorkspacesRow
 	for rows.Next() {
 		var i GithubInstallationWorkspacesRow
-		if err := rows.Scan(&i.WorkspaceID, &i.CardPrefix, &i.Slug); err != nil {
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.CardPrefix,
+			&i.Slug,
+			&i.ConnectedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -767,7 +831,6 @@ ON CONFLICT (workspace_id, installation_id) DO UPDATE SET
   account_avatar_url = EXCLUDED.account_avatar_url,
   connected_by = EXCLUDED.connected_by,
   status = 'active',
-  import_state = 'pending',
   updated_at = now()
 RETURNING workspace_id, installation_id, account_login, account_type, account_avatar_url, connected_by, status, lifecycle_at, import_state, created_at, updated_at
 `

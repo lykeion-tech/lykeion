@@ -7,7 +7,6 @@ ON CONFLICT (workspace_id, installation_id) DO UPDATE SET
   account_avatar_url = EXCLUDED.account_avatar_url,
   connected_by = EXCLUDED.connected_by,
   status = 'active',
-  import_state = 'pending',
   updated_at = now()
 RETURNING *;
 
@@ -112,6 +111,21 @@ ON CONFLICT (card_id, pr_id) DO NOTHING;
 -- name: DeleteGithubLink :execrows
 DELETE FROM github_pr_link WHERE workspace_id = @workspace_id AND card_id = @card_id AND pr_id = @pr_id;
 
+-- A scoped import may only remove an ambiguous auto-link from a peer's existing mirror.
+-- Recheck the initiating generation in the same statement as the peer deletion.
+-- name: DeleteAmbiguousGithubLinks :many
+DELETE FROM github_pr_link l USING github_pull_request p
+WHERE l.workspace_id = @workspace_id AND p.workspace_id = l.workspace_id AND p.id = l.pr_id
+  AND p.installation_id = @installation_id AND p.repo_owner = lower(@repo_owner::text)
+  AND p.repo_name = lower(@repo_name::text) AND p.number = @number
+  AND p.pr_updated_at <= @provider_updated_at::timestamptz AND p.state <> 'merged'
+  AND l.source = 'auto' AND l.matched_key = ANY(@matched_keys::text[])
+  AND EXISTS (
+    SELECT 1 FROM github_installation_workspaces(@installation_id::bigint) AS origin
+    WHERE origin.workspace_id = @origin_workspace::uuid AND origin.connected_at = @origin_connected_at::timestamptz
+  )
+RETURNING l.card_id;
+
 -- name: InsertGithubUnlink :exec
 INSERT INTO github_pr_unlink (workspace_id, card_id, pr_id)
 VALUES (@workspace_id, @card_id, @pr_id)
@@ -135,7 +149,7 @@ DELETE FROM github_webhook_delivery WHERE id = @id;
 DELETE FROM github_webhook_delivery WHERE received_at < now() - interval '7 days';
 
 -- name: GithubInstallationWorkspaces :many
-SELECT workspace_id::uuid AS workspace_id, card_prefix::text AS card_prefix, slug::text AS slug
+SELECT workspace_id::uuid AS workspace_id, card_prefix::text AS card_prefix, slug::text AS slug, connected_at::timestamptz AS connected_at
 FROM github_installation_workspaces(@installation_id::bigint);
 
 -- name: GithubInstallationLifecycleWorkspaces :many

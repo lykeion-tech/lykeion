@@ -17,7 +17,7 @@ func TestStateRoundTrip(t *testing.T) {
 	now := time.Unix(1800000000, 0)
 	s := &Service{StateSecret: []byte("state signing key"), Config: Config{Slug: "lab"}, now: func() time.Time { return now }}
 	ws, user := uuid.New(), uuid.New()
-	raw, err := s.InstallURL(ws, user)
+	raw, err := s.InstallURL(ws, user, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,15 +26,15 @@ func TestStateRoundTrip(t *testing.T) {
 		t.Fatal(raw, err)
 	}
 	state := u.Query().Get("state")
-	w, id, err := s.verifyState(state)
-	if err != nil || w != ws || id != user {
-		t.Fatal(w, id, err)
+	id, err := s.verifyState(state)
+	if err != nil || id.workspace != ws || id.user != user || id.installation != 0 {
+		t.Fatal(id, err)
 	}
-	if _, _, err := s.verifyState("x" + state); err == nil {
+	if _, err := s.verifyState("x" + state); err == nil {
 		t.Fatal("accepted tampering")
 	}
 	now = now.Add(10 * time.Minute)
-	if _, _, err := s.verifyState(state); err == nil {
+	if _, err := s.verifyState(state); err == nil {
 		t.Fatal("accepted expired state")
 	}
 }
@@ -150,4 +150,21 @@ func TestOwnershipOrganization(t *testing.T) {
 			checkOwnership(t, err, tc.want)
 		})
 	}
+}
+
+func TestOwnershipRejectsSuspendedInstallation(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			fmt.Fprint(w, `{"id":8}`)
+		case "/app/installations/1":
+			fmt.Fprint(w, `{"account":{"id":8,"type":"User","login":"lab"},"suspended_at":"2025-01-01T00:00:00Z"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	s := Service{Config: Config{APIURL: api.URL, AppID: 1, PrivateKey: testAppKey(t)}}
+	_, err := s.ownedAccount(t.Context(), "user-token", 1)
+	checkOwnership(t, err, "This GitHub installation is suspended. Unsuspend it on GitHub, then connect again.")
 }

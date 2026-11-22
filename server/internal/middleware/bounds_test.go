@@ -495,3 +495,23 @@ func TestQuestionAnswersBodyLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubSetupDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		want         time.Duration
+	}{
+		{"GET", "/api/github/setup", 2 * time.Minute},
+		{"POST", "/api/github/setup", RequestTimeout},
+		{"GET", "/api/github/setup/extra", RequestTimeout},
+		{"POST", "/api/webhooks/github", RequestTimeout},
+	} {
+		RequestBounds(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			d, ok := r.Context().Deadline()
+			left := time.Until(d)
+			if !ok || left > tc.want || left < tc.want-time.Second {
+				t.Errorf("%s %s budget %s want %s", tc.method, tc.path, left, tc.want)
+			}
+		})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tc.method, tc.path, nil))
+	}
+}

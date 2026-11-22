@@ -55,12 +55,32 @@ func (h *H) getGitHub(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *H) connectGitHub(w http.ResponseWriter, r *http.Request) {
+	h.startGitHubSetup(w, r, "")
+}
+
+func (h *H) connectExistingGitHub(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		InstallationURL string `json:"installation_url"`
+	}
+	if readJSON(r, &in) != nil || strings.TrimSpace(in.InstallationURL) == "" {
+		writeErr(w, 400, "A GitHub installation settings URL is required.")
+		return
+	}
+	h.startGitHubSetup(w, r, in.InstallationURL)
+}
+
+func (h *H) startGitHubSetup(w http.ResponseWriter, r *http.Request, settingsURL string) {
 	if h.GitHub == nil || !h.GitHub.Config.CanConnect() {
 		writeErr(w, 503, githubNotConfigured)
 		return
 	}
 	ctx := r.Context()
-	u, err := h.GitHub.InstallURL(middleware.WorkspaceFrom(ctx).ID, middleware.IdentityFrom(ctx).UserID)
+	u, err := h.GitHub.InstallURL(middleware.WorkspaceFrom(ctx).ID, middleware.IdentityFrom(ctx).UserID, settingsURL)
+	var ue *github.UserError
+	if errors.As(err, &ue) {
+		writeErr(w, 400, ue.Msg)
+		return
+	}
 	if answer(w, r, err) {
 		writeJSON(w, 200, map[string]string{"url": u})
 	}
@@ -100,15 +120,7 @@ func (h *H) completeGitHubSetup(r *http.Request) (uuid.UUID, error) {
 		}
 	}
 	query := r.URL.Query()
-	state := query.Get("state")
-	if err := h.GitHub.CheckSetupSession(state, user); err != nil {
-		return uuid.Nil, err
-	}
-	installation, err := strconv.ParseInt(query.Get("installation_id"), 10, 64)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	return h.GitHub.Complete(r.Context(), state, query.Get("code"), installation)
+	return h.GitHub.Complete(r.Context(), query.Get("state"), query.Get("code"), query["installation_id"], user)
 }
 
 func (h *H) patchGitHub(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +136,27 @@ func (h *H) patchGitHub(w http.ResponseWriter, r *http.Request) {
 	err := tx.Q.SetGithubAutoLink(ctx, db.SetGithubAutoLinkParams{WorkspaceID: tx.WS, Enabled: *in.AutoLink})
 	if err == nil {
 		err = tx.Emit(ctx, "github.changed", nil, store.User(middleware.IdentityFrom(ctx).UserID), nil)
+	}
+	if answer(w, r, err) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *H) retryGitHubImport(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "installation"), 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, 404, "connection not found")
+		return
+	}
+	if h.GitHub == nil || h.GitHub.Config.AppID <= 0 || h.GitHub.Config.PrivateKey == nil {
+		writeErr(w, 503, githubNotConfigured)
+		return
+	}
+	ctx := r.Context()
+	err = h.GitHub.RetryImport(ctx, middleware.TxFrom(ctx), id, user(r))
+	if errors.Is(err, github.ErrImportNotFailed) {
+		writeErr(w, 409, "Only a failed import can be retried.")
+		return
 	}
 	if answer(w, r, err) {
 		w.WriteHeader(http.StatusNoContent)

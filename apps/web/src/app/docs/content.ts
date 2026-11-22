@@ -895,14 +895,14 @@ Connect a GitHub account or organization to see its pull requests on your [studi
 
 ## Connect GitHub
 
-1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To link another installation, choose **Add account or organization**.
+1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**. If the app is already installed, choose **Connect existing installation**, paste its GitHub settings URL, and select **Authorize installation**. Use \`https://github.com/settings/installations/<id>\` for a personal installation or \`https://github.com/organizations/<login>/settings/installations/<id>\` for an organization.
 2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
-3. On GitHub, select the account or organization and the repositories to share, then authorize the app. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
+3. For a new installation, select the GitHub account or organization and the repositories to share. Authorize the app on GitHub for either connection method. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
 4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
 
 If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
 
-Lykeion imports open pull requests, including drafts, from the connected repositories. Settings shows **Importing open pull requests…** while the initial import runs. It resumes if the server restarts. Pull requests already merged or closed are outside the initial import. When repositories are added to the installation, Lykeion imports their open pull requests as well.
+Lykeion imports open pull requests, including drafts, from the connected repositories. Settings shows **Importing open pull requests…** while the initial import runs. An interrupted import resumes when the server restarts. If Settings shows **Open pull request import failed.**, a workspace owner can select **Retry import** on the active connection. Pull requests already merged or closed are outside the initial import. When repositories are added to the installation, Lykeion imports their open pull requests as well.
 
 ## Link pull requests to a study
 

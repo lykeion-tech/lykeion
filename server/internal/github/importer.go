@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -46,6 +47,27 @@ func (s *Service) Import(ctx context.Context, ws uuid.UUID, id int64) {
 	} else if !errors.Is(err, errImportStopped) && ctx.Err() == nil {
 		slog.Warn("GitHub import connection lookup failed", "error", err)
 	}
+}
+
+var ErrImportNotFailed = errors.New("GitHub import has not failed")
+
+// RetryImport queues work in the owner's workspace transaction.
+func (s *Service) RetryImport(ctx context.Context, tx *store.Tx, id int64, user uuid.UUID) error {
+	c, err := tx.Q.LockActiveGithubConnection(ctx, db.LockActiveGithubConnectionParams{WorkspaceID: tx.WS, InstallationID: id})
+	if err != nil {
+		return err
+	}
+	if c.ImportState != "failed" {
+		return ErrImportNotFailed
+	}
+	if _, err = tx.Q.SetGithubImportState(ctx, db.SetGithubImportStateParams{WorkspaceID: tx.WS, InstallationID: id, ImportState: "pending"}); err != nil {
+		return err
+	}
+	if err = tx.Emit(ctx, "github.changed", nil, store.User(user), nil); err != nil {
+		return err
+	}
+	tx.AfterCommit(func() { go s.runImport(s.background(ctx), c) })
+	return nil
 }
 
 func (s *Service) ResumeImports(ctx context.Context) {
@@ -349,7 +371,7 @@ func (j *importJob) pull(ctx context.Context, repo Repo, base string, n int32) e
 			if t.workspace != j.c.WorkspaceID {
 				continue
 			}
-			return j.s.Store.InWorkspaceOn(ctx, conn, t.workspace, uuid.Nil, func(tx *store.Tx) error {
+			err = j.s.Store.InWorkspaceOn(ctx, conn, t.workspace, uuid.Nil, func(tx *store.Tx) error {
 				if _, err := j.lock(ctx, tx); err != nil {
 					return err
 				}
@@ -366,6 +388,19 @@ func (j *importJob) pull(ctx context.Context, repo Repo, base string, n int32) e
 				}
 				return err
 			})
+			// A stale or stopped initiating import cannot remove links in another workspace.
+			if err != nil || target.ws == uuid.Nil {
+				return err
+			}
+			for _, peer := range targets {
+				if peer.workspace == t.workspace || len(peer.ambiguous) == 0 {
+					continue
+				}
+				if err := j.removeAmbiguousPeerLinks(ctx, conn, pr, peer, observed); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		return errImportStopped
 	})
@@ -390,4 +425,51 @@ func (j *importJob) pull(ctx context.Context, repo Repo, base string, n int32) e
 		slog.Warn("GitHub imported snapshot unavailable", "error", scrub(err))
 	}
 	return nil
+}
+
+func (j *importJob) removeAmbiguousPeerLinks(ctx context.Context, conn *pgxpool.Conn, pr PullRequest, peer mirrorTarget, observed time.Time) error {
+	return j.s.Store.InWorkspaceOn(ctx, conn, peer.workspace, uuid.Nil, func(tx *store.Tx) error {
+		if _, err := tx.Q.LockWorkspaceForMutation(ctx, tx.WS); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		active, err := tx.Q.LockActiveGithubConnection(ctx, db.LockActiveGithubConnectionParams{WorkspaceID: tx.WS, InstallationID: j.c.InstallationID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !active.CreatedAt.Equal(peer.connectedAt) || active.CreatedAt.After(observed) {
+			return nil
+		}
+		ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
+		if err != nil {
+			return err
+		}
+		if board.DisplayPrefix(ws.CardPrefix, ws.Slug) != peer.prefix {
+			return nil
+		}
+		auto, err := tx.Q.GetGithubAutoLink(ctx, tx.WS)
+		if err != nil || !auto {
+			return err
+		}
+		cards, err := tx.Q.DeleteAmbiguousGithubLinks(ctx, db.DeleteAmbiguousGithubLinksParams{
+			WorkspaceID: tx.WS, InstallationID: j.c.InstallationID,
+			RepoOwner: pr.Owner, RepoName: pr.Repo, Number: int32(pr.Number),
+			ProviderUpdatedAt: pr.UpdatedAt, MatchedKeys: peer.ambiguous,
+			OriginWorkspace: j.c.WorkspaceID, OriginConnectedAt: j.c.CreatedAt,
+		})
+		if err != nil {
+			return err
+		}
+		for _, card := range cards {
+			if err := tx.Emit(ctx, "github.pr.changed", &card, store.System, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

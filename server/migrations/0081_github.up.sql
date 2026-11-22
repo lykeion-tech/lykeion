@@ -94,9 +94,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON github_connection, github_pull_request, 
 GRANT SELECT, INSERT, DELETE ON github_webhook_delivery TO lykeion_app;
 
 CREATE FUNCTION github_installation_workspaces(bigint)
-RETURNS TABLE (workspace_id uuid, card_prefix text, slug text)
+RETURNS TABLE (workspace_id uuid, card_prefix text, slug text, connected_at timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
-  SELECT c.workspace_id, w.card_prefix, w.slug
+  SELECT c.workspace_id, w.card_prefix, w.slug, c.created_at
   FROM public.github_connection c
   JOIN public.workspace w ON w.id = c.workspace_id
   WHERE c.installation_id = $1 AND c.status = 'active'

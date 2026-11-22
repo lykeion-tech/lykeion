@@ -99,10 +99,12 @@ func (s *Service) mirrorLocked(ctx context.Context, conn *pgxpool.Conn, installa
 }
 
 type mirrorTarget struct {
-	workspace  uuid.UUID
-	manualCard uuid.UUID // A paste preserves this pair for the explicit link operation.
-	prefix     string
-	cards      map[string]uuid.UUID
+	workspace   uuid.UUID
+	connectedAt time.Time
+	ambiguous   []string
+	manualCard  uuid.UUID // A paste preserves this pair for the explicit link operation.
+	prefix      string
+	cards       map[string]uuid.UUID
 }
 
 func (s *Service) mirrorTargets(ctx context.Context, conn *pgxpool.Conn, installation int64, p PullRequest) ([]mirrorTarget, error) {
@@ -113,7 +115,7 @@ func (s *Service) mirrorTargets(ctx context.Context, conn *pgxpool.Conn, install
 	counts := map[string]int{}
 	targets := make([]mirrorTarget, 0, len(rows))
 	for _, row := range rows {
-		target := mirrorTarget{workspace: row.WorkspaceID, prefix: board.DisplayPrefix(row.CardPrefix, row.Slug), cards: map[string]uuid.UUID{}}
+		target := mirrorTarget{workspace: row.WorkspaceID, connectedAt: row.ConnectedAt, prefix: board.DisplayPrefix(row.CardPrefix, row.Slug), cards: map[string]uuid.UUID{}}
 		keys := Match(target.prefix, p.Branch, p.Title, p.Body)
 		if len(keys) > 0 {
 			numbers := make([]int32, 0, len(keys))
@@ -139,9 +141,11 @@ func (s *Service) mirrorTargets(ctx context.Context, conn *pgxpool.Conn, install
 		}
 		targets = append(targets, target)
 	}
-	for _, t := range targets {
+	for i := range targets {
+		t := &targets[i]
 		for k := range t.cards {
 			if counts[k] > 1 {
+				t.ambiguous = append(t.ambiguous, k)
 				delete(t.cards, k)
 			}
 		}
