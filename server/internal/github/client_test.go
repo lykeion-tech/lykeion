@@ -289,6 +289,21 @@ func TestPaginationFindsNextRelationAmongLinkParameters(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "trailing malformed entry",
+			header:  `<?page=2>; rel=next, private broken entry`,
+			wantErr: true,
+		},
+		{
+			name:    "trailing entry without rel",
+			header:  `<?page=2>; rel=next, <?page=4>; title="private"`,
+			wantErr: true,
+		},
+		{
+			name:   "first next relation wins",
+			header: `<?page=2>; rel=next, <?page=4>; rel=next`,
+			want:   "/installation/repositories?page=2&per_page=100",
+		},
+		{
 			name:    "self-repeating link",
 			header:  `<?per_page=100&token=private>; rel="next"`,
 			wantErr: true,

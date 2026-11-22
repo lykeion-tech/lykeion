@@ -214,6 +214,7 @@ var (
 )
 
 func nextPageReference(links string) (string, error) {
+	var next string
 	for links = strings.TrimLeft(links, " \t,"); links != ""; links = strings.TrimLeft(links, " \t,") {
 		link := linkValuePattern.FindStringSubmatch(links)
 		if link == nil {
@@ -240,11 +241,14 @@ func nextPageReference(links string) (string, error) {
 				if link[1] == "" {
 					return "", errors.New("empty GitHub pagination link")
 				}
-				return link[1], nil
+				if next == "" {
+					next = link[1]
+				}
+				break
 			}
 		}
 	}
-	return "", nil
+	return next, nil
 }
 
 // getPage resolves next links against the current request and keeps paging the same endpoint.
