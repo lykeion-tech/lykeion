@@ -9,6 +9,7 @@ const workspace = computed(() => String(one(route.query.workspace)));
 const token = computed(() => String(one(route.query.token)));
 const slack = useSlack(workspace);
 const { linkSlack } = useSlackMutations();
+const incomplete = computed(() => !token.value || !workspace.value);
 const state = ref<'ask' | 'busy' | 'done'>('ask');
 const error = ref('');
 const team = computed(() => slack.data.value?.team_name ?? 'Slack');
@@ -29,6 +30,9 @@ async function link() {
   <div class="center-empty">
     <p v-if="state === 'done'" role="status">
       Slack account linked. You can go back to Slack and message Aristotle.
+    </p>
+    <p v-else-if="incomplete" role="alert">
+      This link is incomplete. Message Aristotle in Slack for a new one.
     </p>
     <template v-else>
       <h1>Link Slack account to {{ team }} in this workspace?</h1>

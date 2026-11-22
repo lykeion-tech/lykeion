@@ -147,6 +147,8 @@ it('ships a manifest with the email scope and the /study command', () => {
   const m = slackManifest();
   expect(m).toContain('users:read.email');
   expect(m).toContain('/study');
+  expect(m).toContain('messages_tab_enabled: true');
+  expect(m).toContain('messages_tab_read_only_enabled: false');
   expect(m).toContain('socket_mode_enabled: true');
   expect(m).toContain('tokens_revoked');
 });

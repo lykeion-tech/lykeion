@@ -38,6 +38,7 @@ import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
 import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
+import { rememberSlackLink, takeSlackLink } from './lib/slack-return';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
 import { accountViewBlocked, useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
@@ -143,6 +144,7 @@ watch(
   ([, signedOut, lost]) => {
     if (verifying.value || (!signedOut && !lost) || route.meta.public) return;
     if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+    rememberSlackLink(route.path, route.fullPath);
     void router.replace('/signin');
   },
   { immediate: true },
@@ -390,6 +392,7 @@ watch(
       const signedOut = authenticationIsLost() || state.wasLost === true;
       if (!user || (signedOut && !state.accepted)) {
         if (route.params.token) writeText('lykeion.invite', String(route.params.token), 'session');
+        rememberSlackLink(route.path, route.fullPath);
         if (state.resumed) {
           await desktopSession.clearForIdentityChange();
           if (!current()) return;
@@ -434,7 +437,8 @@ watch(
         client.setQueryData(keys.me, user);
         if (state.accepted && route.path === '/signin') {
           const invite = readText('lykeion.invite', 'session');
-          const target = invite ? '/invite/' + encodeURIComponent(invite) : '/studies';
+          const slack = takeSlackLink();
+          const target = slack || (invite ? '/invite/' + encodeURIComponent(invite) : '/studies');
           switchingAccount.value = true;
           await router.replace(target);
           if (!current()) return;
@@ -473,7 +477,9 @@ watch(
       if (!current()) return;
       const invite =
         route.params.token || (route.path === '/signin' && readText('lykeion.invite', 'session'));
-      const target = invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies';
+      const slack = route.path === '/signin' ? takeSlackLink() : '';
+      const target =
+        slack || (invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies');
       await router.replace(target);
       if (!current()) return;
       if (route.path !== target) throw new Error('Account navigation was blocked');

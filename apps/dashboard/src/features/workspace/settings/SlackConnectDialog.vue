@@ -79,7 +79,7 @@ async function copy() {
   }
 }
 const ready = computed(
-  () => !!agent.value && (props.mode === 'manage' || (botToken.value.trim() && appToken.value.trim())),
+  () => usable.value.some((a) => a.id === agent.value) && (props.mode === 'manage' || (botToken.value.trim() && appToken.value.trim())),
 );
 </script>
 <template>

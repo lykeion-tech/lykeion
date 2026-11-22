@@ -20,12 +20,12 @@ beforeEach(() => {
   );
 });
 afterEach(() => apps.splice(0).forEach((a) => a.unmount()));
-async function mount() {
+async function mount(query = 'workspace=w9&token=tok123') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/slack/link', component: { render: () => null } }, { path: '/:p(.*)*', component: { render: () => null } }],
   });
-  await router.push('/slack/link?workspace=w9&token=tok123');
+  await router.push(`/slack/link?${query}`);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const root = node('root');
   const app = createTreeApp({ render: () => h(SlackLinkView) });
@@ -57,4 +57,10 @@ it('shows the server error verbatim', async () => {
   (button(root, 'Link').props.onClick as () => void)();
   await settle();
   expect(textOf(root)).toContain('Slack email does not match your Lykeion email');
+});
+
+it('says the link is incomplete and hides Link without a token', async () => {
+  const root = await mount('workspace=w9');
+  expect(textOf(root)).toContain('This link is incomplete. Message Aristotle in Slack for a new one.');
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim() === 'Link')).toBe(false);
 });
