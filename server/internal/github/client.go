@@ -102,7 +102,8 @@ func (s *Service) get(ctx context.Context, token, path string, out any) error {
 	return err
 }
 
-func (s *Service) request(ctx context.Context, method, token, path string, out any) (*http.Response, error) {
+func (s *Service) request(ctx context.Context, method, token, path string, out any) (_ *http.Response, err error) {
+	defer func() { err = scrub(err, token) }()
 	target, err := endpoint(s.Config.apiURL(), path)
 	if err != nil {
 		return nil, err
@@ -130,7 +131,8 @@ func (s *Service) request(ctx context.Context, method, token, path string, out a
 	return resp, nil
 }
 
-func (s *Service) do(req *http.Request) (*http.Response, error) {
+func (s *Service) do(req *http.Request) (_ *http.Response, err error) {
+	defer func() { err = scrub(err, s.Config.ClientSecret) }()
 	if req.URL.User != nil || req.URL.Opaque != "" ||
 		(req.Host != "" && !strings.EqualFold(req.Host, req.URL.Host)) || !s.allowedOrigin(req.URL) {
 		return nil, errors.New("invalid GitHub request origin")
@@ -198,52 +200,109 @@ func sameOrigin(a, b *url.URL) bool {
 	return a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host)
 }
 
+const (
+	linkToken     = "[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+	linkQuoted    = `"(?:[^"\\]|\\.)*"`
+	linkParameter = `[ \t]*;[ \t]*(` + linkToken + `)(?:[ \t]*=[ \t]*(` + linkQuoted + `|` + linkToken + `))?`
+)
+
 var (
-	nextLinkPattern   = regexp.MustCompile(`(?:^|,)\s*<([^>]*)>\s*;\s*rel\s*=\s*(?:"next"|next)(?:\s*[;,]|\s*$)`)
+	linkValuePattern  = regexp.MustCompile(`^[ \t]*<([^<>]*)>((?:` + linkParameter + `)*)[ \t]*(?:,|$)`)
+	linkParamPattern  = regexp.MustCompile(linkParameter)
+	linkQuotedPair    = regexp.MustCompile(`\\(.)`)
 	canonicalPullPath = regexp.MustCompile(`^/repositories/[1-9][0-9]*/pulls$`)
 )
 
+func nextPageReference(links string) (string, error) {
+	for links = strings.TrimLeft(links, " \t,"); links != ""; links = strings.TrimLeft(links, " \t,") {
+		link := linkValuePattern.FindStringSubmatch(links)
+		if link == nil {
+			return "", errors.New("invalid GitHub pagination header")
+		}
+		links = links[len(link[0]):]
+		var relations []string
+		for _, param := range linkParamPattern.FindAllStringSubmatch(link[2], -1) {
+			if !strings.EqualFold(param[1], "rel") {
+				continue
+			}
+			rels := param[2]
+			if quoted, ok := strings.CutPrefix(rels, `"`); ok {
+				rels = linkQuotedPair.ReplaceAllString(strings.TrimSuffix(quoted, `"`), "$1")
+			}
+			relations = strings.Fields(rels)
+			break // Only the first rel parameter applies.
+		}
+		if len(relations) == 0 {
+			return "", errors.New("missing GitHub pagination relation")
+		}
+		for _, rel := range relations {
+			if strings.EqualFold(rel, "next") {
+				if link[1] == "" {
+					return "", errors.New("empty GitHub pagination link")
+				}
+				return link[1], nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // getPage resolves next links against the current request and keeps paging the same endpoint.
-func (s *Service) getPage(ctx context.Context, token, path string, out any) (string, error) {
+func (s *Service) getPage(ctx context.Context, token, path string, out any) (_ string, err error) {
+	defer func() { err = scrub(err, token) }()
 	resp, err := s.request(ctx, http.MethodGet, token, path, out)
 	if err != nil {
 		return "", err
 	}
-	next := nextLinkPattern.FindStringSubmatch(strings.Join(resp.Header.Values("Link"), ","))
-	if next == nil {
-		return "", nil
+	next, err := nextPageReference(strings.Join(resp.Header.Values("Link"), ","))
+	if err != nil || next == "" {
+		return "", err
 	}
 	current := resp.Request.URL
-	target, err := current.Parse(next[1])
-	if err != nil || !sameOrigin(current, target) || target.User != nil || target.Fragment != "" ||
-		(target.EscapedPath() != current.EscapedPath() &&
-			!(strings.HasPrefix(current.Path, "/repos/") && strings.HasSuffix(current.Path, "/pulls") &&
-				canonicalPullPath.MatchString(target.EscapedPath()))) {
+	target, err := current.Parse(next)
+	if err != nil || !sameOrigin(current, target) || target.User != nil || target.Fragment != "" {
 		return "", errors.New("invalid GitHub pagination link")
 	}
-	// GitHub may identify the repository by its numeric ID in a pagination URL.
-	// Use its next query on the original path to keep the request scoped to the same repository.
 	original, err := url.Parse(path)
 	if err != nil {
 		return "", errors.New("invalid GitHub endpoint")
+	}
+	// GitHub may identify the repository by its numeric ID in a pagination URL.
+	// Use its next query on the original path to keep the request scoped to the same repository.
+	if current.EscapedPath() != target.EscapedPath() {
+		mount, sameMount := strings.CutSuffix(current.EscapedPath(), original.EscapedPath())
+		targetPath, underMount := strings.CutPrefix(target.EscapedPath(), mount)
+		if !sameMount || !underMount || !strings.HasPrefix(original.Path, "/repos/") ||
+			!strings.HasSuffix(original.Path, "/pulls") || !canonicalPullPath.MatchString(targetPath) {
+			return "", errors.New("invalid GitHub pagination link")
+		}
 	}
 	query, err := url.ParseQuery(target.RawQuery)
 	if err != nil {
 		return "", errors.New("invalid GitHub pagination query")
 	}
 	pagingQuery := original.Query()
+	currentQuery := pagingQuery.Encode()
 	for _, name := range []string{"page", "per_page", "before", "after", "since"} {
 		if values, ok := query[name]; ok {
 			pagingQuery[name] = values
 		}
 	}
 	original.RawQuery = pagingQuery.Encode()
+	if original.RawQuery == currentQuery {
+		return "", errors.New("GitHub pagination link repeats the current page")
+	}
 	return original.RequestURI(), nil
 }
 
 func scrub(err error, secrets ...string) error {
 	if err == nil {
 		return nil
+	}
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, cause) {
+			return cause
+		}
 	}
 	// Typed API errors carry only local status text and parsed rate-limit data.
 	if apiErr, ok := err.(*APIError); ok {

@@ -257,3 +257,87 @@ func TestDoDoesNotForwardOAuthFormOnRedirect(t *testing.T) {
 		t.Fatalf("returned status = %d, want 307", resp.StatusCode)
 	}
 }
+
+func TestPaginationFindsNextRelationAmongLinkParameters(t *testing.T) {
+	const endpoint = "/installation/repositories?per_page=100"
+	for _, tc := range []struct {
+		name, header, want string
+		wantErr            bool
+	}{
+		{
+			name:   "attributes precede rel",
+			header: `<?page=9>; title="comma, semicolon; rel=\"next\""; rel="last", <?page=2>; type="application/json"; REL="alternate NEXT"; title="page two"`,
+			want:   "/installation/repositories?page=2&per_page=100",
+		},
+		{
+			name:   "quoted delimiters stay inside the title",
+			header: `<?page=9>; title="see, <?page=2>; rel=next"; rel="last"`,
+		},
+		{
+			name:   "unquoted relation",
+			header: `<?page=2>; type="application/json"; rel=next`,
+			want:   "/installation/repositories?page=2&per_page=100",
+		},
+		{
+			name:    "malformed link cannot end enumeration",
+			header:  `<?page=2>; title="unfinished; rel="next`,
+			wantErr: true,
+		},
+		{
+			name:    "missing relation cannot end enumeration",
+			header:  `<?page=2>; title="page two"`,
+			wantErr: true,
+		},
+		{
+			name:    "self-repeating link",
+			header:  `<?per_page=100&token=private>; rel="next"`,
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Link", tc.header)
+				fmt.Fprint(w, `{"repositories":[]}`)
+			}))
+			defer api.Close()
+			s := &Service{Config: Config{APIURL: api.URL}}
+			next, err := s.getPage(context.Background(), "ghs_secret", endpoint, nil)
+			if next != tc.want || (err != nil) != tc.wantErr || (err != nil && strings.Contains(err.Error(), "private")) {
+				t.Fatalf("next=%q, err=%v, want next=%q (error=%v)", next, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestPaginationCanonicalRepositoryPathUsesMountedAPI(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/repos/acme/tools/pulls" {
+			t.Errorf("request path=%q, want /api/v3/repos/acme/tools/pulls", r.URL.Path)
+		}
+		if r.URL.Query().Get("page") == "1" {
+			w.Header().Set("Link", `</api/v3/repositories/39/pulls?page=2&state=all>; rel="next"`)
+		} else {
+			w.Header().Set("Link", `</repositories/39/pulls?page=3>; rel="next"`)
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+	defer api.Close()
+	s := &Service{Config: Config{APIURL: api.URL + "/api/v3"}}
+	next, err := s.getPage(context.Background(), "ghs_secret", "/repos/acme/tools/pulls?state=open&page=1", nil)
+	if err != nil || next != "/repos/acme/tools/pulls?page=2&state=open" {
+		t.Fatalf("mounted next=%q, err=%v", next, err)
+	}
+	next, err = s.getPage(context.Background(), "ghs_secret", next, nil)
+	if err == nil || next != "" {
+		t.Fatal("canonical link outside the API mount was accepted")
+	}
+}
+
+func TestScrubPreservesCancellation(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		err := scrub(fmt.Errorf("secret request: %w", cause), "secret")
+		if !errors.Is(err, cause) || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("scrub did not safely preserve %v", cause)
+		}
+	}
+}
