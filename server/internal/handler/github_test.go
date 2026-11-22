@@ -99,11 +99,11 @@ func TestOwnerConnectsGitHub(t *testing.T) {
 	path := githubSetupPath(t, s, owner, ws.ID)
 	for _, session := range []string{"", "invalid", member} {
 		location := githubCallback(t, s, path, session)
-		if !strings.HasPrefix(location, "https://lab.test/app/#/settings/code?github_error=") || exchanges.Load() != 0 {
+		if !strings.HasPrefix(location, "https://lab.test/app/#/settings/code?github_error=") || strings.Contains(location, "github_workspace") || exchanges.Load() != 0 {
 			t.Fatal("forwarded state accepted or code exchanged")
 		}
 	}
-	if loc := githubCallback(t, s, path, owner); loc != "https://lab.test/app/#/settings/code?github=connected" {
+	if loc := githubCallback(t, s, path, owner); loc != "https://lab.test/app/#/settings/code?github=connected&github_workspace="+ws.ID {
 		t.Fatal(loc)
 	}
 	if c := s.call(t, "PATCH", "/api/github", owner, ws.ID, map[string]bool{"auto_link": false}, nil); c != 204 {
@@ -164,7 +164,7 @@ func TestGitHubDisconnectKeepsLinks(t *testing.T) {
 	ws := s.workspace(t, owner, "lab")
 	b := s.workspace(t, owner, "other")
 	path := githubSetupPath(t, s, owner, ws.ID)
-	if loc := githubCallback(t, s, path, owner); !strings.HasSuffix(loc, "github=connected") {
+	if loc := githubCallback(t, s, path, owner); !strings.HasSuffix(loc, "github=connected&github_workspace="+ws.ID) {
 		t.Fatal(loc)
 	}
 	card := s.idleCard(t, owner, ws.ID, "Question?")

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { githubIconPath } from '../../../../../../packages/cli-icons';
 import { useGitHub, useGitHubMutations } from '../../../api/library';
 import { useMembers, useWorkspace, useWorkspaces } from '../../../api/queries';
-import { workspaceId } from '../../../api/session';
+import { selectWorkspace, workspaceId } from '../../../api/session';
 
 const github = useGitHub();
 const { connectGitHub, disconnectGitHub, setGitHubAutoLink } = useGitHubMutations();
@@ -23,17 +23,24 @@ const description = computed(() => {
   return `Links a pull request to a study when its branch or title contains the study's ID${example}, or its description says ${closing}.`;
 });
 const error = ref('');
-const notice = ref('');
+// Older servers reported success without identifying the initiating workspace.
+const completed = ref(false);
+const callbackWorkspace = ref('');
+const connectedWorkspace = computed(() =>
+  workspaces.data.value?.find((w) => w.id === callbackWorkspace.value),
+);
 const busy = ref(false);
 const continuation = ref('');
 const route = useRoute();
 const router = useRouter();
 watch(
   () => route.query,
-  ({ github: result, github_error: problem, ...rest }) => {
-    if (result === undefined && problem === undefined) return;
+  ({ github: result, github_error: problem, github_workspace: target, ...rest }) => {
+    if (result === undefined && problem === undefined && target === undefined) return;
+    completed.value = result === 'connected' && problem === undefined;
+    callbackWorkspace.value = completed.value && typeof target === 'string' ? target : '';
     if (typeof problem === 'string') error.value = problem;
-    else if (result === 'connected') notice.value = 'GitHub connected.';
+    else error.value = '';
     void router.replace({ path: route.path, query: rest, hash: route.hash });
   },
   { immediate: true },
@@ -50,7 +57,8 @@ watch(
     visit++;
     continuation.value = '';
     error.value = '';
-    notice.value = '';
+    completed.value = false;
+    callbackWorkspace.value = '';
     busy.value = false;
   },
   { flush: 'sync' },
@@ -90,7 +98,21 @@ function disconnect(id: number, login: string) {
 <template>
   <section aria-label="GitHub settings">
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
-    <p v-if="notice" class="type-label" role="status">{{ notice }}</p>
+    <p v-if="completed" class="type-label" role="status">
+      <template v-if="connectedWorkspace">
+        GitHub connected to {{ connectedWorkspace.name }}.
+        <button
+          v-if="connectedWorkspace.id !== workspaceId"
+          class="text-button"
+          @click="selectWorkspace(connectedWorkspace.id)"
+        >
+          Open {{ connectedWorkspace.name }}
+        </button>
+      </template>
+      <template v-else
+        >GitHub setup completed. Check the workspace where you started setup.</template
+      >
+    </p>
     <p v-if="github.isError.value" class="inline-error" role="alert">
       Could not load GitHub settings: {{ github.error.value?.message }}
       <button class="text-button" @click="github.refetch()">Retry</button>

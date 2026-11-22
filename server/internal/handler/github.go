@@ -74,8 +74,8 @@ func (h *H) setupGitHub(w http.ResponseWriter, r *http.Request) {
 		base = h.GitHub.PublicURL
 	}
 	dest := strings.TrimRight(base, "/") + "/app/#/settings/code?"
-	result := "github=connected"
-	err := h.completeGitHubSetup(r)
+	workspace, err := h.completeGitHubSetup(r)
+	var result string
 	if err != nil {
 		msg := "GitHub connection failed. Try again."
 		var ue *github.UserError
@@ -83,13 +83,15 @@ func (h *H) setupGitHub(w http.ResponseWriter, r *http.Request) {
 			msg = ue.Msg
 		}
 		result = "github_error=" + url.QueryEscape(msg)
+	} else {
+		result = "github=connected&github_workspace=" + workspace.String()
 	}
 	http.Redirect(w, r, dest+result, http.StatusFound)
 }
 
-func (h *H) completeGitHubSetup(r *http.Request) error {
+func (h *H) completeGitHubSetup(r *http.Request) (uuid.UUID, error) {
 	if h.GitHub == nil {
-		return errors.New("GitHub unavailable")
+		return uuid.Nil, errors.New("GitHub unavailable")
 	}
 	var user uuid.UUID
 	if cookie, err := r.Cookie(middleware.SessionCookie); err == nil {
@@ -100,14 +102,13 @@ func (h *H) completeGitHubSetup(r *http.Request) error {
 	query := r.URL.Query()
 	state := query.Get("state")
 	if err := h.GitHub.CheckSetupSession(state, user); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	installation, err := strconv.ParseInt(query.Get("installation_id"), 10, 64)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	_, err = h.GitHub.Complete(r.Context(), state, query.Get("code"), installation)
-	return err
+	return h.GitHub.Complete(r.Context(), state, query.Get("code"), installation)
 }
 
 func (h *H) patchGitHub(w http.ResponseWriter, r *http.Request) {

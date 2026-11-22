@@ -5,6 +5,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { all, createTreeApp, node, textOf } from '../../../../../tests/daemon-tree';
 import CodePanel from './settings/CodePanel.vue';
 import { workspaceId } from '../../api/session';
+import { registerDraftVisit, resolveDiscard, discardDialog } from '../../state/resource-draft';
 import { keys } from '../../api/keys';
 
 const call = vi.fn();
@@ -31,6 +32,7 @@ async function mount(
   configured = true,
   connections: (typeof connection)[] = [],
   query = '',
+  workspaceList?: Promise<unknown>,
 ) {
   workspaceId.value = 'w';
   const router = createRouter({
@@ -41,11 +43,15 @@ async function mount(
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  client.setQueryData(keys.workspaces, [{ id: 'w', role }]);
+  if (!workspaceList) client.setQueryData(keys.workspaces, [{ id: 'w', role }]);
   client.setQueryData(keys.workspace('w'), { id: 'w', display_prefix: 'LAB' });
   client.setQueryData(keys.members('w'), [{ user_id: 'u', name: 'Ada' }]);
   client.setQueryData(['ws', 'w', 'github'], { configured, auto_link: true, connections });
-  call.mockResolvedValue({ configured, auto_link: false, connections });
+  call.mockImplementation(async (_method, path) => {
+    if (path === '/api/workspaces') return workspaceList;
+    if (path.endsWith('/members')) return [];
+    return { configured, auto_link: false, connections };
+  });
   const app = createTreeApp({ render: () => h(CodePanel) });
   app.use(VueQueryPlugin, { queryClient: client });
   app.use(router);
@@ -142,6 +148,61 @@ it('discards a pending connect when the owner moves to another workspace', async
 });
 it('shows the success notice and cleans the callback URL', async () => {
   const { root, router } = await mount('owner', true, [], '?github=connected');
-  expect(textOf(root)).toContain('GitHub connected.');
+  expect(textOf(root)).toContain('GitHub setup completed.');
+  await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({}));
+});
+
+it('attributes a desktop callback to its workspace and guards the browser workspace switch', async () => {
+  let resolve!: (list: unknown[]) => void;
+  const list = new Promise<unknown[]>((r) => {
+    resolve = r;
+  });
+  const { root, router } = await mount(
+    'owner',
+    true,
+    [],
+    '?github=connected&github_workspace=a&keep=1',
+    list,
+  );
+  await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({ keep: '1' }));
+  expect(textOf(root)).not.toContain('GitHub connected.');
+  resolve([
+    { id: 'a', name: 'Lab A', role: 'owner' },
+    { id: 'w', name: 'Lab B', role: 'owner' },
+  ]);
+  await vi.waitFor(() => expect(textOf(root)).toContain('GitHub connected to Lab A.'));
+  expect(workspaceId.value).toBe('w');
+  const open = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Open Lab A')!;
+  const unregister = registerDraftVisit({
+    identity: () => 'draft',
+    dirty: () => true,
+    discard: vi.fn(),
+  });
+  try {
+    const switching = (open.props.onClick as () => Promise<void>)();
+    await vi.waitFor(() => expect(discardDialog.value).toBe(true));
+    resolveDiscard(false);
+    await switching;
+    expect(workspaceId.value).toBe('w');
+    expect(textOf(root)).toContain('GitHub connected to Lab A.');
+  } finally {
+    unregister();
+  }
+  await (open.props.onClick as () => Promise<void>)();
+  expect(workspaceId.value).toBe('a');
+});
+
+it('offers no workspace switch for an unknown callback ID', async () => {
+  const { root, router } = await mount(
+    'owner',
+    true,
+    [],
+    '?github=connected&github_workspace=unknown',
+  );
+  expect(textOf(root)).toContain('GitHub setup completed.');
+  expect(all(root).some((n) => n.tag === 'button' && textOf(n).trim().startsWith('Open '))).toBe(
+    false,
+  );
+  expect(workspaceId.value).toBe('w');
   await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({}));
 });
