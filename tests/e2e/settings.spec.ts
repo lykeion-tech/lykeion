@@ -8,7 +8,7 @@ import {
   type Page,
   type Route,
 } from '@playwright/test';
-import { labSignIn } from './lab';
+import { labSignIn, skipReleaseHighlights } from './lab';
 
 test.use({ trace: 'off', screenshot: 'off' });
 
@@ -80,6 +80,8 @@ test('Profile and Preferences save to the account and the device', async ({ page
       'General',
       'Skills',
       'Connectors',
+      'Communication',
+      'Code',
     ]);
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Ana Settings');
     await page.getByRole('textbox', { name: 'Name', exact: true }).blur();
@@ -275,6 +277,7 @@ async function memberContext(owner: APIRequestContext, browser: Browser, ws: str
       await guest.request.patch('/api/me', { data: { name: 'Settings Member', onboarded: true } })
     ).status(),
   ).toBe(200);
+  await skipReleaseHighlights(guest, me.id);
   return { guest, id: me.id as string };
 }
 async function hold(

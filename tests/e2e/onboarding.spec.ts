@@ -7,6 +7,11 @@ const shots = 'test-results/ui2-task16';
 async function closeReleaseHighlights(page: Page) {
   await page.getByRole('button', { name: 'Close release highlights', exact: true }).click();
 }
+// Finishing onboarding marks the current release as seen.
+async function expectNoReleaseHighlights(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'What’s new in Lykeion' })).toBeHidden();
+}
 async function newcomer(page: Page, label: string) {
   await labSignIn(page.request, `onboarding-${label}@lab.test`);
   await page.goto('/#/onboarding');
@@ -103,7 +108,7 @@ test('publishes the profile only after workspace confirmation and retries on the
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.getByRole('button', { name: 'Enter workspace' }).click();
   await expect(page).toHaveURL(/#\/studies$/);
-  await closeReleaseHighlights(page);
+  await expectNoReleaseHighlights(page);
   const peer = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   try {
     const email = 'onboarding-profile-viewer@lab.test';
@@ -188,7 +193,7 @@ test('existing-member resume preserves saved career and context and Settings sti
     ).toBe('Saved research context');
     await page.getByRole('button', { name: 'Enter workspace' }).click();
     await expect(page).toHaveURL(/#\/studies$/);
-    await closeReleaseHighlights(page);
+    await expectNoReleaseHighlights(page);
     await page.goto('/#/settings?tab=profile');
     await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'phd');
     await expect

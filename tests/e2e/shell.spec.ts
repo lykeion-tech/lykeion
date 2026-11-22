@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { labCode, labSignIn } from './lab';
+import { labCode, labSignIn, skipReleaseHighlights } from './lab';
 
 test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
   await page.goto('/#/studies');
@@ -93,6 +93,7 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     { email: 'shell-other@lab.test', name: 'Oli Other', workspace: 'Other lab', slug: 'other-lab' },
   ];
   const workspaceIds: string[] = [];
+  const accountIds: string[] = [];
   for (const person of people) {
     const fixture = await browser.newContext({ storageState: { cookies: [], origins: [] } });
     await labSignIn(fixture.request, person.email);
@@ -101,6 +102,7 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     });
     expect(created.status()).toBe(201);
     workspaceIds.push((await created.json()).id);
+    accountIds.push((await (await fixture.request.get('/api/me')).json()).id);
     expect(
       (
         await fixture.request.patch('/api/me', { data: { name: person.name, onboarded: true } })
@@ -109,6 +111,7 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     await fixture.close();
   }
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  await skipReleaseHighlights(context, ...accountIds);
   const page = await context.newPage();
   await page.goto('/#/studies');
   for (const [index, person] of people.entries()) {
@@ -129,7 +132,9 @@ test('signing in and switching accounts refreshes the shell without a reload', a
       workspaceIds[index],
     );
     if (index === 1) {
-      await expect(menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ })).toHaveCount(0);
+      await expect(
+        menu.getByRole('menuitem', { name: /Return lab|shell-return@lab\.test/ }),
+      ).toHaveCount(0);
       await page.screenshot({
         path: 'test-results/ui-lab/task11-account-switch.png',
         fullPage: true,

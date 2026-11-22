@@ -1,6 +1,6 @@
 import { selectPicker } from './select-picker';
 import { expect, test, type Page } from '@playwright/test';
-import { labWorkspace, labSignIn, LAB, labSkillFolder } from './lab';
+import { labWorkspace, labSignIn, LAB, labSkillFolder, skipReleaseHighlights } from './lab';
 import { rmSync } from 'node:fs';
 import type { SkillSummary, SkillFileMeta } from '../../apps/dashboard/src/api/types';
 
@@ -207,6 +207,7 @@ test('bundle is read-only and colleague cannot edit my import', async ({ page, b
     expect((await context.request.post(`/api/invitations/${invite.token}/accept`)).status()).toBe(
       200,
     );
+    await skipReleaseHighlights(context);
     const colleague = await context.newPage();
     await colleague.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
     await open(colleague);
@@ -445,6 +446,7 @@ test('admin permission loss retains the editor draft and disables writes', async
       (await context.request.post(`/api/invitations/${invitation.token}/accept`)).status(),
     ).toBe(200);
     const me = await (await context.request.get('/api/me')).json();
+    await skipReleaseHighlights(context, me.id);
     const editor = await context.newPage();
     await editor.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), ws);
     await open(editor);
