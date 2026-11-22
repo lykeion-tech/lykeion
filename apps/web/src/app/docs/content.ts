@@ -823,6 +823,57 @@ See [agents](/docs/agents/) for capability selection, [skills](/docs/skills/) fo
 `,
   },
   {
+    slug: 'slack',
+    title: 'Slack',
+    description:
+      'Connect Aristotle to a Slack workspace, link your account and ask questions or draft studies from Slack.',
+    section: 'Collaboration',
+    markdown: `# Slack
+
+Slack lets members of a Slack workspace talk to Aristotle without opening the dashboard. Each question runs [Ask Aristotle](/docs/aristotle/) on the asker's own connected machine, and the answer arrives in the Slack thread with citations that link back to Lykeion. Only the workspace owner sets it up; members then link their own accounts.
+
+## Set up Slack (owner)
+
+1. Open Settings → Communication in your Lykeion workspace. Only the workspace owner can connect, manage or disconnect Slack.
+2. Copy the Slack app manifest shown on the page with the Copy button.
+3. At api.slack.com, choose Create app from manifest, paste the manifest and install the app to your Slack workspace.
+4. Back in Lykeion, paste the bot token (it starts with xoxb-) and the app-level token (it starts with xapp-).
+5. Choose a drafting agent. It must be an agent every member can use; it is the agent that /study runs.
+6. Save.
+
+Lykeion keeps both tokens sealed on the server and never shows them again. A Lykeion workspace has one Slack app. If you host Lykeion yourself, the server needs LYK_SECRET_KEY set before Slack is available.
+
+## Link your account
+
+The bot is Aristotle. The first time you message it, Aristotle replies privately with a link. Open it while signed in to Lykeion and confirm. The link is valid for 15 minutes and works once. The email on your Slack profile must be confirmed and match your Lykeion account's email, or the link is refused.
+
+You can see and remove your link in Settings → Communication → Your accounts. Removing it means you link again the next time you message Aristotle.
+
+## Ask in a DM or a channel
+
+Send Aristotle a direct message, or @mention it in a channel. Aristotle runs the question on your own connected machine. If none is online it replies "Your machine is offline. Connect it in Lykeion and ask again." Connect one as described in [machine connection](/docs/connect-machine/) and ask again.
+
+In a DM, your messages continue the same conversation until you send /new. In a channel, each Slack thread is its own conversation. Conversations started in Slack also appear in Ask Aristotle in the dashboard. Only questions asked from Slack are answered in Slack.
+
+Answers in a Slack channel are visible to everyone in that channel, including people outside this workspace. Ask sensitive questions in a DM. Citations are links to Lykeion; opening one still requires Lykeion access.
+
+Aristotle does not read Slack files yet. If your message has files it replies "Aristotle can't read Slack files yet; I answered from your text only."
+
+## Commands
+
+- /study <request> drafts a study with the workspace's drafting agent on your machine and sends you the link in a DM when it is ready. Review the draft in Lykeion before you start it; see [studies](/docs/studies/).
+- /new starts a new conversation.
+- /clear deletes the current DM conversation after you confirm.
+- /help lists the commands.
+
+## Disconnect
+
+The owner can disconnect Slack in Settings → Communication. Runs started from Slack stop, and conversations stay in Ask Aristotle. If Slack revokes the app, the page shows Reconnect needed; paste fresh tokens to restore it.
+
+Success means Aristotle answers your DM in Slack, the answer cites records in Lykeion, and the conversation appears in Ask Aristotle. If it does not, check your link, your machine and the tokens in Settings → Communication.
+`,
+  },
+  {
     slug: 'jev',
     title: 'Jev',
     description: 'Understand how Jev and server checks review research items and guide the next step.',

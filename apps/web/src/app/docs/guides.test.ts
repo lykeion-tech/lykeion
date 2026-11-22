@@ -27,6 +27,7 @@ const required = [
   'coresearch',
   'autoresearch',
   'connectors',
+  'slack',
 ];
 describe('researcher guides', () => {
   it('publishes the complete initial inventory', () => {
