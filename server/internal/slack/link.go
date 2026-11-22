@@ -39,7 +39,7 @@ func (s *Service) MintLink(ctx context.Context, tx *store.Tx, inst db.SlackInsta
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(s.PublicURL, "/") + "/app/slack/link?workspace=" + inst.WorkspaceID.String() + "&token=" + raw, nil
+	return strings.TrimRight(s.PublicURL, "/") + "/app/#/slack/link?workspace=" + inst.WorkspaceID.String() + "&token=" + raw, nil
 }
 
 // Redeem spends a link token, checks that the Slack profile's confirmed email is

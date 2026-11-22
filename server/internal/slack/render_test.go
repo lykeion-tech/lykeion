@@ -30,3 +30,12 @@ func TestRenderCitations(t *testing.T) {
 		t.Fatalf("%q\n%q", got, want)
 	}
 }
+
+func TestRenderCutNeverSplitsLink(t *testing.T) {
+	study := uuid.New()
+	c := labmemory.DisplayRef{Ref: "study:" + study.String(), Title: "T", StudyID: &study}
+	got := Render([]labmemory.DisplayStatement{{Text: strings.Repeat("x", 3890), Cites: []labmemory.DisplayRef{c}}}, nil, "https://lyk.test")
+	if strings.Contains(got, "<") || !strings.Contains(got, "… Open in Lykeion") {
+		t.Fatalf("%q", got[3800:])
+	}
+}

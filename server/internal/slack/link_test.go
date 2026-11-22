@@ -108,7 +108,7 @@ func (f *linkFix) mint(t *testing.T, ws uuid.UUID, inst db.SlackInstallation, sl
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://lyk.test/app/slack/link?workspace=" + ws.String() + "&token="
+	want := "https://lyk.test/app/#/slack/link?workspace=" + ws.String() + "&token="
 	if !strings.HasPrefix(url, want) || len(url) == len(want) {
 		t.Fatalf("url: %s", url)
 	}

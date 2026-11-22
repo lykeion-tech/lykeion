@@ -1069,6 +1069,7 @@ type SlackPost struct {
 	UserID         uuid.UUID  `json:"user_id"`
 	Channel        string     `json:"channel"`
 	ThreadTs       string     `json:"thread_ts"`
+	MessageTs      string     `json:"message_ts"`
 	Kind           string     `json:"kind"`
 	AgentRunID     *uuid.UUID `json:"agent_run_id"`
 	AutoresearchID *uuid.UUID `json:"autoresearch_id"`

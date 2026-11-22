@@ -168,7 +168,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 		if err = tx.Q.TouchLabChat(ctx, db.TouchLabChatParams{ID: chat.ID, Title: string(title)}); err != nil {
 			return err
 		}
-		_, err = tx.Q.CreateSlackPost(ctx, db.CreateSlackPostParams{InstallationID: inst.ID, UserID: user, Channel: m.Channel, ThreadTs: thread, Kind: "answer", AgentRunID: &run.ID})
+		_, err = tx.Q.CreateSlackPost(ctx, db.CreateSlackPostParams{InstallationID: inst.ID, UserID: user, Channel: m.Channel, ThreadTs: thread, MessageTs: m.TS, Kind: "answer", AgentRunID: &run.ID})
 		react = true
 		return err
 	})

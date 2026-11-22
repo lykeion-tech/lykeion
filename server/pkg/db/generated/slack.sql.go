@@ -24,6 +24,25 @@ func (q *Queries) BumpSlackPostAttempts(ctx context.Context, id uuid.UUID) (int3
 	return attempts, err
 }
 
+const claimSlackPost = `-- name: ClaimSlackPost :execrows
+UPDATE slack_post SET status = $1
+WHERE workspace_id = app_workspace() AND id = $2 AND status = 'pending'
+`
+
+type ClaimSlackPostParams struct {
+	Status string    `json:"status"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// Compare-and-set out of 'pending': only one worker wins a post.
+func (q *Queries) ClaimSlackPost(ctx context.Context, arg ClaimSlackPostParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimSlackPost, arg.Status, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createSlackBinding = `-- name: CreateSlackBinding :one
 INSERT INTO slack_binding (workspace_id, installation_id, slack_user_id, user_id)
 VALUES (app_workspace(), $1, $2, $3) RETURNING workspace_id, installation_id, slack_user_id, user_id, created_at
@@ -120,9 +139,9 @@ func (q *Queries) CreateSlackLinkToken(ctx context.Context, arg CreateSlackLinkT
 }
 
 const createSlackPost = `-- name: CreateSlackPost :one
-INSERT INTO slack_post (workspace_id, installation_id, user_id, channel, thread_ts, kind, agent_run_id, autoresearch_id)
-VALUES (app_workspace(), $1, $2, $3, $4, $5, $6, $7)
-RETURNING id, workspace_id, installation_id, user_id, channel, thread_ts, kind, agent_run_id, autoresearch_id, status, attempts, created_at
+INSERT INTO slack_post (workspace_id, installation_id, user_id, channel, thread_ts, message_ts, kind, agent_run_id, autoresearch_id)
+VALUES (app_workspace(), $1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, workspace_id, installation_id, user_id, channel, thread_ts, message_ts, kind, agent_run_id, autoresearch_id, status, attempts, created_at
 `
 
 type CreateSlackPostParams struct {
@@ -130,6 +149,7 @@ type CreateSlackPostParams struct {
 	UserID         uuid.UUID  `json:"user_id"`
 	Channel        string     `json:"channel"`
 	ThreadTs       string     `json:"thread_ts"`
+	MessageTs      string     `json:"message_ts"`
 	Kind           string     `json:"kind"`
 	AgentRunID     *uuid.UUID `json:"agent_run_id"`
 	AutoresearchID *uuid.UUID `json:"autoresearch_id"`
@@ -141,6 +161,7 @@ func (q *Queries) CreateSlackPost(ctx context.Context, arg CreateSlackPostParams
 		arg.UserID,
 		arg.Channel,
 		arg.ThreadTs,
+		arg.MessageTs,
 		arg.Kind,
 		arg.AgentRunID,
 		arg.AutoresearchID,
@@ -153,6 +174,7 @@ func (q *Queries) CreateSlackPost(ctx context.Context, arg CreateSlackPostParams
 		&i.UserID,
 		&i.Channel,
 		&i.ThreadTs,
+		&i.MessageTs,
 		&i.Kind,
 		&i.AgentRunID,
 		&i.AutoresearchID,
@@ -298,8 +320,8 @@ func (q *Queries) GetSlackChat(ctx context.Context, arg GetSlackChatParams) (Sla
 
 const getSlackDraftState = `-- name: GetSlackDraftState :one
 SELECT d.completed, d.card_id,
-  EXISTS (SELECT 1 FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed') AS failed,
-  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed' ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
+  COALESCE((SELECT r.status = 'failed' FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
+  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
 WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = $1
 `
@@ -404,7 +426,7 @@ func (q *Queries) ListMySlackBindings(ctx context.Context) ([]SlackBinding, erro
 }
 
 const listPendingSlackPosts = `-- name: ListPendingSlackPosts :many
-SELECT id, workspace_id, installation_id, user_id, channel, thread_ts, kind, agent_run_id, autoresearch_id, status, attempts, created_at FROM slack_post
+SELECT id, workspace_id, installation_id, user_id, channel, thread_ts, message_ts, kind, agent_run_id, autoresearch_id, status, attempts, created_at FROM slack_post
 WHERE workspace_id = app_workspace() AND installation_id = $1 AND status = 'pending'
 ORDER BY created_at
 `
@@ -425,6 +447,7 @@ func (q *Queries) ListPendingSlackPosts(ctx context.Context, installationID uuid
 			&i.UserID,
 			&i.Channel,
 			&i.ThreadTs,
+			&i.MessageTs,
 			&i.Kind,
 			&i.AgentRunID,
 			&i.AutoresearchID,

@@ -42,7 +42,9 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 		switch {
 		case err != nil:
 			return "", false, false, err
-		case d.Completed && d.CardID != nil:
+		case d.Completed && d.CardID == nil:
+			return "", false, true, nil
+		case d.Completed:
 			return "Your study is ready: " + appURL(s.PublicURL) + "/studies/" + d.CardID.String(), true, false, nil
 		case d.Failed:
 			return "I couldn't draft that study: " + draftReason(d.Reason), true, false, nil
@@ -99,15 +101,18 @@ func (s *Service) DeliverOnce(ctx context.Context, inst db.SlackInstallation) er
 
 func (s *Service) deliver(ctx context.Context, inst db.SlackInstallation, c *session, p db.SlackPost) error {
 	var text string
-	var send bool
+	var send, dropped bool
 	err := s.Store.InWorkspaceSnapshot(ctx, inst.WorkspaceID, p.UserID, func(tx *store.Tx) error {
-		text, send = "", false
-		mark := func(status string) error {
-			return tx.Q.MarkSlackPost(ctx, db.MarkSlackPostParams{ID: p.ID, Status: status})
+		text, send, dropped = "", false, false
+		// Only the worker that moves the row out of 'pending' may act on it.
+		claim := func(status string) error {
+			n, err := tx.Q.ClaimSlackPost(ctx, db.ClaimSlackPostParams{ID: p.ID, Status: status})
+			send, dropped = n == 1 && status == "sending", n == 1 && status == "dropped"
+			return err
 		}
 		if _, err := tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: inst.WorkspaceID, UserID: p.UserID}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return mark("dropped")
+				return claim("dropped")
 			}
 			return err
 		}
@@ -116,15 +121,21 @@ func (s *Service) deliver(ctx context.Context, inst db.SlackInstallation, c *ses
 		case err != nil:
 			return err
 		case drop:
-			return mark("dropped")
+			return claim("dropped")
 		case !ready:
 			return nil
 		}
-		text, send = t, true
-		return mark("sending")
+		text = t
+		return claim("sending")
 	})
-	if err != nil || !send {
+	if err != nil {
 		return err
+	}
+	if dropped {
+		s.clearReaction(ctx, c, p)
+	}
+	if !send {
+		return nil
 	}
 	opts := []slackgo.MsgOption{slackgo.MsgOptionText(text, false)}
 	if p.ThreadTs != "" {
@@ -134,28 +145,33 @@ func (s *Service) deliver(ctx context.Context, inst db.SlackInstallation, c *ses
 	// The row is already 'sending'; a failure to record the outcome must not
 	// make it deliverable again.
 	ctx = context.WithoutCancel(ctx)
+	final := "posted"
 	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, p.UserID, func(tx *store.Tx) error {
-		status := "posted"
+		final = "posted"
 		if perr != nil {
 			n, err := tx.Q.BumpSlackPostAttempts(ctx, p.ID)
 			if err != nil {
 				return err
 			}
-			status = "pending"
+			final = "pending"
 			if n >= maxAttempts {
-				status = "dropped"
+				final = "dropped"
 			}
 		}
-		return tx.Q.MarkSlackPost(ctx, db.MarkSlackPostParams{ID: p.ID, Status: status})
+		return tx.Q.MarkSlackPost(ctx, db.MarkSlackPostParams{ID: p.ID, Status: final})
 	})
+	if perr == nil || final == "dropped" {
+		s.clearReaction(ctx, c, p)
+	}
 	if perr != nil {
 		return errors.Join(c.err(perr), err)
 	}
-	if p.Kind == "answer" && p.ThreadTs != "" {
-		// Best effort. thread_ts is the question's own ts for a top-level
-		// message; for a reply inside a thread it is the parent, which carries
-		// no reaction, and Slack's no_reaction error is ignored.
-		_ = c.RemoveReactionContext(ctx, "hourglass_flowing_sand", slackgo.NewRefToMessage(p.Channel, p.ThreadTs))
-	}
 	return err
+}
+
+// clearReaction removes the hourglass from the question; best effort.
+func (s *Service) clearReaction(ctx context.Context, c *session, p db.SlackPost) {
+	if p.MessageTs != "" {
+		_ = c.RemoveReactionContext(ctx, "hourglass_flowing_sand", slackgo.NewRefToMessage(p.Channel, p.MessageTs))
+	}
 }

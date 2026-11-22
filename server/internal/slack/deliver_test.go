@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type asked struct {
@@ -38,7 +41,7 @@ func (f *inFix) answer(t *testing.T, a asked, kind, body, statements, evidence s
 func (f *inFix) deliver(t *testing.T) {
 	t.Helper()
 	if err := f.S.DeliverOnce(context.Background(), f.Inst); err != nil {
-		t.Logf("DeliverOnce: %v", err)
+		t.Fatal(err)
 	}
 }
 
@@ -127,19 +130,27 @@ func TestSlackErrorRetriesThenDrops(t *testing.T) {
 	a := ask(t, f, "UA")
 	f.answer(t, a, "answer", "", `[{"kind":"gap","text":"hi","cites":[]}]`, `[]`)
 	f.fail = map[string]string{"chat.postMessage": "ratelimited"}
+	pass := func() {
+		if err := f.S.DeliverOnce(context.Background(), f.Inst); err == nil {
+			t.Fatal("expected the Slack error")
+		}
+	}
 	for i := 1; i <= 4; i++ {
-		f.deliver(t)
+		pass()
 		if s := f.status(t, a); s != "pending" {
 			t.Fatalf("attempt %d: %s", i, s)
 		}
 	}
-	f.deliver(t)
+	pass()
 	if s := f.status(t, a); s != "dropped" {
 		t.Fatal(s)
 	}
 	f.deliver(t)
 	if n := len(f.got("chat.postMessage")); n != 5 {
 		t.Fatalf("posts=%d", n)
+	}
+	if r := f.got("reactions.remove"); len(r) != 1 || r[0].Form.Get("timestamp") != "5.5" {
+		t.Fatalf("%+v", r)
 	}
 }
 
@@ -201,5 +212,47 @@ func TestDraftFailedAndWaiting(t *testing.T) {
 	p := f.got("chat.postMessage")
 	if len(p) != 1 || p[0].Form.Get("text") != "I couldn't draft that study: the agent could not start." {
 		t.Fatalf("%+v", p)
+	}
+}
+
+func TestStalePostPostedOnce(t *testing.T) {
+	f := inSetup(t)
+	a := ask(t, f, "UA")
+	f.answer(t, a, "answer", "", `[{"kind":"gap","text":"hi","cites":[]}]`, `[]`)
+	var p db.SlackPost
+	if err := f.S.Store.InWorkspace(context.Background(), f.WS, f.User, func(tx *store.Tx) (err error) {
+		ps, err := tx.Q.ListPendingSlackPosts(context.Background(), f.Inst.ID)
+		if len(ps) == 1 {
+			p = ps[0]
+		}
+		return err
+	}); err != nil || p.ID == uuid.Nil {
+		t.Fatal(err)
+	}
+	c, err := f.S.session(f.Inst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := f.S.deliver(context.Background(), f.Inst, c, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(f.got("chat.postMessage")); n != 1 {
+		t.Fatalf("posts=%d", n)
+	}
+}
+
+func TestCompletedDraftWithoutCardDropped(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "ua@lab.org", "UA", true)
+	post, card := draft(t, f, u, false, true)
+	if _, err := f.Env.Owner.Exec(context.Background(), `DELETE FROM card WHERE id=$1`, card); err != nil {
+		t.Fatal(err)
+	}
+	f.deliver(t)
+	var s string
+	if err := f.Env.Owner.QueryRow(context.Background(), `SELECT status FROM slack_post WHERE id=$1`, post).Scan(&s); err != nil || s != "dropped" || len(f.got("chat.postMessage")) != 0 {
+		t.Fatal(err, s)
 	}
 }

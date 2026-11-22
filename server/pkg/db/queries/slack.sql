@@ -59,8 +59,8 @@ WHERE workspace_id = app_workspace() AND installation_id = @installation_id AND 
   AND channel = @channel AND thread_ts = '';
 
 -- name: CreateSlackPost :one
-INSERT INTO slack_post (workspace_id, installation_id, user_id, channel, thread_ts, kind, agent_run_id, autoresearch_id)
-VALUES (app_workspace(), @installation_id, @user_id, @channel, @thread_ts, @kind, @agent_run_id, @autoresearch_id)
+INSERT INTO slack_post (workspace_id, installation_id, user_id, channel, thread_ts, message_ts, kind, agent_run_id, autoresearch_id)
+VALUES (app_workspace(), @installation_id, @user_id, @channel, @thread_ts, @message_ts, @kind, @agent_run_id, @autoresearch_id)
 RETURNING *;
 
 -- name: ListPendingSlackPosts :many
@@ -70,6 +70,11 @@ ORDER BY created_at;
 
 -- name: MarkSlackPost :exec
 UPDATE slack_post SET status = @status WHERE workspace_id = app_workspace() AND id = @id;
+
+-- Compare-and-set out of 'pending': only one worker wins a post.
+-- name: ClaimSlackPost :execrows
+UPDATE slack_post SET status = @status
+WHERE workspace_id = app_workspace() AND id = @id AND status = 'pending';
 
 -- name: BumpSlackPostAttempts :one
 UPDATE slack_post SET attempts = attempts + 1
@@ -91,7 +96,7 @@ WHERE workspace_id = app_workspace() RETURNING *;
 
 -- name: GetSlackDraftState :one
 SELECT d.completed, d.card_id,
-  EXISTS (SELECT 1 FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed') AS failed,
-  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed' ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
+  COALESCE((SELECT r.status = 'failed' FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
+  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
 WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = @autoresearch_id;

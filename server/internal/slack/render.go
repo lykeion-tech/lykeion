@@ -48,6 +48,9 @@ func Render(ss []labmemory.DisplayStatement, ee []labmemory.DisplayRef, publicUR
 	if utf8.RuneCountInString(out) <= maxSlackText {
 		return out
 	}
-	// ponytail: a cut can split a <url|title> link; Slack then shows it as plain text.
-	return string([]rune(out)[:maxSlackText]) + "… Open in Lykeion: " + appURL(publicURL) + "/"
+	cut := string([]rune(out)[:maxSlackText])
+	if i := strings.LastIndexByte(cut, '<'); i > strings.LastIndexByte(cut, '>') {
+		cut = cut[:i] // inside a <url|title> link: cut before it
+	}
+	return cut + "… Open in Lykeion: " + appURL(publicURL) + "/"
 }

@@ -81,7 +81,7 @@ func TestStudyUsageAndUnbound(t *testing.T) {
 		t.Fatal(text)
 	}
 	text, _ := f.cmd(t, Command{Name: "/new", User: "U9"})
-	if !strings.Contains(text, "/app/slack/link?") {
+	if !strings.Contains(text, "/app/#/slack/link?") {
 		t.Fatal(text)
 	}
 }

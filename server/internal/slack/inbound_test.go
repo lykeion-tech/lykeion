@@ -129,7 +129,7 @@ func TestUnlinkedGetsLink(t *testing.T) {
 	f := inSetup(t)
 	f.send(t, Message{User: "U9", Text: "hi"})
 	e := f.got("chat.postEphemeral")
-	if len(e) != 1 || !strings.Contains(e[0].Form.Get("text"), "/app/slack/link?") || e[0].Form.Get("user") != "U9" {
+	if len(e) != 1 || !strings.Contains(e[0].Form.Get("text"), "/app/#/slack/link?") || e[0].Form.Get("user") != "U9" {
 		t.Fatalf("%+v", f.calls)
 	}
 }
@@ -251,7 +251,7 @@ func TestRemovedMemberIsUnbound(t *testing.T) {
 	}
 	f.send(t, Message{User: "UA", Text: "q"})
 	e := f.got("chat.postEphemeral")
-	if len(e) != 1 || !strings.Contains(e[0].Form.Get("text"), "/app/slack/link?") || f.count(t, `SELECT count(*) FROM agent_run`) != 0 {
+	if len(e) != 1 || !strings.Contains(e[0].Form.Get("text"), "/app/#/slack/link?") || f.count(t, `SELECT count(*) FROM agent_run`) != 0 {
 		t.Fatalf("%+v", f.calls)
 	}
 }

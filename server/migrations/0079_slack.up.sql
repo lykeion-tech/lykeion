@@ -59,6 +59,7 @@ CREATE TABLE slack_post (
   user_id uuid NOT NULL,
   channel text NOT NULL,
   thread_ts text NOT NULL DEFAULT '',
+  message_ts text NOT NULL DEFAULT '',
   kind text NOT NULL CHECK (kind IN ('answer', 'draft')),
   agent_run_id uuid,
   autoresearch_id uuid REFERENCES autoresearch ON DELETE SET NULL,
