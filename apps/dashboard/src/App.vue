@@ -11,7 +11,7 @@ import { studyDisplayTitle } from './lib/studies';
 import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
 import ReleaseHighlights from './features/workspace/ReleaseHighlights.vue';
-import { isNewerRelease, releaseHighlights } from './features/workspace/release-highlights';
+import { markReleaseSeen, shouldShowRelease } from './features/workspace/release-highlights';
 import CommandPalette from './ui/CommandPalette.vue';
 import ConversationSearch from './features/coresearch/ConversationSearch.vue';
 import { startConversationDraft } from './features/coresearch/aristotle';
@@ -661,21 +661,15 @@ const releaseAccount = computed(() =>
     : me.data.value?.id,
 );
 const showReleaseHighlights = ref(false);
-const releaseKey = (account: string) => `lykeion.releaseHighlights:${account}`;
 watch(
   releaseAccount,
   (account) => {
-    showReleaseHighlights.value = false;
-    if (!account) return;
-    const previous = readText(releaseKey(account));
-    showReleaseHighlights.value =
-      Boolean(releaseHighlights?.length) &&
-      (previous === null || (previous !== undefined && isNewerRelease(version, previous)));
+    showReleaseHighlights.value = Boolean(account) && shouldShowRelease(account!);
   },
   { immediate: true },
 );
 function acknowledgeRelease() {
-  if (releaseAccount.value) writeText(releaseKey(releaseAccount.value), version);
+  if (releaseAccount.value) markReleaseSeen(releaseAccount.value);
   showReleaseHighlights.value = false;
 }
 watch(

@@ -31,6 +31,7 @@ import LabChartScene from '../lab-chart/LabChartScene.vue';
 import { toPreviewChart } from '../lab-chart/preview';
 import { prefixFromSlug, randomWorkspaceName, slugFrom } from '../../lib/studies';
 import { useWorkspaceTabs } from '../../state/workspace-tabs';
+import { markReleaseSeen } from './release-highlights';
 
 const desktopSession = inject(daemonSessionKey, null);
 const route = useRoute();
@@ -269,7 +270,9 @@ const back = () => {
 
 async function finishSetup() {
   const currentVisit = visit;
+  const account = me.data.value?.id;
   await api('PATCH', '/api/me', { onboarded: true });
+  if (account) markReleaseSeen(account);
   if (visit !== currentVisit) return;
   await client.invalidateQueries({ queryKey: keys.me });
   if (visit === currentVisit) await router.replace('/studies');
