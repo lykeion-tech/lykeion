@@ -918,3 +918,13 @@ export interface Laboratory {
     agents: { name: string; role: 'leader' | 'member' | 'auditor' }[];
   }[];
 }
+
+// GET /api/slack. Unknown fields are tolerated; a disconnected workspace omits status and team.
+export type SlackStatus = {
+  connected: boolean;
+  status?: 'active' | 'revoked';
+  team_name?: string;
+  drafting_agent_id?: string | null;
+  my_binding: { slack_user_id: string } | null;
+  visibility_note?: string;
+};

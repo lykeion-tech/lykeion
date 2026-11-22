@@ -11,6 +11,7 @@ import UpdatesView from './UpdatesView.vue';
 import AnalyticsPanel from './settings/AnalyticsPanel.vue';
 import SkillPanel from './settings/library/SkillPanel.vue';
 import ConnectorPanel from './settings/library/ConnectorPanel.vue';
+import CommunicationPanel from './settings/CommunicationPanel.vue';
 import TokenCreationForm from './settings/TokenCreationForm.vue';
 import ShortcutReference from './settings/ShortcutReference.vue';
 import TimeZonePicker from '../../ui/TimeZonePicker.vue';
@@ -72,6 +73,7 @@ const groups = computed(() =>
         { id: 'colleagues', label: 'Colleagues', icon: 'users' },
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
+        { id: 'communication', label: 'Communication', icon: 'chat' },
       ],
     },
   ]
@@ -89,6 +91,7 @@ const titles: Record<string, string> = {
   general: 'General',
   skills: 'Skills',
   connectors: 'Connectors',
+  communication: 'Communication',
 };
 function open(id: string) {
   if (id === 'colleagues') void router.push('/colleagues');
@@ -418,7 +421,7 @@ async function copySlug() {
           >
             <Icon name="plus" />Add a machine
           </button>
-          <span v-if="section === 'general'" class="scope-badge"
+          <span v-if="section === 'general' || section === 'communication'" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
           >
         </header>
@@ -435,6 +438,7 @@ async function copySlug() {
         <UpdatesView v-else-if="section === 'updates'" />
         <SkillPanel v-else-if="section === 'skills'" />
         <ConnectorPanel v-else-if="section === 'connectors'" />
+        <CommunicationPanel v-else-if="section === 'communication'" />
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">

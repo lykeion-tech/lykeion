@@ -11,6 +11,9 @@ vi.mock('../machines/MachinesView.vue', () => ({ default: { render: () => h('div
 vi.mock('./settings/StoragePanel.vue', () => ({ default: { render: () => h('div') } }));
 vi.mock('./settings/library/SkillPanel.vue', () => ({ default: { render: () => h('div') } }));
 vi.mock('./settings/library/ConnectorPanel.vue', () => ({ default: { render: () => h('div') } }));
+vi.mock('./settings/CommunicationPanel.vue', () => ({
+  default: { render: () => h('div', 'Slack panel') },
+}));
 vi.mock('./settings/AnalyticsPanel.vue', () => ({
   default: { render: () => h('div', 'Usage analytics') },
 }));
@@ -97,4 +100,12 @@ it('routes the narrow-screen selector to colleagues and retains the selected set
   await router.isReady();
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(router.currentRoute.value.path).toBe('/colleagues');
+});
+it('lists Communication in the workspace group with the workspace badge', async () => {
+  const { root } = await mount('communication');
+  const active = all(root).find((n) => n.tag === 'button' && n.props['aria-current'] === 'page');
+  expect(active && textOf(active)).toContain('Communication');
+  expect(all(root).some((n) => n.tag === 'h2' && textOf(n) === 'Communication')).toBe(true);
+  expect(all(root).some((n) => n.props.class === 'scope-badge')).toBe(true);
+  expect(textOf(root)).toContain('Slack panel');
 });

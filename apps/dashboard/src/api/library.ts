@@ -9,6 +9,7 @@ import type {
   RuntimeSkillRequest,
   SkillDetail,
   SkillSummary,
+  SlackStatus,
   WorkspaceMcpSummary,
 } from './types';
 export type {
@@ -262,6 +263,45 @@ export function useLibraryMutations() {
         `/api/runtimes/${encodeURIComponent(runtime)}/local-skills/import`,
         { keys: selectedKeys },
         (workspace, job) => [keys.runtimeSkillRequest(workspace, runtime, job.id)],
+      ),
+  };
+}
+
+// Slack: status, the owner's setup, and each member's own account link.
+export const useSlack = (workspace?: MaybeRefOrGetter<string>) =>
+  useQuery({
+    queryKey: computed(() => keys.slack(toValue(workspace) || ws.value)),
+    queryFn: ({ queryKey, signal }) =>
+      api<SlackStatus>('GET', '/api/slack', undefined, undefined, {
+        workspace: queryKey[1] as string,
+        signal,
+      }),
+    enabled: computed(() => Boolean(toValue(workspace) || ws.value)),
+  });
+export function useSlackMutations() {
+  const client = useQueryClient();
+  const done = async <T>(workspace: string, call: Promise<T>) => {
+    const out = await call;
+    await client.invalidateQueries({ queryKey: keys.slack(workspace) });
+    return out;
+  };
+  return {
+    connectSlack: (body: { bot_token: string; app_token: string; drafting_agent_id: string }) =>
+      done(ws.value, api('PUT', '/api/slack', body)),
+    updateSlack: (drafting_agent_id: string) =>
+      done(ws.value, api('PATCH', '/api/slack', { drafting_agent_id })),
+    disconnectSlack: () => done(ws.value, api('DELETE', '/api/slack')),
+    unlinkSlack: () => done(ws.value, api('DELETE', '/api/slack/binding')),
+    linkSlack: (token: string, workspace: string) =>
+      done(
+        workspace,
+        api<{ slack_user_id: string; team_name: string }>(
+          'POST',
+          '/api/slack/link',
+          { token },
+          undefined,
+          { workspace },
+        ),
       ),
   };
 }

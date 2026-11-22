@@ -60,6 +60,8 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.skills(ws),
         ...(typeof e.payload.skill_id === 'string' ? [keys.skill(ws, e.payload.skill_id)] : []),
       ];
+    case 'slack':
+      return [keys.slack(ws)];
     case 'connector':
       return e.payload.origin === 'custom'
         ? [
