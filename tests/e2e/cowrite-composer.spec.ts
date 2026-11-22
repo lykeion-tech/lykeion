@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 const models = [
   { value: 'cli-default', label: 'Default (recommended)', description: 'CLI default' },

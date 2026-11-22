@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { LAB, labCode, labFixture, labSignIn, labTeam } from './lab';
 import type { AgentRun, RunMessage } from '../../apps/dashboard/src/api/types';
 

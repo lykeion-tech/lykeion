@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { LAB, labFixture, openStudyDetails } from './lab';
 
 test('Execution shows Runs directly and Properties shows the details directly', async ({

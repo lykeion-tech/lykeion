@@ -7,27 +7,12 @@ import {
   request as apiRequest,
   type APIRequestContext,
   type Browser,
-  type BrowserContext,
   type Page,
   type WebSocketRoute,
 } from '@playwright/test';
 
 export const LAB = `http://${process.env.LYK_UI_LAB_ADDR || '127.0.0.1:18080'}`;
 export const EMAIL = 'ana@lab.test';
-const VERSION: string = JSON.parse(
-  readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
-).version;
-
-// Marks the current release as seen for these accounts (the context's signed-in
-// account when none are given), as a returning user would have, so the "What's
-// new" dialog only appears in the specs about it. Applies to pages opened later.
-export async function skipReleaseHighlights(context: BrowserContext, ...accounts: string[]) {
-  if (!accounts.length) accounts = [(await (await context.request.get('/api/me')).json()).id];
-  await context.addInitScript(
-    ([keys, version]) => keys.forEach((key) => localStorage.setItem(key, version)),
-    [accounts.map((id) => `lykeion.releaseHighlights:${id}`), VERSION] as const,
-  );
-}
 
 export async function openStudyDetails(page: Page) {
   const toggle = page.getByRole('button', { name: 'Toggle details', exact: true });
@@ -348,7 +333,6 @@ export async function labMember(
   );
   expect((await context.request.post(`/api/invitations/${token}/accept`)).status()).toBe(200);
   const me = await (await context.request.get('/api/me')).json();
-  await skipReleaseHighlights(context, me.id);
   const page = await context.newPage();
   await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
   return { context, page, userId: me.id as string };

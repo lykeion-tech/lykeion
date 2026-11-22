@@ -1,11 +1,10 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 import { installFilesFixture } from './coresearch-files-fixture';
 
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
   await installAristotleFixture(page);
   await page.goto('/#/coresearch');
-  await page.getByRole('button', { name: 'Close release highlights', exact: true }).click();
   await page.locator('.sidebar-brand:visible [aria-current=page]').click();
   await page
     .getByRole('complementary', { name: 'Workspace navigation' })

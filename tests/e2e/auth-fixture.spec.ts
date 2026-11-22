@@ -1,4 +1,4 @@
-import { expect, test, request as apiRequest } from '@playwright/test';
+import { expect, test, request as apiRequest } from './test';
 import { LAB, labCode } from './lab';
 
 test('lab auth reset is owner-only and preserves actual IP and email limits', async ({

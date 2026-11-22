@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { labPack, labWorkspace } from './lab';
 
 async function seed(page: Page, name: string) {

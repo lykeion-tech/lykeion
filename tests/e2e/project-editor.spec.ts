@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labFixture, labWorkspace } from './lab';
 
 test('project editor follows the reference layout at the New study modal size and saves real fields', async ({

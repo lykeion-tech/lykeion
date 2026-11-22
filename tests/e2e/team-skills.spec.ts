@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labPack, labWorkspace, labFixture, openAgentTranscript, openStudyDetails } from './lab';
 
 test('Team agent skills save in place, and not while a study uses the Team', async ({ page }) => {

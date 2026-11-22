@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labMember, labWorkspace } from './lab';
 
 test('Cowrite saves a long inline comment and shows it live to a collaborator', async ({

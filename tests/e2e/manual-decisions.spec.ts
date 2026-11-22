@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { installFilesFixture } from './coresearch-files-fixture';
 
 async function fixture(page: Page) {

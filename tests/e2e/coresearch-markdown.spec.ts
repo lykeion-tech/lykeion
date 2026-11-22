@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { bootstrapRecord } from './coresearch-files-fixture';
 
 const colleagueId = '80c96564-812e-4b40-8f8f-8ea0a1bbcefb';

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { newStudy, openAgentTranscript, openStudyDetails } from './lab';
 
 test('the study opens with its description and identifiable runs, keeping the question in its assignment', async ({

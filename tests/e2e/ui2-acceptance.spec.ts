@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { LAB, labFixture, labRealtime } from './lab';
 
 const shots = 'test-results/ui2/task18/screenshots';

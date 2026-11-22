@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { LAB, labFixture, openStudyDetails } from './lab';
 
 // Opens one of the study's right-pane surfaces from the chooser.

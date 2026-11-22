@@ -7,8 +7,8 @@ import {
   type Browser,
   type Page,
   type Route,
-} from '@playwright/test';
-import { labSignIn, skipReleaseHighlights } from './lab';
+} from './test';
+import { labSignIn } from './lab';
 
 test.use({ trace: 'off', screenshot: 'off' });
 
@@ -277,7 +277,6 @@ async function memberContext(owner: APIRequestContext, browser: Browser, ws: str
       await guest.request.patch('/api/me', { data: { name: 'Settings Member', onboarded: true } })
     ).status(),
   ).toBe(200);
-  await skipReleaseHighlights(guest, me.id);
   return { guest, id: me.id as string };
 }
 async function hold(

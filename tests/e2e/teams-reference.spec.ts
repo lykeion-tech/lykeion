@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labPack, labWorkspace } from './lab';
 
 test('Teams uses the reference table and opens the reference-size scientific creation modal', async ({

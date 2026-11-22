@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { cowriteFixture } from './cowrite-editor-fixture';
 test('real shared editor rebases, flushes file navigation, draws decisions and cursors', async ({
   page,

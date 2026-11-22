@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { LAB, labFixture, labSignIn, labWorkspace } from './lab';
 
 test('the lab daemon is listed and can be renamed', async ({ page }) => {

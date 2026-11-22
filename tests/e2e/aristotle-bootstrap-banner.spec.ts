@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { installFilesFixture } from './coresearch-files-fixture';
 
 test('a failed Aristotle bootstrap does not show an error banner on Projects', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labWorkspace, openStudyDetails } from './lab';
 
 const question = `Does ALDH1A3 track with insulin loss? ${Date.now()}`;

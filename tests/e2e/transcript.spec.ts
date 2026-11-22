@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { newStudy, labFixture, openAgentTranscript } from './lab';
 const artifacts = 'test-results/l2-transcript';
 

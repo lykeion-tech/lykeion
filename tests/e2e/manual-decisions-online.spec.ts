@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labSignIn, labWorkspace } from './lab';
 
 test('real sandboxed Codex proposes a note that is created only after human review', async ({

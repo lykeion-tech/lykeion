@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './test';
 import { labFlow, labInbox, labMember, labWorkspace, newStudy, type FlowRecord } from './lab';
 
 const shots = 'test-results/ui-lab/screenshots';

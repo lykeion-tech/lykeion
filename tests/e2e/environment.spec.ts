@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { newStudy } from './lab';
 
 test('the study page has no Overview and Environment tabs', async ({ page }) => {

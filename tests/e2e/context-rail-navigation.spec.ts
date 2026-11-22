@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
-import type { Locator, Page } from '@playwright/test';
+import type { Locator, Page } from './test';
 
 // The brand row's toggle sits on every rail; clicking the selected item again
 // swaps that rail and the main navigation.

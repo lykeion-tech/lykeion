@@ -1,5 +1,5 @@
 import { selectPicker } from './select-picker';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { labWorkspace } from './lab';
 
 test('Projects has the reference table and scopes its board and saved Properties to one project', async ({
