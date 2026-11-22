@@ -17,6 +17,7 @@ import (
 )
 
 type linkFix struct {
+	Env  *testutil.Env
 	S    *Service
 	WS   uuid.UUID
 	User uuid.UUID
@@ -48,7 +49,7 @@ func linkSetup(t *testing.T) *linkFix {
 		}
 	}))
 	t.Cleanup(api.Close)
-	f := &linkFix{S: &Service{Store: st, Key: bytes.Repeat([]byte{9}, 32), APIURL: api.URL, PublicURL: "https://lyk.test"}}
+	f := &linkFix{Env: env, S: &Service{Store: st, Key: bytes.Repeat([]byte{9}, 32), APIURL: api.URL, PublicURL: "https://lyk.test"}}
 	ctx := context.Background()
 	u, err := st.Global().UpsertUserByEmail(ctx, "owner@lab.org")
 	if err != nil {
