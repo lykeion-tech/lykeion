@@ -928,3 +928,34 @@ export type SlackStatus = {
   my_binding: { slack_user_id: string } | null;
   visibility_note?: string;
 };
+
+export interface GitHubSettings {
+  configured: boolean;
+  auto_link: boolean;
+  connections: {
+    installation_id: number;
+    account_login: string;
+    connected_by: string;
+    status: string;
+    import_state: string;
+  }[];
+}
+
+export interface StudyPullRequest {
+  id: string;
+  repo_owner: string;
+  repo_name: string;
+  number: number;
+  html_url: string;
+  title: string;
+  state: string;
+  author_login: string;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+  ci_state?: string | null;
+  ci_passed: number;
+  ci_failing?: string[] | null;
+  mergeability?: string | null;
+  snapshot_stale?: boolean;
+}

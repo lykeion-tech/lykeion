@@ -110,3 +110,11 @@ it('lists Communication in the workspace group with the workspace badge', async 
   expect(all(root).some((n) => n.props.class === 'scope-badge')).toBe(true);
   expect(textOf(root)).toContain('Slack panel');
 });
+
+it('opens Code in workspace settings with its scope badge', async () => {
+  const { root } = await mount('code');
+  expect(all(root).some((n) => n.tag === 'h2' && textOf(n) === 'Code')).toBe(true);
+  expect(
+    all(root).some((n) => n.props.class === 'scope-badge' && textOf(n).includes('Lab workspace')),
+  ).toBe(true);
+});

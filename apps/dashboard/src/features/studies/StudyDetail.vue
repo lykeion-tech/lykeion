@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from '@tanstack/vue-query';
 import { Square } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
+import StudyPullRequests from './StudyPullRequests.vue';
 import SurfacePane from '../../ui/SurfacePane.vue';
 import StudyOutputs from './StudyOutputs.vue';
 import StudyFileThumbnail from './StudyFileThumbnail.vue';
@@ -181,6 +182,7 @@ const studySurfaces = [
   { id: 'review', label: 'Review', icon: 'shield' },
   { id: 'notebook', label: 'Notebook', icon: 'code' },
   { id: 'files', label: 'Files', icon: 'file' },
+  { id: 'pull-requests', label: 'Pull requests', icon: 'link' },
   { id: 'properties', label: 'Properties', icon: 'settings' },
 ];
 const propertyBusy = ref(false);
@@ -922,6 +924,11 @@ function pin() {
         <div v-else-if="active === 'execution'" class="study-meta surface-content">
           <ExecutionLog :runs="runs.data.value ?? []" />
         </div>
+        <StudyPullRequests
+          v-else-if="active === 'pull-requests'"
+          :key="`${workspaceId}:${id}`"
+          :card-id="id"
+        />
         <StudyReview v-else-if="active === 'review'" :card-id="id" :request="reviewRequest" />
         <StudyNotebook
           v-else-if="active === 'notebook'"

@@ -4,6 +4,8 @@ import { api } from './client';
 import { keys } from './keys';
 import { workspaceId as ws } from './session';
 import type {
+  GitHubSettings,
+  StudyPullRequest,
   ConnectorSummary,
   RuntimeSkillOperation,
   RuntimeSkillRequest,
@@ -302,6 +304,57 @@ export function useSlackMutations() {
           undefined,
           { workspace },
         ),
+      ),
+  };
+}
+
+export const useGitHub = () =>
+  useQuery({
+    queryKey: computed(() => keys.github(ws.value)),
+    queryFn: ({ queryKey, signal }) =>
+      api<GitHubSettings>('GET', '/api/github', undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      }),
+    enabled: computed(() => Boolean(ws.value)),
+    retry: false,
+  });
+
+export const useStudyPullRequests = (card: MaybeRefOrGetter<string>) =>
+  useQuery({
+    queryKey: computed(() => keys.studyPullRequests(ws.value, toValue(card))),
+    queryFn: async ({ queryKey, signal }) =>
+      (await api<StudyPullRequest[] | null>('GET', prPath(queryKey[3]), undefined, undefined, {
+        workspace: queryKey[1],
+        signal,
+      })) ?? [],
+    enabled: computed(() => Boolean(ws.value && toValue(card))),
+    retry: false,
+  });
+
+function prPath(card: string) {
+  return `/api/cards/${encodeURIComponent(card)}/pull-requests`;
+}
+
+export function useGitHubMutations() {
+  const client = useQueryClient();
+  async function change(key: QueryKey, method: string, path: string, body?: unknown) {
+    await api(method, path, body, undefined, { workspace: ws.value });
+    await client.invalidateQueries({ queryKey: key });
+  }
+  return {
+    connectGitHub: () => api<{ url: string }>('POST', '/api/github/connect'),
+    setGitHubAutoLink: (auto_link: boolean) =>
+      change(keys.github(ws.value), 'PATCH', '/api/github', { auto_link }),
+    disconnectGitHub: (id: number) =>
+      change(keys.github(ws.value), 'DELETE', `/api/github/connections/${id}`),
+    linkPullRequest: (card: string, url: string) =>
+      change(keys.studyPullRequests(ws.value, card), 'POST', prPath(card), { url }),
+    unlinkPullRequest: (card: string, id: string) =>
+      change(
+        keys.studyPullRequests(ws.value, card),
+        'DELETE',
+        `${prPath(card)}/${encodeURIComponent(id)}`,
       ),
   };
 }

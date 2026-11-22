@@ -60,6 +60,9 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.skills(ws),
         ...(typeof e.payload.skill_id === 'string' ? [keys.skill(ws, e.payload.skill_id)] : []),
       ];
+    case 'github':
+      if (e.type === 'github.changed') return [keys.github(ws)];
+      return e.type === 'github.pr.changed' ? own(keys.studyPullRequests) : [];
     case 'slack':
       return [keys.slack(ws)];
     case 'connector':

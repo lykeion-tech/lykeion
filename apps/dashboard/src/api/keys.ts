@@ -94,6 +94,9 @@ export const keys = {
   skill: (ws: string, id: string) => ['ws', ws, 'skill', id] as const,
   skillFile: (ws: string, id: string, revision: number, path: string) =>
     ['ws', ws, 'skill', id, 'files', revision, path] as const,
+  github: (ws: string) => ['ws', ws, 'github'] as const,
+  studyPullRequests: (ws: string, card: string) =>
+    ['ws', ws, 'cards', card, 'pull-requests'] as const,
   slack: (ws: string) => ['ws', ws, 'slack'] as const,
   connectors: (ws: string) => ['ws', ws, 'connectors'] as const,
   openAlex: (ws: string) => ['ws', ws, 'connectors', 'openalex'] as const,

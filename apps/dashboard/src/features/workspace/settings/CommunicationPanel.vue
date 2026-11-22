@@ -108,31 +108,6 @@ h3 {
 h3:first-of-type {
   margin-top: 0;
 }
-.setting-box {
-  background: var(--input);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.app-row {
-  min-height: 64px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-}
-.name {
-  flex: 1;
-  min-width: 0;
-}
-.name small {
-  display: block;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 18px;
-  margin-top: 2px;
-}
 .value {
   color: var(--muted);
   text-align: right;
@@ -145,3 +120,4 @@ h3:first-of-type {
   margin: 10px 2px 0;
 }
 </style>
+<style scoped src="./integration-settings.css"></style>

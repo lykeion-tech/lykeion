@@ -12,6 +12,7 @@ import AnalyticsPanel from './settings/AnalyticsPanel.vue';
 import ResearchProfilePanel from './settings/ResearchProfilePanel.vue';
 import SkillPanel from './settings/library/SkillPanel.vue';
 import ConnectorPanel from './settings/library/ConnectorPanel.vue';
+import CodePanel from './settings/CodePanel.vue';
 import CommunicationPanel from './settings/CommunicationPanel.vue';
 import TokenCreationForm from './settings/TokenCreationForm.vue';
 import ShortcutReference from './settings/ShortcutReference.vue';
@@ -74,6 +75,7 @@ const groups = computed(() =>
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
         { id: 'communication', label: 'Communication', icon: 'chat' },
+        { id: 'code', label: 'Code', icon: 'code' },
       ],
     },
   ]
@@ -92,6 +94,7 @@ const titles: Record<string, string> = {
   skills: 'Skills',
   connectors: 'Connectors',
   communication: 'Communication',
+  code: 'Code',
 };
 function open(id: string) {
   void router.push({ path: '/settings', query: { tab: id } });
@@ -417,7 +420,7 @@ async function copySlug() {
           >
             <Icon name="plus" />Add a machine
           </button>
-          <span v-if="section === 'general' || section === 'communication'" class="scope-badge"
+          <span v-if="['general', 'communication', 'code'].includes(section)" class="scope-badge"
             ><Icon name="users" :size="11" />{{ workspace.data.value?.name }} workspace</span
           >
         </header>
@@ -435,6 +438,7 @@ async function copySlug() {
         <SkillPanel v-else-if="section === 'skills'" />
         <ConnectorPanel v-else-if="section === 'connectors'" />
         <CommunicationPanel v-else-if="section === 'communication'" />
+        <CodePanel v-else-if="section === 'code'" :key="workspaceId" />
         <template v-else-if="section === 'profile'">
           <h3>Personal information</h3>
           <div class="setting-box">
@@ -778,21 +782,6 @@ async function copySlug() {
 
 .notifications-layout .settings-heading {
   margin-bottom: 31px;
-}
-.code-layout .settings-heading {
-  margin-bottom: 32px;
-}
-.code-layout .code-host {
-  min-height: 106px;
-}
-.code-layout .repositories-empty {
-  min-height: 78px;
-}
-.code-layout .subsection-toolbar {
-  margin-top: 31px;
-}
-.code-layout .setting-row:not(.code-host) {
-  min-height: 71px;
 }
 
 .desktop-settings {
@@ -1607,29 +1596,6 @@ async function copySlug() {
   font-size: 13px;
   color: var(--muted);
 }
-.code-host {
-  min-height: 108px;
-  gap: 12px;
-  align-items: flex-start;
-}
-.code-host > span:nth-child(2) {
-  flex: 1;
-  line-height: 22px;
-  padding-top: 2px;
-}
-.code-host > .button {
-  align-self: center;
-}
-.code-host-icon {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  height: 36px;
-  width: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  flex: none;
-}
 .inline-muted {
   display: inline !important;
   margin-left: 6px;
@@ -1645,17 +1611,6 @@ async function copySlug() {
 }
 .subsection-toolbar .section-description {
   margin-bottom: 14px;
-}
-.repositories-empty {
-  min-height: 80px;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-.repository-url {
-  font-size: 13px;
-  overflow-wrap: anywhere;
 }
 .career-box {
   padding: 14px 16px 16px;

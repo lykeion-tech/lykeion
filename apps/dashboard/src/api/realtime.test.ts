@@ -771,3 +771,11 @@ describe('delayed cursor reads', () => {
     }
   });
 });
+
+it('invalidates GitHub settings and only the linked study in its workspace', () => {
+  expect(invalidationsFor('w1', ev('github.changed', null))).toEqual([['ws', 'w1', 'github']]);
+  expect(invalidationsFor('w1', ev('github.pr.changed'))).toEqual([
+    ['ws', 'w1', 'cards', 'c1', 'pull-requests'],
+  ]);
+  expect(invalidationsFor('w2', ev('github.pr.changed'))).toEqual([]);
+});

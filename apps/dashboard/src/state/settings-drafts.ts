@@ -25,8 +25,6 @@ export interface SettingsDraft {
   labels: LabelDraft[];
   properties: PropertyDraft[];
   notifications: Record<string, boolean>;
-  repositories: { id: string; url: string }[];
-  code: { sidebar: boolean; autoLink: boolean; coAuthor: boolean };
 }
 
 const key = 'lykeion.settings-drafts';
