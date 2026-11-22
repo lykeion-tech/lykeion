@@ -246,10 +246,15 @@ func (h *H) deleteSlackBinding(w http.ResponseWriter, r *http.Request) {
 // checked on every call; there is no fallback.
 func (h *H) SlackDraft(ctx context.Context, ws, user uuid.UUID, in slack.DraftIn) (uuid.UUID, error) {
 	err := h.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error { return DraftingAgentUsable(ctx, tx, ws, in.AgentID) })
-	if err != nil {
-		return uuid.Nil, err
+	var id uuid.UUID
+	if err == nil {
+		id, err = h.DraftStudy(ctx, ws, user, StudyDraftIn{AgentID: in.AgentID, Prompt: in.Prompt, Priority: in.Priority})
 	}
-	return h.DraftStudy(ctx, ws, user, StudyDraftIn{AgentID: in.AgentID, Prompt: in.Prompt, Priority: in.Priority})
+	var refused cardInputError
+	if errors.As(err, &refused) {
+		return uuid.Nil, slack.UserError(refused)
+	}
+	return id, err
 }
 
 // postSlackLink redeems a link token for the caller. The email that Slack

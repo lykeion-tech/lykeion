@@ -53,6 +53,10 @@ func inSetup(t *testing.T) *inFix {
 		f.calls = append(f.calls, call{Method: strings.TrimPrefix(r.URL.Path, "/"), Form: r.Form})
 		code := f.fail[strings.TrimPrefix(r.URL.Path, "/")]
 		f.mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/conversations.open") && code == "" {
+			w.Write([]byte(`{"ok":true,"channel":{"id":"D1"}}`))
+			return
+		}
 		if code != "" {
 			w.Write([]byte(`{"ok":false,"error":"` + code + `"}`))
 			return

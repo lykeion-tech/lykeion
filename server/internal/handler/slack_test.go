@@ -229,8 +229,8 @@ func TestSlackDraftRefusesAnUnusableAgent(t *testing.T) {
 	agent := s.stagedAgent(t, owner, ws.ID, "hypotheses")
 	s.mustUpdate(t, `UPDATE agent SET visibility='private' WHERE id=$1`, agent)
 	_, err := s.H.SlackDraft(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, owner)), slack.DraftIn{AgentID: uuid.MustParse(agent), Prompt: "x"})
-	if _, ok := err.(cardInputError); !ok {
-		t.Fatalf("want cardInputError, got %v", err)
+	if _, ok := err.(slack.UserError); !ok {
+		t.Fatalf("want slack.UserError, got %v", err)
 	}
 }
 

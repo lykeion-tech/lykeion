@@ -26,6 +26,11 @@ type Drafter interface {
 	SlackDraft(ctx context.Context, ws, user uuid.UUID, in DraftIn) (uuid.UUID, error)
 }
 
+// UserError is a refusal that is safe and useful to show in Slack as is.
+type UserError string
+
+func (e UserError) Error() string { return string(e) }
+
 type Service struct {
 	Store     *store.Store
 	Key       []byte
@@ -34,6 +39,9 @@ type Service struct {
 	AgentRuns *service.AgentRuns
 	Drafter   Drafter
 	PublicURL string
+	// DeleteChat deletes a private lab chat and cancels its runs (set to
+	// handler.DeleteLabChatInTx; slack cannot import handler).
+	DeleteChat func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error
 }
 
 // Identity is what the two tokens say about the Slack app.

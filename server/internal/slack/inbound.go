@@ -24,9 +24,8 @@ type Message struct {
 }
 
 const (
-	helpText = "Ask me a question about your lab and I'll answer from your workspace's evidence.\n" +
-		"/study <request> drafts a study, /new starts a fresh chat, /clear deletes this chat, /help shows this.\n" +
-		"An answer in a channel is visible to everyone in that channel, including people outside your workspace."
+	helpText = "DM me, or @mention me in a channel, to ask about your workspace. Answers in a channel are visible to everyone in it, including people outside your Lykeion workspace. " +
+		"/study <request> drafts a study. /new starts a new conversation. /clear deletes the current one."
 	offlineText = "Your machine is offline. Connect it in Lykeion and ask again."
 	filesText   = "Aristotle can't read Slack files yet; I answered from your text only."
 	maxQuestion = 8000
@@ -36,6 +35,30 @@ const (
 type reply struct {
 	ephemeral bool
 	text      string
+}
+
+func linkText(link string) string {
+	return "Link your Slack account to Lykeion to ask Aristotle: " + link
+}
+
+// resolve finds the member behind a Slack user, re-checking membership on
+// every event. An unbound user gets a fresh link token instead.
+func (s *Service) resolve(ctx context.Context, inst db.SlackInstallation, slackUser string) (user uuid.UUID, bound bool, link string, err error) {
+	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, inst.InstalledBy, func(tx *store.Tx) error {
+		b, err := tx.Q.GetSlackBinding(ctx, db.GetSlackBindingParams{InstallationID: inst.ID, SlackUserID: slackUser})
+		if err == nil {
+			if _, err = tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: inst.WorkspaceID, UserID: b.UserID}); err == nil {
+				user, bound = b.UserID, true
+				return nil
+			}
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		link, err = s.MintLink(ctx, tx, inst, slackUser)
+		return err
+	})
+	return
 }
 
 // HandleMessage turns a Slack message into an Ask Aristotle question as its
@@ -60,27 +83,10 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 		thread = m.TS
 	}
 	var (
-		user    uuid.UUID
-		bound   bool
-		link    string
 		replies []reply
 		react   bool
 	)
-	// Who is asking? Membership is re-checked on every event.
-	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, inst.InstalledBy, func(tx *store.Tx) error {
-		b, err := tx.Q.GetSlackBinding(ctx, db.GetSlackBindingParams{InstallationID: inst.ID, SlackUserID: m.User})
-		if err == nil {
-			if _, err = tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: inst.WorkspaceID, UserID: b.UserID}); err == nil {
-				user, bound = b.UserID, true
-				return nil
-			}
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		link, err = s.MintLink(ctx, tx, inst, m.User)
-		return err
-	})
+	user, bound, link, err := s.resolve(ctx, inst, m.User)
 	if err != nil {
 		return err
 	}
@@ -105,7 +111,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	}
 	if !bound {
 		committed = true
-		return say(reply{true, "Link your Slack account to Lykeion to ask Aristotle: " + link})
+		return say(reply{true, linkText(link)})
 	}
 	text := strings.TrimSpace(strings.ReplaceAll(m.Text, "<@"+inst.BotUserID+">", ""))
 	switch {
