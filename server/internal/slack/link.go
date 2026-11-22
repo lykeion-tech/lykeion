@@ -60,13 +60,13 @@ func (s *Service) Redeem(ctx context.Context, ws, user uuid.UUID, userEmail, raw
 	} else if err != nil {
 		return "", err
 	}
-	c, err := s.client(inst)
+	c, err := s.session(inst)
 	if err != nil {
 		return "", err
 	}
 	u, err := c.GetUserInfoContext(ctx, tok.SlackUserID)
 	if err != nil {
-		return "", scrub(err, raw)
+		return "", c.err(err, raw)
 	}
 	if !u.IsEmailConfirmed || u.Profile.Email == "" || !strings.EqualFold(u.Profile.Email, userEmail) {
 		return "", ErrEmailMismatch

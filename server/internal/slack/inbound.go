@@ -40,7 +40,7 @@ type reply struct {
 
 // HandleMessage turns a Slack message into an Ask Aristotle question as its
 // linked sender, then reacts (or replies) in Slack after the commit.
-func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, m Message) error {
+func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, m Message) (err error) {
 	if m.AppID != inst.AppID || m.BotID != "" || m.Subtype != "" || m.User == inst.BotUserID {
 		return nil
 	}
@@ -48,6 +48,13 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	if ok, err := s.Redis.SetNX(ctx, key, 1, time.Hour).Result(); err != nil || !ok {
 		return err
 	}
+	// A failure before the question commits lets Slack's retry run again.
+	committed := false
+	defer func() {
+		if err != nil && !committed {
+			s.Redis.Del(context.WithoutCancel(ctx), key)
+		}
+	}()
 	thread := m.ThreadTS
 	if thread == "" {
 		thread = m.TS
@@ -60,7 +67,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 		react   bool
 	)
 	// Who is asking? Membership is re-checked on every event.
-	err := s.Store.InWorkspace(ctx, inst.WorkspaceID, inst.InstalledBy, func(tx *store.Tx) error {
+	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, inst.InstalledBy, func(tx *store.Tx) error {
 		b, err := tx.Q.GetSlackBinding(ctx, db.GetSlackBindingParams{InstallationID: inst.ID, SlackUserID: m.User})
 		if err == nil {
 			if _, err = tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: inst.WorkspaceID, UserID: b.UserID}); err == nil {
@@ -77,7 +84,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	if err != nil {
 		return err
 	}
-	c, err := s.client(inst)
+	c, err := s.session(inst)
 	if err != nil {
 		return err
 	}
@@ -91,12 +98,13 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	say := func(r reply) error {
 		if r.ephemeral {
 			_, err := c.PostEphemeralContext(ctx, m.Channel, m.User, opts(r.text)...)
-			return err
+			return c.err(err)
 		}
 		_, _, err := c.PostMessageContext(ctx, m.Channel, append(opts(r.text), slackgo.MsgOptionTS(thread))...)
-		return err
+		return c.err(err)
 	}
 	if !bound {
+		committed = true
 		return say(reply{true, "Link your Slack account to Lykeion to ask Aristotle: " + link})
 	}
 	text := strings.TrimSpace(strings.ReplaceAll(m.Text, "<@"+inst.BotUserID+">", ""))
@@ -133,13 +141,25 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 				_, err = tx.Q.UpsertSlackChat(ctx, db.UpsertSlackChatParams{InstallationID: inst.ID, UserID: user, Channel: key.Channel, ThreadTs: key.ThreadTs, LabChatID: chat.ID})
 			}
 		} else if err == nil {
-			chat, err = tx.Q.GetPrivateLabChat(ctx, sc.LabChatID)
+			// A chat deleted in the dashboard is only soft-deleted: start a new one.
+			if chat, err = tx.Q.GetPrivateLabChat(ctx, sc.LabChatID); errors.Is(err, pgx.ErrNoRows) {
+				if chat, err = tx.Q.CreateLabChat(ctx); err == nil {
+					_, err = tx.Q.UpsertSlackChat(ctx, db.UpsertSlackChatParams{InstallationID: inst.ID, UserID: user, Channel: key.Channel, ThreadTs: key.ThreadTs, LabChatID: chat.ID})
+				}
+			}
 		}
 		if err != nil {
 			return err
 		}
 		run, err := labmemory.EnqueueWithContext(ctx, tx, s.AgentRuns, chat, user, text, nil, nil, harness, "")
 		if err != nil {
+			return err
+		}
+		title := []rune(text)
+		if len(title) > 40 {
+			title = append(title[:40], '…')
+		}
+		if err = tx.Q.TouchLabChat(ctx, db.TouchLabChatParams{ID: chat.ID, Title: string(title)}); err != nil {
 			return err
 		}
 		_, err = tx.Q.CreateSlackPost(ctx, db.CreateSlackPostParams{InstallationID: inst.ID, UserID: user, Channel: m.Channel, ThreadTs: thread, Kind: "answer", AgentRunID: &run.ID})
@@ -149,6 +169,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	if err != nil {
 		return err
 	}
+	committed = true
 	for _, r := range replies {
 		if err := say(r); err != nil {
 			return err
@@ -156,7 +177,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	}
 	if react {
 		if err := c.AddReactionContext(ctx, "hourglass_flowing_sand", slackgo.NewRefToMessage(m.Channel, m.TS)); err != nil {
-			return err
+			return c.err(err)
 		}
 		if m.HasFiles {
 			return say(reply{false, filesText})

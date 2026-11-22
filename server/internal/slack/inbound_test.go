@@ -26,6 +26,7 @@ type inFix struct {
 	mu    sync.Mutex
 	calls []call
 	n     int
+	fail  map[string]string // method -> Slack error code
 }
 
 func (f *inFix) got(method string) []call {
@@ -50,7 +51,12 @@ func inSetup(t *testing.T) *inFix {
 		_ = r.ParseForm()
 		f.mu.Lock()
 		f.calls = append(f.calls, call{Method: strings.TrimPrefix(r.URL.Path, "/"), Form: r.Form})
+		code := f.fail[strings.TrimPrefix(r.URL.Path, "/")]
 		f.mu.Unlock()
+		if code != "" {
+			w.Write([]byte(`{"ok":false,"error":"` + code + `"}`))
+			return
+		}
 		w.Write([]byte(`{"ok":true,"ts":"1.1"}`))
 	}))
 	t.Cleanup(api.Close)
@@ -133,6 +139,9 @@ func TestQuestionEnqueued(t *testing.T) {
 	}
 	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE status='pending' AND kind='answer' AND user_id=$1 AND channel='D1' AND thread_ts='5.5' AND agent_run_id IS NOT NULL`, u); n != 1 {
 		t.Fatalf("posts=%d", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM lab_chat WHERE owner_id=$1 AND title='what is known?'`, u); n != 1 {
+		t.Fatalf("title not set: %d", n)
 	}
 	if n := f.count(t, `SELECT count(*) FROM lab_message WHERE body='what is known?'`); n != 1 {
 		t.Fatalf("question not stripped: %d", n)
@@ -240,5 +249,54 @@ func TestRemovedMemberIsUnbound(t *testing.T) {
 	e := f.got("chat.postEphemeral")
 	if len(e) != 1 || !strings.Contains(e[0].Form.Get("text"), "/app/slack/link?") || f.count(t, `SELECT count(*) FROM agent_run`) != 0 {
 		t.Fatalf("%+v", f.calls)
+	}
+}
+
+func TestDeletedChatStartsNewOne(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "a@lab.org", "UA", true)
+	f.send(t, Message{User: "UA", Text: "one"})
+	err := f.S.Store.InWorkspace(context.Background(), f.WS, u, func(tx *store.Tx) error {
+		var id uuid.UUID
+		if err := f.Env.Owner.QueryRow(context.Background(), `SELECT id FROM lab_chat WHERE owner_id=$1`, u).Scan(&id); err != nil {
+			return err
+		}
+		_, err := tx.Q.DeletePrivateLabChat(context.Background(), id)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.send(t, Message{User: "UA", Text: "two"})
+	if n := f.count(t, `SELECT count(*) FROM lab_chat WHERE owner_id=$1 AND deleted_at IS NULL`, u); n != 1 {
+		t.Fatalf("live chats=%d", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM agent_run WHERE kind='aristotle'`); n != 2 {
+		t.Fatalf("runs=%d", n)
+	}
+}
+
+func TestSlackErrorsAreScrubbed(t *testing.T) {
+	f := inSetup(t)
+	f.member(t, "a@lab.org", "UA", true)
+	f.fail = map[string]string{"reactions.add": "boom xoxb-1-bot xapp-1-A1-2-app"}
+	f.n++
+	m := Message{EventID: "EvFail", AppID: f.Inst.AppID, User: "UA", Channel: "D1", ChannelType: "im", TS: "1.2", Text: "q"}
+	err := f.S.HandleMessage(context.Background(), f.Inst, m)
+	if err == nil || strings.Contains(err.Error(), "xoxb-1-bot") || strings.Contains(err.Error(), "xapp-1-A1-2-app") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestFailedBeforeCommitCanRetry(t *testing.T) {
+	f := inSetup(t)
+	f.member(t, "a@lab.org", "UA", true)
+	f.S.Store.Pool.Close() // the database fails before the question commits
+	m := Message{EventID: "EvRetry", AppID: f.Inst.AppID, User: "UA", Channel: "D1", ChannelType: "im", TS: "1.2", Text: "q"}
+	if err := f.S.HandleMessage(context.Background(), f.Inst, m); err == nil {
+		t.Fatal("want error")
+	}
+	if f.Env.Redis.Exists(context.Background(), "lyk:slack:event:"+f.Inst.ID.String()+":EvRetry").Val() != 0 {
+		t.Fatal("dedupe key kept after failure")
 	}
 }

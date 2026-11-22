@@ -49,6 +49,25 @@ func (s *Service) newClient(bot, app string) *slackgo.Client {
 
 // client opens the installation's sealed bot token.
 func (s *Service) client(inst db.SlackInstallation) (*slackgo.Client, error) {
+	c, err := s.session(inst)
+	if err != nil {
+		return nil, err
+	}
+	return c.Client, nil
+}
+
+// session is a Slack client that remembers its tokens, so every error it
+// returns through err() has them scrubbed.
+type session struct {
+	*slackgo.Client
+	secrets []string
+}
+
+func (c *session) err(e error, extra ...string) error {
+	return scrub(e, append(c.secrets, extra...)...)
+}
+
+func (s *Service) session(inst db.SlackInstallation) (*session, error) {
 	bot, err := s.Open(inst.WorkspaceID, inst.ID, "bot", inst.BotTokenCiphertext)
 	if err != nil {
 		return nil, err
@@ -57,7 +76,7 @@ func (s *Service) client(inst db.SlackInstallation) (*slackgo.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.newClient(bot, app), nil
+	return &session{s.newClient(bot, app), []string{bot, app}}, nil
 }
 
 // Verify checks the bot token with auth.test and the app token with
