@@ -296,6 +296,33 @@ func (q *Queries) GetSlackChat(ctx context.Context, arg GetSlackChatParams) (Sla
 	return i, err
 }
 
+const getSlackDraftState = `-- name: GetSlackDraftState :one
+SELECT d.completed, d.card_id,
+  EXISTS (SELECT 1 FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed') AS failed,
+  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed' ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
+FROM study_draft_request d
+WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = $1
+`
+
+type GetSlackDraftStateRow struct {
+	Completed bool       `json:"completed"`
+	CardID    *uuid.UUID `json:"card_id"`
+	Failed    bool       `json:"failed"`
+	Reason    string     `json:"reason"`
+}
+
+func (q *Queries) GetSlackDraftState(ctx context.Context, autoresearchID uuid.UUID) (GetSlackDraftStateRow, error) {
+	row := q.db.QueryRow(ctx, getSlackDraftState, autoresearchID)
+	var i GetSlackDraftStateRow
+	err := row.Scan(
+		&i.Completed,
+		&i.CardID,
+		&i.Failed,
+		&i.Reason,
+	)
+	return i, err
+}
+
 const getSlackInstallation = `-- name: GetSlackInstallation :one
 SELECT id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by, status, created_at, updated_at FROM slack_installation WHERE workspace_id = app_workspace()
 `

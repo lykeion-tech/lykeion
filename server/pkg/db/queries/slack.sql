@@ -88,3 +88,10 @@ ORDER BY created_at DESC LIMIT 1;
 -- name: SetSlackDraftingAgent :one
 UPDATE slack_installation SET drafting_agent_id = @drafting_agent_id, updated_at = now()
 WHERE workspace_id = app_workspace() RETURNING *;
+
+-- name: GetSlackDraftState :one
+SELECT d.completed, d.card_id,
+  EXISTS (SELECT 1 FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed') AS failed,
+  COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id AND r.status = 'failed' ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
+FROM study_draft_request d
+WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = @autoresearch_id;
