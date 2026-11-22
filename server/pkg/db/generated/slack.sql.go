@@ -320,7 +320,7 @@ func (q *Queries) GetSlackChat(ctx context.Context, arg GetSlackChatParams) (Sla
 
 const getSlackDraftState = `-- name: GetSlackDraftState :one
 SELECT d.completed, d.card_id,
-  COALESCE((SELECT r.status = 'failed' FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
+  COALESCE((SELECT r.status IN ('failed', 'skipped') FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
   COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
 WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = $1
@@ -503,6 +503,56 @@ type MarkSlackPostParams struct {
 func (q *Queries) MarkSlackPost(ctx context.Context, arg MarkSlackPostParams) error {
 	_, err := q.db.Exec(ctx, markSlackPost, arg.Status, arg.ID)
 	return err
+}
+
+const reconnectSlackInstallation = `-- name: ReconnectSlackInstallation :one
+UPDATE slack_installation SET team_id = $1, team_name = $2, bot_user_id = $3,
+  bot_token_ciphertext = $4, app_token_ciphertext = $5,
+  drafting_agent_id = $6, installed_by = $7, status = 'active', updated_at = now()
+WHERE workspace_id = app_workspace() AND id = $8 AND status = 'revoked' RETURNING id, workspace_id, app_id, team_id, team_name, bot_user_id, bot_token_ciphertext, app_token_ciphertext, drafting_agent_id, installed_by, status, created_at, updated_at
+`
+
+type ReconnectSlackInstallationParams struct {
+	TeamID             string     `json:"team_id"`
+	TeamName           string     `json:"team_name"`
+	BotUserID          string     `json:"bot_user_id"`
+	BotTokenCiphertext []byte     `json:"bot_token_ciphertext"`
+	AppTokenCiphertext []byte     `json:"app_token_ciphertext"`
+	DraftingAgentID    *uuid.UUID `json:"drafting_agent_id"`
+	InstalledBy        uuid.UUID  `json:"installed_by"`
+	ID                 uuid.UUID  `json:"id"`
+}
+
+// A revoked installation reconnected with the same app keeps its id, so its
+// bindings and chats survive.
+func (q *Queries) ReconnectSlackInstallation(ctx context.Context, arg ReconnectSlackInstallationParams) (SlackInstallation, error) {
+	row := q.db.QueryRow(ctx, reconnectSlackInstallation,
+		arg.TeamID,
+		arg.TeamName,
+		arg.BotUserID,
+		arg.BotTokenCiphertext,
+		arg.AppTokenCiphertext,
+		arg.DraftingAgentID,
+		arg.InstalledBy,
+		arg.ID,
+	)
+	var i SlackInstallation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.AppID,
+		&i.TeamID,
+		&i.TeamName,
+		&i.BotUserID,
+		&i.BotTokenCiphertext,
+		&i.AppTokenCiphertext,
+		&i.DraftingAgentID,
+		&i.InstalledBy,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const setSlackDraftingAgent = `-- name: SetSlackDraftingAgent :one

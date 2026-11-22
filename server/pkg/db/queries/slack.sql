@@ -9,6 +9,14 @@ INSERT INTO slack_installation (id, workspace_id, app_id, team_id, team_name, bo
 VALUES (@id, app_workspace(), @app_id, @team_id, @team_name, @bot_user_id, @bot_token_ciphertext, @app_token_ciphertext, @drafting_agent_id, @installed_by)
 RETURNING *;
 
+-- A revoked installation reconnected with the same app keeps its id, so its
+-- bindings and chats survive.
+-- name: ReconnectSlackInstallation :one
+UPDATE slack_installation SET team_id = @team_id, team_name = @team_name, bot_user_id = @bot_user_id,
+  bot_token_ciphertext = @bot_token_ciphertext, app_token_ciphertext = @app_token_ciphertext,
+  drafting_agent_id = @drafting_agent_id, installed_by = @installed_by, status = 'active', updated_at = now()
+WHERE workspace_id = app_workspace() AND id = @id AND status = 'revoked' RETURNING *;
+
 -- name: SetSlackInstallationStatus :one
 UPDATE slack_installation SET status = @status, updated_at = now()
 WHERE workspace_id = app_workspace() AND id = @id RETURNING *;
@@ -96,7 +104,7 @@ WHERE workspace_id = app_workspace() RETURNING *;
 
 -- name: GetSlackDraftState :one
 SELECT d.completed, d.card_id,
-  COALESCE((SELECT r.status = 'failed' FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
+  COALESCE((SELECT r.status IN ('failed', 'skipped') FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), false)::boolean AS failed,
   COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
 WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = @autoresearch_id;

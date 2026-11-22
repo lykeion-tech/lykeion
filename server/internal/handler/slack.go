@@ -107,18 +107,31 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 	var out slackView
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
 		ctx := r.Context()
+		if _, err := tx.Q.LockWorkspaceExecution(ctx, ws); err != nil {
+			return err
+		}
 		if err := tx.Q.LockWorkspaceEvents(ctx, ws); err != nil {
 			return err
 		}
-		if _, err := tx.Q.GetSlackInstallation(ctx); err == nil {
+		// A revoked installation is replaced: in place for the same app, so
+		// bindings survive; otherwise it is disconnected first.
+		id := uuid.New()
+		old, err := tx.Q.GetSlackInstallation(ctx)
+		switch {
+		case err == nil && old.Status != "revoked":
 			return conflict("Slack is already connected")
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+		case err == nil && old.AppID == identity.AppID:
+			id = old.ID
+		case err == nil:
+			if err := h.disconnectSlackInTx(ctx, tx, ws, user, old); err != nil {
+				return err
+			}
+		case !errors.Is(err, pgx.ErrNoRows):
 			return err
 		}
 		if err := DraftingAgentUsable(ctx, tx, ws, in.DraftingAgentID); err != nil {
 			return err
 		}
-		id := uuid.New()
 		bot, err := h.Slack.Seal(ws, id, "bot", in.BotToken)
 		if err != nil {
 			return err
@@ -127,9 +140,16 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		inst, err := tx.Q.CreateSlackInstallation(ctx, db.CreateSlackInstallationParams{ID: id, AppID: identity.AppID, TeamID: identity.TeamID,
-			TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
-			DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+		var inst db.SlackInstallation
+		if id == old.ID {
+			inst, err = tx.Q.ReconnectSlackInstallation(ctx, db.ReconnectSlackInstallationParams{ID: id, TeamID: identity.TeamID,
+				TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
+				DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+		} else {
+			inst, err = tx.Q.CreateSlackInstallation(ctx, db.CreateSlackInstallationParams{ID: id, AppID: identity.AppID, TeamID: identity.TeamID,
+				TeamName: identity.TeamName, BotUserID: identity.BotUserID, BotTokenCiphertext: bot, AppTokenCiphertext: app,
+				DraftingAgentID: &in.DraftingAgentID, InstalledBy: user})
+		}
 		if err != nil {
 			return err
 		}
@@ -198,24 +218,7 @@ func (h *H) deleteSlack(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		ids, err := tx.Q.ListSlackRunIDs(ctx, inst.ID)
-		if err != nil {
-			return err
-		}
-		for _, id := range ids {
-			run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: id, WorkspaceID: ws})
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			} else if err != nil {
-				return err
-			}
-			if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
-				if err := h.AgentRuns.CancelInTx(ctx, tx, user, run); err != nil {
-					return err
-				}
-			}
-		}
-		if err := tx.Q.DeleteSlackInstallation(ctx, inst.ID); err != nil {
+		if err := h.disconnectSlackInTx(ctx, tx, ws, user, inst); err != nil {
 			return err
 		}
 		return tx.Emit(ctx, "slack.changed", nil, store.User(user), nil)
@@ -223,6 +226,29 @@ func (h *H) deleteSlack(w http.ResponseWriter, r *http.Request) {
 	if answer(w, r, err) {
 		w.WriteHeader(204)
 	}
+}
+
+// disconnectSlackInTx cancels the runs Slack asked for and deletes the
+// installation. The caller holds the execution and event locks.
+func (h *H) disconnectSlackInTx(ctx context.Context, tx *store.Tx, ws, user uuid.UUID, inst db.SlackInstallation) error {
+	ids, err := tx.Q.ListSlackRunIDs(ctx, inst.ID)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		run, err := tx.Q.LockAgentRun(ctx, db.LockAgentRunParams{ID: id, WorkspaceID: ws})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if run.Status == "queued" || run.Status == "dispatched" || run.Status == "running" {
+			if err := h.AgentRuns.CancelInTx(ctx, tx, user, run); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Q.DeleteSlackInstallation(ctx, inst.ID)
 }
 
 // deleteSlackBinding unlinks the caller's own Slack account.

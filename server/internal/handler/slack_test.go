@@ -378,3 +378,43 @@ func TestSlackStudyRefusesArchivedAgent(t *testing.T) {
 		t.Fatalf("posts=%d %v", n, err)
 	}
 }
+
+func TestReconnectRevokedSlack(t *testing.T) {
+	s := newServer(t)
+	useFakeSlack(t, s)
+	owner := s.signIn(t, "owner@lab.org")
+	ws := s.workspace(t, owner, "lab")
+	agent := s.stagedAgent(t, owner, ws.ID, "hypotheses")
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), nil); code != 200 {
+		t.Fatalf("put: %d", code)
+	}
+	s.mustUpdate(t, `INSERT INTO slack_binding(workspace_id,installation_id,slack_user_id,user_id)
+ SELECT i.workspace_id,i.id,'UOWNER',u.id FROM slack_installation i, "user" u WHERE u.email='owner@lab.org' AND i.workspace_id=$1`, ws.ID)
+	s.mustUpdate(t, `UPDATE slack_installation SET status='revoked' WHERE workspace_id=$1`, ws.ID)
+	var view struct {
+		Status string `json:"status"`
+	}
+	// The same app: replaced in place, the binding survives.
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), &view); code != 200 || view.Status != "active" {
+		t.Fatalf("reconnect: %d %+v", code, view)
+	}
+	if n := s.count(t, `SELECT count(*) FROM slack_binding WHERE workspace_id=$1`, ws.ID); n != 1 {
+		t.Fatalf("bindings: %d", n)
+	}
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), nil); code != 409 {
+		t.Fatalf("active put: %d", code)
+	}
+	// Another app: the revoked installation is disconnected first.
+	s.mustUpdate(t, `UPDATE slack_installation SET status='revoked' WHERE workspace_id=$1`, ws.ID)
+	other := slackBody(agent)
+	other["app_token"] = "xapp-1-A0APP2-333-secret-app"
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, other, &view); code != 200 || view.Status != "active" {
+		t.Fatalf("other app: %d %+v", code, view)
+	}
+	if n := s.count(t, `SELECT count(*) FROM slack_installation WHERE workspace_id=$1 AND app_id='A0APP2' AND status='active'`, ws.ID); n != 1 {
+		t.Fatalf("installations: %d", n)
+	}
+	if n := s.count(t, `SELECT count(*) FROM slack_binding WHERE workspace_id=$1`, ws.ID); n != 0 {
+		t.Fatalf("bindings kept across apps: %d", n)
+	}
+}
