@@ -91,10 +91,13 @@ WHERE workspace_id = @workspace_id AND id = @id AND installation_id = @installat
   AND (snapshot_attempt_at IS NULL OR snapshot_attempt_at < @observed_at);
 
 -- name: ListPullRequestsForCard :many
-SELECT sqlc.embed(p), l.source
+SELECT p.id, p.repo_owner, p.repo_name, p.number, p.title, p.state, p.html_url,
+  p.author_login, p.author_avatar_url, p.additions, p.deletions, p.changed_files,
+  p.ci_state, p.ci_passed, p.ci_total, p.ci_failing, p.mergeability, p.snapshot_stale, l.source
 FROM github_pull_request p
 JOIN github_pr_link l ON l.workspace_id = p.workspace_id AND l.pr_id = p.id
 WHERE l.workspace_id = @workspace_id AND l.card_id = @card_id
+  AND (sqlc.narg(pr_id)::uuid IS NULL OR p.id = sqlc.narg(pr_id))
 ORDER BY (p.state IN ('open', 'draft')) DESC, p.pr_updated_at DESC, p.id;
 
 -- name: ListLinksForPR :many

@@ -99,9 +99,10 @@ func (s *Service) mirrorLocked(ctx context.Context, conn *pgxpool.Conn, installa
 }
 
 type mirrorTarget struct {
-	workspace uuid.UUID
-	prefix    string
-	cards     map[string]uuid.UUID
+	workspace  uuid.UUID
+	manualCard uuid.UUID // A paste preserves this pair for the explicit link operation.
+	prefix     string
+	cards      map[string]uuid.UUID
 }
 
 func (s *Service) mirrorTargets(ctx context.Context, conn *pgxpool.Conn, installation int64, p PullRequest) ([]mirrorTarget, error) {
@@ -218,7 +219,7 @@ func applyMirror(ctx context.Context, tx *store.Tx, installation int64, p PullRe
 		if changed {
 			affected[l.CardID] = true
 		}
-		if auto && l.Source == "auto" && strings.HasPrefix(l.MatchedKey, t.prefix+"-") && t.cards[l.MatchedKey] != l.CardID {
+		if auto && l.CardID != t.manualCard && l.Source == "auto" && strings.HasPrefix(l.MatchedKey, t.prefix+"-") && t.cards[l.MatchedKey] != l.CardID {
 			_, err := tx.Q.DeleteGithubLink(ctx, db.DeleteGithubLinkParams{WorkspaceID: tx.WS, PrID: row.ID, CardID: l.CardID})
 			if err != nil {
 				return err
@@ -228,6 +229,9 @@ func applyMirror(ctx context.Context, tx *store.Tx, installation int64, p PullRe
 	}
 	if auto {
 		for key, card := range t.cards {
+			if card == t.manualCard {
+				continue
+			}
 			skip, err := tx.Q.IsGithubUnlinked(ctx, db.IsGithubUnlinkedParams{WorkspaceID: tx.WS, PrID: row.ID, CardID: card})
 			if err != nil {
 				return err

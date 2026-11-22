@@ -189,3 +189,87 @@ func (h *H) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 }
+
+func (h *H) listStudyPRs(w http.ResponseWriter, r *http.Request) {
+	card, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	tx := middleware.TxFrom(ctx)
+	if _, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: card}); !answer(w, r, err) {
+		return
+	}
+	rows, err := tx.Q.ListPullRequestsForCard(ctx, db.ListPullRequestsForCardParams{WorkspaceID: tx.WS, CardID: card})
+	if !answer(w, r, err) {
+		return
+	}
+	if rows == nil {
+		rows = []db.ListPullRequestsForCardRow{}
+	}
+	writeJSON(w, 200, rows)
+}
+
+func (h *H) linkStudyPR(w http.ResponseWriter, r *http.Request) {
+	card, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	raw := middleware.FromHeader(r)
+	if raw == "" {
+		writeErr(w, 400, "X-Workspace-ID required")
+		return
+	}
+	ws, err := uuid.Parse(raw)
+	if err != nil {
+		writeErr(w, 404, "workspace not found")
+		return
+	}
+	var in struct {
+		URL string `json:"url"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		in.URL = ""
+	}
+	svc := h.GitHub
+	if svc == nil {
+		svc = &github.Service{Store: h.Store}
+	}
+	row, err := svc.LinkByURL(r.Context(), ws, user(r), card, in.URL)
+	var ue *github.UserError
+	if errors.As(err, &ue) {
+		writeErr(w, 400, ue.Msg)
+		return
+	}
+	if answer(w, r, err) {
+		writeJSON(w, 201, row)
+	}
+}
+
+func (h *H) unlinkStudyPR(w http.ResponseWriter, r *http.Request) {
+	card, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	pr, err := uuid.Parse(chi.URLParam(r, "pr"))
+	if err != nil {
+		writeErr(w, 404, "not found")
+		return
+	}
+	ctx := r.Context()
+	tx := middleware.TxFrom(ctx)
+	n, err := tx.Q.DeleteGithubLink(ctx, db.DeleteGithubLinkParams{WorkspaceID: tx.WS, CardID: card, PrID: pr})
+	if err == nil && n == 0 {
+		err = pgx.ErrNoRows
+	}
+	if !answer(w, r, err) {
+		return
+	}
+	err = tx.Q.InsertGithubUnlink(ctx, db.InsertGithubUnlinkParams{WorkspaceID: tx.WS, CardID: card, PrID: pr})
+	if err == nil {
+		err = tx.Emit(ctx, "github.pr.changed", &card, store.User(user(r)), nil)
+	}
+	if answer(w, r, err) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}

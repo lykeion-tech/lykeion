@@ -162,6 +162,7 @@ func NewRouter(h *H) http.Handler {
 		// Cancel opens its own service transaction; keep it outside Scope's transaction.
 		r.Post("/api/agent-runs/{id}/cancel", h.cancelAgentRun)
 		r.Post("/api/autoresearch/{id}/run", h.runAutoresearch)
+		r.Post("/api/cards/{id}/pull-requests", h.linkStudyPR)
 		r.Post("/api/cards/{id}/stop", h.stopCard)
 		r.Post("/api/decisions/{id}/decide", h.decideDecision)
 		r.Post("/api/decisions/{id}/answers", h.answerDecision)
@@ -394,6 +395,8 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
+			r.Get("/api/cards/{id}/pull-requests", h.listStudyPRs)
+			r.Delete("/api/cards/{id}/pull-requests/{pr}", h.unlinkStudyPR)
 			r.Get("/api/github", h.getGitHub)
 			r.With(middleware.RequireOwner).Post("/api/github/connect", h.connectGitHub)
 			r.With(middleware.RequireOwner).Patch("/api/github", h.patchGitHub)

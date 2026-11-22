@@ -512,25 +512,46 @@ func (q *Queries) ListLinksForPR(ctx context.Context, arg ListLinksForPRParams) 
 }
 
 const listPullRequestsForCard = `-- name: ListPullRequestsForCard :many
-SELECT p.id, p.workspace_id, p.installation_id, p.repo_owner, p.repo_name, p.number, p.title, p.state, p.html_url, p.branch, p.body_keys, p.author_login, p.author_avatar_url, p.additions, p.deletions, p.changed_files, p.head_sha, p.merged_at, p.closed_at, p.pr_created_at, p.pr_updated_at, p.ci_state, p.ci_passed, p.ci_total, p.ci_failing, p.mergeability, p.snapshot_at, p.snapshot_attempt_at, p.snapshot_stale, p.created_at, p.updated_at, l.source
+SELECT p.id, p.repo_owner, p.repo_name, p.number, p.title, p.state, p.html_url,
+  p.author_login, p.author_avatar_url, p.additions, p.deletions, p.changed_files,
+  p.ci_state, p.ci_passed, p.ci_total, p.ci_failing, p.mergeability, p.snapshot_stale, l.source
 FROM github_pull_request p
 JOIN github_pr_link l ON l.workspace_id = p.workspace_id AND l.pr_id = p.id
 WHERE l.workspace_id = $1 AND l.card_id = $2
+  AND ($3::uuid IS NULL OR p.id = $3)
 ORDER BY (p.state IN ('open', 'draft')) DESC, p.pr_updated_at DESC, p.id
 `
 
 type ListPullRequestsForCardParams struct {
-	WorkspaceID uuid.UUID `json:"workspace_id"`
-	CardID      uuid.UUID `json:"card_id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      uuid.UUID  `json:"card_id"`
+	PrID        *uuid.UUID `json:"pr_id"`
 }
 
 type ListPullRequestsForCardRow struct {
-	GithubPullRequest GithubPullRequest `json:"github_pull_request"`
-	Source            string            `json:"source"`
+	ID              uuid.UUID `json:"id"`
+	RepoOwner       string    `json:"repo_owner"`
+	RepoName        string    `json:"repo_name"`
+	Number          int32     `json:"number"`
+	Title           string    `json:"title"`
+	State           string    `json:"state"`
+	HtmlUrl         string    `json:"html_url"`
+	AuthorLogin     string    `json:"author_login"`
+	AuthorAvatarUrl string    `json:"author_avatar_url"`
+	Additions       int32     `json:"additions"`
+	Deletions       int32     `json:"deletions"`
+	ChangedFiles    int32     `json:"changed_files"`
+	CiState         *string   `json:"ci_state"`
+	CiPassed        int32     `json:"ci_passed"`
+	CiTotal         int32     `json:"ci_total"`
+	CiFailing       []string  `json:"ci_failing"`
+	Mergeability    *string   `json:"mergeability"`
+	SnapshotStale   bool      `json:"snapshot_stale"`
+	Source          string    `json:"source"`
 }
 
 func (q *Queries) ListPullRequestsForCard(ctx context.Context, arg ListPullRequestsForCardParams) ([]ListPullRequestsForCardRow, error) {
-	rows, err := q.db.Query(ctx, listPullRequestsForCard, arg.WorkspaceID, arg.CardID)
+	rows, err := q.db.Query(ctx, listPullRequestsForCard, arg.WorkspaceID, arg.CardID, arg.PrID)
 	if err != nil {
 		return nil, err
 	}
@@ -539,37 +560,24 @@ func (q *Queries) ListPullRequestsForCard(ctx context.Context, arg ListPullReque
 	for rows.Next() {
 		var i ListPullRequestsForCardRow
 		if err := rows.Scan(
-			&i.GithubPullRequest.ID,
-			&i.GithubPullRequest.WorkspaceID,
-			&i.GithubPullRequest.InstallationID,
-			&i.GithubPullRequest.RepoOwner,
-			&i.GithubPullRequest.RepoName,
-			&i.GithubPullRequest.Number,
-			&i.GithubPullRequest.Title,
-			&i.GithubPullRequest.State,
-			&i.GithubPullRequest.HtmlUrl,
-			&i.GithubPullRequest.Branch,
-			&i.GithubPullRequest.BodyKeys,
-			&i.GithubPullRequest.AuthorLogin,
-			&i.GithubPullRequest.AuthorAvatarUrl,
-			&i.GithubPullRequest.Additions,
-			&i.GithubPullRequest.Deletions,
-			&i.GithubPullRequest.ChangedFiles,
-			&i.GithubPullRequest.HeadSha,
-			&i.GithubPullRequest.MergedAt,
-			&i.GithubPullRequest.ClosedAt,
-			&i.GithubPullRequest.PrCreatedAt,
-			&i.GithubPullRequest.PrUpdatedAt,
-			&i.GithubPullRequest.CiState,
-			&i.GithubPullRequest.CiPassed,
-			&i.GithubPullRequest.CiTotal,
-			&i.GithubPullRequest.CiFailing,
-			&i.GithubPullRequest.Mergeability,
-			&i.GithubPullRequest.SnapshotAt,
-			&i.GithubPullRequest.SnapshotAttemptAt,
-			&i.GithubPullRequest.SnapshotStale,
-			&i.GithubPullRequest.CreatedAt,
-			&i.GithubPullRequest.UpdatedAt,
+			&i.ID,
+			&i.RepoOwner,
+			&i.RepoName,
+			&i.Number,
+			&i.Title,
+			&i.State,
+			&i.HtmlUrl,
+			&i.AuthorLogin,
+			&i.AuthorAvatarUrl,
+			&i.Additions,
+			&i.Deletions,
+			&i.ChangedFiles,
+			&i.CiState,
+			&i.CiPassed,
+			&i.CiTotal,
+			&i.CiFailing,
+			&i.Mergeability,
+			&i.SnapshotStale,
 			&i.Source,
 		); err != nil {
 			return nil, err
