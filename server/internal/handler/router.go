@@ -44,6 +44,7 @@ func NewRouter(h *H) http.Handler {
 
 	r.With(hiddenServiceCredential, middleware.Auth(h.Store, h.JWT), personalOnly).Get("/api/daemon/runs/{run}/services/{id}", h.daemonService)
 	r.Post("/api/webhooks/autoresearch/{token}", h.autoresearchWebhook)
+	r.Get("/api/github/setup", h.setupGitHub)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	r.Get("/readyz", h.readyz)
 	r.Post("/api/contact-sales", h.contactSales)
@@ -392,6 +393,10 @@ func NewRouter(h *H) http.Handler {
 			r.Get("/api/connectors/openalex", h.openAlexConnector)
 			r.With(middleware.RequireOwner).Put("/api/connectors/{name}", h.setConnector)
 
+			r.Get("/api/github", h.getGitHub)
+			r.With(middleware.RequireOwner).Post("/api/github/connect", h.connectGitHub)
+			r.With(middleware.RequireOwner).Patch("/api/github", h.patchGitHub)
+			r.With(middleware.RequireOwner).Delete("/api/github/connections/{installation}", h.disconnectGitHub)
 			r.Get("/api/slack", h.getSlack)
 			r.With(middleware.RequireOwner).Put("/api/slack", h.putSlack)
 			r.With(middleware.RequireOwner).Patch("/api/slack", h.patchSlack)

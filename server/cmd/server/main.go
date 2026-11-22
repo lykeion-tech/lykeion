@@ -27,6 +27,7 @@ import (
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/embed"
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/github"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/jev"
 	"lykeion/server/internal/labindex"
@@ -300,6 +301,12 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		Google:    auth.GoogleDefaults(getenv("GOOGLE_CLIENT_ID"), getenv("GOOGLE_CLIENT_SECRET"), getenv("PUBLIC_URL")+"/auth/google/callback"),
 		PublicURL: strings.TrimRight(getenv("PUBLIC_URL"), "/"), Shipped: pack.Shipped(),
 		TrustedProxies: handler.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))}
+	githubConfig, configErr := github.ConfigFromEnv(getenv)
+	if configErr != nil {
+		slog.Warn("GitHub App configuration invalid", "err", configErr)
+		githubConfig = github.Config{WebhookSecret: getenv("GITHUB_WEBHOOK_SECRET")}
+	}
+	h.GitHub = &github.Service{Store: st, Config: githubConfig, PublicURL: h.PublicURL, StateSecret: h.JWT.Secret}
 	h.Slack = &slack.Service{Store: st, Key: secretKey, Redis: rdb, AgentRuns: runs, Drafter: h, PublicURL: h.PublicURL,
 		DeleteChat: func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error {
 			return handler.DeleteLabChatInTx(ctx, tx, runs, user, chat)

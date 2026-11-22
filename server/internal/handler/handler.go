@@ -22,6 +22,7 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/connectors"
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/github"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/realtime"
 	"lykeion/server/internal/service"
@@ -43,6 +44,7 @@ type H struct {
 	Hub          *realtime.Hub
 	Connectors   *connectors.Client // seals connector keys; Contact decides whether contact-bound connectors are ready
 	Engine       *flow.Engine
+	GitHub       *github.Service
 	Slack        *slack.Service
 	AgentRuns    *service.AgentRuns
 	Blobs        storage.Storage
