@@ -110,3 +110,26 @@ func TestDraftStudyWithoutRequest(t *testing.T) {
 		t.Fatalf("private agent: %v", err)
 	}
 }
+
+func TestDraftStudyRefusesRemovedMember(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "own@lab.org")
+	ws := s.workspace(t, owner, "removed-lab")
+	agent := uuid.MustParse(s.stagedAgent(t, owner, ws.ID, "hypotheses"))
+	tok := s.invite(t, owner, ws.ID, "gone@lab.org", "member")
+	member := s.signIn(t, "gone@lab.org")
+	if c := s.call(t, "POST", "/api/invitations/"+tok+"/accept", member, "", nil, nil); c/100 != 2 {
+		t.Fatalf("accept: %d", c)
+	}
+	memberID := s.userID(t, member)
+	if c := s.call(t, "DELETE", "/api/workspaces/"+ws.ID+"/members/"+memberID, owner, "", nil, nil); c/100 != 2 {
+		t.Fatalf("remove: %d", c)
+	}
+	_, err := s.H.DraftStudy(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(memberID), StudyDraftIn{AgentID: agent, Prompt: "x", Priority: "none"})
+	if err == nil {
+		t.Fatal("removed member queued a draft")
+	}
+	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE workspace_id=$1`, ws.ID); n != 0 {
+		t.Fatalf("draft rows: %d", n)
+	}
+}

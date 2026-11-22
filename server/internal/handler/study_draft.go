@@ -74,6 +74,13 @@ func (h *H) DraftStudy(ctx context.Context, ws, user uuid.UUID, in StudyDraftIn)
 	}
 	var id uuid.UUID
 	err := h.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
+		// Same locks as middleware.InWorkspace: a removed member must not queue drafts.
+		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
+			return err
+		}
+		if _, err := tx.Q.LockMember(ctx, db.LockMemberParams{WorkspaceID: ws, UserID: user}); err != nil {
+			return err
+		}
 		var err error
 		id, _, err = h.draftStudy(ctx, tx, ws, user, in)
 		return err
