@@ -43,6 +43,7 @@ func NewRouter(h *H) http.Handler {
 	r.Use(chimw.RequestID, chimw.Recoverer, middleware.RequestBounds)
 
 	r.With(hiddenServiceCredential, middleware.Auth(h.Store, h.JWT), personalOnly).Get("/api/daemon/runs/{run}/services/{id}", h.daemonService)
+	r.Post("/api/webhooks/github", h.githubWebhook)
 	r.Post("/api/webhooks/autoresearch/{token}", h.autoresearchWebhook)
 	r.Get("/api/github/setup", h.setupGitHub)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })

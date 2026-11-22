@@ -221,6 +221,40 @@ func (q *Queries) GithubInstallationWorkspaces(ctx context.Context, installation
 	return items, nil
 }
 
+const githubMatchCards = `-- name: GithubMatchCards :many
+SELECT id, number FROM card WHERE workspace_id = $1 AND number = ANY($2::integer[])
+`
+
+type GithubMatchCardsParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Numbers     []int32   `json:"numbers"`
+}
+
+type GithubMatchCardsRow struct {
+	ID     uuid.UUID `json:"id"`
+	Number int32     `json:"number"`
+}
+
+func (q *Queries) GithubMatchCards(ctx context.Context, arg GithubMatchCardsParams) ([]GithubMatchCardsRow, error) {
+	rows, err := q.db.Query(ctx, githubMatchCards, arg.WorkspaceID, arg.Numbers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GithubMatchCardsRow
+	for rows.Next() {
+		var i GithubMatchCardsRow
+		if err := rows.Scan(&i.ID, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const githubPendingImports = `-- name: GithubPendingImports :many
 SELECT workspace_id::uuid AS workspace_id, installation_id::bigint AS installation_id FROM github_pending_imports()
 `
@@ -248,6 +282,17 @@ func (q *Queries) GithubPendingImports(ctx context.Context) ([]GithubPendingImpo
 		return nil, err
 	}
 	return items, nil
+}
+
+const hasGithubWebhookDelivery = `-- name: HasGithubWebhookDelivery :one
+SELECT EXISTS (SELECT 1 FROM github_webhook_delivery WHERE id = $1)
+`
+
+func (q *Queries) HasGithubWebhookDelivery(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, hasGithubWebhookDelivery, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const insertGithubLink = `-- name: InsertGithubLink :execrows

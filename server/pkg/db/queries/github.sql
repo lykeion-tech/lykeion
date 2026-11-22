@@ -145,3 +145,9 @@ FROM workspace WHERE id = @workspace_id;
 -- name: SetGithubAutoLink :exec
 UPDATE workspace SET settings = jsonb_set(settings, '{github_auto_link}', to_jsonb(@enabled::boolean))
 WHERE id = @workspace_id;
+
+-- name: HasGithubWebhookDelivery :one
+SELECT EXISTS (SELECT 1 FROM github_webhook_delivery WHERE id = @id);
+
+-- name: GithubMatchCards :many
+SELECT id, number FROM card WHERE workspace_id = @workspace_id AND number = ANY(@numbers::integer[]);

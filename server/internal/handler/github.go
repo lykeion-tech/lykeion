@@ -2,10 +2,12 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -145,5 +147,45 @@ func (h *H) disconnectGitHub(w http.ResponseWriter, r *http.Request) {
 	}
 	if answer(w, r, err) {
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *H) githubWebhook(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if h.GitHub == nil || h.GitHub.Config.WebhookSecret == "" {
+		writeErr(w, 503, githubNotConfigured)
+		return
+	}
+	ok, err := h.Limit.Allow(ctx, "github:wh:ip:"+h.clientIP(r), webhookPerIP, time.Minute)
+	if err != nil {
+		writeErr(w, 503, "try again later")
+		return
+	}
+	if !ok {
+		writeErr(w, 429, "too many requests")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		writeErr(w, 413, "payload too large: at most 1 MiB")
+		return
+	}
+	if err != nil {
+		writeErr(w, 400, "unreadable body")
+		return
+	}
+	if !github.VerifySignature(h.GitHub.Config.WebhookSecret, r.Header.Get("X-Hub-Signature-256"), body) {
+		writeErr(w, 401, "invalid GitHub signature")
+		return
+	}
+	err = h.GitHub.Handle(ctx, r.Header.Get("X-GitHub-Event"), r.Header.Get("X-GitHub-Delivery"), body)
+	switch {
+	case errors.Is(err, github.ErrWebhookPayload):
+		writeErr(w, 400, err.Error())
+	case err != nil:
+		writeErr(w, 500, "GitHub delivery failed")
+	default:
+		w.WriteHeader(http.StatusOK)
 	}
 }
