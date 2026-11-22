@@ -327,7 +327,7 @@ func TestInstallLaboratoryMergesPrivateCopies(t *testing.T) {
 	cols := map[[2]string]bool{
 		{"agent_run", "agent_id"}: true, {"coresearch_conversation", "agent_id"}: true, {"team_agent", "agent_id"}: true,
 		{"agent_capabilities", "agent_id"}: true, {"card", "assignee_id"}: true, {"autoresearch", "assignee_id"}: true,
-		{"research", "lead_id"}: true,
+		{"research", "lead_id"}: true, {"slack_installation", "drafting_agent_id"}: true,
 	}
 	refs, err := l.env.Owner.Query(context.Background(), `SELECT c.conrelid::regclass::text, a.attname
 FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey, c.confkey) k(col, ref)

@@ -25,6 +25,16 @@ func (h *H) slackReady(w http.ResponseWriter) bool {
 	return true
 }
 
+// slackKeyed refuses paths that seal or open Slack tokens on a server
+// without LYK_SECRET_KEY.
+func (h *H) slackKeyed(w http.ResponseWriter) bool {
+	if len(h.Slack.Key) == 0 {
+		writeErr(w, 503, "Slack is unavailable: this server has no LYK_SECRET_KEY")
+		return false
+	}
+	return true
+}
+
 type slackBindingView struct {
 	SlackUserID string `json:"slack_user_id"`
 }
@@ -86,8 +96,7 @@ func (h *H) putSlack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bot token, app token and drafting agent are required")
 		return
 	}
-	if len(h.Slack.Key) == 0 {
-		writeErr(w, 503, "this server cannot store keys: it has no LYK_SECRET_KEY")
+	if !h.slackKeyed(w) {
 		return
 	}
 	identity, err := h.Slack.Verify(r.Context(), in.BotToken, in.AppToken)
@@ -260,7 +269,7 @@ func (h *H) SlackDraft(ctx context.Context, ws, user uuid.UUID, in slack.DraftIn
 // postSlackLink redeems a link token for the caller. The email that Slack
 // confirms must be the one on the caller's own account.
 func (h *H) postSlackLink(w http.ResponseWriter, r *http.Request) {
-	if !h.slackReady(w) {
+	if !h.slackReady(w) || !h.slackKeyed(w) {
 		return
 	}
 	var in struct {

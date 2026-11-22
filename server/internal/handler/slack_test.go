@@ -95,6 +95,24 @@ func TestOwnerConnectsSlack(t *testing.T) {
 	}
 }
 
+func TestSlackWithoutSecretKey(t *testing.T) {
+	s := newServer(t)
+	useFakeSlack(t, s)
+	s.H.Slack.Key = nil
+	owner := s.signIn(t, "owner@lab.org")
+	ws := s.workspace(t, owner, "lab")
+	agent := s.stagedAgent(t, owner, ws.ID, "hypotheses")
+	if code := s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), nil); code != 503 {
+		t.Fatalf("put without key: %d", code)
+	}
+	if code := s.call(t, "POST", "/api/slack/link", owner, ws.ID, map[string]string{"token": "t"}, nil); code != 503 {
+		t.Fatalf("link without key: %d", code)
+	}
+	if code := s.call(t, "GET", "/api/slack", owner, ws.ID, nil, nil); code != 200 {
+		t.Fatalf("get without key: %d", code)
+	}
+}
+
 func TestSlackRefusesAPrivateAgentAndBadTokens(t *testing.T) {
 	s := newServer(t)
 	useFakeSlack(t, s)

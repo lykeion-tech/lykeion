@@ -156,8 +156,12 @@ func (s *Service) hold(ctx context.Context, ws, id uuid.UUID) {
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	socketDone := make(chan struct{})
+	// Return only once the connection is closed, so a released lease never
+	// leaves this connection open beside the next holder's.
+	defer func() { cancel(); <-socketDone }()
 	go func() {
+		defer close(socketDone)
 		defer cancel()
 		if err := s.socket(ctx, inst); err != nil && ctx.Err() == nil {
 			slog.Warn("slack connection ended", "installation", inst.ID, "err", err)

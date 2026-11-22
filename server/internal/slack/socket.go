@@ -41,10 +41,16 @@ func toMessage(e slackevents.EventsAPIEvent) (Message, bool) {
 	return m, true
 }
 
-// revokes reports whether the event says the app lost its tokens.
+// revokes reports whether the event says the app lost its bot token. A
+// tokens_revoked naming only user (OAuth) tokens leaves the bot working.
 func revokes(e slackevents.EventsAPIEvent) bool {
-	t := slackevents.EventsAPIType(e.InnerEvent.Type)
-	return t == slackevents.AppUninstalled || t == slackevents.TokensRevoked
+	switch ev := e.InnerEvent.Data.(type) {
+	case *slackevents.AppUninstalledEvent:
+		return true
+	case *slackevents.TokensRevokedEvent:
+		return len(ev.Tokens.Bot) > 0
+	}
+	return false
 }
 
 func toCommand(c slackgo.SlashCommand) Command {

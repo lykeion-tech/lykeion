@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -173,9 +174,25 @@ func TestToMessage(t *testing.T) {
 }
 
 func TestRevocationEvent(t *testing.T) {
-	for typ, want := range map[string]bool{"app_uninstalled": true, "tokens_revoked": true, "app_mention": false} {
-		if got := revokes(parseEvent(t, callback(`{"type":"`+typ+`"}`))); got != want {
-			t.Errorf("%s: %v", typ, got)
+	for event, want := range map[string]bool{
+		`{"type":"app_uninstalled"}`:                          true,
+		`{"type":"tokens_revoked","tokens":{"bot":["UBOT"]}}`: true,
+		`{"type":"tokens_revoked","tokens":{"oauth":["U1"]}}`: false,
+		`{"type":"app_mention","user":"U1","channel":"C1"}`:   false,
+	} {
+		if got := revokes(parseEvent(t, callback(event))); got != want {
+			t.Errorf("%s: %v", event, got)
+		}
+	}
+}
+
+func TestAuthFailed(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"invalid_auth": true, "not_authed": true, "token_revoked": true, "account_inactive": true,
+		"slack server error: 500": false, "dial tcp: connection refused": false,
+	} {
+		if got := authFailed(errors.New(msg)); got != want {
+			t.Errorf("%q: %v", msg, got)
 		}
 	}
 }
