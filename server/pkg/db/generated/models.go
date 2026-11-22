@@ -1019,6 +1019,64 @@ type RuntimeSkillRequest struct {
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+type SlackBinding struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	InstallationID uuid.UUID `json:"installation_id"`
+	SlackUserID    string    `json:"slack_user_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type SlackChat struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	InstallationID uuid.UUID `json:"installation_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	Channel        string    `json:"channel"`
+	ThreadTs       string    `json:"thread_ts"`
+	LabChatID      uuid.UUID `json:"lab_chat_id"`
+}
+
+type SlackInstallation struct {
+	ID                 uuid.UUID  `json:"id"`
+	WorkspaceID        uuid.UUID  `json:"workspace_id"`
+	AppID              string     `json:"app_id"`
+	TeamID             string     `json:"team_id"`
+	TeamName           string     `json:"team_name"`
+	BotUserID          string     `json:"bot_user_id"`
+	BotTokenCiphertext []byte     `json:"bot_token_ciphertext"`
+	AppTokenCiphertext []byte     `json:"app_token_ciphertext"`
+	DraftingAgentID    *uuid.UUID `json:"drafting_agent_id"`
+	InstalledBy        uuid.UUID  `json:"installed_by"`
+	Status             string     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type SlackLinkToken struct {
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	InstallationID uuid.UUID  `json:"installation_id"`
+	SlackUserID    string     `json:"slack_user_id"`
+	TokenHash      string     `json:"token_hash"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	UsedAt         *time.Time `json:"used_at"`
+}
+
+type SlackPost struct {
+	ID             uuid.UUID  `json:"id"`
+	WorkspaceID    uuid.UUID  `json:"workspace_id"`
+	InstallationID uuid.UUID  `json:"installation_id"`
+	UserID         uuid.UUID  `json:"user_id"`
+	Channel        string     `json:"channel"`
+	ThreadTs       string     `json:"thread_ts"`
+	Kind           string     `json:"kind"`
+	AgentRunID     *uuid.UUID `json:"agent_run_id"`
+	AutoresearchID *uuid.UUID `json:"autoresearch_id"`
+	Status         string     `json:"status"`
+	Attempts       int32      `json:"attempts"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
 type StageAddon struct {
 	WorkspaceID uuid.UUID       `json:"workspace_id"`
 	BoardColumn string          `json:"board_column"`
