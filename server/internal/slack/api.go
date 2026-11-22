@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -42,6 +43,9 @@ type Service struct {
 	// DeleteChat deletes a private lab chat and cancels its runs (set to
 	// handler.DeleteLabChatInTx; slack cannot import handler).
 	DeleteChat func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error
+	LeaseTTL   time.Duration // 0 = 30 s; shorter in tests
+
+	holdFunc func(ctx context.Context, ws, id uuid.UUID) // tests stub hold
 }
 
 // Identity is what the two tokens say about the Slack app.

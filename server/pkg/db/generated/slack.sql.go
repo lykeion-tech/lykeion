@@ -562,6 +562,36 @@ func (q *Queries) SetSlackInstallationStatus(ctx context.Context, arg SetSlackIn
 	return i, err
 }
 
+const slackActiveInstallations = `-- name: SlackActiveInstallations :many
+SELECT id::uuid AS id, workspace_id::uuid AS workspace_id FROM slack_active_installations()
+`
+
+type SlackActiveInstallationsRow struct {
+	ID          uuid.UUID `json:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// Cross-tenant on purpose: ids only, through the SECURITY DEFINER function.
+func (q *Queries) SlackActiveInstallations(ctx context.Context) ([]SlackActiveInstallationsRow, error) {
+	rows, err := q.db.Query(ctx, slackActiveInstallations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SlackActiveInstallationsRow
+	for rows.Next() {
+		var i SlackActiveInstallationsRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertSlackChat = `-- name: UpsertSlackChat :one
 INSERT INTO slack_chat (workspace_id, installation_id, user_id, channel, thread_ts, lab_chat_id)
 VALUES (app_workspace(), $1, $2, $3, $4, $5)

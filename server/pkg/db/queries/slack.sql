@@ -100,3 +100,7 @@ SELECT d.completed, d.card_id,
   COALESCE((SELECT r.reason FROM autoresearch_run r WHERE r.workspace_id = d.workspace_id AND r.autoresearch_id = d.autoresearch_id ORDER BY r.created_at DESC LIMIT 1), '')::text AS reason
 FROM study_draft_request d
 WHERE d.workspace_id = app_workspace() AND d.autoresearch_id = @autoresearch_id;
+
+-- name: SlackActiveInstallations :many
+-- Cross-tenant on purpose: ids only, through the SECURITY DEFINER function.
+SELECT id::uuid AS id, workspace_id::uuid AS workspace_id FROM slack_active_installations();
