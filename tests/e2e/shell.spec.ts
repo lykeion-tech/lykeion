@@ -337,6 +337,14 @@ for (const destination of ['inbox', 'settings']) {
       release = resolve;
     });
     let first = true;
+    // Disconnect only once the page has opened and subscribed; a socket closed
+    // before it opens is a failed connect, which retries without the banner.
+    let subscribed = false;
+    page.on('websocket', (socket) =>
+      socket.on('framesent', ({ payload }) => {
+        if (JSON.parse(String(payload)).type === 'subscribe') subscribed = true;
+      }),
+    );
     await page.routeWebSocket('**/ws', async (route) => {
       if (!first) await gate;
       first = false;
@@ -348,7 +356,7 @@ for (const destination of ['inbox', 'settings']) {
     });
     try {
       await page.goto(`/#/${destination}`);
-      await expect.poll(() => Boolean(disconnect)).toBe(true);
+      await expect.poll(() => subscribed).toBe(true);
       disconnect();
       await expect(page.getByText('Reconnecting…', { exact: true })).toBeVisible();
       await page.screenshot({
