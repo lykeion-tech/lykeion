@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/auth"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/pack"
 	"lykeion/server/internal/service"
@@ -28,25 +29,6 @@ const inviteTTL = 7 * 24 * time.Hour
 var errLastOwner = errors.New("a workspace needs at least one owner")
 
 var prefixRe = regexp.MustCompile(`^([A-Z]{2,6})?$`)
-
-// displayPrefix is the prefix card numbers show with: the workspace's own,
-// else the first four letters of its slug in capitals, else LYK when the slug
-// has fewer than two letters.
-func displayPrefix(prefix, slug string) string {
-	if prefix != "" {
-		return prefix
-	}
-	var b strings.Builder
-	for _, c := range slug {
-		if c >= 'a' && c <= 'z' && b.Len() < 4 {
-			b.WriteRune(c - 'a' + 'A')
-		}
-	}
-	if b.Len() < 2 {
-		return "LYK"
-	}
-	return b.String()
-}
 
 // workspaceView is a workspace with the prefix its card numbers show and its
 // newest event id, read in the same transaction: a browser's first /ws
@@ -80,7 +62,7 @@ func (h *H) listWorkspaces(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			out = append(out, myWorkspace{row, displayPrefix(row.CardPrefix, row.Slug), cursor})
+			out = append(out, myWorkspace{row, board.DisplayPrefix(row.CardPrefix, row.Slug), cursor})
 		}
 		return nil
 	})
@@ -148,7 +130,7 @@ func (h *H) getWorkspace(w http.ResponseWriter, r *http.Request) {
 		if out.Workspace, err = tx.Q.GetWorkspace(r.Context(), ws); err != nil {
 			return err
 		}
-		out.DisplayPrefix = displayPrefix(out.CardPrefix, out.Slug)
+		out.DisplayPrefix = board.DisplayPrefix(out.CardPrefix, out.Slug)
 		out.EventCursor, err = tx.Q.LatestEventID(r.Context(), ws)
 		return err
 	})
@@ -209,7 +191,7 @@ func (h *H) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Emit(r.Context(), "workspace.updated", nil, store.User(user), map[string]any{"fields": fields}); err != nil {
 			return err
 		}
-		out.DisplayPrefix = displayPrefix(out.CardPrefix, out.Slug)
+		out.DisplayPrefix = board.DisplayPrefix(out.CardPrefix, out.Slug)
 		out.EventCursor, err = tx.Q.LatestEventID(r.Context(), ws)
 		return err
 	})

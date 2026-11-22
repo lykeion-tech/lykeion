@@ -9,20 +9,6 @@ import (
 	"testing"
 )
 
-func TestDisplayPrefix(t *testing.T) {
-	for _, c := range []struct{ prefix, slug, want string }{
-		{"BETA", "smith-lab", "BETA"},
-		{"", "smith-lab", "SMIT"},
-		{"", "ab-12", "AB"},
-		{"", "x1", "LYK"},
-		{"", "42-lab", "LAB"},
-	} {
-		if got := displayPrefix(c.prefix, c.slug); got != c.want {
-			t.Errorf("displayPrefix(%q, %q) = %q, want %q", c.prefix, c.slug, got, c.want)
-		}
-	}
-}
-
 type wsView struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`

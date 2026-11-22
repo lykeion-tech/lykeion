@@ -677,6 +677,73 @@ type FieldPackApproval struct {
 	ApprovedAt  time.Time `json:"approved_at"`
 }
 
+type GithubConnection struct {
+	WorkspaceID      uuid.UUID `json:"workspace_id"`
+	InstallationID   int64     `json:"installation_id"`
+	AccountLogin     string    `json:"account_login"`
+	AccountType      string    `json:"account_type"`
+	AccountAvatarUrl string    `json:"account_avatar_url"`
+	ConnectedBy      uuid.UUID `json:"connected_by"`
+	Status           string    `json:"status"`
+	ImportState      string    `json:"import_state"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type GithubPrLink struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	CardID      uuid.UUID  `json:"card_id"`
+	PrID        uuid.UUID  `json:"pr_id"`
+	Source      string     `json:"source"`
+	MatchedKey  string     `json:"matched_key"`
+	LinkedBy    *uuid.UUID `json:"linked_by"`
+	LinkedAt    time.Time  `json:"linked_at"`
+}
+
+type GithubPrUnlink struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	PrID        uuid.UUID `json:"pr_id"`
+}
+
+type GithubPullRequest struct {
+	ID              uuid.UUID  `json:"id"`
+	WorkspaceID     uuid.UUID  `json:"workspace_id"`
+	InstallationID  int64      `json:"installation_id"`
+	RepoOwner       string     `json:"repo_owner"`
+	RepoName        string     `json:"repo_name"`
+	Number          int32      `json:"number"`
+	Title           string     `json:"title"`
+	State           string     `json:"state"`
+	HtmlUrl         string     `json:"html_url"`
+	Branch          string     `json:"branch"`
+	BodyKeys        []string   `json:"body_keys"`
+	AuthorLogin     string     `json:"author_login"`
+	AuthorAvatarUrl string     `json:"author_avatar_url"`
+	Additions       int32      `json:"additions"`
+	Deletions       int32      `json:"deletions"`
+	ChangedFiles    int32      `json:"changed_files"`
+	HeadSha         string     `json:"head_sha"`
+	MergedAt        *time.Time `json:"merged_at"`
+	ClosedAt        *time.Time `json:"closed_at"`
+	PrCreatedAt     time.Time  `json:"pr_created_at"`
+	PrUpdatedAt     time.Time  `json:"pr_updated_at"`
+	CiState         *string    `json:"ci_state"`
+	CiPassed        int32      `json:"ci_passed"`
+	CiTotal         int32      `json:"ci_total"`
+	CiFailing       []string   `json:"ci_failing"`
+	Mergeability    *string    `json:"mergeability"`
+	SnapshotAt      *time.Time `json:"snapshot_at"`
+	SnapshotStale   bool       `json:"snapshot_stale"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type GithubWebhookDelivery struct {
+	ID         string    `json:"id"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
 type InboxItem struct {
 	ID                uuid.UUID       `json:"id"`
 	WorkspaceID       uuid.UUID       `json:"workspace_id"`
