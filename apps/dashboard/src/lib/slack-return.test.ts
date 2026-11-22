@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { rememberSlackLink, takeSlackLink } from './slack-return';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import { landedOn, rememberSlackLink, takeSlackLink } from './slack-return';
 
 const saved = new Map<string, string>();
 beforeEach(() => {
@@ -15,4 +16,18 @@ it('returns the signed-out Slack link with its token once, and ignores other rou
   rememberSlackLink('/slack/link', '/slack/link?workspace=w&token=t');
   expect(takeSlackLink()).toBe('/slack/link?workspace=w&token=t');
   expect(takeSlackLink()).toBe('');
+});
+
+it('lands on the saved Slack link with its query intact after sign-in', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:p(.*)*', component: { render: () => null } }],
+  });
+  await router.push('/signin');
+  rememberSlackLink('/slack/link', '/slack/link?workspace=w&token=t');
+  const target = takeSlackLink();
+  await router.replace(target);
+  expect(landedOn(router.currentRoute.value, target)).toBe(true);
+  expect(router.currentRoute.value.query).toEqual({ workspace: 'w', token: 't' });
+  expect(landedOn({ path: '/signin' }, '/studies')).toBe(false);
 });

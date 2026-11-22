@@ -11,3 +11,6 @@ export function takeSlackLink(): string {
   writeText(key, '', 'session');
   return saved;
 }
+// Whether navigation reached target; a target may carry a query that route.path never has.
+export const landedOn = (route: { path: string }, target: string) =>
+  route.path === target.split('?')[0];

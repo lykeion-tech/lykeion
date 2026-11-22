@@ -38,7 +38,7 @@ import { useCards, useMe, useWorkspace, useWorkspaces } from './api/queries';
 import { useRealtimeSync } from './api/realtime';
 import { notice, notify } from './state/notice';
 import { readText, writeText } from './storage';
-import { rememberSlackLink, takeSlackLink } from './lib/slack-return';
+import { landedOn, rememberSlackLink, takeSlackLink } from './lib/slack-return';
 import { usePins } from './state/pins';
 import { useStudyComposer } from './state/study-composer';
 import { accountViewBlocked, useWorkspaceTabs, verifyAccountSwitch } from './state/workspace-tabs';
@@ -442,7 +442,7 @@ watch(
           switchingAccount.value = true;
           await router.replace(target);
           if (!current()) return;
-          if (route.path !== target) throw new Error('Account navigation was blocked');
+          if (!landedOn(route, target)) throw new Error('Account navigation was blocked');
           if (invite) writeText('lykeion.invite', '', 'session');
           switchingAccount.value = false;
         }
@@ -482,7 +482,7 @@ watch(
         slack || (invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies');
       await router.replace(target);
       if (!current()) return;
-      if (route.path !== target) throw new Error('Account navigation was blocked');
+      if (!landedOn(route, target)) throw new Error('Account navigation was blocked');
       if (invite) writeText('lykeion.invite', '', 'session');
       lastAccount = user.id;
       workspaceTabs.confirmAccountSwitch();
