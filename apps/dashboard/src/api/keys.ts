@@ -48,6 +48,8 @@ export const keys = {
   coresearchEnvironment: (ws: string, id: string) =>
     ['ws', ws, 'coresearch', id, 'environment'] as const,
   me: ['me'] as const,
+  researchProfiles: ['research-profile'] as const,
+  researchProfile: (account: string) => ['research-profile', account] as const,
   workspaces: ['workspaces'] as const,
   tokens: ['tokens'] as const,
   storage: (ws: string) => ['ws', ws, 'storage'] as const,
@@ -80,6 +82,9 @@ export const keys = {
   agentWorkAll: (ws: string) => ['ws', ws, 'agent-work'] as const,
   agentWork: (ws: string, id: string) => ['ws', ws, 'agent-work', id] as const,
   members: (ws: string) => ['ws', ws, 'members'] as const,
+  colleagueProfiles: (ws: string) => ['ws', ws, 'research-profile'] as const,
+  colleagueProfile: (ws: string, member: string, viewer: string) =>
+    ['ws', ws, 'research-profile', member, viewer] as const,
   invitations: (ws: string) => ['ws', ws, 'invitations'] as const,
   teams: (ws: string, domain = '', stage = '') =>
     ['ws', ws, 'packs', 'store', domain, stage] as const,

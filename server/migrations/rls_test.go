@@ -40,8 +40,8 @@ func TestEveryTenantTableHasAPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Keep the count explicit so a missing table cannot make the policy check pass.
-	if n != 89 {
-		t.Fatalf("found %d tenant tables, want 89", n)
+	if n != 90 {
+		t.Fatalf("found %d tenant tables, want 90", n)
 	}
 }
 

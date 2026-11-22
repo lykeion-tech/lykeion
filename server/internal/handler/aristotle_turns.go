@@ -268,6 +268,11 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 				if target != "" && c.AgentID != a.ID {
 					return pgx.ErrNoRows
 				}
+			} else {
+				a, e = tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: ws, ID: c.AgentID})
+				if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+					return e
+				}
 			}
 			harness, model, instructions := a.Harness, a.Model, a.Instructions
 			if c.SnapshotHarness == nil && in.Harness != nil {
@@ -398,7 +403,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 			if e := h.validateCoresearchConnectors(ctx, tx, in.Capabilities); e != nil {
 				return e
 			}
-			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Queue, in.Capabilities, in.Selection)
+			run, e := coresearch.EnqueueAristotleTurn(ctx, tx, h.AgentRuns, chat, who, in.Body, instructions, model, in.Queue, a.BuiltInKey == "aristotle", in.Capabilities, in.Selection)
 			if errors.Is(e, doc.ErrInvalid) {
 				return coresearchInputError("invalid selection version or UTF-16 bounds")
 			}

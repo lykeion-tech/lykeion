@@ -4,12 +4,23 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import Aristotle from '../coresearch/Aristotle.vue';
 import OnboardingStageBoard from './OnboardingStageBoard.vue';
+import PublishedResearchProfile from './PublishedResearchProfile.vue';
 import Icon from '../../ui/Icon.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import CapabilityList from './settings/library/CapabilityList.vue';
+import ResearchProfileFields from './settings/ResearchProfileFields.vue';
 import { useSkillLibrary, useConnectorLibrary, useWorkspaceMCPServers } from '../../api/library';
+import {
+  emptyResearchProfile,
+  hasResearchProfileContent,
+  saveResearchProfile,
+  shareResearchProfile,
+  updateResearchProfileCache,
+  useResearchProfile,
+  type ResearchProfile,
+} from '../../api/research-profile';
 import { backendLabel } from '../../lib/backends';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { daemonSessionKey } from '../../lib/daemon-session';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
@@ -38,7 +49,7 @@ const previewChart = computed(() => {
     ? toPreviewChart(lab, { user_id: me.data.value.id, name: me.data.value.name })
     : null;
 });
-const steps = ['Welcome', 'Laboratory', 'Skills', 'Connectors', 'Machines'] as const;
+const steps = ['Welcome', 'Research Profile', 'Laboratory', 'Customize', 'Machines'] as const;
 type Step = (typeof steps)[number];
 const laboratoryQuery = (value: unknown) => value === 'laboratory' || value === 'workspace';
 const step = ref<Step>(laboratoryQuery(route.query.step) ? 'Laboratory' : 'Welcome');
@@ -51,20 +62,55 @@ watch(
 const position = computed(() => steps.indexOf(step.value));
 const busy = ref(false);
 const error = ref('');
+const profile = useResearchProfile(() => step.value === 'Research Profile');
+const profileDraft = ref<ResearchProfile>(emptyResearchProfile());
+const profileEdited = ref(false);
+const profileFields = computed({
+  get: () => profileDraft.value,
+  set: (value) => {
+    profileEdited.value = true;
+    profileDraft.value = value;
+  },
+});
+watch(
+  profile.data,
+  (value) => {
+    if (!profileEdited.value && value) {
+      profileDraft.value = value.draft ?? value.published ?? emptyResearchProfile();
+    }
+  },
+  { immediate: true },
+);
+const hasProfile = computed(() => hasResearchProfileContent(profileDraft.value));
+const publication = ref<{
+  revision: string;
+  preview: ResearchProfile;
+  alreadyPublished: boolean;
+}>();
+const publicationWorkspace = ref<{ id: string; name: string }>();
+const quickSetup = ref(false);
 const skills = useSkillLibrary();
 const connectors = useConnectorLibrary();
 const customConnectors = useWorkspaceMCPServers();
 let visit = 0;
 onUnmounted(() => visit++);
-watch(workspaceId, () => visit++, { flush: 'sync' });
+watch(
+  workspaceId,
+  () => {
+    visit++;
+    publicationWorkspace.value = undefined;
+  },
+  { flush: 'sync' },
+);
 
 // Workspace step: an existing workspace, or a new one.
 const choice = ref<string>('new');
 watch(
   () => workspaces.data.value,
   (list) => {
-    if (list?.length && choice.value === 'new' && step.value !== 'Laboratory')
-      choice.value = list[0]!.id;
+    if (list?.length && choice.value === 'new' && step.value !== 'Laboratory') {
+      choice.value = (list.find((item) => item.id === workspaceId.value) ?? list[0]!).id;
+    }
   },
   { immediate: true },
 );
@@ -106,6 +152,8 @@ const saveWorkspace = () =>
   run(async (adoptVisit) => {
     let id = choice.value;
     let selected = choice.value;
+    let workspaceName =
+      workspaces.data.value?.find((item) => item.id === id)?.name ?? name.value.trim();
     const cardPrefix = prefix.value;
     const patch: Record<string, string> = {};
     let currentVisit = visit;
@@ -120,6 +168,7 @@ const saveWorkspace = () =>
       });
       if (!current()) return;
       id = ws.id;
+      workspaceName = ws.name;
       selected = id;
       choice.value = id;
       workspaceId.value = id;
@@ -136,23 +185,97 @@ const saveWorkspace = () =>
     if (!current()) return;
     if (pendingPrefix.value?.id === id) pendingPrefix.value = undefined;
     workspaceId.value = id;
-    const selectedVisit = visit;
+    workspace = id;
+    currentVisit = visit;
+    adoptVisit();
     await client.invalidateQueries({ queryKey: keys.workspaces });
-    if (visit === selectedVisit && workspaceId.value === id) step.value = 'Skills';
+    if (!current()) return;
+    if (publication.value && !profile.data.value?.workspace_ids.includes(id))
+      publicationWorkspace.value = { id, name: workspaceName };
+    else await afterLaboratory();
   });
 
-const back = () => {
-  if (!busy.value) step.value = steps[Math.max(0, position.value - 1)]!;
-};
+function startProfile(quick = false) {
+  quickSetup.value = quick;
+  error.value = '';
+  step.value = 'Research Profile';
+}
 
-const finish = () =>
+const saveOnboardingProfile = () =>
   run(async () => {
     const currentVisit = visit;
-    await api('PATCH', '/api/me', { onboarded: true });
+    const account = me.data.value?.id;
+    const result = await saveResearchProfile(profileDraft.value);
     if (visit !== currentVisit) return;
-    await client.invalidateQueries({ queryKey: keys.me });
-    if (visit === currentVisit) await router.replace('/studies');
+    if (account) updateResearchProfileCache(client, account, result);
+    const revision = result.published_revision ?? result.draft_revision;
+    const preview = result.published ?? result.draft;
+    publication.value =
+      revision && preview
+        ? { revision, preview, alreadyPublished: Boolean(result.published) }
+        : undefined;
+    step.value = 'Laboratory';
   });
+
+const skipOnboardingProfile = () => {
+  publication.value = undefined;
+  error.value = '';
+  if (quickSetup.value) void finish();
+  else step.value = 'Laboratory';
+};
+
+const confirmPublication = (publish: boolean) =>
+  run(async () => {
+    const destination = publicationWorkspace.value;
+    const currentVisit = visit;
+    if (!destination || workspaceId.value !== destination.id) return;
+    if (publish) {
+      const revision = publication.value?.revision;
+      if (!revision) return;
+      const account = me.data.value?.id;
+      try {
+        const result = await shareResearchProfile(destination.id, revision);
+        if (account) updateResearchProfileCache(client, account, result, [destination.id]);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409 && visit === currentVisit) {
+          profileEdited.value = false;
+          publication.value = undefined;
+          publicationWorkspace.value = undefined;
+          step.value = 'Research Profile';
+          const { data } = await profile.refetch();
+          if (visit === currentVisit && data && !profileEdited.value)
+            profileDraft.value = data.draft ?? data.published ?? emptyResearchProfile();
+        }
+        throw e;
+      }
+    }
+    if (visit !== currentVisit || workspaceId.value !== destination.id) return;
+    publicationWorkspace.value = undefined;
+    publication.value = undefined;
+    await afterLaboratory();
+  });
+
+async function afterLaboratory() {
+  if (quickSetup.value) await finishSetup();
+  else step.value = 'Customize';
+}
+
+const back = () => {
+  if (busy.value) return;
+  error.value = '';
+  if (publicationWorkspace.value) publicationWorkspace.value = undefined;
+  else step.value = steps[Math.max(0, position.value - 1)]!;
+};
+
+async function finishSetup() {
+  const currentVisit = visit;
+  await api('PATCH', '/api/me', { onboarded: true });
+  if (visit !== currentVisit) return;
+  await client.invalidateQueries({ queryKey: keys.me });
+  if (visit === currentVisit) await router.replace('/studies');
+}
+
+const finish = () => run(finishSetup);
 
 async function logOut() {
   visit++;
@@ -209,16 +332,37 @@ async function logOut() {
         <Aristotle still />
         <div><b>Aristotle</b><small>Your guide to scientific research</small></div>
       </header>
-      <section
-        class="content"
-        :class="{ 'hide-scrollbar': step === 'Skills' || step === 'Connectors' }"
-      >
+      <section class="content" :class="{ 'hide-scrollbar': step === 'Customize' }">
         <template v-if="step === 'Welcome'">
           <h2 class="hero">A lab for your next discovery.</h2>
           <p class="sub">
             Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace.
           </p>
           <OnboardingStageBoard />
+        </template>
+        <template v-else-if="step === 'Research Profile'">
+          <h2>Research Profile</h2>
+          <p class="sub">
+            Describe your research in your own words so colleagues and Aristotle can suggest where
+            you could contribute.
+          </p>
+          <p v-if="profile.isPending.value" role="status">Loading your profile…</p>
+          <p v-else-if="profile.isError.value" role="alert">
+            Could not load your research profile.
+            <button class="text-button" @click="profile.refetch()">Retry</button>
+          </p>
+          <ResearchProfileFields v-else v-model:profile="profileFields" :disabled="busy" />
+        </template>
+        <template v-else-if="step === 'Laboratory' && publicationWorkspace">
+          <h2>Publish your research profile</h2>
+          <p class="sub">
+            Colleagues in <strong>{{ publicationWorkspace.name }}</strong> and Aristotle in
+            Coresearch will be able to see your published profile.
+          </p>
+          <p v-if="publication?.alreadyPublished" class="muted">
+            This shares your current published profile. You can publish draft changes in Settings.
+          </p>
+          <PublishedResearchProfile v-if="publication" :profile="publication.preview" />
         </template>
         <template v-else-if="step === 'Laboratory'">
           <h2>
@@ -338,8 +482,9 @@ async function logOut() {
             <span class="push-right" :class="r.status">●</span>
           </div>
         </template>
-        <template v-else-if="step === 'Skills'">
-          <h2>Skills</h2>
+        <template v-else-if="step === 'Customize'">
+          <h2>Customize</h2>
+          <h3>Skills</h3>
           <p class="sub">Instruction packs agents can use while working on your studies.</p>
           <CapabilityList
             :query="''"
@@ -357,9 +502,7 @@ async function logOut() {
               <p>{{ skill.description }}</p>
             </article>
           </CapabilityList>
-        </template>
-        <template v-else-if="step === 'Connectors'">
-          <h2>Connectors</h2>
+          <h3>Connectors</h3>
           <p class="sub">Connections agents can use to reach scientific databases and tools.</p>
           <CapabilityList
             :query="''"
@@ -401,9 +544,33 @@ async function logOut() {
       </section>
       <footer class="actions">
         <template v-if="step === 'Welcome'">
-          <button class="button primary" @click="step = 'Laboratory'">Set up your lab</button>
-          <button class="text-button" :disabled="busy" @click="finish">
+          <button class="button primary" @click="startProfile()">Set up your lab</button>
+          <button class="text-button" :disabled="busy" @click="startProfile(true)">
             I've done this before
+          </button>
+        </template>
+        <template v-else-if="step === 'Research Profile'">
+          <button
+            class="button primary"
+            :disabled="busy || profile.isPending.value || profile.isError.value || !hasProfile"
+            @click="saveOnboardingProfile"
+          >
+            Save profile and continue
+          </button>
+          <button class="text-button" :disabled="busy" @click="skipOnboardingProfile">
+            Skip profile
+          </button>
+        </template>
+        <template v-else-if="step === 'Laboratory' && publicationWorkspace">
+          <button
+            class="button primary"
+            :disabled="busy || !publication"
+            @click="confirmPublication(true)"
+          >
+            Publish profile and continue
+          </button>
+          <button class="text-button" :disabled="busy" @click="confirmPublication(false)">
+            Continue without publishing
           </button>
         </template>
         <template v-else-if="step === 'Laboratory'">
@@ -415,16 +582,9 @@ async function logOut() {
             {{ choice === 'new' ? 'Create workspace' : 'Continue' }}
           </button>
         </template>
-        <template v-else-if="step === 'Skills' || step === 'Connectors'">
-          <button
-            class="button primary"
-            @click="step = step === 'Skills' ? 'Connectors' : 'Machines'"
-          >
-            Continue
-          </button>
-          <button class="text-button" @click="step = step === 'Skills' ? 'Connectors' : 'Machines'">
-            Skip
-          </button>
+        <template v-else-if="step === 'Customize'">
+          <button class="button primary" @click="step = 'Machines'">Continue</button>
+          <button class="text-button" @click="step = 'Machines'">Skip</button>
         </template>
         <button v-else class="button primary" :disabled="busy" @click="finish">
           Enter workspace

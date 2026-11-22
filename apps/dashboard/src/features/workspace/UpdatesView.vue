@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue';
 import { version } from '../../../../../package.json';
+import ReleaseHighlights from './ReleaseHighlights.vue';
+import { releaseHighlights } from './release-highlights';
 
 const bridge = window.lykeionDesktop?.updates;
 const checking = ref(false);
 const message = ref('');
+const highlightsOpen = ref(false);
 let mounted = true;
 onBeforeUnmount(() => {
   mounted = false;
@@ -39,6 +42,12 @@ async function checkForUpdate() {
         <span>Current version</span>
         <span class="version">v{{ version }}</span>
       </div>
+      <div v-if="releaseHighlights?.length" class="update-row">
+        <span>Release highlights</span>
+        <button class="button compact" type="button" @click="highlightsOpen = true">
+          What’s new
+        </button>
+      </div>
       <div class="update-row">
         <div>
           <span>Automatic updates</span>
@@ -59,6 +68,7 @@ async function checkForUpdate() {
         </button>
       </div>
     </div>
+    <ReleaseHighlights v-if="highlightsOpen" @close="highlightsOpen = false" />
   </section>
 </template>
 

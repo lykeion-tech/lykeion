@@ -3,13 +3,20 @@ import { cleanAssistantProse } from '../features/coresearch/assistant-paths';
 
 const markdown = new MarkdownIt({ html: false, breaks: true, linkify: true, typographer: false });
 const escape = markdown.utils.escapeHtml;
+const colleaguePath = (url: string) =>
+  /^\/colleagues\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(url);
 // Only explicit web/mail destinations and document anchors are interactive.
 markdown.validateLink = (url) =>
   /^(?:https?:\/\/|mailto:|#)/i.test(url) &&
   ![...url].some((character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127);
 markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
-  tokens[index]!.attrSet('target', '_blank');
-  tokens[index]!.attrSet('rel', 'noopener noreferrer');
+  const token = tokens[index]!;
+  const href = String(token.attrGet('href') ?? '');
+  if (colleaguePath(href)) token.attrSet('href', `#${href}`);
+  else {
+    token.attrSet('target', '_blank');
+    token.attrSet('rel', 'noopener noreferrer');
+  }
   return renderer.renderToken(tokens, index, options);
 };
 markdown.renderer.rules.image = (tokens, index) =>
@@ -28,13 +35,11 @@ markdown.renderer.rules.fence = code;
 markdown.renderer.rules.code_block = code;
 
 // Transcript-only parsing recognizes local paths so they can be shown without a link.
-const transcriptMarkdown = new MarkdownIt({
-  html: false,
-  breaks: true,
-  linkify: true,
-  typographer: false,
-});
-for (const parser of [markdown, transcriptMarkdown]) {
+const transcriptMarkdown = new MarkdownIt(markdown.options);
+const colleagueMarkdown = new MarkdownIt(markdown.options);
+colleagueMarkdown.validateLink = (url) => markdown.validateLink(url) || colleaguePath(url);
+for (const parser of [markdown, transcriptMarkdown, colleagueMarkdown]) {
+  parser.renderer.rules = markdown.renderer.rules;
   parser.core.ruler.after('linkify', 'doi_links', (state) => {
     for (const token of state.tokens) {
       if (!token.children) continue;
@@ -85,7 +90,6 @@ for (const parser of [markdown, transcriptMarkdown]) {
     }
   });
 }
-transcriptMarkdown.renderer.rules = markdown.renderer.rules;
 const localPath = (url: string) =>
   [
     '/private/',
@@ -139,8 +143,13 @@ export function renderMarkdown(content: string, breaks = true, localFiles = fals
 
 // Block structure for component renderers. Inline HTML uses exactly the same
 // escaping, URL validation, link and image rules as renderMarkdown above.
-export function parseMarkdownBlocks(content: string, redactLocalPaths = false) {
-  const blocks = markdown.parse(content, {});
+export function parseMarkdownBlocks(
+  content: string,
+  redactLocalPaths = false,
+  colleagueLinks = false,
+) {
+  const parser = colleagueLinks ? colleagueMarkdown : markdown;
+  const blocks = parser.parse(content, {});
   if (redactLocalPaths) {
     for (const token of blocks) {
       for (const child of token.children ?? []) {
@@ -165,7 +174,7 @@ export function parseMarkdownBlocks(content: string, redactLocalPaths = false) {
     info: token.info,
     html:
       token.type === 'inline'
-        ? markdown.renderer.renderInline(token.children ?? [], markdown.options, {})
+        ? parser.renderer.renderInline(token.children ?? [], parser.options, {})
         : undefined,
   }));
 }

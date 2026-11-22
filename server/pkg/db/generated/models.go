@@ -952,6 +952,21 @@ type Research struct {
 	DueDate     *time.Time `json:"due_date"`
 }
 
+type ResearchProfileDraft struct {
+	UserID  uuid.UUID       `json:"user_id"`
+	Profile json.RawMessage `json:"profile"`
+}
+
+type ResearchProfilePublication struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	UserID      uuid.UUID `json:"user_id"`
+}
+
+type ResearchProfileSnapshot struct {
+	UserID  uuid.UUID       `json:"user_id"`
+	Profile json.RawMessage `json:"profile"`
+}
+
 type RunCommentSnapshot struct {
 	WorkspaceID  uuid.UUID `json:"workspace_id"`
 	AgentRunID   uuid.UUID `json:"agent_run_id"`

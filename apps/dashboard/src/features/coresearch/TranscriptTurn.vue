@@ -91,6 +91,7 @@ const copy = computed(() =>
             :text="block.text"
             :live="active"
             redact-local-paths
+            colleague-links
           />
         </div>
       </template>

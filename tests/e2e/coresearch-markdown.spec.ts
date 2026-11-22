@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { bootstrapRecord } from './coresearch-files-fixture';
 
+const colleagueId = '80c96564-812e-4b40-8f8f-8ea0a1bbcefb';
 const reply = [
   '3. First item',
   '',
@@ -27,6 +28,8 @@ const reply = [
   '| Column |',
   '| --- |',
   '| Cell |',
+  '',
+  `[Researcher profile](/colleagues/${colleagueId})`,
 ].join('\n');
 
 test('nested Markdown fences preserve list numbering, quote structure, copy and safe content', async ({
@@ -46,6 +49,17 @@ test('nested Markdown fences preserve list numbering, quote structure, copy and 
     else if (path === '/api/workspaces') data = [{ id: 'lab', name: 'Fixture lab', role: 'owner' }];
     else if (path === '/api/workspaces/lab')
       data = { id: 'lab', name: 'Fixture lab', role: 'owner', event_cursor: 0 };
+    else if (path === '/api/workspaces/lab/members')
+      data = [
+        { user_id: colleagueId, name: 'Researcher', email: 'r@example.test', role: 'member' },
+      ];
+    else if (path === `/api/workspaces/lab/members/${colleagueId}/research-profile`)
+      data = {
+        profile: {
+          identity: 'Studies collective navigation',
+          links: [],
+        },
+      };
     else if (path === '/api/coresearch/projects/project')
       data = { id: 'project', name: 'Markdown regression', role: 'owner', archived_at: null };
     else if (path.endsWith('/chats'))
@@ -90,5 +104,8 @@ test('nested Markdown fences preserve list numbering, quote structure, copy and 
     'noopener noreferrer',
   );
   await expect(message.getByRole('region', { name: 'Table' }).locator('td')).toHaveText('Cell');
+  await message.getByRole('link', { name: 'Researcher profile' }).click();
+  await expect(page).toHaveURL(`/#/colleagues/${colleagueId}`);
+  await expect(page.getByText('Studies collective navigation')).toBeVisible();
   expect(errors).toEqual([]);
 });

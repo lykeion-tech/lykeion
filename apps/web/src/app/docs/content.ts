@@ -27,6 +27,8 @@ Lykeion brings studies, research agents and collaborators into a shared workspac
 
 You are ready when your workspace opens and the intended machine appears online. A workspace alone does not supply an executing agent CLI; your machine needs its own supported, authenticated runtime.
 
+After an update, Lykeion shows the new features when you return to your workspace. Open Settings → Updates → **What’s new** to review the current version’s highlights again.
+
 ## Choose your starting point
 
 Follow the [quickstart](/docs/quickstart/) for a short first study, or the [complete tutorial](/docs/complete-tutorial/) for a more deliberate walkthrough. [Core concepts](/docs/core-concepts/) explains the difference between a study, an agent and a run.
@@ -52,7 +54,7 @@ Start with a modest literature question, for example: How does sleep affect memo
 
 ## 1. Open a workspace
 
-Sign in and follow Laboratory onboarding. Choose an existing workspace or create one with a name, URL and card prefix. Continue through Skills and Connectors. Keep the default laboratory for your first attempt unless your lab has instructed otherwise.
+Sign in and follow onboarding. Add your research profile after Welcome, then choose an existing workspace or create one with a name, URL and card prefix. Choose whether to publish your profile to that workspace. The Customize step brings Skills and Connectors together. Keep the default laboratory for your first attempt unless your lab has instructed otherwise.
 
 ## 2. Connect a machine
 
@@ -263,6 +265,12 @@ Colleagues are the people in your selected workspace. Workspace roles are Owner,
 3. Open their details to inspect their profile and workspace role. Their Studies tab shows visible studies owned by or assigned to them.
 
 This view helps you identify who is responsible for work without changing its assignment. A person's workspace membership and an agent's execution configuration are separate. See [agents](/docs/agents/).
+
+## Share your research profile
+
+During onboarding, describe your research in your own words in the **Professional background** field and optionally add links to your work. You can choose whether to publish the profile to the workspace you join or create. Colleagues can read the published version in your Overview, and Aristotle can use it in Coresearch when suggesting collaborators.
+
+In Settings → Profile, you can edit your research identity and links. **Save profile** updates the published version in workspaces where you’ve already shared it. If you haven’t shared it anywhere, the saved profile stays private.
 
 ## Invite someone
 
@@ -740,6 +748,8 @@ Use Coresearch for ongoing research work organized around a project and its conv
 4. Open the project and choose the conversation you want to continue.
 
 For an existing conversation, execution settings are retained. If a desired runtime is absent from the picker, check your own online, healthy runtimes in [Machines](/docs/connect-machine/).
+
+When you're planning a study, ask Aristotle who could lead it, contribute a method, or review the work. It can consult the research profiles published to your current workspace and explain which experience supports a suggestion. Open the suggested colleague's Overview to read the profile and decide who to involve. See [sharing a research profile](/docs/members-and-roles/).
 
 ## Inspect the project surfaces
 

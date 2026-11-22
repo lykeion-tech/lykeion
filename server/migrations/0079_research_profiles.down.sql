@@ -1,0 +1,4 @@
+DROP POLICY research_profile_snapshot_read ON research_profile_snapshot;
+DROP TABLE research_profile_publication;
+DROP TABLE research_profile_snapshot;
+DROP TABLE research_profile_draft;

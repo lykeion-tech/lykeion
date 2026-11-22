@@ -110,6 +110,7 @@ const entries = computed(() => {
           ><AssistantMessage
             class="lyk-reading"
             :text="entry.message.body"
+            colleague-links
             redact-local-paths /></RailRow
       ></TurnRail>
       <div class="msg-actions"><CopyButton :text="cleanAssistantText(entry.message.body)" /></div>

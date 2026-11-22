@@ -10,6 +10,8 @@ import { usePaneResize } from './lib/resize';
 import { studyDisplayTitle } from './lib/studies';
 import Modal from './ui/Modal.vue';
 import WorkspaceTabs from './features/workspace/WorkspaceTabs.vue';
+import ReleaseHighlights from './features/workspace/ReleaseHighlights.vue';
+import { isNewerRelease, releaseHighlights } from './features/workspace/release-highlights';
 import CommandPalette from './ui/CommandPalette.vue';
 import ConversationSearch from './features/coresearch/ConversationSearch.vue';
 import { startConversationDraft } from './features/coresearch/aristotle';
@@ -646,6 +648,36 @@ const onboardingTarget = computed(() => {
   if (!m.onboarded_at) return '/onboarding';
   return list.length ? '' : '/onboarding?step=workspace';
 });
+const releaseAccount = computed(() =>
+  route.meta.bare ||
+  authLost.value ||
+  unauthorized.value ||
+  verifying.value ||
+  switchingAccount.value ||
+  shellPending.value ||
+  shellFailure.value ||
+  onboardingTarget.value
+    ? undefined
+    : me.data.value?.id,
+);
+const showReleaseHighlights = ref(false);
+const releaseKey = (account: string) => `lykeion.releaseHighlights:${account}`;
+watch(
+  releaseAccount,
+  (account) => {
+    showReleaseHighlights.value = false;
+    if (!account) return;
+    const previous = readText(releaseKey(account));
+    showReleaseHighlights.value =
+      Boolean(releaseHighlights?.length) &&
+      (previous === null || (previous !== undefined && isNewerRelease(version, previous)));
+  },
+  { immediate: true },
+);
+function acknowledgeRelease() {
+  if (releaseAccount.value) writeText(releaseKey(releaseAccount.value), version);
+  showReleaseHighlights.value = false;
+}
 watch(
   [onboardingTarget, () => route.meta.bare, unauthorized, verifying, authLost],
   ([target, bare, signedOut, checking, lost]) => {
@@ -1209,6 +1241,7 @@ onUnmounted(() => {
       :workflow="composer.workflow"
       @close="closeComposer()"
     />
+    <ReleaseHighlights v-if="showReleaseHighlights" @close="acknowledgeRelease" />
     <div
       v-if="help"
       id="help-menu"

@@ -176,8 +176,9 @@
   align-items: baseline;
   gap: 10px;
   margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
 }
 .agent-activity h2 small {
   font-size: 11px;
@@ -228,8 +229,9 @@
   background: var(--input);
 }
 .agent-panel h3 {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
   margin-bottom: 16px;
 }
 .agent-panel h3 small {
@@ -348,8 +350,9 @@
 }
 .agent-pane h2 {
   margin-bottom: 30px;
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
 }
 .agent-pane h3 {
   margin-bottom: 10px;

@@ -2,6 +2,7 @@
 import { useStorage } from '../../../api/queries';
 import type { StorageMachine } from '../../../api/types';
 const storage = useStorage();
+const desktop = typeof window !== 'undefined' && Boolean(window.lykeionDesktop);
 const labels = { workspaces: 'Workspaces', environments: 'Environments', state: 'Daemon state' };
 function bytes(value: number) {
   if (value === 0) return '0 B';
@@ -40,7 +41,11 @@ const measured = (machine: StorageMachine) =>
           }}</span>
         </header>
         <p v-if="!machine.snapshot" class="unavailable">
-          This machine has not reported storage yet.
+          {{
+            desktop
+              ? 'This machine has not reported storage yet.'
+              : 'The web app can’t check this machine’s storage directly. Open the Lykeion desktop app on this machine to check local storage.'
+          }}
         </p>
         <template v-else>
           <p class="description">

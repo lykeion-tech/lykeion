@@ -57,13 +57,13 @@ async function mount(section = 'profile') {
   });
   return { root, client, router, props };
 }
-it('makes colleague management searchable from the settings rail', async () => {
+it('excludes Colleagues from the settings rail and its search', async () => {
   const { root } = await mount();
   const search = all(root).find((n) => n.props['aria-label'] === 'Search settings')!;
   (search.props['onUpdate:modelValue'] as (v: string) => void)('colleagues');
   await nextTick();
-  const link = all(root).find((n) => n.tag === 'a' && n.props.href === '/colleagues');
-  expect(link && textOf(link)).toContain('Colleagues');
+  expect(all(root).some((n) => n.tag === 'a' && n.props.href === '/colleagues')).toBe(false);
+  expect(textOf(root)).toContain('No matching settings.');
 });
 it('keeps profile information and usage analytics in distinct labelled sections', async () => {
   const { root } = await mount();
@@ -91,15 +91,16 @@ it('drops an unsaved workspace name when switching workspaces', async () => {
   await nextTick();
   expect(field().value).toBe('Second lab');
 });
-it('routes the narrow-screen selector to colleagues and retains the selected settings route', async () => {
-  const { root, router } = await mount('tokens');
+it('keeps the narrow-screen selector within Settings without a Colleagues option', async () => {
+  const { root, router } = await mount('storage');
   const active = all(root).find((n) => n.tag === 'button' && n.props['aria-current'] === 'page');
-  expect(active && textOf(active)).toContain('API Tokens');
+  expect(active && textOf(active)).toContain('Storage');
   const select = all(root).find((n) => n.props['aria-label'] === 'Settings section')!;
-  (select.props.onChange as (e: unknown) => void)({ target: { value: 'colleagues' } });
+  expect(all(select).some((n) => n.tag === 'option' && n.props.value === 'colleagues')).toBe(false);
+  (select.props.onChange as (e: unknown) => void)({ target: { value: 'skills' } });
   await router.isReady();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(router.currentRoute.value.path).toBe('/colleagues');
+  expect(router.currentRoute.value.fullPath).toBe('/settings?tab=skills');
 });
 it('lists Communication in the workspace group with the workspace badge', async () => {
   const { root } = await mount('communication');

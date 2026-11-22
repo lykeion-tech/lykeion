@@ -9,6 +9,7 @@ import StoragePanel from './settings/StoragePanel.vue';
 import MachinesView from '../machines/MachinesView.vue';
 import UpdatesView from './UpdatesView.vue';
 import AnalyticsPanel from './settings/AnalyticsPanel.vue';
+import ResearchProfilePanel from './settings/ResearchProfilePanel.vue';
 import SkillPanel from './settings/library/SkillPanel.vue';
 import ConnectorPanel from './settings/library/ConnectorPanel.vue';
 import CommunicationPanel from './settings/CommunicationPanel.vue';
@@ -70,7 +71,6 @@ const groups = computed(() =>
       title: workspace.data.value?.name ?? 'Workspace',
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
-        { id: 'colleagues', label: 'Colleagues', icon: 'users' },
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
         { id: 'communication', label: 'Communication', icon: 'chat' },
@@ -94,8 +94,7 @@ const titles: Record<string, string> = {
   communication: 'Communication',
 };
 function open(id: string) {
-  if (id === 'colleagues') void router.push('/colleagues');
-  else void router.push({ path: '/settings', query: { tab: id } });
+  void router.push({ path: '/settings', query: { tab: id } });
 }
 function hydrate(w: Workspace | undefined, reset = false) {
   const previous = reset ? undefined : baseline;
@@ -353,6 +352,7 @@ async function leaveOrDelete(kind: 'leave' | 'delete') {
     if (generation !== transition || workspaceId.value) return;
     // Keep the shell's mounted observers while it selects a remaining workspace.
     const refreshed = client.resetQueries({ queryKey: keys.workspaces });
+    void client.invalidateQueries({ queryKey: keys.researchProfiles });
     void router.replace('/studies');
     await refreshed;
   });
@@ -391,19 +391,15 @@ async function copySlug() {
           <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
           ><strong>{{ group.title }}</strong>
         </header>
-        <template v-for="item in group.items" :key="item.id">
-          <RouterLink v-if="item.id === 'colleagues'" to="/colleagues" class="settings-link">
-            <Icon :name="item.icon" />{{ item.label }}
-          </RouterLink>
-          <button
-            v-else
-            :class="{ selected: section === item.id }"
-            :aria-current="section === item.id ? 'page' : undefined"
-            @click="open(item.id)"
-          >
-            <Icon :name="item.icon" />{{ item.label }}
-          </button>
-        </template>
+        <button
+          v-for="item in group.items"
+          :key="item.id"
+          :class="{ selected: section === item.id }"
+          :aria-current="section === item.id ? 'page' : undefined"
+          @click="open(item.id)"
+        >
+          <Icon :name="item.icon" />{{ item.label }}
+        </button>
       </section>
       <p v-if="!groups.length" class="no-match">No matching settings.</p>
     </nav>
@@ -494,6 +490,7 @@ async function copySlug() {
               ></label
             >
           </div>
+          <ResearchProfilePanel :key="me.data.value?.id" />
           <section aria-label="Usage analytics"><AnalyticsPanel /></section>
         </template>
 
@@ -884,8 +881,7 @@ async function copySlug() {
   font-size: 12px;
   font-weight: 400;
 }
-.settings-rail button,
-.settings-rail .settings-link {
+.settings-rail button {
   height: 32px;
   margin-bottom: 1px;
   border-radius: 6px;
@@ -898,8 +894,7 @@ async function copySlug() {
   color: var(--muted);
   font-size: 14px;
 }
-.settings-rail button:hover,
-.settings-rail .settings-link:hover {
+.settings-rail button:hover {
   background: var(--input);
 }
 .settings-rail button.selected {

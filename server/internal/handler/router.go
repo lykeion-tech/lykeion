@@ -65,6 +65,7 @@ func NewRouter(h *H) http.Handler {
 
 	r.Route("/api/run/coresearch", func(r chi.Router) {
 		r.Use(middleware.AgentRunAuth(h.Store), middleware.RequireScope(service.ScopeCoresearch))
+		r.Get("/research-directory", h.coresearchResearchDirectory)
 		r.Post("/cells", h.coresearchCells)
 		r.Get("/cells/{id}", h.coresearchCells)
 		r.Post("/paper/build", h.coresearchBuilds)
@@ -215,6 +216,10 @@ func NewRouter(h *H) http.Handler {
 		r.Post("/api/feedback", h.sendFeedback)
 		r.Get("/api/me", h.me)
 		r.Patch("/api/me", h.updateMe)
+		r.Get("/api/me/research-profile", h.getAccountResearchProfile)
+		r.Put("/api/me/research-profile", h.saveResearchProfileDraft)
+		r.Put("/api/me/research-profile/save", h.saveResearchProfile)
+		r.Post("/api/me/research-profile/publish", h.publishResearchProfileChanges)
 		r.Put("/api/me/typesafe-key", h.putTypesafeKey)
 		r.Delete("/api/me/typesafe-key", h.deleteTypesafeKey)
 		r.Post("/api/cli-token", h.cliToken)
@@ -241,6 +246,9 @@ func NewRouter(h *H) http.Handler {
 				r.Get("/addons", h.listAddons)
 				r.With(middleware.RequireOwner).Patch("/addons/{column}", h.setAddon)
 				r.Get("/members", h.listMembers)
+				r.Get("/members/{user}/research-profile", h.getMemberResearchProfile)
+				r.Put("/research-profile", h.shareResearchProfile)
+				r.Delete("/research-profile", h.unshareResearchProfile)
 				r.With(middleware.RequireAdmin).Patch("/members/{user}", h.setMemberRole)
 				r.With(middleware.RequireAdmin).Delete("/members/{user}", h.removeMember)
 				r.With(middleware.RequireAdmin).Get("/invitations", h.listInvitations)
