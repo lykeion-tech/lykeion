@@ -351,3 +351,43 @@ func TestImportOverlappingTriggersShareOneRun(t *testing.T) {
 	}
 	importState(t, f, "done")
 }
+
+func TestImportAddedRedeliveryAfterSigningCredentialsRestored(t *testing.T) {
+	for _, missing := range []string{"key", "app_id"} {
+		t.Run(missing, func(t *testing.T) {
+			var lists atomic.Int32
+			f := importFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/repos/org/new/pulls" || r.URL.Query().Get("state") != "open" {
+					t.Errorf("unexpected %s", r.URL)
+					http.NotFound(w, r)
+					return
+				}
+				lists.Add(1)
+				fmt.Fprint(w, "[]")
+			})
+			cfg := f.s.Config
+			if missing == "key" {
+				cfg.PrivateKey = nil
+			} else {
+				cfg.AppID = 0
+			}
+			unavailable := &Service{Store: f.s.Store, Config: cfg}
+			payload := []byte(`{"action":"added","installation":{"id":42},"repositories_added":[{"full_name":"org/new"}]}`)
+			const delivery = "retry-added"
+			if err := unavailable.Handle(t.Context(), "installation_repositories", delivery, payload); err != nil {
+				t.Fatal(err)
+			}
+			var seen bool
+			if err := f.env.Owner.QueryRow(t.Context(), `select exists(select from github_webhook_delivery where id=$1)`, delivery).Scan(&seen); err != nil || seen || lists.Load() != 0 {
+				t.Fatalf("unavailable signer: receipt=%v list requests=%d err=%v", seen, lists.Load(), err)
+			}
+			if err := f.s.Handle(t.Context(), "installation_repositories", delivery, payload); err != nil {
+				t.Fatal(err)
+			}
+			waitImportReceipt(t, f, delivery)
+			if lists.Load() != 1 {
+				t.Fatalf("redelivery made %d list requests", lists.Load())
+			}
+		})
+	}
+}

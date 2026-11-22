@@ -139,37 +139,35 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 		}
 		switch event {
 		case "installation_repositories":
-			if p.Action != "added" || len(p.RepositoriesAdded) == 0 {
+			if p.Action != "added" || len(p.RepositoriesAdded) == 0 || s.Config.AppID <= 0 || s.Config.PrivateKey == nil {
 				return nil
 			}
-			if s.Config.PrivateKey != nil {
-				// Capture each generation before acknowledging. Never apply an old delivery
-				// to a replacement connection after disconnect and reconnect.
-				connections, err := s.importConnections(ctx, id)
-				if err != nil || len(connections) == 0 {
-					return err
-				}
-				if _, loaded := s.repoDeliveries.LoadOrStore(delivery, struct{}{}); loaded {
-					return nil
-				}
-				go func() {
-					bg := s.background(ctx)
-					err := s.runRepoImports(bg, connections, p.RepositoriesAdded)
-					guard.Lock()
-					defer guard.Unlock()
-					defer s.repoDeliveries.Delete(delivery)
-					if err != nil {
-						if bg.Err() == nil {
-							slog.Warn("GitHub added repository import failed", "error", scrub(err))
-						}
-						return
-					}
-					if _, err := q.InsertWebhookDelivery(bg, delivery); err != nil && !errors.Is(err, pgx.ErrNoRows) && bg.Err() == nil {
-						slog.Warn("GitHub delivery receipt failed", "error", err)
-					}
-				}()
+			// Capture each generation before acknowledging. Never apply an old delivery
+			// to a replacement connection after disconnect and reconnect.
+			connections, err := s.importConnections(ctx, id)
+			if err != nil || len(connections) == 0 {
+				return err
+			}
+			if _, loaded := s.repoDeliveries.LoadOrStore(delivery, struct{}{}); loaded {
 				return nil
 			}
+			go func() {
+				bg := s.background(ctx)
+				err := s.runRepoImports(bg, connections, p.RepositoriesAdded)
+				guard.Lock()
+				defer guard.Unlock()
+				defer s.repoDeliveries.Delete(delivery)
+				if err != nil {
+					if bg.Err() == nil {
+						slog.Warn("GitHub added repository import failed", "error", scrub(err))
+					}
+					return
+				}
+				if _, err := q.InsertWebhookDelivery(bg, delivery); err != nil && !errors.Is(err, pgx.ErrNoRows) && bg.Err() == nil {
+					slog.Warn("GitHub delivery receipt failed", "error", err)
+				}
+			}()
+			return nil
 		case "status":
 			snapshotSHA = p.SHA
 		case "check_run":
