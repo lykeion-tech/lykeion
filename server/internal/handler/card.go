@@ -140,15 +140,15 @@ func studyScope(in newCard) (from, to string, chosen map[string]uuid.UUID, agent
 
 // checkStudyAgent refuses an agent the creator may not assign.
 // An empty from skips the stage check, for a draft whose stages the agent picks.
-func checkStudyAgent(r *http.Request, tx *store.Tx, ws, creator, id uuid.UUID, from, to string) error {
+func checkStudyAgent(ctx context.Context, tx *store.Tx, ws, creator, id uuid.UUID, from, to string) error {
 	refused := cardInputError("you can't start a study with this agent")
 	var inputErr cardInputError
-	if err := checkAssignee(r, tx, ws, creator, "agent", id); errors.As(err, &inputErr) {
+	if err := checkAssignee(ctx, tx, ws, creator, "agent", id); errors.As(err, &inputErr) {
 		return refused
 	} else if err != nil {
 		return err
 	}
-	a, err := tx.Q.GetAgent(r.Context(), db.GetAgentParams{WorkspaceID: ws, ID: id})
+	a, err := tx.Q.GetAgent(ctx, db.GetAgentParams{WorkspaceID: ws, ID: id})
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func checkAssigneeShape(a *assigneeIn) error {
 // agent they cannot see, or a Team they have not added.
 func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *assigneeIn) error {
 	if a.Type != "team" {
-		return checkAssignee(r, tx, ws, user, a.Type, *a.ID)
+		return checkAssignee(r.Context(), tx, ws, user, a.Type, *a.ID)
 	}
 	for _, pack := range a.Teams {
 		if err := ensureTeam(r, tx, user, pack); err != nil {
@@ -275,15 +275,15 @@ func checkAssigneeRefs(r *http.Request, tx *store.Tx, ws, user uuid.UUID, a *ass
 		}
 	}
 	if a.AgentID != nil {
-		return checkAssignee(r, tx, ws, user, "agent", *a.AgentID)
+		return checkAssignee(r.Context(), tx, ws, user, "agent", *a.AgentID)
 	}
 	return nil
 }
 
 // checkAssignee refuses a member or agent the creator cannot assign.
-func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ string, id uuid.UUID) error {
+func checkAssignee(ctx context.Context, tx *store.Tx, ws, creator uuid.UUID, typ string, id uuid.UUID) error {
 	if typ == "member" {
-		if _, err := tx.Q.GetMember(r.Context(), db.GetMemberParams{WorkspaceID: ws, UserID: id}); err != nil {
+		if _, err := tx.Q.GetMember(ctx, db.GetMemberParams{WorkspaceID: ws, UserID: id}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return cardInputError("assignee is not a workspace member")
 			}
@@ -291,14 +291,14 @@ func checkAssignee(r *http.Request, tx *store.Tx, ws, creator uuid.UUID, typ str
 		}
 		return nil
 	}
-	a, err := tx.Q.GetAgentForShare(r.Context(), db.GetAgentForShareParams{WorkspaceID: ws, ID: id})
+	a, err := tx.Q.GetAgentForShare(ctx, db.GetAgentForShareParams{WorkspaceID: ws, ID: id})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return cardInputError("agent is unavailable")
 		}
 		return err
 	}
-	if !agentVisible(r, a, creator) || a.ArchivedAt != nil || (a.Visibility == "private" && a.OwnerID != creator) {
+	if !agentVisible(ctx, a, creator) || a.ArchivedAt != nil || (a.Visibility == "private" && a.OwnerID != creator) {
 		return cardInputError("agent is unavailable")
 	}
 	return nil
@@ -501,7 +501,7 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		assignee := "team"
 		if agent != nil {
 			assignee = "agent"
-			if err := checkStudyAgent(r, tx, ws, user, *agent, from, to); err != nil {
+			if err := checkStudyAgent(r.Context(), tx, ws, user, *agent, from, to); err != nil {
 				return err
 			}
 		} else {

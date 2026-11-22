@@ -138,7 +138,7 @@ func (h *H) createResearch(w http.ResponseWriter, r *http.Request) {
 			return cardInputError("start date must be on or before the due date")
 		}
 		if fields.LeadType != nil {
-			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
+			if err := checkAssignee(r.Context(), tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
 				return err
 			}
 		}
@@ -206,7 +206,7 @@ func (h *H) updateResearch(w http.ResponseWriter, r *http.Request) {
 			return cardInputError("start date must be on or before the due date")
 		}
 		if !sameResearchLead(prev, fields) && fields.LeadType != nil {
-			if err := checkAssignee(r, tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
+			if err := checkAssignee(r.Context(), tx, ws, user, *fields.LeadType, *fields.LeadID); err != nil {
 				return err
 			}
 		}

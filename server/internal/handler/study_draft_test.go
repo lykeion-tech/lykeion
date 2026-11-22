@@ -1,6 +1,12 @@
 package handler
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"lykeion/server/internal/store"
+)
 
 func TestCreateStudyDraftQueuesOneShotAgent(t *testing.T) {
 	s := newServer(t)
@@ -72,5 +78,35 @@ func TestStudyDraftRejectsUnavailableAgentAndInvalidDates(t *testing.T) {
 	}
 	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE workspace_id=$1`, ws.ID); n != 0 {
 		t.Fatalf("invalid request persisted: %d", n)
+	}
+}
+
+func TestDraftStudyWithoutRequest(t *testing.T) {
+	s := newServer(t)
+	token := s.signIn(t, "nohttp@lab.org")
+	ws := s.workspace(t, token, "nohttp-lab")
+	agent := uuid.MustParse(s.stagedAgent(t, token, ws.ID, "hypotheses"))
+	s.call(t, "POST", "/api/daemon/register", s.personalToken(t, token), "", map[string]any{"workspace_id": ws.ID, "daemon_id": "d", "harnesses": []string{"claude"}}, nil)
+	wsID, user := uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, token))
+	id, err := s.H.DraftStudy(t.Context(), wsID, user, StudyDraftIn{AgentID: agent, Prompt: "Study sleep", Priority: "none"})
+	if err != nil || id == uuid.Nil {
+		t.Fatalf("draft: %v %v", id, err)
+	}
+	if n := s.count(t, `SELECT count(*) FROM study_draft_request WHERE autoresearch_id=$1`, id); n != 1 {
+		t.Fatalf("draft request count: %d", n)
+	}
+	var priv struct{ ID string }
+	if c := s.call(t, "POST", "/api/agents", token, ws.ID, map[string]string{"name": "Priv", "harness": "claude", "instructions": "x", "stage": "grounding", "visibility": "private"}, &priv); c != 201 {
+		t.Fatalf("private agent: %d", c)
+	}
+	err = s.H.Store.InWorkspace(t.Context(), wsID, user, func(tx *store.Tx) error {
+		if err := DraftingAgentUsable(t.Context(), tx, wsID, agent); err != nil {
+			t.Errorf("workspace agent refused: %v", err)
+		}
+		return DraftingAgentUsable(t.Context(), tx, wsID, uuid.MustParse(priv.ID))
+	})
+	var inputErr cardInputError
+	if !errors.As(err, &inputErr) {
+		t.Fatalf("private agent: %v", err)
 	}
 }
