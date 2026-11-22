@@ -898,7 +898,7 @@ Connect a GitHub account or organization to see its pull requests on your [studi
 1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To link another installation, choose **Add account or organization**.
 2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
 3. On GitHub, select the account or organization and the repositories to share, then authorize the app. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
-4. Check Settings → Code for the connected account and the member who connected it. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available.
+4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
 
 If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
 
@@ -926,11 +926,12 @@ Uninstall the app in GitHub to revoke the installation across every Lykeion work
 
 ## Set up the GitHub App on a self-hosted server
 
-Register one GitHub App for your Lykeion server. Set \`PUBLIC_URL\` to the server's public HTTPS URL. GitHub must be able to reach that host.
+Register one GitHub App for your Lykeion server. Set \`PUBLIC_URL\` to the server's public HTTPS URL. For a local development lab, register a separate GitHub App and expose the local server through an HTTPS tunnel. Set \`PUBLIC_URL\` to the tunnel's public URL and use that host for both URLs below.
 
 1. Set **Metadata**, **Pull requests**, **Checks** and **Commit statuses** to read-only under repository permissions.
 2. Enable **Request user authorization (OAuth) during installation**. Set the callback URL to \`https://<host>/api/github/setup\`.
 3. Activate the webhook, set its URL to \`https://<host>/api/webhooks/github\` and enter a webhook secret. Subscribe to **Pull request**, **Check suite**, **Check run** and **Status**. GitHub Apps receive **Installation** and **Installation repositories** events automatically.
+4. If users need to install the app on GitHub accounts or organizations outside the account that owns the app, select **Any account** under **Where can this GitHub App be installed?**
 
 See [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) and [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#installation) in GitHub's documentation.
 
