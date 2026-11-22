@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/seal"
 	"lykeion/server/internal/slack"
 	"lykeion/server/internal/store"
@@ -249,4 +250,45 @@ func (h *H) SlackDraft(ctx context.Context, ws, user uuid.UUID, in slack.DraftIn
 		return uuid.Nil, err
 	}
 	return h.DraftStudy(ctx, ws, user, StudyDraftIn{AgentID: in.AgentID, Prompt: in.Prompt, Priority: in.Priority})
+}
+
+// postSlackLink redeems a link token for the caller. The email that Slack
+// confirms must be the one on the caller's own account.
+func (h *H) postSlackLink(w http.ResponseWriter, r *http.Request) {
+	if !h.slackReady(w) {
+		return
+	}
+	var in struct {
+		Token string `json:"token"`
+	}
+	if err := readJSON(r, &in); err != nil || in.Token == "" {
+		writeErr(w, 400, slack.ErrLinkExpired.Error())
+		return
+	}
+	var email, team string
+	err := h.inWS(r, func(tx *store.Tx, _, user uuid.UUID) error {
+		u, err := tx.Q.GetUser(r.Context(), user)
+		if err != nil {
+			return err
+		}
+		email = u.Email
+		inst, err := tx.Q.GetSlackInstallation(r.Context())
+		team = inst.TeamName
+		return err
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = cardInputError(slack.ErrLinkExpired.Error())
+	}
+	var slackUser string
+	if err == nil {
+		slackUser, err = h.Slack.Redeem(r.Context(), middleware.WorkspaceFrom(r.Context()).ID, middleware.IdentityFrom(r.Context()).UserID, email, in.Token)
+		if errors.Is(err, slack.ErrLinkExpired) || errors.Is(err, slack.ErrEmailMismatch) {
+			err = cardInputError(err.Error())
+		} else if isUnique(err) {
+			err = conflict("That Slack user is already linked")
+		}
+	}
+	if answer(w, r, err) {
+		writeJSON(w, 200, map[string]string{"slack_user_id": slackUser, "team_name": team})
+	}
 }

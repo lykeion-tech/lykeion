@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"lykeion/server/internal/slack"
+	"lykeion/server/internal/store"
 )
 
 const (
@@ -27,12 +28,19 @@ func useFakeSlack(t *testing.T, s *server) {
 			w.Write([]byte(`{"ok":true,"team_id":"T1","team":"Lab","user_id":"UBOT","bot_id":"B1"}`))
 		case strings.HasSuffix(r.URL.Path, "/apps.connections.open"):
 			w.Write([]byte(`{"ok":true,"url":"wss://x"}`))
+		case strings.HasSuffix(r.URL.Path, "/users.info"):
+			// U-<email> is a confirmed Slack profile with that email.
+			if u := r.Form.Get("user"); strings.HasPrefix(u, "U-") {
+				w.Write([]byte(`{"ok":true,"user":{"id":"` + u + `","is_email_confirmed":true,"profile":{"email":"` + strings.ToUpper(u[2:]) + `"}}}`))
+				return
+			}
+			w.Write([]byte(`{"ok":false,"error":"user_not_found"}`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	t.Cleanup(api.Close)
-	s.H.Slack = &slack.Service{Store: s.H.Store, Key: bytes.Repeat([]byte{9}, 32), APIURL: api.URL}
+	s.H.Slack = &slack.Service{Store: s.H.Store, Key: bytes.Repeat([]byte{9}, 32), APIURL: api.URL, PublicURL: "https://lyk.test"}
 }
 
 func slackBody(agent string) map[string]string {
@@ -223,5 +231,55 @@ func TestSlackDraftRefusesAnUnusableAgent(t *testing.T) {
 	_, err := s.H.SlackDraft(t.Context(), uuid.MustParse(ws.ID), uuid.MustParse(s.userID(t, owner)), slack.DraftIn{AgentID: uuid.MustParse(agent), Prompt: "x"})
 	if _, ok := err.(cardInputError); !ok {
 		t.Fatalf("want cardInputError, got %v", err)
+	}
+}
+
+func TestSlackLinkRoute(t *testing.T) {
+	s := newServer(t)
+	useFakeSlack(t, s)
+	owner := s.signIn(t, "owner@lab.org")
+	ws := s.workspace(t, owner, "lab")
+	member := s.member(t, owner, ws.ID, "m@lab.org", "member")
+	agent := s.stagedAgent(t, owner, ws.ID, "hypotheses")
+	s.call(t, "PUT", "/api/slack", owner, ws.ID, slackBody(agent), nil)
+	mint := func(slackUser string) string {
+		var raw string
+		err := s.H.Store.InWorkspace(t.Context(), uuid.MustParse(ws.ID), uuid.Nil, func(tx *store.Tx) error {
+			inst, err := tx.Q.GetSlackInstallation(t.Context())
+			if err != nil {
+				return err
+			}
+			u, err := s.H.Slack.MintLink(t.Context(), tx, inst, slackUser)
+			raw = u[strings.Index(u, "token=")+6:]
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	var out struct {
+		SlackUserID string `json:"slack_user_id"`
+		TeamName    string `json:"team_name"`
+		Error       string `json:"error"`
+	}
+	// someone else's email: 400 with the message, and the token is spent
+	raw := mint("U-owner@lab.org")
+	if code := s.call(t, "POST", "/api/slack/link", member, ws.ID, map[string]string{"token": raw}, &out); code != 400 ||
+		out.Error != "Your Slack email doesn't match your Lykeion email." {
+		t.Fatalf("mismatch: %d %+v", code, out)
+	}
+	out.Error = ""
+	if code := s.call(t, "POST", "/api/slack/link", owner, ws.ID, map[string]string{"token": raw}, &out); code != 400 ||
+		out.Error != "This link has expired. Message Aristotle in Slack for a new one." {
+		t.Fatalf("spent: %d %+v", code, out)
+	}
+	out.Error = ""
+	if code := s.call(t, "POST", "/api/slack/link", member, ws.ID, map[string]string{"token": mint("U-m@lab.org")}, &out); code != 200 ||
+		out.SlackUserID != "U-m@lab.org" || out.TeamName != "Lab" {
+		t.Fatalf("link: %d %+v", code, out)
+	}
+	if n := s.count(t, `SELECT count(*) FROM slack_binding WHERE workspace_id=$1`, ws.ID); n != 1 {
+		t.Fatalf("bindings: %d", n)
 	}
 }

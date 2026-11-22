@@ -389,6 +389,7 @@ func NewRouter(h *H) http.Handler {
 			r.With(middleware.RequireOwner).Patch("/api/slack", h.patchSlack)
 			r.With(middleware.RequireOwner).Delete("/api/slack", h.deleteSlack)
 			r.Delete("/api/slack/binding", h.deleteSlackBinding)
+			r.Post("/api/slack/link", h.postSlackLink)
 
 			r.Get("/api/lab-chart", h.labChart)
 			r.Get("/api/decisions", h.listDecisions)
