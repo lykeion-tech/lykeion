@@ -27,6 +27,10 @@ func useFakeGitHub(t *testing.T, s *server) *atomic.Int32 {
 				t.Error("incorrect OAuth exchange")
 			}
 			fmt.Fprint(w, `{"access_token":"gho_fake"}`)
+		case "/app/installations/1/access_tokens":
+			fmt.Fprint(w, `{"token":"ghs_test"}`)
+		case "/installation/repositories":
+			fmt.Fprint(w, `{"repositories":[]}`)
 		case "/app/installations/1":
 			fmt.Fprint(w, `{"account":{"id":12,"type":"User","login":"lab","avatar_url":"https://example.test/avatar"}}`)
 		case "/user":
@@ -119,7 +123,7 @@ func TestOwnerConnectsGitHub(t *testing.T) {
 			t.Fatal("credential in status")
 		}
 	}
-	if n := s.count(t, `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='github.changed'`, ws.ID); n != 2 {
+	if n := s.count(t, `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='github.changed' AND actor_type='user'`, ws.ID); n != 2 {
 		t.Fatal(n)
 	}
 }

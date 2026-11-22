@@ -306,7 +306,10 @@ func run(ctx context.Context, getenv func(string) string, ready chan<- string) e
 		slog.Warn("GitHub App configuration invalid", "err", configErr)
 		githubConfig = github.Config{WebhookSecret: getenv("GITHUB_WEBHOOK_SECRET")}
 	}
-	h.GitHub = &github.Service{Store: st, Config: githubConfig, PublicURL: h.PublicURL, StateSecret: h.JWT.Secret}
+	h.GitHub = &github.Service{Background: ctx, Store: st, Config: githubConfig, PublicURL: h.PublicURL, StateSecret: h.JWT.Secret}
+	if githubConfig.CanConnect() {
+		go h.GitHub.ResumeImports(ctx)
+	}
 	h.Slack = &slack.Service{Store: st, Key: secretKey, Redis: rdb, AgentRuns: runs, Drafter: h, PublicURL: h.PublicURL,
 		DeleteChat: func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error {
 			return handler.DeleteLabChatInTx(ctx, tx, runs, user, chat)

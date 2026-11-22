@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"hash/maphash"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -16,10 +17,11 @@ import (
 
 var ErrWebhookPayload = errors.New("invalid GitHub webhook payload")
 
-type githubRepository struct {
-	ID    int64
-	Name  string
-	Owner struct{ Login string }
+type Repo struct {
+	FullName string `json:"full_name"`
+	ID       int64
+	Name     string
+	Owner    struct{ Login string }
 }
 type pullRequestData struct {
 	Number               int32
@@ -27,6 +29,8 @@ type pullRequestData struct {
 	HTMLURL              string `json:"html_url"`
 	Draft, Merged        bool
 	Additions, Deletions int32
+	Mergeable            json.RawMessage
+	MergeableState       string     `json:"mergeable_state"`
 	ChangedFiles         int32      `json:"changed_files"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
@@ -39,7 +43,7 @@ type pullRequestData struct {
 	Head struct{ Ref, SHA string }
 }
 
-func (d pullRequestData) pull(repo githubRepository) PullRequest {
+func (d pullRequestData) pull(repo Repo) PullRequest {
 	return PullRequest{
 		Owner: repo.Owner.Login, Repo: repo.Name, Number: int(d.Number),
 		Title: d.Title, Body: d.Body, State: d.State, HTMLURL: d.HTMLURL,
@@ -64,9 +68,9 @@ type webhookPayload struct {
 		HeadSHA string `json:"head_sha"`
 	} `json:"check_run"`
 	Action            string
-	Repository        githubRepository
-	PullRequest       pullRequestData    `json:"pull_request"`
-	RepositoriesAdded []githubRepository `json:"repositories_added"`
+	Repository        Repo
+	PullRequest       pullRequestData `json:"pull_request"`
+	RepositoriesAdded []Repo          `json:"repositories_added"`
 }
 
 var deliveryHash = maphash.MakeSeed()
@@ -134,6 +138,38 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 			return err
 		}
 		switch event {
+		case "installation_repositories":
+			if p.Action != "added" || len(p.RepositoriesAdded) == 0 {
+				return nil
+			}
+			if s.Config.PrivateKey != nil {
+				// Capture each generation before acknowledging. Never apply an old delivery
+				// to a replacement connection after disconnect and reconnect.
+				connections, err := s.importConnections(ctx, id)
+				if err != nil || len(connections) == 0 {
+					return err
+				}
+				if _, loaded := s.repoDeliveries.LoadOrStore(delivery, struct{}{}); loaded {
+					return nil
+				}
+				go func() {
+					bg := s.background(ctx)
+					err := s.runRepoImports(bg, connections, p.RepositoriesAdded)
+					guard.Lock()
+					defer guard.Unlock()
+					defer s.repoDeliveries.Delete(delivery)
+					if err != nil {
+						if bg.Err() == nil {
+							slog.Warn("GitHub added repository import failed", "error", scrub(err))
+						}
+						return
+					}
+					if _, err := q.InsertWebhookDelivery(bg, delivery); err != nil && !errors.Is(err, pgx.ErrNoRows) && bg.Err() == nil {
+						slog.Warn("GitHub delivery receipt failed", "error", err)
+					}
+				}()
+				return nil
+			}
 		case "status":
 			snapshotSHA = p.SHA
 		case "check_run":
@@ -169,7 +205,8 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 }
 
 func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id int64, action string, version time.Time) error {
-	return s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+	var resume *db.GithubConnection
+	err := s.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -198,6 +235,9 @@ func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id in
 				return nil
 			}
 			n, err = tx.Q.SetGithubConnectionStatus(ctx, db.SetGithubConnectionStatusParams{WorkspaceID: ws, InstallationID: id, Status: status, LifecycleAt: version})
+			if status == "active" && current.Status != status && (current.ImportState == "pending" || current.ImportState == "running") {
+				resume = &current
+			}
 			if err != nil || current.Status == status {
 				return err
 			}
@@ -205,7 +245,11 @@ func (s *Service) installationLifecycle(ctx context.Context, ws uuid.UUID, id in
 		if err != nil || n == 0 {
 			return err
 		}
-		// Task 6 resumes interrupted imports after unsuspend commits.
+
 		return tx.Emit(ctx, "github.changed", nil, store.System, nil)
 	})
+	if err == nil && resume != nil && s.Config.PrivateKey != nil {
+		go s.runImport(s.background(ctx), *resume)
+	}
+	return err
 }

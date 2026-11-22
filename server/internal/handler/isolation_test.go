@@ -166,7 +166,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	if code := s.call(t, "POST", "/api/coresearch/bootstrap", a, wa.ID, nil, &welcome); code != 200 || welcome.Conversation.ID == "" {
 		t.Fatalf("conversation fixture %d", code)
 	}
-	ids := map[string]string{"{asset}": "1.pdf", "{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
+	ids := map[string]string{"{installation}": "42", "{asset}": "1.pdf", "{comment}": comment.ID.String(), "{change}": change, "{seq}": "1", "{conversation}": welcome.Conversation.ID, "{project}": cs.ID, "{file}": version.FileID.String(), "{n}": "1", "{chat}": c.ID, "{cell}": c.ID, "{key}": "R1", "{aid}": attached, "{id}": c.ID, "{user}": s.userID(t, a), "{inv}": c.ID, "{token}": "unknown-token"}
 	// Use a separate file so the destructive positive control preserves the
 	// document and change fixtures used by the isolation sweep.
 	if code, removable := csUpload(t, s, a, wa.ID, cs.ID, "remove.tex", 0, false, []byte("remove")); code != 201 {
@@ -209,7 +209,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 	checked := 0
 	err := chi.Walk(NewRouter(s.H).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if !strings.HasPrefix(route, "/api/") || strings.HasPrefix(route, "/api/tokens") ||
-			route == "/api/me" || route == "/api/me/typesafe-key" || strings.HasPrefix(route, "/api/me/research-profile") || route == "/api/feedback" || route == "/api/cli-token" || route == "/api/contact-sales" || route == "/api/workspaces" || route == "/api/laboratories" ||
+			route == "/api/webhooks/github" || route == "/api/github/setup" || route == "/api/me" || route == "/api/me/typesafe-key" || strings.HasPrefix(route, "/api/me/research-profile") || route == "/api/feedback" || route == "/api/cli-token" || route == "/api/contact-sales" || route == "/api/workspaces" || route == "/api/laboratories" ||
 			strings.HasPrefix(route, "/api/invitations") || strings.HasPrefix(route, "/api/daemon") || strings.HasPrefix(route, "/api/role") || strings.HasPrefix(route, "/api/run/coresearch") || strings.HasPrefix(route, "/api/workflows") {
 			return nil
 		}
@@ -224,7 +224,7 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 			// workspace, which membership must refuse for B's user.
 			header = wa.ID
 			path = strings.Replace(path, "{name}", "omim", 1)
-		} else if route == "/api/lab/chats" || route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/autoresearch/with-trigger" || route == "/api/cards" || route == "/api/study-drafts" || strings.HasPrefix(route, "/api/slack") || route == "/api/lab-chart" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/decisions/manual" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
+		} else if route == "/api/lab/chats" || route == "/api/coresearch/uploads" || route == "/api/coresearch/templates" || route == "/api/coresearch/bootstrap" || route == "/api/coresearch/conversations" || route == "/api/coresearch/projects" || route == "/api/analytics" || route == "/api/storage" || route == "/api/autoresearch" || route == "/api/autoresearch/with-trigger" || route == "/api/cards" || route == "/api/study-drafts" || strings.HasPrefix(route, "/api/github") || strings.HasPrefix(route, "/api/slack") || route == "/api/lab-chart" || route == "/api/decisions" || route == "/api/decisions/count" || route == "/api/decisions/manual" || route == "/api/runtimes" || route == "/api/researches" || route == "/api/agents" ||
 			route == "/api/attachments" || route == "/api/packs" || route == "/api/teams" || route == "/api/packs/catalog" || route == "/api/me/pack" {
 			// Collection routes have no resource id to probe, so scope B to A.
 			header = wa.ID

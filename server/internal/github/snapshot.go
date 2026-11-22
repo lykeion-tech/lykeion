@@ -2,7 +2,7 @@ package github
 
 import (
 	"context"
-	"encoding/json"
+
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,17 +131,17 @@ func (s *Service) fetchSnapshot(ctx context.Context, id int64, owner, repo strin
 	if err != nil {
 		return nil, "", err
 	}
+	return s.fetchSnapshotDetail(ctx, owner, repo, n, targets, nil, func(path string, out any) (string, error) { return s.getPage(ctx, token, path, out) })
+}
+func (s *Service) fetchSnapshotDetail(ctx context.Context, owner, repo string, n int32, targets []snapshotTarget, initial *pullRequestData, read func(string, any) (string, error)) (*db.SetGithubSnapshotParams, string, error) {
 	path := "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
 	prPath := fmt.Sprintf("%s/pulls/%d", path, n)
 	var sha, mergeableState string
 	for attempt := 0; ; attempt++ {
-		var pr struct {
-			State          string
-			Head           struct{ SHA string }
-			Mergeable      json.RawMessage
-			MergeableState string `json:"mergeable_state"`
-		}
-		if err := s.get(ctx, token, prPath, &pr); err != nil {
+		var pr pullRequestData
+		if attempt == 0 && initial != nil {
+			pr = *initial
+		} else if _, err := read(prPath, &pr); err != nil {
 			return nil, sha, err
 		}
 		if pr.State == "closed" {
@@ -182,7 +182,7 @@ func (s *Service) fetchSnapshot(ctx context.Context, id int64, owner, repo strin
 				Runs     []CheckRun `json:"check_runs"`
 				Statuses []Status
 			}
-			next, err := s.getPage(ctx, token, page, &data)
+			next, err := read(page, &data)
 			if err != nil {
 				return nil, sha, err
 			}

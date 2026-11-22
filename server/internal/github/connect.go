@@ -219,6 +219,7 @@ func (s *Service) Complete(ctx context.Context, state, code string, installation
 	if err != nil {
 		return uuid.Nil, err
 	}
+	var conn db.GithubConnection
 	err = s.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
 			return err
@@ -230,7 +231,7 @@ func (s *Service) Complete(ctx context.Context, state, code string, installation
 		if err != nil {
 			return err
 		}
-		_, err = tx.Q.UpsertGithubConnection(ctx, db.UpsertGithubConnectionParams{
+		conn, err = tx.Q.UpsertGithubConnection(ctx, db.UpsertGithubConnectionParams{
 			WorkspaceID: ws, InstallationID: installationID, AccountLogin: account.Login,
 			AccountType: account.Type, AccountAvatarUrl: account.AvatarURL, ConnectedBy: user,
 		})
@@ -242,9 +243,6 @@ func (s *Service) Complete(ctx context.Context, state, code string, installation
 	if err != nil {
 		return uuid.Nil, err
 	}
-	go s.Import(context.WithoutCancel(ctx), ws, installationID)
+	go s.runImport(s.background(ctx), conn)
 	return ws, nil
 }
-
-// Import starts the open pull request import after the connection commits.
-func (s *Service) Import(context.Context, uuid.UUID, int64) {}

@@ -165,9 +165,15 @@ func (s *Service) mirrorTargetPR(ctx context.Context, conn *pgxpool.Conn, instal
 		if err != nil {
 			return err
 		}
-		return applyMirror(ctx, tx, installation, p, target)
+		err = applyMirror(ctx, tx, installation, p, target)
+		if errors.Is(err, errStaleMirror) {
+			return nil
+		}
+		return err
 	})
 }
+
+var errStaleMirror = errors.New("newer GitHub pull request already mirrored")
 
 func applyMirror(ctx context.Context, tx *store.Tx, installation int64, p PullRequest, t mirrorTarget) error {
 	ws, err := tx.Q.GetWorkspace(ctx, tx.WS)
@@ -190,7 +196,7 @@ func applyMirror(ctx context.Context, tx *store.Tx, installation int64, p PullRe
 		PrCreatedAt: p.CreatedAt, PrUpdatedAt: p.UpdatedAt,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return errStaleMirror
 	}
 	if err != nil {
 		return err

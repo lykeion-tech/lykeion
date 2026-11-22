@@ -20,13 +20,18 @@ import (
 )
 
 type Service struct {
-	deliveryLocks [64]sync.Mutex
-	Store         *store.Store
-	Config        Config
-	HTTP          *http.Client
-	PublicURL     string
-	StateSecret   []byte
-	now           func() time.Time
+	deliveryLocks  [64]sync.Mutex
+	initialImports sync.Map // connection generation -> completion channel
+	repoDeliveries sync.Map // delivery IDs with a running repositories-added import
+	Store          *store.Store
+	Config         Config
+	HTTP           *http.Client
+	PublicURL      string
+	StateSecret    []byte
+	now            func() time.Time
+	sleep          func(context.Context, time.Duration) error
+	// Background owns imports started by HTTP callbacks for the lifetime of the server.
+	Background context.Context
 }
 
 func (s *Service) currentTime() time.Time {
