@@ -56,6 +56,13 @@ type webhookPayload struct {
 		UpdatedAt   time.Time `json:"updated_at"`
 		SuspendedAt time.Time `json:"suspended_at"`
 	}
+	SHA        string
+	CheckSuite struct {
+		HeadSHA string `json:"head_sha"`
+	} `json:"check_suite"`
+	CheckRun struct {
+		HeadSHA string `json:"head_sha"`
+	} `json:"check_run"`
 	Action            string
 	Repository        githubRepository
 	PullRequest       pullRequestData    `json:"pull_request"`
@@ -85,6 +92,8 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 	if id <= 0 {
 		return nil
 	}
+	var snapshotNumber int32
+	var snapshotSHA string
 	switch event {
 	case "installation":
 		switch p.Action {
@@ -116,13 +125,22 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 			}
 			return err
 		}
-		// Task 5 refreshes snapshots here after the PR commits.
+		if state := pr.state(); state == "open" || state == "draft" {
+			snapshotNumber = p.PullRequest.Number
+		}
 	case "status", "check_run", "check_suite", "installation_repositories":
 		workspaces, err := q.GithubInstallationWorkspaces(ctx, id)
 		if err != nil || len(workspaces) == 0 {
 			return err
 		}
-		// Task 5 resolves check/status payloads by head. Task 6 imports repositories_added.
+		switch event {
+		case "status":
+			snapshotSHA = p.SHA
+		case "check_run":
+			snapshotSHA = p.CheckRun.HeadSHA
+		case "check_suite":
+			snapshotSHA = p.CheckSuite.HeadSHA
+		}
 	default:
 		return nil
 	}
@@ -132,6 +150,17 @@ func (s *Service) Handle(ctx context.Context, event, delivery string, body []byt
 	}
 	if err != nil {
 		return err
+	}
+	if snapshotNumber > 0 || snapshotSHA != "" {
+		go func() {
+			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer cancel()
+			if snapshotNumber > 0 {
+				s.refresh(bg, id, p.Repository.Owner.Login, p.Repository.Name, int(snapshotNumber))
+				return
+			}
+			s.refreshSnapshots(bg, id, p.Repository.Owner.Login, p.Repository.Name, 0, snapshotSHA)
+		}()
 	}
 	if rand.IntN(100) == 0 {
 		_ = q.PruneWebhookDeliveries(ctx)

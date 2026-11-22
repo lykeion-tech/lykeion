@@ -212,7 +212,7 @@ var (
 	linkValuePattern  = regexp.MustCompile(`^[ \t]*<([^<>]*)>((?:` + linkParameter + `)*)[ \t]*(?:,|$)`)
 	linkParamPattern  = regexp.MustCompile(linkParameter)
 	linkQuotedPair    = regexp.MustCompile(`\\(.)`)
-	canonicalPullPath = regexp.MustCompile(`^/repositories/[1-9][0-9]*/pulls$`)
+	canonicalRepoPath = regexp.MustCompile(`^/repositories/[1-9][0-9]*/(pulls|commits/[^/]+/(?:check-runs|status))$`)
 )
 
 func nextPageReference(links string) (string, error) {
@@ -278,8 +278,10 @@ func (s *Service) getPage(ctx context.Context, token, path string, out any) (_ s
 	if current.EscapedPath() != target.EscapedPath() {
 		mount, sameMount := strings.CutSuffix(current.EscapedPath(), original.EscapedPath())
 		targetPath, underMount := strings.CutPrefix(target.EscapedPath(), mount)
-		if !sameMount || !underMount || !strings.HasPrefix(original.Path, "/repos/") ||
-			!strings.HasSuffix(original.Path, "/pulls") || !canonicalPullPath.MatchString(targetPath) {
+		named, ok := strings.CutPrefix(original.EscapedPath(), "/repos/")
+		parts := strings.SplitN(named, "/", 3)
+		canonical := canonicalRepoPath.FindStringSubmatch(targetPath)
+		if !sameMount || !underMount || !ok || len(parts) != 3 || canonical == nil || canonical[1] != parts[2] {
 			return "", errors.New("invalid GitHub pagination link")
 		}
 	}

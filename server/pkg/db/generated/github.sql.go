@@ -410,6 +410,70 @@ func (q *Queries) ListGithubConnections(ctx context.Context, workspaceID uuid.UU
 	return items, nil
 }
 
+const listGithubSnapshotTargets = `-- name: ListGithubSnapshotTargets :many
+SELECT p.id, p.number, p.head_sha, p.snapshot_at, c.created_at AS connected_at,
+  statement_timestamp()::timestamptz AS observed_at
+FROM github_pull_request p
+JOIN github_connection c USING (workspace_id, installation_id)
+WHERE p.workspace_id = $1 AND p.installation_id = $2 AND c.status = 'active'
+  AND p.repo_owner = lower($3::text) AND p.repo_name = lower($4::text)
+  AND p.state IN ('open', 'draft')
+  AND ($5::integer = 0 OR p.number = $5)
+  AND ($6::text = '' OR p.head_sha = $6)
+`
+
+type ListGithubSnapshotTargetsParams struct {
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	InstallationID int64     `json:"installation_id"`
+	RepoOwner      string    `json:"repo_owner"`
+	RepoName       string    `json:"repo_name"`
+	PrNumber       int32     `json:"pr_number"`
+	Sha            string    `json:"sha"`
+}
+
+type ListGithubSnapshotTargetsRow struct {
+	ID          uuid.UUID  `json:"id"`
+	Number      int32      `json:"number"`
+	HeadSha     string     `json:"head_sha"`
+	SnapshotAt  *time.Time `json:"snapshot_at"`
+	ConnectedAt time.Time  `json:"connected_at"`
+	ObservedAt  time.Time  `json:"observed_at"`
+}
+
+func (q *Queries) ListGithubSnapshotTargets(ctx context.Context, arg ListGithubSnapshotTargetsParams) ([]ListGithubSnapshotTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listGithubSnapshotTargets,
+		arg.WorkspaceID,
+		arg.InstallationID,
+		arg.RepoOwner,
+		arg.RepoName,
+		arg.PrNumber,
+		arg.Sha,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGithubSnapshotTargetsRow
+	for rows.Next() {
+		var i ListGithubSnapshotTargetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.HeadSha,
+			&i.SnapshotAt,
+			&i.ConnectedAt,
+			&i.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLinksForPR = `-- name: ListLinksForPR :many
 SELECT workspace_id, card_id, pr_id, source, matched_key, linked_by, linked_at FROM github_pr_link WHERE workspace_id = $1 AND pr_id = $2
 ORDER BY linked_at, card_id
@@ -645,9 +709,9 @@ func (q *Queries) SetGithubImportState(ctx context.Context, arg SetGithubImportS
 const setGithubSnapshot = `-- name: SetGithubSnapshot :execrows
 UPDATE github_pull_request SET ci_state = $1, ci_passed = $2, ci_total = $3,
   ci_failing = COALESCE($4::text[], '{}'), mergeability = $5,
-  snapshot_at = now(), snapshot_stale = false, updated_at = now()
-WHERE workspace_id = $6 AND id = $7 AND installation_id = $8
-  AND head_sha = $9 AND state IN ('open', 'draft')
+  snapshot_at = $6::timestamptz, snapshot_stale = false, updated_at = now()
+WHERE workspace_id = $7 AND id = $8 AND installation_id = $9
+  AND head_sha = $10 AND state IN ('open', 'draft')
 `
 
 type SetGithubSnapshotParams struct {
@@ -656,6 +720,7 @@ type SetGithubSnapshotParams struct {
 	CiTotal        int32     `json:"ci_total"`
 	CiFailing      []string  `json:"ci_failing"`
 	Mergeability   *string   `json:"mergeability"`
+	ObservedAt     time.Time `json:"observed_at"`
 	WorkspaceID    uuid.UUID `json:"workspace_id"`
 	ID             uuid.UUID `json:"id"`
 	InstallationID int64     `json:"installation_id"`
@@ -669,6 +734,7 @@ func (q *Queries) SetGithubSnapshot(ctx context.Context, arg SetGithubSnapshotPa
 		arg.CiTotal,
 		arg.CiFailing,
 		arg.Mergeability,
+		arg.ObservedAt,
 		arg.WorkspaceID,
 		arg.ID,
 		arg.InstallationID,

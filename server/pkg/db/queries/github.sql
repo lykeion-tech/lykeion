@@ -79,7 +79,7 @@ WHERE workspace_id = @workspace_id AND repo_owner = lower(@repo_owner::text)
 -- name: SetGithubSnapshot :execrows
 UPDATE github_pull_request SET ci_state = sqlc.narg(ci_state), ci_passed = @ci_passed, ci_total = @ci_total,
   ci_failing = COALESCE(@ci_failing::text[], '{}'), mergeability = sqlc.narg(mergeability),
-  snapshot_at = now(), snapshot_stale = false, updated_at = now()
+  snapshot_at = @observed_at::timestamptz, snapshot_stale = false, updated_at = now()
 WHERE workspace_id = @workspace_id AND id = @id AND installation_id = @installation_id
   AND head_sha = @head_sha AND state IN ('open', 'draft');
 
@@ -152,3 +152,14 @@ SELECT EXISTS (SELECT 1 FROM github_webhook_delivery WHERE id = @id);
 
 -- name: GithubMatchCards :many
 SELECT id, number FROM card WHERE workspace_id = @workspace_id AND number = ANY(@numbers::integer[]);
+
+-- name: ListGithubSnapshotTargets :many
+SELECT p.id, p.number, p.head_sha, p.snapshot_at, c.created_at AS connected_at,
+  statement_timestamp()::timestamptz AS observed_at
+FROM github_pull_request p
+JOIN github_connection c USING (workspace_id, installation_id)
+WHERE p.workspace_id = @workspace_id AND p.installation_id = @installation_id AND c.status = 'active'
+  AND p.repo_owner = lower(@repo_owner::text) AND p.repo_name = lower(@repo_name::text)
+  AND p.state IN ('open', 'draft')
+  AND (@pr_number::integer = 0 OR p.number = @pr_number)
+  AND (@sha::text = '' OR p.head_sha = @sha);

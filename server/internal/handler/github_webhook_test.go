@@ -298,6 +298,8 @@ func TestWebhookRetryAfterPartialFanout(t *testing.T) {
 func TestWebhookSimultaneousDuplicate(t *testing.T) {
 	f := newMirrorFixture(t)
 	f.connect(t, f.ws)
+	// Closed PRs have no asynchronous snapshot write, so updated_at isolates mirror writes.
+	f.pr["state"] = "closed"
 	body, err := json.Marshal(f.payload)
 	if err != nil {
 		t.Fatal(err)
