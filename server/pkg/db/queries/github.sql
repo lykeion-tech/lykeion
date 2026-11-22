@@ -34,6 +34,8 @@ WHERE workspace_id = @workspace_id AND installation_id = @installation_id AND st
 UPDATE github_connection SET import_state = @import_state, updated_at = now()
 WHERE workspace_id = @workspace_id AND installation_id = @installation_id AND status = 'active';
 
+-- Older deliveries return no row so callers can skip link reconciliation.
+-- Equal timestamps can represent different changes in the same second.
 -- name: UpsertGithubPullRequest :one
 INSERT INTO github_pull_request (
   workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys,
@@ -65,6 +67,7 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, number) DO UPDATE SET
     github_pull_request.snapshot_at IS NOT NULL AND github_pull_request.head_sha <> EXCLUDED.head_sha
   ),
   updated_at = now()
+WHERE github_pull_request.pr_updated_at <= EXCLUDED.pr_updated_at
 RETURNING *;
 
 -- name: GetGithubPullRequestByRepo :one

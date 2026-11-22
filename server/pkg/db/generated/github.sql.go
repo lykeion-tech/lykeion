@@ -705,6 +705,7 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, number) DO UPDATE SET
     github_pull_request.snapshot_at IS NOT NULL AND github_pull_request.head_sha <> EXCLUDED.head_sha
   ),
   updated_at = now()
+WHERE github_pull_request.pr_updated_at <= EXCLUDED.pr_updated_at
 RETURNING id, workspace_id, installation_id, repo_owner, repo_name, number, title, state, html_url, branch, body_keys, author_login, author_avatar_url, additions, deletions, changed_files, head_sha, merged_at, closed_at, pr_created_at, pr_updated_at, ci_state, ci_passed, ci_total, ci_failing, mergeability, snapshot_at, snapshot_stale, created_at, updated_at
 `
 
@@ -731,6 +732,8 @@ type UpsertGithubPullRequestParams struct {
 	PrUpdatedAt     time.Time  `json:"pr_updated_at"`
 }
 
+// Older deliveries return no row so callers can skip link reconciliation.
+// Equal timestamps can represent different changes in the same second.
 func (q *Queries) UpsertGithubPullRequest(ctx context.Context, arg UpsertGithubPullRequestParams) (GithubPullRequest, error) {
 	row := q.db.QueryRow(ctx, upsertGithubPullRequest,
 		arg.WorkspaceID,

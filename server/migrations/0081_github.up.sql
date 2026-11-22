@@ -115,7 +115,7 @@ CREATE FUNCTION github_pending_imports()
 RETURNS TABLE (workspace_id uuid, installation_id bigint)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
   SELECT c.workspace_id, c.installation_id FROM public.github_connection c
-  WHERE c.status = 'active' AND c.import_state IN ('pending', 'running')
+  WHERE c.import_state IN ('pending', 'running')
 $$;
 REVOKE ALL ON FUNCTION github_pending_imports() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION github_pending_imports() TO lykeion_app;

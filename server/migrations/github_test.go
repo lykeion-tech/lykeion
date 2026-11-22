@@ -1,13 +1,17 @@
 package migrations_test
 
 import (
+	"errors"
 	"io/fs"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"lykeion/server/internal/testutil"
 	"lykeion/server/migrations"
+	db "lykeion/server/pkg/db/generated"
 )
 
 func execGithubFixture(t *testing.T, env *testutil.Env, query string, args ...any) {
@@ -91,7 +95,9 @@ func TestInstallationWorkspacesFunction(t *testing.T) {
 	execGithubFixture(t, env, `INSERT INTO github_connection (workspace_id, installation_id, account_login, account_type, connected_by, status, import_state)
 		VALUES ($1, 10, 'owner', 'User', $3, 'active', 'running'),
 		       ($2, 10, 'owner', 'User', $3, 'suspended', 'pending'),
-		       ($1, 11, 'other', 'User', $3, 'active', 'done')`, active, suspended, user)
+		       ($1, 11, 'other', 'User', $3, 'active', 'done'),
+		       ($2, 12, 'other', 'User', $3, 'suspended', 'running'),
+		       ($2, 13, 'other', 'User', $3, 'active', 'failed')`, active, suspended, user)
 
 	rows, err := env.App.Query(ctx, `SELECT workspace_id, card_prefix, slug FROM github_installation_workspaces(10)`)
 	if err != nil {
@@ -116,15 +122,67 @@ func TestInstallationWorkspacesFunction(t *testing.T) {
 	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM github_installation_lifecycle_workspaces(10)`).Scan(&count); err != nil || count != 2 {
 		t.Errorf("lifecycle workspace count = %d, err = %v, want two", count, err)
 	}
-	var installationID int64
-	if err := env.App.QueryRow(ctx, `SELECT workspace_id, installation_id FROM github_pending_imports()`).Scan(&got, &installationID); err != nil {
+	unfinished, err := db.New(env.App).GithubPendingImports(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got != active || installationID != 10 {
-		t.Errorf("pending import = (%s, %d), want (%s, 10)", got, installationID, active)
+	want := map[db.GithubPendingImportsRow]bool{
+		{WorkspaceID: active, InstallationID: 10}:    true,
+		{WorkspaceID: suspended, InstallationID: 10}: true,
+		{WorkspaceID: suspended, InstallationID: 12}: true,
 	}
-	if err := env.App.QueryRow(ctx, `SELECT count(*) FROM github_pending_imports()`).Scan(&count); err != nil || count != 1 {
-		t.Errorf("pending import count = %d, err = %v, want one", count, err)
+	for _, row := range unfinished {
+		if !want[row] {
+			t.Errorf("unexpected unfinished import: %+v", row)
+		}
+		delete(want, row)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing unfinished imports: %v", want)
+	}
+}
+
+func TestGithubPullRequestUpsertRejectsOlderUpdate(t *testing.T) {
+	env := testutil.Setup(t)
+	ctx := t.Context()
+	_, workspace, _ := seedWorkspace(t, env)
+	tx, err := env.App.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, workspace.String()); err != nil {
+		t.Fatal(err)
+	}
+
+	q := db.New(tx)
+	createdAt := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	initial := db.UpsertGithubPullRequestParams{
+		WorkspaceID: workspace, InstallationID: 10, RepoOwner: "Owner", RepoName: "Repo",
+		Number: 1, Title: "Merged", State: "merged", HtmlUrl: "https://github.com/owner/repo/pull/1",
+		PrCreatedAt: createdAt, PrUpdatedAt: createdAt.Add(time.Hour),
+	}
+	inserted, err := q.UpsertGithubPullRequest(ctx, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stale := initial
+	stale.PrUpdatedAt = createdAt
+	stale.State = "open"
+	if _, err := q.UpsertGithubPullRequest(ctx, stale); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("older update: got %v, want ErrNoRows", err)
+	}
+	current, err := q.GetGithubPullRequestByRepo(ctx, db.GetGithubPullRequestByRepoParams{
+		WorkspaceID: workspace, RepoOwner: "OWNER", RepoName: "REPO", Number: 1,
+	})
+	if err != nil || current.State != "merged" || !current.PrUpdatedAt.Equal(initial.PrUpdatedAt) {
+		t.Fatalf("stored state after older update: state = %q, updated = %v, err = %v", current.State, current.PrUpdatedAt, err)
+	}
+	initial.Title = "Same-second edit"
+	revised, err := q.UpsertGithubPullRequest(ctx, initial)
+	if err != nil || revised.ID != inserted.ID || revised.Title != initial.Title {
+		t.Fatalf("equal-timestamp update: id = %s, title = %q, err = %v", revised.ID, revised.Title, err)
 	}
 }
 
