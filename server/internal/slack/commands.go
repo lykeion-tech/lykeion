@@ -121,6 +121,9 @@ func (s *Service) HandleAction(ctx context.Context, inst db.SlackInstallation, a
 			}
 			var chat db.LabChat
 			if chat, err = tx.Q.GetPrivateLabChat(ctx, sc.LabChatID); err == nil {
+				if s.DeleteChat == nil {
+					return errors.New("slack: DeleteChat is not set")
+				}
 				return s.DeleteChat(ctx, tx, user, chat)
 			}
 		}

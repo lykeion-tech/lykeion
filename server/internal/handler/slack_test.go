@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"lykeion/server/internal/slack"
 	"lykeion/server/internal/store"
+	db "lykeion/server/pkg/db/generated"
 )
 
 const (
@@ -35,6 +37,8 @@ func useFakeSlack(t *testing.T, s *server) {
 				return
 			}
 			w.Write([]byte(`{"ok":false,"error":"user_not_found"}`))
+		case strings.HasSuffix(r.URL.Path, "/conversations.open"):
+			w.Write([]byte(`{"ok":true,"channel":{"id":"D1"}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -281,5 +285,78 @@ func TestSlackLinkRoute(t *testing.T) {
 	}
 	if n := s.count(t, `SELECT count(*) FROM slack_binding WHERE workspace_id=$1`, ws.ID); n != 1 {
 		t.Fatalf("bindings: %d", n)
+	}
+}
+
+// slackCmdFixture connects Slack and binds UOWNER to the owner.
+func slackCmdFixture(t *testing.T) (s *server, svc *slack.Service, inst db.SlackInstallation, owner, ws, agent string) {
+	t.Helper()
+	s = newServer(t)
+	useFakeSlack(t, s)
+	owner = s.signIn(t, "owner@lab.org")
+	wsr := s.workspace(t, owner, "lab")
+	ws = wsr.ID
+	agent = s.stagedAgent(t, owner, ws, "hypotheses")
+	if code := s.call(t, "PUT", "/api/slack", owner, ws, slackBody(agent), nil); code != 200 {
+		t.Fatalf("connect: %d", code)
+	}
+	w, u := uuid.MustParse(ws), uuid.MustParse(s.userID(t, owner))
+	err := s.H.Store.InWorkspace(t.Context(), w, u, func(tx *store.Tx) (err error) {
+		if inst, err = tx.Q.GetSlackInstallation(t.Context()); err != nil {
+			return err
+		}
+		_, err = tx.Q.CreateSlackBinding(t.Context(), db.CreateSlackBindingParams{InstallationID: inst.ID, SlackUserID: "UOWNER", UserID: u})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc = s.H.Slack
+	svc.Drafter = s.H
+	svc.AgentRuns = s.H.AgentRuns
+	svc.DeleteChat = func(ctx context.Context, tx *store.Tx, user uuid.UUID, chat db.LabChat) error {
+		return DeleteLabChatInTx(ctx, tx, s.H.AgentRuns, user, chat)
+	}
+	return
+}
+
+func TestSlackClearDeletesChatAndCancelsRun(t *testing.T) {
+	s, svc, inst, owner, ws, _ := slackCmdFixture(t)
+	chat := newLabChat(t, s, owner, ws)
+	seedHistoricalLabQuestion(t, s, chat, "private question", "")
+	if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE agent_run SET status='queued' WHERE lab_chat_id=$1`, chat); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Env.Owner.Exec(t.Context(), `INSERT INTO slack_chat(workspace_id,installation_id,user_id,channel,thread_ts,lab_chat_id) VALUES($1,$2,$3,'D1','',$4)`, ws, inst.ID, s.userID(t, owner), chat); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.HandleAction(t.Context(), inst, slack.Action{ID: slack.ClearConfirmAction, User: "UOWNER"})
+	if err != nil || got != "Conversation deleted." {
+		t.Fatalf("%q %v", got, err)
+	}
+	var deleted bool
+	var status string
+	var mapped, messages int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT (SELECT deleted_at IS NOT NULL FROM lab_chat WHERE id=$1),
+ (SELECT status FROM agent_run WHERE lab_chat_id=$1),
+ (SELECT count(*) FROM slack_chat WHERE lab_chat_id=$1),
+ (SELECT count(*) FROM lab_message WHERE chat_id=$1)`, chat).Scan(&deleted, &status, &mapped, &messages); err != nil {
+		t.Fatal(err)
+	}
+	if !deleted || status != "cancelled" || mapped != 0 || messages != 0 {
+		t.Fatalf("deleted=%v status=%s mapped=%d messages=%d", deleted, status, mapped, messages)
+	}
+}
+
+func TestSlackStudyRefusesArchivedAgent(t *testing.T) {
+	s, svc, inst, _, _, agent := slackCmdFixture(t)
+	s.mustUpdate(t, `UPDATE agent SET archived_at=now() WHERE id=$1`, agent)
+	text, _, err := svc.HandleCommand(t.Context(), inst, slack.Command{Name: "/study", Text: "x", User: "UOWNER", Channel: "C1"})
+	if err != nil || text != "choose an agent every member can use" {
+		t.Fatalf("%q %v", text, err)
+	}
+	var n int
+	if err := s.Env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM slack_post`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("posts=%d %v", n, err)
 	}
 }
