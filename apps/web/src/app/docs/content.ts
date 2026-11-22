@@ -884,6 +884,69 @@ Success means Aristotle answers your DM in Slack, the answer cites records in Ly
 `,
   },
   {
+    slug: 'github',
+    title: 'GitHub',
+    description:
+      'Connect GitHub repositories to your workspace and follow pull requests from your studies.',
+    section: 'Collaboration',
+    markdown: `# GitHub
+
+Connect a GitHub account or organization to see its pull requests on your [studies](/docs/studies/). The integration is read-only. Lykeion makes no changes on GitHub, and the connection gives agents no repository access. Merging a pull request never changes the study stage. Study progression follows the [scientific stages](/docs/scientific-stages/) and their review rules.
+
+## Connect GitHub
+
+1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To link another installation, choose **Add account or organization**.
+2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
+3. On GitHub, select the account or organization and the repositories to share, then authorize the app. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
+4. Check Settings → Code for the connected account and the member who connected it. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available.
+
+If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
+
+Lykeion imports open pull requests, including drafts, from the connected repositories. Settings shows **Importing open pull requests…** while the initial import runs. It resumes if the server restarts. Pull requests already merged or closed are outside the initial import. When repositories are added to the installation, Lykeion imports their open pull requests as well.
+
+## Link pull requests to a study
+
+Use the study identifier shown in Lykeion, such as \`LYK-12\`, which combines the workspace's study prefix and the study number. With **Auto-link pull requests** enabled, Lykeion matches the ID as a whole token in the branch name or title, ignoring case. In the description, put it immediately after a closing keyword, as in \`Closes LYK-12\` or \`Fixes: LYK-12\`. The accepted keywords are close, closes, closed, fix, fixes, fixed, resolve, resolves and resolved, in any case with an optional colon. A bare mention in the description does not link.
+
+One pull request can name several studies. If an ID names a study in more than one workspace connected to the same installation, link it by hand in the intended workspace. Automatic links follow changes to the references in the pull request. The owner can turn off **Auto-link pull requests** in Settings → Code to stop new automatic links and keep existing ones.
+
+To link by hand, open a study's details pane, select **Add pull request** (+) under **Pull requests**, paste the GitHub pull request URL and select **Link pull request**. Any workspace member can add or remove a link. For a repository outside the connection, Lykeion shows “That repository isn't connected to this workspace.”
+
+To unlink it, open the row's actions menu and choose **Remove from study**. Lykeion remembers the removal and never automatically links that pull request to that study again. You can still add it by hand.
+
+## Read a pull request row
+
+Each row opens the pull request on GitHub and shows its repository, number, title, author, state, lines added and deleted, and files changed. States are **Open**, **Draft**, **Merged** and **Closed**. Open and draft pull requests can show whether checks passed, failed or are still running, along with mergeability when GitHub reports it. A **stale** label means Lykeion is showing the last available result. Merged and closed rows show the final state without checks or mergeability.
+
+## Disconnect or uninstall
+
+In Settings → Code, the workspace owner can choose **Disconnect** for an account. The pull requests and links already recorded in that workspace stay visible and stop updating through that connection. The app stays installed on GitHub. A suspended installation appears as **Suspended on GitHub** and resumes updating when unsuspended.
+
+Uninstall the app in GitHub to revoke the installation across every Lykeion workspace that connected it. Removing individual repositories in GitHub stops updates for those repositories.
+
+## Set up the GitHub App on a self-hosted server
+
+Register one GitHub App for your Lykeion server. Set \`PUBLIC_URL\` to the server's public HTTPS URL. GitHub must be able to reach that host.
+
+1. Set **Metadata**, **Pull requests**, **Checks** and **Commit statuses** to read-only under repository permissions.
+2. Enable **Request user authorization (OAuth) during installation**. Set the callback URL to \`https://<host>/api/github/setup\`.
+3. Activate the webhook, set its URL to \`https://<host>/api/webhooks/github\` and enter a webhook secret. Subscribe to **Pull request**, **Check suite**, **Check run** and **Status**. GitHub Apps receive **Installation** and **Installation repositories** events automatically.
+
+See [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) and [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#installation) in GitHub's documentation.
+
+Set these six environment variables on the Lykeion server.
+
+- \`GITHUB_APP_SLUG\` is the slug in the GitHub App's install URL.
+- \`GITHUB_APP_ID\` is the numeric App ID.
+- \`GITHUB_APP_PRIVATE_KEY\` is the contents of the generated PEM private key.
+- \`GITHUB_APP_CLIENT_ID\` is the App's OAuth client ID.
+- \`GITHUB_APP_CLIENT_SECRET\` is the App's OAuth client secret.
+- \`GITHUB_WEBHOOK_SECRET\` is the same secret you entered for the webhook.
+
+Connect requires all six values. If the server is missing any, Settings shows “GitHub isn't configured on this server.” Webhook signature verification uses the webhook secret.
+`,
+  },
+  {
     slug: 'jev',
     title: 'Jev',
     description: 'Understand how Jev and server checks review research items and guide the next step.',

@@ -28,6 +28,7 @@ const required = [
   'autoresearch',
   'connectors',
   'slack',
+  'github',
 ];
 describe('researcher guides', () => {
   it('publishes the complete initial inventory', () => {
