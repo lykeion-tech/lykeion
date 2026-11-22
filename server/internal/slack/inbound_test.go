@@ -57,6 +57,11 @@ func inSetup(t *testing.T) *inFix {
 			w.Write([]byte(`{"ok":true,"channel":{"id":"D1"}}`))
 			return
 		}
+		if code == "hangup" { // a transport error: the connection drops unanswered
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close()
+			return
+		}
 		if code != "" {
 			w.Write([]byte(`{"ok":false,"error":"` + code + `"}`))
 			return
@@ -141,7 +146,7 @@ func TestQuestionEnqueued(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM agent_run WHERE kind='aristotle' AND workspace_id=$1 AND requester_id=$2`, f.WS, u); n != 1 {
 		t.Fatalf("runs=%d", n)
 	}
-	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE status='pending' AND kind='answer' AND user_id=$1 AND channel='D1' AND thread_ts='5.5' AND agent_run_id IS NOT NULL`, u); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE status='pending' AND kind='answer' AND user_id=$1 AND channel='D1' AND thread_ts='' AND agent_run_id IS NOT NULL`, u); n != 1 {
 		t.Fatalf("posts=%d", n)
 	}
 	if n := f.count(t, `SELECT count(*) FROM lab_chat WHERE owner_id=$1 AND title='what is known?'`, u); n != 1 {
@@ -206,6 +211,7 @@ func TestIgnoresBotAndEdits(t *testing.T) {
 	f.send(t, Message{User: "UA", Text: "q", Subtype: "message_changed"})
 	f.send(t, Message{User: "UBOT", Text: "q"})
 	f.send(t, Message{User: "U9", Text: "q", Subtype: "channel_join"})
+	f.send(t, Message{User: "UA", Text: "q", Subtype: "message_deleted"})
 	if f.total() != 0 || f.count(t, `SELECT count(*) FROM agent_run`) != 0 {
 		t.Fatalf("calls=%+v", f.calls)
 	}
@@ -225,7 +231,7 @@ func TestOfflineMachine(t *testing.T) {
 	f.member(t, "a@lab.org", "UA", false)
 	f.send(t, Message{User: "UA", Text: "q", TS: "7.7"})
 	p := f.got("chat.postMessage")
-	if len(p) != 1 || !strings.Contains(p[0].Form.Get("text"), "Your machine is offline") || p[0].Form.Get("thread_ts") != "7.7" {
+	if len(p) != 1 || !strings.Contains(p[0].Form.Get("text"), "Your machine is offline") || p[0].Form.Get("thread_ts") != "" {
 		t.Fatalf("%+v", f.calls)
 	}
 	if f.count(t, `SELECT count(*) FROM agent_run`) != 0 || f.count(t, `SELECT count(*) FROM slack_post`) != 0 {
@@ -235,11 +241,40 @@ func TestOfflineMachine(t *testing.T) {
 
 func TestFilesNote(t *testing.T) {
 	f := inSetup(t)
-	f.member(t, "a@lab.org", "UA", true)
-	f.send(t, Message{User: "UA", Text: "see file", HasFiles: true})
+	u := f.member(t, "a@lab.org", "UA", true)
+	// Slack sends a DM with a file as subtype file_share.
+	f.send(t, Message{User: "UA", Text: "see file", Subtype: "file_share", HasFiles: true})
 	p := f.got("chat.postMessage")
-	if len(p) != 1 || !strings.Contains(p[0].Form.Get("text"), "Aristotle can't read Slack files yet; I answered from your text only.") {
+	if len(p) != 1 || !strings.Contains(p[0].Form.Get("text"), "Aristotle can't read Slack files yet; I answered from your text only.") || p[0].Form.Get("thread_ts") != "" {
 		t.Fatalf("%+v", f.calls)
+	}
+	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE status='pending' AND user_id=$1`, u); n != 1 {
+		t.Fatalf("posts=%d", n)
+	}
+}
+
+func TestChannelMentionThreaded(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "a@lab.org", "UA", false)
+	f.send(t, Message{User: "UA", Text: "q", Channel: "C1", ChannelType: "channel", TS: "3.3"})
+	if p := f.got("chat.postMessage"); len(p) != 1 || p[0].Form.Get("thread_ts") != "3.3" {
+		t.Fatalf("offline reply not threaded: %+v", f.calls)
+	}
+	if _, err := f.Env.Owner.Exec(context.Background(), `INSERT INTO runtime(workspace_id,owner_id,daemon_id,harness) VALUES($1,$2,'d-UA','claude')`, f.WS, u); err != nil {
+		t.Fatal(err)
+	}
+	f.send(t, Message{User: "UA", Text: "q", Channel: "C1", ChannelType: "channel", TS: "4.4"})
+	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE user_id=$1 AND channel='C1' AND thread_ts='4.4'`, u); n != 1 {
+		t.Fatalf("posts=%d", n)
+	}
+}
+
+func TestInThreadDMStaysThreaded(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "a@lab.org", "UA", true)
+	f.send(t, Message{User: "UA", Text: "q", TS: "6.7", ThreadTS: "6.6"})
+	if n := f.count(t, `SELECT count(*) FROM slack_post WHERE user_id=$1 AND thread_ts='6.6'`, u); n != 1 {
+		t.Fatalf("posts=%d", n)
 	}
 }
 

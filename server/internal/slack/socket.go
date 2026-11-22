@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	slackgo "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -15,6 +16,8 @@ import (
 )
 
 var errRevoked = errors.New("slack installation revoked")
+
+const dispatchTimeout = 2 * time.Minute
 
 // toMessage maps an app_mention, or a direct message, to a Message.
 func toMessage(e slackevents.EventsAPIEvent) (Message, bool) {
@@ -114,7 +117,13 @@ func (s *Service) socket(ctx context.Context, inst db.SlackInstallation) error {
 			if e, ok := evt.Data.(slackevents.EventsAPIEvent); ok && revokes(e) {
 				return revoke()
 			}
-			go s.dispatch(ctx, c, inst, evt)
+			// An acked event is not redelivered, so it outlives the connection
+			// (a lease move or deploy), bounded by dispatchTimeout.
+			go func(evt socketmode.Event) {
+				dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dispatchTimeout)
+				defer cancel()
+				s.dispatch(dctx, c, inst, evt)
+			}(evt)
 		}
 	}
 }
@@ -145,6 +154,10 @@ func (s *Service) dispatch(ctx context.Context, c *session, inst db.SlackInstall
 			herr = errors.Join(herr, s.respond(ctx, c, a.ResponseURL, text, nil, true))
 		}
 		err = herr
+	}
+	// A bot token Slack no longer accepts revokes the installation.
+	if err != nil && authFailed(err) {
+		err = errors.Join(err, s.revoke(ctx, inst))
 	}
 	if err != nil && ctx.Err() == nil {
 		slog.Warn("slack event failed", "installation", inst.ID, "type", string(evt.Type), "err", c.err(err))

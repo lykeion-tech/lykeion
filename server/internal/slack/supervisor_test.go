@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	slackgo "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 
 	"lykeion/server/internal/store"
 )
@@ -158,8 +159,8 @@ func TestToMessage(t *testing.T) {
 			Message{EventID: "Ev1", AppID: "A1", User: "U1", Channel: "C1", ChannelType: "channel", TS: "1.2", ThreadTS: "1.1", Text: "<@UBOT> hi"}, true},
 		{"edited mention", `{"type":"app_mention","user":"U1","text":"x","ts":"1.2","channel":"C1","edited":{"user":"U1","ts":"1.3"}}`,
 			Message{EventID: "Ev1", AppID: "A1", User: "U1", Channel: "C1", ChannelType: "channel", TS: "1.2", Text: "x", Subtype: "message_changed"}, true},
-		{"dm with file", `{"type":"message","user":"U1","text":"look","ts":"2.1","channel":"D1","channel_type":"im","files":[{"id":"F1"}]}`,
-			Message{EventID: "Ev1", AppID: "A1", User: "U1", Channel: "D1", ChannelType: "im", TS: "2.1", Text: "look", HasFiles: true}, true},
+		{"dm with file", `{"type":"message","subtype":"file_share","user":"U1","text":"look","ts":"2.1","channel":"D1","channel_type":"im","files":[{"id":"F1"}]}`,
+			Message{EventID: "Ev1", AppID: "A1", User: "U1", Channel: "D1", ChannelType: "im", TS: "2.1", Text: "look", Subtype: "file_share", HasFiles: true}, true},
 		{"dm from bot", `{"type":"message","subtype":"bot_message","bot_id":"B1","text":"x","ts":"2.1","channel":"D1","channel_type":"im"}`,
 			Message{EventID: "Ev1", AppID: "A1", Channel: "D1", ChannelType: "im", TS: "2.1", Text: "x", BotID: "B1", Subtype: "bot_message"}, true},
 		{"channel message", `{"type":"message","user":"U1","text":"x","ts":"2.1","channel":"C1","channel_type":"channel"}`, Message{}, false},
@@ -225,5 +226,20 @@ func TestToAction(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"type":"view_submission","user":{"id":"U1"}}`), &other)
 	if _, ok := toAction(other); ok {
 		t.Fatal("non-block action mapped")
+	}
+}
+
+func TestInvalidAuthOnEventRevokes(t *testing.T) {
+	f := inSetup(t)
+	f.member(t, "a@lab.org", "UA", true)
+	f.fail = map[string]string{"reactions.add": "invalid_auth"}
+	c, err := f.S.session(f.Inst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := parseEvent(t, `{"type":"event_callback","team_id":"T1","api_app_id":"`+f.Inst.AppID+`","event_id":"EvAuth","event":{"type":"message","user":"UA","text":"q","ts":"2.1","channel":"D1","channel_type":"im"}}`)
+	f.S.dispatch(context.Background(), c, f.Inst, socketmode.Event{Type: socketmode.EventTypeEventsAPI, Data: e})
+	if s, n := f.instStatus(t); s != "revoked" || n != 1 {
+		t.Fatalf("status=%s events=%d", s, n)
 	}
 }

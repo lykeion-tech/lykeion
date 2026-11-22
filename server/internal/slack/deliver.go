@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	slackgo "github.com/slack-go/slack"
@@ -15,6 +16,11 @@ import (
 const (
 	unavailableText = "This answer is unavailable because its evidence has changed."
 	maxAttempts     = 5
+	// A post still pending after maxAge can no longer be useful.
+	maxAge = 24 * time.Hour
+	// settleGrace lets a failed run's failure message be recorded after the
+	// run settles before a run without a result counts as finished.
+	settleGrace = 10 * time.Minute
 )
 
 // draftReason maps the internal run reason to text that is safe to show.
@@ -24,6 +30,8 @@ func draftReason(code string) string {
 		return "the agent could not start."
 	case "assignee_unavailable":
 		return "the drafting agent is unavailable."
+	case "runtime_offline":
+		return "your machine went offline."
 	}
 	return "the agent could not finish."
 }
@@ -56,7 +64,20 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 	}
 	m, err := tx.Q.GetLabResultForRun(ctx, p.AgentRunID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, false, nil
+		// A run that ended without a result (its chat was deleted, say) never
+		// gets one.
+		run, err := tx.Q.GetAgentRun(ctx, db.GetAgentRunParams{ID: *p.AgentRunID, WorkspaceID: tx.WS})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, true, nil
+		} else if err != nil {
+			return "", false, false, err
+		}
+		ended := run.CreatedAt
+		if run.CompletedAt != nil {
+			ended = *run.CompletedAt
+		}
+		terminal := run.Status == "completed" || run.Status == "failed" || run.Status == "cancelled"
+		return "", false, terminal && time.Since(ended) > settleGrace, nil
 	}
 	if err != nil {
 		return "", false, false, err
@@ -94,6 +115,10 @@ func (s *Service) DeliverOnce(ctx context.Context, inst db.SlackInstallation) er
 	for _, p := range posts {
 		if err := s.deliver(ctx, inst, c, p); err != nil {
 			errs = append(errs, err)
+			// A bot token Slack no longer accepts revokes the installation.
+			if authFailed(err) {
+				return errors.Join(append(errs, c.err(s.revoke(context.WithoutCancel(ctx), inst)))...)
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -115,6 +140,9 @@ func (s *Service) deliver(ctx context.Context, inst db.SlackInstallation, c *ses
 				return claim("dropped")
 			}
 			return err
+		}
+		if time.Since(p.CreatedAt) > maxAge {
+			return claim("dropped")
 		}
 		t, ready, drop, err := s.compose(ctx, tx, p)
 		switch {
@@ -142,13 +170,20 @@ func (s *Service) deliver(ctx context.Context, inst db.SlackInstallation, c *ses
 		opts = append(opts, slackgo.MsgOptionTS(p.ThreadTs))
 	}
 	_, _, perr := c.PostMessageContext(ctx, p.Channel, opts...)
-	// The row is already 'sending'; a failure to record the outcome must not
-	// make it deliverable again.
+	// Only an error answered by Slack proves the message was not posted; after
+	// a transport error it may have been, so it is dropped, never retried. The
+	// row is already 'sending'; a failure to record the outcome must not make
+	// it deliverable again.
+	var apiErr slackgo.SlackErrorResponse
+	var limited *slackgo.RateLimitedError
+	retry := errors.As(perr, &apiErr) || errors.As(perr, &limited)
 	ctx = context.WithoutCancel(ctx)
 	final := "posted"
 	err = s.Store.InWorkspace(ctx, inst.WorkspaceID, p.UserID, func(tx *store.Tx) error {
 		final = "posted"
-		if perr != nil {
+		if perr != nil && !retry {
+			final = "dropped"
+		} else if perr != nil {
 			n, err := tx.Q.BumpSlackPostAttempts(ctx, p.ID)
 			if err != nil {
 				return err

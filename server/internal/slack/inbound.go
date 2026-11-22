@@ -64,7 +64,10 @@ func (s *Service) resolve(ctx context.Context, inst db.SlackInstallation, slackU
 // HandleMessage turns a Slack message into an Ask Aristotle question as its
 // linked sender, then reacts (or replies) in Slack after the commit.
 func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, m Message) (err error) {
-	if m.AppID != inst.AppID || m.BotID != "" || m.Subtype != "" || m.User == inst.BotUserID {
+	// file_share and thread_broadcast are new messages; other subtypes are
+	// edits, joins and bot posts.
+	newMessage := m.Subtype == "" || m.Subtype == "file_share" || m.Subtype == "thread_broadcast"
+	if m.AppID != inst.AppID || m.BotID != "" || !newMessage || m.User == inst.BotUserID {
 		return nil
 	}
 	key := "lyk:slack:event:" + inst.ID.String() + ":" + m.EventID
@@ -78,8 +81,10 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 			s.Redis.Del(context.WithoutCancel(ctx), key)
 		}
 	}()
+	// A channel mention is answered in its thread; a top-level DM is answered
+	// top-level.
 	thread := m.ThreadTS
-	if thread == "" {
+	if thread == "" && m.ChannelType != "im" {
 		thread = m.TS
 	}
 	var (
@@ -96,7 +101,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 	}
 	opts := func(text string) []slackgo.MsgOption {
 		o := []slackgo.MsgOption{slackgo.MsgOptionText(text, false)}
-		if m.ThreadTS != "" || m.ChannelType != "im" {
+		if thread != "" {
 			o = append(o, slackgo.MsgOptionTS(thread))
 		}
 		return o
@@ -106,7 +111,7 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 			_, err := c.PostEphemeralContext(ctx, m.Channel, m.User, opts(r.text)...)
 			return c.err(err)
 		}
-		_, _, err := c.PostMessageContext(ctx, m.Channel, append(opts(r.text), slackgo.MsgOptionTS(thread))...)
+		_, _, err := c.PostMessageContext(ctx, m.Channel, opts(r.text)...)
 		return c.err(err)
 	}
 	if !bound {
@@ -137,9 +142,6 @@ func (s *Service) HandleMessage(ctx context.Context, inst db.SlackInstallation, 
 			return nil
 		}
 		key := db.GetSlackChatParams{InstallationID: inst.ID, UserID: user, Channel: m.Channel, ThreadTs: thread}
-		if m.ChannelType == "im" && m.ThreadTS == "" {
-			key.ThreadTs = ""
-		}
 		var chat db.LabChat
 		sc, err := tx.Q.GetSlackChat(ctx, key)
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -65,7 +65,7 @@ func TestAnswerPostedOnce(t *testing.T) {
 	f.deliver(t)
 	f.deliver(t)
 	p := f.got("chat.postMessage")
-	if len(p) != 1 || p[0].Form.Get("channel") != "D1" || p[0].Form.Get("thread_ts") != "5.5" || p[0].Form.Get("text") != "nothing &lt;yet&gt;" {
+	if len(p) != 1 || p[0].Form.Get("channel") != "D1" || p[0].Form.Get("thread_ts") != "" || p[0].Form.Get("text") != "nothing &lt;yet&gt;" {
 		t.Fatalf("%+v", p)
 	}
 	if r := f.got("reactions.remove"); len(r) != 1 || r[0].Form.Get("timestamp") != "5.5" {
@@ -254,5 +254,108 @@ func TestCompletedDraftWithoutCardDropped(t *testing.T) {
 	var s string
 	if err := f.Env.Owner.QueryRow(context.Background(), `SELECT status FROM slack_post WHERE id=$1`, post).Scan(&s); err != nil || s != "dropped" || len(f.got("chat.postMessage")) != 0 {
 		t.Fatal(err, s)
+	}
+}
+
+func (f *inFix) exec(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	if _, err := f.Env.Owner.Exec(context.Background(), sql, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChannelAnswerThreaded(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "a@lab.org", "UA", true)
+	f.send(t, Message{User: "UA", Text: "q", Channel: "C1", ChannelType: "channel", TS: "3.3"})
+	a := asked{user: u}
+	if err := f.Env.Owner.QueryRow(context.Background(), `SELECT p.id, p.agent_run_id, c.lab_chat_id FROM slack_post p JOIN slack_chat c ON c.user_id=p.user_id WHERE p.user_id=$1`, u).Scan(&a.post, &a.run, &a.chat); err != nil {
+		t.Fatal(err)
+	}
+	f.answer(t, a, "answer", "", `[{"kind":"gap","text":"hi","cites":[]}]`, `[]`)
+	f.deliver(t)
+	if p := f.got("chat.postMessage"); len(p) != 1 || p[0].Form.Get("channel") != "C1" || p[0].Form.Get("thread_ts") != "3.3" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestEndedRunWithoutResultDropped(t *testing.T) {
+	f := inSetup(t)
+	a := ask(t, f, "UA")
+	// Just cancelled: its failure message may still be on its way.
+	f.exec(t, `UPDATE agent_run SET status='cancelled', completed_at=now() WHERE id=$1`, a.run)
+	f.deliver(t)
+	if s := f.status(t, a); s != "pending" {
+		t.Fatal(s)
+	}
+	// Cancelled long ago with no result (its chat was deleted): it never gets one.
+	f.exec(t, `UPDATE agent_run SET completed_at=now()-interval '1 hour' WHERE id=$1`, a.run)
+	f.deliver(t)
+	if s := f.status(t, a); s != "dropped" || len(f.got("chat.postMessage")) != 0 {
+		t.Fatalf("status=%s posts=%d", s, len(f.got("chat.postMessage")))
+	}
+	if r := f.got("reactions.remove"); len(r) != 1 || r[0].Form.Get("timestamp") != "5.5" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestOldPendingPostDropped(t *testing.T) {
+	f := inSetup(t)
+	a := ask(t, f, "UA")
+	f.exec(t, `UPDATE slack_post SET created_at=now()-interval '25 hours' WHERE id=$1`, a.post)
+	f.deliver(t)
+	if s := f.status(t, a); s != "dropped" || len(f.got("reactions.remove")) != 1 {
+		t.Fatalf("status=%s", s)
+	}
+}
+
+func TestSkippedDraftFails(t *testing.T) {
+	f := inSetup(t)
+	u := f.member(t, "ua@lab.org", "UA", true)
+	draft(t, f, u, false, false)
+	f.exec(t, `INSERT INTO autoresearch_run(workspace_id,autoresearch_id,source,acting_user_id,planned_at,status,reason,idempotency_key)
+ SELECT workspace_id,autoresearch_id,'manual',$2,now(),'skipped','runtime_offline',gen_random_uuid()::text FROM slack_post WHERE workspace_id=$1 AND kind='draft'`, f.WS, u)
+	f.deliver(t)
+	p := f.got("chat.postMessage")
+	if len(p) != 1 || p[0].Form.Get("text") != "I couldn't draft that study: your machine went offline." {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestTransportErrorDropsWithoutRetry(t *testing.T) {
+	f := inSetup(t)
+	a := ask(t, f, "UA")
+	f.answer(t, a, "answer", "", `[{"kind":"gap","text":"hi","cites":[]}]`, `[]`)
+	f.fail = map[string]string{"chat.postMessage": "hangup"}
+	if err := f.S.DeliverOnce(context.Background(), f.Inst); err == nil {
+		t.Fatal("expected the transport error")
+	}
+	if s := f.status(t, a); s != "dropped" {
+		t.Fatal(s)
+	}
+	f.deliver(t)
+	if n := len(f.got("chat.postMessage")); n != 1 {
+		t.Fatalf("posts=%d", n)
+	}
+}
+
+func (f *inFix) instStatus(t *testing.T) (status string, events int) {
+	t.Helper()
+	if err := f.Env.Owner.QueryRow(context.Background(), `SELECT status, (SELECT count(*) FROM event WHERE workspace_id=$1 AND type='slack.changed') FROM slack_installation WHERE id=$2`, f.WS, f.Inst.ID).Scan(&status, &events); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func TestInvalidAuthOnDeliveryRevokes(t *testing.T) {
+	f := inSetup(t)
+	a := ask(t, f, "UA")
+	f.answer(t, a, "answer", "", `[{"kind":"gap","text":"hi","cites":[]}]`, `[]`)
+	f.fail = map[string]string{"chat.postMessage": "invalid_auth"}
+	if err := f.S.DeliverOnce(context.Background(), f.Inst); err == nil {
+		t.Fatal("expected the Slack error")
+	}
+	if s, n := f.instStatus(t); s != "revoked" || n != 1 {
+		t.Fatalf("status=%s events=%d", s, n)
 	}
 }

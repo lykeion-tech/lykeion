@@ -4,6 +4,7 @@ package slack
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -51,8 +52,13 @@ type Service struct {
 // Identity is what the two tokens say about the Slack app.
 type Identity struct{ TeamID, TeamName, AppID, BotUserID string }
 
+// httpClient bounds every Web API call; slack-go's default has no timeout.
+// Socket Mode reuses it for apps.connections.open and dials the WebSocket
+// with its own handshake timeout.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 func (s *Service) newClient(bot, app string) *slackgo.Client {
-	opts := []slackgo.Option{slackgo.OptionAppLevelToken(app)}
+	opts := []slackgo.Option{slackgo.OptionAppLevelToken(app), slackgo.OptionHTTPClient(httpClient)}
 	if s.APIURL != "" {
 		opts = append(opts, slackgo.OptionAPIURL(strings.TrimRight(s.APIURL, "/")+"/"))
 	}
