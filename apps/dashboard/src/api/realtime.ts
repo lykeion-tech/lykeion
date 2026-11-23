@@ -10,6 +10,7 @@ import type { LykEvent, Workspace } from './types';
 // in the payload.
 export function invalidationsFor(ws: string, e: LykEvent): QueryKey[] {
   if (e.workspace_id !== ws) return [];
+  if (e.type === 'member.career_stage_changed') return [keys.members(ws)];
   const keysFor = queriesFor(ws, e);
   // The Lab Chart shows runs, agents, machines, decisions and people.
   return /^(agent_run|agent|runtime|laboratory|decision|inbox|member)\./.test(e.type) &&

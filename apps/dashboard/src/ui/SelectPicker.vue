@@ -3,7 +3,12 @@ import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, useId } fro
 import Icon from './Icon.vue';
 
 const props = withDefaults(
-  defineProps<{ minWidth?: number; align?: 'start' | 'end'; fitContentWidth?: number }>(),
+  defineProps<{
+    minWidth?: number;
+    align?: 'start' | 'end';
+    fitContentWidth?: number;
+    openAbove?: boolean;
+  }>(),
   { minWidth: 180 },
 );
 
@@ -106,9 +111,8 @@ function positionPopup() {
     ? Math.min(Math.max(bounds.width, props.minWidth), 280, window.innerWidth - 16)
     : popupBounds?.width ?? bounds.width;
   const height = popupBounds?.height ?? Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
-  const top = bounds.bottom + height + 6 <= window.innerHeight - 8
-    ? bounds.bottom + 6
-    : bounds.top - height - 6;
+  const openAbove = props.openAbove || bounds.bottom + height + 6 > window.innerHeight - 8;
+  const top = openAbove ? bounds.top - height - 6 : bounds.bottom + 6;
   const left = props.align === 'end' ? bounds.right - width : bounds.left;
   position.value = {
     width,

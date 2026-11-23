@@ -490,6 +490,7 @@ export interface Runtime {
 }
 
 export interface Member {
+  career_stage?: CareerStage;
   avatar_url: string;
   user_id: string;
   role: Role;

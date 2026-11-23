@@ -6,6 +6,7 @@ import Aristotle from '../coresearch/Aristotle.vue';
 import OnboardingStageBoard from './OnboardingStageBoard.vue';
 import PublishedResearchProfile from './PublishedResearchProfile.vue';
 import Icon from '../../ui/Icon.vue';
+import CareerStagePicker from '../../ui/CareerStagePicker.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import CapabilityList from './settings/library/CapabilityList.vue';
 import ResearchProfileFields from './settings/ResearchProfileFields.vue';
@@ -26,10 +27,15 @@ import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { notify } from '../../state/notice';
 import { useLaboratories, useMe, useRuntimes, useWorkspaces } from '../../api/queries';
-import type { Workspace } from '../../api/types';
+import type { CareerStage, Me, Workspace } from '../../api/types';
 import LabChartScene from '../lab-chart/LabChartScene.vue';
 import { toPreviewChart } from '../lab-chart/preview';
-import { prefixFromSlug, randomWorkspaceName, slugFrom } from '../../lib/studies';
+import {
+  prefixFromSlug,
+  randomWorkspaceName,
+  selectableCareerStage,
+  slugFrom,
+} from '../../lib/studies';
 import { useWorkspaceTabs } from '../../state/workspace-tabs';
 import { markReleaseSeen } from './release-highlights';
 
@@ -81,6 +87,16 @@ watch(
     }
   },
   { immediate: true },
+);
+const careerStageDraft = ref<CareerStage>();
+const careerStage = computed({
+  get: () => careerStageDraft.value ?? selectableCareerStage(me.data.value?.career_stage),
+  set: (value: CareerStage) => {
+    careerStageDraft.value = value;
+  },
+});
+const careerStageChanged = computed(
+  () => careerStage.value !== selectableCareerStage(me.data.value?.career_stage),
 );
 const hasProfile = computed(() => hasResearchProfileContent(profileDraft.value));
 const publication = ref<{
@@ -206,6 +222,17 @@ const saveOnboardingProfile = () =>
   run(async () => {
     const currentVisit = visit;
     const account = me.data.value?.id;
+    if (careerStageChanged.value) {
+      const saved = await api<Me>('PATCH', '/api/me', { career_stage: careerStage.value });
+      if (visit !== currentVisit || me.data.value?.id !== account) return;
+      client.setQueryData(keys.me, saved);
+    }
+    if (!hasProfile.value) {
+      publication.value = undefined;
+      if (quickSetup.value) await finishSetup();
+      else step.value = 'Laboratory';
+      return;
+    }
     const result = await saveResearchProfile(profileDraft.value);
     if (visit !== currentVisit) return;
     if (account) updateResearchProfileCache(client, account, result);
@@ -354,7 +381,13 @@ async function logOut() {
             Could not load your research profile.
             <button class="text-button" @click="profile.refetch()">Retry</button>
           </p>
-          <ResearchProfileFields v-else v-model:profile="profileFields" :disabled="busy" />
+          <template v-else>
+            <label class="onboarding-career-stage">
+              <span>Career stage</span>
+              <CareerStagePicker v-model="careerStage" :disabled="busy" />
+            </label>
+            <ResearchProfileFields v-model:profile="profileFields" :disabled="busy" />
+          </template>
         </template>
         <template v-else-if="step === 'Laboratory' && publicationWorkspace">
           <h2>Publish your research profile</h2>
@@ -555,7 +588,12 @@ async function logOut() {
         <template v-else-if="step === 'Research Profile'">
           <button
             class="button primary"
-            :disabled="busy || profile.isPending.value || profile.isError.value || !hasProfile"
+            :disabled="
+              busy ||
+              profile.isPending.value ||
+              profile.isError.value ||
+              (!hasProfile && !careerStageChanged)
+            "
             @click="saveOnboardingProfile"
           >
             Save profile and continue
@@ -597,6 +635,16 @@ async function logOut() {
   </div>
 </template>
 <style scoped>
+.onboarding-career-stage {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.onboarding-career-stage > span {
+  font-weight: 500;
+}
 .machine-hint code {
   padding: 2px 5px;
   border: 1px solid var(--border);

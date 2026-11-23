@@ -20,6 +20,7 @@ import (
 
 	"lykeion/server/internal/auth"
 	"lykeion/server/internal/middleware"
+	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
 
@@ -246,8 +247,40 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSpace(*in.Name)
 		in.Name = &name
 	}
-	u, err := h.Store.Global().UpdateMe(r.Context(), db.UpdateMeParams{Name: in.Name, Timezone: in.Timezone,
-		CareerStage: in.CareerStage, AvatarUrl: in.AvatarURL, Onboarded: in.Onboarded != nil, ID: middleware.IdentityFrom(r.Context()).UserID})
+	ctx := r.Context()
+	id := middleware.IdentityFrom(ctx)
+	params := db.UpdateMeParams{Name: in.Name, Timezone: in.Timezone,
+		CareerStage: in.CareerStage, AvatarUrl: in.AvatarURL, Onboarded: in.Onboarded != nil, ID: id.UserID}
+	var u db.User
+	var err error
+	if in.CareerStage == nil {
+		u, err = h.Store.Global().UpdateMe(ctx, params)
+	} else {
+		err = h.Store.AsUser(ctx, id.UserID, id.Email, func(tx *store.Tx) error {
+			var err error
+			u, err = tx.Q.UpdateMe(ctx, params)
+			if err != nil {
+				return err
+			}
+			workspaces, err := tx.Q.ListMyWorkspaces(ctx, id.UserID)
+			if err != nil {
+				return err
+			}
+			// Acquire workspace event locks in the same order for concurrent account edits.
+			slices.SortFunc(workspaces, func(a, b db.ListMyWorkspacesRow) int {
+				return bytes.Compare(a.ID[:], b.ID[:])
+			})
+			for _, workspace := range workspaces {
+				if err := tx.Workspace(ctx, workspace.ID); err != nil {
+					return err
+				}
+				if err := tx.Emit(ctx, "member.career_stage_changed", nil, store.User(id.UserID), nil); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
 	if err != nil {
 		fail(w, r, err)
 		return

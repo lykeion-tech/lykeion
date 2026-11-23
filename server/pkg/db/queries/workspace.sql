@@ -30,7 +30,7 @@ INSERT INTO member (workspace_id, user_id, role) VALUES (@workspace_id, @user_id
 ON CONFLICT (workspace_id, user_id) DO NOTHING;
 
 -- name: ListMembers :many
-SELECT m.user_id, m.role, m.created_at, u.email, u.name, u.avatar_url FROM member m
+SELECT m.user_id, m.role, m.created_at, u.email, u.name, u.avatar_url, u.career_stage FROM member m
 JOIN "user" u ON u.id = m.user_id
 WHERE m.workspace_id = @workspace_id ORDER BY m.created_at;
 

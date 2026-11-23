@@ -202,3 +202,46 @@ func TestRegistryValidationAndOwnerDeparture(t *testing.T) {
 		t.Fatalf("archive frees name: %d", code)
 	}
 }
+
+func TestCreateProjectFromStudy(t *testing.T) {
+	s := newServer(t)
+	s.builtIns(t)
+	s.H.Engine = nil
+	account := s.signIn(t, "project-from-study@lab.org")
+	workspace := s.workspace(t, account, "study-lab")
+	other := s.workspace(t, account, "other-study-lab")
+	var card struct {
+		ID         string `json:"id"`
+		ResearchID string `json:"research_id"`
+	}
+	if code := s.call(t, "POST", "/api/cards", account, workspace.ID, map[string]string{"question": "How?"}, &card); code != 201 {
+		t.Fatalf("create study: %d", code)
+	}
+	path := "/api/cards/" + card.ID + "/properties"
+	change := map[string]string{"new_project_name": "  Field methods  "}
+	if code := s.call(t, "PATCH", path, account, other.ID, change, nil); code != 404 {
+		t.Fatalf("link study from another workspace: %d", code)
+	}
+	var projects []map[string]any
+	if code := s.call(t, "GET", "/api/researches", account, other.ID, nil, &projects); code != 200 || len(projects) != 0 {
+		t.Fatalf("foreign workspace projects: %d %+v", code, projects)
+	}
+	for _, bad := range []map[string]any{
+		{"new_project_name": " "},
+		{"new_project_name": "Methods", "research_id": nil},
+	} {
+		if code := s.call(t, "PATCH", path, account, workspace.ID, bad, nil); code != 400 {
+			t.Fatalf("invalid project change %v: %d", bad, code)
+		}
+	}
+	if code := s.call(t, "PATCH", path, account, workspace.ID, change, &card); code != 200 || card.ResearchID == "" {
+		t.Fatalf("create and link project: %d %+v", code, card)
+	}
+	var project struct {
+		Name    string
+		Studies []map[string]any
+	}
+	if code := s.call(t, "GET", "/api/researches/"+card.ResearchID, account, workspace.ID, nil, &project); code != 200 || project.Name != "Field methods" || len(project.Studies) != 1 || project.Studies[0]["id"] != card.ID {
+		t.Fatalf("linked project: %d %+v", code, project)
+	}
+}

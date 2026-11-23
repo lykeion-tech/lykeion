@@ -126,7 +126,7 @@ func TestSetupRunnerStopsInstallerChildren(t *testing.T) {
 	}()
 	// Cancel once the installer runs: starting the sandbox can take longer
 	// than any fixed delay on a loaded machine.
-	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(dir, "pgid")); return err == nil })
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(dir, "pgid")); return len(b) > 0 })
 	start := time.Now()
 	cancel()
 	if err := <-done; err == nil || time.Since(start) > time.Second {

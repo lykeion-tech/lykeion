@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 // killGroupOnCancel ends the command's whole process group when its context
@@ -13,7 +15,7 @@ import (
 // group's.
 func killGroupOnCancel(cmd *exec.Cmd) {
 	cmd.Cancel = func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		err := sandbox.KillGroup(cmd.Process.Pid)
 		if err == syscall.ESRCH {
 			return os.ErrProcessDone
 		}

@@ -5,6 +5,8 @@ package daemon
 import (
 	"os/exec"
 	"syscall"
+
+	"lykeion/server/internal/daemon/sandbox"
 )
 
 // A local command runs in its own process group, as the agent CLI does, so
@@ -13,7 +15,7 @@ func ownGroup(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: t
 
 func killGroup(cmd *exec.Cmd) {
 	if cmd.Process != nil {
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		sandbox.KillGroup(cmd.Process.Pid)
 	}
 }
 

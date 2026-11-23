@@ -289,11 +289,19 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		ResearchID nullableUUID `json:"research_id"`
+		ResearchID     nullableUUID `json:"research_id"`
+		NewProjectName *string      `json:"new_project_name"`
 	}
-	if err := readJSON(r, &in); err != nil || !in.ResearchID.Set {
-		writeErr(w, 400, "send research_id; clear it with null")
+	if err := readJSON(r, &in); err != nil || in.ResearchID.Set == (in.NewProjectName != nil) {
+		writeErr(w, 400, "send either research_id or new_project_name; clear research_id with null")
 		return
+	}
+	if in.NewProjectName != nil {
+		*in.NewProjectName = strings.TrimSpace(*in.NewProjectName)
+		if !(researchInput{Name: in.NewProjectName}).valid(true) || strings.ContainsRune(*in.NewProjectName, 0) {
+			writeErr(w, 400, "valid project name required")
+			return
+		}
 	}
 	var out db.Card
 	err := h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
@@ -301,7 +309,19 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if in.ResearchID.V != nil {
+		researchID := in.ResearchID.V
+		if in.NewProjectName != nil {
+			project, err := tx.Q.CreateResearch(r.Context(), db.CreateResearchParams{
+				WorkspaceID: ws, Name: *in.NewProjectName, CreatedBy: user, Status: "planned", Priority: "none",
+			})
+			if err != nil {
+				return err
+			}
+			researchID = &project.ID
+			if err := tx.Emit(r.Context(), "research.created", nil, store.User(user), map[string]uuid.UUID{"research_id": project.ID}); err != nil {
+				return err
+			}
+		} else if researchID != nil {
 			if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID.V}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return cardInputError("research is not in this workspace")
@@ -309,7 +329,7 @@ func (h *H) updateCardProperties(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		out, err = tx.Q.UpdateCardProperties(r.Context(), db.UpdateCardPropertiesParams{WorkspaceID: ws, ID: id, ResearchID: in.ResearchID.V})
+		out, err = tx.Q.UpdateCardProperties(r.Context(), db.UpdateCardPropertiesParams{WorkspaceID: ws, ID: id, ResearchID: researchID})
 		if err != nil {
 			return err
 		}

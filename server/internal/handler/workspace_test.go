@@ -444,3 +444,37 @@ func TestALeavingMembersLateRunCannotClaimWorkspaceSharing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestColleaguesSeeCareerStageWithinTheirWorkspace(t *testing.T) {
+	s := newServer(t)
+	owner := s.signIn(t, "career-owner@lab.org")
+	member := s.signIn(t, "career-member@lab.org")
+	outsider := s.signIn(t, "career-outsider@lab.org")
+	lab := s.workspace(t, owner, "career-lab")
+	invite := s.invite(t, owner, lab.ID, "career-member@lab.org", "member")
+	if code := s.call(t, "POST", "/api/invitations/"+invite+"/accept", member, "", nil, nil); code != 200 {
+		t.Fatalf("accept invitation: %d", code)
+	}
+	if code := s.call(t, "PATCH", "/api/me", owner, "", map[string]string{"career_stage": "postdoc"}, nil); code != 200 {
+		t.Fatalf("save career stage: %d", code)
+	}
+	path := "/api/workspaces/" + lab.ID + "/members"
+	var members []db.ListMembersRow
+	if code := s.call(t, "GET", path, member, "", nil, &members); code != 200 || len(members) != 2 {
+		t.Fatalf("list colleagues: %d %+v", code, members)
+	}
+	for _, colleague := range members {
+		if colleague.Role == "owner" && colleague.CareerStage != "postdoc" {
+			t.Fatalf("owner career stage: %q", colleague.CareerStage)
+		}
+	}
+	if code := s.call(t, "GET", path, outsider, "", nil, nil); code != 404 && code != 403 {
+		t.Fatalf("outsider read colleagues: %d", code)
+	}
+	var events int
+	if err := s.Env.Owner.QueryRow(t.Context(),
+		"SELECT count(*) FROM event WHERE workspace_id = $1 AND type = 'member.career_stage_changed'", lab.ID,
+	).Scan(&events); err != nil || events != 1 {
+		t.Fatalf("career stage invalidation events: %d, %v", events, err)
+	}
+}

@@ -22,6 +22,8 @@ import type { Member, Role } from '../../api/types';
 import {
   boardColumnOf,
   boardColumns,
+  careerStageLabels,
+  selectableCareerStage,
   studyDisplayTitle,
   studyNumber,
   timeAgo,
@@ -46,6 +48,12 @@ const selectedMember = computed(() =>
 const researchProfile = useColleagueResearchProfile(() =>
   detailTab.value === 'overview' ? (selectedMember.value?.user_id ?? '') : '',
 );
+function careerStageLabel(member: Member) {
+  const stage = selectableCareerStage(
+    member.user_id === me.data.value?.id ? me.data.value?.career_stage : member.career_stage,
+  );
+  return stage ? careerStageLabels[stage] : '—';
+}
 const filteredMembers = computed(() =>
   (members.data.value ?? []).filter(
     (m) =>
@@ -218,6 +226,8 @@ const invite = () =>
                 <dd>{{ selectedMember.name || '—' }}</dd>
                 <dt>Email</dt>
                 <dd>{{ selectedMember.email }}</dd>
+                <dt>Career stage</dt>
+                <dd>{{ careerStageLabel(selectedMember) }}</dd>
                 <dt>Workspace role</dt>
                 <dd>{{ roleNames[selectedMember.role] }}</dd>
               </dl>
@@ -358,7 +368,8 @@ const invite = () =>
           <tr>
             <th>Name</th>
             <th>Email</th>
-            <th>Role</th>
+            <th>Career stage</th>
+            <th>Workspace access</th>
             <th></th>
           </tr>
         </thead>
@@ -374,8 +385,9 @@ const invite = () =>
               >
             </td>
             <td class="muted">{{ m.email }}</td>
+            <td>{{ careerStageLabel(m) }}</td>
             <td>
-              <SelectPicker v-if="isAdmin" :min-width="120"
+              <SelectPicker v-if="isAdmin" class="member-role-picker" :min-width="120"
                 ><select
                   :value="m.role"
                   :disabled="busy"
@@ -441,7 +453,7 @@ const invite = () =>
         >Email<input v-model="email" type="email" aria-label="Email" required autofocus
       /></label>
       <label
-        >Role<SelectPicker
+        >Role<SelectPicker class="invite-role-picker" :min-width="0" open-above
           ><select v-model="role" aria-label="Role">
             <option value="member">Member</option>
             <option value="admin">Admin</option>
@@ -455,6 +467,13 @@ const invite = () =>
 </template>
 <style scoped src="../../ui/resources.css"></style>
 <style scoped>
+.member-role-picker {
+  width: 96px;
+}
+.invite-role-picker {
+  align-self: flex-start;
+  min-width: 8em;
+}
 .agent-work {
   padding: 24px;
 }
@@ -560,7 +579,7 @@ const invite = () =>
   padding: 10px 12px 10px 0;
   border-top: 1px solid var(--border);
 }
-.members td:nth-child(3) > .select-picker {
+.members .member-role-picker {
   margin-left: -9px;
 }
 .people tbody tr:hover td {
