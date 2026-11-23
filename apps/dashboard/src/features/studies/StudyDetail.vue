@@ -1187,6 +1187,7 @@ function pin() {
   padding: 0;
   text-align: left;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 23px;
   display: block;
   color: var(--muted);
