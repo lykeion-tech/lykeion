@@ -151,7 +151,7 @@ test('two owner clients observe real daemon registration, expiry and return with
     await expect(wizard.getByText('ui2-availability', { exact: false })).toBeVisible();
     await wizard.screenshot({ path: `${shots}/real-daemon-wizard-runtime.png` });
     await wizard.getByRole('button', { name: 'Enter workspace' }).click();
-    await expect(wizard).toHaveURL(/#\/studies$/);
+    await expect(wizard).toHaveURL(/#\/coresearch(?:\/|$)/);
     await wizard.close();
     await control('stop');
     await expect

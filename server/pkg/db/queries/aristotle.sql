@@ -35,6 +35,12 @@ INSERT INTO coresearch_turn_receipt(workspace_id,owner_id,request_id,target,body
 -- name: GetCoresearchConversation :one
 SELECT * FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id FOR UPDATE;
 
+-- name: UpdateCoresearchConversation :one
+UPDATE coresearch_conversation
+SET title = @title, research_id = sqlc.narg(research_id),
+    pinned_at = sqlc.narg(pinned_at), archived_at = sqlc.narg(archived_at)
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= @id RETURNING *;
+
 -- name: CreateCoresearchConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title)
 VALUES(app_workspace(),app_user(),@agent_id,@project_id,@chat_id,@title) RETURNING *;

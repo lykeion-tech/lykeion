@@ -31,6 +31,7 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
     case 'lab':
       return [['ws', ws, 'lab']];
     case 'coresearch': {
+      if (e.type === 'coresearch.conversation.updated') return [keys.coresearchConversations(ws)];
       const project = e.payload.project_id;
       if (typeof project !== 'string') return [];
       // Events carry identifiers only; all data is read through membership routes.
@@ -52,6 +53,7 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
       return [
         keys.coresearchProjects(ws),
         keys.coresearchConversations(ws),
+        keys.researchCoresearchAll(ws),
         ['ws', ws, 'coresearch', project],
       ];
     }
@@ -102,9 +104,18 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
           : [keys.researchDetails(ws)]),
       ];
     case 'research':
+      if (e.type === 'research.coresearch.changed')
+        return [...new Set(researchIds)].map((id) => keys.researchCoresearch(ws, id));
       return [
         keys.researches(ws),
-        ...(e.type === 'research.deleted' ? [keys.cards(ws), ['ws', ws, 'card']] : []),
+        ...(e.type === 'research.deleted'
+          ? [
+              keys.cards(ws),
+              ['ws', ws, 'card'],
+              keys.coresearchConversations(ws),
+              ...researchIds.map((id) => keys.researchCoresearch(ws, id)),
+            ]
+          : []),
         ...(typeof e.payload.research_id === 'string'
           ? [keys.research(ws, e.payload.research_id)]
           : []),

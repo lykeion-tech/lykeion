@@ -9,7 +9,7 @@ async function closeReleaseHighlights(page: Page) {
 }
 // Finishing onboarding marks the current release as seen.
 async function expectNoReleaseHighlights(page: Page) {
-  await expect(page.getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Chat', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'What’s new in Lykeion' })).toBeHidden();
 }
 async function newcomer(page: Page, label: string) {
@@ -41,7 +41,7 @@ test('five steps, Back and skips create a real workspace without a profile save'
   await expect(page.getByText('lyk daemon start')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Your lab is ready' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Enter workspace' }).click();
-  await expect(page).toHaveURL(/#\/studies$/);
+  await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
   const me = await (await page.request.get('/api/me')).json();
   expect(me.onboarded_at).not.toBeNull();
   expect(me.career_stage).toBe('');
@@ -107,7 +107,7 @@ test('publishes the profile only after workspace confirmation and retries on the
   });
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.getByRole('button', { name: 'Enter workspace' }).click();
-  await expect(page).toHaveURL(/#\/studies$/);
+  await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
   await expectNoReleaseHighlights(page);
   const peer = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   try {
@@ -192,7 +192,7 @@ test('existing-member resume preserves saved career and context and Settings sti
       (await (await owner.request.get(`/api/workspaces/${ws.id}`)).json()).research_context,
     ).toBe('Saved research context');
     await page.getByRole('button', { name: 'Enter workspace' }).click();
-    await expect(page).toHaveURL(/#\/studies$/);
+    await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
     await expectNoReleaseHighlights(page);
     await page.goto('/#/settings?tab=profile');
     await selectPicker(page.getByRole('combobox', { name: 'Your career stage' }), 'phd');

@@ -43,6 +43,21 @@ describe('event to query map', () => {
     expect(invalidationsFor('w1', event)).toContainEqual(keys.researches('w1'));
     expect(invalidationsFor('w1', event)).toContainEqual(keys.research('w1', 'p1'));
     expect(invalidationsFor('w1', event)).toContainEqual(keys.cards('w1'));
+    expect(invalidationsFor('w1', event)).toContainEqual(keys.researchCoresearch('w1', 'p1'));
+  });
+  it('refreshes both project chat lists and readers when a conversation moves', () => {
+    const event = {
+      ...ev('research.coresearch.changed', null),
+      payload: { research_id: 'new', previous_research_id: 'old' },
+    };
+    expect(invalidationsFor('w1', event)).toEqual([
+      keys.researchCoresearch('w1', 'old'),
+      keys.researchCoresearch('w1', 'new'),
+    ]);
+    expect(invalidationsFor('another-workspace', event)).toEqual([]);
+    expect(invalidationsFor('w1', ev('coresearch.conversation.updated', null))).toEqual([
+      keys.coresearchConversations('w1'),
+    ]);
   });
   it('card events refresh the board, the card, its event lines and the Inbox', () => {
     for (const type of ['card.created', 'card.steered', 'card.escalated', 'card.deleted']) {

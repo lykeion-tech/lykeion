@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ChatRow } from '../types';
+import type { Conversation } from '../aristotle';
+import ConversationActions from '../ConversationActions.vue';
 import FileMenu from './FileMenu.vue';
 import Icon from '../../../ui/Icon.vue';
 import { formatAgo } from './lib/pane-time';
@@ -12,6 +14,7 @@ const props = withDefaults(
     owner?: boolean;
     members?: { id: string; name: string }[];
     chatTitles?: Record<string, string>;
+    managedConversation?: Conversation;
     // When each chat last moved, as an ISO time.
     chatTimes?: Record<string, string>;
   }>(),
@@ -145,14 +148,25 @@ const row = 'flex h-8 items-center gap-2.5 mx-0.5 rounded-lg px-2 type-body';
             @click="emit('openChat', chat.id)"
           >
             <span class="tsb-chat-dot" aria-hidden="true" /><span class="tsb-chat-title">{{
-              chatTitles?.[chat.id] || (i === 0 ? name : 'Conversation')
+              (managedConversation?.chat_id === chat.id ? managedConversation.title : chatTitles?.[chat.id]) ||
+                (i === 0 ? name : 'Conversation')
             }}</span
             ><span class="tsb-chat-time">{{
               formatAgo(Date.parse(chatTimes?.[chat.id] ?? chat.created_at) / 1000)
             }}</span>
           </button>
+          <ConversationActions
+            v-if="managedConversation?.chat_id === chat.id"
+            class="tsb-chat-actions"
+            :conversation="managedConversation"
+          />
         </div>
       </div>
     </div>
   </aside>
 </template>
+<style scoped>
+.tsb-chat:has(.tsb-chat-actions) .tsb-chat-open {
+  padding-right: 27px;
+}
+</style>

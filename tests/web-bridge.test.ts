@@ -34,10 +34,10 @@ describe('landing to dashboard bridge', () => {
     ).toBe('/app/');
   });
 
-  it('resolves onboarding, a new workspace or the studies board', () => {
+  it('resolves onboarding, a new workspace or Coresearch', () => {
     expect(resolvePostAuthDestination([{}], false)).toBe('/app/#/onboarding');
     expect(resolvePostAuthDestination([], true)).toBe('/app/#/onboarding?step=workspace');
-    expect(resolvePostAuthDestination([{}], true)).toBe('/app/#/studies');
+    expect(resolvePostAuthDestination([{}], true)).toBe('/app/#/coresearch');
   });
 
   it('treats unlisted hosts as app hosts', () => {
@@ -52,7 +52,7 @@ describe('landing to dashboard bridge', () => {
     const bridge = await import('../apps/web/src/bridge');
     const session = await bridge.loadSession();
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/me', '/api/workspaces']);
-    expect(session.destination).toBe('/app/#/studies');
+    expect(session.destination).toBe('/app/#/coresearch');
   });
 
   it('keeps a refused identity signed out without asking for workspaces', async () => {

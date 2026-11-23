@@ -75,6 +75,10 @@ export const keys = {
   researches: (ws: string) => ['ws', ws, 'researches'] as const,
   researchDetails: (ws: string) => ['ws', ws, 'research'] as const,
   research: (ws: string, id: string) => ['ws', ws, 'research', id] as const,
+  researchCoresearchAll: (ws: string) => ['ws', ws, 'research-coresearch'] as const,
+  researchCoresearch: (ws: string, id: string) => ['ws', ws, 'research-coresearch', id] as const,
+  researchCoresearchChat: (ws: string, id: string, conversation: string) =>
+    ['ws', ws, 'research-coresearch', id, conversation] as const,
   agents: (ws: string) => ['ws', ws, 'agents'] as const,
   labChart: (ws: string) => ['lab-chart', ws] as const,
   laboratories: ['laboratories'] as const,

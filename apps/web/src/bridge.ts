@@ -5,7 +5,7 @@ export const paths = {
   login: '/app/#/signin',
   onboarding: '/app/#/onboarding',
   newWorkspace: '/app/#/onboarding?step=workspace',
-  studies: '/app/#/studies',
+  coresearch: '/app/#/coresearch',
 };
 
 // While the workspace list is in flight the button points at the dashboard
@@ -27,7 +27,7 @@ export function resolvePostAuthDestination(
   hasOnboarded: boolean,
 ): string {
   if (!hasOnboarded) return paths.onboarding;
-  return workspaces.length ? paths.studies : paths.newWorkspace;
+  return workspaces.length ? paths.coresearch : paths.newWorkspace;
 }
 
 export function resolveDashboardCtaHref(state: {

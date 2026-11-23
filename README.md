@@ -316,7 +316,7 @@ npm run web        # landing page on http://127.0.0.1:1440, proxies /app and the
 
 Set `PUBLIC_URL=http://127.0.0.1:1440/app` on the server so sign-in comes back to the dashboard. `npm run dev:stack` starts the server, the dashboard and the landing page together, and stops all three when one exits. It does not start PostgreSQL or Redis.
 
-On the landing page, signed-out visitors see **Get started**, which opens sign-in. Signed-in visitors are sent to onboarding, to workspace creation or to their studies, depending on how far they've got.
+On the landing page, signed-out visitors see **Get started**, which opens sign-in. Signed-in visitors are sent to onboarding, workspace creation or Coresearch, depending on how far they've got.
 
 ### 4. Your machine
 

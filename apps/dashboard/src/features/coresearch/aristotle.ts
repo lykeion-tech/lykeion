@@ -23,6 +23,10 @@ export interface Conversation {
   chat_id: string;
   title: string;
   preview: string;
+  research_id?: string | null;
+  pinned_at?: string | null;
+  archived_at?: string | null;
+  updated_at?: string;
   is_welcome: boolean;
   snapshot_harness: 'claude' | 'codex' | null;
   snapshot_model: string | null;
@@ -143,10 +147,10 @@ export function acceptanceRequest(
     : { body, target, request_id: crypto.randomUUID(), ...(payload ? { payload } : {}) };
 }
 export function restoreConversation(
-  list: { id: string; is_welcome: boolean; mode?: string }[],
+  list: { id: string; is_welcome: boolean; mode?: string; archived_at?: string | null }[],
   saved: string | null,
 ) {
-  const conversations = list.filter((c) => c.mode !== 'cowrite');
+  const conversations = list.filter((c) => c.mode !== 'cowrite' && !c.archived_at);
   return (
     conversations.find((c) => c.id === saved)?.id ??
     conversations.find((c) => c.is_welcome)?.id ??

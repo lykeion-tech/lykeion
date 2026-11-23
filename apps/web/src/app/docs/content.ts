@@ -25,7 +25,7 @@ Lykeion brings studies, research agents and collaborators into a shared workspac
 2. Complete onboarding or select an existing workspace. The Laboratory step lets you create a workspace, choose its name and URL, and set a study card prefix.
 3. Review Skills and Connectors, then connect a machine so agents have somewhere to execute.
 
-You are ready when your workspace opens and the intended machine appears online. A workspace alone does not supply an executing agent CLI; your machine needs its own supported, authenticated runtime.
+Your workspace opens in Coresearch with the conversation sidebar expanded. To run agents, connect a machine with a supported, authenticated runtime and confirm it appears online.
 
 After an update, Lykeion shows the new features when you return to your workspace. Open Settings → Updates → **What’s new** to review the current version’s highlights again.
 
@@ -58,7 +58,7 @@ Sign in and follow onboarding. Add your research profile after Welcome, then cho
 
 ## 2. Connect a machine
 
-Use the [download page](/download/) to install the desktop app, which includes the daemon. Sign in to your lab account and install and authenticate Claude Code or Codex on that computer. For a remote computer, use the prebuilt CLI instructions on the same page, choose your workspace and start the daemon. Linux also needs bubblewrap. Open Settings → Machines to confirm the computer and intended runtime are online. See [connect a machine](/docs/connect-machine/) for the complete setup.
+Use the [download page](/download/) to install the desktop app, which includes the daemon. Sign in to your lab account and install and authenticate Claude Code or Codex on that computer. For a remote computer, use the prebuilt CLI instructions on the same page, choose your workspace and start the daemon. Linux also needs bubblewrap. Open Settings → Connections → Machines to confirm the computer and intended runtime are online. See [connect a machine](/docs/connect-machine/) for the complete setup.
 
 ## 3. Create the study
 
@@ -92,7 +92,7 @@ Before assigning research, separate the question you want answered from the soft
 1. Choose a **workspace**, the shared context for your lab's studies, colleagues and configuration.
 2. Create a **study**, a question or task with a description, assignee and stage scope.
 3. Assign an **agent**, a configured research role, or a **Team**, a coordinated group for a stage.
-4. Open Settings → Machines to confirm the runtime needed by your agent or Team is online. A **machine** is the computer exposing those runtimes; a **run** records one execution attempt.
+4. Open Settings → Connections → Machines to confirm the runtime needed by your agent or Team is online. A **machine** is the computer exposing those runtimes; a **run** records one execution attempt.
 5. Inspect the resulting activity, hand-ins, files, notebook records and review.
 
 A machine can expose more than one runtime. An agent's identity is reusable across work; its individual runs have their own progress and errors.
@@ -172,7 +172,7 @@ This capture shows the setup form, before submitting another workspace. Existing
 
 ## 2. Connect execution
 
-Install the desktop app from the [download page](/download/) for your own computer, or follow its prebuilt CLI instructions for a remote macOS / Linux machine. Install and authenticate Claude Code or Codex there; Linux also needs bubblewrap. For the CLI, sign in to Lykeion, choose your workspace and start the daemon. Then open Settings → Machines to check runtime availability. See [connect a machine](/docs/connect-machine/) for the steps; the source-build dialog is an alternative. Keep credentials in the terminal flow; do not paste them into a study.
+Install the desktop app from the [download page](/download/) for your own computer, or follow its prebuilt CLI instructions for a remote macOS / Linux machine. Install and authenticate Claude Code or Codex there; Linux also needs bubblewrap. For the CLI, sign in to Lykeion, choose your workspace and start the daemon. Then open Settings → Connections → Machines to check runtime availability. See [connect a machine](/docs/connect-machine/) for the steps; the source-build dialog is an alternative. Keep credentials in the terminal flow; do not paste them into a study.
 
 [![Actual Claude Code and Codex runtime rows marked Online](/docs/machine-runtimes-detail.jpg)](/docs/machine-runtimes.jpg)
 
@@ -185,7 +185,7 @@ Check that the desired runtime is online and usable. A machine's presence in the
 1. Open Studies and create a study.
 2. Use the example question as the title. In the description, request citations, competing explanations and a list of inaccessible sources.
 3. Choose an appropriate agent or Team and review the stage scope. For your first exercise you can keep the scope bounded to Grounding.
-4. Check the assignee, stage scope and required inputs, then select Create study. Check a bound machine in the agent configuration, or availability in Settings → Machines; the manual study composer has no machine selector.
+4. Check the assignee, stage scope and required inputs, then select Create study. Check a bound machine in the agent configuration, or availability in Settings → Connections → Machines; the manual study composer has no machine selector.
 5. Record the resulting study identifier so you can return to it.
 
 Use [studies](/docs/studies/) for assignment details and [Teams](/docs/teams/) for coordinated stage work.
@@ -609,7 +609,7 @@ A machine is a computer whose Lykeion daemon exposes agent CLI runtimes. The hos
 
 1. Open the [download page](/download/) and choose the desktop app for your platform.
 2. Install it and sign in to your lab account. The app includes the agent daemon.
-3. Check Settings → Machines for this computer and its detected runtimes. Use its daemon controls to start execution when needed.
+3. Check Settings → Connections → Machines for this computer and its detected runtimes. Use its daemon controls to start execution when needed.
 4. Confirm that the intended Claude Code or Codex runtime is online and healthy before assigning work.
 
 ## Connect a remote computer with the prebuilt CLI
@@ -757,6 +757,12 @@ In a research project, open the experiment surfaces to inspect Notebook, Files a
 
 When editing a file, pay attention to unsaved changes before switching material. Open the referenced file version when inspecting a transcript artifact so you know which content the conversation used.
 
+## Share a chat in Projects
+
+Open the three-dot menu beside an Experiment or Cowrite chat in the Coresearch sidebar and choose **Add to project**. Search for a workspace project or create one from the picker. Selecting a project immediately lets anyone who can view that project read the conversation and download its saved artifacts. They open it from the project's **Coresearches** tab. Existing Cowrite collaborators keep their current permissions.
+
+Each chat appears in one workspace project at a time. Select another project to move it, or choose **Remove from project** to remove that project's access. The conversation, files, and run history stay together. From a project's **Coresearches** tab, the chat owner can pin, rename, archive, or delete a chat. Use **Archived** to find and restore archived chats. Archiving keeps the chat available to project viewers in that view.
+
 ## Keep work understandable
 
 Use a clear project name and separate conversations when the question changes. The Coresearch list supports renaming and archiving projects; review the archive confirmation before applying it. Returning to an existing project preserves its context better than starting duplicate work.
@@ -844,7 +850,7 @@ Slack lets members of a Slack workspace talk to Aristotle without opening the da
 
 ## Set up Slack (owner)
 
-1. Open Settings → Communication in your Lykeion workspace. Only the workspace owner can connect, manage or disconnect Slack.
+1. Open Settings → Connections → Communication in your Lykeion workspace. Only the workspace owner can connect, manage or disconnect Slack.
 2. Copy the Slack app manifest shown on the page with the Copy button.
 3. At api.slack.com, choose Create app from manifest, paste the manifest and install the app to your Slack workspace.
 4. Back in Lykeion, paste the bot token (it starts with xoxb-) and the app-level token (it starts with xapp-).
@@ -857,7 +863,7 @@ Lykeion keeps both tokens sealed on the server and never shows them again. A Lyk
 
 The bot is Aristotle. The first time you message it, Aristotle replies privately with a link. Open it while signed in to Lykeion and confirm. The link is valid for 15 minutes and works once. The email on your Slack profile must be confirmed and match your Lykeion account's email, or the link is refused.
 
-You can see and remove your link in Settings → Communication → Your accounts. Removing it means you link again the next time you message Aristotle.
+You can see and remove your link in Settings → Connections → Communication → Your accounts. Removing it means you link again the next time you message Aristotle.
 
 ## Ask in a DM or a channel
 
@@ -878,9 +884,9 @@ Aristotle does not read Slack files yet. If your message has files it replies "A
 
 ## Disconnect
 
-The owner can disconnect Slack in Settings → Communication. Questions asked from Slack stop; a study draft already in progress still finishes in Lykeion. Conversations stay in Ask Aristotle. If Slack revokes the app, the page shows Reconnect needed; paste fresh tokens to restore it.
+The owner can disconnect Slack in Settings → Connections → Communication. Questions asked from Slack stop; a study draft already in progress still finishes in Lykeion. Conversations stay in Ask Aristotle. If Slack revokes the app, the page shows Reconnect needed; paste fresh tokens to restore it.
 
-Success means Aristotle answers your DM in Slack, the answer cites records in Lykeion, and the conversation appears in Ask Aristotle. If it does not, check your link, your machine and the tokens in Settings → Communication.
+Success means Aristotle answers your DM in Slack, the answer cites records in Lykeion, and the conversation appears in Ask Aristotle. If it does not, check your link, your machine and the tokens in Settings → Connections → Communication.
 `,
   },
   {
@@ -895,10 +901,10 @@ Connect a GitHub account or organization to see its pull requests on your [studi
 
 ## Connect GitHub
 
-1. As the workspace owner, open Settings → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**. If the app is already installed, choose **Connect existing installation**, paste its GitHub settings URL, and select **Authorize installation**. Use \`https://github.com/settings/installations/<id>\` for a personal installation or \`https://github.com/organizations/<login>/settings/installations/<id>\` for an organization.
+1. As the workspace owner, open Settings → Connections → Code and choose **Connect GitHub**. To install the app on another account, choose **Add account or organization**. If the app is already installed, choose **Connect existing installation**, paste its GitHub settings URL, and select **Authorize installation**. Use \`https://github.com/settings/installations/<id>\` for a personal installation or \`https://github.com/organizations/<login>/settings/installations/<id>\` for an organization.
 2. From the desktop app, sign in to Lykeion in your system browser with the same owner account, then use **Continue to GitHub** in the desktop app.
 3. For a new installation, select the GitHub account or organization and the repositories to share. Authorize the app on GitHub for either connection method. For a personal installation, authorize as the GitHub account that owns it. For an organization installation, you need admin permission on every repository included in the installation.
-4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
+4. Setup finishes in the browser, where Lykeion shows the result. If your browser has another workspace open, the success notice names the workspace where you started setup. Use **Open** followed by that workspace's name if the action is available. Settings → Connections → Code shows the connected account and the member who connected it. The desktop app updates this panel automatically.
 
 If the authorizing GitHub account fails the ownership check, Lykeion shows “You don't control this GitHub installation. Ask an owner or admin of the account to connect it.” An organization installation must include at least one repository. If it has none, Lykeion shows “Select at least one repository on GitHub, then connect again.”
 
@@ -908,7 +914,7 @@ Lykeion imports open pull requests, including drafts, from the connected reposit
 
 Use the study identifier shown in Lykeion, such as \`LYK-12\`, which combines the workspace's study prefix and the study number. With **Auto-link pull requests** enabled, Lykeion matches the ID as a whole token in the branch name or title, ignoring case. In the description, put it immediately after a closing keyword, as in \`Closes LYK-12\` or \`Fixes: LYK-12\`. The accepted keywords are close, closes, closed, fix, fixes, fixed, resolve, resolves and resolved, in any case with an optional colon. A bare mention in the description does not link.
 
-One pull request can name several studies. If an ID names a study in more than one workspace connected to the same installation, link it by hand in the intended workspace. Automatic links follow changes to the references in the pull request. The owner can turn off **Auto-link pull requests** in Settings → Code to stop new automatic links and keep existing ones.
+One pull request can name several studies. If an ID names a study in more than one workspace connected to the same installation, link it by hand in the intended workspace. Automatic links follow changes to the references in the pull request. The owner can turn off **Auto-link pull requests** in Settings → Connections → Code to stop new automatic links and keep existing ones.
 
 To link by hand, open a study's details pane, select **Add pull request** (+) under **Pull requests**, paste the GitHub pull request URL and select **Link pull request**. Any workspace member can add or remove a link. For a repository outside the connection, Lykeion shows “That repository isn't connected to this workspace.”
 
@@ -920,7 +926,7 @@ Each row opens the pull request on GitHub and shows its repository, number, titl
 
 ## Disconnect or uninstall
 
-In Settings → Code, the workspace owner can choose **Disconnect** for an account. The pull requests and links already recorded in that workspace stay visible and stop updating through that connection. The app stays installed on GitHub. A suspended installation appears as **Suspended on GitHub** and resumes updating when unsuspended.
+In Settings → Connections → Code, the workspace owner can choose **Disconnect** for an account. The pull requests and links already recorded in that workspace stay visible and stop updating through that connection. The app stays installed on GitHub. A suspended installation appears as **Suspended on GitHub** and resumes updating when unsuspended.
 
 Uninstall the app in GitHub to revoke the installation across every Lykeion workspace that connected it. Removing individual repositories in GitHub stops updates for those repositories.
 

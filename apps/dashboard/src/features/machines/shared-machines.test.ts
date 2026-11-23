@@ -39,8 +39,7 @@ function seedClient() {
   c.setQueryData(keys.workspace('w'), { name: 'Lab' });
   for (const key of [keys.cards, keys.agents, keys.researches]) c.setQueryData(key('w'), []);
   c.setQueryData(keys.teams('w', '', ''), []);
-  for (const key of [keys.comments, keys.events, keys.runs])
-    c.setQueryData(key('w', 'c'), []);
+  for (const key of [keys.comments, keys.events, keys.runs]) c.setQueryData(key('w', 'c'), []);
   c.setQueryData(keys.records('w', 'c', 'grounding'), []);
   c.setQueryData(keys.card('w', 'c'), {
     id: 'c',
@@ -262,7 +261,7 @@ describe('Shared machines', () => {
       t.unmount();
     }
   });
-  it('places Machines and Updates after Storage in Personal settings', async () => {
+  it('places Updates after Storage in Personal settings', async () => {
     fetching();
     const t = await mount(SettingsView, () => ({ section: 'updates' }));
     try {
@@ -272,7 +271,7 @@ describe('Shared machines', () => {
         all(personal)
           .filter((n) => n.tag === 'button')
           .map(textOf),
-      ).toEqual(['Profile', 'Preferences', 'Shortcuts', 'API Tokens', 'Storage', 'Machines', 'Updates']);
+      ).toEqual(['Profile', 'Preferences', 'Shortcuts', 'API Tokens', 'Storage', 'Updates']);
       expect(t.text()).toContain('Current version');
     } finally {
       t.unmount();

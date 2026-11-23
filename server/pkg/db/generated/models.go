@@ -458,19 +458,22 @@ type CoresearchComment struct {
 }
 
 type CoresearchConversation struct {
-	ID                   uuid.UUID `json:"id"`
-	WorkspaceID          uuid.UUID `json:"workspace_id"`
-	OwnerID              uuid.UUID `json:"owner_id"`
-	AgentID              uuid.UUID `json:"agent_id"`
-	ProjectID            uuid.UUID `json:"project_id"`
-	ChatID               uuid.UUID `json:"chat_id"`
-	Title                string    `json:"title"`
-	IsWelcome            bool      `json:"is_welcome"`
-	SnapshotHarness      *string   `json:"snapshot_harness"`
-	SnapshotModel        *string   `json:"snapshot_model"`
-	SnapshotInstructions *string   `json:"snapshot_instructions"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                   uuid.UUID  `json:"id"`
+	WorkspaceID          uuid.UUID  `json:"workspace_id"`
+	OwnerID              uuid.UUID  `json:"owner_id"`
+	AgentID              uuid.UUID  `json:"agent_id"`
+	ProjectID            uuid.UUID  `json:"project_id"`
+	ChatID               uuid.UUID  `json:"chat_id"`
+	Title                string     `json:"title"`
+	IsWelcome            bool       `json:"is_welcome"`
+	SnapshotHarness      *string    `json:"snapshot_harness"`
+	SnapshotModel        *string    `json:"snapshot_model"`
+	SnapshotInstructions *string    `json:"snapshot_instructions"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	ResearchID           *uuid.UUID `json:"research_id"`
+	PinnedAt             *time.Time `json:"pinned_at"`
+	ArchivedAt           *time.Time `json:"archived_at"`
 }
 
 type CoresearchDoc struct {

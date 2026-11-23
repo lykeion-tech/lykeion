@@ -102,7 +102,39 @@ it('keeps the narrow-screen selector within Settings without a Colleagues option
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(router.currentRoute.value.fullPath).toBe('/settings?tab=skills');
 });
-it('lists Communication in the workspace group with the workspace badge', async () => {
+it('groups Machines, Communication and Code under Connections on desktop and mobile', async () => {
+  const { root } = await mount();
+  const nav = all(root).find((n) => n.tag === 'nav' && n.props['aria-label'] === 'Settings')!;
+  const groups = all(nav).filter((n) => n.tag === 'section');
+  const connections = groups.find((group) =>
+    all(group).some((n) => n.tag === 'strong' && textOf(n) === 'Connections'),
+  );
+  expect(connections).toBeDefined();
+  const labels = ['Machines', 'Communication', 'Code'];
+  expect(
+    all(connections!)
+      .filter((n) => n.tag === 'button')
+      .map(textOf),
+  ).toEqual(labels);
+  const mobile = all(nav).find((n) => n.tag === 'optgroup' && n.props.label === 'Connections');
+  expect(mobile).toBeDefined();
+  expect(
+    all(mobile!)
+      .filter((n) => n.tag === 'option')
+      .map(textOf),
+  ).toEqual(labels);
+
+  const search = all(nav).find((n) => n.props['aria-label'] === 'Search settings')!;
+  (search.props['onUpdate:modelValue'] as (v: string) => void)('communication');
+  await nextTick();
+  expect(
+    all(nav)
+      .filter((n) => n.tag === 'button')
+      .map(textOf),
+  ).toEqual(['Communication']);
+});
+
+it('opens Communication with the workspace badge', async () => {
   const { root } = await mount('communication');
   const active = all(root).find((n) => n.tag === 'button' && n.props['aria-current'] === 'page');
   expect(active && textOf(active)).toContain('Communication');

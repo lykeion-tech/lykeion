@@ -328,8 +328,11 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 				return conflict("No available own machine with " + harness + "; connect a machine in Settings")
 			}
 			if startingWelcome {
-				titleRunes := []rune(strings.TrimSpace(in.Body))
-				title := string(titleRunes[:min(80, len(titleRunes))])
+				title := c.Title
+				if title == welcomeConversationTitle {
+					titleRunes := []rune(strings.TrimSpace(in.Body))
+					title = string(titleRunes[:min(80, len(titleRunes))])
+				}
 				if e = tx.Q.ConvertWelcomeProject(ctx, db.ConvertWelcomeProjectParams{ID: c.ProjectID, Name: title, Mode: mode}); e != nil {
 					return e
 				}

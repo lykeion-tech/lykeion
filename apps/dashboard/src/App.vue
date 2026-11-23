@@ -79,7 +79,7 @@ const accountSwitchBusy = ref(false);
 const accountSwitchError = ref('');
 let lastAccount = workspaceTabs.currentAccount();
 let accountGeneration = 0;
-let accountSwitchTarget = '/studies';
+let accountSwitchTarget = '/coresearch';
 const aristotle = useAristotle();
 const aristotleShell = computed(() => !!route.meta.conversationRail);
 const inboxShell = computed(() => route.meta.page === 'decisions');
@@ -251,7 +251,8 @@ watch(
   (shell, previous) => {
     if (shell && shell !== previous) {
       changeRail('context');
-      if (window.matchMedia?.('(max-width: 700px)').matches) collapsed.value = true;
+      if (route.path !== '/coresearch' && window.matchMedia?.('(max-width: 700px)').matches)
+        collapsed.value = true;
     }
   },
   { immediate: true, flush: 'post' },
@@ -440,7 +441,7 @@ watch(
         if (state.accepted && route.path === '/signin') {
           const invite = readText('lykeion.invite', 'session');
           const slack = takeSlackLink();
-          const target = slack || (invite ? '/invite/' + encodeURIComponent(invite) : '/studies');
+          const target = slack || (invite ? '/invite/' + encodeURIComponent(invite) : '/coresearch');
           switchingAccount.value = true;
           await router.replace(target);
           if (!current()) return;
@@ -481,7 +482,7 @@ watch(
         route.params.token || (route.path === '/signin' && readText('lykeion.invite', 'session'));
       const slack = route.path === '/signin' ? takeSlackLink() : '';
       const target =
-        slack || (invite ? '/invite/' + encodeURIComponent(String(invite)) : '/studies');
+        slack || (invite ? '/invite/' + encodeURIComponent(String(invite)) : '/coresearch');
       await router.replace(target);
       if (!current()) return;
       if (!landedOn(route, target)) throw new Error('Account navigation was blocked');
@@ -570,8 +571,8 @@ async function retryAccountSwitch() {
       async () => {
         const target = accountSwitchTarget;
         await router.replace(target);
-        return target === '/studies'
-          ? route.path === '/studies' || !!route.meta.bare
+        return target === '/coresearch'
+          ? route.path === target || !!route.meta.bare
           : route.fullPath === target;
       },
     );
@@ -614,7 +615,7 @@ watch(
     switchingAccount.value = true;
     accountSwitchBusy.value = false;
     accountSwitchTarget =
-      route.path.startsWith('/invite/') && route.params.token ? route.path : '/studies';
+      route.path.startsWith('/invite/') && route.params.token ? route.path : '/coresearch';
     workspaceId.value = '';
     void retryAccountSwitch();
   },
@@ -1685,6 +1686,7 @@ onUnmounted(() => {
   :is(
     .main-pane > .page-header,
     .study-heading,
+    .project-heading,
     .aristotle-header,
     .coresearch-list-header,
     .agent-create-header

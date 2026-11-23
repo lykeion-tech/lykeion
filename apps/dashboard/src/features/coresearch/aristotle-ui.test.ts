@@ -470,7 +470,14 @@ describe('Aristotle UI', () => {
     vi.stubGlobal('fetch', fetch);
     vi.stubGlobal('confirm', () => true);
     const { root, settle } = await mount('/coresearch/new', true, false, true, true);
-    const remove = byLabel(root, 'Delete Getting started with Aristotle');
+    await (
+      byLabel(root, 'Actions for Getting started with Aristotle').props.onClick as (
+        event: unknown,
+      ) => Promise<void>
+    )({ stopPropagation() {} });
+    const remove = all(root).find(
+      (n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Delete',
+    )!;
     expect(remove).toBeTruthy();
     await (remove.props.onClick as () => Promise<void>)();
     await settle();
@@ -496,11 +503,107 @@ describe('Aristotle UI', () => {
       },
     ]);
     await settle();
-    expect(byLabel(root, 'Delete Shared paper')).toBeUndefined();
+    expect(byLabel(root, 'Actions for Shared paper')).toBeUndefined();
     await (
-      byLabel(root, 'Delete Getting started with Aristotle').props.onClick as () => Promise<void>
-    )();
+      byLabel(root, 'Actions for Getting started with Aristotle').props.onClick as (
+        event: unknown,
+      ) => Promise<void>
+    )({ stopPropagation() {} });
+    const remove = all(root).find(
+      (n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Delete',
+    )!;
+    await (remove.props.onClick as () => Promise<void>)();
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('keeps archived conversations out of the rail and sends private title changes through the action menu', async () => {
+    const fetch = vi.fn().mockResolvedValue(response(welcome, 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(conversationKey('lab', 'me'), [
+      welcome,
+      { ...welcome, id: 'archived', title: 'Archived session', archived_at: '2026-01-01' },
+    ]);
+    await settle();
+    expect(textOf(root)).not.toContain('Archived session');
+    await (
+      byLabel(root, 'Actions for Getting started with Aristotle').props.onClick as (
+        event: unknown,
+      ) => Promise<void>
+    )({ stopPropagation() {} });
+    const rename = all(root).find(
+      (n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Rename',
+    )!;
+    await (rename.props.onClick as () => Promise<void>)();
+    const input = byLabel(root, 'Chat title');
+    (input.props['onUpdate:modelValue'] as (value: string) => void)('Revised title');
+    await nextTick();
+    const form = all(root).find(
+      (n) => n.tag === 'form' && n.props['aria-label'] === 'Rename chat',
+    )!;
+    await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
+    expect(
+      fetch.mock.calls.some(
+        (c) =>
+          c[0] === '/api/coresearch/conversations/welcome' &&
+          c[1].method === 'PATCH' &&
+          JSON.parse(c[1].body).title === 'Revised title',
+      ),
+    ).toBe(true);
+  });
+  it('links an owned chat to a chosen project only after the owner selects it', async () => {
+    const fetch = vi.fn().mockResolvedValue(response(welcome, 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(keys.researches('lab'), [
+      { id: 'research', name: 'Current workspace project' },
+    ]);
+    await (
+      byLabel(root, 'Actions for Getting started with Aristotle').props.onClick as (
+        event: unknown,
+      ) => Promise<void>
+    )({ stopPropagation() {} });
+    const add = all(root).find(
+      (n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Add to project',
+    )!;
+    await (add.props.onClick as () => Promise<void>)();
+    expect(textOf(root)).not.toContain(
+      'Anyone who can view this project can read the chat and download its artifacts.',
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    const project = all(root).find(
+      (n) => n.tag === 'button' && textOf(n).trim() === 'Current workspace project',
+    )!;
+    await (project.props.onClick as () => Promise<void>)();
+    await settle();
+    expect(
+      fetch.mock.calls.some(
+        (c) =>
+          c[0] === '/api/coresearch/conversations/welcome' &&
+          c[1].method === 'PATCH' &&
+          JSON.parse(c[1].body).research_id === 'research',
+      ),
+    ).toBe(true);
+  });
+  it('offers Unarchive for a chat whose project was deleted', async () => {
+    const fetch = vi.fn().mockResolvedValue(response(welcome, 200));
+    vi.stubGlobal('fetch', fetch);
+    const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
+    client.setQueryData(conversationKey('lab', 'me'), [
+      welcome,
+      { ...welcome, id: 'orphan', title: 'Detached chat', archived_at: '2026-01-01' },
+      { ...welcome, id: 'linked', title: 'Project archive', archived_at: '2026-01-01', research_id: 'research' },
+    ]);
+    await settle();
+    expect(textOf(root)).not.toContain('Detached chat');
+    const archived = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Archived')!;
+    (archived.props.onClick as () => void)();
+    await settle();
+    expect(textOf(root)).toContain('Detached chat');
+    expect(textOf(root)).not.toContain('Project archive');
+    await (byLabel(root, 'Actions for Detached chat').props.onClick as (e: unknown) => Promise<void>)({ stopPropagation() {} });
+    const unarchive = all(root).find((n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Unarchive')!;
+    await (unarchive.props.onClick as () => Promise<void>)();
+    expect(fetch.mock.calls.some((c) => c[0] === '/api/coresearch/conversations/orphan' && c[1].method === 'PATCH' && JSON.parse(c[1].body).archived === false)).toBe(true);
   });
   it('keeps a new draft unsaved and exposes the saved starter settings link', async () => {
     const fetch = vi.fn();
