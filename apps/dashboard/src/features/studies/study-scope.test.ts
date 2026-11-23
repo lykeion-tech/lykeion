@@ -215,19 +215,11 @@ describe('study page scope', () => {
     expect(textOf(t.root)).toContain('Other study');
     expect(all(t.root).find((n) => n.props['aria-label'] === '2 studies running')).toBeTruthy();
   });
-  it('preserves project All/Members/Agents tabs and their filters', async () => {
+  it('shows every project study without actor tabs', async () => {
     const t = await mount(undefined, 'project');
-    expect(t.button('All')).toBeTruthy();
-    expect(t.button('Members')).toBeTruthy();
-    expect(t.button('Agents')).toBeTruthy();
-    await t.click('Members');
-    expect(textOf(t.root)).not.toContain('Own study');
-    t.props.projectId = undefined;
-    await t.settle();
-    expect(textOf(t.root)).toContain('Own study');
-    t.props.projectId = 'project';
-    await t.settle();
-    await t.click('Agents');
+    expect(t.button('All')).toBeFalsy();
+    expect(t.button('Members')).toBeFalsy();
+    expect(t.button('Agents')).toBeFalsy();
     expect(textOf(t.root)).toContain('Own study');
     expect(textOf(t.root)).toContain('Other study');
   });

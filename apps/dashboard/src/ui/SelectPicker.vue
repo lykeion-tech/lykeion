@@ -2,7 +2,10 @@
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, useId } from 'vue';
 import Icon from './Icon.vue';
 
-const props = withDefaults(defineProps<{ minWidth?: number; align?: 'start' | 'end' }>(), { minWidth: 180 });
+const props = withDefaults(
+  defineProps<{ minWidth?: number; align?: 'start' | 'end'; fitContentWidth?: number }>(),
+  { minWidth: 180 },
+);
 
 type Choice = { value: string; label: string; disabled: boolean; group: string };
 const root = ref<HTMLElement>(),
@@ -98,8 +101,11 @@ async function show() {
 function positionPopup() {
   if (!trigger.value) return;
   const bounds = trigger.value.getBoundingClientRect();
-  const width = Math.min(Math.max(bounds.width, props.minWidth), 280, window.innerWidth - 16);
-  const height = popup.value?.getBoundingClientRect().height ?? Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
+  const popupBounds = popup.value?.getBoundingClientRect();
+  const width = props.fitContentWidth === undefined
+    ? Math.min(Math.max(bounds.width, props.minWidth), 280, window.innerWidth - 16)
+    : popupBounds?.width ?? bounds.width;
+  const height = popupBounds?.height ?? Math.min(choices.value.length * 32 + 12, 300, window.innerHeight - 16);
   const top = bounds.bottom + height + 6 <= window.innerHeight - 8
     ? bounds.bottom + 6
     : bounds.top - height - 6;
@@ -253,7 +259,8 @@ onUnmounted(() => {
         :style="{
           left: position.left + 'px',
           top: position.top + 'px',
-          width: position.width + 'px',
+          width: fitContentWidth === undefined ? position.width + 'px' : 'max-content',
+          maxWidth: fitContentWidth === undefined ? undefined : `min(${fitContentWidth}px, calc(100vw - 16px))`,
         }"
         @pointerdown.stop
         @click.stop

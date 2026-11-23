@@ -75,11 +75,11 @@ test('Profile and Preferences save to the account and the device', async ({ page
       'Shortcuts',
       'API Tokens',
       'Storage',
-      'Machines',
       'Updates',
       'General',
       'Skills',
       'Connectors',
+      'Machines',
       'Communication',
       'Code',
     ]);

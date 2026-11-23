@@ -68,7 +68,7 @@ func (q *Queries) ClaimCoresearchUpload(ctx context.Context, arg ClaimCoresearch
 
 const convertWelcomeConversation = `-- name: ConvertWelcomeConversation :one
 UPDATE coresearch_conversation SET is_welcome=false, title= $1, updated_at=now()
-WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND is_welcome RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $2 AND is_welcome RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
 `
 
 type ConvertWelcomeConversationParams struct {
@@ -93,6 +93,9 @@ func (q *Queries) ConvertWelcomeConversation(ctx context.Context, arg ConvertWel
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -126,7 +129,7 @@ func (q *Queries) CoresearchConversationProject(ctx context.Context, id uuid.UUI
 
 const createCoresearchConversation = `-- name: CreateCoresearchConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title)
-VALUES(app_workspace(),app_user(),$1,$2,$3,$4) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+VALUES(app_workspace(),app_user(),$1,$2,$3,$4) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
 `
 
 type CreateCoresearchConversationParams struct {
@@ -158,13 +161,16 @@ func (q *Queries) CreateCoresearchConversation(ctx context.Context, arg CreateCo
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const createWelcomeConversation = `-- name: CreateWelcomeConversation :one
 INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,chat_id,title,is_welcome)
-VALUES(app_workspace(),app_user(),$1,$2,$3,'Getting started with Aristotle',true) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+VALUES(app_workspace(),app_user(),$1,$2,$3,'Getting started with Aristotle',true) RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
 `
 
 type CreateWelcomeConversationParams struct {
@@ -190,6 +196,9 @@ func (q *Queries) CreateWelcomeConversation(ctx context.Context, arg CreateWelco
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -242,7 +251,7 @@ func (q *Queries) EnsureAristotle(ctx context.Context) (Agent, error) {
 }
 
 const firstCoresearchConversation = `-- name: FirstCoresearchConversation :one
-SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() ORDER BY created_at,id LIMIT 1
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() ORDER BY created_at,id LIMIT 1
 `
 
 func (q *Queries) FirstCoresearchConversation(ctx context.Context) (CoresearchConversation, error) {
@@ -262,12 +271,15 @@ func (q *Queries) FirstCoresearchConversation(ctx context.Context) (CoresearchCo
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const getCoresearchConversation = `-- name: GetCoresearchConversation :one
-SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1 FOR UPDATE
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $1 FOR UPDATE
 `
 
 func (q *Queries) GetCoresearchConversation(ctx context.Context, id uuid.UUID) (CoresearchConversation, error) {
@@ -287,12 +299,15 @@ func (q *Queries) GetCoresearchConversation(ctx context.Context, id uuid.UUID) (
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const getCoresearchConversationForChat = `-- name: GetCoresearchConversationForChat :one
-SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1 FOR UPDATE
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND chat_id= $1 FOR UPDATE
 `
 
 func (q *Queries) GetCoresearchConversationForChat(ctx context.Context, chatID uuid.UUID) (CoresearchConversation, error) {
@@ -312,6 +327,9 @@ func (q *Queries) GetCoresearchConversationForChat(ctx context.Context, chatID u
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -335,7 +353,7 @@ func (q *Queries) GetCoresearchTurnReceipt(ctx context.Context, requestID uuid.U
 }
 
 const getWelcomeConversation = `-- name: GetWelcomeConversation :one
-SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND is_welcome
+SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND is_welcome
 `
 
 func (q *Queries) GetWelcomeConversation(ctx context.Context) (CoresearchConversation, error) {
@@ -355,6 +373,9 @@ func (q *Queries) GetWelcomeConversation(ctx context.Context) (CoresearchConvers
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -381,27 +402,30 @@ func (q *Queries) InsertCoresearchTurnReceipt(ctx context.Context, arg InsertCor
 }
 
 const listCoresearchConversations = `-- name: ListCoresearchConversations :many
-SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
+SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at, c.research_id, c.pinned_at, c.archived_at,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
 FROM coresearch_conversation c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
 WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id
 `
 
 type ListCoresearchConversationsRow struct {
-	ID                   uuid.UUID `json:"id"`
-	WorkspaceID          uuid.UUID `json:"workspace_id"`
-	OwnerID              uuid.UUID `json:"owner_id"`
-	AgentID              uuid.UUID `json:"agent_id"`
-	ProjectID            uuid.UUID `json:"project_id"`
-	ChatID               uuid.UUID `json:"chat_id"`
-	Title                string    `json:"title"`
-	IsWelcome            bool      `json:"is_welcome"`
-	SnapshotHarness      *string   `json:"snapshot_harness"`
-	SnapshotModel        *string   `json:"snapshot_model"`
-	SnapshotInstructions *string   `json:"snapshot_instructions"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
-	Mode                 string    `json:"mode"`
-	Preview              string    `json:"preview"`
+	ID                   uuid.UUID  `json:"id"`
+	WorkspaceID          uuid.UUID  `json:"workspace_id"`
+	OwnerID              uuid.UUID  `json:"owner_id"`
+	AgentID              uuid.UUID  `json:"agent_id"`
+	ProjectID            uuid.UUID  `json:"project_id"`
+	ChatID               uuid.UUID  `json:"chat_id"`
+	Title                string     `json:"title"`
+	IsWelcome            bool       `json:"is_welcome"`
+	SnapshotHarness      *string    `json:"snapshot_harness"`
+	SnapshotModel        *string    `json:"snapshot_model"`
+	SnapshotInstructions *string    `json:"snapshot_instructions"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	ResearchID           *uuid.UUID `json:"research_id"`
+	PinnedAt             *time.Time `json:"pinned_at"`
+	ArchivedAt           *time.Time `json:"archived_at"`
+	Mode                 string     `json:"mode"`
+	Preview              string     `json:"preview"`
 }
 
 func (q *Queries) ListCoresearchConversations(ctx context.Context) ([]ListCoresearchConversationsRow, error) {
@@ -427,6 +451,9 @@ func (q *Queries) ListCoresearchConversations(ctx context.Context) ([]ListCorese
 			&i.SnapshotInstructions,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ResearchID,
+			&i.PinnedAt,
+			&i.ArchivedAt,
 			&i.Mode,
 			&i.Preview,
 		); err != nil {
@@ -584,7 +611,7 @@ func (q *Queries) SetConversationChatHarness(ctx context.Context, arg SetConvers
 }
 
 const snapshotCoresearchConversation = `-- name: SnapshotCoresearchConversation :one
-UPDATE coresearch_conversation SET snapshot_harness= $1,snapshot_model= $2,snapshot_instructions= $3,updated_at=now() WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $4 RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at
+UPDATE coresearch_conversation SET snapshot_harness= $1,snapshot_model= $2,snapshot_instructions= $3,updated_at=now() WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $4 RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
 `
 
 type SnapshotCoresearchConversationParams struct {
@@ -616,6 +643,9 @@ func (q *Queries) SnapshotCoresearchConversation(ctx context.Context, arg Snapsh
 		&i.SnapshotInstructions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -627,4 +657,49 @@ UPDATE coresearch_conversation SET updated_at=now() WHERE workspace_id=app_works
 func (q *Queries) TouchCoresearchConversation(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, touchCoresearchConversation, id)
 	return err
+}
+
+const updateCoresearchConversation = `-- name: UpdateCoresearchConversation :one
+UPDATE coresearch_conversation
+SET title = $1, research_id = $2,
+    pinned_at = $3, archived_at = $4
+WHERE workspace_id=app_workspace() AND owner_id=app_user() AND id= $5 RETURNING id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at
+`
+
+type UpdateCoresearchConversationParams struct {
+	Title      string     `json:"title"`
+	ResearchID *uuid.UUID `json:"research_id"`
+	PinnedAt   *time.Time `json:"pinned_at"`
+	ArchivedAt *time.Time `json:"archived_at"`
+	ID         uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) UpdateCoresearchConversation(ctx context.Context, arg UpdateCoresearchConversationParams) (CoresearchConversation, error) {
+	row := q.db.QueryRow(ctx, updateCoresearchConversation,
+		arg.Title,
+		arg.ResearchID,
+		arg.PinnedAt,
+		arg.ArchivedAt,
+		arg.ID,
+	)
+	var i CoresearchConversation
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.AgentID,
+		&i.ProjectID,
+		&i.ChatID,
+		&i.Title,
+		&i.IsWelcome,
+		&i.SnapshotHarness,
+		&i.SnapshotModel,
+		&i.SnapshotInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ResearchID,
+		&i.PinnedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
 }

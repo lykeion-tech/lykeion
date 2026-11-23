@@ -6,7 +6,7 @@ import {
   type RouteRecordRaw,
 } from 'vue-router';
 
-// The board is the landing route and loads eagerly.
+// The dashboard routes load eagerly.
 import CoresearchList from './features/coresearch/CoresearchList.vue';
 import AristotleChat from './features/coresearch/AristotleChat.vue';
 import CoresearchProject from './features/coresearch/CoresearchProject.vue';
@@ -122,7 +122,7 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { page: 'agents', title: 'Agents', ownHeader: true },
   },
-  { path: '/', redirect: '/studies' },
+  { path: '/', redirect: '/coresearch' },
   { path: '/signin', component: SignInView, meta: { bare: true, public: true, title: 'Sign in' } },
   {
     path: '/invite/:token',
@@ -233,7 +233,7 @@ const routes: RouteRecordRaw[] = [
       machineId: typeof route.query.machine === 'string' ? route.query.machine : undefined,
     }),
   },
-  { path: '/:pathMatch(.*)*', redirect: '/studies' },
+  { path: '/:pathMatch(.*)*', redirect: '/coresearch' },
 ];
 
 // Case-sensitive so a miscased path is an unknown path.

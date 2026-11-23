@@ -24,6 +24,8 @@ type ConversationStarter struct {
 	Prompt string `json:"prompt"`
 }
 
+const welcomeConversationTitle = "Getting started with Aristotle"
+
 func validateConversationStarters(raw json.RawMessage) error {
 	var starters []ConversationStarter
 	if err := json.Unmarshal(raw, &starters); err != nil || starters == nil || !utf8.Valid(raw) {
@@ -66,7 +68,7 @@ func (h *H) bootstrapAristotle(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		p, err := tx.Q.CreateCoresearchProject(ctx, "Getting started with Aristotle")
+		p, err := tx.Q.CreateCoresearchProject(ctx, welcomeConversationTitle)
 		if err != nil {
 			return err
 		}
@@ -113,6 +115,10 @@ func (h *H) deleteCoresearchConversation(w http.ResponseWriter, r *http.Request)
 		if busy {
 			return conflict("project has queued or running work")
 		}
+		members, err := tx.Q.ListCoresearchMembers(r.Context(), db.ListCoresearchMembersParams{WorkspaceID: ws, ProjectID: projectID})
+		if err != nil {
+			return err
+		}
 		blobKeys, err := tx.Q.EnqueueCoresearchProjectBlobs(r.Context(), projectID)
 		if err != nil {
 			return err
@@ -131,7 +137,10 @@ func (h *H) deleteCoresearchConversation(w http.ResponseWriter, r *http.Request)
 				slog.Error("Coresearch blob cleanup deferred", "err", cleanupErr)
 			}
 		})
-		return tx.Emit(r.Context(), "coresearch.project.updated", nil, store.User(who), map[string]any{"project_id": projectID})
+		if err := emitCoresearchProjectUpdate(r.Context(), tx, members, who, projectID); err != nil {
+			return err
+		}
+		return emitResearchCoresearchChanged(r.Context(), tx, who, conversation.ResearchID, nil)
 	})
 	if coresearchAnswer(w, r, err) {
 		w.WriteHeader(http.StatusNoContent)

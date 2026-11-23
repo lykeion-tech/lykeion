@@ -23,6 +23,7 @@ import {
   wireCapabilities,
   type AcceptanceRequest,
   type ComposerAttachment,
+  type Conversation,
   holdComposerContinuation,
   takeComposerContinuation,
 } from '../aristotle';
@@ -77,6 +78,11 @@ const messages = useCoresearchMessages(
 const owner = computed(() => !!me.data.value && chat.value?.owner_id === me.data.value.id);
 const conversation = computed(() =>
   aristotle.conversations.data.value?.find((c) => !c.shared && c.chat_id === chat.value?.id),
+);
+const managedConversation = computed(() =>
+  aristotle.conversations.data.value?.find(
+    (item): item is Conversation => !item.shared && item.project_id === props.project.id,
+  ),
 );
 const chatTitles = computed(() =>
   Object.fromEntries(
@@ -702,6 +708,7 @@ async function build() {
         :active-chat-id="chat?.id"
         :chat-titles="chatTitles"
         :chat-times="chatTimes"
+        :managed-conversation="managedConversation"
         :owner="project.role === 'owner'"
         :members="people"
         @search="editor?.search()"

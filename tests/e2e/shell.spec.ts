@@ -1,6 +1,18 @@
 import { expect, test } from './test';
 import { labCode, labSignIn } from './lab';
 
+test('the dashboard opens Coresearch with its conversation sidebar expanded', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem('lykeion.sidebar-collapsed', 'true'));
+  await page.goto('/');
+  await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
+  await expect(page.getByRole('complementary', { name: 'Chat', exact: true })).toBeVisible();
+  const toggle = page.getByRole('button', { name: 'Toggle left sidebar' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('the sidebar shows the implemented workspace destinations only', async ({ page }) => {
   await page.goto('/#/studies');
   const nav = page.getByRole('complementary', { name: 'Workspace navigation' });
@@ -64,10 +76,10 @@ test('the approved Projects and Agents directory routes are reachable', async ({
   }
 });
 
-test("a later slice's route and an unknown route land on Studies", async ({ page }) => {
+test("a later slice's route and an unknown route land on Coresearch", async ({ page }) => {
   for (const path of ['/#/skills', '/#/no-such-page']) {
     await page.goto(path);
-    await expect(page).toHaveURL(/#\/studies$/);
+    await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
   }
 });
 
@@ -118,7 +130,7 @@ test('signing in and switching accounts refreshes the shell without a reload', a
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Digit 1' }).click();
     await page.keyboard.type(await labCode(page.request, person.email));
-    await expect(page).toHaveURL(/#\/studies$/);
+    await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
     const footer = page.locator('.workspace-switch:visible');
     await expect(footer).toHaveAccessibleDescription(person.workspace);
     await footer.click();
@@ -264,7 +276,7 @@ test('a real invitation returns through email sign-in and joins the invited work
   await expect(page).toHaveURL(/#\/onboarding$/);
   await page.getByRole('button', { name: "I've done this before" }).click();
   await page.getByRole('button', { name: 'Skip profile' }).click();
-  await expect(page).toHaveURL(/#\/studies$/);
+  await expect(page).toHaveURL(/#\/coresearch(?:\/|$)/);
   await expect(page.locator('.workspace-switch:visible')).toHaveAccessibleDescription(
     'Invitation lab',
   );

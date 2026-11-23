@@ -16,6 +16,7 @@ import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
+import FilterButton from '../../ui/FilterButton.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
@@ -174,8 +175,6 @@ const hiddenPropertyCount = computed(
   () => propertyNames.filter((name) => !display.properties.includes(name)).length,
 );
 
-const tab = ref<'All' | 'Members' | 'Agents'>('All');
-const actorTabs = computed(() => (props.projectId ? (['All', 'Members', 'Agents'] as const) : []));
 const popup = ref('');
 const submenu = ref<Category | null>(null);
 const filters = ref<StudyFilters>({});
@@ -235,19 +234,11 @@ const options = (category: Category) =>
   category === 'Owner'
     ? (members.data.value ?? []).map((m) => ({ value: m.user_id, label: m.name || m.email }))
     : filterOptions[category];
-const matchingCards = computed(() =>
-  all.value.filter(
-    (c) =>
-      (!props.projectId ||
-        tab.value === 'All' ||
-        (tab.value === 'Members' && c.assignee_type === 'member') ||
-        (tab.value === 'Agents' && (c.assignee_type === 'agent' || c.assignee_type === 'team'))) &&
-      matchesFilters(c, filters.value),
-  ),
-);
+const matchingCards = computed(() => all.value.filter((c) => matchesFilters(c, filters.value)));
 const waitingCount = computed(() => boardActivity(matchingCards.value).waiting);
 const runningStudyCount = computed(
-  () => matchingCards.value.filter((card) => card.running_clis?.length ?? card.agent_running).length,
+  () =>
+    matchingCards.value.filter((card) => card.running_clis?.length ?? card.agent_running).length,
 );
 const runningStudyLabel = computed(
   () => `${runningStudyCount.value} ${runningStudyCount.value === 1 ? 'study' : 'studies'} running`,
@@ -390,18 +381,6 @@ onUnmounted(() => {
 </script>
 <template>
   <div class="study-toolbar">
-    <div v-if="actorTabs.length" class="toolbar-group">
-      <button
-        v-for="name in actorTabs"
-        :key="name"
-        class="button compact"
-        :class="{ active: tab === name }"
-        :aria-pressed="tab === name"
-        @click="tab = name"
-      >
-        {{ name }}
-      </button>
-    </div>
     <div class="toolbar-group push-right">
       <div class="working-control">
         <span
@@ -436,27 +415,19 @@ onUnmounted(() => {
               >+{{ workingGroups.length - 3 }}</span
             >
           </span>
-          {{ cards.isSuccess.value ? runningStudyLabel : '— studies running' }}<template
-            v-if="cards.isSuccess.value && waitingCount"
+          {{ cards.isSuccess.value ? runningStudyLabel : '— studies running'
+          }}<template v-if="cards.isSuccess.value && waitingCount"
             >, {{ waitingCount }} waiting</template
           >
         </span>
       </div>
       <div class="menu-anchor">
-        <button
-          class="button compact"
-          :class="{ active: activeFilterCount }"
-          aria-label="Filter"
-          title="Filter"
-          :aria-expanded="popup === 'filter'"
-          aria-haspopup="menu"
+        <FilterButton
+          :expanded="popup === 'filter'"
+          :count="activeFilterCount"
           @click="menu('filter', $event)"
           @keydown.down.prevent="menu('filter', $event)"
-        >
-          <Icon name="filter" :size="14" /><span v-if="activeFilterCount">{{
-            activeFilterCount
-          }}</span>
-        </button>
+        />
         <div
           v-if="popup === 'filter'"
           ref="menuRoot"
@@ -746,22 +717,18 @@ onUnmounted(() => {
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
       >No studies match these filters</span
-    ><button
-      class="button compact"
-      @click="
-        filters = {};
-        tab = 'All';
-      "
-    >
-      Clear filters
-    </button>
+    ><button class="button compact" @click="filters = {}">Clear filters</button>
   </div>
   <div
     v-if="studyMenu"
     class="board-menu study-menu"
     role="menu"
     aria-label="Study actions"
-    :style="{ left: studyMenu.x + 'px', top: studyMenu.y + 'px', transform: studyMenu.alignRight ? 'translateX(-100%)' : undefined }"
+    :style="{
+      left: studyMenu.x + 'px',
+      top: studyMenu.y + 'px',
+      transform: studyMenu.alignRight ? 'translateX(-100%)' : undefined,
+    }"
     @keydown="menuKeys"
   >
     <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete</button>

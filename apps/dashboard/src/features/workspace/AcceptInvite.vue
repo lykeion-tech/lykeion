@@ -32,7 +32,7 @@ onMounted(async () => {
     await client.invalidateQueries({ queryKey: keys.workspaces });
     if (!current()) return;
     workspaceId.value = out.workspace_id;
-    await router.replace('/studies');
+    await router.replace('/coresearch');
   } catch (e) {
     if (!current()) return;
     if (e instanceof ApiError && e.status === 401) {
@@ -51,7 +51,7 @@ onMounted(async () => {
   <div class="center-empty">
     <template v-if="error"
       ><p role="alert">{{ error }}</p>
-      <RouterLink class="button" to="/studies">Open Lykeion</RouterLink></template
+      <RouterLink class="button" to="/coresearch">Open Lykeion</RouterLink></template
     >
     <span v-else role="status">Accepting the invitation…</span>
   </div>

@@ -12,6 +12,8 @@ import { usePaneResize } from '../../lib/resize';
 import { readText } from '../../storage';
 import StudyBoard from '../studies/StudyBoard.vue';
 import { useStudyComposer } from '../../state/study-composer';
+import ProjectCoresearch from './ProjectCoresearch.vue';
+import ProjectEmptyState from './ProjectEmptyState.vue';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();
 const client = useQueryClient(),
@@ -22,7 +24,18 @@ const { openComposer } = useStudyComposer();
 const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480, -1, () =>
   Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
 );
-const emptyTab = ref('All');
+const projectTabs = ['Studies', 'Coresearches'] as const;
+const selectedTab = ref<(typeof projectTabs)[number]>('Studies');
+const chatFilterAnchor = ref<HTMLElement>();
+function switchProjectTab(event: KeyboardEvent) {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  const next = selectedTab.value === 'Studies' ? 'Coresearches' : 'Studies';
+  selectedTab.value = next;
+  (event.currentTarget as HTMLElement)
+    .querySelector<HTMLElement>(`[data-project-tab="${next}"]`)
+    ?.focus();
+}
 const descriptionConflict = ref(false);
 const rail = ref(true),
   properties = ref(true),
@@ -38,6 +51,7 @@ watch([workspaceId, () => props.project.id], () => {
   busy.value = false;
   draft.value = props.project.description;
   descriptionConflict.value = false;
+  selectedTab.value = 'Studies';
 });
 watch(
   () => props.project.description,
@@ -128,31 +142,60 @@ function pickLead(event: Event) {
           <Icon name="panel" />
         </button>
       </header>
-      <div class="project-board">
-        <StudyBoard v-if="project.studies.length" :key="project.id" :project-id="project.id" />
-        <template v-else>
-          <div class="project-empty-toolbar">
-            <button
-              v-for="tab in ['All', 'Members', 'Agents']"
-              :key="tab"
-              class="button compact"
-              :class="{ active: emptyTab === tab }"
-              :aria-pressed="emptyTab === tab"
-              @click="emptyTab = tab"
-            >
-              {{ tab }}
-            </button>
-          </div>
-          <div class="project-empty">
-            <Icon name="tasks" :size="36" />
-            <h2>No studies linked</h2>
-            <p>Create a new study or assign existing ones to this project.</p>
-            <button class="button compact" @click="openComposer(undefined, project.id)">
-              <Icon name="plus" :size="14" />New study
-            </button>
-          </div>
-        </template>
+      <div class="project-view-toolbar">
+        <div
+          class="project-view-tabs"
+          role="tablist"
+          aria-label="Project views"
+          @keydown="switchProjectTab"
+        >
+          <button
+            v-for="tab in projectTabs"
+            :id="`project-view-${tab}`"
+            :key="tab"
+            type="button"
+            class="button compact"
+            role="tab"
+            :class="{ active: selectedTab === tab }"
+            :data-project-tab="tab"
+            :aria-selected="selectedTab === tab"
+            :aria-controls="`project-panel-${tab}`"
+            :tabindex="selectedTab === tab ? 0 : -1"
+            @click="selectedTab = tab"
+          >
+            <Icon :name="tab === 'Studies' ? 'tasks' : 'chat'" :size="14" />
+            {{ tab }}
+          </button>
+        </div>
+        <div ref="chatFilterAnchor" />
       </div>
+      <div
+        v-if="selectedTab === 'Studies'"
+        id="project-panel-Studies"
+        class="project-board"
+        role="tabpanel"
+        aria-labelledby="project-view-Studies"
+      >
+        <StudyBoard v-if="project.studies.length" :key="project.id" :project-id="project.id" />
+        <ProjectEmptyState
+          v-else
+          icon="tasks"
+          title="No studies linked"
+          description="Create a new study or assign existing ones to this project."
+        >
+          <button class="button primary compact" @click="openComposer(undefined, project.id)">
+            <Icon name="plus" :size="14" />New study
+          </button>
+        </ProjectEmptyState>
+      </div>
+      <ProjectCoresearch
+        v-else
+        id="project-panel-Coresearches"
+        :project-id="project.id"
+        :filter-anchor="chatFilterAnchor"
+        role="tabpanel"
+        aria-labelledby="project-view-Coresearches"
+      />
     </section>
     <div
       v-if="rail"
@@ -183,7 +226,7 @@ function pickLead(event: Event) {
         </h2>
         <div v-if="properties" class="project-property-rows">
           <label
-            >Status<SelectPicker
+            >Status<SelectPicker :fit-content-width="180"
               ><select
                 aria-label="Project status"
                 :value="project.status"
@@ -199,7 +242,7 @@ function pickLead(event: Event) {
             ></label
           >
           <label
-            >Priority<SelectPicker
+            >Priority<SelectPicker :fit-content-width="180"
               ><select
                 aria-label="Project priority"
                 :value="project.priority"
@@ -217,7 +260,7 @@ function pickLead(event: Event) {
             ></label
           >
           <label
-            >Lead<SelectPicker
+            >Lead<SelectPicker :fit-content-width="180"
               ><select
                 aria-label="Project lead"
                 :value="currentLead"
@@ -418,16 +461,19 @@ function pickLead(event: Event) {
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0;
+  padding-inline: 8px;
 }
 .project-property-rows label {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 180px);
   gap: 5px;
   align-items: center;
   min-height: 34px;
   font-size: 13px;
   color: var(--muted);
+}
+.project-property-rows :deep(.select-picker) {
+  justify-self: start;
 }
 .project-property-rows select {
   appearance: none;
@@ -482,36 +528,16 @@ function pickLead(event: Event) {
   background: var(--stage-reporting-dot);
   border-radius: 8px;
 }
-.project-empty-toolbar {
-  height: 56px;
+.project-view-toolbar,
+.project-view-tabs {
   display: flex;
+  flex: none;
   align-items: center;
-  padding: 0 16px;
   gap: 6px;
-  font-size: 13px;
 }
-.project-empty-toolbar > span {
-  padding: 5px 10px;
-}
-.project-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  color: var(--muted);
-  padding: 32px 32px 144px;
-  text-align: center;
-}
-.project-empty h2 {
-  font-size: 14px;
-  font-weight: 400;
-  margin: 0;
-}
-.project-empty p {
-  font-size: 13px;
-  margin: 0;
+.project-view-toolbar {
+  justify-content: space-between;
+  padding: 8px 16px;
 }
 @media (max-width: 760px) {
   .project-heading nav {

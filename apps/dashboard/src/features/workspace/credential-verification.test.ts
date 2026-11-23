@@ -148,7 +148,11 @@ async function privateEditor(
     history: createMemoryHistory(),
     routes: [
       { path: '/editor', component: Editor, meta: { bare: true } },
-      { path: '/studies', component: { render: () => h('span', 'Studies') }, meta: { bare: true } },
+      {
+        path: '/coresearch',
+        component: { render: () => h('span', 'Aristotle') },
+        meta: { bare: true },
+      },
       {
         path: '/signin',
         component: { render: () => h('span', 'Sign in') },
@@ -332,7 +336,7 @@ it('keeps B gated after successful headers and an aborted body until native clea
     expect(t.native.configureSession.mock.calls[1]?.[0].userID).toBe('b');
     expect(t.auth.verifying.value).toBe(false);
     expect(t.committed).toHaveBeenCalledOnce();
-    expect(t.router.currentRoute.value.path).toBe('/studies');
+    expect(t.router.currentRoute.value.path).toBe('/coresearch');
     expect(t.editor()).toBeUndefined();
     expect(t.client.getQueryData(['private-a'])).toBeUndefined();
     expect(t.client.getQueryData(['me'])).toMatchObject({ id: 'b' });
@@ -364,7 +368,7 @@ it('restores quarantine in a replacement document after native clearance failed'
     clear.resolve({});
     await vi.waitFor(() => expect(b.auth.verifying.value).toBe(false));
     expect(b.client.getQueryData(['me'])).toMatchObject({ id: 'b' });
-    expect(b.router.currentRoute.value.path).toBe('/studies');
+    expect(b.router.currentRoute.value.path).toBe('/coresearch');
     expect(b.finishVerification).toHaveBeenCalledOnce();
     expect(b.gatedCalls).toEqual([]);
   } finally {
@@ -550,7 +554,7 @@ it.each([
       expect(t.gatedCalls).toEqual([]);
       clearing.resolve({});
       await vi.waitFor(() => expect(t.auth.verifying.value).toBe(false));
-      expect(t.router.currentRoute.value.path).toBe('/studies');
+      expect(t.router.currentRoute.value.path).toBe('/coresearch');
       expect(JSON.parse(storage.get('lykeion.workspace-tabs')!)).toMatchObject({
         account: 'a',
         selected: 0,

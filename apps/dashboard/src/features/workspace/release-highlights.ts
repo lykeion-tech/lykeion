@@ -11,6 +11,24 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.10': [
+    {
+      title: 'Share a chat with a project',
+      description:
+        'Add an Experiment or Cowrite chat to a project from its menu. Anyone who can view the project can read the conversation and download its saved artifacts from the project’s Coresearches tab.',
+      icon: 'folder',
+      color: 'blue',
+      details: ['Your chat', 'Add to project', 'Coresearches tab'],
+    },
+    {
+      title: 'Start with Aristotle',
+      description:
+        'Lykeion now opens in Coresearch. Machines, Slack and GitHub share one place: Settings → Connections.',
+      icon: 'plug',
+      color: 'violet',
+      details: ['Coresearch', 'Settings', 'Connections'],
+    },
+  ],
   '0.1.9': [
     {
       title: 'Ask Aristotle from Slack',

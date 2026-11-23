@@ -57,6 +57,7 @@ const isAdmin = computed(() => myRole.value === 'owner' || myRole.value === 'adm
 const groups = computed(() =>
   [
     {
+      id: 'personal',
       title: 'Personal',
       items: [
         { id: 'profile', label: 'Profile', icon: 'user' },
@@ -64,16 +65,23 @@ const groups = computed(() =>
         { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
         { id: 'tokens', label: 'API Tokens', icon: 'link' },
         { id: 'storage', label: 'Storage', icon: 'layers' },
-        { id: 'machines', label: 'Machines', icon: 'monitor' },
         { id: 'updates', label: 'Updates', icon: 'download' },
       ],
     },
     {
+      id: 'workspace',
       title: workspace.data.value?.name ?? 'Workspace',
       items: [
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'skills', label: 'Skills', icon: 'book' },
         { id: 'connectors', label: 'Connectors', icon: 'plug' },
+      ],
+    },
+    {
+      id: 'connections',
+      title: 'Connections',
+      items: [
+        { id: 'machines', label: 'Machines', icon: 'monitor' },
         { id: 'communication', label: 'Communication', icon: 'chat' },
         { id: 'code', label: 'Code', icon: 'code' },
       ],
@@ -375,7 +383,7 @@ async function copySlug() {
           :value="section"
           @change="open(($event.target as HTMLSelectElement).value)"
         >
-          <optgroup v-for="group in groups" :key="group.title" :label="group.title">
+          <optgroup v-for="group in groups" :key="group.id" :label="group.title">
             <option v-for="item in group.items" :key="item.id" :value="item.id">
               {{ item.label }}
             </option>
@@ -389,7 +397,7 @@ async function copySlug() {
           placeholder="Search settings"
           aria-label="Search settings"
       /></label>
-      <section v-for="group in groups" :key="group.title">
+      <section v-for="group in groups" :key="group.id">
         <header>
           <span class="tiny-avatar">{{ group.title.charAt(0) }}</span
           ><strong>{{ group.title }}</strong>

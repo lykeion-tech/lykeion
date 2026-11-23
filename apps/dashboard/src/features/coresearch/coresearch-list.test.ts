@@ -144,6 +144,7 @@ describe('Coresearch API wiring', () => {
       expect(invalidationsFor('lab', event)).toEqual([
         keys.coresearchProjects('lab'),
         keys.coresearchConversations('lab'),
+        keys.researchCoresearchAll('lab'),
         ['ws', 'lab', 'coresearch', 'p'],
       ]);
       expect(invalidationsFor('other', event)).toEqual([]);

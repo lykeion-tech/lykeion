@@ -47,10 +47,10 @@ describe('study destinations', () => {
     expect(router.currentRoute.value.path).toBe(base);
   });
 
-  it('keeps default and unknown paths on workspace Studies', async () => {
+  it('sends default and unknown paths to Aristotle', async () => {
     await router.push('/');
-    expect(router.currentRoute.value.path).toBe('/studies');
+    expect(router.currentRoute.value.path).toBe('/coresearch');
     await router.push('/unknown');
-    expect(router.currentRoute.value.path).toBe('/studies');
+    expect(router.currentRoute.value.path).toBe('/coresearch');
   });
 });

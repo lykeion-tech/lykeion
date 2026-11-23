@@ -1,16 +1,19 @@
 import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 
-test('opens Coresearch with the conversation unobstructed on a narrow screen', async ({ page }) => {
+test('opens the Coresearch sidebar on a narrow screen and lets the user dismiss it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installAristotleFixture(page);
   await page.goto('/#/coresearch');
+  const toggle = page.getByRole('button', { name: 'Toggle left sidebar' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
   await expect(page.locator('.application')).toHaveClass(/sidebar-hidden/);
   const input = page.getByRole('textbox', { name: 'Message the agent' });
   await expect(input).toBeVisible();
   await input.click();
   await expect(input).toBeFocused();
-  await page.getByRole('button', { name: 'Toggle left sidebar' }).click();
+  await toggle.click();
   await expect(page.locator('.application')).not.toHaveClass(/sidebar-hidden/);
 });
 

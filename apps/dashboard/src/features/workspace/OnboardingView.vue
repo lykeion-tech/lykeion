@@ -275,7 +275,7 @@ async function finishSetup() {
   if (account) markReleaseSeen(account);
   if (visit !== currentVisit) return;
   await client.invalidateQueries({ queryKey: keys.me });
-  if (visit === currentVisit) await router.replace('/studies');
+  if (visit === currentVisit) await router.replace('/coresearch');
 }
 
 const finish = () => run(finishSetup);
