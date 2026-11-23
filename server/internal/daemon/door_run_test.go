@@ -389,7 +389,7 @@ func TestClosingTheDoorStopsARunningScript(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("echo $$ > pgid\nsleep 10 &\nsleep 10\n"), 0o644))
 	done := make(chan struct{})
 	go func() { useTool(t, d, "run_script", map[string]any{"path": "a.py"}); close(done) }()
-	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(dir, "pgid")); return err == nil })
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(dir, "pgid")); return len(b) > 0 })
 	start := time.Now()
 	d.Close()
 	if time.Since(start) > 5*time.Second {
