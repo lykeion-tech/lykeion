@@ -237,18 +237,19 @@ func (q *Queries) ListInvitations(ctx context.Context, workspaceID uuid.UUID) ([
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT m.user_id, m.role, m.created_at, u.email, u.name, u.avatar_url FROM member m
+SELECT m.user_id, m.role, m.created_at, u.email, u.name, u.avatar_url, u.career_stage FROM member m
 JOIN "user" u ON u.id = m.user_id
 WHERE m.workspace_id = $1 ORDER BY m.created_at
 `
 
 type ListMembersRow struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	AvatarUrl string    `json:"avatar_url"`
+	UserID      uuid.UUID `json:"user_id"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+	Email       string    `json:"email"`
+	Name        string    `json:"name"`
+	AvatarUrl   string    `json:"avatar_url"`
+	CareerStage string    `json:"career_stage"`
 }
 
 func (q *Queries) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]ListMembersRow, error) {
@@ -267,6 +268,7 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]Lis
 			&i.Email,
 			&i.Name,
 			&i.AvatarUrl,
+			&i.CareerStage,
 		); err != nil {
 			return nil, err
 		}

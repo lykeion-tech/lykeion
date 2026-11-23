@@ -17,6 +17,7 @@ import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import FilterButton from '../../ui/FilterButton.vue';
+import ProjectPicker from '../projects/ProjectPicker.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
@@ -105,6 +106,10 @@ const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
 const studyMenu = ref<{ id: string; x: number; y: number; alignRight: boolean } | null>(null);
+const projectStudyId = ref('');
+const projectBusy = ref(false);
+const projectPanel = ref<HTMLElement>();
+const projectStudy = computed(() => all.value.find((card) => card.id === projectStudyId.value));
 let workspaceGeneration = 0;
 watch(
   workspaceId,
@@ -112,6 +117,8 @@ watch(
     workspaceGeneration++;
     actionError.value = '';
     studyMenu.value = null;
+    projectStudyId.value = '';
+    projectBusy.value = false;
   },
   { flush: 'sync' },
 );
@@ -121,9 +128,10 @@ onUnmounted(() => {
 
 function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton = false) {
   // Only a study's owner deletes it, at any time.
-  if (card.owner_id !== me.data.value?.id) return;
+  if (card.owner_id !== me.data.value?.id || projectBusy.value) return;
   event.preventDefault();
   closeMenus();
+  if (projectStudyId.value) closeProjectPicker(false, false);
   studyMenuTrigger.value = event.currentTarget as HTMLElement;
   const rect = studyMenuTrigger.value.getBoundingClientRect();
   studyMenu.value = {
@@ -136,7 +144,74 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton
     y: fromButton ? rect.bottom + 4 : event instanceof MouseEvent ? event.clientY : rect.bottom,
     alignRight: fromButton,
   };
-  void nextTick(() => document.querySelector<HTMLButtonElement>('.study-menu button')?.focus());
+  void nextTick(() => {
+    const menu = document.querySelector<HTMLElement>('.study-menu');
+    if (!menu || !studyMenu.value) return;
+    const bounds = menu.getBoundingClientRect();
+    studyMenu.value.x +=
+      Math.max(0, 8 - bounds.left) - Math.max(0, bounds.right - window.innerWidth + 8);
+    studyMenu.value.y -= Math.max(0, bounds.bottom - window.innerHeight + 8);
+    menu.querySelector('button')?.focus();
+  });
+}
+function placeProjectPicker() {
+  const panel = projectPanel.value;
+  const menu = studyMenu.value;
+  if (!panel || !menu) return;
+  const bounds = studyMenuTrigger.value?.getBoundingClientRect();
+  const right = menu.alignRight && bounds ? bounds.right : menu.x + panel.offsetWidth;
+  const top = menu.alignRight && bounds ? bounds.bottom + 4 : menu.y;
+  panel.style.left = `${Math.max(8, Math.min(right - panel.offsetWidth, window.innerWidth - panel.offsetWidth - 8))}px`;
+  panel.style.top = `${Math.max(8, Math.min(top, window.innerHeight - panel.offsetHeight - 8))}px`;
+}
+watch(actionError, placeProjectPicker, { flush: 'post' });
+async function openProjectPicker(id: string) {
+  actionError.value = '';
+  projectStudyId.value = id;
+  await nextTick();
+  if (projectStudyId.value !== id) return;
+  projectPanel.value?.showPopover();
+  placeProjectPicker();
+  projectPanel.value?.querySelector('input')?.focus();
+}
+function closeProjectPicker(back = false, restore = true) {
+  projectStudyId.value = '';
+  actionError.value = '';
+  if (!back) studyMenu.value = null;
+  if (restore) {
+    void nextTick(() => {
+      if (back) document.querySelector<HTMLButtonElement>('.study-menu button')?.focus();
+      else studyMenuTrigger.value?.focus();
+    });
+  }
+}
+async function updateStudyProject(
+  change: { research_id: string | null } | { new_project_name: string },
+) {
+  const study = projectStudy.value;
+  if (!study || study.owner_id !== me.data.value?.id || projectBusy.value) return;
+  const workspace = workspaceId.value;
+  const generation = workspaceGeneration;
+  const current = () => workspaceGeneration === generation && workspaceId.value === workspace;
+  projectBusy.value = true;
+  actionError.value = '';
+  try {
+    await api('PATCH', `/api/cards/${study.id}/properties`, change, undefined, { workspace });
+    if (!current()) return;
+    await Promise.all(
+      [
+        keys.cards(workspace),
+        keys.card(workspace, study.id),
+        keys.researches(workspace),
+        keys.researchDetails(workspace),
+      ].map((queryKey) => client.invalidateQueries({ queryKey })),
+    );
+    if (current()) closeProjectPicker();
+  } catch (e) {
+    if (current()) actionError.value = (e as Error).message;
+  } finally {
+    if (current()) projectBusy.value = false;
+  }
 }
 async function removeStudy(id: string) {
   studyMenu.value = null;
@@ -315,9 +390,16 @@ async function menu(name: string, event: Event) {
 }
 function dismiss(e: Event) {
   if (!(e.target as HTMLElement).closest('.menu-anchor')) closeMenus();
-  if (!(e.target as HTMLElement).closest('.study-menu')) studyMenu.value = null;
+  if ((e.target as HTMLElement).closest('.study-menu, .study-project-popover')) return;
+  if (projectStudyId.value) {
+    if (!projectBusy.value) closeProjectPicker(false, false);
+  } else studyMenu.value = null;
 }
 function key(e: KeyboardEvent) {
+  if (e.key === 'Escape' && projectStudyId.value) {
+    if (!projectBusy.value) closeProjectPicker();
+    return;
+  }
   if (e.key === 'Escape' && studyMenu.value) {
     studyMenu.value = null;
     studyMenuTrigger.value?.focus();
@@ -373,10 +455,14 @@ function menuKeys(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('click', dismiss);
   window.addEventListener('keydown', key);
+  window.addEventListener('resize', placeProjectPicker);
+  window.addEventListener('scroll', placeProjectPicker, true);
 });
 onUnmounted(() => {
   document.removeEventListener('click', dismiss);
   window.removeEventListener('keydown', key);
+  window.removeEventListener('resize', placeProjectPicker);
+  window.removeEventListener('scroll', placeProjectPicker, true);
 });
 </script>
 <template>
@@ -556,7 +642,9 @@ onUnmounted(() => {
         }}<Icon name="close" :size="11" /></button></template
     ><button class="text-button" @click="filters = {}">Clear</button>
   </div>
-  <p v-if="actionError" class="board-action-error" role="alert">{{ actionError }}</p>
+  <p v-if="actionError && !projectStudyId" class="board-action-error" role="alert">
+    {{ actionError }}
+  </p>
   <p v-if="cards.isPending.value" class="board-loading" role="status">Loading studies…</p>
   <div v-if="cards.data.value && display.mode === 'Board'" class="board-scroll">
     <section
@@ -720,7 +808,7 @@ onUnmounted(() => {
     ><button class="button compact" @click="filters = {}">Clear filters</button>
   </div>
   <div
-    v-if="studyMenu"
+    v-if="studyMenu && !projectStudyId"
     class="board-menu study-menu"
     role="menu"
     aria-label="Study actions"
@@ -731,7 +819,37 @@ onUnmounted(() => {
     }"
     @keydown="menuKeys"
   >
-    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">Delete</button>
+    <button role="menuitem" aria-haspopup="dialog" @click="openProjectPicker(studyMenu.id)">
+      <Icon name="folder" :size="14" />Add to project
+    </button>
+    <hr role="separator" />
+    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">
+      <Icon name="trash" :size="14" />Delete
+    </button>
+  </div>
+  <div
+    v-if="projectStudyId"
+    ref="projectPanel"
+    popover="manual"
+    class="study-project-popover"
+    role="dialog"
+    aria-label="Add to project"
+    @click.stop
+  >
+    <ProjectPicker
+      :projects="researches.data.value"
+      :pending="researches.isPending.value"
+      :failed="researches.isError.value"
+      :busy="projectBusy"
+      :current-project="projectStudy?.research_id"
+      back-label="Back to study actions"
+      @back="closeProjectPicker(true)"
+      @select="(project) => updateStudyProject({ research_id: project })"
+      @create="(name) => updateStudyProject({ new_project_name: name })"
+      @retry="researches.refetch()"
+      @resize="placeProjectPicker"
+    />
+    <p v-if="actionError" class="study-project-error" role="alert">{{ actionError }}</p>
   </div>
 </template>
 
@@ -1576,6 +1694,27 @@ onUnmounted(() => {
   border: 0;
   border-top: 1px solid var(--border);
   margin: 3px 0;
+}
+.study-project-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(290px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 8px;
+  color: var(--text);
+  background: var(--fill-menu);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 6px 20px #0002;
+  font-size: 13px;
+}
+.study-project-error {
+  margin: 5px 8px;
+  color: var(--danger-text);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .danger-item {
   color: var(--error-text);

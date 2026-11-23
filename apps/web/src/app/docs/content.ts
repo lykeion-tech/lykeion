@@ -262,15 +262,15 @@ Colleagues are the people in your selected workspace. Workspace roles are Owner,
 
 1. Open Colleagues in the dashboard.
 2. Search or use the role filter to locate the person.
-3. Open their details to inspect their profile and workspace role. Their Studies tab shows visible studies owned by or assigned to them.
+3. Read their career stage and workspace access in the roster, or open their details to inspect their profile. Their Studies tab shows visible studies owned by or assigned to them.
 
 This view helps you identify who is responsible for work without changing its assignment. A person's workspace membership and an agent's execution configuration are separate. See [agents](/docs/agents/).
 
 ## Share your research profile
 
-During onboarding, describe your research in your own words in the **Professional background** field and optionally add links to your work. You can choose whether to publish the profile to the workspace you join or create. Colleagues can read the published version in your Overview, and Aristotle can use it in Coresearch when suggesting collaborators.
+During onboarding, choose your **Career stage**, describe your research in your own words in the **Professional background** field and optionally add links to your work. You can choose whether to publish the profile to the workspace you join or create. Colleagues can read the published version in your Overview, and Aristotle can use it in Coresearch when suggesting collaborators.
 
-In Settings → Profile, you can edit your research identity and links. **Save profile** updates the published version in workspaces where you’ve already shared it. If you haven’t shared it anywhere, the saved profile stays private.
+In Settings → Profile, you can edit your career stage, research identity and links. Your saved career stage is visible in the Colleagues roster to people who share a workspace with you. **Save profile** updates the published version in workspaces where you’ve already shared it. If you haven’t shared it anywhere, the saved profile stays private.
 
 ## Invite someone
 
@@ -307,6 +307,8 @@ A study is the place to describe a research question and follow its execution an
 ![Actual populated study creation form before submission](/docs/new-study-form.jpg)
 
 For a first attempt, prefer a small question with a deliverable you can inspect. If you use Create with agent, inspect what it produces rather than assuming every requested property was applied.
+
+To add a study you own to a workspace project, open the card's three-dot menu on the board and choose **Add to project**. Search for an existing project or choose **New project** to create and link one. You can also move the study to another project or remove the link.
 
 ## Follow and steer work
 

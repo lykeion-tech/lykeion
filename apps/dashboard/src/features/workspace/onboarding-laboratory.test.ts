@@ -62,6 +62,7 @@ afterEach(() => {
 
 async function mount(query: string, existing = false) {
   vi.stubGlobal('document', { baseURI: 'http://localhost/' });
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('Document', class {});
   vi.stubGlobal('ShadowRoot', class {});
   const queryClient = new QueryClient({

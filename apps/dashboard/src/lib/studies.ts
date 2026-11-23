@@ -1,3 +1,4 @@
+import { careerStages } from '../api/types';
 import type {
   BlockKind,
   Card,
@@ -50,6 +51,13 @@ export const careerStageLabels: Record<Exclude<CareerStage, ''>, string> = {
   industry: 'Industry researcher',
   other: 'Other',
 };
+
+export const careerStageChoices = careerStages.filter(
+  (stage) => stage !== 'research_staff' && stage !== 'faculty',
+);
+export function selectableCareerStage(value?: string): CareerStage {
+  return careerStageChoices.find((stage) => stage === value) ?? '';
+}
 
 // The four stages, one line each, as the Welcome step introduces them.
 export const stageIntro = [

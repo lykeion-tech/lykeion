@@ -10,6 +10,7 @@ import { workspaceId } from '../../api/session';
 import type { Research } from '../../api/types';
 import { guardResourceDrafts } from '../../state/resource-draft';
 import Icon from '../../ui/Icon.vue';
+import ProjectPicker from '../projects/ProjectPicker.vue';
 
 type ActionChat = {
   id: string;
@@ -46,10 +47,7 @@ const view = ref<'menu' | 'rename' | 'project'>(),
   error = ref('');
 const trigger = ref<HTMLButtonElement>(),
   panel = ref<HTMLElement>();
-const name = ref(''),
-  search = ref(''),
-  creating = ref(false),
-  projectName = ref('');
+const name = ref('');
 const panelID = useId();
 const projects = useQuery({
   queryKey: computed(() => keys.researches(workspaceId.value)),
@@ -60,11 +58,6 @@ const projects = useQuery({
     })) ?? [],
   enabled: computed(() => !!workspaceId.value && view.value === 'project'),
 });
-const matches = computed(() => {
-  const term = search.value.trim().toLowerCase();
-  return (projects.data.value ?? []).filter((p) => p.name.toLowerCase().includes(term));
-});
-
 function place() {
   const anchor = trigger.value?.getBoundingClientRect?.();
   const box = panel.value?.getBoundingClientRect?.();
@@ -101,11 +94,6 @@ async function show(next: NonNullable<typeof view.value>, last = false) {
   const first = !view.value;
   error.value = '';
   if (next === 'rename') name.value = props.conversation.title;
-  if (next === 'project') {
-    search.value = '';
-    projectName.value = '';
-    creating.value = false;
-  }
   view.value = next;
   await nextTick();
   if (view.value !== next) return;
@@ -153,14 +141,7 @@ function keysForPanel(event: KeyboardEvent) {
     buttons[next]?.focus();
   }
 }
-async function createProject() {
-  creating.value = true;
-  projectName.value = search.value.trim();
-  await nextTick();
-  place();
-  panel.value?.querySelector<HTMLInputElement>('[aria-label="Project name"]')?.focus();
-}
-watch([() => matches.value.length, () => projects.isPending.value, error], async () => {
+watch(error, async () => {
   if (!view.value) return;
   await nextTick();
   place();
@@ -237,10 +218,6 @@ async function mutate(method: 'PATCH' | 'DELETE', update?: Update) {
 function rename() {
   if (!name.value.trim()) return;
   return mutate('PATCH', { title: name.value.trim() });
-}
-function linkNew() {
-  if (!projectName.value.trim()) return;
-  return mutate('PATCH', { new_project_name: projectName.value.trim() });
 }
 </script>
 
@@ -320,6 +297,20 @@ function linkNew() {
           <Icon name="trash" :size="14" />Delete
         </button>
       </template>
+      <ProjectPicker
+        v-else-if="view === 'project'"
+        :projects="projects.data.value"
+        :pending="projects.isPending.value"
+        :failed="projects.isError.value"
+        :busy="busy"
+        :current-project="conversation.research_id"
+        back-label="Back to chat actions"
+        @back="show('menu')"
+        @select="(project) => mutate('PATCH', { research_id: project })"
+        @create="(name) => mutate('PATCH', { new_project_name: name })"
+        @retry="projects.refetch()"
+        @resize="place"
+      />
       <template v-else>
         <header class="chat-actions-heading">
           <button
@@ -331,78 +322,14 @@ function linkNew() {
           >
             <Icon name="left" :size="15" />
           </button>
-          <strong>{{ view === 'project' ? 'Add to project' : 'Rename chat' }}</strong>
+          <strong>Rename chat</strong>
         </header>
-        <form
-          v-if="view === 'rename'"
-          aria-label="Rename chat"
-          class="chat-actions-form"
-          @submit.prevent="rename"
-        >
+        <form aria-label="Rename chat" class="chat-actions-form" @submit.prevent="rename">
           <input aria-label="Chat title" v-model="name" maxlength="120" :disabled="busy" />
           <button type="submit" class="button compact" :disabled="busy || !name.trim()">
             Save
           </button>
         </form>
-        <template v-else>
-          <form v-if="creating" class="chat-actions-form" @submit.prevent="linkNew">
-            <input
-              aria-label="Project name"
-              v-model="projectName"
-              placeholder="Project name"
-              :disabled="busy"
-            />
-            <button type="submit" class="button compact" :disabled="busy || !projectName.trim()">
-              Create and add
-            </button>
-          </form>
-          <template v-else>
-            <input
-              aria-label="Search projects"
-              v-model="search"
-              placeholder="Search projects…"
-              :disabled="busy"
-            />
-            <button type="button" :disabled="busy" @click="createProject">
-              <Icon name="plus" :size="15" />New project
-            </button>
-            <div class="chat-actions-divider" />
-            <div class="chat-actions-project-list">
-              <p v-if="projects.isPending.value" class="chat-actions-note" role="status">
-                Loading projects…
-              </p>
-              <p v-else-if="projects.isError.value" class="chat-actions-note" role="alert">
-                Could not load projects.
-                <button type="button" @click="projects.refetch()">Retry</button>
-              </p>
-              <p v-else-if="!matches.length" class="chat-actions-note">No matching projects</p>
-              <button
-                v-for="project in matches"
-                :key="project.id"
-                type="button"
-                :aria-pressed="conversation.research_id === project.id"
-                :disabled="busy || conversation.research_id === project.id"
-                @click="mutate('PATCH', { research_id: project.id })"
-              >
-                <span class="chat-actions-project-name">{{ project.name }}</span>
-                <Icon
-                  v-if="conversation.research_id === project.id"
-                  name="check"
-                  :size="14"
-                  class="chat-actions-end"
-                />
-              </button>
-            </div>
-            <button
-              v-if="conversation.research_id"
-              type="button"
-              :disabled="busy"
-              @click="mutate('PATCH', { research_id: null })"
-            >
-              Remove from project
-            </button>
-          </template>
-        </template>
       </template>
       <p v-if="error" class="chat-actions-error" role="alert">{{ error }}</p>
     </div>
@@ -438,13 +365,6 @@ function linkNew() {
 .chat-actions-picker {
   width: min(290px, calc(100vw - 16px));
   padding: 8px;
-}
-.chat-actions-picker > input {
-  display: block;
-  margin: 4px 0;
-}
-.chat-actions-picker .chat-actions-divider {
-  margin: 4px 0;
 }
 .chat-actions-panel button:not(.button) {
   display: flex;
@@ -491,14 +411,10 @@ function linkNew() {
   min-height: 25px;
   padding: 4px;
 }
-.chat-actions-note,
 .chat-actions-error {
   margin: 5px 8px;
   line-height: 1.4;
   overflow-wrap: anywhere;
-}
-.chat-actions-note {
-  color: var(--muted);
 }
 .chat-actions-picker input {
   box-sizing: border-box;
@@ -513,14 +429,5 @@ function linkNew() {
 }
 .chat-actions-form button {
   flex: none;
-}
-.chat-actions-project-list {
-  max-height: 210px;
-  overflow: auto;
-}
-.chat-actions-project-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

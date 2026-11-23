@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SelectPicker from '../../ui/SelectPicker.vue';
+import CareerStagePicker from '../../ui/CareerStagePicker.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
@@ -21,8 +22,7 @@ import { api } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { useMe, useTokens, useWorkspace, useWorkspaces } from '../../api/queries';
-import { careerStages, type NewToken, type Workspace } from '../../api/types';
-import { careerStageLabels } from '../../lib/studies';
+import type { NewToken, Workspace } from '../../api/types';
 import { matchesQuery } from '../../lib/search';
 import { notify } from '../../state/notice';
 import { usePreferences } from '../../state/preferences';
@@ -187,7 +187,7 @@ function patchMe(body: Record<string, unknown>) {
     async (own) => {
       await api('PATCH', '/api/me', body);
       await refreshAccount(own, keys.me);
-      if (typeof body.avatar_url === 'string' && own.workspace)
+      if ((typeof body.avatar_url === 'string' || typeof body.career_stage === 'string') && own.workspace)
         await client.invalidateQueries({ queryKey: keys.members(own.workspace) });
       if (
         own.current() &&
@@ -220,11 +220,6 @@ async function avatarChanged(event: Event) {
       void patchMe({ avatar_url: reader.result });
   };
   reader.readAsDataURL(file);
-}
-function changeCareer(el: HTMLSelectElement) {
-  const requested = el.value;
-  el.value = me.data.value?.career_stage ?? '';
-  void patchMe({ career_stage: requested });
 }
 const timezone = computed({
   get: () => me.data.value?.timezone ?? 'UTC',
@@ -485,22 +480,13 @@ async function copySlug() {
             <div class="setting-row">
               <span>Email</span><span class="muted">{{ me.data.value?.email }}</span>
             </div>
-            <label class="setting-row"
-              ><span>Your career stage</span
-              ><SelectPicker
-                ><select
-                  :value="me.data.value?.career_stage ?? ''"
-                  class="career-stage-select"
-                  aria-label="Your career stage"
-                  @change="changeCareer($event.target as HTMLSelectElement)"
-                >
-                  <option value="">Choose a stage (optional)</option>
-                  <option v-for="c in careerStages" :key="c" :value="c">
-                    {{ careerStageLabels[c] }}
-                  </option>
-                </select></SelectPicker
-              ></label
-            >
+            <label class="setting-row">
+              <span>Your career stage</span>
+              <CareerStagePicker
+                :model-value="me.data.value?.career_stage"
+                @update:model-value="patchMe({ career_stage: $event })"
+              />
+            </label>
           </div>
           <ResearchProfilePanel :key="me.data.value?.id" />
           <section aria-label="Usage analytics"><AnalyticsPanel /></section>
