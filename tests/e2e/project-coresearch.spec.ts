@@ -55,6 +55,8 @@ test('links both Coresearch modes and gives a project peer read-only access', as
     page.getByRole('button', { name: `Actions for ${title}`, exact: true });
   await actions(experiment).click();
   await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  // The trigger ignores clicks until the change has settled.
+  await expect(actions(experiment)).toHaveAttribute('aria-busy', 'false');
   await actions(experiment).click();
   await expect(page.getByRole('menuitem', { name: 'Unpin', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
