@@ -268,6 +268,8 @@ func TestWorkspaceRouteIsolation(t *testing.T) {
 		case strings.HasSuffix(route, "/settings"):
 			body = map[string]any{"settings": map[string]any{}}
 
+		case route == "/api/coresearch/conversations/{conversation}":
+			body = map[string]string{"title": "outsider rename"}
 		case route == "/api/coresearch/conversations/{conversation}/turns" || route == "/api/coresearch/conversations":
 			body = map[string]string{"body": "outsider", "request_id": uuid.NewString()}
 		case route == "/api/coresearch/projects" || route == "/api/coresearch/projects/{project}":
