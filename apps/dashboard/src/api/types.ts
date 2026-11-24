@@ -196,6 +196,24 @@ export interface ReviewColumn {
   objector?: { ran: boolean; reason?: string; same_family: boolean } | null;
 }
 
+export interface StudyProposalContent {
+  title?: string;
+  priority?: string;
+  description: string;
+  stage: Exclude<Column, 'done'>;
+  assignee: { type: 'agent'; agent_id: string } | { type: 'team'; pack_id: string };
+  project_id: string | null;
+}
+
+export interface StudyProposal extends StudyProposalContent {
+  id: string;
+  workspace_id: string;
+  owner_id: string;
+  revision: number;
+  updated_at: string;
+  created_at: string;
+}
+
 export interface AgentStudyWork {
   card_id: string;
   active_role: string;

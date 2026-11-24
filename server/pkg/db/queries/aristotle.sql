@@ -87,3 +87,18 @@ SELECT project_id FROM coresearch_conversation WHERE workspace_id=app_workspace(
 
 -- name: DeleteOwnedCoresearchProject :execrows
 DELETE FROM coresearch_project WHERE workspace_id=app_workspace() AND created_by=app_user() AND id= @id;
+
+-- name: ListMobileAristotleConversations :many
+SELECT c.id, c.title, p.mode, c.snapshot_harness
+FROM coresearch_conversation c
+JOIN agent a ON a.workspace_id=c.workspace_id AND a.id=c.agent_id
+JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user()
+  AND a.owner_id=app_user() AND a.built_in_key='aristotle' AND c.archived_at IS NULL
+ORDER BY c.updated_at DESC,c.id;
+
+-- name: GetMobileAristotleChat :one
+SELECT c.chat_id FROM coresearch_conversation c
+JOIN agent a ON a.workspace_id=c.workspace_id AND a.id=c.agent_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.id=$1
+  AND a.owner_id=app_user() AND a.built_in_key='aristotle';

@@ -358,5 +358,6 @@ test('open Project detail updates embedded linked studies after another client l
   expect((await page.request.delete(`/api/cards/${study.id}`, { headers })).status()).toBe(204);
   await expect(page.locator(`.project-board [data-card="${study.id}"]`)).toHaveCount(0);
   expect((await page.request.delete(`/api/cards/${later.id}`, { headers })).status()).toBe(204);
-  await expect(page.locator('.project-empty')).toContainText('No studies linked');
+  await expect(page.locator('.project-board [data-card]')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'To-do' })).toContainText('No proposals');
 });

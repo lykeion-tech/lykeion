@@ -32,8 +32,8 @@ func seedHistoricalLabQuestion(t *testing.T, s *server, chat, body, model string
 	t.Helper()
 	var id uuid.UUID
 	err := s.Env.Owner.QueryRow(t.Context(), `WITH r AS (
- INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,board_column,round,role,harness,prompt,skill,requested_model)
- SELECT workspace_id,'aristotle',owner_id,owner_id,id,'',0,'aristotle','claude',$2,'',$3 FROM lab_chat WHERE id=$1 RETURNING *)
+ INSERT INTO agent_run(workspace_id,kind,requester_id,responsible_user_id,lab_chat_id,board_column,round,role,harness,prompt,skill,requested_model,lab_purpose)
+ SELECT workspace_id,'aristotle',owner_id,owner_id,id,'',0,'aristotle','claude',$2,'',$3,purpose FROM lab_chat WHERE id=$1 RETURNING *)
  INSERT INTO lab_message(workspace_id,owner_id,chat_id,kind,body,agent_run_id)
  SELECT workspace_id,requester_id,lab_chat_id,'question',$2,id FROM r RETURNING id`, chat, body, model).Scan(&id)
 	if err != nil {

@@ -101,7 +101,12 @@ func (h *H) sendCode(w http.ResponseWriter, r *http.Request) {
 	}
 	code := auth.NewCode()
 	q := h.Store.Global()
-	if err := q.SetVerificationCode(r.Context(), dbSetCode(email, code)); err != nil {
+	params := dbSetCode(email, code)
+	if mobileSignIn(r) {
+		params.Email = mobileCodeKey(email)
+		params.CodeHash = auth.CodeHash(email, "mobile/"+code)
+	}
+	if err := q.SetVerificationCode(r.Context(), params); err != nil {
 		fail(w, r, err)
 		return
 	}
@@ -132,8 +137,15 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	q := db.New(tx)
+	lookup := email
+	if mobileSignIn(r) {
+		lookup = mobileCodeKey(email)
+	} else if !strings.Contains(email, "@") {
+		writeErr(w, 401, "invalid or expired code")
+		return
+	}
 	var vc db.VerificationCode
-	err = tx.QueryRow(r.Context(), "SELECT email, code_hash, expires_at, attempts FROM verification_code WHERE email = $1 FOR UPDATE", email).Scan(&vc.Email, &vc.CodeHash, &vc.ExpiresAt, &vc.Attempts)
+	err = tx.QueryRow(r.Context(), "SELECT email, code_hash, expires_at, attempts FROM verification_code WHERE email = $1 FOR UPDATE", lookup).Scan(&vc.Email, &vc.CodeHash, &vc.ExpiresAt, &vc.Attempts)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (time.Now().After(vc.ExpiresAt) || vc.Attempts >= codeAttempts)) {
 		writeErr(w, 401, "invalid or expired code")
 		return
@@ -142,8 +154,16 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(vc.CodeHash), []byte(auth.CodeHash(email, strings.TrimSpace(in.Code)))) != 1 {
-		if err := q.BumpVerificationAttempts(r.Context(), email); err != nil {
+	code := strings.TrimSpace(in.Code)
+	if len(code) != 6 {
+		writeErr(w, 401, "invalid or expired code")
+		return
+	}
+	if mobileSignIn(r) {
+		code = "mobile/" + code
+	}
+	if subtle.ConstantTimeCompare([]byte(vc.CodeHash), []byte(auth.CodeHash(email, code))) != 1 {
+		if err := q.BumpVerificationAttempts(r.Context(), lookup); err != nil {
 			fail(w, r, err)
 			return
 		}
@@ -154,7 +174,7 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "invalid or expired code")
 		return
 	}
-	if err := q.DeleteVerificationCode(r.Context(), email); err != nil {
+	if err := q.DeleteVerificationCode(r.Context(), lookup); err != nil {
 		fail(w, r, err)
 		return
 	}
@@ -163,7 +183,17 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	tok, err := h.JWT.Issue(u.ID, u.Email)
+	var tok string
+	if mobileSignIn(r) {
+		var hash string
+		tok, hash, _ = auth.NewToken(auth.MobilePrefix)
+		_, err = tx.Exec(r.Context(), "DELETE FROM mobile_session WHERE user_id=$1 AND expires_at<=now()", u.ID)
+		if err == nil {
+			_, err = tx.Exec(r.Context(), "INSERT INTO mobile_session(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '30 days')", hash, u.ID)
+		}
+	} else {
+		tok, err = h.JWT.Issue(u.ID, u.Email)
+	}
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -172,9 +202,15 @@ func (h *H) verifyCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	h.setSession(w, tok)
+	if !mobileSignIn(r) {
+		h.setSession(w, tok)
+	}
 	writeJSON(w, 200, map[string]any{"token": tok, "user": u})
 }
+
+func mobileCodeKey(email string) string { return "mobile/" + auth.Hash(email) }
+
+func mobileSignIn(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, "/auth/mobile/") }
 
 func (h *H) setSession(w http.ResponseWriter, tok string) {
 	http.SetCookie(w, &http.Cookie{Name: middleware.SessionCookie, Value: tok, Path: "/", HttpOnly: true,
@@ -216,6 +252,10 @@ func (h *H) updateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, 400, "invalid profile: "+err.Error())
+		return
+	}
+	if middleware.IdentityFrom(r.Context()).Mobile && (in.Timezone != nil || in.Onboarded != nil) {
+		writeErr(w, 403, "field unavailable on mobile")
 		return
 	}
 	switch {
@@ -331,4 +371,17 @@ func (h *H) cliToken(w http.ResponseWriter, r *http.Request) {
 
 func dbSetCode(email, code string) db.SetVerificationCodeParams {
 	return db.SetVerificationCodeParams{Email: email, CodeHash: auth.CodeHash(email, code), ExpiresAt: time.Now().Add(codeTTL)}
+}
+
+func (h *H) mobileLogout(w http.ResponseWriter, r *http.Request) {
+	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !strings.HasPrefix(tok, auth.MobilePrefix) {
+		writeErr(w, 401, "mobile session required")
+		return
+	}
+	if _, err := h.Store.Pool.Exec(r.Context(), "DELETE FROM mobile_session WHERE token_hash=$1", auth.Hash(tok)); err != nil {
+		fail(w, r, err)
+		return
+	}
+	w.WriteHeader(204)
 }

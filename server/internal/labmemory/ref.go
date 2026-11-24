@@ -26,7 +26,7 @@ func ParseRef(s string) (Ref, error) {
 		return Ref{}, fmt.Errorf("invalid fact reference %q", s)
 	}
 	switch kind {
-	case "study", "record", "comment", "decision", "lesson", "workspace", "report":
+	case "study", "record", "comment", "decision", "lesson", "workspace", "report", "proposal":
 	default:
 		return Ref{}, fmt.Errorf("unknown fact kind %q", kind)
 	}

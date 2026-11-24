@@ -352,6 +352,20 @@ func (q *Queries) GetCoresearchTurnReceipt(ctx context.Context, requestID uuid.U
 	return i, err
 }
 
+const getMobileAristotleChat = `-- name: GetMobileAristotleChat :one
+SELECT c.chat_id FROM coresearch_conversation c
+JOIN agent a ON a.workspace_id=c.workspace_id AND a.id=c.agent_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() AND c.id=$1
+  AND a.owner_id=app_user() AND a.built_in_key='aristotle'
+`
+
+func (q *Queries) GetMobileAristotleChat(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getMobileAristotleChat, id)
+	var chat_id uuid.UUID
+	err := row.Scan(&chat_id)
+	return chat_id, err
+}
+
 const getWelcomeConversation = `-- name: GetWelcomeConversation :one
 SELECT id, workspace_id, owner_id, agent_id, project_id, chat_id, title, is_welcome, snapshot_harness, snapshot_model, snapshot_instructions, created_at, updated_at, research_id, pinned_at, archived_at FROM coresearch_conversation WHERE workspace_id=app_workspace() AND owner_id=app_user() AND is_welcome
 `
@@ -456,6 +470,48 @@ func (q *Queries) ListCoresearchConversations(ctx context.Context) ([]ListCorese
 			&i.ArchivedAt,
 			&i.Mode,
 			&i.Preview,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMobileAristotleConversations = `-- name: ListMobileAristotleConversations :many
+SELECT c.id, c.title, p.mode, c.snapshot_harness
+FROM coresearch_conversation c
+JOIN agent a ON a.workspace_id=c.workspace_id AND a.id=c.agent_id
+JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
+WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user()
+  AND a.owner_id=app_user() AND a.built_in_key='aristotle' AND c.archived_at IS NULL
+ORDER BY c.updated_at DESC,c.id
+`
+
+type ListMobileAristotleConversationsRow struct {
+	ID              uuid.UUID `json:"id"`
+	Title           string    `json:"title"`
+	Mode            string    `json:"mode"`
+	SnapshotHarness *string   `json:"snapshot_harness"`
+}
+
+func (q *Queries) ListMobileAristotleConversations(ctx context.Context) ([]ListMobileAristotleConversationsRow, error) {
+	rows, err := q.db.Query(ctx, listMobileAristotleConversations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMobileAristotleConversationsRow
+	for rows.Next() {
+		var i ListMobileAristotleConversationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Mode,
+			&i.SnapshotHarness,
 		); err != nil {
 			return nil, err
 		}

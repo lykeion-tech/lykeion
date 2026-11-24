@@ -13,18 +13,23 @@ import (
 )
 
 const labEvidenceLog = `-- name: LabEvidenceLog :many
-SELECT ref,via,(CASE WHEN min(read_version)=max(read_version) THEN min(read_version) ELSE '' END)::text AS read_version
+SELECT ref,via,(CASE WHEN min(read_version)=max(read_version) OR bool_and(shown IS NOT NULL) THEN (array_agg(read_version ORDER BY id DESC))[1] ELSE '' END)::text AS read_version,
+ COALESCE(jsonb_agg(to_jsonb(shown)) FILTER (WHERE shown IS NOT NULL),'[]'::jsonb)::jsonb AS shown, bool_and(shown IS NOT NULL)::boolean AS shown_known
 FROM lab_read WHERE workspace_id=app_workspace() AND agent_run_id=$1::uuid
  AND attempt=(SELECT r.attempt FROM agent_run r WHERE r.workspace_id=app_workspace() AND r.id=$1::uuid)
  GROUP BY ref,via ORDER BY min(id)
 `
 
 type LabEvidenceLogRow struct {
-	Ref         string `json:"ref"`
-	Via         string `json:"via"`
-	ReadVersion string `json:"read_version"`
+	Ref         string          `json:"ref"`
+	Via         string          `json:"via"`
+	ReadVersion string          `json:"read_version"`
+	Shown       json.RawMessage `json:"shown"`
+	ShownKnown  bool            `json:"shown_known"`
 }
 
+// A source read again after it changed stands on the last version, with everything
+// either read showed. Without that record, two versions cannot vouch for one answer.
 func (q *Queries) LabEvidenceLog(ctx context.Context, runID uuid.UUID) ([]LabEvidenceLogRow, error) {
 	rows, err := q.db.Query(ctx, labEvidenceLog, runID)
 	if err != nil {
@@ -34,7 +39,13 @@ func (q *Queries) LabEvidenceLog(ctx context.Context, runID uuid.UUID) ([]LabEvi
 	var items []LabEvidenceLogRow
 	for rows.Next() {
 		var i LabEvidenceLogRow
-		if err := rows.Scan(&i.Ref, &i.Via, &i.ReadVersion); err != nil {
+		if err := rows.Scan(
+			&i.Ref,
+			&i.Via,
+			&i.ReadVersion,
+			&i.Shown,
+			&i.ShownKnown,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

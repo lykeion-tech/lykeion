@@ -24,6 +24,7 @@ const SessionCookie = "lyk_session"
 type Identity struct {
 	UserID uuid.UUID
 	Email  string
+	Mobile bool
 }
 
 type Workspace struct {
@@ -55,6 +56,10 @@ func deny(w http.ResponseWriter, status int, msg string) {
 func Auth(st *store.Store, iss auth.Issuer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if IdentityFrom(r.Context()).Mobile {
+				next.ServeHTTP(w, r)
+				return
+			}
 			tok := ""
 			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 				tok = strings.TrimPrefix(h, "Bearer ")
@@ -78,6 +83,7 @@ func Auth(st *store.Store, iss auth.Issuer) func(http.Handler) http.Handler {
 					return
 				}
 				id = Identity{UserID: row.UserID, Email: row.Email}
+
 			default:
 				u, email, err := iss.Parse(tok)
 				if err != nil {

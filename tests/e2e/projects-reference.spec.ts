@@ -129,7 +129,7 @@ test('an empty project creates a study already linked to its board', async ({ pa
   expect(created.status()).toBe(201);
   const project = await created.json();
   await page.goto(`/#/projects/${project.id}`);
-  await expect(page.getByRole('heading', { name: 'No studies linked', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'To-do' }).getByText('No proposals')).toBeVisible();
   await page.screenshot({ path: 'test-results/reference/project-empty.png' });
   await page.getByRole('button', { name: 'New study', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'New study', exact: true });
@@ -200,18 +200,14 @@ test('Project properties shares study pane proportions and saves pointer and key
   const rail = page.getByRole('complementary', { name: 'Project properties' });
   const splitter = page.getByRole('separator', { name: 'Resize project properties' });
   const main = (await page.getByRole('tabpanel', { name: 'Studies' }).boundingBox())!;
+  await expect(page.getByRole('region', { name: 'To-do' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'No Coresearches linked' })).toBeVisible();
   const emptyCenter = await page.locator('.project-empty').evaluate((el) => {
     const children = Array.from(el.children).map((child) => child.getBoundingClientRect());
     return (children[0]!.top + children[children.length - 1]!.bottom) / 2;
   });
   expect(Math.abs(emptyCenter - (main.y + main.height / 2))).toBeLessThan(1);
-  const studiesEmpty = (await page.getByRole('heading', { name: 'No studies linked' }).boundingBox())!;
-  await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
-  const chatsEmptyHeading = page.getByRole('heading', { name: 'No Coresearches linked' });
-  await expect(chatsEmptyHeading).toBeVisible();
-  const chatsEmpty = (await chatsEmptyHeading.boundingBox())!;
-  expect(chatsEmpty.x + chatsEmpty.width / 2).toBeCloseTo(studiesEmpty.x + studiesEmpty.width / 2, 0);
-  expect(chatsEmpty.y).toBeCloseTo(studiesEmpty.y, 0);
   await page.getByRole('tab', { name: 'Studies', exact: true }).click();
   await expect(rail).toHaveCSS('width', '364px');
   await expect(rail).toHaveCSS('padding-left', '12px');

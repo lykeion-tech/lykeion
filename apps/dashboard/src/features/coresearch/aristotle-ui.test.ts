@@ -391,7 +391,7 @@ describe('Aristotle UI', () => {
       false,
     );
     expect.soft(textOf(root)).toContain('Loading conversation…');
-    expect.soft(textOf(root)).not.toContain('Welcome to Coresearch');
+    expect.soft(textOf(root)).not.toContain('Welcome to Lykeion');
     edit(root, 'Keep my draft');
     await settle();
     expect.soft(byLabel(root, 'Send').props.disabled).toBe(true);
@@ -401,7 +401,7 @@ describe('Aristotle UI', () => {
     await settle();
     await settle();
     expect(textOf(root)).toContain('History unavailable');
-    expect(textOf(root)).not.toContain('Welcome to Coresearch');
+    expect(textOf(root)).not.toContain('Welcome to Lykeion');
     expect(byLabel(root, 'Message the agent').props.value).toBe('Keep my draft');
     await (byLabel(root, 'Send').props.onClick as () => Promise<void>)();
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -412,7 +412,7 @@ describe('Aristotle UI', () => {
     expect(historyCalls).toHaveLength(2);
     expect(all(root).some((n) => n.props.innerHTML === 'Existing research history')).toBe(true);
     expect(textOf(root)).not.toContain('History unavailable');
-    expect(textOf(root)).not.toContain('Welcome to Coresearch');
+    expect(textOf(root)).not.toContain('Welcome to Lykeion');
     expect(byLabel(root, 'Message the agent').props.value).toBe('Keep my draft');
     expect(byLabel(root, 'Send').props.disabled).toBe(false);
   });

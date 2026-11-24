@@ -128,7 +128,7 @@ func project(ctx context.Context, tx *store.Tx, r Ref, row db.LabFactRow) (Fact,
 		}
 		for _, cite := range cites {
 			ref, err := ParseRef(cite.Ref)
-			if err != nil || ref.Kind == "lesson" || ref.Kind == "report" || cite.Version == "" {
+			if err != nil || ref.Kind == "lesson" || ref.Kind == "report" || ref.Kind == "proposal" || cite.Version == "" {
 				return Fact{}, ErrNotFound
 			}
 			fact, err := read(ctx, tx, ref)

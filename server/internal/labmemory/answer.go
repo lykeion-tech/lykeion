@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -31,13 +32,21 @@ type answerCite struct {
 type answerEvidence struct {
 	answerCite
 	Via string `json:"via"`
+	// Shown is what this read exposed; see exposure. Absent means exact version only.
+	Shown []string `json:"shown,omitempty"`
 }
 type answerStatement struct {
 	Kind  string       `json:"kind"`
 	Text  string       `json:"text"`
 	Cites []answerCite `json:"cites"`
 }
+type StudySuggestion struct {
+	handin.NewStudySuggestion
+	Assignee *store.ProposalAssignee `json:"assignee"`
+}
+
 type checkedAnswer struct {
+	NewStudy    *StudySuggestion  `json:"new_study,omitempty"`
 	Proposal    *DraftProposal    `json:"proposal,omitempty"`
 	HistorySafe bool              `json:"history_safe"`
 	Statements  []answerStatement `json:"statements"`
@@ -54,10 +63,10 @@ func pin(f Fact) answerCite {
 // Answer runs inside the authenticated, locked attempt, under the requester's
 // RLS identity. Read also checks the facts behind each checked, active lesson.
 func (a Answers) Answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw json.RawMessage) ([]string, error) {
-	if run.LabPurpose != "" && run.LabPurpose != "answer" {
+	if run.LabPurpose != "" && run.LabPurpose != "answer" && run.LabPurpose != StudySuggestionPurpose {
 		return nil, service.ErrNotYours
 	}
-	return a.answer(ctx, tx, run, raw, handin.Aristotle)
+	return a.answer(ctx, tx, run, raw, handin.LabKind(run.LabPurpose))
 }
 
 func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw json.RawMessage, k handin.Kind) ([]string, error) {
@@ -142,6 +151,7 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		return nil, err
 	}
 	titles := map[Ref]answerCite{}
+	facts := map[Ref]Fact{}
 	missing := map[Ref]bool{}
 	lookup := func(ref Ref) (answerCite, bool, error) {
 		if c, ok := titles[ref]; ok {
@@ -159,7 +169,7 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 			return answerCite{}, false, e
 		}
 		c := pin(f)
-		titles[ref] = c
+		titles[ref], facts[ref] = c, f
 		return c, true, nil
 	}
 	result := checkedAnswer{Evidence: []answerEvidence{}, HistorySafe: true}
@@ -171,12 +181,14 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		if !visible {
 			return denyStale()
 		}
-		result.Evidence = append(result.Evidence, answerEvidence{cite, "read"})
+		result.Evidence = append(result.Evidence, answerEvidence{answerCite: cite, Via: "read", Shown: exposure(facts[Ref{Kind: "study", ID: *draftContext}])})
 	}
 	readHere := map[Ref]bool{}
 	// opened holds refs whose content the run read. Search and links show
 	// only titles, so they never make a report node citable.
 	opened := map[Ref]bool{}
+	// cites holds the version the run saw, which its source may have outgrown.
+	cites := map[Ref]answerCite{}
 	for _, row := range log {
 		ref, e := ParseRef(row.Ref)
 		if e != nil {
@@ -189,9 +201,30 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 		// The old session can repeat content from any of its reads, including
 		// an uncited source in a gap. Rereading cannot erase that exposure.
 		navigationOnly := row.Via == "links" && ref.Kind == "study" && row.ReadVersion == studyDirectoryPin
-		if !visible || (!navigationOnly && row.ReadVersion != cite.Version) {
+		if !visible {
 			return denyStale()
 		}
+		saw := answerEvidence{answerCite: cite, Via: row.Via}
+		if row.ShownKnown {
+			var shown [][]string
+			if e := json.Unmarshal(row.Shown, &shown); e != nil {
+				return nil, e
+			}
+			saw.Shown = slices.Concat(shown...)
+			slices.Sort(saw.Shown)
+			saw.Shown = slices.Compact(saw.Shown)
+		}
+		if !navigationOnly {
+			saw.Version = row.ReadVersion
+			ok, _, e := stands(ctx, tx, facts[ref], saw)
+			if e != nil {
+				return nil, e
+			}
+			if !ok {
+				return denyStale()
+			}
+		}
+		cites[ref] = saw.answerCite
 		readHere[ref] = true
 		if row.Via == "read" {
 			opened[ref] = true
@@ -211,7 +244,7 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 				return denyStale()
 			}
 		}
-		result.Evidence = append(result.Evidence, answerEvidence{cite, via})
+		result.Evidence = append(result.Evidence, saw)
 	}
 	h, probs := handin.Parse(k, raw)
 	if len(probs) > 0 {
@@ -235,9 +268,18 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 			if !visible {
 				return denyStale()
 			}
-			result.Evidence = append(result.Evidence, answerEvidence{cite, "read"})
+			result.Evidence = append(result.Evidence, answerEvidence{answerCite: cite, Via: "read", Shown: exposure(facts[Ref{Kind: "study", ID: *card}])})
 		}
 		result.Proposal = &DraftProposal{Message: h.Message, Draft: *h.Draft}
+	}
+	if s := h.NewStudy; s != nil {
+		result.NewStudy = &StudySuggestion{NewStudySuggestion: *s}
+		if s.AssigneeName != nil {
+			result.NewStudy.Assignee, err = tx.SuggestedAssignee(ctx, asker, s.Stage, *s.AssigneeName)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	for i, s := range h.Statements {
 		stmt := answerStatement{Kind: s.Kind, Text: s.Text, Cites: []answerCite{}}
@@ -272,6 +314,9 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 					problem("the report has no such node")
 					continue
 				}
+				if saw, ok := cites[ref]; ok {
+					cite = saw
+				}
 				stmt.Cites = append(stmt.Cites, cite)
 			}
 		}
@@ -300,10 +345,11 @@ func (a Answers) answer(ctx context.Context, tx *store.Tx, run db.AgentRun, raw 
 }
 
 func emitAnswerEvent(ctx context.Context, tx *store.Tx, run db.AgentRun, id uuid.UUID) error {
-	if run.LabPurpose == ManualDraftPurpose {
-		return tx.EmitPrivate(ctx, *run.RequesterID, "lab.message.created", store.System, map[string]any{"message_id": id, "chat_id": *run.LabChatID, "owner_id": *run.RequesterID})
+	payload := map[string]any{"message_id": id, "chat_id": *run.LabChatID, "owner_id": *run.RequesterID}
+	if run.LabPurpose == ManualDraftPurpose || run.LabPurpose == StudySuggestionPurpose {
+		return tx.EmitPrivate(ctx, *run.RequesterID, "lab.message.created", store.System, payload)
 	}
-	return tx.Emit(ctx, "lab.message.created", nil, store.System, map[string]any{"message_id": id, "chat_id": *run.LabChatID, "owner_id": *run.RequesterID})
+	return tx.Emit(ctx, "lab.message.created", nil, store.System, payload)
 }
 
 // Never copy daemon diagnostics, prompts, or model text into failure messages.

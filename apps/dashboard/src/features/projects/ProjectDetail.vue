@@ -13,7 +13,6 @@ import { readText } from '../../storage';
 import StudyBoard from '../studies/StudyBoard.vue';
 import { useStudyComposer } from '../../state/study-composer';
 import ProjectCoresearch from './ProjectCoresearch.vue';
-import ProjectEmptyState from './ProjectEmptyState.vue';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();
 const client = useQueryClient(),
@@ -176,17 +175,7 @@ function pickLead(event: Event) {
         role="tabpanel"
         aria-labelledby="project-view-Studies"
       >
-        <StudyBoard v-if="project.studies.length" :key="project.id" :project-id="project.id" />
-        <ProjectEmptyState
-          v-else
-          icon="tasks"
-          title="No studies linked"
-          description="Create a new study or assign existing ones to this project."
-        >
-          <button class="button primary compact" @click="openComposer(undefined, project.id)">
-            <Icon name="plus" :size="14" />New study
-          </button>
-        </ProjectEmptyState>
+        <StudyBoard :key="project.id" :project-id="project.id" @create="openComposer(undefined, project.id)" />
       </div>
       <ProjectCoresearch
         v-else

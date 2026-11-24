@@ -5,6 +5,7 @@ Lykeion is a research lab where agents carry out scientific work and people stee
 ## Product and architecture
 
 - A workspace contains studies. Studies can move through Grounding, Hypotheses, Experimentation and Validation; server checks and Jev review (under the owner's own TypeSafe key) or the owner's approval govern progression. A study can use stage Teams or a single agent. Preserve stage, gate, review and completion behavior when changing adjacent features.
+- Saved study proposals are idle workspace records. Starting one creates a study through ordinary card creation. Run history groups executions by study, stage and round. Aristotle in Coresearch can propose a study, which starts only when the researcher starts it; the Aristotle window answers researchers' questions from the lab's context, including studies in progress. Mobile app code and its CI belong in the separate private repository. Public server tests own the wire fixtures.
 - Evidence and provenance are part of the product: use the sources server and recorded sources, attachments and outputs where the existing workflow requires them. Do not invent citations or bypass evidence checks.
 - The Go server owns workspace data and authorization. PostgreSQL row-level security isolates workspaces; Redis supports realtime and other services. The `lyk` CLI and local daemon run supported agent CLIs on users' machines.
 - Claude Code and Codex run inside the operating system sandbox. Preserve the no-sandbox, no-run boundary and the distinction between a user's machine and shared-machine access.

@@ -1,0 +1,10 @@
+{
+  "revision": 0,
+  "description": "Compare calibration error across cohorts.",
+  "stage": "validation",
+  "assignee": {
+    "type": "team",
+    "pack_id": "00000000-0000-4000-8000-000000000005"
+  },
+  "project_id": "00000000-0000-4000-8000-000000000003"
+}

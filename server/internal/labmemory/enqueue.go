@@ -48,15 +48,18 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if err = runs.NotifyQueued(ctx, tx, run); err != nil {
 		return run, err
 	}
-	if chat.Purpose == ManualDraftPurpose {
+	if chat.Purpose == ManualDraftPurpose || chat.Purpose == StudySuggestionPurpose {
 		return run, tx.EmitPrivate(ctx, asker, "lab.message.created", store.User(asker), map[string]any{"chat_id": chat.ID, "owner_id": asker})
 	}
 	return run, tx.Emit(ctx, "lab.message.created", nil, store.User(asker), map[string]any{"chat_id": chat.ID, "owner_id": asker})
 }
 
 func protocolForChat(chat db.LabChat) string {
-	if chat.Purpose == ManualDraftPurpose {
+	switch chat.Purpose {
+	case ManualDraftPurpose:
 		return ManualDraftProtocol()
+	case StudySuggestionPurpose:
+		return StudySuggestionProtocol()
 	}
 	return Protocol()
 }

@@ -99,3 +99,14 @@ func TestAristotlePromptUsesLiveDirectoryForRecommendations(t *testing.T) {
 		t.Fatal("ordinary Coresearch prompt advertised Aristotle's directory")
 	}
 }
+
+func TestExperimentStudyDraftInstruction(t *testing.T) {
+	for _, tc := range []struct {
+		mode            string
+		aristotle, want bool
+	}{{"experiment", true, true}, {"experiment", false, false}, {"cowrite", true, false}} {
+		if got := strings.Contains(Prompt(PromptIn{Mode: tc.mode, ResearchDirectory: tc.aristotle}), "Study draft:"); got != tc.want {
+			t.Fatal(tc)
+		}
+	}
+}

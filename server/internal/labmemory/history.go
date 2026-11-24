@@ -82,27 +82,27 @@ func currentHistory(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]strin
 	if err != nil {
 		return nil, nil, err
 	}
-	versions := make(map[string]string)
-	current := func(c answerCite) (bool, error) {
-		if c.Version == "" {
-			return false, nil
+	facts := map[string]*Fact{}
+	current := func(e answerEvidence) (ok, changed bool, err error) {
+		fact, seen := facts[e.Ref]
+		if !seen {
+			r, err := ParseRef(e.Ref)
+			if err != nil {
+				return false, false, nil
+			}
+			f, err := Read(ctx, tx, asker, r)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return false, false, err
+			}
+			if err == nil {
+				fact = &f
+			}
+			facts[e.Ref] = fact
 		}
-		version, ok := versions[c.Ref]
-		if !ok {
-			r, e := ParseRef(c.Ref)
-			if e != nil {
-				return false, nil
-			}
-			fact, e := Read(ctx, tx, asker, r)
-			if e != nil && !errors.Is(e, ErrNotFound) {
-				return false, e
-			}
-			if e == nil {
-				version = pin(fact).Version
-			}
-			versions[c.Ref] = version
+		if fact == nil {
+			return false, false, nil
 		}
-		return c.Version == version, nil
+		return stands(ctx, tx, *fact, e)
 	}
 	var history []string
 	// An answer could repeat something previously shown without citing it.
@@ -135,11 +135,14 @@ func currentHistory(ctx context.Context, tx *store.Tx, run db.AgentRun) ([]strin
 		if !permitted {
 			continue
 		}
-		lines, valid, e := checkedHistory(row, current)
+		lines, valid, changed, e := checkedHistory(row, current)
 		if e != nil {
 			return nil, nil, e
 		}
 		if valid {
+			if changed {
+				lines = append(lines, "(The sources of this answer have changed since. Read them again before repeating it.)")
+			}
 			history = append(history, lines...)
 			sources = append(sources, row.ID)
 			included[row.ID] = true
@@ -176,61 +179,84 @@ func launchStillVisible(ctx context.Context, tx *store.Tx, run db.AgentRun) (boo
 	return true, nil
 }
 
-func checkedHistory(row db.LabPriorTurnsRow, current func(answerCite) (bool, error)) ([]string, bool, error) {
+// checkedHistory also reports whether a source the answer read or cites has
+// changed. Sources it only listed by title do not count.
+func checkedHistory(row db.LabPriorTurnsRow, current func(answerEvidence) (ok, changed bool, err error)) ([]string, bool, bool, error) {
 	var evidence []answerEvidence
 	var statements []answerStatement
 	if !row.HistorySafe || json.Unmarshal(row.Evidence, &evidence) != nil || json.Unmarshal(row.Statements, &statements) != nil || (len(statements) == 0 && len(row.Proposal) == 0) {
-		return nil, false, nil
+		return nil, false, false, nil
 	}
-	visible := map[string]string{}
+	// A source can appear at several versions; a cite stands on one of them.
+	visible := map[string]map[string]bool{}
 	opened := map[string]bool{}
+	var changed bool
+	outgrown := map[answerCite]bool{}
 	for _, e := range evidence {
 		if e.Via == "read" {
 			opened[e.Ref] = true
 		}
-		ok, err := current(e.answerCite)
+		ok, moved, err := current(e)
 		if !ok || err != nil {
-			return nil, false, err
+			return nil, false, false, err
 		}
-		visible[e.Ref] = e.Version
+		if visible[e.Ref] == nil {
+			visible[e.Ref] = map[string]bool{}
+		}
+		visible[e.Ref][e.Version] = true
+		changed = changed || moved && e.Via == "read"
+		outgrown[answerCite{Ref: e.Ref, Version: e.Version}] = moved
 	}
 	var lines []string
 	for _, s := range statements {
 		if s.Kind == "gap" && len(s.Cites) != 0 || s.Kind == "fact" && len(s.Cites) == 0 || s.Kind == "lesson" && len(s.Cites) != 1 {
-			return nil, false, nil
+			return nil, false, false, nil
 		}
 		if s.Kind != "gap" && s.Kind != "fact" && s.Kind != "lesson" {
-			return nil, false, nil
+			return nil, false, false, nil
 		}
 		for _, c := range s.Cites {
 			if ref, e := ParseRef(c.Ref); e == nil && ref.Node != "" && c.Version != "" {
 				// A report node stands on its report, or the node itself,
 				// having been read and on the node's own current projection.
 				if !opened[ref.Base().String()] && !opened[c.Ref] {
-					return nil, false, nil
+					return nil, false, false, nil
 				}
-				if ok, err := current(c); !ok || err != nil {
-					return nil, false, err
+				if ok, _, err := current(answerEvidence{answerCite: c}); !ok || err != nil {
+					return nil, false, false, err
 				}
 				continue
 			}
-			if c.Version == "" || visible[c.Ref] != c.Version {
-				return nil, false, nil
+			if c.Version == "" || !visible[c.Ref][c.Version] {
+				return nil, false, false, nil
 			}
+			changed = changed || outgrown[answerCite{Ref: c.Ref, Version: c.Version}]
 		}
 		lines = append(lines, "answer ("+s.Kind+"): "+s.Text)
 	}
 	if len(row.Proposal) > 0 {
+		var proposal struct {
+			NewStudy *StudySuggestion `json:"new_study"`
+		}
+		if json.Unmarshal(row.Proposal, &proposal) != nil {
+			return nil, false, false, nil
+		}
+		if proposal.NewStudy != nil {
+			if len(statements) == 0 || proposal.NewStudy.Description == "" {
+				return nil, false, false, nil
+			}
+			return append(lines, "Suggested new study: "+proposal.NewStudy.Description), true, changed, nil
+		}
 		var p DraftProposal
 		if json.Unmarshal(row.Proposal, &p) != nil || len(handin.ValidateManualDraft(p.Draft, false)) > 0 {
-			return nil, false, nil
+			return nil, false, false, nil
 		}
 		if p.Draft.CardID != nil {
 			if _, ok := visible["study:"+*p.Draft.CardID]; !ok {
-				return nil, false, nil
+				return nil, false, false, nil
 			}
 		}
 		lines = append(lines, "proposal (not a fact): "+string(row.Proposal))
 	}
-	return lines, true, nil
+	return lines, true, changed, nil
 }

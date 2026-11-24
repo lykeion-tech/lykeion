@@ -14,7 +14,7 @@ import (
 )
 
 const appendLabRead = `-- name: AppendLabRead :exec
-INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version,attempt) VALUES($1,$2,$3,$4,$5,
+INSERT INTO lab_read(workspace_id,agent_run_id,ref,via,read_version,shown,attempt) VALUES($1,$2,$3,$4,$5,$6::text[],
  (SELECT r.attempt FROM agent_run r WHERE r.workspace_id=$1::uuid AND r.id=$2::uuid))
 `
 
@@ -24,6 +24,7 @@ type AppendLabReadParams struct {
 	Ref         string    `json:"ref"`
 	Via         string    `json:"via"`
 	ReadVersion string    `json:"read_version"`
+	Shown       []string  `json:"shown"`
 }
 
 func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) error {
@@ -33,6 +34,7 @@ func (q *Queries) AppendLabRead(ctx context.Context, arg AppendLabReadParams) er
 		arg.Ref,
 		arg.Via,
 		arg.ReadVersion,
+		arg.Shown,
 	)
 	return err
 }
@@ -43,6 +45,31 @@ INSERT INTO lab_chat(workspace_id,owner_id) VALUES(app_workspace(),app_user()) R
 
 func (q *Queries) CreateLabChat(ctx context.Context) (LabChat, error) {
 	row := q.db.QueryRow(ctx, createLabChat)
+	var i LabChat
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.OwnerID,
+		&i.Title,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Purpose,
+		&i.Draft,
+		&i.DraftSource,
+		&i.ArchivedAt,
+		&i.AppliedMessageID,
+		&i.BuilderRuntimeID,
+	)
+	return i, err
+}
+
+const createStudySuggestionChat = `-- name: CreateStudySuggestionChat :one
+INSERT INTO lab_chat(workspace_id,owner_id,purpose) VALUES(app_workspace(),app_user(),'study_suggestion') RETURNING id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id, builder_runtime_id
+`
+
+func (q *Queries) CreateStudySuggestionChat(ctx context.Context) (LabChat, error) {
+	row := q.db.QueryRow(ctx, createStudySuggestionChat)
 	var i LabChat
 	err := row.Scan(
 		&i.ID,
@@ -254,6 +281,12 @@ SELECT w.name, jsonb_build_object('research_context',w.research_context,
  'teams',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'manifest',p.manifest) ORDER BY p.id) FROM field_pack p WHERE p.workspace_id=w.id AND p.deleted_at IS NULL AND (p.source='shipped' OR p.visibility='workspace') AND EXISTS(SELECT 1 FROM card_team ct WHERE ct.workspace_id=p.workspace_id AND ct.pack_id=p.id)),'[]'::jsonb))::text,
  md5(w.research_context), false, '[]'::jsonb, '[]'::jsonb
 FROM workspace w WHERE $2='workspace' AND w.id=$1::uuid AND ($3::uuid='00000000-0000-0000-0000-000000000000'::uuid OR w.id=$3::uuid)
+UNION ALL
+SELECT CASE WHEN p.card_id IS NULL THEN 'To-do proposal' ELSE 'Started proposal' END,
+ jsonb_build_object('status',CASE WHEN p.card_id IS NULL THEN 'saved to To-do, not started' ELSE 'started' END,'question',p.description,'stage',p.stage,'owner_id',p.owner_id,'project_id',p.project_id,'created_at',p.created_at,'updated_at',p.updated_at)::text,
+ p.revision::text, false, CASE WHEN p.card_id IS NULL THEN '[]'::jsonb ELSE jsonb_build_array('study:'||p.card_id::text) END, '[]'::jsonb
+FROM study_proposal p WHERE $2='proposal' AND p.workspace_id=$1::uuid AND p.id=$3::uuid AND p.discarded_at IS NULL
+ AND (p.card_id IS NULL OR EXISTS(SELECT 1 FROM card c WHERE c.workspace_id=p.workspace_id AND c.id=p.card_id))
 `
 
 type LabFactParams struct {
@@ -281,6 +314,7 @@ type LabFactRow struct {
 // owner-only supplement may be added: Read and maintenance Version must identify
 // the same evidence. Private definitions need a separate future scope/reference
 // contract and must never feed workspace-shared lessons.
+// Saved To-do proposals are workspace-visible. The assignee stays out: it can name a private agent.
 func (q *Queries) LabFact(ctx context.Context, arg LabFactParams) (LabFactRow, error) {
 	row := q.db.QueryRow(ctx, labFact, arg.WorkspaceID, arg.Kind, arg.ID)
 	var i LabFactRow
@@ -362,6 +396,37 @@ func (q *Queries) LabManualFact(ctx context.Context, id uuid.UUID) (LabManualFac
 		&i.Cites,
 	)
 	return i, err
+}
+
+const labProposalDirectory = `-- name: LabProposalDirectory :many
+SELECT id FROM study_proposal WHERE workspace_id = $1 AND card_id IS NULL AND discarded_at IS NULL
+ AND id > $2::uuid ORDER BY id LIMIT $3::integer
+`
+
+type LabProposalDirectoryParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	AfterID     uuid.UUID `json:"after_id"`
+	PageSize    int32     `json:"page_size"`
+}
+
+func (q *Queries) LabProposalDirectory(ctx context.Context, arg LabProposalDirectoryParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, labProposalDirectory, arg.WorkspaceID, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const labRunRequester = `-- name: LabRunRequester :one
@@ -494,10 +559,22 @@ func (q *Queries) LabStudyOpen(ctx context.Context, arg LabStudyOpenParams) (boo
 	return column_1, err
 }
 
+const labTeamShared = `-- name: LabTeamShared :one
+SELECT EXISTS(SELECT 1 FROM field_pack WHERE workspace_id=app_workspace() AND id = $1 AND deleted_at IS NULL
+ AND (source='shipped' OR visibility='workspace'))::boolean
+`
+
+func (q *Queries) LabTeamShared(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, labTeamShared, id)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listPrivateLabChats = `-- name: ListPrivateLabChats :many
 SELECT id, workspace_id, owner_id, title, created_at, updated_at, deleted_at, purpose, draft, draft_source, archived_at, applied_message_id, builder_runtime_id FROM lab_chat WHERE workspace_id=app_workspace() AND owner_id=app_user() AND deleted_at IS NULL
 AND purpose=COALESCE(NULLIF($1::text,''),'answer')
-AND (purpose <> 'answer' OR EXISTS (SELECT 1 FROM lab_message m WHERE m.workspace_id=lab_chat.workspace_id AND m.chat_id=lab_chat.id AND m.owner_id=lab_chat.owner_id AND m.kind='question'))
+AND (purpose NOT IN ('answer','study_suggestion') OR EXISTS (SELECT 1 FROM lab_message m WHERE m.workspace_id=lab_chat.workspace_id AND m.chat_id=lab_chat.id AND m.owner_id=lab_chat.owner_id AND m.kind='question'))
 AND (archived_at IS NOT NULL)= $2::boolean
 AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
 ORDER BY updated_at DESC,id DESC LIMIT $5::int
@@ -701,6 +778,36 @@ type RecordLabFlagParams struct {
 func (q *Queries) RecordLabFlag(ctx context.Context, arg RecordLabFlagParams) error {
 	_, err := q.db.Exec(ctx, recordLabFlag, arg.LessonID, arg.Reason)
 	return err
+}
+
+const searchLabProposals = `-- name: SearchLabProposals :many
+SELECT id FROM study_proposal WHERE workspace_id=app_workspace() AND card_id IS NULL AND discarded_at IS NULL
+ AND strpos(lower(description),lower($1::text))>0 ORDER BY id LIMIT $2::int
+`
+
+type SearchLabProposalsParams struct {
+	Query    string `json:"query"`
+	PageSize int32  `json:"page_size"`
+}
+
+func (q *Queries) SearchLabProposals(ctx context.Context, arg SearchLabProposalsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, searchLabProposals, arg.Query, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const searchPrivateLabDecisions = `-- name: SearchPrivateLabDecisions :many

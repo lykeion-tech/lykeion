@@ -46,6 +46,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await openIn(page, ws, '/#/studies');
   await expect(page.getByRole('region', { name: 'Grounding', exact: true })).toBeVisible();
   await expect(page.locator('.board-column > header strong')).toHaveText([
+    'To-do',
     'Grounding',
     'Hypotheses',
     'Experimentation',
@@ -65,7 +66,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await expect(menu.getByRole('menuitem', { name: /Picker lab agent/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Unassigned' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Assignees' }).click();
-  await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
+  await dialog.getByRole('button', { name: 'Stages', exact: true }).click();
   const stages = dialog.getByRole('menu', { name: 'Study stages' });
   await stages.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
   await stages.getByRole('menuitemcheckbox', { name: 'Validation' }).click();

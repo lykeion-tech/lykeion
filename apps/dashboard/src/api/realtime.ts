@@ -92,6 +92,8 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
           ? [keys.autoresearchRun(ws, e.payload.run_id)]
           : []),
       ];
+    case 'study_proposal':
+      return e.type === 'study_proposal.started' ? [keys.proposals(ws), keys.cards(ws)] : [keys.proposals(ws)];
     case 'card':
       return [
         keys.cards(ws),
@@ -111,6 +113,7 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
         keys.researches(ws),
         ...(e.type === 'research.deleted'
           ? [
+              keys.proposals(ws),
               keys.cards(ws),
               ['ws', ws, 'card'],
               keys.coresearchConversations(ws),
@@ -161,6 +164,7 @@ function queriesFor(ws: string, e: LykEvent): QueryKey[] {
     }
     case 'member':
       return [
+        keys.proposals(ws),
         keys.decisionsAll(ws),
         keys.decisionCount(ws),
         keys.coresearchProjects(ws),

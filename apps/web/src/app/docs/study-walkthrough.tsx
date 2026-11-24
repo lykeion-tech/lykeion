@@ -19,6 +19,7 @@ export function StudyWalkthrough() {
   const ready = useSyncExternalStore(subscribe, clientReady, serverReady);
   return <section className={`stage-board${ready ? ' stage-board-ready' : ''}`} aria-label="Study stage walkthrough">
     <p className="stage-board-caption">Explore the scientific stages</p>
+    <p>Queue a single-stage proposal in To-do. When its owner selects Start study, it appears in the chosen stage below.</p>
     <div className="stage-board-scroll" tabIndex={0} role="region" aria-label="Scientific stage columns">
       <div className="stage-board-columns">
         {stages.map((stage, index) => <div className={`stage-board-column stage-board-column-${index}`} key={stage.name}>

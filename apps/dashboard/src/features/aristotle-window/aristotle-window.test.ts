@@ -81,7 +81,7 @@ async function mount(onlyAnswer = false, offline = false, pages?: (path: string)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/studies/:cardId', component: { render: () => null } },
+      { path: '/studies/:cardId?', component: { render: () => null } },
       { path: '/machines', component: { render: () => null } },
     ],
   });
@@ -186,6 +186,20 @@ it('shows navigable study evidence instead of internal tool calls', async () => 
   expect(textOf(evidence)).not.toMatch(/fetch|search|call/);
   const links = all(evidence).filter((n) => n.props.href === '/studies/s');
   expect(links).toHaveLength(1);
+});
+
+it('keeps a changed answer with a note and links a saved proposal to the board', async () => {
+  const note = 'Its sources have changed since this answer.';
+  const plain = await mount(true);
+  expect(textOf(plain.root)).not.toContain(note);
+  const t = await mount(true, false, undefined, { answer: {
+    ...answer,
+    changed: true,
+    evidence: [{ ref: 'proposal:p', title: 'To-do proposal', via: 'read' }],
+  } });
+  expect(textOf(t.root)).toContain(note);
+  expect(textOf(t.root)).toContain('Measured.');
+  expect(all(t.root).some((n) => n.props.href === '/studies')).toBe(true);
 });
 
 it('omits internal record and comment citations while preserving study evidence', async () => {

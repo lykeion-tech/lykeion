@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ type labMessage struct {
 	Statements   []labmemory.DisplayStatement `json:"statements"`
 	Evidence     []labmemory.DisplayRef       `json:"evidence"`
 	CreatedAt    time.Time                    `json:"created_at"`
+	Changed      bool                         `json:"changed,omitempty"`
 }
 
 func labPlainMessage(m db.LabMessage) labMessage {
@@ -93,10 +95,17 @@ func (h *H) listLabChats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx := middleware.TxFrom(r.Context())
+	purpose := r.URL.Query().Get("purpose")
+	if middleware.IdentityFrom(r.Context()).Mobile {
+		purpose = labmemory.StudySuggestionPurpose
+	} else if purpose == labmemory.StudySuggestionPurpose {
+		writeErr(w, 400, "invalid purpose")
+		return
+	}
 	rows := []db.LabChat{}
 	before, id := p.before, p.id
 	for len(rows) <= int(p.limit) {
-		page, err := tx.Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: before, BeforeID: id, PageSize: p.limit + 1, Purpose: r.URL.Query().Get("purpose"), Archived: r.URL.Query().Get("archived") == "true"})
+		page, err := tx.Q.ListPrivateLabChats(r.Context(), db.ListPrivateLabChatsParams{BeforeTime: before, BeforeID: id, PageSize: p.limit + 1, Purpose: purpose, Archived: r.URL.Query().Get("archived") == "true"})
 		if err != nil {
 			fail(w, r, err)
 			return
@@ -140,6 +149,19 @@ func (h *H) createLabChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &in); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, "invalid chat")
+		return
+	}
+	if middleware.IdentityFrom(r.Context()).Mobile {
+		if in.Purpose != "" || in.RuntimeID != nil {
+			writeErr(w, 403, "study suggestion chats only")
+			return
+		}
+		row, err := middleware.TxFrom(r.Context()).Q.CreateStudySuggestionChat(r.Context())
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"chat": row})
 		return
 	}
 	if in.RuntimeID != nil {
@@ -238,7 +260,12 @@ func privateLabChat(r *http.Request, tx *store.Tx) (db.LabChat, error) {
 	if err != nil {
 		return db.LabChat{}, pgx.ErrNoRows
 	}
-	return tx.Q.GetPrivateLabChat(r.Context(), id)
+	chat, err := tx.Q.GetPrivateLabChat(r.Context(), id)
+	// Study suggestions live on the phone; every other chat lives off it.
+	if err == nil && middleware.IdentityFrom(r.Context()).Mobile != (chat.Purpose == labmemory.StudySuggestionPurpose) {
+		return db.LabChat{}, pgx.ErrNoRows
+	}
+	return chat, err
 }
 
 func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +336,11 @@ func (h *H) listLabMessages(w http.ResponseWriter, r *http.Request) {
 					return e
 				}
 				m.Body = ""
-				if safe {
+				m.Changed = safe && reader.Changed(row.ID)
+				if study := labmemory.SuggestedStudy(row); safe && study != nil {
+					// The proposed study is the whole reply; the lookup behind it stays out.
+					m.Body = study.Description
+				} else if safe {
 					m.Statements = ss
 					m.Evidence = ee
 					if chat.Purpose == labmemory.ManualDraftPurpose && len(row.Proposal) > 0 {
@@ -348,6 +379,7 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		OperationID *uuid.UUID `json:"operation_id"`
 		Text        string     `json:"text"`
 		ContextCard *uuid.UUID `json:"context_card_id"`
 		ContextRef  *string    `json:"context_ref"`
@@ -391,6 +423,25 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.OperationID != nil {
+		if *in.OperationID == uuid.Nil {
+			writeErr(w, 400, "invalid operation ID")
+			return
+		}
+		prior, harness, model, e := tx.QuestionRequest(ctx, chat.ID, who, *in.OperationID)
+		if e == nil {
+			if prior.Body != in.Text || harness != in.Harness || model != in.Model || !reflect.DeepEqual(prior.ContextCardID, in.ContextCard) || !reflect.DeepEqual(prior.ContextRef, in.ContextRef) {
+				writeErr(w, 409, "question already sent with different inputs")
+				return
+			}
+			writeJSON(w, 202, map[string]any{"message": labPlainMessage(prior)})
+			return
+		}
+		if !errors.Is(e, pgx.ErrNoRows) {
+			fail(w, r, e)
+			return
+		}
+	}
 	if in.Harness != "claude" && in.Harness != "codex" {
 		writeErr(w, 400, "select a supported CLI")
 		return
@@ -423,6 +474,12 @@ func (h *H) askLabQuestion(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	if in.OperationID != nil {
+		if err := tx.Q.SetManualDraftRequest(ctx, db.SetManualDraftRequestParams{RunID: run.ID, RequestID: *in.OperationID}); err != nil {
+			fail(w, r, err)
+			return
+		}
 	}
 	msg, err := tx.Q.GetLabQuestion(ctx, run.ID)
 	if err != nil {

@@ -135,7 +135,7 @@ func (c toolCall) read(ctx context.Context, in readInput) (evidence, error) {
 		if in.Offset < 0 || key == "" && (in.Offset != 0 || in.Section != "body") {
 			return evidence{}, "", errOffset
 		}
-		e := evidence{historyPin: pin(f).Version, Ref: ref.String(), Title: f.Title, Text: f.Text, Version: f.Version, Superseded: f.Superseded, Links: []string{}}
+		e := evidence{historyPin: pin(f).Version, shown: exposure(f), Ref: ref.String(), Title: f.Title, Text: f.Text, Version: f.Version, Superseded: f.Superseded, Links: []string{}}
 		if ref.Kind == "report" {
 			if e.Text, err = reportPage(f.Text); err != nil {
 				return evidence{}, "", err
@@ -156,7 +156,7 @@ func (c toolCall) read(ctx context.Context, in readInput) (evidence, error) {
 		out, key, e = resolve(tx, asker)
 		if e == nil && key == "" {
 			ref, _ := ParseRef(out.Ref)
-			e = c.log(ctx, tx, ref, "read", out.historyPin)
+			e = c.log(ctx, tx, ref, "read", out.historyPin, out.shown)
 		}
 		return e
 	})
@@ -179,7 +179,7 @@ func (c toolCall) read(ctx context.Context, in readInput) (evidence, error) {
 		out = fresh
 		out.Blob = &page
 		ref, _ := ParseRef(out.Ref)
-		return c.log(ctx, tx, ref, "read", out.historyPin)
+		return c.log(ctx, tx, ref, "read", out.historyPin, out.shown)
 	})
 	return out, err
 }

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Modal from '../../ui/Modal.vue';
+import ProposalComposer from './ProposalComposer.vue';
 import ComposerCalendar from './ComposerCalendar.vue';
 import Icon from '../../ui/Icon.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
@@ -128,6 +129,23 @@ function dropWorkflow() {
   workflowSlug.value = '';
   range.value = initialRange();
 }
+const todoOpen = ref(false);
+const proposalStage = computed(() => {
+  switch (range.value.from) {
+    case 'hypotheses':
+    case 'experimentation':
+    case 'validation':
+      return range.value.from;
+    default:
+      return 'grounding';
+  }
+});
+const proposalAssignee = computed(() => {
+  const a = assignee.value;
+  if (a?.type === 'agent') return 'agent:' + a.id;
+  const pack = a?.teams[proposalStage.value] ?? a?.teams[''];
+  return pack ? 'team:' + pack : '';
+});
 const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
 
@@ -480,6 +498,8 @@ onUnmounted(() => {
             one-agent
             default-label="Assignees"
             :agent-only="!!workflowSlug"
+            :allow-todo="!workflowSlug"
+            @todo="todoOpen = true"
             :last-set="lastSet"
             menu-below
             @open="closeMenu"
@@ -657,6 +677,15 @@ onUnmounted(() => {
       </footer>
     </form>
   </Modal>
+  <ProposalComposer
+    v-if="todoOpen"
+    :initial-description="[title.trim(), question.trim()].filter(Boolean).join('\n\n')"
+    :initial-stage="proposalStage"
+    :initial-assignee="proposalAssignee"
+    :project-id="projectId"
+    @close="todoOpen = false"
+    @saved="emit('close')"
+  />
 </template>
 <style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>

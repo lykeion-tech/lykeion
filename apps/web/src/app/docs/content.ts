@@ -310,6 +310,12 @@ For a first attempt, prefer a small question with a deliverable you can inspect.
 
 To add a study you own to a workspace project, open the card's three-dot menu on the board and choose **Add to project**. Search for an existing project or choose **New project** to create and link one. You can also move the study to another project or remove the link.
 
+## Save a study for later
+
+Open **New study** and select **To-do** from the stage picker. Describe the work, choose one stage and an agent or Team, and optionally select a project. **Save to To-do** shares the proposal with the workspace. Your agent starts work only after you open the proposal and select **Start study**. Until then, you can edit or discard it.
+
+Board and List show To-do, Grounding, Hypotheses, Experimentation, Validation, Done and Blocked in that order. **My Studies** shows your proposals. A project's Studies tab shows the proposals linked to it. Use **New study** for attachments, workflows or a scope covering multiple stages.
+
 ## Follow and steer work
 
 Read Activity and expand agent cards to inspect execution and hand-ins. Comments on agent cards keep follow-up discussion attached to that work. Check the current stage and Review surface before interpreting an ended run as a finished study.
@@ -573,6 +579,8 @@ If a skill is missing from a picker, check the selected workspace, capability av
     markdown: `# Ask Aristotle
 
 Aristotle is Lykeion's research coordinator. Use the Ask Aristotle window to ask about relevant workspace material and follow the evidence behind its response. You need a workspace and an available supported runtime on your account for execution.
+
+Aristotle reads studies in every column, whether finished or in progress, and proposals saved to To-do. If a study it read moves on, the answer stays and says so. It becomes unavailable if something it used is deleted, rewritten or no longer shared with you.
 
 ## Ask with context
 

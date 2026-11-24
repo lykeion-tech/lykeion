@@ -1524,6 +1524,45 @@ func (q *Queries) ReleaseParkedAgentRuns(ctx context.Context, arg ReleaseParkedA
 	return err
 }
 
+const renameOwnedMachine = `-- name: RenameOwnedMachine :many
+UPDATE runtime AS target SET custom_name = $1
+WHERE target.workspace_id = $2 AND target.owner_id = $3 AND target.daemon_id = (
+  SELECT r.daemon_id FROM runtime r WHERE r.id = $4 AND r.workspace_id = $2 AND r.owner_id = $3
+) RETURNING target.id
+`
+
+type RenameOwnedMachineParams struct {
+	CustomName  *string   `json:"custom_name"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	RuntimeID   uuid.UUID `json:"runtime_id"`
+}
+
+func (q *Queries) RenameOwnedMachine(ctx context.Context, arg RenameOwnedMachineParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, renameOwnedMachine,
+		arg.CustomName,
+		arg.WorkspaceID,
+		arg.OwnerID,
+		arg.RuntimeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const replaceRuntimeShares = `-- name: ReplaceRuntimeShares :exec
 WITH removed AS (
  DELETE FROM runtime_share WHERE runtime_id = $2 AND workspace_id = $1 RETURNING user_id

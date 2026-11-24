@@ -425,29 +425,31 @@ func cardID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	return id, true
 }
 
-var errDuplicate = errors.New("duplicate")
+type duplicateStudy struct{ db.ActiveDuplicateRow }
 
-func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
-	var in newCard
-	if err := readJSON(r, &in); err != nil {
-		writeErr(w, 400, "invalid card: "+err.Error())
-		return
-	}
+func (d duplicateStudy) Error() string {
+	return fmt.Sprintf("an active study already asks this: #%d", d.Number)
+}
+
+type preparedCard struct {
+	newCard
+	from, to string
+	chosen   map[string]uuid.UUID
+	agent    *uuid.UUID
+}
+
+func prepareCard(in newCard) (preparedCard, error) {
 	if strings.TrimSpace(in.Question) == "" {
-		writeErr(w, 400, "question required")
-		return
+		return preparedCard{}, cardInputError("question required")
 	}
 	if !validPlanningPriority(in.Priority) {
-		writeErr(w, 400, "invalid priority")
-		return
+		return preparedCard{}, cardInputError("invalid priority")
 	}
 	if in.StartDate != nil && in.Deadline != nil && in.StartDate.After(*in.Deadline) {
-		writeErr(w, 400, "start date must be on or before the due date")
-		return
+		return preparedCard{}, cardInputError("start date must be on or before the due date")
 	}
 	if err := checkServices(in.Services); err != nil {
-		writeErr(w, 400, err.Error())
-		return
+		return preparedCard{}, err
 	}
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = titleFrom(in.Question)
@@ -464,6 +466,159 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		err = checkWorkflow(in, from, to, agent)
 	}
 	if err != nil {
+		return preparedCard{}, cardInputError(err.Error())
+	}
+	return preparedCard{in, from, to, chosen, agent}, nil
+}
+
+func lockCardCreation(r *http.Request, tx *store.Tx) error {
+	if _, err := tx.Q.LockWorkspaceExecution(r.Context(), tx.WS); err != nil {
+		return err
+	}
+	return tx.Q.LockWorkspaceEvents(r.Context(), tx.WS)
+}
+
+func (in preparedCard) checkAssignment(r *http.Request, tx *store.Tx, user uuid.UUID) (map[string]uuid.UUID, error) {
+	ws, agent := tx.WS, in.agent
+	if in.ResearchID != nil {
+		if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, cardInputError("research is not in this workspace")
+			}
+			return nil, err
+		}
+	}
+	// Every column has a Team, or the study its agent, from the start, so
+	// the study starts at once.
+	var teams map[string]uuid.UUID
+	var err error
+	if agent != nil {
+		if err := checkStudyAgent(r.Context(), tx, ws, user, *agent, in.from, in.to); err != nil {
+			return nil, err
+		}
+	} else {
+		if teams, err = team.ColumnTeams(r.Context(), tx, in.from, in.to, in.chosen); err != nil {
+			return nil, err
+		}
+		for _, col := range board.Stages[board.StageIndex(in.from) : board.StageIndex(in.to)+1] {
+			if err := ensureTeam(r, tx, user, teams[col]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return teams, nil
+}
+
+// createCardTx runs under the workspace execution and event locks.
+func (h *H) createCardTx(r *http.Request, tx *store.Tx, user uuid.UUID, in preparedCard, files []db.Attachment, c *studyView) error {
+	ws := tx.WS
+	from, to, agent := in.from, in.to, in.agent
+	services, err := pendingServices(r, tx, ws, user, in.Services)
+	if err != nil {
+		return err
+	}
+	if err := checkStudyFileLimits(append(slices.Clone(files), services...)); err != nil {
+		return err
+	}
+	teams, err := in.checkAssignment(r, tx, user)
+	if err != nil {
+		return err
+	}
+	assignee := "team"
+	if agent != nil {
+		assignee = "agent"
+	}
+	params := db.CreateCardParams{
+		WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
+		Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
+		AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
+		StudyCli: in.StudyCLI, AuditorCli: in.AuditorCLI,
+	}
+	if in.Workflow != nil {
+		release := workflow.Release()
+		params.WorkflowRelease = &release
+	}
+	if in.Machine != nil {
+		params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
+		if err != nil {
+			return err
+		}
+	}
+	// No card may ask what an active card asks. The workspace lock makes two
+	// identical cards created at once see each other.
+	d, err := tx.Q.ActiveDuplicate(r.Context(), db.ActiveDuplicateParams{WorkspaceID: ws, Title: in.Title, Question: in.Question})
+	switch {
+	case err == nil:
+		return duplicateStudy{d}
+	case !errors.Is(err, pgx.ErrNoRows):
+		return err
+	}
+	n, err := tx.Q.NextCardNumber(r.Context(), ws)
+	if err != nil {
+		return err
+	}
+	params.Number = n
+	card, err := tx.Q.CreateCard(r.Context(), params)
+	if err != nil {
+		return err
+	}
+	if in.Priority != "" && in.Priority != "none" {
+		if err := tx.SetStudyPriority(r.Context(), card.ID, in.Priority); err != nil {
+			return err
+		}
+		card.Priority = in.Priority
+	}
+	if in.StartDate != nil {
+		if err := tx.SetStudyStartDate(r.Context(), card.ID, in.StartDate); err != nil {
+			return err
+		}
+	}
+	for col, pack := range teams {
+		if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
+			return err
+		}
+	}
+	if err := linkStudyFiles(r, tx, h.Blobs, card, files); err != nil {
+		return err
+	}
+	if err := linkStudyServices(r, tx, card, user, in.Services); err != nil {
+		return err
+	}
+	if *c, err = viewOf(r, tx, card); err != nil {
+		return err
+	}
+	if err := tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title}); err != nil {
+		return err
+	}
+	if engine := h.Engine; engine != nil {
+		tx.AfterPublish(func() { engine.Kick(ws, c.ID) })
+	}
+	return nil
+}
+
+func answerCardCreate(w http.ResponseWriter, r *http.Request, err error) bool {
+	var d duplicateStudy
+	var noBuiltIn team.NoBuiltInError
+	switch {
+	case errors.As(err, &d):
+		writeJSON(w, 409, map[string]any{"error": d.Error(), "card_id": d.ID, "number": d.Number})
+		return false
+	case errors.As(err, &noBuiltIn):
+		writeErr(w, 422, noBuiltIn.Error())
+		return false
+	default:
+		return answer(w, r, err)
+	}
+}
+
+func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
+	var in newCard
+	if err := readJSON(r, &in); err != nil {
+		writeErr(w, 400, "invalid card: "+err.Error())
+		return
+	}
+	study, err := prepareCard(in)
+	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -472,135 +627,15 @@ func (h *H) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var c studyView
-	var dup db.ActiveDuplicateRow
-	var teams map[string]uuid.UUID
 	err = h.inWS(r, func(tx *store.Tx, ws, user uuid.UUID) error {
-		if _, err := tx.Q.LockWorkspaceExecution(r.Context(), ws); err != nil {
+		if err := lockCardCreation(r, tx); err != nil {
 			return err
 		}
-		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-			return err
-		}
-		services, err := pendingServices(r, tx, ws, user, in.Services)
-		if err != nil {
-			return err
-		}
-		if err := checkStudyFileLimits(append(slices.Clone(files), services...)); err != nil {
-			return err
-		}
-		if in.ResearchID != nil {
-			if _, err := tx.Q.GetResearch(r.Context(), db.GetResearchParams{WorkspaceID: ws, ID: *in.ResearchID}); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return cardInputError("research is not in this workspace")
-				}
-				return err
-			}
-		}
-		// Every column has a Team, or the study its agent, from the start, so
-		// the study starts at once.
-		assignee := "team"
-		if agent != nil {
-			assignee = "agent"
-			if err := checkStudyAgent(r.Context(), tx, ws, user, *agent, from, to); err != nil {
-				return err
-			}
-		} else {
-			if teams, err = team.ColumnTeams(r.Context(), tx, from, to, chosen); err != nil {
-				return err
-			}
-			for _, col := range board.Stages[board.StageIndex(from) : board.StageIndex(to)+1] {
-				if err := ensureTeam(r, tx, user, teams[col]); err != nil {
-					return err
-				}
-			}
-		}
-		params := db.CreateCardParams{
-			WorkspaceID: ws, Title: in.Title, Question: in.Question, OwnerID: user, ResearchID: in.ResearchID,
-			Deadline: in.Deadline, ScopeFrom: from, ScopeTo: to, BoardColumn: from,
-			AssigneeType: &assignee, AssigneeID: agent, Round: 1, Workflow: in.Workflow,
-			StudyCli: in.StudyCLI, AuditorCli: in.AuditorCLI,
-		}
-		if in.Workflow != nil {
-			release := workflow.Release()
-			params.WorkflowRelease = &release
-		}
-		if in.Machine != nil {
-			params.Machine, err = h.machineFor(r.Context(), tx, user, *in.Machine)
-			if err != nil {
-				return err
-			}
-		}
-		// No card may ask what an active card asks. The workspace lock makes two
-		// identical cards created at once see each other.
-		if err := tx.Q.LockWorkspaceEvents(r.Context(), ws); err != nil {
-			return err
-		}
-		d, err := tx.Q.ActiveDuplicate(r.Context(), db.ActiveDuplicateParams{WorkspaceID: ws, Title: in.Title, Question: in.Question})
-		switch {
-		case err == nil:
-			dup = d
-			return errDuplicate
-		case !errors.Is(err, pgx.ErrNoRows):
-			return err
-		}
-		n, err := tx.Q.NextCardNumber(r.Context(), ws)
-		if err != nil {
-			return err
-		}
-		params.Number = n
-		card, err := tx.Q.CreateCard(r.Context(), params)
-		if err != nil {
-			return err
-		}
-		if in.Priority != "" && in.Priority != "none" {
-			if err := tx.SetStudyPriority(r.Context(), card.ID, in.Priority); err != nil {
-				return err
-			}
-			card.Priority = in.Priority
-		}
-		if in.StartDate != nil {
-			if err := tx.SetStudyStartDate(r.Context(), card.ID, in.StartDate); err != nil {
-				return err
-			}
-		}
-		for col, pack := range teams {
-			if err := tx.Q.InsertCardTeam(r.Context(), db.InsertCardTeamParams{WorkspaceID: ws, CardID: card.ID, BoardColumn: col, PackID: pack}); err != nil {
-				return err
-			}
-		}
-		if err := linkStudyFiles(r, tx, h.Blobs, card, files); err != nil {
-			return err
-		}
-		if err := linkStudyServices(r, tx, card, user, in.Services); err != nil {
-			return err
-		}
-		if c, err = viewOf(r, tx, card); err != nil {
-			return err
-		}
-		return tx.Emit(r.Context(), "card.created", &c.ID, store.User(user), map[string]any{"number": c.Number, "title": c.Title})
+		return h.createCardTx(r, tx, user, study, files, &c)
 	})
-	if errors.Is(err, errDuplicate) {
-		writeJSON(w, 409, map[string]any{"error": fmt.Sprintf("an active study already asks this: #%d", dup.Number),
-			"card_id": dup.ID, "number": dup.Number})
-		return
+	if answerCardCreate(w, r, err) {
+		writeJSON(w, 201, c)
 	}
-	var inputErr cardInputError
-	var noBuiltIn team.NoBuiltInError
-	switch {
-	case errors.As(err, &inputErr):
-		writeErr(w, 400, inputErr.Error())
-		return
-	case errors.As(err, &noBuiltIn):
-		writeErr(w, 422, noBuiltIn.Error())
-		return
-	}
-	if !answer(w, r, err) {
-		return
-	}
-	if h.Engine != nil {
-		h.Engine.Kick(c.WorkspaceID, c.ID)
-	}
-	writeJSON(w, 201, c)
 }
 
 var errTeamStarted = errors.New("that column has been reached")

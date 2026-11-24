@@ -23,6 +23,7 @@ export interface LabMessage {
   body: string;
   statements: LabStatement[];
   evidence: LabRef[];
+  changed?: boolean;
   agent_run_id?: string;
   current_draft?: ManualDecisionDraft;
   proposal?: unknown;
@@ -98,6 +99,7 @@ export const askLab = (
 export function sourcePath(source: LabRef): string | undefined {
   const [kind, id] = source.ref.split(':');
   if (kind === 'workspace') return '/settings?tab=workspace';
+  if (kind === 'proposal') return '/studies';
   if (kind === 'decision') return '/decisions/' + encodeURIComponent(id!);
   if (!source.study_id) return;
   const path = '/studies/' + encodeURIComponent(source.study_id);

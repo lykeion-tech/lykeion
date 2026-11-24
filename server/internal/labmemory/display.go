@@ -32,10 +32,11 @@ type DisplayReader struct {
 	asker, chat uuid.UUID
 	facts       map[string]*Fact
 	safe        map[uuid.UUID]bool
+	changed     map[uuid.UUID]bool
 }
 
 func NewDisplayReader(tx *store.Tx, asker, chat uuid.UUID) *DisplayReader {
-	return &DisplayReader{tx: tx, asker: asker, chat: chat, facts: map[string]*Fact{}, safe: map[uuid.UUID]bool{}}
+	return &DisplayReader{tx: tx, asker: asker, chat: chat, facts: map[string]*Fact{}, safe: map[uuid.UUID]bool{}, changed: map[uuid.UUID]bool{}}
 }
 
 func (d *DisplayReader) fact(ctx context.Context, s string) (*Fact, error) {
@@ -79,13 +80,23 @@ func (d *DisplayReader) visible(ctx context.Context, id uuid.UUID) (bool, error)
 			return false, err
 		}
 	}
-	_, ok, err := checkedHistory(db.LabPriorTurnsRow(row), func(c answerCite) (bool, error) {
-		f, err := d.fact(ctx, c.Ref)
-		return f != nil && pin(*f).Version == c.Version, err
+	_, ok, changed, err := checkedHistory(db.LabPriorTurnsRow(row), func(e answerEvidence) (bool, bool, error) {
+		f, err := d.fact(ctx, e.Ref)
+		if f == nil || err != nil {
+			return false, false, err
+		}
+		return stands(ctx, d.tx, *f, e)
 	})
-	d.safe[id] = ok
+	for _, src := range row.LaunchSources {
+		changed = changed || d.changed[src]
+	}
+	d.safe[id], d.changed[id] = ok, changed
 	return ok, err
 }
+
+// Changed reports whether an answer already checked by Answer rests on sources
+// that have changed since it was written, directly or through earlier answers.
+func (d *DisplayReader) Changed(id uuid.UUID) bool { return d.changed[id] }
 
 // The study route is derived from the current readable projection. The client
 // never has to search other studies or infer the owner of a record.

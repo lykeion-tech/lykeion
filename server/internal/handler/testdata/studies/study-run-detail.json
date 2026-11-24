@@ -1,0 +1,57 @@
+{
+  "card_id": "00000000-0000-4000-8000-000000000001",
+  "stage": "validation",
+  "round": 2,
+  "id": "00000000-0000-4000-8000-000000000001~validation~2",
+  "number": 12,
+  "title": "Calibration across cohorts",
+  "project_id": "00000000-0000-4000-8000-000000000003",
+  "project_name": "Calibration",
+  "status": "completed",
+  "worker": "Validation lead",
+  "created_at": "2026-11-23T09:00:00Z",
+  "started_at": "2026-11-23T09:01:00Z",
+  "completed_at": "2026-11-23T09:06:00Z",
+  "elapsed_seconds": 300,
+  "outcome": "Calibration held in the second cohort.",
+  "participants": [
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "role": "leader",
+      "kind": "role",
+      "name": "Validation lead",
+      "agent_id": "00000000-0000-4000-8000-000000000008",
+      "team_id": "00000000-0000-4000-8000-000000000005",
+      "team_name": "Validation Team",
+      "status": "completed",
+      "started_at": "2026-11-23T09:01:00Z",
+      "completed_at": "2026-11-23T09:06:00Z",
+      "attempts": [
+        {
+          "number": 1,
+          "started_at": "2026-11-23T09:01:00Z",
+          "completed_at": "2026-11-23T09:06:00Z",
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000007",
+      "key": "validation-results",
+      "name": "calibration.csv",
+      "run_id": "00000000-0000-4000-8000-000000000009",
+      "available": true
+    }
+  ],
+  "activity": [
+    {
+      "type": "agent_run.completed",
+      "at": "2026-11-23T09:06:00Z",
+      "run_id": "00000000-0000-4000-8000-000000000009"
+    }
+  ],
+  "team_name": "Validation Team",
+  "progress": ""
+}

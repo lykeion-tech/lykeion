@@ -29,6 +29,7 @@ import type {
   TeamDetail,
   RunMessage,
   Runtime,
+  StudyProposal,
   StudyRecord,
   StudyReport,
   Token,
@@ -61,6 +62,30 @@ function list<T>(key: (ws: string) => readonly unknown[], path: string) {
     enabled: inWorkspace,
   });
 }
+export const useStudyProposals = () =>
+  useQuery({
+    queryKey: computed(() => keys.proposals(ws.value)),
+    enabled: inWorkspace,
+    queryFn: async ({ queryKey, signal }) => {
+      const rows: StudyProposal[] = [];
+      let cursor: string | null = null;
+      do {
+        const query = new URLSearchParams({ limit: '100' });
+        if (cursor) query.set('cursor', cursor);
+        const page: { items: StudyProposal[]; next_cursor: string | null } = await api(
+          'GET',
+          `/api/study-proposals?${query}`,
+          undefined,
+          undefined,
+          { workspace: queryKey[1], signal },
+        );
+        rows.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor);
+      return rows;
+    },
+  });
+
 export const useCards = () => list<Card>(keys.cards, '/api/cards');
 export const useRuntimes = () => list<Runtime>(keys.runtimes, '/api/runtimes');
 export const useMembers = () =>

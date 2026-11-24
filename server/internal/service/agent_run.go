@@ -412,7 +412,7 @@ func agentRunEvent(t db.AgentRun) map[string]any {
 }
 
 func emitAgentRunEvent(ctx context.Context, tx *store.Tx, run db.AgentRun, typ string, actor store.Actor, payload any) error {
-	if run.Kind == "aristotle" && run.LabPurpose == "manual_decision_draft" && run.RequesterID != nil {
+	if run.Kind == "aristotle" && (run.LabPurpose == "manual_decision_draft" || run.LabPurpose == "study_suggestion") && run.RequesterID != nil {
 		return tx.EmitPrivate(ctx, *run.RequesterID, typ, actor, payload)
 	}
 	return tx.Emit(ctx, typ, run.CardID, actor, payload)

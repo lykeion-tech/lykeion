@@ -168,6 +168,18 @@ test.describe('new study', () => {
     await page.getByRole('button', { name: 'New', exact: true }).click();
     return page.getByRole('dialog', { name: 'New study' });
   }
+  // The pill stays open for To-do, but an assignee that fixes the stage locks every stage in it.
+  async function expectFixedStages(dialog: import('@playwright/test').Locator, name: string) {
+    const pill = dialog.getByRole('button', { name, exact: true });
+    await pill.click();
+    const menu = dialog.getByRole('menu', { name: 'Study stages' });
+    await expect(menu.getByRole('menuitem', { name: 'To-do', exact: true })).toBeEnabled();
+    const options = menu.getByRole('menuitemcheckbox');
+    await expect(options).toHaveCount(4);
+    for (const option of await options.all()) await expect(option).toBeDisabled();
+    await pill.click();
+    await expect(menu).toHaveCount(0);
+  }
 
   test('assigning one Team makes a single-stage study', async ({ page }) => {
     const hyp = await stageTeam(page, 'ui-hyp', 'hypotheses');
@@ -177,8 +189,7 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /^ui-hyp .*Built for/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: ui-hyp' })).toBeVisible();
-    const stages = dialog.getByRole('button', { name: 'Stages: Hypotheses' });
-    await expect(stages).toBeDisabled();
+    await expectFixedStages(dialog, 'Stages: Hypotheses');
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
@@ -207,9 +218,7 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: 'Assignees', exact: true }).click();
     await dialog.getByRole('menuitem', { name: /Your last set/ }).click();
     await expect(dialog.getByRole('button', { name: 'Assignee: Your Team set' })).toBeVisible();
-    await expect(
-      dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
-    ).toBeDisabled();
+    await expectFixedStages(dialog, 'Stages: Grounding → Validation');
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
@@ -223,7 +232,7 @@ test.describe('new study', () => {
     const question = `Built-in Teams, two stages ${Date.now()}`;
     const dialog = await composer(page);
     await dialog.getByRole('textbox', { name: 'Describe your study' }).fill(question);
-    await dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }).click();
+    await dialog.getByRole('button', { name: 'Stages', exact: true }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
     const menu = dialog.getByRole('menu', { name: 'Study stages' });
     await menu.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
@@ -256,8 +265,11 @@ test.describe('new study', () => {
     await item.click();
     await expect(dialog.getByRole('button', { name: /Create study/ })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Stages: choose a stage' }).click();
-    await chooseCompact(page, 'Stage', 'Validation');
-    await expect(dialog.getByRole('button', { name: 'Stages: Validation' })).toBeDisabled();
+    await dialog
+      .getByRole('menu', { name: 'Study stages' })
+      .getByRole('menuitemcheckbox', { name: 'Validation' })
+      .click();
+    await expectFixedStages(dialog, 'Stages: Validation');
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);
     const study = await studyOf(page, question);
@@ -310,7 +322,7 @@ test.describe('new study', () => {
       'Describe what you want to do, in your own words',
     );
     await expect(
-      dialog.getByRole('button', { name: 'Stages: Grounding → Validation' }),
+      dialog.getByRole('button', { name: 'Stages', exact: true }),
     ).toBeEnabled();
   });
 
@@ -394,7 +406,7 @@ test.describe('new study', () => {
     await menu.getByRole('menuitem', { name: new RegExp(agent.name) }).click();
     await expect(dialog.locator('.assignee-note')).toHaveCount(0);
     // An agent works only its own stage.
-    await expect(dialog.getByRole('button', { name: 'Stages: Experimentation' })).toBeDisabled();
+    await expectFixedStages(dialog, 'Stages: Experimentation');
 
     await dialog.getByRole('button', { name: /Create study/ }).click();
     await expect(dialog).toHaveCount(0);

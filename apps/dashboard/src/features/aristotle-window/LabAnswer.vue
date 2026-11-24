@@ -22,7 +22,7 @@ const evidenceSources = computed(() => {
             title: 'Study',
           })
         : item;
-    if (!['workspace', 'decision', 'study'].includes(surface.ref.split(':')[0]!)) continue;
+    if (!['workspace', 'decision', 'study', 'proposal'].includes(surface.ref.split(':')[0]!)) continue;
     const path = sourcePath(surface);
     if (path) surfaces.set(path, surface);
   }
@@ -61,6 +61,7 @@ async function submit() {
 </script>
 <template>
   <article class="answer">
+    <p v-if="message.changed" class="changed">Its sources have changed since this answer.</p>
     <div v-for="(statement, i) in message.statements" :key="i" class="statement">
       <span v-if="statement.kind === 'lesson'" class="tag lesson">Lesson</span>{{ statement.text }}
       <template
@@ -125,6 +126,10 @@ async function submit() {
 .answer {
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+.changed {
+  margin-bottom: 7px;
+  color: var(--muted);
 }
 .statement + .statement {
   margin-top: 7px;
