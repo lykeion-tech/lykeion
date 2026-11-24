@@ -34,14 +34,17 @@ interface SharedChat {
   cells: { id: string; code: string; language: string; position: number; outputs?: unknown }[];
 }
 
-const props = defineProps<{ projectId: string; filterAnchor?: HTMLElement }>();
+const props = defineProps<{ projectId: string }>();
 const me = useMe();
 const member = computed(() => me.data.value?.id ?? '');
 const archived = ref(false);
 const selected = ref('');
 const back = ref<HTMLButtonElement>();
 const filterRoot = ref<HTMLElement>();
-const filterOpen = ref(false);
+const popup = ref<'filter' | 'display'>();
+const mode = ref<ProjectChat['mode']>();
+const modes = ['experiment', 'cowrite'] as const;
+let menuTrigger: HTMLButtonElement | undefined;
 const visibilityOptions = [
   { label: 'Active', archived: false },
   { label: 'Archived', archived: true },
@@ -80,7 +83,10 @@ const detail = useQuery({
 });
 const visible = computed(() =>
   (chats.data.value ?? [])
-    .filter((chat) => Boolean(chat.archived_at) === archived.value)
+    .filter(
+      (chat) =>
+        Boolean(chat.archived_at) === archived.value && (!mode.value || chat.mode === mode.value),
+    )
     .sort(
       (a, b) =>
         Number(Boolean(b.pinned_at)) - Number(Boolean(a.pinned_at)) ||
@@ -94,7 +100,9 @@ watch(
   () => {
     selected.value = '';
     archived.value = false;
-    filterOpen.value = false;
+    mode.value = undefined;
+    popup.value = undefined;
+    menuTrigger = undefined;
     rowTrigger = null;
   },
   { flush: 'sync' },
@@ -119,30 +127,42 @@ function ownerRoute(chat: ProjectChat) {
 function focusFilter() {
   filterRoot.value?.querySelector('button')?.focus();
 }
-async function toggleFilter() {
-  filterOpen.value = !filterOpen.value;
-  if (!filterOpen.value) return;
+async function toggleMenu(name: 'filter' | 'display', event: Event) {
+  if (popup.value === name) {
+    closeMenu();
+    return;
+  }
+  const trigger = event.currentTarget as HTMLButtonElement;
+  menuTrigger = trigger;
+  popup.value = name;
   await nextTick();
-  filterRoot.value?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  const menu = trigger.parentElement?.querySelector('[role="menu"]');
+  (
+    menu?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? menu?.querySelector('button')
+  )?.focus();
 }
-function closeFilter() {
-  filterOpen.value = false;
-  focusFilter();
+function closeMenu() {
+  popup.value = undefined;
+  menuTrigger?.focus();
 }
 function setVisibility(value: boolean) {
   archived.value = value;
-  closeFilter();
+  closeMenu();
 }
-function filterKeys(event: KeyboardEvent) {
+function setMode(value: ProjectChat['mode']) {
+  mode.value = mode.value === value ? undefined : value;
+  closeMenu();
+}
+function menuKeys(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault();
     event.stopPropagation();
-    closeFilter();
+    closeMenu();
     return;
   }
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
   const options = Array.from(
-    filterRoot.value?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [],
+    (event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button'),
   );
   if (!options.length) return;
   event.preventDefault();
@@ -155,8 +175,10 @@ function filterKeys(event: KeyboardEvent) {
         : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
   options[next]?.focus();
 }
-function dismissFilter(event: FocusEvent) {
-  if (!filterRoot.value?.contains(event.relatedTarget as Node | null)) filterOpen.value = false;
+function dismissMenu(name: 'filter' | 'display', event: FocusEvent) {
+  const root = event.currentTarget as HTMLElement;
+  if (popup.value === name && !root.contains(event.relatedTarget as Node | null))
+    popup.value = undefined;
 }
 async function viewChat(chat: ProjectChat, event: MouseEvent) {
   rowTrigger = event.currentTarget as HTMLElement;
@@ -188,37 +210,76 @@ function download(file: string) {
 
 <template>
   <section class="project-coresearch">
-    <Teleport v-if="filterAnchor && !selected && chats.data.value?.length" :to="filterAnchor">
-      <div ref="filterRoot" class="chat-filter" @focusout="dismissFilter">
-        <FilterButton
-          :expanded="filterOpen"
-          :count="archived ? 1 : 0"
-          @click="toggleFilter"
-          @keydown.down.prevent="toggleFilter"
-        />
-        <div
-          v-if="filterOpen"
-          class="chat-filter-menu"
-          role="menu"
-          aria-label="Chat visibility"
-          @keydown="filterKeys"
-        >
-          <button
-            v-for="option in visibilityOptions"
-            :key="option.label"
-            type="button"
-            role="menuitemradio"
-            :aria-checked="archived === option.archived"
-            @click="setVisibility(option.archived)"
+    <div v-if="!selected && chats.data.value?.length" class="study-toolbar">
+      <div class="toolbar-group push-right">
+        <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
+          <FilterButton
+            :expanded="popup === 'filter'"
+            :count="archived ? 1 : 0"
+            @click="toggleMenu('filter', $event)"
+            @keydown.down.prevent="toggleMenu('filter', $event)"
+          />
+          <div
+            v-if="popup === 'filter'"
+            class="chat-options"
+            role="menu"
+            aria-label="Chat visibility"
+            @keydown="menuKeys"
           >
-            <span class="chat-filter-check" aria-hidden="true">
-              <Icon v-if="archived === option.archived" name="check" :size="12" />
-            </span>
-            {{ option.label }}
+            <button
+              v-for="option in visibilityOptions"
+              :key="option.label"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="archived === option.archived"
+              @click="setVisibility(option.archived)"
+            >
+              <span class="chat-option-check" aria-hidden="true">
+                <Icon v-if="archived === option.archived" name="check" :size="12" />
+              </span>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+        <div class="menu-anchor" @focusout="dismissMenu('display', $event)">
+          <button
+            type="button"
+            class="button compact"
+            :class="{ active: mode }"
+            aria-label="Display"
+            :aria-description="mode"
+            title="Display"
+            aria-haspopup="menu"
+            :aria-expanded="popup === 'display'"
+            @click="toggleMenu('display', $event)"
+            @keydown.down.prevent="toggleMenu('display', $event)"
+          >
+            <Icon name="filters" :size="14" />
           </button>
+          <div
+            v-if="popup === 'display'"
+            class="chat-options"
+            role="menu"
+            aria-label="Chat mode"
+            @keydown="menuKeys"
+          >
+            <button
+              v-for="option in modes"
+              :key="option"
+              type="button"
+              role="menuitemcheckbox"
+              :aria-checked="mode === option"
+              @click="setMode(option)"
+            >
+              <span class="chat-option-check" aria-hidden="true">
+                <Icon v-if="mode === option" name="check" :size="12" />
+              </span>
+              {{ option }}
+            </button>
+          </div>
         </div>
       </div>
-    </Teleport>
+    </div>
     <template v-if="selected">
       <header class="coresearch-view-header">
         <button ref="back" type="button" class="button compact" @click="closeChat">
@@ -289,13 +350,16 @@ function download(file: string) {
       <ProjectEmptyState
         v-else-if="!visible.length"
         icon="chat"
-        :title="archived ? 'No archived chats' : 'No Coresearches linked'"
-        :description="archived ? undefined : 'Start a new chat or add an existing one from Coresearch.'"
-      >
-        <RouterLink v-if="!archived" to="/coresearch/new" class="button primary compact">
-          <Icon name="plus" :size="14" />New chat
-        </RouterLink>
-      </ProjectEmptyState>
+        :title="
+          mode
+            ? 'No chats match these filters'
+            : archived
+              ? 'No archived chats'
+              : chats.data.value?.length
+                ? 'No active chats'
+                : 'No Coresearches linked'
+        "
+      />
       <table
         v-else
         class="directory-data-table project-coresearch-table"
@@ -358,10 +422,10 @@ function download(file: string) {
   overflow: auto;
   color: var(--text);
 }
-.chat-filter {
+.menu-anchor {
   position: relative;
 }
-.chat-filter-menu {
+.chat-options {
   position: absolute;
   z-index: 40;
   top: calc(100% + 4px);
@@ -375,7 +439,7 @@ function download(file: string) {
   color: var(--text);
   font-size: 14px;
 }
-.chat-filter-menu button {
+.chat-options button {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -389,11 +453,11 @@ function download(file: string) {
   font: inherit;
   text-align: left;
 }
-.chat-filter-menu button:hover,
-.chat-filter-menu button:focus-visible {
+.chat-options button:hover,
+.chat-options button:focus-visible {
   background: var(--hover);
 }
-.chat-filter-check {
+.chat-option-check {
   display: grid;
   width: 16px;
   place-items: center;

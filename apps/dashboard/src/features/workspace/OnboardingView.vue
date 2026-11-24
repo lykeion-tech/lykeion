@@ -364,7 +364,7 @@ async function logOut() {
       </header>
       <section class="content" :class="{ 'hide-scrollbar': step === 'Customize' }">
         <template v-if="step === 'Welcome'">
-          <h2 class="hero">A lab for your next discovery.</h2>
+          <h2>A lab for your next discovery.</h2>
           <p class="sub">
             Aristotle is Lykeion's mascot and research coordinator. Let's set up your workspace.
           </p>
@@ -755,16 +755,14 @@ async function logOut() {
   flex-direction: column;
   gap: 10px;
 }
-.content h2 {
-  font-size: 19px;
-  font-weight: 600;
-}
-.content .hero {
+.content > h2 {
   font-size: 34px;
+  font-weight: 600;
   line-height: 1.15;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
-.centered {
+.content > :is(h2, h3),
+.content :deep(.published-profile > h4) {
   text-align: center;
 }
 .sub {
@@ -960,7 +958,7 @@ async function logOut() {
   .content {
     padding: 20px 12px 12px;
   }
-  .content .hero {
+  .content > h2 {
     font-size: min(28px, 5.8vw);
   }
   .actions {

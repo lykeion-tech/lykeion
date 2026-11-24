@@ -277,13 +277,14 @@ test('To-do shares proposals in the right boards and preserves edits across revi
     await page.goto('/#/projects/' + projectId);
     const todo = page.getByRole('region', { name: 'To-do' });
     const dialog = page.getByRole('dialog', { name: 'Study proposal' });
-    await expect(todo).toContainText('No proposals');
+    await expect(page.getByRole('heading', { name: 'No studies', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Queue study' })).toHaveCount(0);
-    await page.getByRole('button', { name: 'New study', exact: true }).click();
+    await page.getByRole('button', { name: 'New', exact: true }).click();
     await page.getByPlaceholder('Describe what you want to do, in your own words').fill('My planned replication');
     await page.getByRole('button', { name: 'Stages', exact: true }).click();
     await page.getByRole('menuitem', { name: 'To-do', exact: true }).click();
     await expect(dialog.getByLabel('Description')).toHaveValue('My planned replication');
+    await dialog.getByLabel('Project').selectOption(projectId);
     await expect(dialog.getByLabel('Project')).toHaveValue(projectId);
     await dialog.getByLabel('Assignee').selectOption('team:' + team);
     await dialog.getByRole('button', { name: 'Save to To-do' }).click();

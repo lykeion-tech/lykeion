@@ -3,7 +3,7 @@ import Icon from '../../../ui/Icon.vue';
 import type { ResearchProfile } from '../../../api/research-profile';
 
 const profile = defineModel<ResearchProfile>('profile', { required: true });
-defineProps<{ disabled?: boolean }>();
+defineProps<{ disabled?: boolean; hideBackgroundLabel?: boolean }>();
 
 function setLink(index: number, value: string) {
   profile.value = {
@@ -16,8 +16,9 @@ function setLink(index: number, value: string) {
 <template>
   <fieldset class="research-profile-fields" :disabled="disabled" aria-label="Research profile">
     <label class="profile-field">
-      <span>Professional background</span>
+      <span v-if="!hideBackgroundLabel">Professional background</span>
       <textarea
+        :aria-label="hideBackgroundLabel ? 'Professional background' : undefined"
         :value="profile.identity"
         rows="8"
         maxlength="4000"
