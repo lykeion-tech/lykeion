@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/coresearch/doc"
+	"lykeion/server/internal/middleware"
 	"lykeion/server/internal/store"
 	"lykeion/server/internal/workspacemcp"
 	db "lykeion/server/pkg/db/generated"
@@ -90,6 +91,11 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "body and request_id UUID required")
 		return
 	}
+	mobile := middleware.IdentityFrom(r.Context()).Mobile
+	if mobile && (in.AgentID != nil || in.Capabilities != nil || len(in.Attachments) > 0 || in.Selection != nil || in.Template != "" || in.Model != nil) {
+		writeErr(w, 422, "mobile planning turns use your built-in Aristotle")
+		return
+	}
 	target := chi.URLParam(r, "conversation")
 	if target != "" && in.AgentID != nil {
 		writeErr(w, 422, "conversation agent is frozen")
@@ -107,6 +113,22 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	payload, _ := json.Marshal(acceptancePayload{in.Body, in.Mode, in.Template, in.Model, in.Harness, in.Attachments, in.Selection, in.Queue, in.AgentID, in.Capabilities})
 	receiptBody := string(payload)
 	var response json.RawMessage
+	writeAccepted := func() {
+		if mobile {
+			var receipt struct {
+				Conversation struct {
+					ID uuid.UUID `json:"id"`
+				} `json:"conversation"`
+			}
+			if err := json.Unmarshal(response, &receipt); err != nil {
+				fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, receipt)
+			return
+		}
+		writeJSON(w, http.StatusCreated, response)
+	}
 	// Staging may outlive another identical request's upload claim. Only a
 	// committed owner-scoped receipt with the full same payload recovers it.
 	replayAfterError := func(original error) error {
@@ -140,6 +162,15 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		mode = "experiment"
 	}
 	err = h.memberTx(r, ws, false, func(tx *store.Tx) error {
+		if mobile && target != "" {
+			id, err := uuid.Parse(target)
+			if err != nil {
+				return pgx.ErrNoRows
+			}
+			if _, err = tx.Q.GetMobileAristotleChat(r.Context(), id); err != nil {
+				return err
+			}
+		}
 		receipt, e := tx.Q.GetCoresearchTurnReceipt(r.Context(), in.RequestID)
 		if e == nil {
 			if receipt.Target != target || !sameAcceptancePayload(receipt.Body, receiptBody) {
@@ -179,7 +210,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing {
-		writeJSON(w, 201, response)
+		writeAccepted()
 		return
 	}
 	if in.Harness != nil && *in.Harness != "claude" && *in.Harness != "codex" {
@@ -213,7 +244,7 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 	attachments, staged, textHeads, err := h.stageCoresearchAttachments(r, ws, target, mode, in.Attachments)
 	if err != nil {
 		if coresearchAnswer(w, r, replayAfterError(err)) {
-			writeJSON(w, 201, response)
+			writeAccepted()
 		}
 		return
 	}
@@ -446,6 +477,6 @@ func (h *H) acceptAristotleTurn(w http.ResponseWriter, r *http.Request) {
 		for _, row := range attachments {
 			_ = h.Blobs.Delete(context.WithoutCancel(r.Context()), row.BlobKey)
 		}
-		writeJSON(w, 201, response)
+		writeAccepted()
 	}
 }

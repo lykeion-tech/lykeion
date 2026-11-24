@@ -680,7 +680,7 @@ async function stop() {
               v-else-if="conversation?.is_welcome && !messages.data.value?.length"
               class="aristotle-welcome"
             >
-              <p>Welcome to Coresearch. I'm {{ agent.name }}, your research companion.</p>
+              <p>Welcome to Lykeion. I'm {{ agent.name }}, your research companion.</p>
               <p>
                 Together, we can turn questions into clear hypotheses, design careful experiments,
                 make sense of the evidence, and write your research together in Cowrite.

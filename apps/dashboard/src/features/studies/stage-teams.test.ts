@@ -521,10 +521,15 @@ describe('AssignPicker', () => {
     }
   });
 
-  it('shows the Stages pill when nothing is picked', async () => {
-    const p = await mountPicker();
+  it('labels the new study picker Stages until a range is chosen', async () => {
+    const p = await mountPicker(false, null, true);
     try {
-      expect(p.button(/Grounding → Validation/)).toBeTruthy();
+      await p.click(/^Stages$/);
+      expect(p.button(/^Stages$/)).toBeTruthy();
+      await p.click(/^Validation$/);
+      expect(p.button(/^Grounding → Experimentation$/)).toBeTruthy();
+      await p.click(/^Validation$/);
+      expect(p.button(/^Grounding → Validation$/)).toBeTruthy();
     } finally {
       p.unmount();
     }
@@ -1442,7 +1447,7 @@ describe('the one-row New study window', () => {
       const row = t.nodes().find((n) => n.props['aria-label'] === 'Study properties');
       expect(row).toBeTruthy();
       const text = textOf(row!);
-      const order = ['No priority', 'Assignees', 'Grounding → Validation', 'No project'];
+      const order = ['No priority', 'Assignees', 'Stages', 'No project'];
       const at = order.map((label) => text.indexOf(label));
       expect(
         at.every((i) => i >= 0),

@@ -10,13 +10,14 @@ import {
   type Directive,
 } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { keys } from '../../api/keys';
 import { workspaceId } from '../../api/session';
 import { useRouter } from 'vue-router';
 import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import FilterButton from '../../ui/FilterButton.vue';
+import ProposalComposer from './ProposalComposer.vue';
 import ProjectPicker from '../projects/ProjectPicker.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
@@ -25,12 +26,14 @@ import Aristotle from '../coresearch/Aristotle.vue';
 import {
   useAgents,
   useCards,
+  useStudyProposals,
+  useTeams,
   useMe,
   useMembers,
   useResearches,
   useWorkspace,
 } from '../../api/queries';
-import type { Card } from '../../api/types';
+import type { Card, StudyProposal } from '../../api/types';
 import { agentDisplayName } from '../../lib/agent-name';
 import {
   blockBadge,
@@ -97,6 +100,18 @@ const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace'
 defineEmits<{ create: [] }>();
 const router = useRouter();
 const cards = useCards();
+const proposals = useStudyProposals();
+const needsUpgrade = computed(
+  () => proposals.error.value instanceof ApiError && proposals.error.value.status === 404,
+);
+const teams = useTeams('', '');
+const proposalEditor = ref<StudyProposal>();
+function proposalAssignee(p: StudyProposal) {
+  const a = p.assignee;
+  return a.type === 'agent'
+    ? (agents.data.value?.find((agent) => agent.id === a.agent_id)?.name ?? 'Unavailable agent')
+    : (teams.data.value?.find((team) => team.id === a.pack_id)?.name ?? 'Unavailable Team');
+}
 const me = useMe();
 const members = useMembers();
 const agents = useAgents();
@@ -115,6 +130,7 @@ watch(
   workspaceId,
   () => {
     workspaceGeneration++;
+    proposalEditor.value = undefined;
     actionError.value = '';
     studyMenu.value = null;
     projectStudyId.value = '';
@@ -308,7 +324,20 @@ function finalStage(card: Card) {
 const options = (category: Category) =>
   category === 'Owner'
     ? (members.data.value ?? []).map((m) => ({ value: m.user_id, label: m.name || m.email }))
-    : filterOptions[category];
+    : category === 'Column'
+      ? [{ value: 'todo', label: 'To-do' }, ...filterOptions.Column]
+      : filterOptions[category];
+const matchingProposals = computed(() =>
+  (proposals.data.value ?? []).filter(
+    (p) =>
+      (!props.projectId || p.project_id === props.projectId) &&
+      (props.scope !== 'mine' || p.owner_id === me.data.value?.id) &&
+      (!filters.value.Owner?.length || filters.value.Owner.includes(p.owner_id)) &&
+      (!filters.value.Column?.length || filters.value.Column.includes('todo')) &&
+      !filters.value.State?.length &&
+      !filters.value.Flag?.length,
+  ),
+);
 const matchingCards = computed(() => all.value.filter((c) => matchesFilters(c, filters.value)));
 const waitingCount = computed(() => boardActivity(matchingCards.value).waiting);
 const runningStudyCount = computed(
@@ -466,7 +495,20 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <ProposalComposer
+    v-if="proposalEditor"
+    :proposal="proposalEditor"
+    @saved="proposalEditor = undefined"
+    @close="proposalEditor = undefined"
+    @started="
+      (id) => {
+        proposalEditor = undefined;
+        open(id);
+      }
+    "
+  />
   <div class="study-toolbar">
+    <button v-if="projectId" class="button compact" @click="$emit('create')">New study</button>
     <div class="toolbar-group push-right">
       <div class="working-control">
         <span
@@ -646,7 +688,69 @@ onUnmounted(() => {
     {{ actionError }}
   </p>
   <p v-if="cards.isPending.value" class="board-loading" role="status">Loading studies…</p>
-  <div v-if="cards.data.value && display.mode === 'Board'" class="board-scroll">
+  <div :class="display.mode === 'Board' ? 'board-scroll' : 'study-list'">
+    <section aria-label="To-do" :class="{ 'board-column stage-todo': display.mode === 'Board' }">
+      <header v-if="display.mode === 'Board'">
+        <span class="stage-dot" /><strong>To-do</strong
+        ><span v-if="proposals.data.value">{{ matchingProposals.length }}</span>
+      </header>
+      <button
+        v-else
+        class="list-group"
+        :aria-expanded="!collapsedGroups.includes('todo')"
+        @click="toggleGroup('todo')"
+      >
+        <Icon :name="collapsedGroups.includes('todo') ? 'right' : 'down'" :size="12" /><span
+          class="stage-dot"
+        />To-do<small v-if="proposals.data.value">{{ matchingProposals.length }}</small>
+      </button>
+      <div
+        v-if="display.mode === 'Board' || !collapsedGroups.includes('todo')"
+        :class="{ 'board-cards': display.mode === 'Board' }"
+      >
+        <p v-if="needsUpgrade" class="column-empty" role="status">
+          Update your Lykeion server to queue studies.
+        </p>
+        <p v-else-if="proposals.isError.value" class="column-empty" role="alert">
+          Couldn’t load proposals.
+          <button class="text-button" @click="proposals.refetch()">Retry</button>
+        </p>
+        <p v-else-if="proposals.isPending.value" class="column-empty" role="status">
+          Loading proposals…
+        </p>
+        <p
+          v-else-if="!matchingProposals.length"
+          :class="display.mode === 'Board' ? 'column-empty' : 'list-empty'"
+        >
+          No proposals
+        </p>
+        <button
+          v-for="p in matchingProposals"
+          :key="p.id"
+          :class="display.mode === 'Board' ? 'task-card' : 'list-row'"
+          @click="proposalEditor = p"
+        >
+          <small class="card-id"><span class="chip">{{ columnName(p.stage) }}</span></small>
+          <span class="proposal-description">{{ p.description }}</span>
+          <span v-metadata-rows :class="display.mode === 'Board' ? 'card-metadata' : 'row-meta push-right'">
+            <span v-if="display.properties.includes('Assignee')" class="card-assignee">
+              <Icon :name="p.assignee.type === 'agent' ? 'bot' : 'users'" :size="14" />{{ proposalAssignee(p) }}
+            </span>
+            <span v-if="display.properties.includes('Owner')" :class="{ 'card-owner-separated': display.mode === 'Board' && display.properties.includes('Assignee') }">
+              <Icon name="users" :size="12" />{{ ownerName(p.owner_id) }}
+            </span>
+            <span v-if="display.properties.includes('Project') && p.project_id">{{
+              researches.data.value?.find((r) => r.id === p.project_id)?.name ??
+              'Unavailable project'
+            }}</span>
+            <span v-if="display.properties.includes('Updated')" class="push-right"
+              >Updated {{ timeAgo(p.updated_at) }}</span
+            >
+          </span>
+        </button>
+      </div>
+    </section>
+    <template v-if="cards.data.value && display.mode === 'Board'">
     <section
       v-for="column in boardColumns"
       :key="column.id"
@@ -753,8 +857,8 @@ onUnmounted(() => {
         <p v-if="!grouped[column.id].length" class="column-empty">No studies</p>
       </div>
     </section>
-  </div>
-  <div v-else-if="cards.data.value" class="study-list">
+  </template>
+  <template v-else-if="cards.data.value">
     <section v-for="group in listGroups" :key="group.id">
       <button
         class="list-group"
@@ -798,9 +902,10 @@ onUnmounted(() => {
         <p v-if="!group.cards.length" class="list-empty">No studies</p>
       </template>
     </section>
+  </template>
   </div>
   <div
-    v-if="cards.isSuccess.value && !visible.length && activeFilterCount"
+    v-if="cards.isSuccess.value && proposals.isSuccess.value && !matchingProposals.length && !visible.length && activeFilterCount"
     class="center-empty board-empty"
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
@@ -1597,6 +1702,12 @@ onUnmounted(() => {
 }
 .working-overflow {
   font-size: 9px;
+}
+.proposal-description {
+  overflow-wrap: anywhere;
+}
+.stage-todo {
+  background: var(--surface);
 }
 .board-scroll {
   overflow-y: hidden;

@@ -345,3 +345,9 @@ WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'qu
 -- name: ReleaseParkedAgentRuns :exec
 UPDATE agent_run SET retry_after = NULL, infra_failures = 0
 WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND status = 'queued' AND infra_failures >= @park_limit;
+
+-- name: RenameOwnedMachine :many
+UPDATE runtime AS target SET custom_name = sqlc.narg(custom_name)
+WHERE target.workspace_id = @workspace_id AND target.owner_id = @owner_id AND target.daemon_id = (
+  SELECT r.daemon_id FROM runtime r WHERE r.id = @runtime_id AND r.workspace_id = @workspace_id AND r.owner_id = @owner_id
+) RETURNING target.id;

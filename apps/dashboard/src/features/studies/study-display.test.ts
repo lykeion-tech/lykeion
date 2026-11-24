@@ -52,6 +52,7 @@ async function mount(scope?: 'mine' | 'workspace', projectId?: string, user: str
   });
   client.setQueryData(keys.me, user ? { id: user } : null);
   client.setQueryData(keys.cards('lab'), [card('Own study', 'me'), card('Other study', 'other')]);
+  client.setQueryData(keys.proposals('lab'), []);
   client.setQueryData(keys.members('lab'), []);
   client.setQueryData(keys.workspace('lab'), { slug: 'lab' });
   const props = reactive({ scope, projectId });

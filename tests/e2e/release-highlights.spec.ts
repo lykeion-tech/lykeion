@@ -32,6 +32,7 @@ for (const { renderer, previous } of [
     const dialog = page.getByRole('dialog', { name: 'What’s new in Lykeion' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(`Version ${version}`, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Lykeion is coming to your phone' })).toBeVisible();
     const bounds = (await dialog.boundingBox())!;
     const viewport = page.viewportSize()!;
     expect(bounds.x + bounds.width / 2).toBeCloseTo(viewport.width / 2, 0);

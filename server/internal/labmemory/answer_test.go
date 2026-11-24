@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"lykeion/server/internal/board"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -28,6 +29,10 @@ type turn struct {
 
 func runningTurn(t *testing.T) *turn {
 	f, runs, chat := labQueue(t)
+	return runningTurnIn(t, f, runs, chat)
+}
+
+func runningTurnIn(t *testing.T, f *fixture, runs *service.AgentRuns, chat db.LabChat) *turn {
 	run := enqueueQuestion(t, f, runs, chat, "private question", "")
 	rows, e := runs.Register(t.Context(), f.user, f.ws, "personal", "machine", []string{"claude"}, nil, agent.Platform{OS: "linux"})
 	if e != nil {
@@ -726,5 +731,100 @@ func TestConcurrentCancellationAndHandInPublishOneOutcome(t *testing.T) {
 	}
 	if n != 1 || events != 1 || status != "cancelled" || (kind != "answer" && kind != "failure") {
 		t.Fatal(submitErr, status, kind, n, events)
+	}
+}
+
+func studySuggestionTurn(t *testing.T) *turn {
+	f, runs, chat := labQueue(t)
+	chat.ID, chat.Purpose = uuid.New(), StudySuggestionPurpose
+	f.exec("INSERT INTO lab_chat(id,workspace_id,owner_id,purpose) VALUES($1,$2,$3,$4)", chat.ID, f.ws, f.user, chat.Purpose)
+	return runningTurnIn(t, f, runs, chat)
+}
+
+func TestOnlyStudySuggestionChatsSuggestStudies(t *testing.T) {
+	const payload = `{"statements":[{"kind":"gap","text":"Nothing recorded.","cites":[]}],"new_study":{"description":"Compare cohorts.","stage":"validation","assignee_name":null}}`
+	x := runningTurn(t)
+	probs, err := x.historicalAnswer(t.Context(), json.RawMessage(payload))
+	if err != nil || len(probs) == 0 {
+		t.Fatal("an ordinary answer proposed a study", err, probs)
+	}
+	if strings.Contains(x.run.Skill, "new_study") || strings.Contains(ManualDraftProtocol(), "new_study") {
+		t.Fatal("ordinary chats are told to propose studies")
+	}
+	y := studySuggestionTurn(t)
+	if !strings.Contains(y.run.Skill, StudySuggestionProtocol()) {
+		t.Fatal(y.run.Skill)
+	}
+	if probs, err := y.historicalAnswer(t.Context(), json.RawMessage(payload)); err != nil || len(probs) > 0 {
+		t.Fatal(err, probs)
+	}
+	var escaped int
+	if err := y.env.Owner.QueryRow(t.Context(), `SELECT count(*) FROM event WHERE workspace_id=$1 AND type='lab.message.created' AND payload->>'chat_id'=$2 AND recipient_id IS DISTINCT FROM $3`, y.ws, y.run.LabChatID.String(), y.user).Scan(&escaped); err != nil || escaped != 0 {
+		t.Fatal("study drafting reached the workspace", escaped, err)
+	}
+}
+
+func TestNewStudySuggestionIsPrivateAndIdle(t *testing.T) {
+	x := studySuggestionTurn(t)
+	ctx := t.Context()
+	payload := json.RawMessage(`{"statements":[{"kind":"gap","text":"Check the held-out cohort.","cites":[]}],"new_study":{"description":"Compare calibration across cohorts.","stage":"validation","assignee_name":null}}`)
+	probs, err := x.historicalAnswer(ctx, payload)
+	if err != nil || len(probs) > 0 {
+		t.Fatal(err, probs)
+	}
+	var count int
+	if err := x.env.Owner.QueryRow(ctx, "SELECT count(*) FROM study_proposal WHERE workspace_id=$1", x.ws).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("published without save: count %d err %v", count, err)
+	}
+	if err := x.env.Owner.QueryRow(ctx, `SELECT count(*) FROM event e JOIN lab_message m ON m.id::text=e.payload->>'message_id' WHERE m.agent_run_id=$1 AND e.recipient_id IS DISTINCT FROM $2`, x.run.ID, x.user).Scan(&count); err != nil || count != 0 {
+		t.Fatal("private suggestion event escaped", count, err)
+	}
+	other := uuid.New()
+	x.exec(`INSERT INTO "user"(id,email) VALUES ($1,'viewer@example.org')`, other)
+	x.exec(`INSERT INTO member(workspace_id,user_id,role) VALUES($1,$2,'member')`, x.ws, other)
+	for _, viewer := range []uuid.UUID{x.user, other} {
+		err := x.runs.Store.InWorkspace(ctx, x.ws, viewer, func(tx *store.Tx) error {
+			rows, err := tx.PrivateStudySuggestions(ctx, viewer)
+			if err != nil {
+				return err
+			}
+			expected := 0
+			if viewer == x.user {
+				expected = 1
+			}
+			if len(rows) != expected {
+				t.Fatalf("private suggestions: got %d want %d", len(rows), expected)
+			}
+			if expected == 1 {
+				_, _, safe, err := NewDisplayReader(tx, viewer, rows[0].ChatID).Answer(ctx, rows[0])
+				if err != nil || !safe {
+					t.Fatal("invisible own suggestion", safe, err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAnswersCoverStudiesInEveryColumnAndState(t *testing.T) {
+	for _, column := range board.Stages {
+		for _, state := range []string{"working", "blocked", "stopped", "done"} {
+			t.Run(column+"/"+state, func(t *testing.T) {
+				x := runningTurn(t)
+				x.exec("UPDATE card SET board_column=$2,state=$3 WHERE id=$1", x.study, column, state)
+				ref := Ref{Kind: "study", ID: x.study}
+				fact, err := x.read(ref)
+				if err != nil || !strings.Contains(fact.Text, column) || !strings.Contains(fact.Text, state) {
+					t.Fatal(err, fact.Text)
+				}
+				x.log(ref.String(), "read")
+				if probs, err := x.submit(t.Context(), "fact", ref.String()); err != nil || len(probs) > 0 {
+					t.Fatal(err, probs)
+				}
+			})
+		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 
 func TestDeleteAgentPreservesFinishedStudyAndRun(t *testing.T) {
 	s := newServer(t)
+	// The engine would queue a run of the new study before it is marked done.
+	s.H.Engine = nil
 	a := s.signIn(t, "delete@lab.org")
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "historical agent", "claude")
@@ -133,6 +135,8 @@ func TestDeleteAgentBlockedByTeamMembership(t *testing.T) {
 
 func TestAgentWithOnlyAReportRunCanChangeAndBeDeleted(t *testing.T) {
 	s := newServer(t)
+	// The engine would queue a run of the new study before it is marked done.
+	s.H.Engine = nil
 	a := s.signIn(t, "report-run@lab.org")
 	w := s.workspace(t, a, "lab")
 	agent := s.newAgent(t, a, w.ID, "reporting", "claude")

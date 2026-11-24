@@ -25,6 +25,7 @@ type Kind string
 const (
 	Aristotle           Kind = "aristotle"
 	ManualDecisionDraft Kind = "manual_decision_draft"
+	StudySuggestion     Kind = "study_suggestion"
 	Grounding           Kind = "grounding"
 	Hypotheses          Kind = "hypotheses"
 	Experimentation     Kind = "experimentation"
@@ -34,6 +35,15 @@ const (
 	Objector            Kind = "objector"
 	Report              Kind = "report"
 )
+
+// LabKind is the hand-in an Aristotle run owes in a chat of this purpose.
+func LabKind(purpose string) Kind {
+	switch k := Kind(purpose); k {
+	case ManualDecisionDraft, StudySuggestion:
+		return k
+	}
+	return Aristotle
+}
 
 // KindFor is the hand-in kind a run owes; Coresearch and other runs owe none.
 func KindFor(runKind, role, column string) (Kind, bool) {
@@ -301,30 +311,37 @@ type ManualDraft struct {
 	CardID   *string `json:"card_id"`
 }
 
+type NewStudySuggestion struct {
+	Description  string  `json:"description"`
+	Stage        string  `json:"stage"`
+	AssigneeName *string `json:"assignee_name"`
+}
+
 type HandIn struct {
-	Message              string         `json:"message"`
-	Draft                *ManualDraft   `json:"draft"`
-	Statements           []Statement    `json:"statements"`
-	Status               string         `json:"status"` // done | could_not_do | ask
-	Decision             *DecisionIn    `json:"decision"`
-	Answer               string         `json:"answer"`
-	Reason               *string        `json:"reason"`
-	BlockedByEnvironment *string        `json:"blocked_by_environment"`
-	BlockedByMemberRun   *string        `json:"blocked_by_member_run"`
-	Replies              []Reply        `json:"replies"`
-	Papers               []Paper        `json:"papers"`
-	Datasets             []Dataset      `json:"datasets"`
-	NoQualifying         *NoQualifying  `json:"no_qualifying"`
-	Hypotheses           []Hypothesis   `json:"hypotheses"`
-	Outputs              []string       `json:"outputs"`
-	Values               []Value        `json:"values"`
-	Concerns             []Concern      `json:"concerns"`
-	Report               *string        `json:"report"`
-	NewStudies           []NewStudy     `json:"new_studies"`
-	Assessments          []Assessment   `json:"assessments"`
-	Verdicts             []Verdict      `json:"verdicts"`
-	FlaggedErrs          []FlaggedError `json:"flagged_errors"`
-	Objections           []ObjectionIn  `json:"objections"`
+	NewStudy             *NewStudySuggestion `json:"new_study,omitempty"`
+	Message              string              `json:"message"`
+	Draft                *ManualDraft        `json:"draft"`
+	Statements           []Statement         `json:"statements"`
+	Status               string              `json:"status"` // done | could_not_do | ask
+	Decision             *DecisionIn         `json:"decision"`
+	Answer               string              `json:"answer"`
+	Reason               *string             `json:"reason"`
+	BlockedByEnvironment *string             `json:"blocked_by_environment"`
+	BlockedByMemberRun   *string             `json:"blocked_by_member_run"`
+	Replies              []Reply             `json:"replies"`
+	Papers               []Paper             `json:"papers"`
+	Datasets             []Dataset           `json:"datasets"`
+	NoQualifying         *NoQualifying       `json:"no_qualifying"`
+	Hypotheses           []Hypothesis        `json:"hypotheses"`
+	Outputs              []string            `json:"outputs"`
+	Values               []Value             `json:"values"`
+	Concerns             []Concern           `json:"concerns"`
+	Report               *string             `json:"report"`
+	NewStudies           []NewStudy          `json:"new_studies"`
+	Assessments          []Assessment        `json:"assessments"`
+	Verdicts             []Verdict           `json:"verdicts"`
+	FlaggedErrs          []FlaggedError      `json:"flagged_errors"`
+	Objections           []ObjectionIn       `json:"objections"`
 }
 
 // Body is the review item this hypothesis becomes, citing cites.
@@ -386,7 +403,10 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	if k == ManualDecisionDraft {
 		return parseManualDraft(h, keys)
 	}
-	if k == Aristotle {
+	if k == Aristotle || k == StudySuggestion {
+		if s := h.NewStudy; s != nil {
+			add(within(s.Description, 8000) && board.StageIndex(s.Stage) >= 0 && (s.AssigneeName == nil || within(*s.AssigneeName, 200)), "new_study requires a description, scientific stage and optional worker name")
+		}
 		add(len(h.Statements) >= 1 && len(h.Statements) <= 40, "statements: give 1 to 40 statements")
 		for i, s := range h.Statements {
 			add(slices.Contains([]string{"fact", "lesson", "gap"}, s.Kind), "statement %d: kind must be fact, lesson or gap", i+1)

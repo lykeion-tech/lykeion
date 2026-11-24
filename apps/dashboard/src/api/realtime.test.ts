@@ -38,6 +38,17 @@ describe('event to query map', () => {
     expect(invalidationsFor('w1', ev('card.moved'))).not.toContainEqual(keys.labChart('w1'));
   });
 
+  it('refreshes workspace proposals after changes and study cards after launch', () => {
+    for (const type of ['study_proposal.saved', 'study_proposal.discarded', 'study_proposal.started']) {
+      const event = ev(type);
+      expect(invalidationsFor('w1', event)).toContainEqual(keys.proposals('w1'));
+      expect(invalidationsFor('w2', event)).toEqual([]);
+    }
+    has('study_proposal.started', keys.cards('w1'));
+    has('member.removed', keys.proposals('w1'));
+    has('research.deleted', keys.proposals('w1'));
+  });
+
   it('refreshes projects and studies when a project is deleted', () => {
     const event = { ...ev('research.deleted', null), payload: { research_id: 'p1' } };
     expect(invalidationsFor('w1', event)).toContainEqual(keys.researches('w1'));

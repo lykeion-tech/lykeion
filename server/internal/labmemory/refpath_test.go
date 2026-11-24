@@ -14,6 +14,7 @@ func TestRefPathMatchesDashboard(t *testing.T) {
 		want string
 	}{
 		{DisplayRef{Ref: "workspace:context"}, "/settings?tab=workspace"},
+		{DisplayRef{Ref: "proposal:" + id.String()}, "/studies"},
 		{DisplayRef{Ref: "decision:" + id.String()}, "/decisions/" + id.String()},
 		{DisplayRef{Ref: "study:" + id.String(), StudyID: &study}, "/studies/" + study.String()},
 		{DisplayRef{Ref: "report:" + study.String() + "#concept:x", StudyID: &study}, "/decisions/report/" + study.String()},

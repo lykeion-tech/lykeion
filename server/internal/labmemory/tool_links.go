@@ -81,7 +81,7 @@ func studyLinks(ctx context.Context, tx *store.Tx, ref Ref, after string, limit 
 
 func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) ([]Ref, string, error) {
 	switch in.Directory {
-	case "", "studies":
+	case "", "studies", "proposals":
 		after := uuid.Nil
 		var err error
 		if in.After != "" {
@@ -90,11 +90,18 @@ func directoryLinks(ctx context.Context, tx *store.Tx, in refInput, limit int) (
 				return nil, "", errPage
 			}
 		}
-		ids, err := tx.Q.LabStudyDirectory(ctx, db.LabStudyDirectoryParams{WorkspaceID: tx.WS, AfterID: after, PageSize: int32(limit + 1)})
+		kind, list := "study", tx.Q.LabStudyDirectory
+		if in.Directory == "proposals" {
+			kind = "proposal"
+			list = func(ctx context.Context, p db.LabStudyDirectoryParams) ([]uuid.UUID, error) {
+				return tx.Q.LabProposalDirectory(ctx, db.LabProposalDirectoryParams(p))
+			}
+		}
+		ids, err := list(ctx, db.LabStudyDirectoryParams{WorkspaceID: tx.WS, AfterID: after, PageSize: int32(limit + 1)})
 		if err != nil {
 			return nil, "", err
 		}
-		refs := kindRefs("study", ids)
+		refs := kindRefs(kind, ids)
 		if len(refs) > limit {
 			return refs[:limit], ids[limit-1].String(), nil
 		}

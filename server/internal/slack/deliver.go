@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,7 @@ import (
 
 const (
 	unavailableText = "This answer is unavailable because its evidence has changed."
+	changedText     = "The sources of this answer have changed since it was written."
 	maxAttempts     = 5
 	// A post still pending after maxAge can no longer be useful.
 	maxAge = 24 * time.Hour
@@ -85,12 +87,16 @@ func (s *Service) compose(ctx context.Context, tx *store.Tx, p db.SlackPost) (te
 	if m.Kind == "failure" {
 		return mrkdwnEscaper.Replace(m.Body), true, false, nil
 	}
-	ss, ee, safe, err := labmemory.NewDisplayReader(tx, p.UserID, m.ChatID).Answer(ctx, m)
+	reader := labmemory.NewDisplayReader(tx, p.UserID, m.ChatID)
+	ss, ee, safe, err := reader.Answer(ctx, m)
 	if err != nil {
 		return "", false, false, err
 	}
 	if !safe {
 		return unavailableText, true, false, nil
+	}
+	if reader.Changed(m.ID) {
+		ss = slices.Insert(ss, 0, labmemory.DisplayStatement{Text: changedText})
 	}
 	return Render(ss, ee, s.PublicURL), true, false, nil
 }

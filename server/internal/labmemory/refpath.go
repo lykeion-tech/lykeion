@@ -12,6 +12,8 @@ func RefPath(r DisplayRef) string {
 	switch ref.Kind {
 	case "workspace":
 		return "/settings?tab=workspace"
+	case "proposal":
+		return "/studies"
 	case "decision":
 		return "/decisions/" + url.PathEscape(ref.ID.String())
 	}

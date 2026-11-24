@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 )
 
+const MobilePrefix = "lykm_"
+
 const PersonalPrefix = "lyk_"
 
 // NewToken returns the token to hand out once, the hash to store, and a short

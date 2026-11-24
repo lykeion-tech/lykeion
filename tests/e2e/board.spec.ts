@@ -1,11 +1,14 @@
 import { expect, test } from './test';
-import { LAB, labFixture, newStudy } from './lab';
+import { LAB, labFixture, labMember, labPack, labTeam, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
-test('board columns omit add buttons and sidebar New opens the study composer', async ({ page }) => {
+test('board columns omit add buttons and sidebar New opens the study composer', async ({
+  page,
+}) => {
   await page.goto('/#/studies');
   for (const name of [
+    'To-do',
     'Grounding',
     'Hypotheses',
     'Experimentation',
@@ -21,12 +24,13 @@ test('board columns omit add buttons and sidebar New opens the study composer', 
   await expect(page.getByRole('dialog', { name: 'New study' })).toBeVisible();
 });
 
-test('the board shows six columns and a new study arriving live in its column', async ({
+test('the board shows seven columns and a new study arriving live in its column', async ({
   page,
 }) => {
   await page.goto('/#/studies');
   const headers = page.locator('.board-column > header strong');
   await expect(headers).toHaveText([
+    'To-do',
     'Grounding',
     'Hypotheses',
     'Experimentation',
@@ -37,6 +41,15 @@ test('the board shows six columns and a new study arriving live in its column', 
   await expect(page.locator('.task-card')).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/empty-board.png`, fullPage: true });
   await page.getByRole('button', { name: 'Board', exact: true }).click();
+  await expect(page.locator('.list-group')).toHaveText([
+    'To-do0',
+    'Grounding0',
+    'Hypotheses0',
+    'Experimentation0',
+    'Validation0',
+    'Done0',
+    'Blocked0',
+  ]);
   await expect(page.locator('.list-row')).toHaveCount(0);
   await page.screenshot({ path: `${artifacts}/empty-list.png`, fullPage: true });
   await page.getByRole('button', { name: 'List', exact: true }).click();
@@ -159,9 +172,7 @@ test('Display and filter keyboard paths retain focus', async ({ page }) => {
   await page.getByRole('button', { name: 'Filter', exact: true }).focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
-  await expect(
-    page.getByRole('menuitemcheckbox', { name: 'Grounding', exact: true }),
-  ).toBeFocused();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'To-do', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitem', { name: 'Column', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
@@ -222,4 +233,156 @@ test('long board columns keep their header and cards inside the column while scr
   await expect(blocked).toBeInViewport();
   expect(await board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
   await expect(blocked.locator('header')).toBeInViewport();
+});
+
+test('To-do shares proposals in the right boards and preserves edits across revision conflicts', async ({
+  page,
+  browser,
+}) => {
+  const { workspace_id: workspace } = await labFixture(page.request);
+  const headers = { 'X-Workspace-ID': workspace };
+  const team = await labTeam(page.request, workspace);
+  const project = await page.request.post('/api/researches', {
+    headers,
+    data: { name: 'Replication' },
+  });
+  expect(project.status()).toBe(201);
+  const { id: projectId } = await project.json();
+  const otherProject = await page.request.post('/api/researches', {
+    headers,
+    data: { name: 'Archives' },
+  });
+  expect(otherProject.status()).toBe(201);
+  const colleague = await labMember(browser, page.request, workspace);
+  try {
+    const colleagueTeam = await labPack(colleague.context.request, 'colleague-team', workspace);
+    expect(
+      (
+        await colleague.context.request.post('/api/teams/' + colleagueTeam.id + '/add', { headers })
+      ).status(),
+    ).toBe(200);
+    const content = {
+      description: 'Colleague proposal',
+      revision: 0,
+      stage: 'grounding',
+      assignee: { type: 'team', pack_id: colleagueTeam.id },
+      project_id: (await otherProject.json()).id,
+    };
+    const shared = await colleague.context.request.put(
+      '/api/study-proposals/' + crypto.randomUUID(),
+      { headers, data: content },
+    );
+    expect(shared.status()).toBe(200);
+    await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
+    await page.goto('/#/projects/' + projectId);
+    const todo = page.getByRole('region', { name: 'To-do' });
+    const dialog = page.getByRole('dialog', { name: 'Study proposal' });
+    await expect(todo).toContainText('No proposals');
+    await expect(page.getByRole('button', { name: 'Queue study' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'New study', exact: true }).click();
+    await page.getByPlaceholder('Describe what you want to do, in your own words').fill('My planned replication');
+    await page.getByRole('button', { name: 'Stages', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'To-do', exact: true }).click();
+    await expect(dialog.getByLabel('Description')).toHaveValue('My planned replication');
+    await expect(dialog.getByLabel('Project')).toHaveValue(projectId);
+    await dialog.getByLabel('Assignee').selectOption('team:' + team);
+    await dialog.getByRole('button', { name: 'Save to To-do' }).click();
+    await expect(todo.getByText('My planned replication')).toBeVisible();
+    await expect(todo.getByText('Colleague proposal')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    await expect(todo.locator('.list-row')).toHaveCount(1);
+    await expect(todo.locator('.list-row')).toContainText('My planned replication');
+    await page.getByRole('button', { name: 'List', exact: true }).click();
+
+    await page.goto('/#/studies');
+    await todo.getByText('Colleague proposal').click();
+    await expect(dialog.getByLabel('Description')).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Discard' })).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await page.goto('/#/my-studies');
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    await expect(todo.locator('.list-row')).toHaveCount(1);
+    await expect(todo.getByText('Colleague proposal')).toHaveCount(0);
+    await page.getByRole('button', { name: 'List', exact: true }).click();
+    await todo.getByText('My planned replication').click();
+    await dialog.getByLabel('Description').fill('Unsaved local description');
+    const list = await page.request.get('/api/study-proposals', { headers });
+    expect(list.ok()).toBe(true);
+    const saved = (await list.json()).items.find(
+      (p: { project_id: string }) => p.project_id === projectId,
+    );
+    const path = '/api/study-proposals/' + saved.id;
+    const remote = await page.request.put(path, {
+      headers,
+      data: {
+        revision: saved.revision,
+        title: 'Phone title',
+        priority: 'high',
+        description: 'Updated on another device',
+        stage: saved.stage,
+        project_id: saved.project_id,
+        assignee: saved.assignee,
+      },
+    });
+    expect(remote.status()).toBe(200);
+    await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    await expect(dialog.getByLabel('Description')).toHaveValue('Unsaved local description');
+    await dialog.getByRole('button', { name: 'Load latest revision' }).click();
+    await expect(dialog.getByLabel('Description')).toHaveValue('Updated on another device');
+    await dialog.getByLabel('Description').fill('Final replication design');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await todo.getByText('Final replication design').waitFor();
+    const edited = (
+      await (await page.request.get('/api/study-proposals', { headers })).json()
+    ).items.find((p: { id: string }) => p.id === saved.id);
+    expect(edited).toMatchObject({ title: 'Phone title', priority: 'high' });
+    await todo.getByText('Final replication design').click();
+    // The server commits the launch but the first response never reaches the owner.
+    await page.route(
+      '**' + path + '/start',
+      async (route) => {
+        const committed = await route.fetch();
+        expect(committed.status()).toBe(200);
+        await route.abort('connectionreset');
+      },
+      { times: 1 },
+    );
+    await dialog.getByRole('button', { name: 'Start study' }).click();
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Start study' }).click();
+    await expect(page).toHaveURL(/#\/my-studies\/[a-f0-9-]+/);
+    await page.goto('/#/studies');
+    await expect(todo.getByText('Final replication design')).toHaveCount(0);
+    await expect(
+      page
+        .getByRole('region', { name: 'Grounding' })
+        .getByText('Final replication design', { exact: true })
+        .first(),
+    ).toBeVisible();
+    await colleague.page.goto('/#/my-studies');
+    await colleague.page.getByText('Colleague proposal', { exact: true }).click();
+    colleague.page.once('dialog', (dialog) => dialog.accept());
+    await colleague.page.getByRole('button', { name: 'Discard' }).click();
+    await expect(todo.getByText('Colleague proposal')).toHaveCount(0);
+  } finally {
+    await colleague.context.close();
+  }
+});
+
+test('a failed proposal read can retry independently of the study board', async ({ page }) => {
+  await page.route('**/api/study-proposals?**', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Temporarily unavailable' }),
+    }),
+  );
+  await page.goto('/#/studies');
+  const todo = page.getByRole('region', { name: 'To-do' });
+  await expect(todo.getByRole('alert')).toContainText('Couldn’t load proposals');
+  await expect(todo.getByText('No proposals')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Grounding' })).toBeVisible();
+  await page.unroute('**/api/study-proposals?**');
+  await todo.getByRole('button', { name: 'Retry' }).click();
+  await expect(todo.getByText('No proposals')).toBeVisible();
 });

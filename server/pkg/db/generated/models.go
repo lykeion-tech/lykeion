@@ -857,6 +857,7 @@ type LabRead struct {
 	Attempt     int32     `json:"attempt"`
 	CreatedAt   time.Time `json:"created_at"`
 	ID          int64     `json:"id"`
+	Shown       []string  `json:"shown"`
 }
 
 type Lesson struct {
@@ -926,6 +927,12 @@ type Member struct {
 	UserID      uuid.UUID `json:"user_id"`
 	Role        string    `json:"role"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type MobileSession struct {
+	TokenHash string    `json:"token_hash"`
+	UserID    uuid.UUID `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type PersonalAccessToken struct {
@@ -1185,12 +1192,42 @@ type StudyDraftRequest struct {
 	Priority       string      `json:"priority"`
 }
 
+type StudyProposal struct {
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	ID               uuid.UUID  `json:"id"`
+	OwnerID          uuid.UUID  `json:"owner_id"`
+	ProjectID        *uuid.UUID `json:"project_id"`
+	Description      *string    `json:"description"`
+	Stage            *string    `json:"stage"`
+	Assignee         []byte     `json:"assignee"`
+	Revision         int64      `json:"revision"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DiscardedAt      *time.Time `json:"discarded_at"`
+	LastSaveRevision *int64     `json:"last_save_revision"`
+	OperationID      *uuid.UUID `json:"operation_id"`
+	LaunchRevision   *int64     `json:"launch_revision"`
+	CardID           *uuid.UUID `json:"card_id"`
+	CardNumber       *int32     `json:"card_number"`
+	Title            *string    `json:"title"`
+	Priority         *string    `json:"priority"`
+}
+
 type StudyReaction struct {
 	WorkspaceID uuid.UUID `json:"workspace_id"`
 	CardID      uuid.UUID `json:"card_id"`
 	UserID      uuid.UUID `json:"user_id"`
 	Emoji       string    `json:"emoji"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type StudyRunWorker struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id"`
+	RunID       uuid.UUID  `json:"run_id"`
+	AgentID     *uuid.UUID `json:"agent_id"`
+	AgentName   *string    `json:"agent_name"`
+	TeamID      *uuid.UUID `json:"team_id"`
+	TeamName    *string    `json:"team_name"`
 }
 
 type TeamAgent struct {

@@ -12,6 +12,12 @@ import (
 const runDirectoryPath = "/api/run/coresearch/research-directory"
 
 func TestAristotleResearchDirectoryReadsCurrentWorkspacePublications(t *testing.T) {
+	for _, mobile := range []bool{false, true} {
+		t.Run(fmt.Sprintf("mobile=%v", mobile), func(t *testing.T) { checkAristotleResearchDirectory(t, mobile) })
+	}
+}
+
+func checkAristotleResearchDirectory(t *testing.T, mobile bool) {
 	s, a, b, c, ws, _ := csFixture(t)
 	foreign := s.workspace(t, c, "other-profile-lab").ID
 	aID, bID, cID := s.userID(t, a), s.userID(t, b), s.userID(t, c)
@@ -45,8 +51,41 @@ func TestAristotleResearchDirectoryReadsCurrentWorkspacePublications(t *testing.
 	}
 	// Use a member's own machine so we can revoke the asker's membership later.
 	ref := csRegister(t, s, b, ws, "directory-aristotle", "claude")
-	if code := s.call(t, "POST", "/api/coresearch/conversations", b, ws, map[string]string{"body": "Who could help with this study?", "request_id": uuid.NewString()}, nil); code != 201 {
+	client := b
+	if mobile {
+		const email = "b@lab.org"
+		var login struct{ Token string }
+		if code := s.call(t, "POST", "/auth/mobile/send-code", "", "", map[string]string{"email": email}, nil); code != 204 {
+			t.Fatal(code)
+		}
+		if code := s.call(t, "POST", "/auth/mobile/verify-code", "", "", map[string]string{"email": email, "code": s.Mail.code(email)}, &login); code != 200 {
+			t.Fatal(code)
+		}
+		client = login.Token
+		if code := s.call(t, "GET", runDirectoryPath, client, ws, nil, nil); code != 403 {
+			t.Fatalf("direct mobile directory read: %d", code)
+		}
+	}
+	var accepted struct {
+		Conversation struct{ ID string }
+		Run          json.RawMessage
+	}
+	input := map[string]string{"body": "Who could help with this study?", "request_id": uuid.NewString()}
+	if code := s.call(t, "POST", "/api/coresearch/conversations", client, ws, input, &accepted); code != 201 {
 		t.Fatalf("accept Aristotle turn: %d", code)
+	}
+	if mobile {
+		if accepted.Conversation.ID == "" || accepted.Run != nil {
+			t.Fatal("unexpected mobile receipt")
+		}
+		var list []struct{ ID string }
+		if code := s.call(t, "GET", "/api/mobile/coresearch", client, ws, nil, &list); code != 200 || len(list) != 1 || list[0].ID != accepted.Conversation.ID {
+			t.Fatal(code, list)
+		}
+		var messages []struct{ Body string }
+		if code := s.call(t, "GET", "/api/mobile/coresearch/"+accepted.Conversation.ID+"/messages", client, ws, nil, &messages); code != 200 || len(messages) != 1 || messages[0].Body != input["body"] {
+			t.Fatal(code, messages)
+		}
 	}
 	claims := csClaim(t, s, b, ref)
 	if len(claims) != 1 {
