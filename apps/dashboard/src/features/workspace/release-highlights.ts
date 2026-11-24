@@ -11,6 +11,16 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.11': [
+    {
+      title: 'Lykeion is coming to your phone',
+      description:
+        'Plan with Aristotle, start studies and follow their runs from your phone. We’ll tell you here when you can install the app.',
+      icon: 'chat',
+      color: 'blue',
+      details: ['Plan', 'Lykeion mobile', 'Follow runs'],
+    },
+  ],
   '0.1.10': [
     {
       title: 'Share a chat with a project',
