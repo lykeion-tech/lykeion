@@ -187,7 +187,7 @@ test('a remote project description update keeps a local draft until the person r
   );
 });
 
-test('Project properties shares study pane proportions and saves pointer and keyboard resizing', async ({
+test('Project properties opens at 240px and saves pointer and keyboard resizing', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1512, height: 982 });
@@ -201,36 +201,36 @@ test('Project properties shares study pane proportions and saves pointer and key
   await page.goto(`/#/projects/${project.id}`);
   const rail = page.getByRole('complementary', { name: 'Project properties' });
   const splitter = page.getByRole('separator', { name: 'Resize project properties' });
-  const main = (await page.getByRole('tabpanel', { name: 'Studies' }).boundingBox())!;
   await expect(page.getByRole('heading', { name: 'No studies', exact: true })).toBeVisible();
+  const studyEmpty = (await page.locator('.project-empty').boundingBox())!;
   await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No Coresearches linked' })).toBeVisible();
   const emptyCenter = await page.locator('.project-empty').evaluate((el) => {
     const children = Array.from(el.children).map((child) => child.getBoundingClientRect());
     return (children[0]!.top + children[children.length - 1]!.bottom) / 2;
   });
-  expect(Math.abs(emptyCenter - (main.y + main.height / 2))).toBeLessThan(1);
+  expect(Math.abs(emptyCenter - (studyEmpty.y + studyEmpty.height / 2))).toBeLessThan(1);
   await page.getByRole('tab', { name: 'Studies', exact: true }).click();
-  await expect(rail).toHaveCSS('width', '364px');
+  await expect(rail).toHaveCSS('width', '240px');
   await expect(rail).toHaveCSS('padding-left', '12px');
   await expect(splitter).toHaveAttribute('aria-valuemin', '240');
   await expect(splitter).toHaveAttribute('aria-valuemax', '480');
   await splitter.focus();
   await page.keyboard.press('Shift+ArrowLeft');
-  await expect(rail).toHaveCSS('width', '404px');
+  await expect(rail).toHaveCSS('width', '280px');
   const bounds = (await splitter.boundingBox())!;
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width / 2 - 36, bounds.y + 100, { steps: 4 });
   await page.mouse.up();
-  await expect(rail).toHaveCSS('width', '440px');
+  await expect(rail).toHaveCSS('width', '316px');
   await page.reload();
-  await expect(rail).toHaveCSS('width', '440px');
+  await expect(rail).toHaveCSS('width', '316px');
   const toggle = page.getByRole('button', { name: 'Toggle project properties' });
   await toggle.click();
   await expect(splitter).toHaveCount(0);
   await toggle.click();
-  await expect(rail).toHaveCSS('width', '440px');
+  await expect(rail).toHaveCSS('width', '316px');
   await splitter.focus();
   await page.keyboard.press('Home');
   await expect(rail).toHaveCSS('width', '240px');

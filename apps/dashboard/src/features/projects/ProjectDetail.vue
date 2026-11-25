@@ -18,12 +18,11 @@ const client = useQueryClient(),
   members = useMembers(),
   agents = useAgents(),
   me = useMe();
-const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480, -1, () =>
+const inspector = usePaneResize('lykeion.project-inspector-width', 240, 240, 480, -1, () =>
   Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
 );
 const projectTabs = ['Studies', 'Coresearches'] as const;
 const selectedTab = ref<(typeof projectTabs)[number]>('Studies');
-const coresearchFilterAnchor = ref<HTMLElement>();
 function switchProjectTab(event: KeyboardEvent) {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
   event.preventDefault();
@@ -164,7 +163,6 @@ function pickLead(event: Event) {
             {{ tab }}
           </button>
         </div>
-        <div ref="coresearchFilterAnchor" class="push-right" />
       </div>
       <div
         v-if="selectedTab === 'Studies'"
@@ -179,7 +177,6 @@ function pickLead(event: Event) {
         v-else
         id="project-panel-Coresearches"
         :project-id="project.id"
-        :filter-anchor="coresearchFilterAnchor"
         role="tabpanel"
         aria-labelledby="project-view-Coresearches"
       />

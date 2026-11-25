@@ -42,7 +42,7 @@ async function checkForUpdate() {
         <span>Current version</span>
         <span class="version">v{{ version }}</span>
       </div>
-      <div v-if="releaseHighlights?.length" class="update-row">
+      <div v-if="releaseHighlights?.length" class="update-row release-highlights-row">
         <span>Release highlights</span>
         <button class="button compact" type="button" @click="highlightsOpen = true">
           What’s new
@@ -93,7 +93,7 @@ async function checkForUpdate() {
   gap: 20px;
   padding: 16px;
 }
-.update-row + .update-row {
+.update-row + .update-row:not(.release-highlights-row) {
   border-top: 1px solid var(--border);
 }
 .update-row p {
