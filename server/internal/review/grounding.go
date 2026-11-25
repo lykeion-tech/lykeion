@@ -16,13 +16,14 @@ import (
 )
 
 type GroundingInput struct {
-	Question string
-	Criteria []string
-	Items    []db.Record       // this round's paper, dataset and no_qualifying records
-	Comments []string          // the study's researcher comments, newest last, at most 20
-	Declined map[string]string // normalised paper id -> the Team's reason for declining it
-	Carried  []Item            // items that passed on an earlier attempt
-	Attempt  int
+	Question       string // complete title and brief for judgment
+	RecallQuestion string // brief without the display title
+	Criteria       []string
+	Items          []db.Record       // this round's paper, dataset and no_qualifying records
+	Comments       []string          // the study's researcher comments, newest last, at most 20
+	Declined       map[string]string // normalised paper id -> the Team's reason for declining it
+	Carried        []Item            // items that passed on an earlier attempt
+	Attempt        int
 }
 
 // maxCandidates bounds the uncited recall hits Jev screens.
@@ -144,18 +145,15 @@ func keywords(q string) string {
 
 // Keep OpenAlex recall focused on the opening question. The full brief is
 // still used for judging evidence.
-func recallQuery(brief string) string {
+func recallQuery(brief, question string) string {
 	const maxSearchRunes = 480
 	query := strings.TrimSpace(brief)
 	runes := []rune(query)
 	if len(runes) <= maxSearchRunes {
 		return query
 	}
-	// A titled study puts its title above the brief. Skip it when it is
-	// a heading so keyword fallback starts with the research question.
-	if title, body, ok := strings.Cut(query, "\n\n"); ok &&
-		len(title) < maxSearchRunes/2 && !strings.ContainsAny(title, "\n?") {
-		query = strings.TrimSpace(body)
+	if question = strings.TrimSpace(question); question != "" {
+		query = question
 	}
 	query = strings.TrimSpace(strings.TrimPrefix(query, "Question:"))
 	runes = []rune(query)
@@ -282,7 +280,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 
 	// If the search finds nothing, retry with keywords. An empty search is
 	// reported in the Result and does not fail the column.
-	query := recallQuery(in.Question)
+	query := recallQuery(in.Question, in.RecallQuestion)
 	hits, err := s.Search(ctx, query)
 	if err == nil && len(hits) == 0 {
 		if k := keywords(query); k != "" && k != query {

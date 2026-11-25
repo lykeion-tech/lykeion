@@ -391,13 +391,14 @@ func TestGroundingRecallFallsBackToKeywords(t *testing.T) {
 
 func TestGroundingRecallShortensOnlyTheSearch(t *testing.T) {
 	question := "Do street trees cool Barcelona?"
-	brief := "[Desktop smoke test] Feasibility audit\n\nQuestion: " + question + " " +
+	description := "Question: " + question + " " +
 		strings.Repeat("Compare matched pedestrian routes. ", 70) + "Keep this last constraint in review."
+	brief := "[Desktop smoke test] Feasibility audit\n\n" + description
 	s := twoPapers()
 	keywords := "street trees cool barcelona"
 	s.byQuery = map[string][]sources.Hit{keywords: {{ID: "openalex:W7", Title: "Missed paper"}}}
 	a := &fakeAsker{}
-	r, err := Grounding(context.Background(), a, s, GroundingInput{Question: brief,
+	r, err := Grounding(context.Background(), a, s, GroundingInput{Question: brief, RecallQuestion: description,
 		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
 	if err != nil {
 		t.Fatal(err)
@@ -407,6 +408,14 @@ func TestGroundingRecallShortensOnlyTheSearch(t *testing.T) {
 	}
 	if len(a.noul) == 0 || !strings.Contains(a.noul[0].State, "Keep this last constraint in review.") {
 		t.Fatal("the shortened search also shortened the study brief seen by Jev")
+	}
+}
+
+func TestRecallQueryKeepsAnOpeningStatementThatMatchesTheTitle(t *testing.T) {
+	opening := "Measure tree cooling in Quito."
+	brief := opening + "\n\n" + strings.Repeat("Compare comparable pedestrian routes. ", 80)
+	if query := recallQuery(brief, brief); !strings.HasPrefix(query, opening) || len([]rune(query)) > 480 {
+		t.Fatalf("unexpected recall query %q", query)
 	}
 }
 
