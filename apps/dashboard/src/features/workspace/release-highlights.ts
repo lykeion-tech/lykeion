@@ -11,6 +11,32 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.12': [
+    {
+      title: 'Review a study without a TypeSafe key',
+      description:
+        'Lykeion records the server checks before asking you to approve. In Decisions, see what ran and when. If the checks are more than 24 hours old, Lykeion refreshes them in the background.',
+      icon: 'check',
+      color: 'blue',
+      details: ['Stage evidence', 'Server checks', 'Owner decision'],
+    },
+    {
+      title: 'Replay with saved inputs',
+      description:
+        'Validation restores the helper files and inputs saved under outputs/ by the run that produced the cited script. The replay recomputes its recorded measurements.',
+      icon: 'play',
+      color: 'green',
+      details: ['Saved inputs', 'Validation replay', 'Recomputed results'],
+    },
+    {
+      title: 'Find archived chats in your sidebar',
+      description:
+        'Expand Archived in Coresearch to reopen an Experiment or Cowrite chat. You can unarchive it from its menu and keep its project link.',
+      icon: 'archive',
+      color: 'violet',
+      details: ['Coresearch', 'Archived chats', 'Open or restore'],
+    },
+  ],
   '0.1.11': [
     {
       title: 'Lykeion is coming to your phone',
