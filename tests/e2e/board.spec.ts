@@ -1,10 +1,11 @@
 import { expect, test } from './test';
-import { LAB, labFixture, labMember, labPack, labTeam, labWorkspace, newStudy } from './lab';
+import { LAB, labFixture, labMember, labPack, labTeam, newStudy } from './lab';
 
 const artifacts = '.superpowers/sdd/2026-10-15-ui1-frontend-wiring/task-13-artifacts';
 
 test('To-do cards can move into and out of a project without starting', async ({ page }) => {
-  const workspace = await labWorkspace(page.request);
+  const { workspace_id: workspace } = await labFixture(page.request);
+  await page.addInitScript((id) => localStorage.setItem('lykeion.workspace', id), workspace);
   const headers = { 'X-Workspace-ID': workspace };
   const team = await labTeam(page.request, workspace);
   const project = await page.request.post('/api/researches', {
