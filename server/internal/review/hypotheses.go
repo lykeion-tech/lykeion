@@ -70,7 +70,9 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 		if b.Control.None != "" {
 			it.Checks = append(it.Checks, Check{ID: "control", By: "server", Detail: "no control; at most caveated in Validation", Status: Unclear})
 		}
-		if cite.Status == Pass {
+		if cite.Status == Pass && a == nil {
+			r.AwaitJudgment(&it)
+		} else if cite.Status == Pass {
 			text := b.Text + "\n" + predictionLine(b.Prediction)
 			ps, err := a.Noul(ctx, ItemState("Hypotheses", text, evidence, MaxState), hypothesisQuestions)
 			if err != nil {

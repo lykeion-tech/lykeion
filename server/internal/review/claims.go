@@ -86,7 +86,9 @@ func Claims(ctx context.Context, a Asker, in ClaimsInput) (Result, error) {
 			found.Status, found.Detail = Fail, "the quote is not verbatim in "+source
 		}
 		it.Checks = []Check{found}
-		if found.Status == Pass {
+		if found.Status == Pass && a == nil {
+			r.AwaitJudgment(&it)
+		} else if found.Status == Pass {
 			var itemText string
 			if rec.Kind == KindVerdict {
 				itemText = "Claim: " + vb.Claim

@@ -618,17 +618,23 @@ export function inboxText(
     case 'blocked': {
       // A column stopped by its agent's failed runs: the server's text names why.
       if (item.text.includes(' column stopped: ')) return null;
-      const column = /'s (\w+) column failed Jev's review (?:again|twice)/.exec(item.text)?.[1];
+      const column = /'s (\w+) column failed (?:Jev's )?review (?:again|twice)/.exec(item.text)?.[1];
       return column
-        ? `${study}'s ${columnName(column)} column failed Jev's review again and is waiting for you`
+        ? `${study}'s ${columnName(column)} column failed review again and is waiting for you`
         : `${study} scored low twice and is waiting for you`;
     }
     case 'no_tool': {
       const need = /what it needed: ([\s\S]+)$/.exec(item.text)?.[1];
       return need ? `${study}'s agent found no skill or connector for: ${need}` : null;
     }
-    case 'scoring_unavailable':
-      return `${study} couldn't be scored; Lykeion will retry`;
+    case 'scoring_unavailable': {
+      if (item.text.includes('could not read your saved TypeSafe key')) {
+        return `${study}: Lykeion couldn't read your saved TypeSafe key and will retry`;
+      }
+      const detail = item.text.split('Lykeion keeps retrying.')[1]?.trim();
+      return detail ? `${study}: ${detail} Lykeion will retry.` :
+        `${study} couldn't be scored; Lykeion will retry`;
+    }
     case 'study_report':
       return 'Report';
     case 'done':

@@ -321,8 +321,18 @@ func (h *H) roleOutputCatalog(w http.ResponseWriter, r *http.Request) {
 func (h *H) roleOutput(w http.ResponseWriter, r *http.Request) {
 	var rec db.Record
 	err := h.roleTx(r, func(tx *store.Tx, role middleware.Role) error {
+		key := chi.URLParam(r, "key")
+		if slices.Contains(role.Scopes, service.ScopeRerun) {
+			st, err := service.StandingExperimentation(r.Context(), tx, role.CardID)
+			if err != nil {
+				return err
+			}
+			if !slices.ContainsFunc(st.ReplayInputs(st.RerunSteps()), func(in service.ReplayInput) bool { return in.Key == key }) {
+				return storage.ErrNotFound
+			}
+		}
 		var err error
-		rec, err = outputFile(r.Context(), tx, role.WorkspaceID, role.CardID, chi.URLParam(r, "key"))
+		rec, err = outputFile(r.Context(), tx, role.WorkspaceID, role.CardID, key)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storage.ErrNotFound
 		}

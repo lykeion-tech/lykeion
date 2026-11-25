@@ -26,7 +26,7 @@ func Reasons(r Result) []string {
 			}
 		}
 		if len(out) == n {
-			out = append(out, it.Label+": it failed Jev's review")
+			out = append(out, it.Label+": it failed review")
 		}
 	}
 	for _, it := range r.Missed {
@@ -45,7 +45,7 @@ func Reasons(r Result) []string {
 		}
 	}
 	if len(out) == 0 && Decide(r, 0) == DecideRedo {
-		out = append(out, "Jev's review found problems with this column.")
+		out = append(out, "The review found problems with this column.")
 	}
 	return out
 }

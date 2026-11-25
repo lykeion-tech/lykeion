@@ -77,6 +77,61 @@ func (q *Queries) AnswerQuestionSet(ctx context.Context, arg AnswerQuestionSetPa
 	return i, err
 }
 
+const approvalChecksSnapshot = `-- name: ApprovalChecksSnapshot :one
+SELECT body FROM record WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND board_column = $3 AND round = $4 AND kind = 'server_checks' AND role = 'server'
+  AND superseded_at IS NULL AND body->>'approval_decision' = $5::text
+ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+type ApprovalChecksSnapshotParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	BoardColumn string    `json:"board_column"`
+	Round       int32     `json:"round"`
+	Decision    string    `json:"decision"`
+}
+
+func (q *Queries) ApprovalChecksSnapshot(ctx context.Context, arg ApprovalChecksSnapshotParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, approvalChecksSnapshot,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.Round,
+		arg.Decision,
+	)
+	var body json.RawMessage
+	err := row.Scan(&body)
+	return body, err
+}
+
+const approvalEvidenceRevision = `-- name: ApprovalEvidenceRevision :one
+SELECT md5(
+  COALESCE((
+    SELECT string_agg(r.id::text || ':' || md5(r.body::text) || ':' || CASE WHEN r.kind = 'objection' THEN '' ELSE COALESCE(r.superseded_at::text, '') END, ',' ORDER BY r.id)
+    FROM record r WHERE r.workspace_id = $1 AND r.card_id = $2::uuid
+      AND r.kind <> 'server_checks' AND NOT (r.kind = 'objection' AND r.role = 'server')
+  ), '') || '/' || COALESCE((
+    SELECT string_agg(c.id::text || ':' || md5(c.body), ',' ORDER BY c.id)
+    FROM comment c WHERE c.workspace_id = $1 AND c.card_id = $2::uuid
+  ), '')
+)::text
+`
+
+type ApprovalEvidenceRevisionParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+// Server check snapshots and the server's reclassification of objections
+// are written during the recheck itself and do not invalidate its input.
+func (q *Queries) ApprovalEvidenceRevision(ctx context.Context, arg ApprovalEvidenceRevisionParams) (string, error) {
+	row := q.db.QueryRow(ctx, approvalEvidenceRevision, arg.WorkspaceID, arg.CardID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const archiveStale = `-- name: ArchiveStale :exec
 SELECT archive_stale_decisions($1::timestamptz)
 `
@@ -277,6 +332,27 @@ func (q *Queries) DecideItem(ctx context.Context, arg DecideItemParams) (InboxIt
 		&i.Deadline,
 	)
 	return i, err
+}
+
+const dismissKeylessApproval = `-- name: DismissKeylessApproval :execrows
+UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
+WHERE workspace_id = $1 AND card_id = $2::uuid AND id = $3
+  AND kind = 'needs_decision' AND cause = 'no_jev' AND status = 'open'
+  AND resolved_at IS NULL AND archived_at IS NULL
+`
+
+type DismissKeylessApprovalParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	ID          uuid.UUID `json:"id"`
+}
+
+func (q *Queries) DismissKeylessApproval(ctx context.Context, arg DismissKeylessApprovalParams) (int64, error) {
+	result, err := q.db.Exec(ctx, dismissKeylessApproval, arg.WorkspaceID, arg.CardID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const dueDecisions = `-- name: DueDecisions :many
@@ -918,6 +994,23 @@ func (q *Queries) MarkReminded(ctx context.Context, arg MarkRemindedParams) (*uu
 	return card_id, err
 }
 
+const openKeylessDecisionID = `-- name: OpenKeylessDecisionID :one
+SELECT id FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
+  AND kind = 'needs_decision' AND cause = 'no_jev' AND status = 'open' AND resolved_at IS NULL
+`
+
+type OpenKeylessDecisionIDParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+}
+
+func (q *Queries) OpenKeylessDecisionID(ctx context.Context, arg OpenKeylessDecisionIDParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, openKeylessDecisionID, arg.WorkspaceID, arg.CardID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const remindManualDecision = `-- name: RemindManualDecision :one
 SELECT remind_manual_decision($1::uuid,$2::uuid,$3::timestamptz)::boolean
 `
@@ -930,6 +1023,36 @@ type RemindManualDecisionParams struct {
 
 func (q *Queries) RemindManualDecision(ctx context.Context, arg RemindManualDecisionParams) (bool, error) {
 	row := q.db.QueryRow(ctx, remindManualDecision, arg.WorkspaceID, arg.ID, arg.At)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const sameServerChecks = `-- name: SameServerChecks :one
+SELECT COALESCE((
+  SELECT r.body = $1::jsonb FROM record r
+  WHERE r.workspace_id = $2 AND r.card_id = $3::uuid AND r.board_column = $4
+    AND r.round = $5 AND r.kind = 'server_checks' AND r.role = 'server' AND r.superseded_at IS NULL
+  ORDER BY r.created_at DESC, r.id DESC LIMIT 1
+), false)::bool
+`
+
+type SameServerChecksParams struct {
+	Snapshot    json.RawMessage `json:"snapshot"`
+	WorkspaceID uuid.UUID       `json:"workspace_id"`
+	CardID      uuid.UUID       `json:"card_id"`
+	BoardColumn string          `json:"board_column"`
+	Round       int32           `json:"round"`
+}
+
+func (q *Queries) SameServerChecks(ctx context.Context, arg SameServerChecksParams) (bool, error) {
+	row := q.db.QueryRow(ctx, sameServerChecks,
+		arg.Snapshot,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.BoardColumn,
+		arg.Round,
+	)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

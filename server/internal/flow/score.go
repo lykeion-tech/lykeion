@@ -51,6 +51,8 @@ const (
 // lets go when it runs out.
 const scoringLease = 10 * time.Minute
 
+var errUnreadableJevKey = errors.New("the server could not read the study owner’s saved TypeSafe key")
+
 var errNoJev = errors.New("the study's owner has saved no TypeSafe key")
 
 // weakCriterion names the criterion a blocked study scored lowest on, as its
@@ -108,8 +110,8 @@ func doneText(number int32, column string) string {
 	return fmt.Sprintf("Study #%d is done, in its %s column.", number, title(column))
 }
 
-func noJevText(number int32, column string) string {
-	return fmt.Sprintf("Study #%d's %s column passed the server's checks. Jev did not review it because you have saved no TypeSafe key. Read the work, then approve the column or send it back.", number, title(column))
+func noJevText(number int32, column, checks string) string {
+	return fmt.Sprintf("Study #%d, %s. %s Jev did not judge this work because you have saved no TypeSafe key. Read the work, then approve the column or send it back.", number, title(column), checks)
 }
 
 func unavailableText(number int32, column string) string {
@@ -241,16 +243,23 @@ func citedRecords(ctx context.Context, tx *store.Tx, c db.Card, summary db.Recor
 
 // scoring is what one pass read to score a column, with no transaction open.
 type scoring struct {
-	card      db.Card
-	criteria  []criterion
-	summary   string
-	cited     []db.Record
-	work      []db.Record // the records whose quotes and values are checked
-	calls     []db.Record // the call records they cite
-	runs      []db.Record // the run records they cite
-	audit     string
-	auditNote string // why there is no audit
-	attempt   int
+	card            db.Card
+	criteria        []criterion
+	summary         string
+	cited           []db.Record
+	work            []db.Record // the records whose quotes and values are checked
+	calls           []db.Record // the call records they cite
+	runs            []db.Record // the run records they cite
+	audit           string
+	auditNote       string // why there is no audit
+	attempt         int
+	recheck         bool
+	decision        uuid.UUID
+	checks          string
+	evidence        string
+	checkedAt       time.Time
+	checkDetails    any
+	recheckStanding bool
 }
 
 var (
@@ -265,7 +274,7 @@ var (
 // is asked with no transaction open. When Jev cannot be reached the study
 // stays where it is and the next pass retries.
 func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) (resultErr error) {
-	in, ok, err := e.readScoring(ctx, ws, card)
+	in, ok, err := e.readScoring(ctx, ws, card, false)
 	if err != nil || !ok {
 		return err
 	}
@@ -279,14 +288,16 @@ func (e *Engine) Score(ctx context.Context, ws, card uuid.UUID) (resultErr error
 		}
 		return e.reviewColumn(ctx, ws, in)
 	}
-	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
-	var runs map[string]Run
-	if err == nil {
-		runs, err = LoadRuns(ctx, e.Blobs, in.runs)
-	}
+	checks, err := e.legacyChecks(ctx, in)
 	var answers map[string]jev.ScoreAnswer
 	if err == nil {
-		answers, err = e.askJev(ctx, in, MatchQuotes(in.work, calls), MatchValues(in.work, runs))
+		in.checks, in.checkedAt, in.checkDetails = checks.summary(), e.now(), checks
+		if err = e.persistChecks(ctx, ws, in, checks); errors.Is(err, ErrNotWaiting) {
+			return nil
+		}
+	}
+	if err == nil {
+		answers, err = e.askJev(ctx, in, checks.Quotes, checks.Values)
 	}
 	markReviewFailed(ctx, err)
 	moved, werr := e.applyScore(ctx, ws, in, answers, err)
@@ -313,12 +324,12 @@ func (e *Engine) now() time.Time {
 	return time.Now()
 }
 
-func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bool, error) {
+func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID, recheck bool) (scoring, bool, error) {
 	var in scoring
 	ok := false
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		c, err := lockCard(ctx, tx, id)
-		if err != nil || !working(c) || (c.GatingUntil != nil && c.GatingUntil.After(e.now())) {
+		if err != nil || !recheck && (!working(c) || c.GatingUntil != nil && c.GatingUntil.After(e.now())) || recheck && c.State != "blocked" {
 			return err
 		}
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
@@ -326,7 +337,7 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			return err
 		}
 		var summary *db.Record
-		in = scoring{card: c, attempt: 1}
+		in = scoring{card: c, attempt: 1, recheck: recheck}
 		for _, r := range recs {
 			switch {
 			case r.Kind == "outcome" && r.Round == c.Round:
@@ -399,17 +410,24 @@ func (e *Engine) readScoring(ctx context.Context, ws, id uuid.UUID) (scoring, bo
 			}
 			in.runs = slices.DeleteFunc(in.runs, func(r db.Record) bool { return r.Kind != "run" })
 		}
-		until := e.now().Add(scoringLease)
 		ok = true
+		if recheck {
+			return nil
+		}
+		in.evidence, err = approvalEvidence(ctx, tx, c.ID)
+		if err != nil {
+			return err
+		}
+		until := e.now().Add(scoringLease)
 		return tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{GatingUntil: &until, ID: c.ID, WorkspaceID: tx.WS})
 	})
 	return in, ok, err
 }
 
 func (e *Engine) askJev(ctx context.Context, in scoring, quotes []QuoteMatch, values []ValueMatch) (map[string]jev.ScoreAnswer, error) {
-	j := e.JevFor(ctx, in.card.OwnerID)
-	if j == nil {
-		return nil, errNoJev
+	j, err := e.ownerJev(ctx, in.card.OwnerID)
+	if err != nil {
+		return nil, err
 	}
 	qs := map[string]jev.ScoreQuestion{}
 	for _, c := range in.criteria {
@@ -630,7 +648,7 @@ func (e *Engine) applyScore(ctx context.Context, ws uuid.UUID, in scoring, answe
 			return err
 		}
 		if jerr != nil {
-			return e.gateUnjudged(ctx, tx, c, jerr)
+			return e.gateUnjudged(ctx, tx, c, in, jerr, in.checks, in.checkDetails)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -701,15 +719,33 @@ func advance(c db.Card, next *db.SaveCardFlowParams) bool {
 // saved no TypeSafe key the study blocks on the owner's decision to approve
 // the column, redo it, close or park the study; otherwise it waits as
 // scoringUnavailable says.
-func (e *Engine) gateUnjudged(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
+func (e *Engine) gateUnjudged(ctx context.Context, tx *store.Tx, c db.Card, in scoring, cause error, checks string, details any) error {
 	if !errors.Is(cause, errNoJev) {
 		return scoringUnavailable(ctx, tx, c, cause)
+	}
+	evidence, err := approvalEvidence(ctx, tx, c.ID)
+	if err != nil {
+		return err
+	}
+	if evidence != in.evidence || in.checkedAt.IsZero() {
+		return nil // the lease has cleared; the next tick rereads the study
+	}
+	if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
+		return err
 	}
 	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn,
 		State: "blocked", Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
 		return err
 	}
-	if err := holdForDecision(ctx, tx, c, "needs_decision", "no_jev", noJevText(c.Number, c.BoardColumn), e.now()); err != nil {
+	if err := holdForDecision(ctx, tx, c, "needs_decision", "no_jev", checkedDecisionText(c, checks, in.checkedAt), e.now()); err != nil {
+		return err
+	}
+	item, err := tx.Q.OpenKeylessDecisionID(ctx, db.OpenKeylessDecisionIDParams{WorkspaceID: tx.WS, CardID: c.ID})
+	if err != nil {
+		return err
+	}
+	snapshot := approvalSnapshot{Decision: item, Revision: evidence, CheckedAt: in.checkedAt, Complete: true, Checks: details}
+	if err := writeServer(ctx, tx, c, "server_checks", snapshot); err != nil {
 		return err
 	}
 	if err := tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID}); err != nil {
@@ -721,13 +757,35 @@ func (e *Engine) gateUnjudged(ctx context.Context, tx *store.Tx, c db.Card, caus
 // scoringUnavailable leaves the study where it is and records that once, in
 // an item Decisions does not show; the next pass retries.
 func scoringUnavailable(ctx context.Context, tx *store.Tx, c db.Card, cause error) error {
-	open, err := tx.Q.CountOpenCardInbox(ctx, db.CountOpenCardInboxParams{WorkspaceID: tx.WS, CardID: c.ID, Kind: "scoring_unavailable"})
-	if err != nil || open > 0 {
+	text := unavailableText(c.Number, c.BoardColumn) + scoringUnavailableReason(cause)
+	same, err := tx.Q.HasOpenScoringNotice(ctx, db.HasOpenScoringNoticeParams{WorkspaceID: tx.WS, CardID: c.ID, Text: text})
+	if err != nil || same {
+		return err
+	}
+	if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 		return err
 	}
 	slog.Warn("scoring unavailable", "card", c.ID, "column", c.BoardColumn, "err", cause)
-	return tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable",
-		Text: unavailableText(c.Number, c.BoardColumn)})
+	if err := tx.Q.InsertInboxItem(ctx, db.InsertInboxItemParams{WorkspaceID: tx.WS, CardID: c.ID, UserID: c.OwnerID, Kind: "scoring_unavailable", Text: text}); err != nil {
+		return err
+	}
+	return tx.Emit(ctx, "inbox.created", &c.ID, store.System, map[string]any{"card_id": c.ID})
+}
+
+func scoringUnavailableReason(cause error) string {
+	switch {
+	case errors.Is(cause, errUnreadableJevKey):
+		return " The server could not read your saved TypeSafe key. Jev did not judge this work."
+	case errors.Is(cause, errSourceLookup) && errors.Is(cause, errRecallLookup):
+		return " The source lookup and recall search could not finish."
+	case errors.Is(cause, errRecallLookup):
+		return " The recall search could not finish."
+	case errors.Is(cause, errSourceLookup), errors.Is(cause, errNoSources):
+		return " The source lookup could not finish."
+	case errors.Is(cause, errJevUnavailable):
+		return " TypeSafe could not complete Jev's judgment."
+	}
+	return ""
 }
 
 // writeServer stores a record the server writes itself, under the study's
@@ -787,7 +845,7 @@ func resolveInbox(ctx context.Context, tx *store.Tx, card uuid.UUID, kind string
 // reason for leaving a paper out, and judges objections on their own.
 func bookkeeping(kind string) bool {
 	switch kind {
-	case "call", "run", "hand_in", "declined", "comment_delivery", "objection":
+	case "call", "run", "hand_in", "declined", "comment_delivery", "objection", "server_checks":
 		return true
 	}
 	return false
@@ -896,4 +954,62 @@ func currentLeadRuns(runs []db.AgentRun) []db.AgentRun {
 		}
 	}
 	return runs
+}
+
+func (in scoring) isCurrent(c db.Card) bool {
+	if in.recheck {
+		return c.State == "blocked" && c.BoardColumn == in.card.BoardColumn && c.Round == in.card.Round && c.Ending == ""
+	}
+	return current(c, in.card.BoardColumn, in.card.Round)
+}
+
+type legacyDiagnostics struct {
+	Quotes []QuoteMatch `json:"quotes"`
+	Values []ValueMatch `json:"values"`
+}
+
+func (e *Engine) legacyChecks(ctx context.Context, in scoring) (legacyDiagnostics, error) {
+	calls, err := LoadCalls(ctx, e.Blobs, in.calls)
+	if err != nil {
+		return legacyDiagnostics{}, err
+	}
+	runs, err := LoadRuns(ctx, e.Blobs, in.runs)
+	if err != nil {
+		return legacyDiagnostics{}, err
+	}
+	quotes := MatchQuotes(in.work, calls)
+	values := MatchValues(in.work, runs)
+	slices.SortStableFunc(quotes, func(a, b QuoteMatch) int {
+		return strings.Compare(a.Record+" "+a.Quote, b.Record+" "+b.Quote)
+	})
+	slices.SortStableFunc(values, func(a, b ValueMatch) int {
+		return strings.Compare(a.Record+" "+a.Value, b.Record+" "+b.Value)
+	})
+	return legacyDiagnostics{quotes, values}, nil
+}
+
+func (d legacyDiagnostics) summary() string {
+	text := fmt.Sprintf("Server diagnostics checked %d quote(s) and %d reported value(s).", len(d.Quotes), len(d.Values))
+	var warnings []string
+	for _, q := range d.Quotes {
+		if !q.Matched {
+			if q.Unchecked != "" {
+				warnings = append(warnings, fmt.Sprintf("\n- %s: quote could not be checked because the cited call is unreadable.", q.Record))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("\n- %s: quote did not match any cited call.", q.Record))
+			}
+		}
+	}
+	for _, v := range d.Values {
+		if !v.Matched {
+			value, _ := Excerpt(v.Value, 100)
+			if v.Unchecked != "" {
+				warnings = append(warnings, fmt.Sprintf("\n- %s: value %q could not be checked because the cited run is unreadable.", v.Record, value))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("\n- %s: value %q did not match a successful cited script run.", v.Record, value))
+			}
+		}
+	}
+	slices.Sort(warnings)
+	return text + strings.Join(warnings, "")
 }

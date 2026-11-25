@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestGroundingMissedPaper(t *testing.T) {
 	if len(s.queries) != 1 || s.queries[0] != "Does X?" {
 		t.Errorf("queries %q", s.queries)
 	}
-	if r.Recall == nil || *r.Recall != (Recall{Query: "Does X?", Hits: 3, Screened: 2}) {
+	if r.Recall == nil || !reflect.DeepEqual(*r.Recall, Recall{Query: "Does X?", Hits: 3, Screened: 2}) {
 		t.Errorf("recall %+v", r.Recall)
 	}
 	if len(a.noul) != 3 {
@@ -383,7 +384,7 @@ func TestGroundingRecallFallsBackToKeywords(t *testing.T) {
 	if !slices.Equal(s.queries, []string{q, keywords}) {
 		t.Errorf("queries %q", s.queries)
 	}
-	if r.Recall == nil || *r.Recall != (Recall{Query: keywords, Hits: 1, Screened: 1}) || len(r.Missed) != 1 {
+	if r.Recall == nil || !reflect.DeepEqual(*r.Recall, Recall{Query: keywords, Hits: 1, Screened: 1}) || len(r.Missed) != 1 {
 		t.Errorf("recall %+v, missed %+v", r.Recall, r.Missed)
 	}
 }
@@ -407,7 +408,7 @@ func TestAnEmptyRecallIsShownNotFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Recall == nil || *r.Recall != (Recall{Query: "fasting shrink liver", Hits: 0, Screened: 0}) || Decide(r, 0) != DecidePass {
+	if r.Recall == nil || !reflect.DeepEqual(*r.Recall, Recall{Query: "fasting shrink liver", Hits: 0, Screened: 0}) || Decide(r, 0) != DecidePass {
 		t.Errorf("recall %+v, decision %s", r.Recall, Decide(r, 0))
 	}
 }

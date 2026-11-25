@@ -521,14 +521,21 @@ describe('AssignPicker', () => {
     }
   });
 
-  it('labels the new study picker Stages until a range is chosen', async () => {
+  it('opens the new study picker with no checked stage until the first choice', async () => {
     const p = await mountPicker(false, null, true);
     try {
       await p.click(/^Stages$/);
       expect(p.button(/^Stages$/)).toBeTruthy();
+      expect(p.range.value).toEqual({ from: 'grounding', to: 'validation' });
+      expect(
+        p
+          .nodes()
+          .filter((n) => n.props.role === 'menuitemcheckbox' && n.props['aria-checked'] === false),
+      ).toHaveLength(4);
       await p.click(/^Validation$/);
-      expect(p.button(/^Grounding → Experimentation$/)).toBeTruthy();
-      await p.click(/^Validation$/);
+      expect(p.button(/^Validation$/)).toBeTruthy();
+      expect(p.range.value).toEqual({ from: 'validation', to: 'validation' });
+      await p.click(/^Grounding$/);
       expect(p.button(/^Grounding → Validation$/)).toBeTruthy();
     } finally {
       p.unmount();

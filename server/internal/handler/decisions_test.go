@@ -2,10 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	db "lykeion/server/pkg/db/generated"
 )
 
 type decisionRow struct {
@@ -508,5 +510,19 @@ func TestAutoresearchFailedIsAccepted(t *testing.T) {
 	id := s.seedKind(t, w.ID, c.ID, s.userID(t, a), "autoresearch_failed")
 	if got := s.decisions(t, a, w.ID, ""); len(got) != 1 || got[0].ID != id {
 		t.Fatalf("list: %+v", got)
+	}
+}
+
+func TestOpenLegacyKeylessDecisionDoesNotClaimChecksPassed(t *testing.T) {
+	cause := "no_jev"
+	item := db.InboxItem{
+		Kind: "needs_decision", Cause: &cause, Status: "open",
+		Text:    "Study #7's Grounding column passed the server's checks. Jev did not review it because you have saved no TypeSafe key.",
+		Options: json.RawMessage(`[{"id":"approve","label":"Approve","consequence":"The column passes and the study moves on, as if Jev had passed it."}]`),
+	}
+	shown := viewDecision(item, true)
+	if !shown.CanAnswer || !strings.Contains(shown.Text, "needs a fresh server check before approval") ||
+		strings.Contains(shown.Text, "passed the server's checks") || strings.Contains(string(shown.Options), "as if Jev had passed it") {
+		t.Fatalf("the projected old decision still promises a pass: %+v", shown)
 	}
 }

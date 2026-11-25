@@ -151,3 +151,41 @@ SELECT workspace_id::uuid,id::uuid,user_id::uuid FROM due_manual_reminders(@at::
 
 -- name: RemindManualDecision :one
 SELECT remind_manual_decision(@workspace_id::uuid,@id::uuid,@at::timestamptz)::boolean;
+
+-- name: DismissKeylessApproval :execrows
+UPDATE inbox_item SET status = 'dismissed', resolved_at = now(), touched_at = now()
+WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid AND id = @id
+  AND kind = 'needs_decision' AND cause = 'no_jev' AND status = 'open'
+  AND resolved_at IS NULL AND archived_at IS NULL;
+
+-- name: ApprovalEvidenceRevision :one
+-- Server check snapshots and the server's reclassification of objections
+-- are written during the recheck itself and do not invalidate its input.
+SELECT md5(
+  COALESCE((
+    SELECT string_agg(r.id::text || ':' || md5(r.body::text) || ':' || CASE WHEN r.kind = 'objection' THEN '' ELSE COALESCE(r.superseded_at::text, '') END, ',' ORDER BY r.id)
+    FROM record r WHERE r.workspace_id = @workspace_id AND r.card_id = @card_id::uuid
+      AND r.kind <> 'server_checks' AND NOT (r.kind = 'objection' AND r.role = 'server')
+  ), '') || '/' || COALESCE((
+    SELECT string_agg(c.id::text || ':' || md5(c.body), ',' ORDER BY c.id)
+    FROM comment c WHERE c.workspace_id = @workspace_id AND c.card_id = @card_id::uuid
+  ), '')
+)::text;
+
+-- name: SameServerChecks :one
+SELECT COALESCE((
+  SELECT r.body = @snapshot::jsonb FROM record r
+  WHERE r.workspace_id = @workspace_id AND r.card_id = @card_id::uuid AND r.board_column = @board_column
+    AND r.round = @round AND r.kind = 'server_checks' AND r.role = 'server' AND r.superseded_at IS NULL
+  ORDER BY r.created_at DESC, r.id DESC LIMIT 1
+), false)::bool;
+
+-- name: OpenKeylessDecisionID :one
+SELECT id FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND kind = 'needs_decision' AND cause = 'no_jev' AND status = 'open' AND resolved_at IS NULL;
+
+-- name: ApprovalChecksSnapshot :one
+SELECT body FROM record WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+  AND board_column = @board_column AND round = @round AND kind = 'server_checks' AND role = 'server'
+  AND superseded_at IS NULL AND body->>'approval_decision' = @decision::text
+ORDER BY created_at DESC, id DESC LIMIT 1;

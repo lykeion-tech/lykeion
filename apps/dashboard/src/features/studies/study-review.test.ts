@@ -665,7 +665,7 @@ it('shows human approvals alongside Jev attempts and loads legacy scores only fo
       {
         id: 'approval',
         board_column: 'hypotheses',
-        body: { verdict: 'approved_by_owner', by: 'reviewer' },
+        body: { verdict: 'approved_by_owner', by: 'reviewer', decision_id: 'd1', decision_cause: 'no_jev' },
       },
     ],
   );

@@ -34,7 +34,7 @@ interface SharedChat {
   cells: { id: string; code: string; language: string; position: number; outputs?: unknown }[];
 }
 
-const props = defineProps<{ projectId: string }>();
+const props = defineProps<{ projectId: string; filterAnchor?: HTMLElement }>();
 const me = useMe();
 const member = computed(() => me.data.value?.id ?? '');
 const archived = ref(false);
@@ -63,6 +63,8 @@ const chats = useQuery({
       signal,
     }),
 });
+const hasChats = computed(() => Boolean(chats.data.value?.length));
+const showCreate = computed(() => !archived.value && !mode.value);
 const detail = useQuery({
   queryKey: computed(
     () =>
@@ -210,76 +212,82 @@ function download(file: string) {
 
 <template>
   <section class="project-coresearch">
-    <div v-if="!selected && chats.data.value?.length" class="study-toolbar">
-      <div class="toolbar-group push-right">
-        <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
-          <FilterButton
-            :expanded="popup === 'filter'"
-            :count="archived ? 1 : 0"
-            @click="toggleMenu('filter', $event)"
-            @keydown.down.prevent="toggleMenu('filter', $event)"
-          />
-          <div
-            v-if="popup === 'filter'"
-            class="chat-options"
-            role="menu"
-            aria-label="Chat visibility"
-            @keydown="menuKeys"
-          >
-            <button
-              v-for="option in visibilityOptions"
-              :key="option.label"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="archived === option.archived"
-              @click="setVisibility(option.archived)"
+    <Teleport
+      v-if="!selected && chats.isSuccess.value && filterAnchor"
+      :to="filterAnchor"
+      :disabled="hasChats"
+    >
+      <div :class="{ 'study-toolbar': hasChats }">
+        <div class="toolbar-group push-right">
+          <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
+            <FilterButton
+              :expanded="popup === 'filter'"
+              :count="archived ? 1 : 0"
+              @click="toggleMenu('filter', $event)"
+              @keydown.down.prevent="toggleMenu('filter', $event)"
+            />
+            <div
+              v-if="popup === 'filter'"
+              class="chat-options"
+              role="menu"
+              aria-label="Chat visibility"
+              @keydown="menuKeys"
             >
-              <span class="chat-option-check" aria-hidden="true">
-                <Icon v-if="archived === option.archived" name="check" :size="12" />
-              </span>
-              {{ option.label }}
-            </button>
+              <button
+                v-for="option in visibilityOptions"
+                :key="option.label"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="archived === option.archived"
+                @click="setVisibility(option.archived)"
+              >
+                <span class="chat-option-check" aria-hidden="true">
+                  <Icon v-if="archived === option.archived" name="check" :size="12" />
+                </span>
+                {{ option.label }}
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="menu-anchor" @focusout="dismissMenu('display', $event)">
-          <button
-            type="button"
-            class="button compact"
-            :class="{ active: mode }"
-            aria-label="Display"
-            :aria-description="mode"
-            title="Display"
-            aria-haspopup="menu"
-            :aria-expanded="popup === 'display'"
-            @click="toggleMenu('display', $event)"
-            @keydown.down.prevent="toggleMenu('display', $event)"
-          >
-            <Icon name="filters" :size="14" />
-          </button>
-          <div
-            v-if="popup === 'display'"
-            class="chat-options"
-            role="menu"
-            aria-label="Chat mode"
-            @keydown="menuKeys"
-          >
+          <div v-if="hasChats" class="menu-anchor" @focusout="dismissMenu('display', $event)">
             <button
-              v-for="option in modes"
-              :key="option"
               type="button"
-              role="menuitemcheckbox"
-              :aria-checked="mode === option"
-              @click="setMode(option)"
+              class="button compact"
+              :class="{ active: mode }"
+              aria-label="Display"
+              :aria-description="mode"
+              title="Display"
+              aria-haspopup="menu"
+              :aria-expanded="popup === 'display'"
+              @click="toggleMenu('display', $event)"
+              @keydown.down.prevent="toggleMenu('display', $event)"
             >
-              <span class="chat-option-check" aria-hidden="true">
-                <Icon v-if="mode === option" name="check" :size="12" />
-              </span>
-              {{ option }}
+              <Icon name="filters" :size="14" />
             </button>
+            <div
+              v-if="popup === 'display'"
+              class="chat-options"
+              role="menu"
+              aria-label="Chat mode"
+              @keydown="menuKeys"
+            >
+              <button
+                v-for="option in modes"
+                :key="option"
+                type="button"
+                role="menuitemcheckbox"
+                :aria-checked="mode === option"
+                @click="setMode(option)"
+              >
+                <span class="chat-option-check" aria-hidden="true">
+                  <Icon v-if="mode === option" name="check" :size="12" />
+                </span>
+                {{ option }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
     <template v-if="selected">
       <header class="coresearch-view-header">
         <button ref="back" type="button" class="button compact" @click="closeChat">
@@ -355,11 +363,18 @@ function download(file: string) {
             ? 'No chats match these filters'
             : archived
               ? 'No archived chats'
-              : chats.data.value?.length
+              : hasChats
                 ? 'No active chats'
                 : 'No Coresearches linked'
         "
-      />
+        :description="
+          showCreate ? 'Start a new chat or add an existing one from Coresearch.' : undefined
+        "
+      >
+        <RouterLink v-if="showCreate" to="/coresearch/new" class="button primary compact">
+          <Icon name="plus" :size="14" aria-hidden="true" />New chat
+        </RouterLink>
+      </ProjectEmptyState>
       <table
         v-else
         class="directory-data-table project-coresearch-table"
@@ -430,7 +445,7 @@ function download(file: string) {
   z-index: 40;
   top: calc(100% + 4px);
   right: 0;
-  min-width: 152px;
+  width: max-content;
   padding: 4px;
   border: 1px solid #ffffff55;
   border-radius: 8px;
@@ -479,7 +494,8 @@ function download(file: string) {
 }
 .project-coresearch-table {
   table-layout: fixed;
-  width: 100%;
+  width: calc(100% - 2 * var(--project-view-inset));
+  margin-inline: var(--project-view-inset);
 }
 .project-coresearch-table :is(th, td) {
   padding: 8px 12px;
@@ -487,8 +503,8 @@ function download(file: string) {
 .project-coresearch-table th {
   border-bottom: 0;
 }
-.project-coresearch-table th:first-child {
-  padding-left: 12px;
+.project-coresearch-table :is(th, td):first-child {
+  padding-inline-start: 0;
 }
 .project-coresearch-table th:nth-child(2) {
   width: 110px;
@@ -498,6 +514,10 @@ function download(file: string) {
 }
 .project-coresearch-table th:last-child {
   width: 42px;
+}
+.project-coresearch-table td:last-child {
+  padding-inline: 0;
+  text-align: center;
 }
 .coresearch-row-link {
   display: inline-flex;

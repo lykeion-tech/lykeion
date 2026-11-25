@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -267,6 +268,15 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer root.Close()
+	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{Timeout: 15 * time.Minute}}
+	saved, sums := map[string]bool{}, map[string]string{}
+	if err := restoreReplayInputs(runCtx, role, root, c.Rerun.Inputs, saved); err != nil {
+		fail(fmt.Errorf("restore replay inputs: %w", err))
+		if retryableControlLoss(err) {
+			r.FailureReason = agent.ReasonRuntimeOffline
+		}
+		return nil
+	}
 	// ponytail: each step gets an even share of the body limit, cut from its
 	// tail; share by need if one step's output crowds out the others.
 	share := maxRunBody / max(len(c.Rerun.Steps), 1)
@@ -299,9 +309,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		result.Steps = append(result.Steps, step)
 	}
-	role := &apiclient.Client{Server: d.cfg.Server, Token: c.Token, HTTP: &http.Client{}}
 	// An earlier attempt's outputs are kept as it saved them.
-	saved, sums := map[string]bool{}, map[string]string{}
 	for _, o := range c.Rerun.Saved {
 		saved[o.Name], sums[o.Name] = true, o.Sha256
 	}
@@ -323,6 +331,39 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 	}
 	settle("")
+	return nil
+}
+
+func restoreReplayInputs(ctx context.Context, role *apiclient.Client, root *os.Root, inputs []service.ReplayInput, saved map[string]bool) error {
+	left := int64(500 << 20)
+	if len(inputs) > 100 {
+		return errors.New("too many saved replay inputs")
+	}
+	for _, in := range inputs {
+		if !strings.HasPrefix(in.Name, "outputs/") || !fs.ValidPath(in.Name) || strings.ContainsAny(in.Name, "\\\x00") ||
+			in.Key == "" || in.SizeBytes < 0 || in.SizeBytes > maxOutputBytes || in.SizeBytes > left {
+			return fmt.Errorf("invalid saved replay input %q", in.Name)
+		}
+		left -= in.SizeBytes
+		if err := root.MkdirAll(path.Dir(in.Name), 0o700); err != nil {
+			return err
+		}
+		file, err := root.OpenFile(in.Name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		sum := sha256.New()
+		writer := &capWriter{w: io.MultiWriter(file, sum), left: in.SizeBytes}
+		err = role.Download(ctx, "/api/role/outputs/"+url.PathEscape(in.Key), writer)
+		if err = errors.Join(err, file.Close()); err != nil {
+			return err
+		}
+		if writer.left != 0 || hex.EncodeToString(sum.Sum(nil)) != in.Sha256 {
+			return fmt.Errorf("saved replay input %q does not match its size and checksum", in.Name)
+		}
+		// Restored files must not be uploaded as replay results.
+		saved[in.Name] = true
+	}
 	return nil
 }
 

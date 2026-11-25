@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import Icon from '../../ui/Icon.vue';
 
-defineProps<{ icon: 'tasks' | 'chat'; title: string }>();
+defineProps<{ icon: 'tasks' | 'chat'; title: string; description?: string }>();
 </script>
 
 <template>
   <div class="project-empty">
-    <Icon :name="icon" :size="36" />
+    <Icon :name="icon" :size="36" aria-hidden="true" />
     <h2>{{ title }}</h2>
+    <p v-if="description">{{ description }}</p>
+    <slot />
   </div>
 </template>
 
@@ -26,6 +28,10 @@ defineProps<{ icon: 'tasks' | 'chat'; title: string }>();
 .project-empty h2 {
   font-size: 14px;
   font-weight: 400;
+  margin: 0;
+}
+.project-empty p {
+  font-size: 13px;
   margin: 0;
 }
 </style>

@@ -15,16 +15,12 @@ const shown = computed(() =>
   (state.conversations.data.value ?? []).filter((c) => c.shared || !c.archived_at),
 );
 const archived = computed(() =>
-  (state.conversations.data.value ?? []).filter(
-    (c) => !c.shared && c.archived_at && !c.research_id,
-  ),
+  (state.conversations.data.value ?? []).filter((c) => !c.shared && c.archived_at),
 );
 const showArchived = ref(false);
 const groups = computed(() => [
   { archived: false, rows: shown.value },
-  ...(archived.value.length
-    ? [{ archived: true, rows: showArchived.value ? archived.value : [] }]
-    : []),
+  { archived: true, rows: showArchived.value ? archived.value : [] },
 ]);
 async function startDraft(event: MouseEvent) {
   const plain =
@@ -51,15 +47,16 @@ async function startDraft(event: MouseEvent) {
     />
     <nav>
       <template v-for="group in groups" :key="String(group.archived)">
-        <button
-          v-if="group.archived"
-          type="button"
-          class="archive-toggle"
-          :aria-expanded="showArchived"
-          @click="showArchived = !showArchived"
-        >
-          <Icon :name="showArchived ? 'down' : 'right'" :size="14" />Archived
-        </button>
+        <h2 v-if="group.archived" class="archive-heading">
+          <button
+            type="button"
+            class="archive-toggle"
+            :aria-expanded="showArchived"
+            @click="showArchived = !showArchived"
+          >
+            <Icon :name="showArchived ? 'down' : 'right'" :size="12" />Archived
+          </button>
+        </h2>
         <div
           v-for="c in group.rows"
           :key="c.shared ? `shared:${c.project_id}` : c.id"
@@ -121,14 +118,25 @@ async function startDraft(event: MouseEvent) {
   min-height: 0;
   overflow: auto;
 }
+.archive-heading {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
 .archive-toggle {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   width: 100%;
-  padding: 6px 8px;
-  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
   text-align: left;
+}
+.archive-toggle:hover {
+  background: var(--hover);
 }
 .conversation-link {
   display: flex;
@@ -154,7 +162,8 @@ async function startDraft(event: MouseEvent) {
 }
 .conversation-item:hover .conversation-actions,
 .conversation-item:focus-within .conversation-actions,
-.conversation-item:has(.conversation-link.selected) .conversation-actions {
+.conversation-item:has(.conversation-link.selected) .conversation-actions,
+.conversation-actions:has([aria-expanded='true']) {
   opacity: 1;
   pointer-events: auto;
 }

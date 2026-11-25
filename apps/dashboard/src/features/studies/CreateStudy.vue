@@ -463,7 +463,7 @@ onUnmounted(() => {
             </button>
             <div
               v-if="menu === 'priority'"
-              class="composer-menu"
+              class="composer-menu compact-menu"
               role="menu"
               aria-label="Study priority"
             >
@@ -567,7 +567,12 @@ onUnmounted(() => {
               :aria-expanded="['dates', 'start', 'deadline'].includes(menu)" @click="openMenu('dates')">
               <Icon name="more" :size="16" />
             </button>
-            <div v-if="menu === 'dates'" class="composer-menu" role="menu" aria-label="Study dates">
+            <div
+              v-if="menu === 'dates'"
+              class="composer-menu compact-menu"
+              role="menu"
+              aria-label="Study dates"
+            >
               <button type="button" role="menuitem" @click="openMenu('start')">
                 <Icon name="calendar" :size="14" />{{ startDate ? `Start date: ${startDate}` : 'Set start date…' }}
               </button>
@@ -689,6 +694,15 @@ onUnmounted(() => {
 </template>
 <style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>
+.compact-menu {
+  width: max-content;
+  min-width: 144px;
+  padding: 4px;
+}
+.compact-menu > button {
+  min-height: 28px;
+  padding-block: 4px;
+}
 .priority-mark {
   display: inline-flex;
   width: 16px;

@@ -106,7 +106,9 @@ func Experimentation(ctx context.Context, a Asker, in ExperimentationInput) (Res
 			traced.Detail, traced.Status = "not printed by a script run that succeeded, nor in its saved files", Fail
 		}
 		it.Checks = []Check{traced}
-		if v.Found {
+		if v.Found && a == nil {
+			r.AwaitJudgment(&it)
+		} else if v.Found {
 			question := describedQuestion
 			if v.Textual {
 				question = "Does the sentence describe this outcome correctly?"

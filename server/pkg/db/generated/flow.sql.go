@@ -194,6 +194,26 @@ func (q *Queries) GetTeamAgent(ctx context.Context, arg GetTeamAgentParams) (Age
 	return i, err
 }
 
+const hasOpenScoringNotice = `-- name: HasOpenScoringNotice :one
+SELECT EXISTS (
+  SELECT 1 FROM inbox_item WHERE workspace_id = $1 AND card_id = $2::uuid
+    AND kind = 'scoring_unavailable' AND resolved_at IS NULL AND text = $3
+)
+`
+
+type HasOpenScoringNoticeParams struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	CardID      uuid.UUID `json:"card_id"`
+	Text        string    `json:"text"`
+}
+
+func (q *Queries) HasOpenScoringNotice(ctx context.Context, arg HasOpenScoringNoticeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOpenScoringNotice, arg.WorkspaceID, arg.CardID, arg.Text)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const lastOutputNumber = `-- name: LastOutputNumber :one
 SELECT COALESCE(max(substr(key, 2)::int), 0)::int AS n FROM record
 WHERE workspace_id = $1 AND card_id = $2 AND kind IN ('output', 'rerun_output') AND key ~ '^o[0-9]+$'

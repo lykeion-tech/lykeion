@@ -198,6 +198,48 @@ func (st Standing) RerunSteps() []RerunStep {
 	return steps
 }
 
+// ReplayInputs restores published files from the runs that produced cited
+// scripts. Measured output paths and replayed scripts must be written anew.
+func (st Standing) ReplayInputs(steps []RerunStep) []ReplayInput {
+	keys, excluded := map[string]bool{}, map[string]bool{}
+	for _, step := range steps {
+		keys[step.Key] = true
+		excluded[strings.ToLower(step.Path)] = true
+		for _, name := range step.OutputPaths {
+			excluded[strings.ToLower(name)] = true
+		}
+	}
+	producers := map[uuid.UUID]bool{}
+	for _, r := range st.Records {
+		if keys[r.Key] && r.AgentRunID != nil {
+			producers[*r.AgentRunID] = true
+		}
+	}
+	var inputs []ReplayInput
+	byName := map[string]string{}
+	for _, r := range st.Records {
+		var in ReplayInput
+		if r.Kind != "output" || r.AgentRunID == nil || !producers[*r.AgentRunID] || json.Unmarshal(r.Body, &in) != nil {
+			continue
+		}
+		name := strings.ToLower(in.Name)
+		if !strings.HasPrefix(in.Name, "outputs/") || excluded[name] {
+			continue
+		}
+		if prior, ok := byName[name]; ok {
+			// A shared replay folder cannot represent conflicting versions.
+			if prior != in.Sha256 {
+				excluded[name] = true
+			}
+			continue
+		}
+		byName[name] = in.Sha256
+		in.Key = r.Key
+		inputs = append(inputs, in)
+	}
+	return slices.DeleteFunc(inputs, func(in ReplayInput) bool { return excluded[strings.ToLower(in.Name)] })
+}
+
 // RerunSteps are the script runs in recs that exited 0, in order, each with
 // the sha256 of the package list it saved, empty when it saved none. Code run
 // with run_code is never replayed.

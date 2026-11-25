@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as studies from './studies';
+import { notebookCells } from './notebook';
 import { prefixFromSlug, randomWorkspaceName, slugFrom } from './studies';
 
 describe('removed features', () => {
@@ -679,7 +680,7 @@ describe('Grounding criteria and review blocks', () => {
         },
         '#3',
       ),
-    ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
+    ).toBe("#3's Grounding column failed review again and is waiting for you");
     expect(
       studies.inboxText(
         {
@@ -688,7 +689,17 @@ describe('Grounding criteria and review blocks', () => {
         },
         '#3',
       ),
-    ).toBe("#3's Grounding column failed Jev's review again and is waiting for you");
+    ).toBe("#3's Grounding column failed review again and is waiting for you");
+    expect(studies.inboxText({
+      kind: 'blocked', text: "Study #3's Grounding column failed review again after its redo.",
+    }, '#3')).toBe("#3's Grounding column failed review again and is waiting for you");
+    expect(studies.inboxText({
+      kind: 'scoring_unavailable', text: 'The server could not read your saved TypeSafe key.',
+    }, '#3')).toBe("#3: Lykeion couldn't read your saved TypeSafe key and will retry");
+    expect(studies.inboxText({
+      kind: 'scoring_unavailable', text: 'Scoring is unavailable. Lykeion keeps retrying. The recall search could not finish.',
+    }, '#3')).toBe('#3: The recall search could not finish. Lykeion will retry.');
+
     expect(studies.inboxText({ kind: 'blocked', text: 'Study #3 scored low twice.' }, '#3')).toBe(
       '#3 scored low twice and is waiting for you',
     );
@@ -757,4 +768,20 @@ describe('a held study', () => {
       'My decisions',
     ]);
   });
+});
+
+it('older renderer tolerates a server_checks record alongside an owner outcome', () => {
+  const record = (kind: string, key: string, body: StudyRecord['body']): StudyRecord => ({
+    id: key, key, card_id: 'c', board_column: 'grounding', round: 1, kind, role: 'server',
+    body, blob_key: '', agent_run_id: null, superseded_at: null, created_at: '2026-11-25T08:00:00Z',
+  });
+  const records = JSON.parse(JSON.stringify([
+    record('summary', 'r1', { text: 'Source evidence collected.' }),
+    record('server_checks', 'r2', { judgment: 'unavailable', items: [{ checks: [{ id: 'exists' }] }] }),
+    record('outcome', 'r3', { verdict: 'approved_by_owner', by: 'reviewer', decision_id: 'd1', decision_cause: 'no_jev' }),
+    record('run', 'x1', { tool: 'run_script', script: 'print(1)' }),
+  ])) as StudyRecord[];
+  expect(studies.studyOverview(records, 1)).toBe('Source evidence collected.');
+  expect(studies.recordLine(records[1]).key).toBe('r2');
+  expect(notebookCells(records).map((cell) => cell.key)).toEqual(['x1']);
 });

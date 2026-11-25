@@ -27,7 +27,7 @@ var (
 	optClose    = Option{"close", "Close as a negative result", "The study ends here and is recorded as a negative result."}
 	optPark     = Option{"park", "Park", "The study stops here; anyone who can open it may redo it later."}
 	optTryAgain = Option{"try_again", "Try again", "The parked runs are queued again on their machine."}
-	optApprove  = Option{"approve", "Approve", "The column passes and the study moves on, as if Jev had passed it."}
+	optApprove  = Option{"approve", "Approve", "The owner accepts the work and the study advances or ends."}
 )
 
 // StopOptions are the answers to a study's stop: parked runs can be tried

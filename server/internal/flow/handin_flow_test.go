@@ -676,7 +676,7 @@ func TestComposerFollowUpFencesExpiredScoring(t *testing.T) {
 	if _, err := l.env.Owner.Exec(t.Context(), "UPDATE agent_run SET status='completed' WHERE id=$1", old.ID); err != nil {
 		t.Fatal(err)
 	}
-	in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID)
+	in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID, false)
 	if err != nil || !ok {
 		t.Fatalf("scoring snapshot: %v %v", ok, err)
 	}
@@ -732,7 +732,7 @@ func TestComposerDuringActiveScoringStaysInCurrentColumn(t *testing.T) {
 					t.Fatal(err)
 				}
 				// Pause at the real asynchronous scoring boundary, with its lease still live.
-				in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID)
+				in, ok, err := l.e.readScoring(t.Context(), l.ws, c.ID, false)
 				if err != nil || !ok {
 					t.Fatalf("snapshot: %v %v", ok, err)
 				}

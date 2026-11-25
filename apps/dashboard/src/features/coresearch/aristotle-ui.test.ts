@@ -584,7 +584,7 @@ describe('Aristotle UI', () => {
       ),
     ).toBe(true);
   });
-  it('offers Unarchive for a chat whose project was deleted', async () => {
+  it('lists linked and detached chats in the collapsed archive and offers Unarchive', async () => {
     const fetch = vi.fn().mockResolvedValue(response(welcome, 200));
     vi.stubGlobal('fetch', fetch);
     const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
@@ -595,15 +595,17 @@ describe('Aristotle UI', () => {
     ]);
     await settle();
     expect(textOf(root)).not.toContain('Detached chat');
+    expect(textOf(root)).not.toContain('Project archive');
     const archived = all(root).find((n) => n.tag === 'button' && textOf(n).trim() === 'Archived')!;
+    expect(archived.props['aria-expanded']).toBe(false);
     (archived.props.onClick as () => void)();
     await settle();
     expect(textOf(root)).toContain('Detached chat');
-    expect(textOf(root)).not.toContain('Project archive');
-    await (byLabel(root, 'Actions for Detached chat').props.onClick as (e: unknown) => Promise<void>)({ stopPropagation() {} });
+    expect(textOf(root)).toContain('Project archive');
+    await (byLabel(root, 'Actions for Project archive').props.onClick as (e: unknown) => Promise<void>)({ stopPropagation() {} });
     const unarchive = all(root).find((n) => n.props.role === 'menuitem' && textOf(n).trim() === 'Unarchive')!;
     await (unarchive.props.onClick as () => Promise<void>)();
-    expect(fetch.mock.calls.some((c) => c[0] === '/api/coresearch/conversations/orphan' && c[1].method === 'PATCH' && JSON.parse(c[1].body).archived === false)).toBe(true);
+    expect(fetch.mock.calls.some((c) => c[0] === '/api/coresearch/conversations/linked' && c[1].method === 'PATCH' && JSON.parse(c[1].body).archived === false)).toBe(true);
   });
   it('keeps a new draft unsaved and exposes the saved starter settings link', async () => {
     const fetch = vi.fn();

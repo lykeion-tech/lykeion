@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -320,7 +321,19 @@ func (e *Engine) reviewValidation(ctx context.Context, ws uuid.UUID, in scoring)
 	case !judge:
 		return nil
 	}
-	judged, jerr := e.judgeObjections(ctx, ws, in, v)
+	checked, texts, err := e.checkObjections(ctx, in, v)
+	if err == nil {
+		in.checkedAt = e.now()
+		err = e.persistValidationChecks(ctx, ws, in, &v, checked)
+	}
+	if errors.Is(err, ErrNotWaiting) {
+		return nil
+	}
+	var judged []review.Objection
+	jerr := err
+	if jerr == nil && !hasInvalidReplay(v) {
+		judged, jerr = e.judgeObjections(ctx, ws, in, checked, texts)
+	}
 	markReviewFailed(ctx, jerr)
 	moved, err := e.applyValidation(ctx, ws, in, v, judged, jerr)
 	if err != nil {
@@ -445,13 +458,13 @@ func nonNil(s []string) []string {
 // judgeObjections has Jev judge the objector's objections against what the
 // objector was shown under each target: a hypothesis's block in its brief, a
 // value as recorded, or a saved file's text.
-func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, v validating) ([]review.Objection, error) {
+func hasInvalidReplay(v validating) bool {
+	return slices.ContainsFunc(v.statuses, func(s review.StatusResult) bool { return s.Status == review.Invalid })
+}
+
+func (e *Engine) checkObjections(ctx context.Context, in scoring, v validating) ([]review.Objection, map[string]string, error) {
 	if len(v.objections) == 0 {
-		return nil, nil
-	}
-	j := e.JevFor(ctx, in.card.OwnerID)
-	if j == nil {
-		return nil, errNoJev
+		return nil, nil, nil
 	}
 	texts := review.RivalTexts(v.statuses, v.hs, int64(in.card.Round))
 	for _, r := range v.values {
@@ -462,7 +475,7 @@ func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, 
 	}
 	files, err := e.outputTexts(ctx, v.outputs)
 	if err != nil {
-		return nil, fmt.Errorf("reading saved files: %w", err)
+		return nil, nil, fmt.Errorf("reading saved files: %w", err)
 	}
 	for _, r := range v.outputs {
 		if name := records.Body[struct{ Name string }](r).Name; texts[name] == "" {
@@ -473,8 +486,60 @@ func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, 
 	for i, r := range v.objections {
 		objs[i] = records.Body[review.Objection](r)
 	}
+	return review.CheckObjections(objs, texts), texts, nil
+}
+
+// persistValidationChecks saves the server's findings, including rejected
+// objections, before asking Jev about the objections that remain.
+func (e *Engine) persistValidationChecks(ctx context.Context, ws uuid.UUID, in scoring, v *validating, checked []review.Objection) error {
+	return e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, in.card.ID)
+		if err != nil {
+			return err
+		}
+		if c.Version != in.card.Version || !in.isCurrent(c) {
+			return ErrNotWaiting
+		}
+		if err := writeServerChecks(ctx, tx, c, map[string]any{"statuses": v.statuses, "objections": checked}); err != nil {
+			return err
+		}
+		var pending []db.Record
+		for i, o := range checked {
+			r := v.objections[i]
+			if o.Server == "ok" {
+				pending = append(pending, r)
+				continue
+			}
+			o.SameFamily = v.sameFamily
+			_, o.TargetKey = v.target(o.Label, int64(c.Round))
+			if err := tx.Q.SupersedeRecord(ctx, db.SupersedeRecordParams{WorkspaceID: tx.WS, ID: r.ID}); err != nil {
+				return err
+			}
+			if err := writeServer(ctx, tx, c, "objection", o); err != nil {
+				return err
+			}
+		}
+		v.objections = pending
+		return nil
+	})
+}
+
+func (e *Engine) judgeObjections(ctx context.Context, ws uuid.UUID, in scoring, checked []review.Objection, texts map[string]string) ([]review.Objection, error) {
+	var pending []review.Objection
+	for _, o := range checked {
+		if o.Server == "ok" {
+			pending = append(pending, o)
+		}
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	j, err := e.ownerJev(ctx, in.card.OwnerID)
+	if err != nil {
+		return nil, err
+	}
 	p := &reviewPass{e: e, ws: ws, card: in.card, jev: j, retry: e.retry(), renewed: e.now()}
-	out, err := review.JudgeObjections(ctx, retryAsker{p}, objs, texts)
+	out, err := review.JudgeObjections(ctx, retryAsker{p}, pending, texts)
 	if err != nil {
 		err = fmt.Errorf("validation review: %w", err)
 	}
@@ -535,7 +600,7 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
 		}
-		if !current(c, in.card.BoardColumn, in.card.Round) {
+		if !in.isCurrent(c) {
 			return nil
 		}
 		if pending, err := e.deferScoringForComments(ctx, tx, c); err != nil || pending {
@@ -545,8 +610,16 @@ func (e *Engine) applyValidation(ctx context.Context, ws uuid.UUID, in scoring, 
 			BoardColumn: c.BoardColumn, Round: c.Round, Kind: "outcome"}); err != nil || n > 0 {
 			return err
 		}
-		if jerr != nil {
-			return e.gateUnjudged(ctx, tx, c, jerr)
+		if in.recheck {
+			if err := in.checkApprovalEvidence(ctx, tx); err != nil {
+				return err
+			}
+			if err := dismissKeylessApproval(ctx, tx, c.ID, in.decision); err != nil {
+				return err
+			}
+		}
+		if jerr != nil && !hasInvalidReplay(v) {
+			return e.gateUnjudged(ctx, tx, c, in, jerr, "Replay results and objection targets and quotes were checked.", v.statuses)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err

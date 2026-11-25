@@ -23,6 +23,7 @@ const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480
 );
 const projectTabs = ['Studies', 'Coresearches'] as const;
 const selectedTab = ref<(typeof projectTabs)[number]>('Studies');
+const coresearchFilterAnchor = ref<HTMLElement>();
 function switchProjectTab(event: KeyboardEvent) {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
   event.preventDefault();
@@ -163,6 +164,7 @@ function pickLead(event: Event) {
             {{ tab }}
           </button>
         </div>
+        <div ref="coresearchFilterAnchor" class="push-right" />
       </div>
       <div
         v-if="selectedTab === 'Studies'"
@@ -177,6 +179,7 @@ function pickLead(event: Event) {
         v-else
         id="project-panel-Coresearches"
         :project-id="project.id"
+        :filter-anchor="coresearchFilterAnchor"
         role="tabpanel"
         aria-labelledby="project-view-Coresearches"
       />
@@ -340,6 +343,7 @@ function pickLead(event: Event) {
   height: 100%;
 }
 .project-main {
+  --project-view-inset: 16px;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -520,7 +524,7 @@ function pickLead(event: Event) {
   gap: 6px;
 }
 .project-view-toolbar {
-  padding: 8px 16px;
+  padding: 8px var(--project-view-inset);
 }
 @media (max-width: 760px) {
   .project-heading nav {
@@ -550,7 +554,7 @@ function pickLead(event: Event) {
 <style>
 :is(.project-board, .project-coresearch) .study-toolbar {
   height: 56px;
-  padding: 10px 16px;
+  padding: 10px var(--project-view-inset);
 }
 .project-board .working-control {
   display: none;
@@ -566,6 +570,6 @@ function pickLead(event: Event) {
   font-size: 0;
 }
 .project-board .board-scroll {
-  padding: 8px 16px 24px;
+  padding: 8px var(--project-view-inset) 24px;
 }
 </style>

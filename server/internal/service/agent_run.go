@@ -214,15 +214,23 @@ type SavedOutput struct {
 	Sha256 string `json:"sha256"`
 }
 
+// ReplayInput pins one of the cited script producers' saved files.
+type ReplayInput struct {
+	SavedOutput
+	Key       string `json:"key"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
 // ClaimedRerun is what a rerun replays: the scripts of the study's newest
 // Experimentation round that exited 0, in the order they ran, in a fresh
 // environment rebuilt from each step's package list and the study's Python
-// version, with the study's attachments in place. Saved are the outputs an
+// version, with the study's attachments and saved inputs in place. Saved are the outputs an
 // earlier attempt of the rerun already saved, which are not saved again.
 type ClaimedRerun struct {
 	Steps       []RerunStep         `json:"steps"`
 	Python      string              `json:"python"`
 	Attachments []ClaimedAttachment `json:"attachments"`
+	Inputs      []ReplayInput       `json:"inputs,omitempty"`
 	Saved       []SavedOutput       `json:"saved"`
 }
 
@@ -1226,7 +1234,8 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 								}
 							}
 						}
-						rerun = &ClaimedRerun{Steps: st.RerunSteps(), Python: python, Attachments: files, Saved: saved}
+						steps := st.RerunSteps()
+						rerun = &ClaimedRerun{Steps: steps, Python: python, Attachments: files, Inputs: st.ReplayInputs(steps), Saved: saved}
 						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
 					}
 					if t.Kind == "aristotle" {

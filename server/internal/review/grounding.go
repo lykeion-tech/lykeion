@@ -156,6 +156,7 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		asking = []string{"Research question: " + in.Question}
 	}
 	var commentsBlock string
+	var checksErr error
 	if cs := in.Comments; len(cs) > 0 {
 		commentsBlock = fence.Untrusted("Researcher's comments", strings.Join(cs[max(0, len(cs)-maxComments):], "\n"))
 	}
@@ -179,7 +180,8 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		cite(citeKeys(c.Label))
 		h, missing, err := resolved(s.Paper(ctx, c.Label))
 		if err != nil {
-			return Result{}, fmt.Errorf("paper %s: %w", c.Label, err)
+			checksErr = errors.Join(checksErr, fmt.Errorf("%s %s: %w", c.Kind, c.Label, err))
+			continue
 		}
 		if missing == nil && h.ID != "" {
 			cite(hitKeys(h))
@@ -223,14 +225,20 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			continue
 		}
 		if err != nil {
-			return Result{}, fmt.Errorf("%s %s: %w", rec.Kind, it.Label, err)
+			checksErr = errors.Join(checksErr, fmt.Errorf("%s %s: %w", rec.Kind, it.Label, err))
+			it.Checks = []Check{{ID: "exists", By: "server", Detail: "source lookup unavailable", Status: Unclear}}
+			it.Status, it.Unjudged = Unclear, true
+			r.Items = append(r.Items, it)
+			continue
 		}
 		if missing == nil && hit.ID != "" {
 			cite(hitKeys(hit))
 			title, abstract = hit.Title, hit.Abstract
 		}
 		it.Checks = served(hit, missing)
-		if ItemStatus(it.Checks) == Pass {
+		if ItemStatus(it.Checks) == Pass && a == nil {
+			r.AwaitJudgment(&it)
+		} else if ItemStatus(it.Checks) == Pass {
 			cs, err := screen(ctx, a, qs, asking, it.Label, title, text, abstract, "")
 			if err != nil {
 				return Result{}, err
@@ -255,21 +263,27 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		}
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("recall search: %w", err)
+		checksErr = errors.Join(checksErr, fmt.Errorf("recall search: %w", err))
+		hits = nil
 	}
 	n := 0
+	var unscreened []string
 	for _, h := range hits {
-		if n == maxCandidates {
+		if n+len(unscreened) == maxCandidates {
 			break
 		}
 		if h.Retracted || slices.ContainsFunc(hitKeys(h), func(k string) bool { return cited[k] }) {
 			continue
 		}
-		n++
 		label := h.ID
 		if h.DOI != "" {
 			label = "doi:" + h.DOI
 		}
+		if a == nil {
+			unscreened = append(unscreened, label)
+			continue
+		}
+		n++
 		cs, err := screen(ctx, a, qs, asking, label, h.Title, "", h.Abstract, commentsBlock)
 		if err != nil {
 			return Result{}, err
@@ -303,10 +317,16 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 			r.Missed = append(r.Missed, Item{Kind: KindPaper, Label: label, Status: Fail, Checks: cs})
 		}
 	}
-	r.Recall = &Recall{Query: query, Hits: len(hits), Screened: n}
+	r.Recall = &Recall{Query: query, Hits: len(hits), Screened: n, Unscreened: unscreened, Unavailable: err != nil}
 
 	for _, i := range noQualifying {
 		c := Check{ID: "none_qualify", By: "server", Status: Pass}
+		if err != nil {
+			c.Status, c.Detail = Unclear, "recall search unavailable"
+		} else if len(unscreened) > 0 {
+			c.Status, c.Detail = Unclear, "recall candidates were not screened"
+			r.Items[i].Unjudged = true
+		}
 		if len(r.Missed) > 0 {
 			c.Status, c.Detail = Fail, fmt.Sprintf("%d papers meet every criterion", len(r.Missed))
 		}
@@ -317,6 +337,10 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 	for _, c := range in.Carried {
 		c.Carried = true
 		r.Items = append(r.Items, c)
+	}
+
+	if checksErr != nil {
+		return r, checksErr
 	}
 
 	// Jev's options are neutral names; what each source says, written by

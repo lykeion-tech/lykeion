@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,6 +10,32 @@ import (
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
+
+func TestRerunInputsComeFromCitedProducers(t *testing.T) {
+	producer, other := uuid.New(), uuid.New()
+	output := func(key, name, digest string, owner uuid.UUID) db.Record {
+		body, err := json.Marshal(SavedOutput{Name: name, Sha256: digest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return db.Record{Key: key, Kind: "output", AgentRunID: &owner, Body: body}
+	}
+	st := Standing{Records: []db.Record{
+		{Key: "x1", Kind: "run", AgentRunID: &producer},
+		output("o1", "outputs/helper.py", "a", producer),
+		output("o2", "outputs/predictions.json", "b", producer),
+		output("o3", "outputs/metric.json", "c", producer),
+		output("o4", "outputs/score.py", "d", producer),
+		output("o5", "outputs/unrelated.py", "e", other),
+		output("o6", "outputs/ambiguous.py", "f", producer),
+		output("o7", "outputs/ambiguous.py", "g", producer),
+		output("o8", "outside.txt", "h", producer),
+	}}
+	got := st.ReplayInputs([]RerunStep{{Key: "x1", Path: "outputs/score.py", OutputPaths: []string{"outputs/metric.json"}}})
+	if len(got) != 2 || got[0].Key != "o1" || got[1].Key != "o2" {
+		t.Fatalf("replay inputs %+v", got)
+	}
+}
 
 func (f *fixture) enqueueRerun(t *testing.T, owner uuid.UUID) uuid.UUID {
 	t.Helper()

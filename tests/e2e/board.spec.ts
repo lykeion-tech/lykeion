@@ -381,9 +381,9 @@ test('a failed proposal read can retry independently of the study board', async 
   await page.goto('/#/studies');
   const todo = page.getByRole('region', { name: 'To-do' });
   await expect(todo.getByRole('alert')).toContainText('Couldn’t load proposals');
-  await expect(todo.getByText('No proposals')).toHaveCount(0);
+  await expect(todo.getByText('no to-dos', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Grounding' })).toBeVisible();
   await page.unroute('**/api/study-proposals?**');
   await todo.getByRole('button', { name: 'Retry' }).click();
-  await expect(todo.getByText('No proposals')).toBeVisible();
+  await expect(todo.getByText('no to-dos', { exact: true })).toBeVisible();
 });

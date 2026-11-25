@@ -17,6 +17,7 @@ import (
 	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/jev"
+	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
@@ -48,10 +49,18 @@ func (e OptionError) Error() string { return string(e) }
 // and its expiry, only the first applies; the other answer gets
 // ErrDecisionClosed.
 func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, guidance string) error {
+	return e.decide(ctx, ws, item, user, option, guidance, nil)
+}
+
+func (e *Engine) decide(ctx context.Context, ws, item, user uuid.UUID, option, guidance string, checked *approvalChecks) error {
 	guidance = strings.TrimSpace(guidance)
 	restart := false
 	var card uuid.UUID
 	var cancel []uuid.UUID
+	var recheck *db.Card
+	var evidence string
+	var checkedAt time.Time
+	var refreshing, resuming bool
 	err := e.Store.InWorkspace(ctx, ws, user, func(tx *store.Tx) error {
 		// The workspace, then the membership, as every member write takes them.
 		if _, err := tx.Q.LockWorkspaceForMutation(ctx, ws); err != nil {
@@ -107,6 +116,72 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 				return ErrNotWaiting
 			}
 		}
+		if option == "approve" && ptrOr(it.Cause) == "no_jev" {
+			if checked == nil {
+				evidence, err = approvalEvidence(ctx, tx, c.ID)
+				if err != nil {
+					return err
+				}
+				snapshot, err := loadApprovalSnapshot(ctx, tx, c, item)
+				if err != nil {
+					return err
+				}
+				if !snapshot.fresh(evidence, e.now()) {
+					refreshing = true
+					return refreshApprovalChecks(ctx, tx, c, item)
+				}
+				recheck, checkedAt = &c, snapshot.CheckedAt
+				return nil
+			}
+			if c.Version != checked.version {
+				return ErrNotWaiting
+			}
+			if err := verifyApprovalEvidence(ctx, tx, c.ID, checked.evidence); err != nil {
+				var changed OptionError
+				if !errors.As(err, &changed) {
+					return err
+				}
+				refreshing = true
+				return refreshApprovalChecks(ctx, tx, c, item)
+			}
+			if !approvalCheckIsRecent(checked.checkedAt, e.now()) {
+				refreshing = true
+				return refreshApprovalChecks(ctx, tx, c, item)
+			}
+			pending, err := hasPendingComposerSince(ctx, tx, c, it.CreatedAt)
+			if err != nil {
+				return err
+			}
+			if pending {
+				return OptionError("New guidance is waiting to reach the study. Review the updated work before approving.")
+			}
+			if checked.resumeReview {
+				if err := dismissKeylessApproval(ctx, tx, c.ID, item); err != nil {
+					return err
+				}
+				if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS,
+					BoardColumn: c.BoardColumn, State: board.Working, Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
+					return err
+				}
+				resuming = true
+				if checked.retryCause != nil {
+					if err := scoringUnavailable(ctx, tx, c, checked.retryCause); err != nil {
+						return err
+					}
+				}
+				return emitSteered(ctx, tx, c.ID, store.System)
+			}
+			if checked.legacyText != "" && it.Text != checked.legacyText {
+				refreshing = true
+				return refreshApprovalChecks(ctx, tx, c, item)
+			}
+			for _, status := range checked.validation {
+				if err := writeServer(ctx, tx, c, "validation_status", statusBody{Hypothesis: status.Hypothesis,
+					Status: status.Status, Reasons: status.Reasons, Cites: nonNil(status.Cites), Final: true}); err != nil {
+					return err
+				}
+			}
+		}
 		decided, err := tx.Q.DecideItem(ctx, db.DecideItemParams{ID: item, WorkspaceID: ws, ChosenOption: option, Guidance: guidance, DecidedBy: user})
 		if err != nil {
 			return err
@@ -121,7 +196,7 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 				return e.askOwner(ctx, tx, c, "its question was answered and its lead could not be woken: "+err.Error())
 			}
 		} else {
-			restart, cancel, err = e.applyOption(ctx, tx, c, user, option, guidance)
+			restart, cancel, err = e.applyOption(ctx, tx, c, it, user, option, guidance)
 		}
 		if err != nil || restart {
 			// redo emits card.steered itself.
@@ -132,6 +207,28 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 	if err != nil {
 		return err
 	}
+	if recheck != nil {
+		checked, err := e.checkOwnerApproval(ctx, ws, *recheck, item, evidence, checkedAt)
+		if err != nil {
+			return err
+		}
+		if !checked.resumeReview {
+			if _, err := e.ownerJev(ctx, recheck.OwnerID); errors.Is(err, errUnreadableJevKey) {
+				checked.resumeReview, checked.retryCause = true, err
+			}
+		}
+		return e.decide(ctx, ws, item, user, option, guidance, &checked)
+	}
+	if resuming {
+		if checked.retryCause == nil {
+			e.Kick(ws, card)
+			return fmt.Errorf("%w: Server checks found issues. The study is going back through review.", ErrNotWaiting)
+		}
+		return fmt.Errorf("%w: Server review will retry.%s", ErrNotWaiting, scoringUnavailableReason(checked.retryCause))
+	}
+	if refreshing {
+		return fmt.Errorf("%w: Server checks are being refreshed. Lykeion will ask again if the checks allow approval.", ErrNotWaiting)
+	}
 	if restart {
 		e.Kick(ws, card)
 	}
@@ -141,6 +238,203 @@ func (e *Engine) Decide(ctx context.Context, ws, item, user uuid.UUID, option, g
 		e.goReport("check report", ws, card, e.checkReport)
 	}
 	return e.cancelParked(ctx, ws, user, cancel)
+}
+
+// An owner decision may reuse a complete check snapshot for up to one day.
+const approvalChecksMaxAge = 24 * time.Hour
+
+type approvalSnapshot struct {
+	Decision  uuid.UUID `json:"approval_decision"`
+	Revision  string    `json:"evidence_revision"`
+	CheckedAt time.Time `json:"checked_at"`
+	Complete  bool      `json:"complete"`
+	Checks    any       `json:"checks,omitempty"`
+}
+
+func (s approvalSnapshot) fresh(revision string, now time.Time) bool {
+	return s.Complete && s.Revision != "" && s.Revision == revision &&
+		approvalCheckIsRecent(s.CheckedAt, now)
+}
+
+func approvalCheckIsRecent(checkedAt, now time.Time) bool {
+	age := now.Sub(checkedAt)
+	return !checkedAt.IsZero() && age >= 0 && age < approvalChecksMaxAge
+}
+
+func loadApprovalSnapshot(ctx context.Context, tx *store.Tx, c db.Card, decision uuid.UUID) (approvalSnapshot, error) {
+	body, err := tx.Q.ApprovalChecksSnapshot(ctx, db.ApprovalChecksSnapshotParams{
+		WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round, Decision: decision.String(),
+	})
+	var snapshot approvalSnapshot
+	if errors.Is(err, pgx.ErrNoRows) {
+		return snapshot, nil
+	}
+	if err != nil {
+		return snapshot, err
+	}
+	if json.Unmarshal(body, &snapshot) != nil || snapshot.Decision != decision {
+		return approvalSnapshot{}, nil
+	}
+	return snapshot, nil
+}
+
+func checkedDecisionText(c db.Card, checks string, checkedAt time.Time) string {
+	return noJevText(c.Number, c.BoardColumn, fmt.Sprintf("Server checks ran at %s. %s", checkedAt.UTC().Format("2 Jan 2006 15:04:05 UTC"), checks))
+}
+
+func refreshApprovalChecks(ctx context.Context, tx *store.Tx, c db.Card, item uuid.UUID) error {
+	if err := dismissKeylessApproval(ctx, tx, c.ID, item); err != nil {
+		return err
+	}
+	if err := writeServer(ctx, tx, c, "server_checks", map[string]bool{"approval_refresh": true}); err != nil {
+		return err
+	}
+	if err := tx.Q.SaveCardFlow(ctx, db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn,
+		State: board.Working, Round: c.Round, Redos: c.Redos, HandoffNote: c.HandoffNote}); err != nil {
+		return err
+	}
+	// The engine's background tick starts review. The request never waits
+	// for a sources lookup, and the old approval is already closed.
+	return emitSteered(ctx, tx, c.ID, store.System)
+}
+
+type approvalChecks struct {
+	checkedAt    time.Time
+	version      int64
+	legacyText   string
+	resumeReview bool
+	retryCause   error
+	evidence     string
+	validation   []review.StatusResult
+}
+
+// Checks may need the sources service or saved files, so they run outside
+// the approval transaction. The decision and card version are checked again
+// before applying an approval.
+func (e *Engine) checkOwnerApproval(ctx context.Context, ws uuid.UUID, c db.Card, decision uuid.UUID, evidence string, checkedAt time.Time) (approvalChecks, error) {
+	out := approvalChecks{checkedAt: checkedAt, version: c.Version, evidence: evidence}
+	// Grounding's checks require live providers and are completed entirely
+	// in background review. The approval transaction still checks revision.
+	if usesReview(c) && c.BoardColumn == board.Grounding {
+		return out, nil
+	}
+	in, ok, err := e.readScoring(ctx, ws, c.ID, true)
+	if err != nil {
+		return out, err
+	}
+	if !ok || in.card.Version != c.Version {
+		return out, ErrNotWaiting
+	}
+	in.decision, in.evidence = decision, evidence
+	if !usesReview(c) {
+		checks, err := e.legacyChecks(ctx, in)
+		if err != nil {
+			return out, err
+		}
+		out.legacyText = checkedDecisionText(c, checks.summary(), checkedAt)
+		return out, e.persistChecks(ctx, ws, in, checks)
+	}
+	if c.BoardColumn == board.Validation {
+		var replay bool
+		var v validating
+		err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+			study, err := studyRecords(ctx, tx, c.ID)
+			if err != nil || handin.ModeOf(study) != modeRuns {
+				return err
+			}
+			replay = true
+			run, _, err := v.read(ctx, tx, c, study)
+			if err == nil && run == nil {
+				return ErrNotWaiting
+			}
+			return err
+		})
+		if err != nil {
+			return out, err
+		}
+		if replay {
+			checked, _, err := e.checkObjections(ctx, in, v)
+			if err != nil {
+				return out, err
+			}
+			if err := e.persistValidationChecks(ctx, ws, in, &v, checked); err != nil {
+				return out, err
+			}
+			if !hasInvalidReplay(v) {
+				out.validation = v.statuses
+				return out, nil
+			}
+			moved, err := e.applyValidation(ctx, ws, in, v, nil, nil)
+			return out, e.rejectCheckedApproval(ws, c.ID, moved, err)
+		}
+	}
+	// Non-Grounding item reviews use local recorded evidence.
+	res, _, err := e.deterministicReview(ctx, ws, in)
+	if res.Column != "" {
+		if err := e.persistChecks(ctx, ws, in, res); err != nil {
+			return out, err
+		}
+	}
+	if err != nil {
+		out.resumeReview, out.retryCause = true, err
+		return out, nil
+	}
+	if !stopsBeforeApproval(res) {
+		return out, nil
+	}
+	if _, err := e.ownerJev(ctx, c.OwnerID); !errors.Is(err, errNoJev) {
+		out.resumeReview, out.retryCause = true, err
+		return out, nil
+	}
+	res.Judgment = "unavailable"
+	moved, err := e.applyReview(ctx, ws, in, res, errNoJev)
+	return out, e.rejectCheckedApproval(ws, c.ID, moved, err)
+}
+
+func (e *Engine) rejectCheckedApproval(ws, card uuid.UUID, moved bool, err error) error {
+	if err != nil {
+		return err
+	}
+	if moved {
+		e.Kick(ws, card)
+	}
+	return OptionError("Server checks found issues. Read the updated study before continuing.")
+}
+
+// Card versions guard state changes. This revision also guards evidence and
+// comments written since the first locked read, before their wake runs.
+func approvalEvidence(ctx context.Context, tx *store.Tx, card uuid.UUID) (string, error) {
+	return tx.Q.ApprovalEvidenceRevision(ctx, db.ApprovalEvidenceRevisionParams{WorkspaceID: tx.WS, CardID: card})
+}
+
+func verifyApprovalEvidence(ctx context.Context, tx *store.Tx, card uuid.UUID, original string) error {
+	current, err := approvalEvidence(ctx, tx, card)
+	if err != nil {
+		return err
+	}
+	if current != original {
+		return OptionError("Study inputs changed during the server checks. Review the updated work before approving.")
+	}
+	return nil
+}
+
+func (in scoring) checkApprovalEvidence(ctx context.Context, tx *store.Tx) error {
+	return verifyApprovalEvidence(ctx, tx, in.card.ID, in.evidence)
+}
+
+// dismissKeylessApproval retires only the decision whose evidence failed
+// rechecking. Other open decisions keep their own lifecycle.
+func dismissKeylessApproval(ctx context.Context, tx *store.Tx, card, id uuid.UUID) error {
+	n, err := tx.Q.DismissKeylessApproval(ctx, db.DismissKeylessApprovalParams{
+		WorkspaceID: tx.WS, CardID: card, ID: id,
+	})
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrDecisionClosed
+	}
+	return tx.Emit(ctx, "inbox.resolved", &card, store.System, map[string]string{"inbox_item_id": id.String()})
 }
 
 // heldBy is whether the study still waits on stop: a study blocked on its
@@ -163,7 +457,7 @@ func waitsOnQuestion(c db.Card) bool {
 // applyOption applies a stop's option to its locked study, for user, or for
 // no one when the stop expired. It reports whether the column restarts and
 // which runs to cancel once the caller commits.
-func (e *Engine) applyOption(ctx context.Context, tx *store.Tx, c db.Card, user uuid.UUID, option, guidance string) (bool, []uuid.UUID, error) {
+func (e *Engine) applyOption(ctx context.Context, tx *store.Tx, c db.Card, decision db.InboxItem, user uuid.UUID, option, guidance string) (bool, []uuid.UUID, error) {
 	actor := store.System
 	if user != uuid.Nil {
 		actor = store.User(user)
@@ -209,8 +503,8 @@ func (e *Engine) applyOption(ctx context.Context, tx *store.Tx, c db.Card, user 
 	case "try_again":
 		return false, nil, service.ReleaseParkedRuns(ctx, tx, c.ID)
 	case "approve":
-		// approve passes the column in Jev's place, as its owner judged it.
-		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": "approved_by_owner", "by": user}); err != nil {
+		// Approval records an owner decision independently of Jev judgment.
+		if err := writeServer(ctx, tx, c, "outcome", map[string]any{"verdict": "approved_by_owner", "by": user, "decision_id": decision.ID, "decision_cause": ptrOr(decision.Cause)}); err != nil {
 			return false, nil, err
 		}
 		next := db.SaveCardFlowParams{ID: c.ID, WorkspaceID: tx.WS, BoardColumn: c.BoardColumn, State: board.Working, Round: c.Round, Redos: c.Redos}
@@ -425,7 +719,7 @@ func (e *Engine) expire(ctx context.Context, d db.DueDecisionsRow, now time.Time
 				return herr
 			}
 			var cancel []uuid.UUID
-			if _, cancel, err = e.applyOption(ctx, tx, c, uuid.Nil, it.DefaultOption, ""); err != nil {
+			if _, cancel, err = e.applyOption(ctx, tx, c, it, uuid.Nil, it.DefaultOption, ""); err != nil {
 				return err
 			}
 			// No one chose the default, so its runs are cancelled here, as
