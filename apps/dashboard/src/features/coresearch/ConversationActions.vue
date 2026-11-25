@@ -243,7 +243,10 @@ function rename() {
       ref="panel"
       popover="manual"
       class="chat-actions-panel"
-      :class="{ 'chat-actions-picker': view !== 'menu' }"
+      :class="{
+        'chat-actions-picker': view !== 'menu',
+        'chat-actions-compact': view === 'menu' && variant === 'project',
+      }"
       :role="view === 'menu' ? 'menu' : 'dialog'"
       :aria-label="
         view === 'menu' ? 'Chat actions' : view === 'project' ? 'Add to project' : 'Rename chat'
@@ -378,6 +381,12 @@ function rename() {
   background: transparent;
   color: inherit;
   text-align: left;
+}
+.chat-actions-compact {
+  width: min(144px, calc(100vw - 16px));
+}
+.chat-actions-panel.chat-actions-compact > button {
+  min-height: 28px;
 }
 .chat-actions-panel button:hover:not(:disabled),
 .chat-actions-panel button:focus-visible {

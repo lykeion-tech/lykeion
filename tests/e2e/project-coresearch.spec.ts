@@ -54,6 +54,11 @@ test('links both Coresearch modes and gives a project peer read-only access', as
   const actions = (title: string) =>
     page.getByRole('button', { name: `Actions for ${title}`, exact: true });
   await actions(experiment).click();
+  await expect(page.getByRole('menu', { name: 'Chat actions' })).toHaveCSS('width', '144px');
+  await expect(page.getByRole('menuitem', { name: 'Archive', exact: true })).toHaveCSS(
+    'min-height',
+    '28px',
+  );
   await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
   // The trigger ignores clicks until the change has settled.
   await expect(actions(experiment)).toHaveAttribute('aria-busy', 'false');
@@ -74,8 +79,24 @@ test('links both Coresearch modes and gives a project peer read-only access', as
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(filter).toBeFocused();
-  await actions(cowrite).click();
+  await expect(table.getByRole('link', { name: cowrite, exact: true })).toBeVisible();
+
+  await page.goto('/#/coresearch/new');
+  const rail = page.getByRole('complementary', { name: 'Chat', exact: true });
+  const archived = rail.getByRole('button', { name: 'Archived', exact: true });
+  const archivedChat = rail.getByRole('link', { name: new RegExp(cowrite) });
+  await expect(archived).toHaveAttribute('aria-expanded', 'false');
+  await expect(archivedChat).toHaveCount(0);
+  await archived.click();
+  await expect(archivedChat).toBeVisible();
+  await rail.getByRole('button', { name: `Actions for ${cowrite}`, exact: true }).press('ArrowDown');
   await page.getByRole('menuitem', { name: 'Unarchive', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Unarchive', exact: true })).toHaveCount(0);
+  await archived.click();
+  await expect(archivedChat).toBeVisible();
+  await page.goto(path);
+  await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
+  await expect(table.getByRole('link', { name: cowrite, exact: true })).toBeVisible();
 
   const peer = await labMember(browser, page.request, workspace);
   try {

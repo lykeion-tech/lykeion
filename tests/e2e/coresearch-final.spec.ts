@@ -2,6 +2,27 @@ import { expect, test } from './test';
 import { installAristotleFixture } from './aristotle-fixture';
 import { installFilesFixture } from './coresearch-files-fixture';
 
+test('New study starts with no explicit stage selection', async ({ page }) => {
+  await installFilesFixture(page);
+  await page.goto('/#/studies');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const composer = page.getByRole('dialog', { name: 'New study' });
+  const stages = composer.getByRole('menu', { name: 'Study stages' });
+  await composer.getByRole('button', { name: 'Stages', exact: true }).click();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: false })).toHaveCount(4);
+  await stages.getByRole('menuitemcheckbox', { name: 'Hypotheses' }).click();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText(['Hypotheses']);
+  const pill = composer.getByRole('button', { name: 'Stages: Hypotheses', exact: true });
+  await pill.click();
+  await pill.click();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText(['Hypotheses']);
+  await stages.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText([
+    'Grounding',
+    'Hypotheses',
+  ]);
+});
+
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {
   await installAristotleFixture(page);
   await page.goto('/#/coresearch');

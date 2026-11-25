@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,7 @@ type rerunServer struct {
 	mu          sync.Mutex
 	started     bool
 	attachments map[uuid.UUID]string
+	inputs      map[string]string
 	outputs     map[string]string
 	services    map[string][]byte
 	result      map[string]any
@@ -56,6 +58,13 @@ func (s *rerunServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/api/role/attachments/"):
 		id, _ := uuid.Parse(strings.TrimPrefix(p, "/api/role/attachments/"))
 		w.Write([]byte(s.attachments[id]))
+		return
+	case strings.HasPrefix(p, "/api/role/outputs/") && r.Method == http.MethodGet:
+		if b, ok := s.inputs[strings.TrimPrefix(p, "/api/role/outputs/")]; ok {
+			w.Write([]byte(b))
+		} else {
+			http.NotFound(w, r)
+		}
 		return
 	case p == "/api/role/outputs":
 		f, _, err := r.FormFile("file")
@@ -201,6 +210,41 @@ func listing(t *testing.T, dir string) (string, time.Time) {
 	fi, err := os.Stat(dir)
 	must(t, err)
 	return strings.Join(names, ","), fi.ModTime()
+}
+
+func TestRerunRestoresSavedInputs(t *testing.T) {
+	input := "0.873\n"
+	rc := newRerun(t, fakePackages, []service.RerunStep{{
+		Key: "x1", Path: "outputs/score.py", Language: envs.Python,
+		Script:      ". ./outputs/helper.sh && score > outputs/auc.txt\n",
+		OutputPaths: []string{"outputs/auc.txt"},
+	}}, nil)
+	helper := "score() { cat outputs/predictions.txt; }\n"
+	rc.srv.inputs = map[string]string{"o1": helper, "o2": input}
+	// Decode the claim the same way an installed daemon does.
+	claim := fmt.Sprintf(`{"inputs":[{"key":"o1","name":"outputs/helper.sh","sha256":"%x","size_bytes":%d},{"key":"o2","name":"outputs/predictions.txt","sha256":"%x","size_bytes":%d}]}`,
+		sha256.Sum256([]byte(helper)), len(helper), sha256.Sum256([]byte(input)), len(input))
+	must(t, json.Unmarshal([]byte(claim), rc.c.Rerun))
+	rc.run(t)
+	if rc.srv.outputs["outputs/auc.txt"] != input || rc.srv.outputs["outputs/helper.sh"] != "" || rc.srv.outputs["outputs/predictions.txt"] != "" {
+		t.Fatalf("expected only the regenerated metric, got %v; replay %#v", rc.srv.outputs, rc.srv.result)
+	}
+}
+
+func TestRerunRejectsChangedSavedInput(t *testing.T) {
+	rc := newRerun(t, fakePackages, []service.RerunStep{{
+		Key: "x1", Path: "score.py", Language: envs.Python,
+		Script: "echo 123\n",
+	}}, nil)
+	rc.srv.inputs = map[string]string{"o1": "wrong"}
+	rc.c.Rerun.Inputs = []service.ReplayInput{{
+		Key: "o1", SizeBytes: int64(len("right")),
+		SavedOutput: service.SavedOutput{Name: "outputs/helper.py", Sha256: fmt.Sprintf("%x", sha256.Sum256([]byte("right")))},
+	}}
+	rc.run(t)
+	if rc.srv.result != nil || !strings.Contains(fmt.Sprint(rc.srv.fail), "checksum") {
+		t.Fatalf("bad input was not refused: result %v failure %v", rc.srv.result, rc.srv.fail)
+	}
 }
 
 func TestRerunReplaysScriptsInAFreshFolder(t *testing.T) {

@@ -235,8 +235,8 @@ test.describe('new study', () => {
     await dialog.getByRole('button', { name: 'Stages', exact: true }).click();
     await page.screenshot({ path: `${shots}/stages-pill.png` });
     const menu = dialog.getByRole('menu', { name: 'Study stages' });
-    await menu.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
-    await menu.getByRole('menuitemcheckbox', { name: 'Experimentation' }).click();
+    await menu.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
+    await menu.getByRole('menuitemcheckbox', { name: 'Hypotheses' }).click();
     await expect(
       dialog.getByRole('button', { name: 'Stages: Grounding → Hypotheses' }),
     ).toBeVisible();

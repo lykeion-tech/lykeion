@@ -1,11 +1,12 @@
-import { installFilesFixture } from './coresearch-files-fixture';
+import { installAristotleFixture } from './aristotle-fixture';
 import { expect, test } from './test';
 
 const project = { id: 'project', name: 'Fixture project', description: '', studies: [] };
 
 test.beforeEach(async ({ page }) => {
-  await installFilesFixture(page);
+  await installAristotleFixture(page);
   await page.setViewportSize({ width: 1233, height: 864 });
+  await page.route('**/api/researches', (route) => route.fulfill({ json: [project] }));
   await page.route('**/api/researches/project', (route) => route.fulfill({ json: project }));
   await page.route('**/api/cards', (route) => route.fulfill({ json: [] }));
   await page.route('**/api/study-proposals?*', (route) =>
@@ -14,18 +15,35 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('project tabs center their empty states in the content pane', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('lykeion.preferences', JSON.stringify({ theme: 'midnight' })),
+  );
   await page.route('**/api/researches/project/coresearch', (route) => route.fulfill({ json: [] }));
   await page.goto('/#/projects/project');
-  for (const [tab, title] of [
-    ['Studies', 'No studies'],
-    ['Coresearches', 'No Coresearches linked'],
+  for (const [tab, title, description, action] of [
+    [
+      'Studies',
+      'No studies',
+      'Start a new study or add an existing one from Studies.',
+      'New study',
+    ],
+    [
+      'Coresearches',
+      'No Coresearches linked',
+      'Start a new chat or add an existing one from Coresearch.',
+      'New chat',
+    ],
   ]) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     const panel = page.getByRole('tabpanel', { name: tab });
     const empty = panel.locator('.project-empty');
     await expect(empty.getByRole('heading', { name: title, exact: true })).toBeVisible();
-    await expect(empty.locator('svg')).toHaveCount(1);
-    await expect(panel.getByRole('button', { name: 'New study', exact: true })).toHaveCount(0);
+    await expect(empty.getByText(description, { exact: true })).toBeVisible();
+    const create = empty.getByRole(tab === 'Studies' ? 'button' : 'link', {
+      name: action,
+      exact: true,
+    });
+    await expect(create).toBeVisible();
     const bounds = (await empty.boundingBox())!;
     const pane = (await panel.boundingBox())!;
     expect(bounds.width).toBeCloseTo(pane.width, 0);
@@ -37,12 +55,62 @@ test('project tabs center their empty states in the content pane', async ({ page
     });
     expect(contents.x).toBeCloseTo(bounds.x + bounds.width / 2, 0);
     expect(contents.y).toBeCloseTo(bounds.y + bounds.height / 2, 0);
+    if (tab === 'Coresearches') {
+      const filter = page.getByRole('button', { name: 'Filter', exact: true });
+      const tabButton = page.getByRole('tab', { name: tab, exact: true });
+      expect((await filter.boundingBox())!.y).toBe((await tabButton.boundingBox())!.y);
+      await filter.click();
+      await page.getByRole('menuitemradio', { name: 'Archived', exact: true }).click();
+      await expect(empty.getByRole('heading', { name: 'No archived chats' })).toBeVisible();
+      await expect(create).toHaveCount(0);
+      await filter.click();
+      await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click();
+    }
+    await create.click();
+    if (tab === 'Studies') {
+      const dialog = page.getByRole('dialog', { name: 'New study', exact: true });
+      await expect(dialog.getByRole('button', { name: project.name, exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+    } else {
+      await expect(page).toHaveURL(/#\/coresearch\/new$/);
+      await expect(page.getByRole('textbox', { name: 'Message the agent' })).toBeVisible();
+    }
   }
+});
+
+test('a project with only archived chats still offers a new chat in the active view', async ({
+  page,
+}) => {
+  await page.route('**/api/researches/project/coresearch', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'archived',
+          title: 'Archived chat',
+          mode: 'experiment',
+          archived_at: '2026-11-01',
+          updated_at: '2026-11-01',
+          is_owner: false,
+        },
+      ],
+    }),
+  );
+  await page.goto('/#/projects/project');
+  await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Coresearches' });
+  await expect(panel.getByRole('heading', { name: 'No active chats' })).toBeVisible();
+  await expect(panel.getByRole('link', { name: 'New chat' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Filter' }).click();
+  await panel.getByRole('menuitemradio', { name: 'Archived' }).click();
+  await expect(panel.getByRole('button', { name: 'Archived chat' })).toBeVisible();
+  await expect(panel.getByRole('link', { name: 'New chat' })).toHaveCount(0);
 });
 
 test('Coresearches aligns its controls with Studies and filters chats by mode', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1629, height: 864 });
   await page.route('**/api/researches/project/coresearch', (route) =>
     route.fulfill({
       json: [
@@ -64,8 +132,17 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
   const display = panel.getByRole('button', { name: 'Display', exact: true });
   await expect(experiment).toBeVisible();
   await expect(cowrite).toBeVisible();
+  const studies = page.getByRole('tab', { name: 'Studies', exact: true });
+  const table = panel.getByRole('table', { name: 'Coresearch chats' });
+  const tableBox = (await table.boundingBox())!;
+  const displayBox = (await display.boundingBox())!;
+  const tabX = (await studies.boundingBox())!.x;
+  expect(tableBox.x).toBe(tabX);
+  expect((await experiment.boundingBox())!.x).toBe(tabX);
+  expect(tableBox.x + tableBox.width).toBe(displayBox.x + displayBox.width);
+  await expect(table.getByRole('columnheader', { name: 'Name' })).toHaveCSS('padding-left', '0px');
   expect((await filter.boundingBox())!.y).toBe(studyDisplay.y);
-  expect((await display.boundingBox())!.y).toBe(studyDisplay.y);
+  expect(displayBox.y).toBe(studyDisplay.y);
   await display.press('ArrowDown');
   await expect(panel.getByRole('menuitemcheckbox')).toHaveText(['experiment', 'cowrite']);
   await expect(
@@ -84,5 +161,14 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
   await expect(panel.getByRole('heading', { name: 'No chats match these filters' })).toBeVisible();
   await display.click();
   await panel.getByRole('menuitemcheckbox', { name: 'cowrite', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Archived chat', exact: true })).toBeVisible();
+  const archived = panel.getByRole('button', { name: 'Archived chat', exact: true });
+  await expect(archived).toBeVisible();
+  await page.setViewportSize({ width: 640, height: 864 });
+  await page.getByRole('button', { name: 'Toggle project properties' }).click();
+  const narrowTable = (await table.boundingBox())!;
+  const narrowDisplay = (await display.boundingBox())!;
+  const narrowTabX = (await studies.boundingBox())!.x;
+  expect(narrowTable.x).toBe(narrowTabX);
+  expect((await archived.boundingBox())!.x).toBe(narrowTabX);
+  expect(narrowTable.x + narrowTable.width).toBe(narrowDisplay.x + narrowDisplay.width);
 });

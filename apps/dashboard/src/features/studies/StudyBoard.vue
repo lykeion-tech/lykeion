@@ -58,6 +58,7 @@ import {
 } from '../../lib/studies';
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
+import { useStudyComposer } from '../../state/study-composer';
 const metadataObservers = new WeakMap<
   HTMLElement,
   { resize?: ResizeObserver; mutation?: MutationObserver }
@@ -99,6 +100,7 @@ const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace'
   scope: 'workspace',
 });
 const router = useRouter();
+const { openComposer } = useStudyComposer();
 const cards = useCards();
 const proposals = useStudyProposals();
 const needsUpgrade = computed(
@@ -700,7 +702,16 @@ onUnmounted(() => {
     {{ actionError }}
   </p>
   <p v-if="cards.isPending.value" class="board-loading" role="status">Loading studies…</p>
-  <ProjectEmptyState v-else-if="emptyProject" icon="tasks" title="No studies" />
+  <ProjectEmptyState
+    v-else-if="emptyProject"
+    icon="tasks"
+    title="No studies"
+    description="Start a new study or add an existing one from Studies."
+  >
+    <button type="button" class="button primary compact" @click="openComposer(undefined, projectId)">
+      <Icon name="plus" :size="14" aria-hidden="true" />New study
+    </button>
+  </ProjectEmptyState>
   <div v-if="!emptyProject" :class="display.mode === 'Board' ? 'board-scroll' : 'study-list'">
     <section aria-label="To-do" :class="{ 'board-column stage-todo': display.mode === 'Board' }">
       <header v-if="display.mode === 'Board'">
@@ -735,7 +746,7 @@ onUnmounted(() => {
           v-else-if="!matchingProposals.length"
           :class="display.mode === 'Board' ? 'column-empty' : 'list-empty'"
         >
-          No proposals
+          no to-dos
         </p>
         <button
           v-for="p in matchingProposals"

@@ -250,10 +250,10 @@ const invite = () =>
                 <router-link
                   v-if="selectedMember.user_id === me.data.value?.id"
                   :to="{ path: '/settings', query: { tab: 'profile' } }"
-                  class="button"
+                  class="icon-button"
                   aria-label="Edit research profile"
                 >
-                  Edit
+                  <Icon name="edit" :size="14" />
                 </router-link>
               </div>
               <p v-if="researchProfile.isPending.value" class="muted">Loading research profile…</p>
@@ -320,7 +320,7 @@ const invite = () =>
               <h3>Workspace access</h3>
               <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
               <p v-if="!isAdmin">{{ roleNames[selectedMember.role] }}</p>
-              <SelectPicker v-if="isAdmin"
+              <SelectPicker v-if="isAdmin" :min-width="120"
                 ><select
                   :value="selectedMember.role"
                   :disabled="busy"
@@ -735,7 +735,7 @@ const invite = () =>
 }
 .colleague-panel-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px 16px;

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
 )
 
@@ -92,6 +93,7 @@ type rerunClaim struct {
 		}
 		Python      string
 		Attachments []any
+		Inputs      []service.ReplayInput
 		Saved       []struct{ Name, Sha256 string }
 	}
 	ref map[string]any
@@ -185,6 +187,43 @@ func TestRerunClaimCarriesScriptsInOrder(t *testing.T) {
 	}
 	if cl.Rerun.Saved == nil || len(cl.Rerun.Saved) != 0 {
 		t.Fatalf("a first attempt has saved %+v", cl.Rerun.Saved)
+	}
+}
+
+func TestRerunReadsOnlyItsPinnedInputOutput(t *testing.T) {
+	l := newRerunLab(t)
+	var producer uuid.UUID
+	if err := l.s.Env.Owner.QueryRow(t.Context(), `INSERT INTO agent_run
+		(workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, status)
+		VALUES ($1, $2, $3, 'experimentation', 1, 'leader', 'codex', 'score', 'completed') RETURNING id`,
+		l.ws, l.card, l.owner).Scan(&producer); err != nil {
+		t.Fatal(err)
+	}
+	l.record(t, "experimentation", "run", "x1", map[string]any{
+		"tool": "run_script", "language": "python", "path": "outputs/score.py", "script": "# score", "exit_status": 0,
+	}, &producer)
+	l.record(t, "experimentation", "value", "r1", map[string]any{
+		"name": "accuracy", "value": "1", "file": "outputs/score.json", "cites": []string{"run:x1"},
+	}, &producer)
+	content := "VALUE = 1\n"
+	sum := hexSHA(content)
+	l.record(t, "experimentation", "output", "o1", map[string]any{"name": "outputs/helper.py", "sha256": sum, "size_bytes": len(content)}, &producer)
+	l.record(t, "experimentation", "output", "o2", map[string]any{"name": "outputs/score.json", "sha256": sum, "size_bytes": len(content)}, &producer)
+	blob := l.ws + "/" + l.card.String() + "/" + sum
+	if err := l.s.H.Blobs.Put(t.Context(), blob, strings.NewReader(content), int64(len(content))); err != nil {
+		t.Fatal(err)
+	}
+	l.s.mustUpdate(t, "UPDATE record SET blob_key = $1 WHERE card_id = $2 AND kind = 'output'", blob, l.card)
+	l.enqueue(t)
+	cl := l.claim(t)
+	if got := cl.Rerun.Inputs; len(got) != 1 || got[0].Key != "o1" || got[0].Sha256 != sum {
+		t.Fatalf("inputs %+v", got)
+	}
+	if status := l.s.call(t, "GET", "/api/role/outputs/o1", cl.Token, "", nil, nil); status != 200 {
+		t.Fatalf("pinned input status %d", status)
+	}
+	if status := l.s.call(t, "GET", "/api/role/outputs/o2", cl.Token, "", nil, nil); status != 404 {
+		t.Fatalf("measured output accessible as an input: %d", status)
 	}
 }
 

@@ -150,11 +150,22 @@ const selectedOnline = computed(() => {
 const unstaged = computed(() => teamColumns.value.includes(''));
 const fixedStage = computed(() => props.agentOnly || (props.oneAgent && assignee.value?.type === 'agent') || (assignee.value?.type === 'team' && !unstaged.value));
 const stageChosen = ref(false);
+const implicitRange = computed(
+  () =>
+    props.oneAgent &&
+    !props.agentOnly &&
+    !assignee.value &&
+    !stageChosen.value &&
+    range.value.from === 'grounding' &&
+    range.value.to === 'validation',
+);
+function stageSelected(stage: Column) {
+  return !implicitRange.value && coversStage(stage, range.value, []);
+}
 const stageLabel = computed(() => {
   if (unstaged.value) return 'Choose a stage';
+  if (implicitRange.value) return 'Stages';
   const { from, to } = range.value;
-  if (props.oneAgent && !assignee.value && !props.agentOnly && !stageChosen.value &&
-      from === 'grounding' && to === 'validation') return 'Stages';
   return stageName(from) + (from === to ? '' : ' → ' + stageName(to));
 });
 const showTodo = computed(() => props.allowTodo && matchesQuery('To-do', query.value));
@@ -214,7 +225,12 @@ function assign(value: Picked | null, last = false, isSet = false) {
   closeMenu();
 }
 function toggleStage(stage: Column) {
+  const firstChoice = implicitRange.value;
   stageChosen.value = true;
+  if (firstChoice) {
+    range.value = { from: stage, to: stage };
+    return;
+  }
   const i = stages.indexOf(stage);
   const from = stages.indexOf(range.value.from as Column);
   const to = stages.indexOf(range.value.to as Column);
@@ -507,10 +523,10 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
           <span class="stage-picker-icon" aria-hidden="true"></span>To-do
         </button>
         <button v-for="stage in matchingStages" :disabled="fixedStage" :key="stage" type="button" role="menuitemcheckbox"
-          :aria-checked="coversStage(stage, range, [])" @click="unstaged ? pickColumn(stage) : toggleStage(stage)">
+          :aria-checked="stageSelected(stage)" @click="unstaged ? pickColumn(stage) : toggleStage(stage)">
           <span class="stage-picker-icon" :class="`stage-picker-icon--${stage}`" aria-hidden="true"></span>
           <span>{{ stageName(stage) }}</span>
-          <Icon v-if="coversStage(stage, range, [])" name="check" :size="14" class="stage-picker-check" />
+          <Icon v-if="stageSelected(stage)" name="check" :size="14" class="stage-picker-check" />
         </button>
         <p v-if="!matchingStages.length && !showTodo">No matching stages</p>
       </div>

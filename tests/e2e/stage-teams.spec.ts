@@ -31,7 +31,7 @@ test('built-in stage Teams show and filter by General-purpose domain', async ({ 
   await expect(page.locator('.team-settings')).toContainText('General-purpose');
 });
 
-test('a study with no Team picked gets its stage’s built-in Team and the board starts at Grounding', async ({
+test('a study with no Team picked gets the built-in Team for its chosen stage', async ({
   page,
 }) => {
   const ws = await builtInWorkspace(page.request);
@@ -68,9 +68,7 @@ test('a study with no Team picked gets its stage’s built-in Team and the board
   await dialog.getByRole('button', { name: 'Assignees' }).click();
   await dialog.getByRole('button', { name: 'Stages', exact: true }).click();
   const stages = dialog.getByRole('menu', { name: 'Study stages' });
-  await stages.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
-  await stages.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
-  await stages.getByRole('menuitemcheckbox', { name: 'Experimentation' }).click();
+  await stages.getByRole('menuitemcheckbox', { name: 'Hypotheses' }).click();
   const saved = page.waitForResponse(
     (r) => r.url().endsWith('/api/cards') && r.request().method() === 'POST',
   );

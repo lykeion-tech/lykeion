@@ -304,6 +304,8 @@ A study is the place to describe a research question and follow its execution an
 4. Attach any required inputs and wait for uploads to finish. Select a project or priority when useful.
 5. Review the configuration and select Create study. Reopen the resulting card to confirm its identifier and assignment.
 
+For a study using the default built-in Teams, the **Stages** menu starts with no stages checked. Your first selection sets a single stage. Choose another stage to extend the range. If you submit without choosing a stage or an assignee, the study uses all four stages.
+
 ![Actual populated study creation form before submission](/docs/new-study-form.jpg)
 
 For a first attempt, prefer a small question with a deliverable you can inspect. If you use Create with agent, inspect what it produces rather than assuming every requested property was applied.
@@ -406,6 +408,8 @@ Start from a study you can access in the selected workspace. The useful result i
 3. Open Files to browse generated artifacts and attached material. Search or switch between grid and list views when the collection grows.
 4. Open Notebook for recorded computation, including code, printed output and standard error where present.
 5. Open Review for the available checks and their explanations. Select a stage or check to inspect its details.
+
+Validation restores helper files and inputs saved under \`outputs/\` by the run that produced a cited script. Save those dependencies with the run, and cite the script that recomputes the measurement. Validation checks whether the replay regenerates recorded measurements.
 
 For a failed Validation replay, open **Full log** on the rerun card in Activity to see the script's exit status and any recorded standard error.
 
@@ -772,6 +776,8 @@ When editing a file, pay attention to unsaved changes before switching material.
 Open the three-dot menu beside an Experiment or Cowrite chat in the Coresearch sidebar and choose **Add to project**. Search for a workspace project or create one from the picker. Selecting a project immediately lets anyone who can view that project read the conversation and download its saved artifacts. They open it from the project's **Coresearches** tab. Existing Cowrite collaborators keep their current permissions.
 
 Each chat appears in one workspace project at a time. Select another project to move it, or choose **Remove from project** to remove that project's access. The conversation, files, and run history stay together. From a project's **Coresearches** tab, the chat owner can pin, rename, archive, or delete a chat. Use **Filter** to switch to **Archived**, where project viewers can still read archived chats and owners can restore them. Under **Display**, select **experiment** or **cowrite** to show that mode. Select the same mode again to show both.
+
+Archived chats also appear under **Archived** in the owner's Coresearch sidebar. Expand the section to open a chat or choose **Unarchive** from its three-dot menu. A chat keeps its project link when archived or restored.
 
 ## Keep work understandable
 
