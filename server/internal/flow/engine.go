@@ -509,23 +509,29 @@ func (e *Engine) deferScoringForComments(ctx context.Context, tx *store.Tx, c db
 	return true, err
 }
 
-// JevFor is Jev under user's own TypeSafe key, or nil when they saved none
-// or it cannot be opened, in which case the owner decides in Jev's place.
+// JevFor is the optional Jev client for ancillary tasks. Stage gates use
+// ownerJev to distinguish a missing key from one the server cannot read.
 func (e *Engine) JevFor(ctx context.Context, user uuid.UUID) *jev.Client {
+	j, err := e.ownerJev(ctx, user)
+	if err != nil && !errors.Is(err, errNoJev) {
+		slog.Warn("typesafe key unavailable", "user", user, "err", err)
+	}
+	return j
+}
+
+func (e *Engine) ownerJev(ctx context.Context, user uuid.UUID) (*jev.Client, error) {
 	if e.Jev != nil {
-		return e.Jev
+		return e.Jev, nil
 	}
 	if e.JevKey == nil || user == uuid.Nil {
-		return nil
+		return nil, errNoJev
 	}
 	key, err := e.JevKey(ctx, user)
 	if err != nil {
-		// ponytail: an unreadable key counts as none, so the owner is asked; retry here if lookups prove flaky.
-		slog.Warn("typesafe key unavailable", "user", user, "err", err)
-		return nil
+		return nil, fmt.Errorf("%w: %v", errUnreadableJevKey, err)
 	}
 	if key == "" {
-		return nil
+		return nil, errNoJev
 	}
-	return &jev.Client{BaseURL: jev.BaseURL, Key: key, Model: jev.Model}
+	return &jev.Client{BaseURL: jev.BaseURL, Key: key, Model: jev.Model}, nil
 }

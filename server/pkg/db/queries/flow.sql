@@ -82,3 +82,9 @@ UPDATE record SET superseded_at = now()
 WHERE workspace_id = @workspace_id AND card_id = @card_id
   AND board_column = @board_column AND round = @round
   AND kind IN ('summary', 'audit') AND superseded_at IS NULL;
+
+-- name: HasOpenScoringNotice :one
+SELECT EXISTS (
+  SELECT 1 FROM inbox_item WHERE workspace_id = @workspace_id AND card_id = @card_id::uuid
+    AND kind = 'scoring_unavailable' AND resolved_at IS NULL AND text = @text
+);

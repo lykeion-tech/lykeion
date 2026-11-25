@@ -29,7 +29,12 @@ import (
 	db "lykeion/server/pkg/db/generated"
 )
 
-var errNoSources = errors.New("the server has no sources lookup")
+var (
+	errNoSources      = errors.New("the server has no sources lookup")
+	errSourceLookup   = errors.New("source lookup unavailable")
+	errRecallLookup   = errors.New("recall search unavailable")
+	errJevUnavailable = errors.New("Jev judgment unavailable")
+)
 
 // maxOutputText is the largest saved file read as text for the value check;
 // larger files are left out. ponytail: whole-file read, stream the tokens if
@@ -40,9 +45,9 @@ const maxOutputText = 8 << 20
 // again after its redo; reasons are the lines review.Reasons gave.
 func reviewBlockedText(number int32, column string, reasons []string) string {
 	if len(reasons) == 0 {
-		reasons = []string{"Jev's review found problems with this column."}
+		reasons = []string{"The review found problems with this column."}
 	}
-	return fmt.Sprintf("Study #%d's %s column failed Jev's review again after its redo. Still failing:\n- %s\nComment on the study to tell the Team what to fix.", number, title(column), strings.Join(reasons, "\n- "))
+	return fmt.Sprintf("Study #%d's %s column failed review again after its redo. Still failing:\n- %s\nComment on the study to tell the Team what to fix.", number, title(column), strings.Join(reasons, "\n- "))
 }
 
 // usesReview says whether the study's current column is reviewed item by
@@ -72,12 +77,50 @@ type reviewing struct {
 // asked with no transaction open; when either cannot answer, the study stays
 // where it is, as with scoring.
 func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) error {
-	rv, err := e.readReview(ctx, ws, in.card)
-	var res review.Result
-	if err != nil {
-		err = fmt.Errorf("reading the %s review's inputs: %w", in.card.BoardColumn, err)
-	} else if res, err = e.runReview(ctx, ws, in, rv); err != nil {
-		err = fmt.Errorf("%s review: %w", in.card.BoardColumn, err)
+	if in.card.BoardColumn == board.Grounding && !in.recheckStanding {
+		// A keyless approval certifies current source checks for standing
+		// papers too. Reading the owner’s key locally does not ask Jev.
+		_, keyErr := e.ownerJev(ctx, in.card.OwnerID)
+		in.recheckStanding = errors.Is(keyErr, errNoJev)
+	}
+	res, run, err := e.deterministicReview(ctx, ws, in)
+	if err == nil {
+		in.checkedAt = e.now()
+	}
+	if res.Column != "" {
+		persistErr := e.persistChecks(ctx, ws, in, res)
+		if errors.Is(persistErr, ErrNotWaiting) {
+			return nil
+		}
+		err = errors.Join(err, persistErr)
+	}
+	if err == nil && (res.NeedsJudgment || res.Recall != nil && len(res.Recall.Unscreened) != 0) {
+		j, jerr := e.ownerJev(ctx, in.card.OwnerID)
+		if jerr == nil {
+			judged, jerr := run(retryAsker{&reviewPass{e: e, ws: ws, card: in.card, jev: j, retry: e.retry(), renewed: e.now()}})
+			if jerr == nil {
+				res = judged
+			}
+			err = jerr
+		} else {
+			err = jerr
+		}
+		if err != nil {
+			res.Judgment = "unavailable"
+			if errors.Is(err, errNoJev) && in.card.BoardColumn == board.Grounding && !in.recheckStanding &&
+				slices.ContainsFunc(res.Items, func(it review.Item) bool {
+					return it.Carried && (it.Status == review.Pass || it.Status == review.Unclear)
+				}) {
+				// The key was removed while checking new sources. Finish the
+				// standing checks before opening an owner decision.
+				in.recheckStanding = true
+				return e.reviewColumn(ctx, ws, in)
+			}
+			if errors.Is(err, errNoJev) && !res.NeedsJudgment {
+				// Unscreened recall alone never holds a keyless column.
+				err = nil
+			}
+		}
 	}
 	markReviewFailed(ctx, err)
 	moved, werr := e.applyReview(ctx, ws, in, res, err)
@@ -91,6 +134,10 @@ func (e *Engine) reviewColumn(ctx context.Context, ws uuid.UUID, in scoring) err
 }
 
 func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (reviewing, error) {
+	return e.readReviewInputs(ctx, ws, c, false)
+}
+
+func (e *Engine) readReviewInputs(ctx context.Context, ws uuid.UUID, c db.Card, recheck bool) (reviewing, error) {
 	var rv reviewing
 	err := e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
@@ -109,6 +156,11 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		for _, r := range recs {
 			col, item := review.ColumnOf(r.Kind)
 			switch {
+			case r.Kind == "server_checks" && r.Round == c.Round:
+				refresh := records.Body[struct {
+					ApprovalRefresh bool `json:"approval_refresh"`
+				}](r)
+				recheck = recheck || refresh.ApprovalRefresh
 			case r.Kind == "review" && r.Round == c.Round-1: // read by lastReview
 			case r.Kind == review.KindWithdrawn:
 				if r.Round == c.Round {
@@ -166,9 +218,19 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			}
 		}
 		for _, it := range prev.Items {
-			if (it.Status == review.Pass || it.Status == review.Unclear) && it.Kind != review.KindOutputs {
-				rv.carried = append(rv.carried, it)
+			if it.Kind == review.KindOutputs || it.Status != review.Pass && it.Status != review.Unclear {
+				continue
 			}
+			if (it.Unjudged || recheck) && it.Key != "" {
+				// A deterministic pass still needs judgment. Recheck that
+				// input on a redo, or any standing input on owner approval.
+				if rv.addStandingInput(recs, it) {
+					continue
+				}
+				it.Status = review.Fail
+				it.Checks = append(slices.Clone(it.Checks), review.Check{ID: "record_current", By: "server", Status: review.Fail, Detail: "the reviewed record is no longer current"})
+			}
+			rv.carried = append(rv.carried, it)
 		}
 		// An item declared again keeps its earlier standing: it is not asked again.
 		rv.items = slices.DeleteFunc(rv.items, func(r db.Record) bool {
@@ -190,6 +252,7 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 			}
 			rv.carried = append(rv.carried, it)
 		}
+
 		if c.BoardColumn == board.Validation {
 			if rv.sources, err = claimSources(ctx, tx, c.ID, rv.items); err != nil {
 				return err
@@ -245,6 +308,23 @@ func (e *Engine) readReview(ctx context.Context, ws uuid.UUID, c db.Card) (revie
 		return nil
 	})
 	return rv, err
+}
+
+func (rv *reviewing) addStandingInput(recs []db.Record, item review.Item) bool {
+	if item.Kind == "value" && slices.ContainsFunc(rv.work, func(r db.Record) bool { return r.Key == item.Key }) ||
+		item.Kind != "value" && slices.ContainsFunc(rv.items, func(r db.Record) bool { return sameItem(item, r) }) {
+		return true
+	}
+	i := slices.IndexFunc(recs, func(r db.Record) bool { return r.Key == item.Key })
+	if i < 0 {
+		return false
+	}
+	if item.Kind == "value" {
+		rv.work = append(rv.work, recs[i])
+	} else {
+		rv.items = append(rv.items, recs[i])
+	}
+	return true
 }
 
 // correctedValue accepts only a lead's recorded hand-in explicitly answering
@@ -482,29 +562,32 @@ func recordKey(cite string) string {
 	return cite
 }
 
-// runReview asks the column's reviewer. It reads blobs and asks Jev and the
-// sources, so no transaction is open.
-func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv reviewing) (review.Result, error) {
-	p := &reviewPass{e: e, ws: ws, card: in.card, jev: e.JevFor(ctx, in.card.OwnerID), retry: e.retry(), renewed: e.now()}
-	a := retryAsker{p}
+// prepareReview pins the inputs used by both deterministic checks and judgment.
+func (e *Engine) prepareReview(ctx context.Context, ws uuid.UUID, in scoring, rv reviewing) (func(review.Asker) (review.Result, error), error) {
 	switch in.card.BoardColumn {
 	case board.Grounding:
 		if e.Sources == nil {
-			return review.Result{}, errNoSources
+			return nil, errNoSources
 		}
-		return review.Grounding(ctx, a, lookup{e.Sources, p}, review.GroundingInput{Question: asked(in.card),
-			Comments: rv.comments, Declined: rv.declined, Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
+		p := &reviewPass{e: e, ws: ws, card: in.card, renewed: e.now()}
+		src := &reviewSources{lookup: lookup{e.Sources, p}}
+		return func(a review.Asker) (review.Result, error) {
+			return review.Grounding(ctx, a, src, review.GroundingInput{Question: asked(in.card),
+				Comments: rv.comments, Declined: rv.declined, Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
+		}, nil
 	case board.Hypotheses:
-		return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
-			Carried: rv.carried, Attempt: in.attempt})
+		return func(a review.Asker) (review.Result, error) {
+			return review.Hypotheses(ctx, a, review.HypothesesInput{Question: asked(in.card), Items: rv.items, Cited: rv.cited,
+				Carried: rv.carried, Attempt: in.attempt})
+		}, nil
 	case board.Experimentation:
 		runs, err := LoadRuns(ctx, e.Blobs, rv.runs)
 		if err != nil {
-			return review.Result{}, fmt.Errorf("reading run output: %w", err)
+			return nil, fmt.Errorf("reading run output: %w", err)
 		}
 		files, err := e.outputTexts(ctx, rv.work)
 		if err != nil {
-			return review.Result{}, fmt.Errorf("reading saved files: %w", err)
+			return nil, fmt.Errorf("reading saved files: %w", err)
 		}
 		values := slices.DeleteFunc(valueChecks(MatchValuesIn(rv.work, runs, files), rv.work, runs, files), func(v review.ValueCheck) bool {
 			return slices.ContainsFunc(rv.carried, func(it review.Item) bool {
@@ -514,16 +597,81 @@ func (e *Engine) runReview(ctx context.Context, ws uuid.UUID, in scoring, rv rev
 				return it.Identity == review.ValueIdentity(v)
 			})
 		})
-		return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
-			Values: values, Carried: rv.carried, Attempt: in.attempt})
+		return func(a review.Asker) (review.Result, error) {
+			return review.Experimentation(ctx, a, review.ExperimentationInput{Declared: rv.items, Saved: rv.saved,
+				Values: values, Carried: rv.carried, Attempt: in.attempt})
+		}, nil
 	case board.Validation:
 		texts, err := e.sourceTexts(ctx, rv.sources)
 		if err != nil {
-			return review.Result{}, fmt.Errorf("reading sources: %w", err)
+			return nil, fmt.Errorf("reading sources: %w", err)
 		}
-		return review.Claims(ctx, a, review.ClaimsInput{Items: rv.items, Sources: texts, Carried: rv.carried, Attempt: int32(in.attempt)})
+		return func(a review.Asker) (review.Result, error) {
+			return review.Claims(ctx, a, review.ClaimsInput{Items: rv.items, Sources: texts, Carried: rv.carried, Attempt: int32(in.attempt)})
+		}, nil
 	}
-	return review.Result{}, fmt.Errorf("no item review for the %s column", in.card.BoardColumn)
+	return nil, fmt.Errorf("no item review for the %s column", in.card.BoardColumn)
+}
+
+// One live lookup per reference, reused when judging the checked
+// snapshot. A recall result must not change between checks and judgment.
+type lookupResult[T any] struct {
+	value T
+	err   error
+}
+
+type reviewSources struct {
+	lookup
+	papers, datasets map[string]lookupResult[sources.Hit]
+	searches         map[string]lookupResult[[]sources.Hit]
+}
+
+func cachedLookup[T any](cache *map[string]lookupResult[T], key string, fetch func() (T, error)) (T, error) {
+	if *cache == nil {
+		*cache = make(map[string]lookupResult[T])
+	}
+	r, ok := (*cache)[key]
+	if !ok {
+		r.value, r.err = fetch()
+		(*cache)[key] = r
+	}
+	return r.value, r.err
+}
+
+func (s *reviewSources) Paper(ctx context.Context, id string) (sources.Hit, error) {
+	return cachedLookup(&s.papers, id, func() (sources.Hit, error) { return s.lookup.Paper(ctx, id) })
+}
+func (s *reviewSources) Dataset(ctx context.Context, id string) (sources.Hit, error) {
+	return cachedLookup(&s.datasets, id, func() (sources.Hit, error) { return s.lookup.Dataset(ctx, id) })
+}
+func (s *reviewSources) Search(ctx context.Context, query string) ([]sources.Hit, error) {
+	return cachedLookup(&s.searches, query, func() ([]sources.Hit, error) { return s.lookup.Search(ctx, query) })
+}
+
+func (e *Engine) deterministicReview(ctx context.Context, ws uuid.UUID, in scoring) (review.Result, func(review.Asker) (review.Result, error), error) {
+	rv, err := e.readReviewInputs(ctx, ws, in.card, in.recheck || in.recheckStanding)
+	if err != nil {
+		return review.Result{}, nil, err
+	}
+	run, err := e.prepareReview(ctx, ws, in, rv)
+	if err != nil {
+		return review.Result{}, nil, err
+	}
+	res, err := run(nil)
+	return res, run, err
+}
+
+func (e *Engine) persistChecks(ctx context.Context, ws uuid.UUID, in scoring, body any) error {
+	return e.Store.InWorkspace(ctx, ws, uuid.Nil, func(tx *store.Tx) error {
+		c, err := lockCard(ctx, tx, in.card.ID)
+		if err != nil {
+			return err
+		}
+		if c.Version != in.card.Version || !in.isCurrent(c) {
+			return ErrNotWaiting
+		}
+		return writeServerChecks(ctx, tx, c, body)
+	})
 }
 
 // outputTexts reads the text of each saved file among recs, by record key.
@@ -663,7 +811,7 @@ func (a retryAsker) Noul(ctx context.Context, state string, qs map[string]string
 		return err
 	})
 	if err != nil {
-		err = fmt.Errorf("asking Jev: %w", err)
+		err = fmt.Errorf("%w: %w", errJevUnavailable, err)
 	}
 	return out, err
 }
@@ -681,7 +829,7 @@ func (a retryAsker) NoulImages(ctx context.Context, state string, qs map[string]
 		return err
 	})
 	if err != nil {
-		err = fmt.Errorf("asking Jev: %w", err)
+		err = fmt.Errorf("%w: %w", errJevUnavailable, err)
 	}
 	return out, err
 }
@@ -698,7 +846,7 @@ func (a retryAsker) Choice(ctx context.Context, state, instructions string, opti
 		return err
 	})
 	if err != nil {
-		err = fmt.Errorf("asking Jev: %w", err)
+		err = fmt.Errorf("%w: %w", errJevUnavailable, err)
 	}
 	return out, err
 }
@@ -715,7 +863,7 @@ func (l lookup) Paper(ctx context.Context, id string) (sources.Hit, error) {
 		return sources.Hit{}, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	h, err := l.s.Paper(ctx, id)
-	return h, lookupErr(err)
+	return h, lookupErr(errSourceLookup, err)
 }
 
 func (l lookup) Dataset(ctx context.Context, accession string) (sources.Hit, error) {
@@ -723,7 +871,7 @@ func (l lookup) Dataset(ctx context.Context, accession string) (sources.Hit, err
 		return sources.Hit{}, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	h, err := l.s.Dataset(ctx, accession)
-	return h, lookupErr(err)
+	return h, lookupErr(errSourceLookup, err)
 }
 
 func (l lookup) Search(ctx context.Context, query string) ([]sources.Hit, error) {
@@ -731,14 +879,14 @@ func (l lookup) Search(ctx context.Context, query string) ([]sources.Hit, error)
 		return nil, fmt.Errorf("extending the scoring lease: %w", err)
 	}
 	hs, err := l.s.Search(ctx, query)
-	return hs, lookupErr(err)
+	return hs, lookupErr(errRecallLookup, err)
 }
 
-func lookupErr(err error) error {
+func lookupErr(kind, err error) error {
 	if err == nil || errors.Is(err, sources.ErrNotFound) {
 		return err
 	}
-	return fmt.Errorf("sources lookup: %w", err)
+	return fmt.Errorf("%w: %w", kind, err)
 }
 
 // applyReview writes the review and its outcome and acts on the decision, as
@@ -757,7 +905,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		if err := tx.Q.SetGatingLease(ctx, db.SetGatingLeaseParams{ID: c.ID, WorkspaceID: tx.WS}); err != nil {
 			return err
 		}
-		if !current(c, in.card.BoardColumn, in.card.Round) {
+		if !in.isCurrent(c) {
 			return nil
 		}
 		if pending, err := e.deferScoringForComments(ctx, tx, c); err != nil || pending {
@@ -767,8 +915,16 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 			BoardColumn: c.BoardColumn, Round: c.Round, Kind: "outcome"}); err != nil || n > 0 {
 			return err
 		}
-		if rerr != nil {
-			return e.gateUnjudged(ctx, tx, c, rerr)
+		if in.recheck {
+			if err := in.checkApprovalEvidence(ctx, tx); err != nil {
+				return err
+			}
+			if err := dismissKeylessApproval(ctx, tx, c.ID, in.decision); err != nil {
+				return err
+			}
+		}
+		if rerr != nil && !(errors.Is(rerr, errNoJev) && stopsBeforeApproval(res)) {
+			return e.gateUnjudged(ctx, tx, c, in, rerr, checkSummary(res), res)
 		}
 		if err := resolveInbox(ctx, tx, c.ID, "scoring_unavailable"); err != nil {
 			return err
@@ -797,6 +953,7 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 				return err
 			}
 		case res.Decision == review.DecideRedo:
+			next.State, next.BlockKind = board.Working, ""
 			next.Redos, next.Round = 1, c.Round+1
 			if next.HandoffNote, err = redoNote(ctx, tx, c, res); err != nil {
 				return err
@@ -826,4 +983,43 @@ func (e *Engine) applyReview(ctx context.Context, ws uuid.UUID, in scoring, res 
 		e.goReport("check report", ws, in.card.ID, e.checkReport)
 	}
 	return moved, err
+}
+
+func stopsBeforeApproval(r review.Result) bool {
+	d := review.Decide(r, 0)
+	return d == review.DecideRedo || review.AllWithdrawn(r)
+}
+
+func checkSummary(r review.Result) string {
+	switch r.Column {
+	case board.Grounding:
+		text := "Source existence and retraction checks ran on the submitted items."
+		if r.Recall != nil {
+			text += fmt.Sprintf(" Recall search ran. %d candidate(s) were not screened.", len(r.Recall.Unscreened))
+		}
+		return text
+	case board.Hypotheses:
+		return "Citation provenance and control declarations were checked."
+	case board.Experimentation:
+		return "Declared output names and value traces were checked."
+	case board.Validation:
+		return "Quotes were checked against the study's recorded sources."
+	}
+	return "Server checks could not be completed."
+}
+
+// Do not append identical evidence on every retry while a provider or saved
+// key remains unavailable. A changed snapshot remains part of the history.
+func writeServerChecks(ctx context.Context, tx *store.Tx, c db.Card, body any) error {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	same, err := tx.Q.SameServerChecks(ctx, db.SameServerChecksParams{
+		WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn, Round: c.Round, Snapshot: raw,
+	})
+	if err != nil || same {
+		return err
+	}
+	return writeServer(ctx, tx, c, "server_checks", json.RawMessage(raw))
 }

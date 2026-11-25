@@ -220,7 +220,7 @@ func TestSecondFailureBlocks(t *testing.T) {
 		t.Fatalf("reasons: %q", reasons)
 	}
 	want := reviewBlockedText(c.Number, "grounding", reasons)
-	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed Jev's review again after its redo. Still failing:\n- "+reasons[0]+"\nComment on the study to tell the Team what to fix." {
+	if want != "Study #"+fmt.Sprint(c.Number)+"'s Grounding column failed review again after its redo. Still failing:\n- "+reasons[0]+"\nComment on the study to tell the Team what to fix." {
 		t.Fatalf("blocked wording: %q", want)
 	}
 	if items := l.inbox(t, c.ID, "blocked"); len(items) != 1 || items[0] != want {
@@ -237,7 +237,7 @@ func TestSecondFailureBlocks(t *testing.T) {
 	if got.State != "working" || got.Round != c.Round+2 {
 		t.Fatalf("after the owner's comment: %s round %d", got.State, got.Round)
 	}
-	if !strings.HasPrefix(got.HandoffNote, "The researcher asked for this column to be redone:\nUse a paper that exists.\n\nJev's review sent back these items:\n- "+reasons[0]) {
+	if !strings.HasPrefix(got.HandoffNote, "The researcher asked for this column to be redone:\nUse a paper that exists.\n\nThe review sent back these items:\n- "+reasons[0]) {
 		t.Fatalf("the restarted round is not told what still fails:\n%s", got.HandoffNote)
 	}
 }
@@ -314,7 +314,12 @@ func TestReviewWithoutJevNeverMovesTheStudy(t *testing.T) {
 			if n := l.count(t, "SELECT count(*) FROM record WHERE card_id = $1 AND kind IN ('review', 'outcome')", c.ID); n != 0 {
 				t.Fatalf("%d review or outcome records without Jev", n)
 			}
-			if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 1 || items[0] != unavailableText(c.Number, "grounding") {
+			// Keep the original retry checks and require the notice to name the outage.
+			want := unavailableText(c.Number, "grounding") + " TypeSafe could not complete Jev's judgment."
+			if tc == "no sources" {
+				want = unavailableText(c.Number, "grounding") + " The source lookup could not finish."
+			}
+			if items := l.inbox(t, c.ID, "scoring_unavailable"); len(items) != 1 || items[0] != want {
 				t.Fatalf("scoring_unavailable items: %q", items)
 			}
 		})
@@ -339,7 +344,9 @@ func TestNoKeyAsksTheOwnerToApproveTheColumn(t *testing.T) {
 	if got.BoardColumn != "grounding" || got.State != "blocked" || got.Round != c.Round {
 		t.Fatalf("held: %s %s round %d", got.BoardColumn, got.State, got.Round)
 	}
-	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 || items[0] != noJevText(c.Number, "grounding") {
+	if items := l.inbox(t, c.ID, "needs_decision"); len(items) != 1 ||
+		!strings.Contains(items[0], "Server checks ran at ") ||
+		!strings.Contains(items[0], "Recall search ran. 0 candidate(s) were not screened.") {
 		t.Fatalf("needs_decision items: %q", items)
 	}
 	var item uuid.UUID
@@ -625,7 +632,11 @@ func TestCorrectedValueNeedsTheLeadsExplicitReply(t *testing.T) {
 	if err != nil || len(rv.carried) != 0 {
 		t.Fatalf("explicit correction: %+v, %v", rv.carried, err)
 	}
-	result, err := l.e.runReview(ctx, l.ws, scoring{card: c, attempt: 2}, rv)
+	judge, err := l.e.prepareReview(ctx, l.ws, scoring{card: c, attempt: 2}, rv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := judge(nil)
 	if err != nil || len(result.Items) != 1 || result.Items[0].Status != review.Pass || result.Items[0].Checks[0].Detail == "" {
 		t.Fatalf("corrected value review: %+v, %v", result.Items, err)
 	}

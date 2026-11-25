@@ -974,17 +974,17 @@ Agents carry out the work in a study; Jev helps review research items before con
 
 ## Your own TypeSafe key
 
-Jev is run by TypeSafe and reviews a study only under its owner's own TypeSafe key. Save yours in **Settings → API Tokens**; it is stored encrypted on the server and sent only to TypeSafe. Without a key, nothing is sent to TypeSafe: the server still runs its checks, and when a stage needs judgment the study asks its owner in [Decisions](/docs/decisions/) to approve the stage, redo it with guidance, close the study or park it.
+Jev is run by TypeSafe and reviews a study only under its owner's own TypeSafe key. Save yours in **Settings → API Tokens**; it is stored encrypted on the server and sent only to TypeSafe. The server runs and records its deterministic checks before asking Jev. Known failures follow the stage's redo or block rules. Without a key, no work is sent to TypeSafe. When the server checks leave a judgment to make, [Decisions](/docs/decisions/) lists the checks that ran and says that Jev did not judge the work. The owner can approve, redo with guidance, close the study or park it. The decision shows when the server checked the evidence. Approval uses a complete check for the same stage, round and evidence revision, up to 24 hours old. Missing, older or changed evidence sends the work through background review before the owner is asked again. Approval itself does not look up sources live, so a retraction that appears within that window is picked up on the next source refresh.
 
 ## Review the work, item by item
 
 Review concerns the items a stage hands in: for example, sources in Grounding, hypotheses, experimental outputs and values, or assessments and verdicts in Validation. The checks depend on the stage and the item. A failed item can be sent back with a specific reason, while items that still stand can be retained. Study completion still depends on its configured scope and required review.
 
-The server performs checks it can verify mechanically, such as resolving a source or checking that a cited record exists. Jev answers focused questions that require judgment using the supplied research context and evidence. Items that fail applicable prerequisite checks are not necessarily sent to Jev. Review uses bounded evidence for its questions; for example, Grounding screens a source without telling Jev who declared it.
+The server performs checks it can verify mechanically, such as resolving a source or checking that a cited record exists. Jev answers focused questions that require judgment using the supplied research context and evidence. Jev judges only items that pass their applicable prerequisites. Review uses bounded evidence for its questions; for example, Grounding screens a source without telling Jev who declared it.
 
 ## What the stages examine
 
-- **Grounding:** whether sources can be resolved and bear on the research question or its conditions, including checks for potentially missed papers.
+- **Grounding:** whether sources can be resolved and bear on the research question or its conditions, including a recall search for potentially missed papers. Without a key, eligible recall candidates are recorded as unscreened and do not count as qualifying or block the stage.
 - **Hypotheses:** whether predictions are falsifiable and supported by cited evidence, and whether the exact prediction was already tested.
 - **Experimentation:** whether recorded outputs and values satisfy the applicable checks; some Jev checks give warnings rather than deciding the stage.
 - **Validation:** whether recorded assessments and verdicts are supported, with objections and limitations considered where applicable.
@@ -993,7 +993,7 @@ The precise checks and available evidence vary. Inspect the recorded questions a
 
 ## From checks to the next step
 
-Jev's answers contribute to recorded checks; Lykeion applies its review rules to the results. A stage may pass, carry an unclear item forward, or send failed work back for a limited redo. If the redo still fails, the study is blocked. In some cases the study asks its owner for a decision. When the owner has saved a key but TypeSafe cannot answer, the work waits rather than passing.
+Jev's answers contribute to recorded checks; Lykeion applies its review rules to the results. A stage may pass, carry an unclear item forward, or send failed work back for a limited redo. If the redo still fails, the study is blocked. In some cases the study asks its owner for a decision. When the server cannot read a saved key, TypeSafe cannot answer, or a source lookup or recall search is temporarily unavailable, Lykeion keeps the current round and retries without using its redo. Older studies that still use legacy scoring show unmatched quotes or values as diagnostics in the approval decision. The owner can approve after reviewing those diagnostics.
 
 Review can identify a weakest item where applicable, giving the Team a more specific starting point. Unclear is distinct from a pass or a failure, and a warning does not necessarily decide the stage. Open [Decisions](/docs/decisions/) when a person needs to respond, and use [scientific stages](/docs/scientific-stages/) to follow progress through the study's scope.
 `,

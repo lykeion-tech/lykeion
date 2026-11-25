@@ -44,6 +44,7 @@ type Item struct {
 	// the label is for display only.
 	Identity string  `json:"identity,omitempty"`
 	Status   string  `json:"status"`
+	Unjudged bool    `json:"unjudged,omitempty"`
 	Carried  bool    `json:"carried,omitempty"`
 	Checks   []Check `json:"checks"`
 }
@@ -56,9 +57,11 @@ type Weakest struct {
 // Recall is what the server's search for uncited papers found: the query
 // it last sent, the hits it returned and how many Jev screened.
 type Recall struct {
-	Query    string `json:"query"`
-	Hits     int    `json:"hits"`
-	Screened int    `json:"screened"`
+	Query       string   `json:"query"`
+	Hits        int      `json:"hits"`
+	Screened    int      `json:"screened"`
+	Unscreened  []string `json:"unscreened,omitempty"`
+	Unavailable bool     `json:"unavailable,omitempty"`
 }
 
 // ObjectorRun is how a Validation round's blind objector went: whether it
@@ -70,14 +73,16 @@ type ObjectorRun struct {
 }
 
 type Result struct {
-	Column   string       `json:"column"`
-	Attempt  int          `json:"attempt"`
-	Items    []Item       `json:"items"`
-	Missed   []Item       `json:"missed,omitempty"`
-	Recall   *Recall      `json:"recall,omitempty"`
-	Weakest  *Weakest     `json:"weakest,omitempty"`
-	Objector *ObjectorRun `json:"objector,omitempty"`
-	Decision string       `json:"decision"`
+	Column        string       `json:"column"`
+	Attempt       int          `json:"attempt"`
+	Items         []Item       `json:"items"`
+	Missed        []Item       `json:"missed,omitempty"`
+	Recall        *Recall      `json:"recall,omitempty"`
+	Weakest       *Weakest     `json:"weakest,omitempty"`
+	Objector      *ObjectorRun `json:"objector,omitempty"`
+	Decision      string       `json:"decision"`
+	Judgment      string       `json:"judgment,omitempty"`
+	NeedsJudgment bool         `json:"needs_judgment,omitempty"`
 }
 
 // stored is p as a review keeps it, to 3 places; statuses are taken from p
@@ -167,12 +172,12 @@ func ids(cs []Check, warnings bool, statuses ...string) []string {
 // reason.
 func RedoNote(r Result) string {
 	var b strings.Builder
-	b.WriteString("Jev's review sent back these items:\n")
+	b.WriteString("The review sent back these items:\n")
 	for _, l := range Reasons(r) {
 		fmt.Fprintf(&b, "- %s\n", l)
 	}
 	b.WriteString("Items not listed stand. In your hand-in's replies, answer each listed item by the name shown: corrected (it is in this hand-in again, fixed, with the same id or text), " +
-		"withdrawn (it no longer stands) or, for a paper Jev found missing, declined, each with a reason. " +
+		"withdrawn (it no longer stands) or, for a paper the review found missing, declined, each with a reason. " +
 		"A replacement with a different id or text is a new item, so also withdraw the old one. " +
 		"Items you leave unanswered count as failed, and a second failure blocks the study.")
 	return b.String()
@@ -206,4 +211,11 @@ func warnIDs(cs []Check) []string {
 		}
 	}
 	return out
+}
+
+// AwaitJudgment marks an item whose deterministic checks are complete and
+// whose semantic judgment still needs to run.
+func (r *Result) AwaitJudgment(it *Item) {
+	r.NeedsJudgment = true
+	it.Unjudged = true
 }

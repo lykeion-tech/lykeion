@@ -115,7 +115,8 @@ var objectionQuestions = map[string]string{
 // target the objector was shown by its label. The server check comes first:
 // the target exists and any quote is in its text verbatim. Only an objection
 // that passes it is put to Jev, and it is upheld when both questions pass.
-func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map[string]string) ([]Objection, error) {
+// CheckObjections checks every target and quote without external judgment.
+func CheckObjections(objs []Objection, texts map[string]string) []Objection {
 	out := make([]Objection, 0, len(objs))
 	for _, o := range objs {
 		o.Checks, o.Upheld = []Check{}, false
@@ -128,10 +129,18 @@ func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map
 		default:
 			o.Server = "ok"
 		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map[string]string) ([]Objection, error) {
+	out := CheckObjections(objs, texts)
+	for i, o := range out {
 		if o.Server != "ok" {
-			out = append(out, o)
 			continue
 		}
+		text := texts[strings.TrimSpace(o.Label)]
 		item := fmt.Sprintf("Objection (%s) to %s: %s", o.Type, o.Label, o.Problem)
 		if o.Quote != nil {
 			item += "\nQuoted from it: " + *o.Quote
@@ -152,7 +161,7 @@ func JudgeObjections(ctx context.Context, ask Asker, objs []Objection, texts map
 			o.Checks = append(o.Checks, c)
 			o.Upheld = o.Upheld && c.Status == Pass
 		}
-		out = append(out, o)
+		out[i] = o
 	}
 	return out, nil
 }

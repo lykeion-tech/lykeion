@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,12 @@ type decisionView struct {
 
 func viewDecision(item db.InboxItem, mayAnswer bool) decisionView {
 	open := item.Status == "open" && item.ResolvedAt == nil
+	if open && item.Cause != nil && *item.Cause == "no_jev" {
+		item.Text = strings.Replace(item.Text, "passed the server's checks", "needs a fresh server check before approval", 1)
+		item.Options = []byte(strings.ReplaceAll(string(item.Options),
+			"The column passes and the study moves on, as if Jev had passed it.",
+			"The owner accepts the work and the study advances or ends."))
+	}
 	manual := item.Kind == "manual_decision" && open
 	return decisionView{InboxItem: item, CanAnswer: mayAnswer && open && item.ArchivedAt == nil && item.Kind != "manual_decision", CanEdit: manual, CanResolve: manual, CanDismiss: manual}
 }
