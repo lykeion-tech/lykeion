@@ -37,11 +37,11 @@ for (const { renderer, previous } of [
     expect(bounds.x + bounds.width / 2).toBeCloseTo(viewport.width / 2, 0);
     expect(bounds.y + bounds.height / 2).toBeCloseTo(viewport.height / 2, 0);
 
-    await expect(dialog.getByRole('heading', { name: 'Review a study without a TypeSafe key' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Turn a Coresearch chat into a study' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Next' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Replay with saved inputs' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Create and organize To-dos' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Next' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Find archived chats in your sidebar' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Filter chats in a project' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toBeHidden();
     expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(version);
