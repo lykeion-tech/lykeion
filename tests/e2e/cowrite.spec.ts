@@ -245,7 +245,7 @@ test('the Cowrite session shows its runner default when there is no named model'
   await page.route('**/api/runtimes', (route) => route.fulfill({ json: [] }));
   await page.goto('/#/coresearch/p/chat');
   await expect(
-    page.getByRole('button', { name: 'CLI and model: Claude Code · Default' }),
+    page.getByRole('button', { name: 'CLI and model: Claude Code · Default (recommended)' }),
   ).toBeDisabled();
   await expect(page.getByText('No CLI available', { exact: true })).toHaveCount(0);
 });
@@ -265,7 +265,7 @@ test('the model menu stays inside a 900 px viewport', async ({ page }) => {
   await page.goto('/#/coresearch/new');
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default',
+      name: 'CLI and model: Claude Code · Default (recommended)',
       exact: true,
     })
     .click();

@@ -333,8 +333,8 @@ describe('Aristotle UI', () => {
       { id: 'x', owner_id: 'me', status: 'online', harness: 'codex', models: [] },
     ]);
     await settle();
-    const picker = byLabel(root, 'CLI and model: Codex · Default');
-    expect(textOf(picker).trim()).toBe('Default');
+    const picker = byLabel(root, 'CLI and model: Codex · Default (recommended)');
+    expect(textOf(picker).trim()).toBe('Codex');
     await (picker.props.onClick as () => Promise<void>)();
     await settle();
     expect(byLabel(root, 'Codex')).toBeTruthy();
