@@ -111,11 +111,13 @@ it('updates already published profiles with a single Settings save', async () =>
     return Response.json(state);
   });
   expect(textOf(root)).toContain('Research profile');
+  expect(textOf(root)).not.toContain('Professional background');
   expect(Boolean(button(root, 'Manage sharing'))).toBe(false);
   expect(Boolean(button(root, 'Publish changes'))).toBe(false);
   const editors = all(root).filter((n) => n.tag === 'textarea');
   expect(editors).toHaveLength(1);
   const [identity] = editors;
+  expect(identity.props['aria-label']).toBe('Professional background');
   expect(identity.props.value).toBe('Studied bees');
   const updatedIdentity = 'I study bees.\n\nI can help design field observations.';
   (identity.props.onInput as (event: unknown) => void)({

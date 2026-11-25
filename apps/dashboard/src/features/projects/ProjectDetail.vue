@@ -11,7 +11,6 @@ import Icon from '../../ui/Icon.vue';
 import { usePaneResize } from '../../lib/resize';
 import { readText } from '../../storage';
 import StudyBoard from '../studies/StudyBoard.vue';
-import { useStudyComposer } from '../../state/study-composer';
 import ProjectCoresearch from './ProjectCoresearch.vue';
 const props = defineProps<{ project: ResearchDetail }>();
 defineEmits<{ edit: [] }>();
@@ -19,13 +18,11 @@ const client = useQueryClient(),
   members = useMembers(),
   agents = useAgents(),
   me = useMe();
-const { openComposer } = useStudyComposer();
 const inspector = usePaneResize('lykeion.project-inspector-width', 364, 240, 480, -1, () =>
   Math.max(160, window.innerWidth - (Number(readText('lykeion.sidebar-width')) || 224) - 400),
 );
 const projectTabs = ['Studies', 'Coresearches'] as const;
 const selectedTab = ref<(typeof projectTabs)[number]>('Studies');
-const chatFilterAnchor = ref<HTMLElement>();
 function switchProjectTab(event: KeyboardEvent) {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
   event.preventDefault();
@@ -166,7 +163,6 @@ function pickLead(event: Event) {
             {{ tab }}
           </button>
         </div>
-        <div ref="chatFilterAnchor" />
       </div>
       <div
         v-if="selectedTab === 'Studies'"
@@ -175,13 +171,12 @@ function pickLead(event: Event) {
         role="tabpanel"
         aria-labelledby="project-view-Studies"
       >
-        <StudyBoard :key="project.id" :project-id="project.id" @create="openComposer(undefined, project.id)" />
+        <StudyBoard :key="project.id" :project-id="project.id" />
       </div>
       <ProjectCoresearch
         v-else
         id="project-panel-Coresearches"
         :project-id="project.id"
-        :filter-anchor="chatFilterAnchor"
         role="tabpanel"
         aria-labelledby="project-view-Coresearches"
       />
@@ -525,7 +520,6 @@ function pickLead(event: Event) {
   gap: 6px;
 }
 .project-view-toolbar {
-  justify-content: space-between;
   padding: 8px 16px;
 }
 @media (max-width: 760px) {
@@ -554,20 +548,22 @@ function pickLead(event: Event) {
 }
 </style>
 <style>
-.project-board .study-toolbar {
+:is(.project-board, .project-coresearch) .study-toolbar {
   height: 56px;
   padding: 10px 16px;
 }
 .project-board .working-control {
   display: none;
 }
-.project-board .toolbar-group.push-right > .menu-anchor > .button,
+:is(.project-board, .project-coresearch) .toolbar-group.push-right > .menu-anchor > .button,
 .project-board .toolbar-group.push-right > .button {
-  font-size: 0;
   width: 28px;
   height: 28px;
   padding: 0;
   gap: 0;
+}
+.project-board .toolbar-group.push-right > .menu-anchor > .button {
+  font-size: 0;
 }
 .project-board .board-scroll {
   padding: 8px 16px 24px;

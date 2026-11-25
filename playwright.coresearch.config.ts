@@ -9,6 +9,7 @@ export default defineConfig({
     'coresearch-notebook.spec.ts',
     'coresearch-files.spec.ts',
     'coresearch-final.spec.ts',
+    'project-views.spec.ts',
     'aristotle.spec.ts',
     'aristotle-bootstrap-banner.spec.ts',
   ],

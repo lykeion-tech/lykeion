@@ -80,10 +80,18 @@ test('publishes the profile only after workspace confirmation and retries on the
   await page
     .getByRole('textbox', { name: 'Professional background' })
     .fill('Longitudinal study design');
+  await page.getByRole('button', { name: 'Add link' }).click();
+  await page.getByRole('textbox', { name: 'Link 1' }).fill('https://example.org/research');
   await page.getByRole('button', { name: 'Save profile and continue' }).click();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Research profile lab');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  await expect(page.getByRole('heading', { name: 'Publish your research profile' })).toBeVisible();
+  const publicationHeading = page.getByRole('heading', { name: 'Publish your research profile' });
+  await expect(publicationHeading).toHaveCSS('font-size', '34px');
+  await expect(publicationHeading).toHaveCSS('text-align', 'center');
+  await expect(page.getByRole('heading', { name: 'Links to work' })).toHaveCSS(
+    'text-align',
+    'center',
+  );
   await expect(page.getByText('Research profile lab', { exact: true })).toBeVisible();
   await expect(page.getByText('Longitudinal study design', { exact: true })).toBeVisible();
 
@@ -394,8 +402,20 @@ for (const phase of ['create', 'list'] as const) {
 }
 
 test('every step is wide and keeps Aristotle centred over the content', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+  const desktop = { width: 1440, height: 900 };
+  const narrow = { width: 375, height: 800 };
+  await page.setViewportSize(desktop);
   await newcomer(page, 'centred');
+  const heading = page.locator('.content > h2');
+  const checkHeading = async () => {
+    await expect(heading).toHaveCSS('font-size', '34px');
+    await expect(heading).toHaveCSS('text-align', 'center');
+    await page.setViewportSize(narrow);
+    await expect(heading).toHaveCSS('font-size', '21.75px');
+    await expect(heading).toHaveCSS('text-align', 'center');
+    expect(await heading.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.setViewportSize(desktop);
+  };
   const check = async () => {
     const art = (await page.locator('.guide .aristotle-art').boundingBox())!;
     const name = (await page.locator('.guide > div').boundingBox())!;
@@ -413,23 +433,33 @@ test('every step is wide and keeps Aristotle centred over the content', async ({
     expect(await hero.evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true);
   };
   await oneLine();
-  await page.setViewportSize({ width: 375, height: 800 });
+  await page.setViewportSize(narrow);
   await oneLine();
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize(desktop);
+  await checkHeading();
   await page.getByRole('button', { name: 'Set up your lab' }).click();
+  await checkHeading();
   await page.getByRole('button', { name: 'Skip profile' }).click();
   await check();
+  await checkHeading();
   await page.getByRole('textbox', { name: 'Workspace name' }).fill('Centred lab');
   await page.getByRole('textbox', { name: 'Card prefix' }).fill('CTR');
   await page.getByRole('button', { name: 'Create workspace' }).click();
-  for (const heading of ['Customize', 'Machines']) {
-    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+  for (const title of ['Customize', 'Machines']) {
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await check();
-    if (heading === 'Customize') {
+    await checkHeading();
+    if (title === 'Customize') {
+      for (const name of ['Skills', 'Connectors']) {
+        await expect(page.getByRole('heading', { name, exact: true })).toHaveCSS(
+          'text-align',
+          'center',
+        );
+      }
       await expect(page.locator('.onboarding-card').first()).toBeVisible();
       await expect(page.locator('.onboarding-card .availability')).toHaveCount(0);
     }
-    if (heading !== 'Machines')
+    if (title !== 'Machines')
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
   }
 });

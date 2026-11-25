@@ -69,7 +69,7 @@ async function saveDraft() {
     </p>
     <template v-else>
       <form class="profile-card" aria-label="Edit research profile" @submit.prevent="saveDraft">
-        <ResearchProfileFields v-model:profile="editor" :disabled="busy" />
+        <ResearchProfileFields v-model:profile="editor" :disabled="busy" hide-background-label />
         <button type="submit" class="button primary" :disabled="busy || !dirty">
           Save profile
         </button>

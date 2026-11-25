@@ -771,7 +771,7 @@ When editing a file, pay attention to unsaved changes before switching material.
 
 Open the three-dot menu beside an Experiment or Cowrite chat in the Coresearch sidebar and choose **Add to project**. Search for a workspace project or create one from the picker. Selecting a project immediately lets anyone who can view that project read the conversation and download its saved artifacts. They open it from the project's **Coresearches** tab. Existing Cowrite collaborators keep their current permissions.
 
-Each chat appears in one workspace project at a time. Select another project to move it, or choose **Remove from project** to remove that project's access. The conversation, files, and run history stay together. From a project's **Coresearches** tab, the chat owner can pin, rename, archive, or delete a chat. Use **Archived** to find and restore archived chats. Archiving keeps the chat available to project viewers in that view.
+Each chat appears in one workspace project at a time. Select another project to move it, or choose **Remove from project** to remove that project's access. The conversation, files, and run history stay together. From a project's **Coresearches** tab, the chat owner can pin, rename, archive, or delete a chat. Use **Filter** to switch to **Archived**, where project viewers can still read archived chats and owners can restore them. Under **Display**, select **experiment** or **cowrite** to show that mode. Select the same mode again to show both.
 
 ## Keep work understandable
 

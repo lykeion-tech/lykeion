@@ -68,7 +68,7 @@ test('links both Coresearch modes and gives a project peer read-only access', as
   const filterBox = (await filter.boundingBox())!;
   const tabsBox = (await tabs.boundingBox())!;
   expect(filterBox.x).toBeGreaterThan(tabsBox.x + tabsBox.width);
-  expect(filterBox.y + filterBox.height / 2).toBeCloseTo(tabsBox.y + tabsBox.height / 2, 0);
+  expect(filterBox.y).toBeGreaterThan(tabsBox.y + tabsBox.height);
   await filter.press('ArrowDown');
   await expect(page.getByRole('menuitemradio', { name: 'Active' })).toBeFocused();
   await page.keyboard.press('ArrowDown');

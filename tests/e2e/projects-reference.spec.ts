@@ -119,7 +119,7 @@ test('Projects has the reference table and scopes its board and saved Properties
   await expect(rail).toBeVisible();
 });
 
-test('an empty project creates a study already linked to its board', async ({ page }) => {
+test('an empty project shows its board after a study is linked', async ({ page }) => {
   const ws = await labWorkspace(page.request),
     headers = { 'X-Workspace-ID': ws };
   const created = await page.request.post('/api/researches', {
@@ -129,10 +129,12 @@ test('an empty project creates a study already linked to its board', async ({ pa
   expect(created.status()).toBe(201);
   const project = await created.json();
   await page.goto(`/#/projects/${project.id}`);
-  await expect(page.getByRole('region', { name: 'To-do' }).getByText('No proposals')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No studies', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/reference/project-empty.png' });
-  await page.getByRole('button', { name: 'New study', exact: true }).click();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'New study', exact: true });
+  await modal.getByRole('button', { name: 'No project', exact: true }).click();
+  await modal.getByRole('menuitemradio', { name: project.name, exact: true }).click();
   await modal.getByPlaceholder('Study title').fill('Created inside project');
   await modal
     .getByPlaceholder('Describe what you want to do, in your own words')
@@ -200,7 +202,7 @@ test('Project properties shares study pane proportions and saves pointer and key
   const rail = page.getByRole('complementary', { name: 'Project properties' });
   const splitter = page.getByRole('separator', { name: 'Resize project properties' });
   const main = (await page.getByRole('tabpanel', { name: 'Studies' }).boundingBox())!;
-  await expect(page.getByRole('region', { name: 'To-do' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No studies', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No Coresearches linked' })).toBeVisible();
   const emptyCenter = await page.locator('.project-empty').evaluate((el) => {

@@ -18,6 +18,7 @@ import { Columns3, List, FunnelX } from '@lucide/vue';
 import Icon from '../../ui/Icon.vue';
 import FilterButton from '../../ui/FilterButton.vue';
 import ProposalComposer from './ProposalComposer.vue';
+import ProjectEmptyState from '../projects/ProjectEmptyState.vue';
 import ProjectPicker from '../projects/ProjectPicker.vue';
 import CliIcon from '../coresearch/CliIcon.vue';
 import { backendLabel } from '../../lib/backends';
@@ -97,7 +98,6 @@ const vMetadataRows: Directive<HTMLElement> = {
 const props = withDefaults(defineProps<{ projectId?: string; scope?: 'workspace' | 'mine' }>(), {
   scope: 'workspace',
 });
-defineEmits<{ create: [] }>();
 const router = useRouter();
 const cards = useCards();
 const proposals = useStudyProposals();
@@ -327,11 +327,24 @@ const options = (category: Category) =>
     : category === 'Column'
       ? [{ value: 'todo', label: 'To-do' }, ...filterOptions.Column]
       : filterOptions[category];
-const matchingProposals = computed(() =>
+const scopedProposals = computed(() =>
   (proposals.data.value ?? []).filter(
     (p) =>
       (!props.projectId || p.project_id === props.projectId) &&
-      (props.scope !== 'mine' || p.owner_id === me.data.value?.id) &&
+      (props.scope !== 'mine' || p.owner_id === me.data.value?.id),
+  ),
+);
+const emptyProject = computed(
+  () =>
+    props.projectId &&
+    cards.isSuccess.value &&
+    proposals.isSuccess.value &&
+    !all.value.length &&
+    !scopedProposals.value.length,
+);
+const matchingProposals = computed(() =>
+  scopedProposals.value.filter(
+    (p) =>
       (!filters.value.Owner?.length || filters.value.Owner.includes(p.owner_id)) &&
       (!filters.value.Column?.length || filters.value.Column.includes('todo')) &&
       !filters.value.State?.length &&
@@ -508,7 +521,6 @@ onUnmounted(() => {
     "
   />
   <div class="study-toolbar">
-    <button v-if="projectId" class="button compact" @click="$emit('create')">New study</button>
     <div class="toolbar-group push-right">
       <div class="working-control">
         <span
@@ -688,7 +700,8 @@ onUnmounted(() => {
     {{ actionError }}
   </p>
   <p v-if="cards.isPending.value" class="board-loading" role="status">Loading studies…</p>
-  <div :class="display.mode === 'Board' ? 'board-scroll' : 'study-list'">
+  <ProjectEmptyState v-else-if="emptyProject" icon="tasks" title="No studies" />
+  <div v-if="!emptyProject" :class="display.mode === 'Board' ? 'board-scroll' : 'study-list'">
     <section aria-label="To-do" :class="{ 'board-column stage-todo': display.mode === 'Board' }">
       <header v-if="display.mode === 'Board'">
         <span class="stage-dot" /><strong>To-do</strong
@@ -905,7 +918,7 @@ onUnmounted(() => {
   </template>
   </div>
   <div
-    v-if="cards.isSuccess.value && proposals.isSuccess.value && !matchingProposals.length && !visible.length && activeFilterCount"
+    v-if="!emptyProject && cards.isSuccess.value && proposals.isSuccess.value && !matchingProposals.length && !visible.length && activeFilterCount"
     class="center-empty board-empty"
   >
     <FunnelX :size="40" :stroke-width="1.7" aria-hidden="true" /><span
@@ -1707,7 +1720,7 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .stage-todo {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--stage-reporting-dot) 12%, var(--surface));
 }
 .board-scroll {
   overflow-y: hidden;

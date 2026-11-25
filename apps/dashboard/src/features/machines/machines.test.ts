@@ -115,10 +115,10 @@ describe('machine sandbox readiness', () => {
 });
 
 describe('runtime readiness', () => {
-  it('explains supported CLIs and how to investigate runtime health', async () => {
+  it('lists supported CLIs and omits the diagnostics hint when diagnostics are unavailable', async () => {
     const html = await renderMachine(undefined, undefined, 'cli_missing');
     expect(html).toContain('Claude Code and Codex are supported');
-    expect(html).toContain('Check the daemon on this computer to investigate');
+    expect(html).not.toContain('Check the daemon on this computer to investigate');
     expect(html).not.toContain('Daemon instructions');
     expect(html).not.toContain('View diagnostics');
     expect(html).not.toContain('Add custom runtime');
