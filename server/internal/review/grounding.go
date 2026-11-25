@@ -151,6 +151,17 @@ func recallQuery(brief string) string {
 	if len(runes) <= maxSearchRunes {
 		return query
 	}
+	// A titled study puts its title above the brief. Skip it when it is
+	// a heading so keyword fallback starts with the research question.
+	if title, body, ok := strings.Cut(query, "\n\n"); ok &&
+		len(title) < maxSearchRunes/2 && !strings.ContainsAny(title, "\n?") {
+		query = strings.TrimSpace(body)
+	}
+	query = strings.TrimSpace(strings.TrimPrefix(query, "Question:"))
+	runes = []rune(query)
+	if len(runes) <= maxSearchRunes {
+		return query
+	}
 	prefix := string(runes[:maxSearchRunes])
 	if end := strings.IndexByte(prefix, '?'); end >= 0 {
 		prefix = prefix[:end+1]

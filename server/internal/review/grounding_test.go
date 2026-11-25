@@ -391,16 +391,18 @@ func TestGroundingRecallFallsBackToKeywords(t *testing.T) {
 
 func TestGroundingRecallShortensOnlyTheSearch(t *testing.T) {
 	question := "Do street trees cool Barcelona?"
-	brief := question + "\n\n" + strings.Repeat("Compare matched pedestrian routes. ", 70) + "Keep this last constraint in review."
+	brief := "[Desktop smoke test] Feasibility audit\n\nQuestion: " + question + " " +
+		strings.Repeat("Compare matched pedestrian routes. ", 70) + "Keep this last constraint in review."
 	s := twoPapers()
-	s.byQuery = map[string][]sources.Hit{question: {{ID: "openalex:W7", Title: "Missed paper"}}}
+	keywords := "street trees cool barcelona"
+	s.byQuery = map[string][]sources.Hit{keywords: {{ID: "openalex:W7", Title: "Missed paper"}}}
 	a := &fakeAsker{}
 	r, err := Grounding(context.Background(), a, s, GroundingInput{Question: brief,
 		Items: []db.Record{paper(t, "p1", "doi:10.1/a")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(s.queries, []string{question}) || r.Recall == nil || r.Recall.Hits != 1 {
+	if !slices.Equal(s.queries, []string{question, keywords}) || r.Recall == nil || r.Recall.Hits != 1 {
 		t.Fatalf("unexpected recall: %d searches, result %+v", len(s.queries), r.Recall)
 	}
 	if len(a.noul) == 0 || !strings.Contains(a.noul[0].State, "Keep this last constraint in review.") {
