@@ -25,6 +25,8 @@ type ExecOptions struct {
 	Lab bool
 	// Coresearch uses scoped sources and any connector selected for this turn.
 	Coresearch bool
+	// WebSearch permits the harness's built-in search for source discovery.
+	WebSearch bool
 	// Aristotle permits the server-frozen model for a personal conversation.
 	Aristotle  bool
 	SourcesURL string
@@ -76,6 +78,10 @@ type ExecOptions struct {
 	// OnMessage, when set, durably accepts each normalized message instead of
 	// publishing it to Session.Messages. An error stops the child and is reported.
 	OnMessage func(Message) error
+}
+
+func (o ExecOptions) nativeWebSearch() bool {
+	return o.WebSearch && !o.Lab && !o.NoTools && !o.ReadOnly && !o.Guest
 }
 
 const (

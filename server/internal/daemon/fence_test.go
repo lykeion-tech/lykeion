@@ -11,6 +11,22 @@ import (
 	"lykeion/server/pkg/agent"
 )
 
+func TestNativeWebSearchDoesNotStopAStudyRun(t *testing.T) {
+	f := fixture(t)
+	must(t, os.WriteFile(f.cfg.Harnesses["claude"], []byte(`#!/bin/sh
+IFS= read -r first
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"WebSearch","input":{"query":"Barcelona street trees"}}]}}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"final answer"}]}}'
+echo '{"type":"result","is_error":false,"session_id":"s"}'
+`), 0700))
+	cancel, done := startDaemon(t, f.cfg)
+	waitFor(t, func() bool { return f.parked(t) || f.status(t) == "completed" })
+	stopDaemon(t, cancel, done)
+	if got := f.status(t); got != "completed" {
+		t.Fatalf("run status after native web search: %s", got)
+	}
+}
+
 func TestBreachDiscardsTheRun(t *testing.T) {
 	f := fixture(t)
 	// A web fetch, then work the CLI would hand in if it were left running.

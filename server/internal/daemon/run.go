@@ -261,7 +261,10 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 	var doorToken []byte
 	// A report run, like a lab question, may call nothing but its answer.
 	report := c.AgentRun.Kind == "report"
-	fence := agent.Fenced
+	webSearch := !lab && !report && guest == ""
+	fence := func(harness string, m agent.Message) (bool, string) {
+		return agent.Fenced(harness, m, webSearch)
+	}
 	if lab || report {
 		fence = agent.LabFenced
 	}
@@ -322,7 +325,7 @@ func (d *daemon) runAgentRun(ctx context.Context, c claimed) (localErr error) {
 		return nil
 	}
 	defer services.Stop()
-	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab || report, NoTools: report, Guest: guest != "", ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
+	opts := agent.ExecOptions{Lab: lab, ReadOnly: lab || report, NoTools: report, Guest: guest != "", WebSearch: webSearch, ScratchReservation: reservation, OnMessage: sink, Dir: dir, Resume: c.AgentRun.SessionID, Model: c.AgentRun.RequestedModel, OutputSchema: c.OutputSchema}
 	if c.AgentRun.Harness == "claude" && !lab {
 		opts.Instructions = role
 	}

@@ -7,8 +7,7 @@ const doorServer = "lyk_door"
 
 // claudeAllowed lists Claude's own tools a study run may use besides the
 // door. Each touches only the run's folder, its own shells or the CLI's own
-// state; anything else, a web tool, a subagent or another MCP server, reaches
-// evidence past Lykeion's sources.
+// state. Native web search is handled separately for eligible runs.
 var claudeAllowed = map[string]bool{
 	"Bash": true, "Read": true, "Write": true, "Edit": true, "MultiEdit": true, "Glob": true, "Grep": true, "LS": true,
 	"TodoWrite": true, "NotebookEdit": true,
@@ -25,11 +24,12 @@ var claudeAllowed = map[string]bool{
 
 // Fenced reports whether m is a tool call outside what a study run may use,
 // and names the call for the person.
-func Fenced(harness string, m Message) (breach bool, what string) {
+func Fenced(harness string, m Message, webSearch bool) (breach bool, what string) {
 	if harness == "codex" {
-		return codexFenced(m, false)
+		return codexFenced(m, false, webSearch)
 	}
-	if m.Type != "tool_use" || m.Server == doorServer || (harness == "claude" && m.Server == "" && claudeAllowed[m.Tool]) {
+	if m.Type != "tool_use" || m.Server == doorServer ||
+		(harness == "claude" && m.Server == "" && (claudeAllowed[m.Tool] || webSearch && m.Tool == "WebSearch")) {
 		return false, ""
 	}
 	return true, m.Tool
@@ -39,7 +39,7 @@ func Fenced(harness string, m Message) (breach bool, what string) {
 // to produce the structured answer.
 func LabFenced(harness string, m Message) (bool, string) {
 	if harness == "codex" {
-		return codexFenced(m, true)
+		return codexFenced(m, true, false)
 	}
 	if m.Type != "tool_use" || m.Server == doorServer && m.Tool == "mcp__lyk_door__call_tool" ||
 		m.Server == "" && m.Tool == "StructuredOutput" {
@@ -51,7 +51,7 @@ func LabFenced(harness string, m Message) (bool, string) {
 // codexFenced judges Codex's own event, so an item type the parser doesn't
 // know is a breach rather than a log. A call to another server is caught
 // when it starts, before its result reaches the agent.
-func codexFenced(m Message, lab bool) (bool, string) {
+func codexFenced(m Message, lab, webSearch bool) (bool, string) {
 	var ev struct {
 		Type string
 		Item struct{ Type, Server, Tool string }
@@ -66,6 +66,10 @@ func codexFenced(m Message, lab bool) (bool, string) {
 		return false, ""
 	}
 	switch ev.Item.Type {
+	case "web_search":
+		if webSearch && ev.Item.Server == "" {
+			return false, ""
+		}
 	case "command_execution", "file_change":
 		if lab {
 			return true, ev.Item.Type

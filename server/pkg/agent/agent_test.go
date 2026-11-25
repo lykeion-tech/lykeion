@@ -1306,8 +1306,7 @@ func TestRemovedHarnessExplainsSupportedAlternatives(t *testing.T) {
 	}
 }
 
-// Codex's built-in web search answers from OpenAI's side, past the sources
-// server, so every Codex run turns it off, fresh or resumed.
+// Executions without an explicit opt-in keep Codex's native search disabled.
 func TestCodexRunsWithoutWebSearch(t *testing.T) {
 	for _, resume := range []string{"", "thread-1"} {
 		args := filepath.Join(t.TempDir(), "args")
@@ -1320,6 +1319,56 @@ func TestCodexRunsWithoutWebSearch(t *testing.T) {
 		a, _ := os.ReadFile(args)
 		if !strings.Contains(string(a), "-c\nweb_search=\"disabled\"\n") {
 			t.Fatalf("resume=%q: codex ran with\n%s", resume, a)
+		}
+	}
+}
+
+func TestNativeWebSearchArguments(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		for _, tc := range []struct {
+			name    string
+			options ExecOptions
+			enabled bool
+		}{
+			{"study", ExecOptions{WebSearch: true}, true},
+			{"coresearch", ExecOptions{WebSearch: true, Coresearch: true}, true},
+			{"report", ExecOptions{WebSearch: true, ReadOnly: true, NoTools: true}, false},
+			{"guest", ExecOptions{WebSearch: true, Guest: true}, false},
+		} {
+			t.Run(harness+"/"+tc.name, func(t *testing.T) {
+				argsFile := filepath.Join(t.TempDir(), "args")
+				backend, err := New(harness, script(t, `printf '%s\n' "$@" > `+argsFile))
+				if err != nil {
+					t.Fatal(err)
+				}
+				opts := tc.options
+				opts.Sandbox, opts.Dir, opts.Model = testSandbox, t.TempDir(), "test-model"
+				session, err := backend.Execute(t.Context(), "test", opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				collect(t, session)
+				data, err := os.ReadFile(argsFile)
+				if err != nil {
+					t.Fatal(err)
+				}
+				args := strings.Split(string(data), "\n")
+				if harness == "codex" {
+					if slices.Contains(args, `web_search="live"`) != tc.enabled ||
+						slices.Contains(args, `web_search="disabled"`) == tc.enabled {
+						t.Fatal("incorrect Codex web search mode")
+					}
+					return
+				}
+				deny := slices.Index(args, "--disallowedTools")
+				if deny < 0 {
+					deny = slices.Index(args, "--mcp-config")
+				}
+				if slices.Contains(args[:deny], "WebSearch") != tc.enabled ||
+					slices.Contains(args[deny:], "WebSearch") == tc.enabled {
+					t.Fatal("incorrect Claude Code WebSearch permissions")
+				}
+			})
 		}
 	}
 }

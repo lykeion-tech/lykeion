@@ -28,7 +28,7 @@ read -r line || true
 echo '{"type":"thread.started","thread_id":"lab-fixture"}'
 echo '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}'
 `)
-			session, err := (Codex{Bin: bin}).Execute(t.Context(), "synthetic question", ExecOptions{Lab: true, Aristotle: true, Coresearch: coresearch, Model: "gpt-5.5", Dir: t.TempDir(), Sandbox: testSandbox, DoorURL: "http://localhost/door", DoorToken: "synthetic-door-secret"})
+			session, err := (Codex{Bin: bin}).Execute(t.Context(), "synthetic question", ExecOptions{Lab: true, WebSearch: true, Aristotle: true, Coresearch: coresearch, Model: "gpt-5.5", Dir: t.TempDir(), Sandbox: testSandbox, DoorURL: "http://localhost/door", DoorToken: "synthetic-door-secret"})
 			if err != nil {
 				t.Fatal(err)
 			}
