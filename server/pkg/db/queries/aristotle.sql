@@ -17,7 +17,13 @@ INSERT INTO coresearch_conversation(workspace_id,owner_id,agent_id,project_id,ch
 VALUES(app_workspace(),app_user(),@agent_id,@project_id,@chat_id,'Getting started with Aristotle',true) RETURNING *;
 
 -- name: ListCoresearchConversations :many
-SELECT c.*,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
+SELECT c.*,p.mode,coalesce((
+    SELECT left(CASE WHEN p.mode='experiment' AND m.kind='reply'
+        THEN btrim(regexp_replace(m.body, E'(^|\n)```study-draft\n[[:space:]]*[{].*[}]\n```[[:space:]]*$', ''), E' \t\r\n')
+        ELSE m.body END, 240)
+    FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id
+    ORDER BY m.created_at DESC,m.id DESC LIMIT 1
+),'')::text AS preview
 FROM coresearch_conversation c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
 WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id;
 

@@ -14,7 +14,7 @@ import CopyButton from './CopyButton.vue';
 import { cleanAssistantText } from './assistant-paths';
 import TurnRail from './TurnRail.vue';
 import RailRow from './RailRow.vue';
-const props = defineProps<{ projectId: string; chatId: string; messages: MessageRow[] }>();
+const props = defineProps<{ projectId: string; chatId: string; messages: MessageRow[]; researchId?: string | null }>();
 const emit = defineEmits<{ 'open-file': [TranscriptFile] }>();
 const files = useCoresearchFiles(() => props.projectId);
 // Discover newly saved files while a run is active and once when it settles.
@@ -78,6 +78,7 @@ const entries = computed(() => {
       v-if="entry.message.kind === 'turn'"
       :project-id="projectId"
       :chat-id="chatId"
+      :research-id="researchId"
       :turn="entry.message"
       :replies="entry.replies"
       :files="
@@ -87,12 +88,12 @@ const entries = computed(() => {
           versions.map((v) => v.data),
         )
       "
-      @open-file="emit('open-file', $event)"
       :settled-replies="
         messages
           .filter((m) => m.kind === 'reply' && m.agent_run_id === entry.message.agent_run_id)
           .map((m) => m.body)
       "
+      @open-file="emit('open-file', $event)"
     />
     <div v-else-if="entry.message.kind === 'comment'" class="msg msg--user">
       <span class="type-small text-fg-subtle">Comment</span

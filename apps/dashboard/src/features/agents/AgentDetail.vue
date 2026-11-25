@@ -77,7 +77,7 @@ const client = useQueryClient();
 const runtimes = useRuntimes();
 
 const tab = ref<'overview' | 'work' | 'capabilities' | 'settings'>('overview'),
-  section = ref<'general' | 'instructions' | 'customize' | 'access'>('general'),
+  section = ref<'general' | 'access'>('general'),
   capabilitySection = ref<'instructions' | 'customize'>('instructions'),
   search = ref(''),
   collapsed = ref<string[]>([]),
@@ -530,17 +530,17 @@ function toggle(id: string) {
               </template>
               <template v-else
                 ><button
-                  v-for="s in ['general', 'instructions', 'customize', 'access'] as const"
+                  v-for="s in ['general', 'access'] as const"
                   :key="s"
                   :aria-current="section === s ? 'page' : undefined"
                   @click="section = s"
                 >
-                  {{ s === 'customize' ? 'Skills & connectors' : s[0]!.toUpperCase() + s.slice(1) }}
+                  {{ s === 'general' ? 'General' : 'Access' }}
                 </button></template
               >
             </nav>
             <form
-              v-if="(tab === 'capabilities' && capabilitySection === 'instructions') || (tab === 'settings' && section === 'instructions')"
+              v-if="tab === 'capabilities' && capabilitySection === 'instructions'"
               class="agent-pane"
               @submit.prevent="patch({ instructions })"
             >
@@ -562,7 +562,7 @@ function toggle(id: string) {
                 </button>
               </footer>
             </form>
-            <AgentCustomize v-else-if="tab === 'capabilities' || (tab === 'settings' && section === 'customize')" :id="id" :editable="editable" />
+            <AgentCustomize v-else-if="tab === 'capabilities'" :id="id" :editable="editable" />
             <form
               v-else-if="section === 'general'"
               class="agent-pane"

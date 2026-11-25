@@ -81,6 +81,8 @@ test('project tabs center their empty states in the content pane', async ({ page
       expect(activeBox.x + activeBox.width - (check!.x + check!.width)).toBe(8);
       await archived.click();
       await expect(empty.getByRole('heading', { name: 'No archived chats' })).toBeVisible();
+      await expect(filter).toHaveText('');
+      await expect(filter).toHaveClass(/\bactive\b/);
       await expect(create).toHaveCount(0);
       await filter.click();
       await expect(archived).toHaveAttribute('aria-checked', 'true');
@@ -175,6 +177,12 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
   await expect(cowrite).toHaveCount(0);
   await expect(experiment).toBeVisible();
   await display.click();
+  const experimentOption = panel.getByRole('menuitemcheckbox', { name: 'experiment', exact: true });
+  await expect(experimentOption).toHaveAttribute('aria-checked', 'true');
+  const optionBox = (await experimentOption.boundingBox())!;
+  const modeCheck = (await experimentOption.locator('svg').boundingBox())!;
+  expect(modeCheck).toMatchObject({ width: 12, height: 12 });
+  expect(optionBox.x + optionBox.width - (modeCheck.x + modeCheck.width)).toBe(8);
   await panel.getByRole('menuitemcheckbox', { name: 'cowrite', exact: true }).click();
   await expect(experiment).toHaveCount(0);
   await expect(cowrite).toBeVisible();

@@ -179,15 +179,20 @@ func (h *H) startStudyProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		store.ProposalContent
-		FromSuggestion bool      `json:"from_suggestion"`
-		OperationID    uuid.UUID `json:"operation_id"`
-		Revision       *int64    `json:"revision"`
+		FromSuggestion bool                   `json:"from_suggestion"`
+		OperationID    uuid.UUID              `json:"operation_id"`
+		Revision       *int64                 `json:"revision"`
+		Coresearch     *coresearchDraftSource `json:"coresearch,omitempty"`
 	}
 	if err := readJSON(r, &in); err != nil || in.OperationID == uuid.Nil || in.Revision == nil || *in.Revision < 0 {
 		writeErr(w, 400, "invalid start request, operation ID or revision")
 		return
 	}
 	rev := *in.Revision
+	if in.Coresearch != nil && (in.FromSuggestion || rev != 0 || in.OperationID != id) {
+		writeErr(w, 400, "invalid Coresearch draft start")
+		return
+	}
 	if rev > 0 && !reflect.DeepEqual(in.ProposalContent, store.ProposalContent{}) {
 		writeErr(w, 400, "save edits before starting this revision")
 		return
@@ -202,11 +207,20 @@ func (h *H) startStudyProposal(w http.ResponseWriter, r *http.Request) {
 			return conflict("proposal discarded")
 		}
 		if p.CardID != nil {
-			if rev != *p.LaunchRevision || (rev == 0 && !reflect.DeepEqual(p.ProposalContent, in.ProposalContent)) {
+			if in.Coresearch != nil {
+				if p.OperationID == nil || *p.OperationID != in.OperationID {
+					return proposalRevisionConflict{p.Revision}
+				}
+			} else if rev != *p.LaunchRevision || (rev == 0 && !reflect.DeepEqual(p.ProposalContent, in.ProposalContent)) {
 				return proposalRevisionConflict{p.Revision}
 			}
 			receipt = proposalReceipt{id, *p.OperationID, *p.CardID, *p.CardNumber}
 			return nil
+		}
+		if in.Coresearch != nil {
+			if err := validateCoresearchDraft(r.Context(), tx, user, id, *in.Coresearch); err != nil {
+				return err
+			}
 		}
 		if p.ID == uuid.Nil && rev > 0 {
 			return pgx.ErrNoRows

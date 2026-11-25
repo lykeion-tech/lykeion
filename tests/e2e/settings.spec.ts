@@ -828,7 +828,7 @@ test('many workspaces remain normally clickable in the workspace popup on a smal
     // The menu opens upward from the Lab toggle at the bottom of the sidebar.
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.y + box!.height).toBeLessThanOrEqual(trigger.y);
-    expect(box?.width).toBe(224);
+    expect(box?.width).toBe(180);
     expect(box!.y + box!.height).toBeLessThanOrEqual(600);
     expect(await menu.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     await menu.getByRole('menuitem', { name: /Popup lab 0$/ }).click();

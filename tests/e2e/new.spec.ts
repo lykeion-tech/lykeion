@@ -173,10 +173,9 @@ test.describe('new study', () => {
     const pill = dialog.getByRole('button', { name, exact: true });
     await pill.click();
     const menu = dialog.getByRole('menu', { name: 'Study stages' });
-    await expect(menu.getByRole('menuitem', { name: 'To-do', exact: true })).toBeEnabled();
-    const options = menu.getByRole('menuitemcheckbox');
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'To-do', exact: true })).toBeEnabled();
+    const options = menu.getByRole('menuitemcheckbox').and(menu.locator(':disabled'));
     await expect(options).toHaveCount(4);
-    for (const option of await options.all()) await expect(option).toBeDisabled();
     await pill.click();
     await expect(menu).toHaveCount(0);
   }

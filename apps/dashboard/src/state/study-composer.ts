@@ -1,5 +1,6 @@
 import { reactive, readonly } from 'vue';
 import type { Picked } from '../lib/studies';
+import type { CoresearchStudyDraft } from '../api/coresearch-study';
 
 export type Assignee = Picked;
 
@@ -9,12 +10,18 @@ const composer = reactive<{
   assignee?: Assignee;
   projectId?: string;
   workflow?: string;
+  coresearchDraft?: CoresearchStudyDraft;
 }>({
   open: false,
 });
 
-function openComposer(assignee?: Assignee, projectId?: string, workflow?: string) {
-  Object.assign(composer, { open: true, assignee, projectId, workflow });
+function openComposer(
+  assignee?: Assignee,
+  projectId?: string,
+  workflow?: string,
+  coresearchDraft?: CoresearchStudyDraft,
+) {
+  Object.assign(composer, { open: true, assignee, projectId, workflow, coresearchDraft });
 }
 function closeComposer() {
   Object.assign(composer, {
@@ -22,6 +29,7 @@ function closeComposer() {
     assignee: undefined,
     projectId: undefined,
     workflow: undefined,
+    coresearchDraft: undefined,
   });
 }
 

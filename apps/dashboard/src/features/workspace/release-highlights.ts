@@ -11,6 +11,32 @@ type Highlight = {
 
 // Each release includes its own reviewed copy and feature illustration.
 const releases: Record<string, readonly Highlight[]> = {
+  '0.1.13': [
+    {
+      title: 'Turn a Coresearch chat into a study',
+      description:
+        'After you’ve worked through a research question, Aristotle can offer a study draft. You can ask for one yourself, then review the brief, stage, assignee and project before starting.',
+      icon: 'chat',
+      color: 'blue',
+      details: ['Coresearch discussion', 'Study draft', 'Review and start'],
+    },
+    {
+      title: 'Create and organize To-dos',
+      description:
+        'Choose To-do in New study to save work for later. Use the card’s menu to add it to a project, or open the card when you’re ready to start.',
+      icon: 'check',
+      color: 'green',
+      details: ['New study', 'To-do', 'Add to project'],
+    },
+    {
+      title: 'Filter chats in a project',
+      description:
+        'Open a project’s Coresearches tab to find Experiment or Cowrite chats. The Filter menu also lets you view archived chats.',
+      icon: 'folder',
+      color: 'violet',
+      details: ['Project Coresearches', 'Experiment and Cowrite', 'Active or archived'],
+    },
+  ],
   '0.1.12': [
     {
       title: 'Review a study without a TypeSafe key',

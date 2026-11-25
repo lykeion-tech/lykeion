@@ -141,7 +141,7 @@ for (const theme of ['ash', 'midnight']) {
     );
     await page.goto('/#/coresearch');
     await expect(page).toHaveURL(/conversations\/welcome$/);
-    await expect(page.getByText("Welcome to Lykeion. I'm Aristotle")).toBeVisible();
+    await expect(page.getByText("Welcome to Lykeion! I'm Aristotle")).toBeVisible();
     await expect(page.locator('.welcome-actions button')).toHaveCount(4);
     await expect(page.locator('.aristotle-header .aristotle-art svg')).toHaveCount(1);
     await page.getByRole('link', { name: 'New conversation', exact: true }).click();

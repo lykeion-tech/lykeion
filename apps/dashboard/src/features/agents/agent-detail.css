@@ -451,40 +451,6 @@
   gap: 8px;
   font-size: 13px;
 }
-.coresearch.agent-model-picker {
-  height: auto;
-  background: transparent;
-  --surface-1: var(--surface);
-  --surface-2: var(--input);
-  --ink: var(--text);
-  --ink-subtle: var(--muted);
-  --ink-tertiary: var(--muted);
-  --hairline-strong: var(--border);
-  --type-body: 14px;
-  --type-small: 13px;
-  --type-meta: 12px;
-}
-.agent-model-picker .cli-switcher,
-.agent-model-picker .cli-pill {
-  width: 100%;
-}
-.agent-model-picker .cli-pill {
-  justify-content: space-between;
-  background: var(--surface);
-  color: var(--text);
-  height: 37px;
-  padding: 8px 10px;
-  border-radius: 5px;
-  font-weight: 400;
-}
-.coresearch.agent-model-picker .cli-menu {
-  background: var(--surface);
-}
-.coresearch.agent-model-picker
-  .cli-menu:is([aria-label='Stage options'], [aria-label='Harness options']) {
-  width: 200px;
-  max-width: 100%;
-}
 .agent-radios label {
   display: flex;
   align-items: center;

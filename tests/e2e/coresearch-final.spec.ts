@@ -9,7 +9,7 @@ test('New study starts with no explicit stage selection', async ({ page }) => {
   const composer = page.getByRole('dialog', { name: 'New study' });
   const stages = composer.getByRole('menu', { name: 'Study stages' });
   await composer.getByRole('button', { name: 'Stages', exact: true }).click();
-  await expect(stages.getByRole('menuitemcheckbox', { checked: false })).toHaveCount(4);
+  await expect(stages.getByRole('menuitemcheckbox', { checked: false })).toHaveCount(5);
   await stages.getByRole('menuitemcheckbox', { name: 'Hypotheses' }).click();
   await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText(['Hypotheses']);
   const pill = composer.getByRole('button', { name: 'Stages: Hypotheses', exact: true });
@@ -21,6 +21,27 @@ test('New study starts with no explicit stage selection', async ({ page }) => {
     'Grounding',
     'Hypotheses',
   ]);
+});
+
+test('Best practices stays visible and To-do replaces the selected stage', async ({ page }) => {
+  await installFilesFixture(page);
+  await page.goto('/#/studies');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const composer = page.getByRole('dialog', { name: 'New study' });
+  const tips = composer.getByText('Best practices', { exact: true });
+  const stages = composer.getByRole('menu', { name: 'Study stages' });
+  await composer.getByRole('button', { name: 'Stages', exact: true }).click();
+  await stages.getByRole('menuitemcheckbox', { name: 'Grounding' }).click();
+  await expect(tips).toBeVisible();
+  await stages.getByRole('menuitemcheckbox', { name: 'To-do', exact: true }).click();
+  const todo = composer.getByRole('button', { name: 'Stages: To-do', exact: true });
+  await expect(todo).toBeVisible();
+  await expect(tips).toBeVisible();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText(['To-do']);
+  await stages.getByRole('menuitemcheckbox', { name: 'Validation' }).click();
+  await expect(stages.getByRole('menuitemcheckbox', { checked: true })).toHaveText(['Validation']);
+  await expect(composer.getByRole('button', { name: /^Create study/ })).toBeVisible();
+  await expect(tips).toBeVisible();
 });
 
 test('sidebar New opens the study composer even from Coresearch', async ({ page }) => {

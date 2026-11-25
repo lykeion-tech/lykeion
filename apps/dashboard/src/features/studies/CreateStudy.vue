@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
 import Modal from '../../ui/Modal.vue';
-import ProposalComposer from './ProposalComposer.vue';
 import ComposerCalendar from './ComposerCalendar.vue';
 import Icon from '../../ui/Icon.vue';
 import AvatarDisplay from '../../ui/AvatarDisplay.vue';
@@ -20,15 +19,21 @@ import {
   useWorkspace,
 } from '../../api/queries';
 import { formatSize, useAttachments } from '../../lib/attachments';
-import type { Card } from '../../api/types';
+import type { Card, StudyProposalContent } from '../../api/types';
 import { coversStage, studyNumber, type Picked, type Range } from '../../lib/studies';
 import { notify } from '../../state/notice';
 import type { Assignee } from '../../state/study-composer';
 import AssignPicker from '../../ui/AssignPicker.vue';
 import { useWorkflows } from '../../api/workflows';
 import { domainEmoji } from '../../lib/workflows';
+import { startCoresearchStudy, type CoresearchStudyDraft } from '../../api/coresearch-study';
 
-const props = defineProps<{ assignee?: Assignee; projectId?: string; workflow?: string }>();
+const props = defineProps<{
+  assignee?: Assignee;
+  projectId?: string;
+  workflow?: string;
+  coresearchDraft?: CoresearchStudyDraft;
+}>();
 const emit = defineEmits<{ close: [] }>();
 const client = useQueryClient();
 const cards = useCards();
@@ -45,18 +50,20 @@ const availableAgents = computed(() =>
 const projects = useResearches();
 const isMac = navigator.platform.includes('Mac');
 let generation = 0;
+let proposalId: string | undefined;
 watch(
   workspaceId,
   () => {
     generation++;
+    proposalId = undefined;
     busy.value = false;
     error.value = '';
   },
   { flush: 'sync' },
 );
 onUnmounted(() => generation++);
-const title = ref('');
-const question = ref('');
+const title = ref(props.coresearchDraft?.title ?? '');
+const question = ref(props.coresearchDraft?.description ?? '');
 const deadline = ref('');
 const priority = ref<'none' | 'urgent' | 'high' | 'medium' | 'low'>('none');
 const priorities = [
@@ -93,6 +100,7 @@ async function pick(event: Event) {
 }
 const assignee = ref<Picked | null>(props.assignee ? { ...props.assignee } : null);
 function initialRange(): Range {
+  if (props.coresearchDraft) return { from: props.coresearchDraft.stage, to: props.coresearchDraft.stage };
   const a = props.assignee;
   const columns = a?.type === 'team' ? Object.keys(a.teams) : [];
   const own = a?.type === 'agent' ? agents.data.value?.find((x) => x.id === a.id)?.stage : '';
@@ -129,7 +137,7 @@ function dropWorkflow() {
   workflowSlug.value = '';
   range.value = initialRange();
 }
-const todoOpen = ref(false);
+const todo = ref(false);
 const proposalStage = computed(() => {
   switch (range.value.from) {
     case 'hypotheses':
@@ -140,11 +148,21 @@ const proposalStage = computed(() => {
       return 'grounding';
   }
 });
-const proposalAssignee = computed(() => {
+const proposalAssignee = computed<StudyProposalContent['assignee'] | undefined>(() => {
   const a = assignee.value;
-  if (a?.type === 'agent') return 'agent:' + a.id;
-  const pack = a?.teams[proposalStage.value] ?? a?.teams[''];
-  return pack ? 'team:' + pack : '';
+  if (a?.type === 'agent') return { type: 'agent', agent_id: a.id };
+  if (a?.type === 'team' && !a.agent_id && Object.keys(a.teams).length === 1) {
+    const pack = a.teams[proposalStage.value];
+    if (pack) return { type: 'team', pack_id: pack };
+  }
+  return undefined;
+});
+const todoIssue = computed(() => {
+  if (!todo.value) return '';
+  if (files.items.value.length || startDate.value || deadline.value)
+    return 'Remove attachments and dates to save this study to To-do.';
+  if (unstaged.value) return 'Choose a stage for this Team.';
+  return '';
 });
 const picker = ref<InstanceType<typeof AssignPicker>>();
 const usedLastSet = ref(false);
@@ -260,6 +278,8 @@ const blocked = computed(
       ? !agentPrompt.value.trim() || !draftingAgent.value || files.items.value.length > 0
       : !question.value.trim() ||
         unstaged.value ||
+        !!todoIssue.value ||
+        ((todo.value || props.coresearchDraft) && !proposalAssignee.value) ||
         (!!workflowSlug.value && assignee.value?.type !== 'agent') ||
         needsData.value),
 );
@@ -271,6 +291,54 @@ async function submit() {
   busy.value = true;
   error.value = '';
   duplicate.value = null;
+  if (props.coresearchDraft && proposalAssignee.value) {
+    try {
+      await startCoresearchStudy(client, workspace, props.coresearchDraft, {
+        title: title.value.trim(),
+        description: question.value.trim(),
+        priority: priority.value,
+        stage: proposalStage.value,
+        project_id: projectId.value || null,
+        assignee: proposalAssignee.value,
+      });
+      if (current()) {
+        notify('Study created.');
+        emit('close');
+      }
+    } catch (e) {
+      if (current()) error.value = (e as Error).message;
+    } finally {
+      if (current()) busy.value = false;
+    }
+    return;
+  }
+  if (todo.value && proposalAssignee.value) {
+    proposalId ??= crypto.randomUUID();
+    try {
+      await api(
+        'PUT',
+        `/api/study-proposals/${proposalId}`,
+        {
+          revision: 0,
+          title: title.value.trim(),
+          description: question.value.trim(),
+          priority: priority.value,
+          stage: proposalStage.value,
+          project_id: projectId.value || null,
+          assignee: proposalAssignee.value,
+        },
+        undefined,
+        { workspace },
+      );
+      await client.invalidateQueries({ queryKey: keys.proposals(workspace) });
+      if (current()) emit('close');
+    } catch (e) {
+      if (current()) error.value = (e as Error).message;
+    } finally {
+      if (current()) busy.value = false;
+    }
+    return;
+  }
   if (mode.value === 'agent') {
     try {
       await api(
@@ -344,10 +412,16 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <Modal title="New study" :class="['study-composer', mode, { expanded }]" @close="emit('close')">
+  <Modal
+    title="New study"
+    :class="['study-composer', mode, { expanded }]"
+    :before-close="() => !todo || !busy"
+    @close="emit('close')"
+  >
     <!-- eslint-disable vue/use-v-on-exact -->
     <form
       ref="form"
+      :inert="todo && busy"
       @submit.prevent="submit"
       @keydown="keysDown"
       @keydown.meta.enter.prevent="submit"
@@ -495,11 +569,12 @@ onUnmounted(() => {
             ref="picker"
             v-model="assignee"
             v-model:range="range"
+            v-model:todo="todo"
             one-agent
+            :single-stage="!!coresearchDraft"
             default-label="Assignees"
             :agent-only="!!workflowSlug"
-            :allow-todo="!workflowSlug"
-            @todo="todoOpen = true"
+            :allow-todo="!workflowSlug && !coresearchDraft"
             :last-set="lastSet"
             menu-below
             @open="closeMenu"
@@ -562,9 +637,14 @@ onUnmounted(() => {
               <p v-if="projects.isError.value" role="alert">Could not load projects.</p>
             </div>
           </div>
-          <div class="property-anchor">
-            <button type="button" class="property-pill" aria-label="More study properties"
-              :aria-expanded="['dates', 'start', 'deadline'].includes(menu)" @click="openMenu('dates')">
+          <div v-if="!coresearchDraft" class="property-anchor">
+            <button
+              type="button"
+              class="property-pill"
+              aria-label="More study properties"
+              :aria-expanded="['dates', 'start', 'deadline'].includes(menu)"
+              @click="openMenu('dates')"
+            >
               <Icon name="more" :size="16" />
             </button>
             <div
@@ -584,16 +664,16 @@ onUnmounted(() => {
             <ComposerCalendar v-if="menu === 'deadline'" v-model="deadline" kind="due" @close="closeMenu" />
           </div>
         </div>
-        <details
-          v-if="mode === 'manual' && (includesHypotheses || validatesExperiments)"
-          class="composer-tips"
-        >
+        <details v-if="mode === 'manual'" class="composer-tips">
           <summary>Best practices</summary>
           <ul>
-            <li v-if="includesHypotheses">
+            <li v-if="coresearchDraft || todo || (!includesHypotheses && !validatesExperiments)">
+              Describe the outcome you want and how you’ll know the study is complete.
+            </li>
+            <li v-if="!coresearchDraft && !todo && includesHypotheses">
               If you’re supplying the study data, attach it as a file so Hypotheses can cite it.
             </li>
-            <template v-if="validatesExperiments">
+            <template v-if="!todo && validatesExperiments">
               <li>
                 Validation needs a recorded statistical test for a directional hypothesis. Plan it
                 before Experimentation.
@@ -615,6 +695,7 @@ onUnmounted(() => {
       <p v-if="needsData" class="composer-warning" role="status">
         A Workflow runs its method on your data: attach at least one file.
       </p>
+      <p v-if="todoIssue" class="composer-warning" role="status">{{ todoIssue }}</p>
       <div v-if="files.items.value.length || files.error.value" class="composer-files">
         <ul v-if="files.items.value.length" aria-label="Files to attach">
           <li v-for="f in files.items.value" :key="f.key" tabindex="0">
@@ -642,10 +723,11 @@ onUnmounted(() => {
       <p v-if="aristotleAssignee" class="composer-error" role="alert">Aristotle cannot be assigned to a study. Choose an agent with a research stage instead.</p>
       <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
       <footer class="composer-footer">
-        <label class="icon-button attachment-button" for="composer-files-input" :title="filesHint">
+        <label v-if="!coresearchDraft" class="icon-button attachment-button" for="composer-files-input" :title="filesHint">
           <Icon name="attachment" :size="15" /><span class="visually-hidden">Attach files</span>
         </label>
         <input
+          v-if="!coresearchDraft"
           id="composer-files-input"
           type="file"
           multiple
@@ -654,13 +736,14 @@ onUnmounted(() => {
           aria-describedby="composer-files-hint"
           @change="pick"
         />
-        <span id="composer-files-hint" class="visually-hidden">{{ filesHint }}</span>
+        <span v-if="!coresearchDraft" id="composer-files-hint" class="visually-hidden">{{ filesHint }}</span>
         <button
+          v-if="!coresearchDraft"
           type="button"
           class="mode-switch push-right"
           :aria-pressed="mode === 'agent'"
           :disabled="
-            busy || files.uploading.value || (mode === 'manual' && assignee?.type !== 'agent')
+            busy || todo || files.uploading.value || (mode === 'manual' && assignee?.type !== 'agent')
           "
           :title="
             mode === 'manual' && assignee?.type !== 'agent'
@@ -675,22 +758,13 @@ onUnmounted(() => {
             }}</span
           >
         </button>
-        <button type="submit" class="button primary compact" :disabled="blocked">
-          {{ busy ? 'Sending…' : mode === 'agent' ? 'Create' : 'Create study'
+        <button type="submit" class="button primary compact" :class="{ 'push-right': coresearchDraft }" :disabled="blocked">
+          {{ busy ? 'Sending…' : todo ? 'Create To-do' : mode === 'agent' ? 'Create' : 'Create study'
           }}<kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>↵</kbd>
         </button>
       </footer>
     </form>
   </Modal>
-  <ProposalComposer
-    v-if="todoOpen"
-    :initial-description="[title.trim(), question.trim()].filter(Boolean).join('\n\n')"
-    :initial-stage="proposalStage"
-    :initial-assignee="proposalAssignee"
-    :project-id="projectId"
-    @close="todoOpen = false"
-    @saved="emit('close')"
-  />
 </template>
 <style scoped src="../../ui/composer-menu.css"></style>
 <style scoped>

@@ -10,6 +10,7 @@ const props = defineProps<{
   failed: boolean;
   busy: boolean;
   currentProject?: string | null;
+  existingOnly?: boolean;
   backLabel: string;
 }>();
 const emit = defineEmits<{
@@ -78,10 +79,10 @@ watch(
         placeholder="Search projects…"
         :disabled="busy"
       />
-      <button type="button" :disabled="busy" @click="createProject">
+      <button v-if="!existingOnly" type="button" :disabled="busy" @click="createProject">
         <Icon name="plus" :size="15" />New project
       </button>
-      <div class="project-picker-divider" />
+      <div v-if="!existingOnly" class="project-picker-divider" />
       <div class="project-picker-list">
         <p v-if="pending" role="status">Loading projects…</p>
         <p v-else-if="failed" role="alert">

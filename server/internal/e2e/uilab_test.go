@@ -29,8 +29,10 @@ import (
 	"lykeion/server/internal/autoresearch"
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/connectors"
+	"lykeion/server/internal/coresearch"
 	"lykeion/server/internal/daemon"
 	"lykeion/server/internal/flow"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/handler"
 	"lykeion/server/internal/labmemory"
 	"lykeion/server/internal/realtime"
@@ -64,6 +66,30 @@ func (m *codeMail) Send(_ context.Context, to, subject, body string) error {
 	defer m.mu.Unlock()
 	m.codes[to] = sixDigits.FindString(body)
 	return nil
+}
+
+func TestUIFixtureGroundingSmokeHandIn(t *testing.T) {
+	for _, tc := range []struct{ role, question string }{
+		{"agent", "Just testing: respond 'OK'"},
+		{"agent", "Just answer: 'OK'"},
+		{"leader", "Just respond: 'OK'"},
+	} {
+		t.Run(tc.role+"/"+tc.question, func(t *testing.T) {
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", "testdata/ui-fake-claude.sh", "--json-schema", handin.Schema(handin.Grounding))
+			cmd.Env = []string{"PATH=/usr/bin:/bin", "CLAUDE_CONFIG_DIR=" + t.TempDir()}
+			cmd.Stdin = strings.NewReader(fmt.Sprintf("You are the %s on Lykeion study #1, in its Grounding column.\n\nWhat the researcher asked:\n%s\n", tc.role, tc.question))
+			out, err := cmd.Output()
+			must(t, err)
+			var result struct {
+				HandIn json.RawMessage `json:"structured_output"`
+			}
+			must(t, json.Unmarshal(out, &result))
+			h, problems := handin.Parse(handin.Grounding, result.HandIn)
+			if len(problems) != 0 || h.Status != "done" || h.Answer != "OK" || h.NoQualifying == nil || len(h.Papers)+len(h.Datasets) != 0 {
+				t.Fatalf("invalid Grounding smoke hand-in: %s (%v)", result.HandIn, problems)
+			}
+		})
+	}
 }
 
 // TestUILab serves a whole lab for the dashboard's browser tests: the real
@@ -116,7 +142,7 @@ func TestUILab(t *testing.T) {
 	runs := &service.AgentRuns{Store: st, Blobs: blobs, MCPURL: base + "/mcp/sources"}
 	engine := &flow.Engine{Store: st, AgentRuns: runs, Blobs: blobs}
 	ap := &autoresearch.Service{Store: st, AgentRuns: runs, Engine: engine, Key: []byte("0123456789abcdef0123456789abcdef")}
-	runs.OnSettlement = ap.OnSettlement(engine.OnSettlement)
+	runs.OnSettlement = (&coresearch.Service{Store: st, Blobs: blobs}).OnSettlement(ap.OnSettlement(engine.OnSettlement))
 	hosted := &sources.Hosted{Store: st, Blobs: blobs}
 	mail := &codeMail{codes: map[string]string{}}
 	iss := auth.Issuer{Secret: []byte("ui-lab-signing-secret-0123456789"), TTL: 24 * time.Hour}

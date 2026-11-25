@@ -53,7 +53,7 @@ test('Manage skills preserves the draft on Settings back and explicit New clears
   await page.getByRole('button', { name: 'Cowrite', exact: true }).click();
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default',
+      name: 'CLI and model: Claude Code · Default (recommended)',
       exact: true,
     })
     .click();
@@ -119,7 +119,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Toggle left sidebar', exact: true }).click();
     await page
       .getByRole('button', {
-        name: 'CLI and model: Claude Code · Default',
+        name: 'CLI and model: Claude Code · Default (recommended)',
         exact: true,
       })
       .click();
@@ -200,7 +200,7 @@ test('draft composer uploads before Cowrite acceptance and routes the selected m
   await page.getByRole('menuitemradio', { name: 'NeurIPS', exact: true }).click();
   await page
     .getByRole('button', {
-      name: 'CLI and model: Claude Code · Default',
+      name: 'CLI and model: Claude Code · Default (recommended)',
       exact: true,
     })
     .click();
@@ -228,7 +228,7 @@ test('draft composer uploads before Cowrite acceptance and routes the selected m
     attachments: [{ upload_id: 'uploaded-figure', name: 'figure.svg' }],
   });
 });
-test('member picks skills and connectors per message and an empty runtime catalogue shows plain Default', async ({
+test('member picks skills and connectors per message and an empty runtime catalogue shows the recommended default', async ({
   page,
 }) => {
   await installAristotleFixture(page, true);
@@ -255,7 +255,7 @@ test('member picks skills and connectors per message and an empty runtime catalo
   );
   await page.goto('/#/coresearch/new');
   await expect(
-    page.getByRole('button', { name: 'CLI and model: Claude Code · Default' }),
+    page.getByRole('button', { name: 'CLI and model: Claude Code · Default (recommended)' }),
   ).toBeVisible();
   await page.getByRole('textbox', { name: 'Message the agent' }).fill('/');
   await expect(page.getByRole('option', { name: 'Research Find evidence' })).toBeVisible();
