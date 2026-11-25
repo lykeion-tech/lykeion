@@ -29,7 +29,7 @@ func TestFenceCatchesCodexApps(t *testing.T) {
 	if len(ms) != 1 {
 		t.Fatalf("messages %+v", ms)
 	}
-	if breach, what := Fenced("codex", ms[0]); !breach || what != "codex_apps/search_service.web_run" {
+	if breach, what := Fenced("codex", ms[0], true); !breach || what != "codex_apps/search_service.web_run" {
 		t.Fatalf("Fenced = %v %q", breach, what)
 	}
 }
@@ -88,7 +88,7 @@ func TestFenceTable(t *testing.T) {
 			ms := parsed(t, p, tc.line)
 			got := false
 			for _, m := range ms {
-				if b, _ := Fenced(tc.harness, m); b {
+				if b, _ := Fenced(tc.harness, m, false); b {
 					got = true
 				}
 			}
@@ -96,6 +96,30 @@ func TestFenceTable(t *testing.T) {
 				t.Fatalf("breach %v, want %v (%+v)", got, tc.breach, ms)
 			}
 		})
+	}
+}
+
+func TestFenceAllowsOnlyNativeSearchWhenEnabled(t *testing.T) {
+	claude := parsed(t, parseClaude("m", "", nil, nil),
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"WebSearch","input":{}},{"type":"tool_use","id":"t2","name":"WebFetch","input":{}}]}}`)
+	codex := parsed(t, parseCodex("m"),
+		`{"type":"item.started","item":{"id":"i","type":"web_search"}}`,
+		`{"type":"item.completed","item":{"id":"i","type":"web_search","query":"x"}}`)
+	if len(claude) != 2 || len(codex) != 2 {
+		t.Fatalf("unexpected tool events: Claude Code %d, Codex %d", len(claude), len(codex))
+	}
+	for harness, messages := range map[string][]Message{"claude": claude[:1], "codex": codex} {
+		for _, m := range messages {
+			if b, what := Fenced(harness, m, true); b {
+				t.Errorf("%s native search blocked: %s", harness, what)
+			}
+			if b, _ := LabFenced(harness, m); !b {
+				t.Errorf("%s native search escaped the private lab fence", harness)
+			}
+		}
+	}
+	if b, _ := Fenced("claude", claude[1], true); !b {
+		t.Fatal("native search permission also allowed WebFetch")
 	}
 }
 
@@ -114,7 +138,7 @@ func TestClaudeSplitsMCPServer(t *testing.T) {
 }
 
 func TestClaudeStructuredOutputIsNotABreach(t *testing.T) {
-	if breach, tool := Fenced("claude", Message{Type: "tool_use", Tool: "StructuredOutput"}); breach {
+	if breach, tool := Fenced("claude", Message{Type: "tool_use", Tool: "StructuredOutput"}, false); breach {
 		t.Fatalf("StructuredOutput fenced as %q", tool)
 	}
 }

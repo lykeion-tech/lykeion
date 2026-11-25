@@ -227,7 +227,7 @@ func (a *Agent) agent(ctx context.Context, cancel context.CancelFunc, sb agent.S
 			if m.Type == "tool_use" {
 				fmt.Fprintf(a.Log, "  %s\n", m.Tool)
 			}
-			if fenced, what := agent.Fenced("claude", m); fenced {
+			if fenced, what := agent.Fenced("claude", m, false); fenced {
 				breach = what
 				cancel()
 				return errors.New("tool outside the run fence: " + what)

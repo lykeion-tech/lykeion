@@ -36,6 +36,14 @@ const releases: Record<string, readonly Highlight[]> = {
       color: 'violet',
       details: ['Project Coresearches', 'Experiment and Cowrite', 'Active or archived'],
     },
+    {
+      title: 'Find public sources with web search',
+      description:
+        'Claude Code and Codex can use built-in web search to discover public sources. When agents cite a paper or dataset in a study, Lykeion records it through Sources.',
+      icon: 'search',
+      color: 'blue',
+      details: ['Your agent', 'Public web search', 'Recorded study evidence'],
+    },
   ],
   '0.1.12': [
     {

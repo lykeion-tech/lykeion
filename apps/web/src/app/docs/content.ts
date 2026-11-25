@@ -769,6 +769,8 @@ When you're planning a study, ask Aristotle who could lead it, contribute a meth
 
 In an Experiment chat, Aristotle can suggest a study after you've clarified the research question and agreed on a first step. You can also ask it to draft a study from the discussion. When a draft appears in the chat, choose **Edit draft** to review the title, brief, priority, assignee, stage and project in **New study**. Choose **Create study** to use those settings, or **Start study** on the card to use the suggested settings. The card links to the study after creation.
 
+Claude Code and Codex can use their built-in web search in Coresearch and in ordinary agent runs on your own machine, subject to provider availability and policy. Search is for discovering public sources. Agents fetch and record any papers or datasets they cite in a study through Lykeion's Sources tools.
+
 ## Inspect the project surfaces
 
 In a research project, open the experiment surfaces to inspect Notebook, Files and Compute. Use Files to find project material and Notebook to inspect recorded computation. Read the conversation alongside the artifacts it references. Writing projects use their own writing surface.

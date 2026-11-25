@@ -54,13 +54,15 @@ func (c Codex) Execute(ctx context.Context, prompt string, o ExecOptions) (*Sess
 		}
 	}
 	// These flags belong to exec, before the optional resume subcommand.
-	// Codex's own web search answers from OpenAI's side, past the sources
-	// server that every cited source must come through, so it is off.
 	sandbox := "danger-full-access"
 	if o.Lab || o.NoTools {
 		sandbox = "read-only"
 	}
-	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", sandbox, "-c", `web_search="disabled"`}
+	webSearch := `web_search="disabled"`
+	if o.nativeWebSearch() {
+		webSearch = `web_search="live"`
+	}
+	args := []string{"exec", "--json", "--skip-git-repo-check", "-s", sandbox, "-c", webSearch}
 	if o.Lab {
 		// Best-effort native-tool restrictions. These CLI settings do not prove
 		// provider or managed MCP isolation; generic MCP resource operations

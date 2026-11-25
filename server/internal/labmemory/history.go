@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/store"
@@ -55,10 +56,15 @@ func LaunchPrompt(ctx context.Context, tx *store.Tx, run db.AgentRun) (string, e
 	if n != 1 {
 		return "", service.ErrConflict
 	}
-	if len(history) == 0 {
-		return run.Prompt, nil
+	researcher, err := tx.Q.GetUser(ctx, asker)
+	if err != nil {
+		return "", err
 	}
-	return run.Prompt + "\n\nEarlier conversation:\n" + strings.Join(history, "\n"), nil
+	prompt := fence.Researcher(researcher.Name, asker.String()) + "\nResearcher's question:\n" + run.Prompt
+	if len(history) > 0 {
+		prompt += "\n\nEarlier conversation:\n" + strings.Join(history, "\n")
+	}
+	return prompt, nil
 }
 
 // currentHistory checks the chain of earlier answers both at start and before publishing

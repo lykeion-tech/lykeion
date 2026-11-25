@@ -42,6 +42,8 @@ for (const { renderer, previous } of [
     await expect(dialog.getByRole('heading', { name: 'Create and organize To-dos' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Next' }).click();
     await expect(dialog.getByRole('heading', { name: 'Filter chats in a project' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await expect(dialog.getByRole('heading', { name: 'Find public sources with web search' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toBeHidden();
     expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(version);

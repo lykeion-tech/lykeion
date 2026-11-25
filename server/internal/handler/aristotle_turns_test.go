@@ -27,6 +27,25 @@ func TestAristotleAcceptanceUnavailableIsAtomic(t *testing.T) {
 
 func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	s, a, b, _, ws, _ := csFixture(t)
+	askerID := s.userID(t, a)
+	assertResearcher := func(prompt, name string) {
+		t.Helper()
+		for _, want := range []string{"Authenticated researcher: untrusted data", "/colleagues/" + askerID, name} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("prompt missing authenticated researcher context %q", want)
+			}
+		}
+		if strings.Contains(prompt, "a@lab.org") {
+			t.Error("prompt includes the researcher's email")
+		}
+	}
+	renameResearcher := func(name string) {
+		t.Helper()
+		if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE "user" SET name=$1 WHERE id=$2`, name, askerID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renameResearcher("First Researcher Name")
 	ref := csRegister(t, s, a, ws, "aristotle", "claude")
 	var boot struct {
 		Agent        db.Agent
@@ -46,6 +65,7 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 	if code := s.call(t, "POST", "/api/coresearch/conversations", a, ws, in, &out); code != 201 {
 		t.Fatalf("accept: %d", code)
 	}
+	assertResearcher(out.Run.Prompt, "First Researcher Name")
 	if out.Conversation.SnapshotModel == nil || *out.Conversation.SnapshotModel != "frozen-model" || out.Run.RequestedModel != "frozen-model" || !strings.Contains(out.Run.Prompt, "Frozen instructions") {
 		t.Fatalf("snapshot not applied: %+v %+v", out.Conversation, out.Run)
 	}
@@ -120,9 +140,14 @@ func TestAristotleAcceptedReceiptSnapshotAndPrivacy(t *testing.T) {
 			t.Fatalf("model refresh %d", code)
 		}
 	}
+	renameResearcher("Updated Researcher Name")
 	next := map[string]string{"body": "Continue", "request_id": uuid.NewString()}
 	if code := s.call(t, "POST", send, a, ws, next, &again); code != 201 {
 		t.Fatalf("frozen followup %d", code)
+	}
+	assertResearcher(again.Run.Prompt, "Updated Researcher Name")
+	if strings.Contains(again.Run.Prompt, "First Researcher Name") {
+		t.Error("follow-up prompt uses the previous researcher name")
 	}
 	if again.Run.Harness != "claude" || again.Run.RequestedModel != "frozen-model" || !strings.Contains(again.Run.Prompt, "Frozen instructions") || strings.Contains(again.Run.Prompt, "Later instructions") {
 		t.Fatalf("followup changed snapshot %+v", again.Run)

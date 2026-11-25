@@ -113,7 +113,7 @@ func TestCanary(t *testing.T) {
 
 			doorCalls := 0
 			for _, m := range messages {
-				if breach, what := agent.Fenced(harness, m); breach {
+				if breach, what := agent.Fenced(harness, m, false); breach {
 					t.Errorf("fence breach: %s", what)
 				}
 				if m.Type == "tool_use" && m.Server == "lyk_door" {

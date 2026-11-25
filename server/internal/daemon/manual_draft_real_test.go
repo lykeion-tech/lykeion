@@ -92,7 +92,7 @@ func TestManualDraftRealCLI(t *testing.T) {
 				t.Fatalf("proposal did not preserve supplied draft: %+v", parsed.Draft)
 			}
 			for _, m := range messages {
-				if breach, what := agent.Fenced(harness, m); breach {
+				if breach, what := agent.Fenced(harness, m, false); breach {
 					t.Fatalf("lab fence breach: %s", what)
 				}
 			}

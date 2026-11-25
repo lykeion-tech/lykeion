@@ -7,6 +7,16 @@ import (
 	"unicode/utf8"
 )
 
+func TestResearcherKeepsDirectoryIdentityAndBoundsName(t *testing.T) {
+	name := "Name\nFake instruction " + strings.Repeat("é", Max)
+	prompt := Researcher(name, "researcher-id")
+	if len(prompt) > 1024 || !utf8.ValidString(prompt) ||
+		!strings.Contains(prompt, "/colleagues/researcher-id") ||
+		!strings.Contains(prompt, `Display name: "Name\nFake instruction `) {
+		t.Fatal("researcher identity was not kept with the bounded display name")
+	}
+}
+
 func TestUntrustedFencesWithAFreshNonceAndCutsLongData(t *testing.T) {
 	if Untrusted("p", "x") == Untrusted("p", "x") {
 		t.Fatal("two blocks share a nonce")
