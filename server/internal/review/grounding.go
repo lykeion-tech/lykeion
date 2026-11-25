@@ -16,13 +16,14 @@ import (
 )
 
 type GroundingInput struct {
-	Question string
-	Criteria []string
-	Items    []db.Record       // this round's paper, dataset and no_qualifying records
-	Comments []string          // the study's researcher comments, newest last, at most 20
-	Declined map[string]string // normalised paper id -> the Team's reason for declining it
-	Carried  []Item            // items that passed on an earlier attempt
-	Attempt  int
+	Question       string // complete title and brief for judgment
+	RecallQuestion string // brief without the display title
+	Criteria       []string
+	Items          []db.Record       // this round's paper, dataset and no_qualifying records
+	Comments       []string          // the study's researcher comments, newest last, at most 20
+	Declined       map[string]string // normalised paper id -> the Team's reason for declining it
+	Carried        []Item            // items that passed on an earlier attempt
+	Attempt        int
 }
 
 // maxCandidates bounds the uncited recall hits Jev screens.
@@ -142,6 +143,32 @@ func keywords(q string) string {
 	return strings.Join(out, " ")
 }
 
+// Keep OpenAlex recall focused on the opening question. The full brief is
+// still used for judging evidence.
+func recallQuery(brief, question string) string {
+	const maxSearchRunes = 480
+	query := strings.TrimSpace(brief)
+	runes := []rune(query)
+	if len(runes) <= maxSearchRunes {
+		return query
+	}
+	if question = strings.TrimSpace(question); question != "" {
+		query = question
+	}
+	query = strings.TrimSpace(strings.TrimPrefix(query, "Question:"))
+	runes = []rune(query)
+	if len(runes) <= maxSearchRunes {
+		return query
+	}
+	prefix := string(runes[:maxSearchRunes])
+	if end := strings.IndexByte(prefix, '?'); end >= 0 {
+		prefix = prefix[:end+1]
+	} else if end := strings.LastIndexFunc(prefix, unicode.IsSpace); end > 0 {
+		prefix = prefix[:end]
+	}
+	return strings.Join(strings.Fields(prefix), " ")
+}
+
 // Grounding reviews a Grounding column: the server's checks on each source,
 // Jev's per-criterion questions on those that pass, a recall search for
 // papers the agents left out, and Jev's pick of the weakest source.
@@ -251,10 +278,9 @@ func Grounding(ctx context.Context, a Asker, s Sources, in GroundingInput) (Resu
 		r.Items = append(r.Items, it)
 	}
 
-	// The search asks with the research question alone; a question that
-	// finds nothing is asked once more by its keywords. An empty search does
-	// not fail the column: the Result shows it.
-	query := strings.TrimSpace(in.Question)
+	// If the search finds nothing, retry with keywords. An empty search is
+	// reported in the Result and does not fail the column.
+	query := recallQuery(in.Question, in.RecallQuestion)
 	hits, err := s.Search(ctx, query)
 	if err == nil && len(hits) == 0 {
 		if k := keywords(query); k != "" && k != query {

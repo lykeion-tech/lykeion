@@ -572,7 +572,7 @@ func (e *Engine) prepareReview(ctx context.Context, ws uuid.UUID, in scoring, rv
 		p := &reviewPass{e: e, ws: ws, card: in.card, renewed: e.now()}
 		src := &reviewSources{lookup: lookup{e.Sources, p}}
 		return func(a review.Asker) (review.Result, error) {
-			return review.Grounding(ctx, a, src, review.GroundingInput{Question: asked(in.card),
+			return review.Grounding(ctx, a, src, review.GroundingInput{Question: asked(in.card), RecallQuestion: in.card.Question,
 				Comments: rv.comments, Declined: rv.declined, Items: rv.items, Carried: rv.carried, Attempt: in.attempt})
 		}, nil
 	case board.Hypotheses:
