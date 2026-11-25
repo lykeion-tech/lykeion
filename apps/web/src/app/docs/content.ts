@@ -314,9 +314,9 @@ To add a study you own to a workspace project, open the card's three-dot menu on
 
 ## Save a study for later
 
-Open **New study** and select **To-do** from the stage picker. Describe the work, choose one stage and an agent or Team, and optionally select a project. **Save to To-do** shares the proposal with the workspace. Your agent starts work only after you open the proposal and select **Start study**. Until then, you can edit or discard it.
+Open **New study**, describe the work, and choose one agent or Team. Set its stage if prompted, and optionally select a project. Select **To-do** from the stage picker. **Create To-do** shares the proposal with the workspace. Open the proposal to edit it. **Close** saves valid edits, and **Start study** saves them and starts work. To delete a To-do, use **Delete** in its card’s three-dot menu.
 
-Board and List show To-do, Grounding, Hypotheses, Experimentation, Validation, Done and Blocked in that order. **My Studies** shows your proposals. A project's Studies tab shows the proposals linked to it. Use **New study** for attachments, workflows or a scope covering multiple stages.
+Board and List show To-do, Grounding, Hypotheses, Experimentation, Validation, Done and Blocked in that order. **My Studies** shows your proposals. A project's Studies tab shows the proposals linked to it. Use **Create study** for attachments, dates, workflows or a scope covering multiple stages.
 
 ## Follow and steer work
 
@@ -489,16 +489,16 @@ An agent is a reusable research role with instructions and execution settings. I
 ## Choose an agent
 
 1. Open Agents and select a relevant agent.
-2. Read Instructions to understand its responsibilities and delivery expectations.
+2. Open **Capabilities** and read **Instructions** to understand its responsibilities and delivery expectations.
 3. Inspect Properties for its stage, execution harness and bound machine where shown.
-4. Review Customize for the capabilities it can use, including relevant skills and connectors.
+4. Open **Customize** under **Capabilities** to review the skills and connectors it can use.
 5. Check recent work, then choose it as the study assignee when its role matches the task.
 
 An agent with no stage needs an appropriate stage selection before stage-specific assignment can work. A workflow study requires an Experimentation agent. See [studies](/docs/studies/) and [workflows](/docs/workflows/).
 
 ## Edit with a concrete purpose
 
-If you have edit access, use the agent's settings to adjust its instructions, stage or execution configuration. For a custom agent, set a Study report template in General settings to format its hand-in answer. The default template shows the reporting instructions Lykeion gives the agent for its stage and role. Custom instructions apply to new runs. Required evidence and review checks still apply. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
+If you have edit access, use **Capabilities** to edit the agent’s instructions and **Settings** to set its stage and execution configuration. For a custom agent, set a Study report template in General settings to format its hand-in answer. The default template shows the reporting instructions Lykeion gives the agent for its stage and role. Custom instructions apply to new runs. Required evidence and review checks still apply. Keep instructions specific: describe the task boundary, required evidence and expected deliverable. Add a reusable [skill](/docs/skills/) when the same working method belongs on several agents.
 
 Access settings control who can assign studies to the agent. Check those settings and the machine's availability when another colleague cannot use it. Some machine configurations only execute their owner's studies; read the restriction shown by the product.
 
@@ -764,6 +764,10 @@ Use Coresearch for ongoing research work organized around a project and its conv
 For an existing conversation, execution settings are retained. If a desired runtime is absent from the picker, check your own online, healthy runtimes in [Machines](/docs/connect-machine/).
 
 When you're planning a study, ask Aristotle who could lead it, contribute a method, or review the work. It can consult the research profiles published to your current workspace and explain which experience supports a suggestion. Open the suggested colleague's Overview to read the profile and decide who to involve. See [sharing a research profile](/docs/members-and-roles/).
+
+## Start a study from a conversation
+
+In an Experiment chat, Aristotle can suggest a study after you've clarified the research question and agreed on a first step. You can also ask it to draft a study from the discussion. When a draft appears in the chat, choose **Edit draft** to review the title, brief, priority, assignee, stage and project in **New study**. Choose **Create study** to use those settings, or **Start study** on the card to use the suggested settings. The card links to the study after creation.
 
 ## Inspect the project surfaces
 

@@ -59,6 +59,10 @@ import {
 import { readJSON, writeJSON } from '../../storage';
 import { notify } from '../../state/notice';
 import { useStudyComposer } from '../../state/study-composer';
+
+const smokePreview = import.meta.env.DEV && import.meta.env.VITE_LYK_SMOKE_PREVIEW === '1';
+const scoringUnavailable = 'Waiting for scoring: it is unavailable. Lykeion keeps retrying.';
+
 const metadataObservers = new WeakMap<
   HTMLElement,
   { resize?: ResizeObserver; mutation?: MutationObserver }
@@ -122,11 +126,23 @@ const workspace = useWorkspace();
 const client = useQueryClient();
 const actionError = ref('');
 const studyMenuTrigger = ref<HTMLElement>();
-const studyMenu = ref<{ id: string; x: number; y: number; alignRight: boolean } | null>(null);
+const studyMenu = ref<{
+  id: string;
+  x: number;
+  y: number;
+  alignRight: boolean;
+  proposal?: StudyProposal;
+} | null>(null);
+const deletingProposal = ref(false);
 const projectStudyId = ref('');
 const projectBusy = ref(false);
 const projectPanel = ref<HTMLElement>();
 const projectStudy = computed(() => all.value.find((card) => card.id === projectStudyId.value));
+const projectProposal = computed(() =>
+  studyMenu.value?.proposal
+    ? proposals.data.value?.find((proposal) => proposal.id === projectStudyId.value)
+    : undefined,
+);
 let workspaceGeneration = 0;
 watch(
   workspaceId,
@@ -135,6 +151,7 @@ watch(
     proposalEditor.value = undefined;
     actionError.value = '';
     studyMenu.value = null;
+    deletingProposal.value = false;
     projectStudyId.value = '';
     projectBusy.value = false;
   },
@@ -144,7 +161,11 @@ onUnmounted(() => {
   workspaceGeneration++;
 });
 
-function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton = false) {
+function openStudyMenu(
+  event: MouseEvent | KeyboardEvent,
+  card: Card | StudyProposal,
+  fromButton = false,
+) {
   // Only a study's owner deletes it, at any time.
   if (card.owner_id !== me.data.value?.id || projectBusy.value) return;
   event.preventDefault();
@@ -154,6 +175,7 @@ function openStudyMenu(event: MouseEvent | KeyboardEvent, card: Card, fromButton
   const rect = studyMenuTrigger.value.getBoundingClientRect();
   studyMenu.value = {
     id: card.id,
+    proposal: 'revision' in card ? card : undefined,
     x: fromButton
       ? Math.min(rect.right, window.innerWidth - 8)
       : event instanceof MouseEvent
@@ -206,7 +228,8 @@ function closeProjectPicker(back = false, restore = true) {
 async function updateStudyProject(
   change: { research_id: string | null } | { new_project_name: string },
 ) {
-  const study = projectStudy.value;
+  const proposal = projectProposal.value;
+  const study = proposal ?? projectStudy.value;
   if (!study || study.owner_id !== me.data.value?.id || projectBusy.value) return;
   const workspace = workspaceId.value;
   const generation = workspaceGeneration;
@@ -214,11 +237,25 @@ async function updateStudyProject(
   projectBusy.value = true;
   actionError.value = '';
   try {
-    await api('PATCH', `/api/cards/${study.id}/properties`, change, undefined, { workspace });
+    if (proposal && 'research_id' in change) {
+      const { revision, title, priority, description, stage, assignee } = proposal;
+      await api(
+        'PUT',
+        `/api/study-proposals/${proposal.id}`,
+        { revision, title, priority, description, stage, assignee, project_id: change.research_id },
+        undefined,
+        { workspace },
+      );
+    } else if (!proposal) {
+      await api('PATCH', `/api/cards/${study.id}/properties`, change, undefined, { workspace });
+    } else {
+      return;
+    }
     if (!current()) return;
     await Promise.all(
       [
         keys.cards(workspace),
+        keys.proposals(workspace),
         keys.card(workspace, study.id),
         keys.researches(workspace),
         keys.researchDetails(workspace),
@@ -226,7 +263,11 @@ async function updateStudyProject(
     );
     if (current()) closeProjectPicker();
   } catch (e) {
-    if (current()) actionError.value = (e as Error).message;
+    if (current()) {
+      actionError.value = (e as Error).message;
+      if (proposal && e instanceof ApiError && e.status === 409)
+        await client.invalidateQueries({ queryKey: keys.proposals(workspace) });
+    }
   } finally {
     if (current()) projectBusy.value = false;
   }
@@ -245,6 +286,35 @@ async function removeStudy(id: string) {
     if (current()) await client.invalidateQueries({ queryKey: key });
   } catch (e) {
     if (current()) actionError.value = (e as Error).message;
+  }
+}
+async function removeProposal(proposal: StudyProposal) {
+  if (deletingProposal.value || proposal.owner_id !== me.data.value?.id) return;
+  studyMenu.value = null;
+  studyMenuTrigger.value?.focus();
+  if (!confirm('Delete this To-do? This cannot be undone.')) return;
+  const workspace = workspaceId.value;
+  const generation = workspaceGeneration;
+  const current = () => workspaceGeneration === generation && workspaceId.value === workspace;
+  const queryKey = keys.proposals(workspace);
+  deletingProposal.value = true;
+  actionError.value = '';
+  try {
+    await api(
+      'DELETE',
+      `/api/study-proposals/${proposal.id}?revision=${proposal.revision}`,
+      undefined,
+      undefined,
+      { workspace },
+    );
+    await client.invalidateQueries({ queryKey });
+  } catch (e) {
+    if (current()) {
+      actionError.value = (e as Error).message;
+      if (e instanceof ApiError && e.status === 409) void client.invalidateQueries({ queryKey });
+    }
+  } finally {
+    if (current()) deletingProposal.value = false;
   }
 }
 
@@ -513,7 +583,6 @@ onUnmounted(() => {
   <ProposalComposer
     v-if="proposalEditor"
     :proposal="proposalEditor"
-    @saved="proposalEditor = undefined"
     @close="proposalEditor = undefined"
     @started="
       (id) => {
@@ -748,30 +817,43 @@ onUnmounted(() => {
         >
           No to-dos
         </p>
-        <button
-          v-for="p in matchingProposals"
-          :key="p.id"
-          :class="display.mode === 'Board' ? 'task-card' : 'list-row'"
-          @click="proposalEditor = p"
-        >
-          <small class="card-id"><span class="chip">{{ columnName(p.stage) }}</span></small>
-          <span class="proposal-description">{{ p.description }}</span>
-          <span v-metadata-rows :class="display.mode === 'Board' ? 'card-metadata' : 'row-meta push-right'">
-            <span v-if="display.properties.includes('Assignee')" class="card-assignee">
-              <Icon :name="p.assignee.type === 'agent' ? 'bot' : 'users'" :size="14" />{{ proposalAssignee(p) }}
+        <div v-for="p in matchingProposals" :key="p.id" class="study-card">
+          <button
+            :class="display.mode === 'Board' ? 'task-card' : 'list-row'"
+            @contextmenu="openStudyMenu($event, p)"
+            @keydown.shift.f10="openStudyMenu($event, p)"
+            @click="proposalEditor = p"
+          >
+            <small class="card-id"><span class="chip">{{ columnName(p.stage) }}</span></small>
+            <span class="proposal-description">{{ p.description }}</span>
+            <span v-metadata-rows :class="display.mode === 'Board' ? 'card-metadata' : 'row-meta push-right'">
+              <span v-if="display.properties.includes('Assignee')" class="card-assignee">
+                <Icon :name="p.assignee.type === 'agent' ? 'bot' : 'users'" :size="14" />{{ proposalAssignee(p) }}
+              </span>
+              <span v-if="display.properties.includes('Owner')" :class="{ 'card-owner-separated': display.mode === 'Board' && display.properties.includes('Assignee') }">
+                <Icon name="users" :size="12" />{{ ownerName(p.owner_id) }}
+              </span>
+              <span v-if="display.properties.includes('Project') && p.project_id">{{
+                researches.data.value?.find((r) => r.id === p.project_id)?.name ??
+                'Unavailable project'
+              }}</span>
+              <span v-if="display.properties.includes('Updated')" class="push-right"
+                >Updated {{ timeAgo(p.updated_at) }}</span
+              >
             </span>
-            <span v-if="display.properties.includes('Owner')" :class="{ 'card-owner-separated': display.mode === 'Board' && display.properties.includes('Assignee') }">
-              <Icon name="users" :size="12" />{{ ownerName(p.owner_id) }}
-            </span>
-            <span v-if="display.properties.includes('Project') && p.project_id">{{
-              researches.data.value?.find((r) => r.id === p.project_id)?.name ??
-              'Unavailable project'
-            }}</span>
-            <span v-if="display.properties.includes('Updated')" class="push-right"
-              >Updated {{ timeAgo(p.updated_at) }}</span
-            >
-          </span>
-        </button>
+          </button>
+          <button
+            v-if="p.owner_id === me.data.value?.id"
+            class="icon-button study-card-actions"
+            :aria-label="`Actions for ${p.title || p.description}`"
+            aria-haspopup="menu"
+            :aria-expanded="studyMenu?.id === p.id"
+            :disabled="deletingProposal || projectBusy"
+            @click.stop="openStudyMenu($event, p, true)"
+          >
+            <Icon name="more" :size="14" />
+          </button>
+        </div>
       </div>
     </section>
     <template v-if="cards.data.value && display.mode === 'Board'">
@@ -825,7 +907,11 @@ onUnmounted(() => {
               class="card-question"
               >{{ card.question }}</span
             >
-            <span v-if="card.waiting" class="card-waiting">{{ card.waiting }}</span>
+            <span
+              v-if="card.waiting && !(smokePreview && card.waiting === scoringUnavailable)"
+              class="card-waiting"
+              >{{ card.waiting }}</span
+            >
             <div v-metadata-rows class="card-metadata">
               <span
                 v-if="display.properties.includes('Assignee') && card.assignee_id"
@@ -940,7 +1026,7 @@ onUnmounted(() => {
     v-if="studyMenu && !projectStudyId"
     class="board-menu study-menu"
     role="menu"
-    aria-label="Study actions"
+    :aria-label="studyMenu.proposal ? 'To-do actions' : 'Study actions'"
     :style="{
       left: studyMenu.x + 'px',
       top: studyMenu.y + 'px',
@@ -952,7 +1038,11 @@ onUnmounted(() => {
       <Icon name="folder" :size="14" />Add to project
     </button>
     <hr role="separator" />
-    <button role="menuitem" class="danger-item" @click="removeStudy(studyMenu.id)">
+    <button
+      role="menuitem"
+      class="danger-item"
+      @click="studyMenu.proposal ? removeProposal(studyMenu.proposal) : removeStudy(studyMenu.id)"
+    >
       <Icon name="trash" :size="14" />Delete
     </button>
   </div>
@@ -970,7 +1060,8 @@ onUnmounted(() => {
       :pending="researches.isPending.value"
       :failed="researches.isError.value"
       :busy="projectBusy"
-      :current-project="projectStudy?.research_id"
+      :current-project="projectProposal?.project_id ?? projectStudy?.research_id"
+      :existing-only="!!studyMenu?.proposal"
       back-label="Back to study actions"
       @back="closeProjectPicker(true)"
       @select="(project) => updateStudyProject({ research_id: project })"
@@ -993,6 +1084,13 @@ onUnmounted(() => {
   position: absolute;
   top: 8px;
   right: 6px;
+}
+.study-card:has(.study-card-actions) > .list-row {
+  padding-right: 36px;
+}
+.list-row + .study-card-actions {
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .board-menu {

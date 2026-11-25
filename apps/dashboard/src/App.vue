@@ -1074,8 +1074,9 @@ onUnmounted(() => {
         role="menuitem"
         @click="chooseWorkspace(w.id)"
       >
-        <span class="workspace-avatar">{{ w.name[0] }}</span
-        >{{ w.name }}<Icon v-if="w.id === workspaceId" name="check" class="push-right" :size="14" />
+        <span class="workspace-avatar">{{ w.name[0] }}</span>
+        <span class="workspace-popup-name" :title="w.name">{{ w.name }}</span>
+        <Icon v-if="w.id === workspaceId" name="check" class="push-right" :size="14" />
       </button>
       <button role="menuitem" @click="go('onboarding?step=workspace')">
         <Icon name="plus" :size="16" />Create workspace
@@ -1234,6 +1235,7 @@ onUnmounted(() => {
       :assignee="composer.assignee"
       :project-id="composer.projectId"
       :workflow="composer.workflow"
+      :coresearch-draft="composer.coresearchDraft"
       @close="closeComposer()"
     />
     <ReleaseHighlights v-if="showReleaseHighlights" @close="acknowledgeRelease" />
@@ -1374,7 +1376,7 @@ onUnmounted(() => {
 .workspace-popup {
   left: 8px;
   bottom: 48px;
-  width: 224px;
+  width: min(180px, calc(100vw - 16px));
   max-height: calc(100dvh - 60px);
   overflow-y: auto;
 }
@@ -1385,11 +1387,14 @@ onUnmounted(() => {
   padding: 12px 6px 2px;
   gap: 12px;
 }
-.workspace-profile > span:last-child {
+.workspace-profile > span:last-child,
+.workspace-popup-name {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.workspace-profile > span:last-child {
   color: var(--muted);
 }
 .workspace-menu-label {
@@ -1407,6 +1412,7 @@ onUnmounted(() => {
 }
 .workspace-popup .push-right {
   color: var(--primary-text);
+  flex: none;
 }
 .shell-popup > .danger-menu-item {
   color: #cc344b;
@@ -1689,9 +1695,13 @@ onUnmounted(() => {
     .project-heading,
     .aristotle-header,
     .coresearch-list-header,
-    .agent-create-header
+    .agent-create-header,
+    .team-breadcrumb
   ) {
   padding-left: 44px;
+}
+.application.sidebar-hidden .agent-detail-page .detail-breadcrumb {
+  padding-left: 28px;
 }
 .application.sidebar-hidden .settings-rail > h1 {
   padding-left: 34px;

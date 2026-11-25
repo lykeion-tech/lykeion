@@ -424,26 +424,31 @@ function tabKey(event: KeyboardEvent, index: number) {
             </div>
           </div>
         </div>
-        <aside v-if="selected" class="team-inspector" aria-label="Agent details">
-          <div class="inspector-heading">
-            <h2>Agent</h2>
-            <RouterLink
-              v-if="detail.data.value?.my_agents?.[selected.member.name]"
-              :to="`/agents/${detail.data.value.my_agents[selected.member.name]!.id}`"
-              class="details-link"
-              >Details →</RouterLink
-            >
-          </div>
-          <TeamMemberProfile
-            :member="selected.member"
-            :role="selected.role"
-            :editable-skills="canEditTeam"
-            @edit-skills="
-              skillsError = '';
-              skillMember = selected.member;
-            "
-          />
-        </aside>
+        <div v-if="selected">
+          <aside class="team-inspector" aria-label="Agent details">
+            <div class="inspector-heading">
+              <h2>Agent</h2>
+              <RouterLink
+                v-if="detail.data.value?.my_agents?.[selected.member.name]"
+                :to="`/agents/${detail.data.value.my_agents[selected.member.name]!.id}`"
+                class="details-link"
+                >Details →</RouterLink
+              >
+            </div>
+            <TeamMemberProfile
+              :member="selected.member"
+              :role="selected.role"
+              :editable-skills="canEditTeam"
+              @edit-skills="
+                skillsError = '';
+                skillMember = selected.member;
+              "
+            />
+          </aside>
+          <p v-if="builtIn" class="team-harness-notice">
+            All built-in teams start with Claude Code as the default harness for every agent.
+          </p>
+        </div>
       </div>
       <section
         v-else-if="tab === 'Work'"
@@ -788,6 +793,12 @@ function tabKey(event: KeyboardEvent, index: number) {
 }
 .team-inspector :deep(.avatar) {
   background: var(--surface);
+}
+.team-harness-notice {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 .inspector-heading {
   display: flex;

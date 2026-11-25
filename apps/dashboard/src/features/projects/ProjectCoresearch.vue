@@ -217,7 +217,7 @@ function download(file: string) {
         <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
           <FilterButton
             :expanded="popup === 'filter'"
-            :count="archived ? 1 : 0"
+            :class="{ active: archived }"
             @click="toggleMenu('filter', $event)"
             @keydown.down.prevent="toggleMenu('filter', $event)"
           />
@@ -273,10 +273,10 @@ function download(file: string) {
               :aria-checked="mode === option"
               @click="setMode(option)"
             >
+              {{ option }}
               <span class="chat-option-check" aria-hidden="true">
                 <Icon v-if="mode === option" name="check" :size="12" />
               </span>
-              {{ option }}
             </button>
           </div>
         </div>
@@ -469,10 +469,8 @@ function download(file: string) {
 .chat-option-check {
   display: grid;
   width: 16px;
-  place-items: center;
-}
-[role='menuitemradio'] > .chat-option-check {
   margin-inline-start: auto;
+  place-items: center;
 }
 .coresearch-view-header {
   display: flex;

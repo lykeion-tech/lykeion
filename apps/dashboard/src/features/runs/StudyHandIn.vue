@@ -179,9 +179,9 @@ function entries(value: unknown, prefix = ''): [string, string][] {
   overflow-wrap: anywhere;
 }
 .study-hand-in h3 {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 600;
-  margin: 0 0 8px;
+  margin-block: 16px;
 }
 .study-hand-in details {
   margin-top: 8px;

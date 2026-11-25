@@ -105,7 +105,7 @@ func TestExperimentStudyDraftInstruction(t *testing.T) {
 		mode            string
 		aristotle, want bool
 	}{{"experiment", true, true}, {"experiment", false, false}, {"cowrite", true, false}} {
-		if got := strings.Contains(Prompt(PromptIn{Mode: tc.mode, ResearchDirectory: tc.aristotle}), "Study draft:"); got != tc.want {
+		if got := strings.Contains(Prompt(PromptIn{Mode: tc.mode, ResearchDirectory: tc.aristotle}), "fenced study-draft block"); got != tc.want {
 			t.Fatal(tc)
 		}
 	}

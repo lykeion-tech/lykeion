@@ -416,7 +416,13 @@ func (q *Queries) InsertCoresearchTurnReceipt(ctx context.Context, arg InsertCor
 }
 
 const listCoresearchConversations = `-- name: ListCoresearchConversations :many
-SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at, c.research_id, c.pinned_at, c.archived_at,p.mode,coalesce((SELECT left(m.body,240) FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id ORDER BY m.created_at DESC,m.id DESC LIMIT 1),'')::text AS preview
+SELECT c.id, c.workspace_id, c.owner_id, c.agent_id, c.project_id, c.chat_id, c.title, c.is_welcome, c.snapshot_harness, c.snapshot_model, c.snapshot_instructions, c.created_at, c.updated_at, c.research_id, c.pinned_at, c.archived_at,p.mode,coalesce((
+    SELECT left(CASE WHEN p.mode='experiment' AND m.kind='reply'
+        THEN btrim(regexp_replace(m.body, E'(^|\n)` + "`" + `` + "`" + `` + "`" + `study-draft\n[[:space:]]*[{].*[}]\n` + "`" + `` + "`" + `` + "`" + `[[:space:]]*$', ''), E' \t\r\n')
+        ELSE m.body END, 240)
+    FROM coresearch_message m WHERE m.workspace_id=c.workspace_id AND m.chat_id=c.chat_id
+    ORDER BY m.created_at DESC,m.id DESC LIMIT 1
+),'')::text AS preview
 FROM coresearch_conversation c JOIN coresearch_project p ON p.workspace_id=c.workspace_id AND p.id=c.project_id
 WHERE c.workspace_id=app_workspace() AND c.owner_id=app_user() ORDER BY c.updated_at DESC,c.id
 `

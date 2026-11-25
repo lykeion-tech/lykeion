@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { RuntimeModel } from '../../../api/types';
 import CliIcon from '../CliIcon.vue';
 const props = defineProps<{
-  models: RuntimeModel[];
+  models: (RuntimeModel & { disabled?: boolean })[];
   modelValue: string;
   disabled?: boolean;
   cli?: string;
@@ -12,25 +12,31 @@ const props = defineProps<{
   openUp?: boolean;
   cliOnly?: boolean;
   modelOnly?: boolean;
-  display?: 'model' | 'cli-and-model';
+  display?: 'cli' | 'model' | 'cli-and-model';
   emptyLabel?: string;
+  defaultLabel?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [string]; 'update:cli': [string] }>();
 const cliLabel = (cli: string) => (cli === 'codex' ? 'Codex' : 'Claude Code');
+const defaultLabelFor = (value: string) =>
+  value === '' || value === 'default' ? props.defaultLabel : undefined;
 const choices = computed(() =>
-  props.models.length ? props.models : [{ value: '', label: 'Default' }],
+  props.models.length
+    ? props.models.map((model) => ({ ...model, label: defaultLabelFor(model.value) ?? model.label }))
+    : [{ value: '', label: props.defaultLabel ?? 'Default' }],
 );
 const open = ref(false),
   up = ref(false),
   upHeight = ref<number>(),
   root = ref<HTMLElement>(),
+  trigger = ref<HTMLButtonElement>(),
   menuEl = ref<HTMLElement>();
 // The menu drops below the pill; where the window has no room for it there,
 // it opens upward as it does from L2's docked composer.
 async function toggle() {
   up.value = !!props.openUp;
   const anchor = root.value?.getBoundingClientRect?.();
-  const scrollFrame = root.value?.closest?.('.aristotle-scroll')?.getBoundingClientRect();
+  const scrollFrame = root.value?.closest?.('.aristotle-scroll, dialog')?.getBoundingClientRect();
   upHeight.value = anchor
     ? Math.max(0, Math.min(320, anchor.top - Math.max(0, scrollFrame?.top ?? 0) - 8))
     : undefined;
@@ -40,14 +46,32 @@ async function toggle() {
   const frame = root.value?.closest?.('.aristotle-chat')?.getBoundingClientRect();
   if (menu && menu.bottom > Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight))
     up.value = true;
+  if (open.value && !props.cli) {
+    (menuEl.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]:not(:disabled)') ??
+      options()[0])?.focus();
+  }
+}
+function options() {
+  return Array.from(menuEl.value?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? []);
+}
+function navigateOptions(event: KeyboardEvent) {
+  if (props.cli || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const items = options();
+  const index = items.findIndex((item) => item === document.activeElement);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+    : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+  items[next]?.focus();
 }
 const label = computed(
   () =>
+    defaultLabelFor(props.modelValue) ??
     props.models.find((m) => m.value === props.modelValue)?.label ??
     (props.modelValue || 'Default'),
 );
 const visibleLabel = computed(() => {
-  if (!props.cli || props.display === 'model') return label.value;
+  if (props.cli && props.display === 'cli') return cliLabel(props.cli);
+  if (!props.cli || props.display === 'model' || defaultLabelFor(props.modelValue)) return label.value;
   const name = cliLabel(props.cli);
   return props.display === 'cli-and-model' ? `${name} · ${label.value}` : name;
 });
@@ -56,6 +80,13 @@ function outside(e: Event) {
 }
 function key(e: KeyboardEvent) {
   if (e.key === 'Escape') open.value = false;
+}
+function closeOnEscape(event: KeyboardEvent) {
+  if (!open.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  open.value = false;
+  trigger.value?.focus();
 }
 onMounted(() => {
   document.addEventListener('pointerdown', outside);
@@ -70,8 +101,9 @@ onUnmounted(() => {
   <span v-if="!cli && !models.length && (!disabled || !modelValue)" class="cli-pill cli-pill--empty"
     ><span class="cli-pill-name">{{ emptyLabel || 'Default' }}</span></span
   >
-  <div v-else ref="root" class="cli-switcher">
+  <div v-else ref="root" class="cli-switcher" @keydown.esc="closeOnEscape">
     <button
+      ref="trigger"
       type="button"
       class="cli-pill"
       :aria-haspopup="cli ? 'dialog' : 'listbox'"
@@ -131,6 +163,7 @@ onUnmounted(() => {
             }
           : undefined
       "
+      @keydown="navigateOptions"
     >
       <template v-if="cli && !modelOnly">
         <div class="cli-menu-head"><span class="cli-menu-eyebrow">CLI</span></div>
@@ -162,11 +195,13 @@ onUnmounted(() => {
         :aria-selected="cli ? undefined : model.value === modelValue"
         :aria-pressed="cli ? model.value === modelValue : undefined"
         :aria-label="model.description ? `${model.label} — ${model.description}` : model.label"
+        :disabled="model.disabled"
         class="cli-row"
         :class="{ 'is-selected': model.value === modelValue }"
         @click="
           emit('update:modelValue', model.value);
           open = false;
+          trigger?.focus();
         "
       >
         <span class="cli-row-main"
@@ -193,3 +228,40 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style>
+.coresearch.agent-model-picker {
+  height: auto;
+  background: transparent;
+  --surface-1: var(--surface);
+  --surface-2: var(--input);
+  --ink: var(--text);
+  --ink-subtle: var(--muted);
+  --ink-tertiary: var(--muted);
+  --hairline-strong: var(--border);
+  --type-body: 14px;
+  --type-small: 13px;
+  --type-meta: 12px;
+}
+.coresearch.agent-model-picker .cli-switcher,
+.coresearch.agent-model-picker .cli-pill {
+  width: 100%;
+}
+.coresearch.agent-model-picker .cli-pill {
+  justify-content: space-between;
+  background: var(--surface);
+  color: var(--text);
+  height: 37px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-weight: 400;
+}
+.coresearch.agent-model-picker .cli-menu {
+  background: var(--surface);
+  max-width: 100%;
+}
+.coresearch.agent-model-picker
+  .cli-menu:is([aria-label='Stage options'], [aria-label='Harness options']) {
+  width: 200px;
+}
+</style>

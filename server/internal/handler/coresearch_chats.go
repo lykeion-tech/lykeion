@@ -120,19 +120,49 @@ func (h *H) createCoresearchChat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *H) coresearchMessages(w http.ResponseWriter, r *http.Request) {
-	out := []db.ListCoresearchMessagesRow{}
+	out := []coresearchMessageView{}
 	e := h.inWS(r, func(tx *store.Tx, ws, who uuid.UUID) error {
 		c, e := coresearchChat(r, tx, ws, who, false, false)
 		if e != nil {
 			return e
 		}
-		out, e = tx.Q.ListCoresearchMessages(r.Context(), db.ListCoresearchMessagesParams{WorkspaceID: ws, ChatID: c.ID})
-		return e
+		rows, e := tx.Q.ListCoresearchMessages(r.Context(), db.ListCoresearchMessagesParams{WorkspaceID: ws, ChatID: c.ID})
+		if e != nil {
+			return e
+		}
+		prior := priorCoresearchTurns(rows)
+		for _, row := range rows {
+			view := coresearchMessageView{ListCoresearchMessagesRow: row}
+			if c.OwnerID == who && c.Mode == "experiment" && row.AgentRunID != nil {
+				view.StudyDraft, e = coresearchStudyDraft(r.Context(), tx, row, prior[*row.AgentRunID])
+				if e != nil {
+					return e
+				}
+				if view.StudyDraft != nil {
+					saved, err := tx.StudyProposal(r.Context(), row.ID)
+					if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return err
+					}
+					if saved.OwnerID == who && saved.CardID != nil {
+						_, err := tx.Q.GetCard(r.Context(), db.GetCardParams{WorkspaceID: ws, ID: *saved.CardID})
+						switch {
+						case errors.Is(err, pgx.ErrNoRows):
+							view.StudyDeleted = true
+						case err != nil:
+							return err
+						default:
+							view.StudyID = saved.CardID
+						}
+						view.StudyDraft.Title = saved.Title
+						view.StudyDraft.Description = saved.Description
+					}
+				}
+			}
+			out = append(out, view)
+		}
+		return nil
 	})
 	if coresearchAnswer(w, r, e) {
-		if out == nil {
-			out = []db.ListCoresearchMessagesRow{}
-		}
 		writeJSON(w, 200, out)
 	}
 }

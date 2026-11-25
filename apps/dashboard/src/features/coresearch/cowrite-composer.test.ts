@@ -40,7 +40,13 @@ const models = [
   { value: 'cli-default', label: 'Default (recommended)', description: 'CLI default' },
   { value: 'cli-large', label: 'Large', description: 'More capacity' },
 ];
-async function mount({ draft = true, onWelcome = false, role = 'owner', choices = models } = {}) {
+async function mount({
+  draft = true,
+  onWelcome = false,
+  role = 'owner',
+  choices = models,
+  harness = 'claude',
+} = {}) {
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal('document', {
     activeElement: null,
@@ -55,7 +61,7 @@ async function mount({ draft = true, onWelcome = false, role = 'owner', choices 
   const agent = {
     id: 'aristotle',
     name: 'Aristotle',
-    harness: 'claude',
+    harness,
     model: '',
     conversation_starters: [],
   };
@@ -71,7 +77,7 @@ async function mount({ draft = true, onWelcome = false, role = 'owner', choices 
   ]);
   client.setQueryData(keys.workspaces, [{ id: 'lab', role }]);
   client.setQueryData(keys.runtimes('lab'), [
-    { owner_id: 'me', status: 'online', harness: 'claude', models: choices },
+    { owner_id: 'me', status: 'online', harness, models: choices },
     {
       owner_id: 'other',
       status: 'online',
@@ -307,10 +313,27 @@ describe('Cowrite composer', () => {
     expect(JSON.parse(sent[1].body)).toMatchObject({ body: 'A new paper', mode: 'cowrite' });
     expect(m.router.currentRoute.value.path).toBe('/coresearch/private/chat');
   });
-  it('shows the CLI and Default without a model catalogue and excludes other members models', async () => {
-    const m = await mount({ choices: [] });
-    expect(m.label('CLI and model: Claude Code · Default')).toBeDefined();
+  it.each([
+    { catalogue: 'absent', choices: [] },
+    { catalogue: 'available', choices: models },
+  ])('shows the recommended default in both modes with the catalogue $catalogue', async ({ choices }) => {
+    const m = await mount({ choices });
+    const picker = () => m.label('CLI and model: Claude Code · Default (recommended)');
+    expect(textOf(picker())).toBe('Default (recommended)');
+    await m.click('Cowrite');
+    expect(textOf(picker())).toBe('Default (recommended)');
     expect(textOf(m.root)).not.toContain('Other member');
+  });
+  it('shows Codex in both modes while keeping the selected model in the menu', async () => {
+    const m = await mount({ harness: 'codex' });
+    await m.click('CLI and model: Codex · Default (recommended)');
+    await m.click('Large — More capacity');
+    const picker = () => m.label('CLI and model: Codex · Large');
+    expect(textOf(picker())).toBe('Codex');
+    await m.click('Cowrite');
+    expect(textOf(picker())).toBe('Codex');
+    await m.click('CLI and model: Codex · Large');
+    expect(m.label('Large — More capacity').props['aria-pressed']).toBe(true);
   });
   it('hides mode in a conversation and disables its frozen snapshot model', async () => {
     const m = await mount({ draft: false });

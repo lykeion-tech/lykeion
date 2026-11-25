@@ -42,6 +42,14 @@ export interface MessageRow {
   created_at: string;
   status: string | null;
   failure_reason: string | null;
+  study_draft?: {
+    title: string;
+    description: string;
+    stage: import('../../api/types').StudyProposalContent['stage'];
+    prose: string;
+  };
+  study_id?: string;
+  study_deleted?: boolean;
 }
 export interface ProjectMember {
   user_id: string;

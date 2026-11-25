@@ -395,8 +395,9 @@ const inline = (text?: string) =>
             :cli="clis?.length ? cli : undefined"
             :clis="clis"
             empty-label="No CLI available"
+            default-label="Default (recommended)"
             :model-value="selectedModel"
-            :display="mode === 'experiment' ? 'model' : modelChosen ? 'cli-and-model' : undefined"
+            :display="cli === 'codex' ? 'cli' : mode === 'experiment' ? 'model' : modelChosen ? 'cli-and-model' : undefined"
             :disabled="!draft || busy"
             @update:model-value="emit('update:selectedModel', $event)"
             @update:cli="emit('update:cli', $event)"
@@ -443,5 +444,17 @@ const inline = (text?: string) =>
   width: min(896px, calc(100% - 48px));
   margin: 12px auto;
   flex: none;
+}
+.aristotle-composer :deep(.cli-menu--with-cli) {
+  width: min(220px, calc(100vw - 32px));
+  scrollbar-width: none;
+}
+.aristotle-composer :deep(.cli-options) {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.aristotle-composer :deep(.cli-menu--with-cli :is(.cli-row-name, .cli-row-desc)) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Icon from './Icon.vue';
 
-defineProps<{ expanded: boolean; count: number }>();
+defineProps<{ expanded: boolean; count?: number }>();
 </script>
 
 <template>

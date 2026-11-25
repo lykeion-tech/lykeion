@@ -22,6 +22,7 @@ const props = defineProps<{
   agents?: boolean;
   oneAgent?: boolean;
   allowTodo?: boolean;
+  singleStage?: boolean;
   // A Workflow study is worked by one agent over a fixed stage.
   agentOnly?: boolean;
   lastSet?: Picked | null;
@@ -31,7 +32,8 @@ const props = defineProps<{
 }>();
 const assignee = defineModel<Picked | null>({ required: true });
 const range = defineModel<Range>('range', { required: true });
-const emit = defineEmits<{ open: []; todo: []; picked: [last: boolean] }>();
+const todo = defineModel<boolean>('todo');
+const emit = defineEmits<{ open: []; picked: [last: boolean] }>();
 
 const agentList = useAgents();
 const me = useMe();
@@ -148,7 +150,13 @@ const selectedOnline = computed(() => {
 });
 // A Team with no stage label has no column until the researcher picks one.
 const unstaged = computed(() => teamColumns.value.includes(''));
-const fixedStage = computed(() => props.agentOnly || (props.oneAgent && assignee.value?.type === 'agent') || (assignee.value?.type === 'team' && !unstaged.value));
+const fixedStage = computed(
+  () =>
+    !props.singleStage &&
+    (props.agentOnly ||
+      (props.oneAgent && assignee.value?.type === 'agent') ||
+      (assignee.value?.type === 'team' && !unstaged.value)),
+);
 const stageChosen = ref(false);
 const implicitRange = computed(
   () =>
@@ -160,9 +168,10 @@ const implicitRange = computed(
     range.value.to === 'validation',
 );
 function stageSelected(stage: Column) {
-  return !implicitRange.value && coversStage(stage, range.value, []);
+  return !todo.value && !implicitRange.value && coversStage(stage, range.value, []);
 }
 const stageLabel = computed(() => {
+  if (todo.value) return 'To-do';
   if (unstaged.value) return 'Choose a stage';
   if (implicitRange.value) return 'Stages';
   const { from, to } = range.value;
@@ -184,7 +193,7 @@ const matchingAgents = computed(() =>
   assignableAgents.value.filter((a) => matchesQuery(a.name, query.value)),
 );
 const showSets = computed(
-  () => !props.agentOnly && matchesQuery('team sets new set your last set', query.value),
+  () => !props.agentOnly && !props.singleStage && matchesQuery('team sets new set your last set', query.value),
 );
 // A study's stages with no Team in the set get built-in Teams; an
 // Autoresearch's get an agent.
@@ -220,12 +229,27 @@ function assign(value: Picked | null, last = false, isSet = false) {
       ? { from: own, to: own }
       : !isSet && cols.length === 1
         ? { from: cols[0]!, to: cols[0]! }
-        : { from: 'grounding', to: 'validation' };
+        : props.singleStage
+          ? { from: range.value.from, to: range.value.from }
+          : { from: 'grounding', to: 'validation' };
   emit('picked', last);
   closeMenu();
 }
 function toggleStage(stage: Column) {
-  const firstChoice = implicitRange.value;
+  if (props.singleStage) {
+    if (range.value.from !== stage) {
+      const team = store.data.value?.find((t) => t.source === 'shipped' && t.stage === stage);
+      assignee.value = team ? { type: 'team', teams: { [stage]: team.id } } : null;
+      range.value = { from: stage, to: stage };
+    }
+    closeMenu();
+    return;
+  }
+  const firstChoice = implicitRange.value || todo.value;
+  if (todo.value) {
+    todo.value = false;
+    if (fixedStage.value) return;
+  }
   stageChosen.value = true;
   if (firstChoice) {
     range.value = { from: stage, to: stage };
@@ -482,13 +506,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
       <button
         type="button"
         class="property-pill stages-pill"
-        :aria-label="stageLabel === 'Stages' ? stageLabel : 'Stages: ' + (unstaged ? 'choose a stage' : stageLabel)"
+        :aria-label="stageLabel === 'Stages' ? stageLabel : 'Stages: ' + (unstaged && !todo ? 'choose a stage' : stageLabel)"
         :disabled="fixedStage && !allowTodo"
         @click="openMenu('stages')"
       >
         <span
           class="stage-picker-icon"
-          :class="!unstaged ? `stage-picker-icon--${range.from}` : undefined"
+          :class="!todo && !unstaged ? `stage-picker-icon--${range.from}` : undefined"
           aria-hidden="true"
         ></span>
         <span>{{ stageLabel }}</span>
@@ -519,11 +543,26 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside));
         aria-label="Study stages"
       >
         <input v-model="query" placeholder="Search stages…" aria-label="Search stages" />
-        <button v-if="showTodo" type="button" role="menuitem" @click="closeMenu(); emit('todo')">
-          <span class="stage-picker-icon" aria-hidden="true"></span>To-do
+        <button
+          v-if="showTodo"
+          type="button"
+          role="menuitemcheckbox"
+          :aria-checked="!!todo"
+          @click="todo = true"
+        >
+          <span class="stage-picker-icon" aria-hidden="true"></span>
+          <span>To-do</span>
+          <Icon v-if="todo" name="check" :size="14" class="stage-picker-check" />
         </button>
-        <button v-for="stage in matchingStages" :disabled="fixedStage" :key="stage" type="button" role="menuitemcheckbox"
-          :aria-checked="stageSelected(stage)" @click="unstaged ? pickColumn(stage) : toggleStage(stage)">
+        <button
+          v-for="stage in matchingStages"
+          :key="stage"
+          type="button"
+          role="menuitemcheckbox"
+          :disabled="fixedStage && (!todo || stage !== range.from)"
+          :aria-checked="stageSelected(stage)"
+          @click="unstaged ? pickColumn(stage) : toggleStage(stage)"
+        >
           <span class="stage-picker-icon" :class="`stage-picker-icon--${stage}`" aria-hidden="true"></span>
           <span>{{ stageName(stage) }}</span>
           <Icon v-if="stageSelected(stage)" name="check" :size="14" class="stage-picker-check" />

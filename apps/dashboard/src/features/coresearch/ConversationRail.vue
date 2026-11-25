@@ -119,7 +119,7 @@ async function startDraft(event: MouseEvent) {
   overflow: auto;
 }
 .archive-heading {
-  margin: 0 0 4px;
+  margin: 12px 0 8px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -128,15 +128,12 @@ async function startDraft(event: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 5px;
-  width: 100%;
+  width: fit-content;
   padding: 4px 10px;
   border-radius: 6px;
   color: inherit;
   font: inherit;
   text-align: left;
-}
-.archive-toggle:hover {
-  background: var(--hover);
 }
 .conversation-link {
   display: flex;

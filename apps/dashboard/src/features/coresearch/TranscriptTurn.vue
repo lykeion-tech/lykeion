@@ -9,6 +9,7 @@ import AssistantMessage from './AssistantMessage.vue';
 import CopyButton from './CopyButton.vue';
 import { cleanAssistantText } from './assistant-paths';
 import ExperimentFileCard from './ExperimentFileCard.vue';
+import StudyDraftCard from './StudyDraftCard.vue';
 import type { TranscriptFile } from './transcript-files';
 const props = defineProps<{
   projectId: string;
@@ -17,6 +18,7 @@ const props = defineProps<{
   replies: MessageRow[];
   settledReplies?: string[];
   files?: TranscriptFile[];
+  researchId?: string | null;
 }>();
 const emit = defineEmits<{ 'open-file': [TranscriptFile] }>();
 const active = computed(() => isActiveTurn(props.turn.status));
@@ -42,12 +44,14 @@ const blocks = computed(() =>
 );
 const timelineBlocks = computed(() => [
   ...blocks.value,
-  ...replies.value.map((reply) => ({
-    key: `reply:${reply.id}`,
-    kind: 'text' as const,
-    text: reply.body,
-    messages: [],
-  })),
+  ...replies.value
+    .filter((reply) => !reply.study_draft || reply.study_draft.prose)
+    .map((reply) => ({
+      key: `reply:${reply.id}`,
+      kind: 'text' as const,
+      text: reply.study_draft?.prose ?? reply.body,
+      messages: [],
+    })),
 ]);
 const thinkingKeys = computed(
   () =>
@@ -62,7 +66,7 @@ const copy = computed(() =>
     ...blocks.value
       .filter((b) => b.kind === 'text' && !thinkingKeys.value.has(b.key))
       .map((b) => b.text),
-    ...replies.value.map((m) => m.body),
+    ...replies.value.map((m) => m.study_draft?.prose ?? m.body),
   ]
     .filter(Boolean)
     .join('\n\n'),
@@ -98,6 +102,15 @@ const copy = computed(() =>
     </RunTimeline>
     <div v-if="copy" class="msg-actions"><CopyButton :text="cleanAssistantText(copy)" /></div>
   </div>
+  <template v-for="reply in replies" :key="reply.id">
+    <StudyDraftCard
+      v-if="reply.study_draft"
+      :draft="{ ...reply.study_draft, id: reply.id, projectId, chatId }"
+      :research-id="researchId"
+      :study-id="reply.study_id"
+      :study-deleted="reply.study_deleted"
+    />
+  </template>
   <section v-if="files?.length" class="generated-files" aria-label="Generated files">
     <hr class="generated-files-divider" />
     <h3 class="generated-files-heading">FILES GENERATED</h3>

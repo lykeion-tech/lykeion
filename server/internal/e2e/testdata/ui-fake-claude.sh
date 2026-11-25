@@ -42,6 +42,16 @@ case "$prompt" in
     exit 0 ;;
 esac
 case "$prompt" in
+  *'You are working in a Coresearch experiment.'*'Draft a study for the street canopy smoke test.'*)
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Here is a draft for the study.\n\n```study-draft\n{\"trigger\":\"request\",\"title\":\"Street canopy smoke test\",\"description\":\"Compare daytime temperatures on matched streets.\",\"stage\":\"grounding\"}\n```"}]}}'
+    echo '{"type":"result","is_error":false}'
+    exit 0 ;;
+  *'You are the '*' on Lykeion study #'*'in its Grounding column.'*"Just testing: respond 'OK'"*|\
+  *'You are the '*' on Lykeion study #'*'in its Grounding column.'*"Just answer: 'OK'"*|\
+  *'You are the '*' on Lykeion study #'*'in its Grounding column.'*"Just respond: 'OK'"*)
+    # An explicit local smoke check needs a hand-in, but has no research evidence to report.
+    printf '%s\n' '{"type":"result","is_error":false,"structured_output":{"status":"done","answer":"OK","reason":null,"decision":null,"blocked_by_environment":null,"blocked_by_member_run":null,"papers":[],"datasets":[],"no_qualifying":{"reason":"This was a scripted local smoke check. No source search was requested or performed."},"replies":[]}}'
+    exit 0 ;;
   *"You are the autoresearch role"*)
     # The final answer is the hand-in: its report is the text below as one JSON string.
     report=$({
