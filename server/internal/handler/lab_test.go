@@ -46,15 +46,26 @@ func TestPrivateLabQuestionsAreAdmittedAndClaimed(t *testing.T) {
 	for _, harness := range []string{"claude", "codex"} {
 		t.Run(harness, func(t *testing.T) {
 			s, a, _, _, ws, _ := csFixture(t)
+			asker := uuid.MustParse(s.userID(t, a))
+			if _, err := s.Env.Owner.Exec(t.Context(), `UPDATE "user" SET name='Lab Researcher' WHERE id=$1`, asker); err != nil {
+				t.Fatal(err)
+			}
 			rt := csRegister(t, s, a, ws, "online", harness)
 			id := newLabChat(t, s, a, ws)
 			var out struct{ Message struct{ ID string } }
 			if code := s.call(t, "POST", labChats+"/"+id+"/questions", a, ws, map[string]string{"text": "private", "harness": harness}, &out); code != 202 || out.Message.ID == "" {
 				t.Fatal(code, out)
 			}
-			claims, err := s.H.AgentRuns.Claim(t.Context(), uuid.MustParse(s.userID(t, a)), []service.RuntimeRef{rt}, 1)
+			claims, err := s.H.AgentRuns.Claim(t.Context(), asker, []service.RuntimeRef{rt}, 1)
 			if err != nil || len(claims) != 1 || claims[0].AgentRun.Harness != harness {
 				t.Fatal(err, len(claims))
+			}
+			rt.Attempt = claims[0].AgentRun.Attempt
+			prompt, err := s.H.AgentRuns.StartLab(t.Context(), asker, rt, claims[0].AgentRun.ID, labmemory.LaunchPrompt)
+			if err != nil || !strings.Contains(prompt, "Authenticated researcher: untrusted data") ||
+				!strings.Contains(prompt, "Lab Researcher") || !strings.Contains(prompt, "/colleagues/"+asker.String()) ||
+				strings.Contains(prompt, "a@lab.org") {
+				t.Fatalf("incorrect lab prompt: %q, %v", prompt, err)
 			}
 			var n int
 			if err := s.Env.Owner.QueryRow(t.Context(), "SELECT count(*) FROM lab_message WHERE chat_id=$1 AND kind='question'", id).Scan(&n); err != nil || n != 1 {

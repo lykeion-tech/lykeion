@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"lykeion/server/internal/coresearch/doc"
+	"lykeion/server/internal/fence"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
@@ -94,7 +95,15 @@ func enqueueTurn(ctx context.Context, tx *store.Tx, runs *service.AgentRuns, cha
 	if p.PythonVersion != nil {
 		env = "Python " + *p.PythonVersion
 	}
-	prompt := Prompt(PromptIn{ResearchDirectory: researchDirectory, Capabilities: capabilities, Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
+	var researcherContext string
+	if researchDirectory {
+		researcher, e := tx.Q.GetUser(ctx, user)
+		if e != nil {
+			return zero, e
+		}
+		researcherContext = fence.Researcher(researcher.Name, user.String())
+	}
+	prompt := Prompt(PromptIn{ResearchDirectory: researchDirectory, ResearcherContext: researcherContext, Capabilities: capabilities, Selection: selection, ProjectName: p.Name, Files: rows, Mode: chat.Mode, Message: body, History: history, Environment: env, Queued: active > 0})
 	if instructions != "" {
 		prompt = "Agent instructions:\n" + instructions + "\n\n" + prompt
 	}
