@@ -20,6 +20,14 @@ test('project tabs center their empty states in the content pane', async ({ page
   );
   await page.route('**/api/researches/project/coresearch', (route) => route.fulfill({ json: [] }));
   await page.goto('/#/projects/project');
+  await expect(page.getByRole('complementary', { name: 'Project properties' })).toHaveCSS(
+    'width',
+    '240px',
+  );
+  const studyDisplay = await page
+    .getByRole('button', { name: 'Display', exact: true })
+    .boundingBox();
+  const studyLayout = await page.getByRole('button', { name: /^(Board|List)$/ }).boundingBox();
   for (const [tab, title, description, action] of [
     [
       'Studies',
@@ -56,15 +64,28 @@ test('project tabs center their empty states in the content pane', async ({ page
     expect(contents.x).toBeCloseTo(bounds.x + bounds.width / 2, 0);
     expect(contents.y).toBeCloseTo(bounds.y + bounds.height / 2, 0);
     if (tab === 'Coresearches') {
-      const filter = page.getByRole('button', { name: 'Filter', exact: true });
-      const tabButton = page.getByRole('tab', { name: tab, exact: true });
-      expect((await filter.boundingBox())!.y).toBe((await tabButton.boundingBox())!.y);
+      const filter = panel.getByRole('button', { name: 'Filter', exact: true });
+      expect(await filter.boundingBox()).toEqual(studyDisplay);
+      const display = panel.getByRole('button', { name: 'Display', exact: true });
+      await expect(display).toBeVisible();
+      expect(await display.boundingBox()).toEqual(studyLayout);
+      await display.click();
+      await expect(panel.getByRole('menuitemcheckbox')).toHaveText(['experiment', 'cowrite']);
+      await page.keyboard.press('Escape');
       await filter.click();
-      await page.getByRole('menuitemradio', { name: 'Archived', exact: true }).click();
+      const active = panel.getByRole('menuitemradio', { name: 'Active', exact: true });
+      const archived = panel.getByRole('menuitemradio', { name: 'Archived', exact: true });
+      const check = await active.locator('svg').boundingBox();
+      const activeBox = (await active.boundingBox())!;
+      expect(check).toMatchObject({ width: 12, height: 12 });
+      expect(activeBox.x + activeBox.width - (check!.x + check!.width)).toBe(8);
+      await archived.click();
       await expect(empty.getByRole('heading', { name: 'No archived chats' })).toBeVisible();
       await expect(create).toHaveCount(0);
       await filter.click();
-      await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click();
+      await expect(archived).toHaveAttribute('aria-checked', 'true');
+      expect((await archived.locator('svg').boundingBox())!.x).toBe(check!.x);
+      await active.click();
     }
     await create.click();
     if (tab === 'Studies') {
@@ -121,9 +142,10 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
     }),
   );
   await page.goto('/#/projects/project');
-  const studyDisplay = (await page
+  const studyDisplay = await page
     .getByRole('button', { name: 'Display', exact: true })
-    .boundingBox())!;
+    .boundingBox();
+  const studyLayout = await page.getByRole('button', { name: /^(Board|List)$/ }).boundingBox();
   await page.getByRole('tab', { name: 'Coresearches', exact: true }).click();
   const panel = page.getByRole('tabpanel', { name: 'Coresearches' });
   const experiment = panel.getByRole('button', { name: 'Experiment chat', exact: true });
@@ -135,14 +157,14 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
   const studies = page.getByRole('tab', { name: 'Studies', exact: true });
   const table = panel.getByRole('table', { name: 'Coresearch chats' });
   const tableBox = (await table.boundingBox())!;
-  const displayBox = (await display.boundingBox())!;
   const tabX = (await studies.boundingBox())!.x;
+  const panelBox = (await panel.boundingBox())!;
   expect(tableBox.x).toBe(tabX);
   expect((await experiment.boundingBox())!.x).toBe(tabX);
-  expect(tableBox.x + tableBox.width).toBe(displayBox.x + displayBox.width);
+  expect(tableBox.x + tableBox.width).toBe(panelBox.x + panelBox.width - 16);
   await expect(table.getByRole('columnheader', { name: 'Name' })).toHaveCSS('padding-left', '0px');
-  expect((await filter.boundingBox())!.y).toBe(studyDisplay.y);
-  expect(displayBox.y).toBe(studyDisplay.y);
+  expect(await filter.boundingBox()).toEqual(studyDisplay);
+  expect(await display.boundingBox()).toEqual(studyLayout);
   await display.press('ArrowDown');
   await expect(panel.getByRole('menuitemcheckbox')).toHaveText(['experiment', 'cowrite']);
   await expect(
@@ -166,9 +188,9 @@ test('Coresearches aligns its controls with Studies and filters chats by mode', 
   await page.setViewportSize({ width: 640, height: 864 });
   await page.getByRole('button', { name: 'Toggle project properties' }).click();
   const narrowTable = (await table.boundingBox())!;
-  const narrowDisplay = (await display.boundingBox())!;
+  const narrowPanel = (await panel.boundingBox())!;
   const narrowTabX = (await studies.boundingBox())!.x;
   expect(narrowTable.x).toBe(narrowTabX);
   expect((await archived.boundingBox())!.x).toBe(narrowTabX);
-  expect(narrowTable.x + narrowTable.width).toBe(narrowDisplay.x + narrowDisplay.width);
+  expect(narrowTable.x + narrowTable.width).toBe(narrowPanel.x + narrowPanel.width - 16);
 });

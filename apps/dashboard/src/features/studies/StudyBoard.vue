@@ -746,7 +746,7 @@ onUnmounted(() => {
           v-else-if="!matchingProposals.length"
           :class="display.mode === 'Board' ? 'column-empty' : 'list-empty'"
         >
-          no to-dos
+          No to-dos
         </p>
         <button
           v-for="p in matchingProposals"

@@ -34,7 +34,7 @@ interface SharedChat {
   cells: { id: string; code: string; language: string; position: number; outputs?: unknown }[];
 }
 
-const props = defineProps<{ projectId: string; filterAnchor?: HTMLElement }>();
+const props = defineProps<{ projectId: string }>();
 const me = useMe();
 const member = computed(() => me.data.value?.id ?? '');
 const archived = ref(false);
@@ -212,82 +212,76 @@ function download(file: string) {
 
 <template>
   <section class="project-coresearch">
-    <Teleport
-      v-if="!selected && chats.isSuccess.value && filterAnchor"
-      :to="filterAnchor"
-      :disabled="hasChats"
-    >
-      <div :class="{ 'study-toolbar': hasChats }">
-        <div class="toolbar-group push-right">
-          <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
-            <FilterButton
-              :expanded="popup === 'filter'"
-              :count="archived ? 1 : 0"
-              @click="toggleMenu('filter', $event)"
-              @keydown.down.prevent="toggleMenu('filter', $event)"
-            />
-            <div
-              v-if="popup === 'filter'"
-              class="chat-options"
-              role="menu"
-              aria-label="Chat visibility"
-              @keydown="menuKeys"
-            >
-              <button
-                v-for="option in visibilityOptions"
-                :key="option.label"
-                type="button"
-                role="menuitemradio"
-                :aria-checked="archived === option.archived"
-                @click="setVisibility(option.archived)"
-              >
-                <span class="chat-option-check" aria-hidden="true">
-                  <Icon v-if="archived === option.archived" name="check" :size="12" />
-                </span>
-                {{ option.label }}
-              </button>
-            </div>
-          </div>
-          <div v-if="hasChats" class="menu-anchor" @focusout="dismissMenu('display', $event)">
+    <div v-if="!selected && chats.isSuccess.value" class="study-toolbar">
+      <div class="toolbar-group push-right">
+        <div ref="filterRoot" class="menu-anchor" @focusout="dismissMenu('filter', $event)">
+          <FilterButton
+            :expanded="popup === 'filter'"
+            :count="archived ? 1 : 0"
+            @click="toggleMenu('filter', $event)"
+            @keydown.down.prevent="toggleMenu('filter', $event)"
+          />
+          <div
+            v-if="popup === 'filter'"
+            class="chat-options"
+            role="menu"
+            aria-label="Chat visibility"
+            @keydown="menuKeys"
+          >
             <button
+              v-for="option in visibilityOptions"
+              :key="option.label"
               type="button"
-              class="button compact"
-              :class="{ active: mode }"
-              aria-label="Display"
-              :aria-description="mode"
-              title="Display"
-              aria-haspopup="menu"
-              :aria-expanded="popup === 'display'"
-              @click="toggleMenu('display', $event)"
-              @keydown.down.prevent="toggleMenu('display', $event)"
+              role="menuitemradio"
+              :aria-checked="archived === option.archived"
+              @click="setVisibility(option.archived)"
             >
-              <Icon name="filters" :size="14" />
+              {{ option.label }}
+              <span class="chat-option-check" aria-hidden="true">
+                <Icon v-if="archived === option.archived" name="check" :size="12" />
+              </span>
             </button>
-            <div
-              v-if="popup === 'display'"
-              class="chat-options"
-              role="menu"
-              aria-label="Chat mode"
-              @keydown="menuKeys"
+          </div>
+        </div>
+        <div class="menu-anchor" @focusout="dismissMenu('display', $event)">
+          <button
+            type="button"
+            class="button compact"
+            :class="{ active: mode }"
+            aria-label="Display"
+            :aria-description="mode"
+            title="Display"
+            aria-haspopup="menu"
+            :aria-expanded="popup === 'display'"
+            @click="toggleMenu('display', $event)"
+            @keydown.down.prevent="toggleMenu('display', $event)"
+          >
+            <Icon name="filters" :size="14" />
+          </button>
+          <div
+            v-if="popup === 'display'"
+            class="chat-options"
+            role="menu"
+            aria-label="Chat mode"
+            @keydown="menuKeys"
+          >
+            <button
+              v-for="option in modes"
+              :key="option"
+              type="button"
+              role="menuitemcheckbox"
+              :aria-checked="mode === option"
+              @click="setMode(option)"
             >
-              <button
-                v-for="option in modes"
-                :key="option"
-                type="button"
-                role="menuitemcheckbox"
-                :aria-checked="mode === option"
-                @click="setMode(option)"
-              >
-                <span class="chat-option-check" aria-hidden="true">
-                  <Icon v-if="mode === option" name="check" :size="12" />
-                </span>
-                {{ option }}
-              </button>
-            </div>
+              <span class="chat-option-check" aria-hidden="true">
+                <Icon v-if="mode === option" name="check" :size="12" />
+              </span>
+              {{ option }}
+            </button>
           </div>
         </div>
       </div>
-    </Teleport>
+    </div>
     <template v-if="selected">
       <header class="coresearch-view-header">
         <button ref="back" type="button" class="button compact" @click="closeChat">
@@ -476,6 +470,9 @@ function download(file: string) {
   display: grid;
   width: 16px;
   place-items: center;
+}
+[role='menuitemradio'] > .chat-option-check {
+  margin-inline-start: auto;
 }
 .coresearch-view-header {
   display: flex;
