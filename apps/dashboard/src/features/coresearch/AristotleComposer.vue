@@ -23,7 +23,6 @@ const props = withDefaults(
     template?: string;
     models?: RuntimeModel[];
     selectedModel?: string;
-    modelChosen?: boolean;
     cli?: string;
     clis?: string[];
     attachments?: ComposerAttachment[];
@@ -397,7 +396,6 @@ const inline = (text?: string) =>
             empty-label="No CLI available"
             default-label="Default (recommended)"
             :model-value="selectedModel"
-            :display="cli === 'codex' ? 'cli' : mode === 'experiment' ? 'model' : modelChosen ? 'cli-and-model' : undefined"
             :disabled="!draft || busy"
             @update:model-value="emit('update:selectedModel', $event)"
             @update:cli="emit('update:cli', $event)"

@@ -183,7 +183,7 @@ describe('Aristotle UI', () => {
       true,
     );
   });
-  it('uses the conversation agent avatar in the rail', async () => {
+  it('shows conversation titles without agent avatars in the rail', async () => {
     const { root, client, settle } = await mount('/coresearch/new', true, false, true, true);
     client.setQueryData(keys.agents('lab'), [
       { ...agent, id: 'custom', built_in_key: '', name: 'Analyst', avatar_url: 'emoji:🧪' },
@@ -193,8 +193,8 @@ describe('Aristotle UI', () => {
     ]);
     await settle();
     const row = all(root).find((n) => n.tag === 'a' && textOf(n).includes('Analysis'))!;
-    expect(textOf(row)).toContain('🧪');
-    expect(all(row).some((n) => n.props.class === 'chat-agent-avatar')).toBe(true);
+    expect(textOf(row)).not.toContain('🧪');
+    expect(all(row).some((n) => n.props.class === 'chat-agent-avatar')).toBe(false);
   });
   it('starts a new conversation with the chosen agent and its starters', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('offline'));
@@ -334,7 +334,7 @@ describe('Aristotle UI', () => {
     ]);
     await settle();
     const picker = byLabel(root, 'CLI and model: Codex · Default (recommended)');
-    expect(textOf(picker).trim()).toBe('Codex');
+    expect(textOf(picker).trim()).toBe('Default (recommended)');
     await (picker.props.onClick as () => Promise<void>)();
     await settle();
     expect(byLabel(root, 'Codex')).toBeTruthy();

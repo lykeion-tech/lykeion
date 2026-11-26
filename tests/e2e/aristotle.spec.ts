@@ -436,7 +436,11 @@ test('Aristotle portraits keep the full artwork inside every avatar', async ({ p
   await page.goto('/#/coresearch');
   await expect(page).toHaveURL(/conversations\/welcome$/);
   await checkPortraits('.aristotle-header .aristotle-art');
-  await checkPortraits('.conversation-rail .aristotle-art');
+  const welcomeChat = page
+    .getByRole('complementary', { name: 'Chat', exact: true })
+    .getByRole('link', { name: /Getting started with Aristotle/ });
+  await expect(welcomeChat).toBeVisible();
+  await expect(welcomeChat.locator('.chat-agent-avatar')).toHaveCount(0);
   // The rail's toggle marks Coresearch as the open view.
   await expect(
     page.locator('.sidebar-brand:visible').getByRole('link', { name: 'Coresearch', exact: true }),

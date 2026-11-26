@@ -324,14 +324,25 @@ describe('Cowrite composer', () => {
     expect(textOf(picker())).toBe('Default (recommended)');
     expect(textOf(m.root)).not.toContain('Other member');
   });
-  it('shows Codex in both modes while keeping the selected model in the menu', async () => {
+  it('shows the selected Claude model without a CLI prefix in both modes', async () => {
+    const m = await mount({ draft: false, onWelcome: true });
+    await m.click('CLI and model: Claude Code · Default (recommended)');
+    await m.click('Large — More capacity');
+    const picker = () => m.label('CLI and model: Claude Code · Large');
+    expect(textOf(picker())).toBe('Large');
+    await m.click('Cowrite');
+    expect(textOf(picker())).toBe('Large');
+  });
+  it('shows the selected Codex model in both modes and in the menu', async () => {
     const m = await mount({ harness: 'codex' });
-    await m.click('CLI and model: Codex · Default (recommended)');
+    const defaultPicker = 'CLI and model: Codex · Default (recommended)';
+    expect(textOf(m.label(defaultPicker))).toBe('Default (recommended)');
+    await m.click(defaultPicker);
     await m.click('Large — More capacity');
     const picker = () => m.label('CLI and model: Codex · Large');
-    expect(textOf(picker())).toBe('Codex');
+    expect(textOf(picker())).toBe('Large');
     await m.click('Cowrite');
-    expect(textOf(picker())).toBe('Codex');
+    expect(textOf(picker())).toBe('Large');
     await m.click('CLI and model: Codex · Large');
     expect(m.label('Large — More capacity').props['aria-pressed']).toBe(true);
   });

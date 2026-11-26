@@ -1376,7 +1376,7 @@ onUnmounted(() => {
 .workspace-popup {
   left: 8px;
   bottom: 48px;
-  width: min(180px, calc(100vw - 16px));
+  width: min(calc(var(--sidebar-width) - var(--sidebar-end-inset) - 8px), calc(100vw - 16px));
   max-height: calc(100dvh - 60px);
   overflow-y: auto;
 }
@@ -1536,9 +1536,13 @@ onUnmounted(() => {
   align-items: center;
   margin-left: auto;
 }
+.application {
+  --sidebar-width: var(--rail-width);
+  --sidebar-end-inset: 10px;
+}
 .application .sidebar {
-  flex-basis: var(--rail-width);
-  width: var(--rail-width);
+  flex-basis: var(--sidebar-width);
+  width: var(--sidebar-width);
   overflow: hidden;
   transition:
     flex-basis 220ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1608,11 +1612,12 @@ onUnmounted(() => {
 
 <style>
 @media (max-width: 760px) {
+  .application.aristotle-shell {
+    --sidebar-width: 200px;
+  }
   .application.aristotle-shell:not(.sidebar-hidden) .sidebar {
     display: flex;
     flex-direction: column;
-    width: 200px;
-    flex-basis: 200px;
   }
   .application.aristotle-shell:not(.sidebar-hidden) .main-pane {
     min-width: 0;
@@ -1624,6 +1629,8 @@ onUnmounted(() => {
 @media (max-width: 700px) {
   .application.aristotle-shell {
     --aristotle-mobile-dock-height: 64px;
+    --sidebar-width: 262px;
+    --sidebar-end-inset: 11px;
     padding-bottom: var(--aristotle-mobile-dock-height);
   }
   .application.aristotle-shell:not(.sidebar-hidden) .sidebar {
@@ -1631,7 +1638,6 @@ onUnmounted(() => {
     left: 0;
     top: 62px;
     bottom: var(--aristotle-mobile-dock-height);
-    width: 262px;
     z-index: 25;
     background: var(--canvas);
     border-right: 1px solid var(--border);
