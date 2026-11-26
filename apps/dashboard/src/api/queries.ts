@@ -138,12 +138,15 @@ function ofCard<T>(
 }
 export const useCard = (id: MaybeRefOrGetter<string>) =>
   ofCard<Card>(id, keys.card, (c) => `/api/cards/${c}`);
-export const useCardReview = (id: MaybeRefOrGetter<string>) =>
+export const useCardReview = (
+  id: MaybeRefOrGetter<string>,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) =>
   useQuery({
     queryKey: computed(() => [...keys.recordsAll(ws.value, toValue(id)), 'review']),
     queryFn: async () =>
       (await api<{ columns: ReviewColumn[] }>('GET', `/api/cards/${toValue(id)}/review`)).columns,
-    enabled: computed(() => inWorkspace.value && Boolean(toValue(id))),
+    enabled: computed(() => inWorkspace.value && Boolean(toValue(id)) && toValue(enabled)),
   });
 export const useStudyReport = (cardId: Ref<string | undefined>) =>
   useQuery({

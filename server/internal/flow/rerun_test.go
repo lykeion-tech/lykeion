@@ -22,7 +22,7 @@ func TestRerunPreservesFailedStderr(t *testing.T) {
 	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, RerunResult{Steps: []RerunStepResult{
 		{Key: "failed", ExitStatus: 1, Error: "FileNotFoundError\n" + strings.Repeat("abc", 2000)},
 		{Key: "passed", Error: "a warning"},
-	}}, 0)
+	}}, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,13 +194,13 @@ func TestRoundWithNoScriptsNeedsNoJob(t *testing.T) {
 func TestToleranceWidensTheDigitRule(t *testing.T) {
 	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"acc","value":"0.912","file":"fit.py","cites":["run:x1"]}`)}}
 	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "epoch 3 acc 0.874"}}
-	if ok, notes := reproduce(values, steps, nil, 0); ok["acc"] || notes["acc"] != "rerun printed 0.874, reported 0.912" {
+	if ok, notes, _ := reproduce(values, steps, nil, 0, nil); ok["acc"] || notes["acc"] != "rerun printed 0.874, reported 0.912" {
 		t.Fatalf("no tolerance: %v %v", ok, notes)
 	}
-	if ok, notes := reproduce(values, steps, nil, 0.05); !ok["acc"] || len(notes) != 0 {
+	if ok, notes, _ := reproduce(values, steps, nil, 0.05, nil); !ok["acc"] || len(notes) != 0 {
 		t.Fatalf("5%% tolerance: %v %v", ok, notes)
 	}
-	if ok, _ := reproduce(values, steps, nil, 0.04); ok["acc"] {
+	if ok, _, _ := reproduce(values, steps, nil, 0.04, nil); ok["acc"] {
 		t.Fatalf("4%% tolerance reproduced a value 4.2%% off")
 	}
 }
@@ -232,10 +232,10 @@ func TestAReportedTestIsFoundOnlyByTheDigitRule(t *testing.T) {
 func TestRerunOnlyUsesTheMeasurementsOwnFile(t *testing.T) {
 	values := []db.Record{{Kind: "value", Body: []byte(`{"name":"f1","value":"1.5","file":"out/metrics.txt","cites":["run:x1"]}`)}}
 	steps := map[string]RerunStepResult{"x1": {Key: "x1", Output: "done"}}
-	if ok, notes := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0); !ok["f1"] {
+	if ok, notes, _ := reproduce(values, steps, map[string]string{"out/metrics.txt": "f1 1.50"}, 0, nil); !ok["f1"] {
 		t.Fatalf("the matching file from a single-step replay: %v %v", ok, notes)
 	}
-	if ok, _ := reproduce(values, steps, map[string]string{"out/other.txt": "f1 1.50"}, 0); ok["f1"] {
+	if ok, _, _ := reproduce(values, steps, map[string]string{"out/other.txt": "f1 1.50"}, 0, nil); ok["f1"] {
 		t.Fatal("a value was found in an unrelated file")
 	}
 }
@@ -247,7 +247,7 @@ func TestRerunDoesNotBorrowMeasurementsAcrossScripts(t *testing.T) {
 		{Kind: "value", Body: []byte(`{"name":"control","value":"42","file":"control.py","cites":["run:x1"],"script_run":true}`)},
 	}
 	steps := map[string]RerunStepResult{"x1": {Output: "42"}, "x2": {ExitStatus: 17, Error: "missing marker"}}
-	ok, notes := reproduce(values, steps, map[string]string{"outputs/probe.txt": "73"}, 0)
+	ok, notes, _ := reproduce(values, steps, map[string]string{"outputs/probe.txt": "73"}, 0, nil)
 	if ok["failed"] || ok["ambiguous"] || !ok["control"] ||
 		!strings.Contains(notes["failed"], "status 17") || !strings.Contains(notes["ambiguous"], "exact script") {
 		t.Fatalf("wrong replay attribution: %v %v", ok, notes)

@@ -131,3 +131,23 @@ func TestValidationItemIdentities(t *testing.T) {
 		t.Errorf("flagged: %q %q %q", IdentityOf(f1), IdentityOf(f2), LabelOf(f1))
 	}
 }
+
+func TestBoundValuesMustUseHandIn(t *testing.T) {
+	for _, body := range []string{
+		`{"value":"0.42","field":"","measure":"accuracy"}`,
+		`{"value":"0.42","field":"/positive/estimate"}`,
+		`{"value":"0.42","MEASURE":"accuracy","measure":null}`,
+	} {
+		if err := Validate("value", board.Experimentation, []byte(body)); err == nil {
+			t.Errorf("direct bound value was accepted: %s", body)
+		}
+	}
+	for _, body := range []string{
+		`{"value":"0.42"}`,
+		`{"value":"0.42","field":null,"measure":null}`,
+	} {
+		if err := Validate("value", board.Experimentation, []byte(body)); err != nil {
+			t.Errorf("direct legacy value was refused: %v", err)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package review
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -33,6 +34,9 @@ type Assessment struct {
 // Measured is a value recomputed by a script run, keyed by value name.
 // Number says whether its text is a number, read into Value.
 type Measured struct {
+	Bound      bool
+	BoundValue string // exact text of the verified numeric field in the replay output
+	MeasureID  string
 	Value      float64
 	Number     bool
 	Text       string
@@ -116,6 +120,8 @@ func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testP
 				s += ": " + v.RerunNote
 			}
 			bad = append(bad, s)
+		case h.Prediction.Shape == "direction" && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
+			bad = append(bad, fmt.Sprintf("the %s %q is bound to a different hypothesis measure", role, names[role]))
 		case !v.Number && h.Prediction.Shape != "outcomes":
 			bad = append(bad, fmt.Sprintf("the %s %q is %q, which is not a number", role, names[role], strings.TrimSpace(v.Text)))
 		}
@@ -218,17 +224,54 @@ func byDirection(h HypothesisBody, a Assessment, meas float64, m map[string]Meas
 	if !sig {
 		return Inconclusive, []string{"the reported test is not significant (p ≥ 0.05)"}
 	}
-	if effect == 0 || math.IsNaN(effect) {
+	measurement := m[a.Measurement]
+	var control Measured
+	if a.Control != nil {
+		control = m[*a.Control]
+	}
+	positive, zero := effect > 0, effect == 0 || math.IsNaN(effect)
+	if measurement.Bound || control.Bound {
+		exactEffect, ok := directionEffect(measurement, control, a.Control != nil)
+		if !ok {
+			return Inconclusive, []string{"the measured effect could not be read as a number"}
+		}
+		positive, zero = exactEffect.Sign() > 0, exactEffect.Sign() == 0
+		effect, _ = exactEffect.Float64()
+	}
+	if zero {
 		return Inconclusive, []string{"the measured effect is zero"}
 	}
-	shown := roundedLike(effect, m[a.Measurement].Text)
+	shown := roundedLike(effect, measurement.Text)
+	if measurement.Bound || control.Bound {
+		shown = fmt.Sprintf("%g", effect)
+	}
 	if a.Control == nil && strings.TrimSpace(h.Control.Text) != "" && signed[a.Test.Kind] && (a.Test.Statistic > 0) != (dir == "increase") {
 		return Inconclusive, []string{fmt.Sprintf("the effect %s was read without its control value, and the test statistic %g does not agree with the predicted direction (%s)", shown, a.Test.Statistic, dir)}
 	}
-	if (dir == "increase") == (effect > 0) {
+	if (dir == "increase") == positive {
 		return Supported, []string{fmt.Sprintf("the effect %s is in the predicted direction (%s) and significant (p < 0.05)", shown, dir)}
 	}
 	return Refuted, []string{fmt.Sprintf("the effect %s is opposite to the predicted direction (%s) and significant (p < 0.05)", shown, dir)}
+}
+
+// directionEffect subtracts the replayed fields without rounding away a
+// small difference between two separately reported measurements.
+func directionEffect(measurement, control Measured, hasControl bool) (*big.Rat, bool) {
+	read := func(m Measured) (*big.Rat, bool) {
+		if m.Bound {
+			return new(big.Rat).SetString(m.BoundValue)
+		}
+		return new(big.Rat).SetString(strings.TrimSpace(m.Text))
+	}
+	m, ok := read(measurement)
+	if !ok || !hasControl {
+		return m, ok
+	}
+	c, ok := read(control)
+	if !ok {
+		return nil, false
+	}
+	return m.Sub(m, c), true
 }
 
 // roundedLike writes x to the decimals the reported text states.

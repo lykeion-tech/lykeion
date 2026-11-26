@@ -93,24 +93,30 @@ type NoQualifying struct {
 	Reason string `json:"reason"`
 }
 type Hypothesis struct {
-	Text            string   `json:"text"`
-	PredictionShape string   `json:"prediction_shape"`
-	Direction       *string  `json:"direction"`
-	Outcomes        []string `json:"outcomes"`
-	Chosen          *string  `json:"chosen"`
-	Low             *float64 `json:"low"`
-	High            *float64 `json:"high"`
-	Uncertainty     *string  `json:"uncertainty"`
-	Control         *string  `json:"control"`
-	NoControl       *string  `json:"no_control"` // the reason there is no control
-	Cites           []string `json:"cites"`
+	Text            string          `json:"text"`
+	PredictionShape string          `json:"prediction_shape"`
+	Direction       *string         `json:"direction"`
+	Outcomes        []string        `json:"outcomes"`
+	Chosen          *string         `json:"chosen"`
+	Low             *float64        `json:"low"`
+	High            *float64        `json:"high"`
+	Uncertainty     *string         `json:"uncertainty"`
+	Control         *string         `json:"control"`
+	NoControl       *string         `json:"no_control"` // the reason there is no control
+	Cites           []string        `json:"cites"`
+	Measure         *review.Measure `json:"measure,omitempty"`
 }
 type Value struct {
-	Name  string  `json:"name"`
-	Value string  `json:"value"` // text, so decimals stay exact
-	File  string  `json:"file"`
-	Run   *string `json:"run,omitempty"`
+	Name    string  `json:"name"`
+	Value   string  `json:"value"` // text, so decimals stay exact
+	File    string  `json:"file"`
+	Run     *string `json:"run,omitempty"`
+	Field   *string `json:"field,omitempty"`
+	Measure *string `json:"measure,omitempty"`
 }
+
+func (v Value) hasBinding() bool { return v.Field != nil || v.Measure != nil }
+
 type Concern struct {
 	Item    string `json:"item"`
 	Concern string `json:"concern"`
@@ -352,7 +358,7 @@ func (h Hypothesis) Body(cites []string) review.HypothesisBody {
 		p.Outcomes = nil
 	}
 	c := review.Control{Text: deref(h.Control), None: deref(h.NoControl)}
-	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites}
+	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites, Measure: h.Measure}
 }
 
 func deref(s *string) string {
@@ -517,6 +523,7 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 	if n := h.NoQualifying; n != nil {
 		add(within(n.Reason, 2000), "no_qualifying: reason must be 1 to 2000 characters")
 	}
+	measures := map[string]review.Measure{}
 	for i, x := range h.Hypotheses {
 		// The control problem is told in the hand-in's own words; review's
 		// version of it is dropped, and any other problem is still told.
@@ -526,6 +533,11 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		if err := review.Validate(review.KindHypothesis, board.Hypotheses, b); err != nil {
 			msg := strings.TrimPrefix(err.Error(), "hypothesis: ")
 			add(badControl && strings.HasPrefix(msg, "control "), "hypotheses %d: %s", i+1, msg)
+		}
+		if m := x.Measure; m != nil && m.Valid() {
+			prev, exists := measures[m.ID]
+			add(!exists || prev == *m, "hypotheses %d: measure id %q was already declared with a different name or unit", i+1, m.ID)
+			measures[m.ID] = *m
 		}
 	}
 	add(len(h.Outputs) <= 50, "outputs: list at most 50 file names")
@@ -539,6 +551,8 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		n := strings.ToLower(strings.Join(strings.Fields(v.Name), " "))
 		add(n == "" || !names[n], "values %d: another value already has the name %s", i+1, v.Name)
 		names[n] = true
+		add(v.Field == nil || validJSONPointer(*v.Field), "values %d: field must be a JSON Pointer", i+1)
+		add(v.Measure == nil || review.ValidMeasureID(*v.Measure), "values %d: measure id must be 1 to 64 lowercase letters, digits, hyphens or underscores and start with a letter", i+1)
 	}
 	for i, c := range h.Concerns {
 		add(c.Item != "" && within(c.Concern, 2000), "concerns %d: name the item and give a concern of 1 to 2000 characters", i+1)
@@ -577,6 +591,23 @@ func Parse(k Kind, raw []byte) (HandIn, []string) {
 		add(within(o.Target, 2000) && within(o.Problem, 2000), "objections %d: target and problem must each be 1 to 2000 characters", i+1)
 	}
 	return h, probs
+}
+
+// validJSONPointer checks RFC 6901 string syntax. An empty pointer selects the root.
+func validJSONPointer(s string) bool {
+	if s != "" && s[0] != '/' {
+		return false
+	}
+	for {
+		_, token, found := strings.Cut(s, "~")
+		if !found {
+			return true
+		}
+		if token == "" || (token[0] != '0' && token[0] != '1') {
+			return false
+		}
+		s = token[1:]
+	}
 }
 
 func within(s string, max int) bool {

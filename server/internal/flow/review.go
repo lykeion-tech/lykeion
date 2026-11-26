@@ -60,6 +60,7 @@ func usesReview(c db.Card) bool {
 // transaction open. The auditor's findings are never part of it: Jev reviews
 // the items and their evidence alone.
 type reviewing struct {
+	measures map[string]review.Measure
 	items    []db.Record            // this round's item records
 	carried  []review.Item          // the last attempt's items that stand, withdrawn or failed unanswered
 	cited    map[string]db.Record   // what the hypotheses cite, by the cite as written
@@ -143,6 +144,13 @@ func (e *Engine) readReviewInputs(ctx context.Context, ws uuid.UUID, c db.Card, 
 		recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
 		if err != nil {
 			return err
+		}
+		if c.BoardColumn == board.Experimentation {
+			hyps, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: board.Hypotheses})
+			if err != nil {
+				return err
+			}
+			rv.measures = handin.AcceptedMeasures(hyps)
 		}
 		cs, err := tx.Q.ListComments(ctx, db.ListCommentsParams{WorkspaceID: tx.WS, CardID: c.ID})
 		if err != nil {
@@ -589,7 +597,7 @@ func (e *Engine) prepareReview(ctx context.Context, ws uuid.UUID, in scoring, rv
 		if err != nil {
 			return nil, fmt.Errorf("reading saved files: %w", err)
 		}
-		values := slices.DeleteFunc(valueChecks(MatchValuesIn(rv.work, runs, files), rv.work, runs, files), func(v review.ValueCheck) bool {
+		values := slices.DeleteFunc(experimentationValues(rv.work, rv.runs, runs, files, rv.measures), func(v review.ValueCheck) bool {
 			return slices.ContainsFunc(rv.carried, func(it review.Item) bool {
 				if it.Identity == "" {
 					return it.Label == review.ValueLabel(v)
@@ -735,10 +743,7 @@ func around(out, value string) string {
 	at := -1
 	if ok {
 		eachToken(out, func(start int, r *big.Rat) bool {
-			if !n.integer {
-				r = roundTo(r, n.places)
-			}
-			if r.Cmp(n.r) == 0 {
+			if roundAsReported(r, n.precision()).Cmp(n.r) == 0 {
 				at = start
 				return false
 			}
@@ -1001,7 +1006,13 @@ func checkSummary(r review.Result) string {
 	case board.Hypotheses:
 		return "Citation provenance and control declarations were checked."
 	case board.Experimentation:
-		return "Declared output names and value traces were checked."
+		text := "Declared output names and reported value evidence were checked."
+		if slices.ContainsFunc(r.Items, func(it review.Item) bool {
+			return slices.ContainsFunc(it.Checks, func(c review.Check) bool { return c.ID == "bound" })
+		}) {
+			text += " Structured values were checked against their saved JSON fields and hypothesis measures."
+		}
+		return text
 	case board.Validation:
 		return "Quotes were checked against the study's recorded sources."
 	}

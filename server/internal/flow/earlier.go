@@ -129,20 +129,17 @@ func itemLines(items, recs, grounding []db.Record) []string {
 			lines = append(lines, "- Output files: "+strings.Join(records.Body[review.OutputsBody](r).Files, ", "))
 		case "value":
 			v := valueOf(r)
-			lines = append(lines, fmt.Sprintf("- Value %s = %s, shown in %s", oneLine(v.Name), v.Value, v.File))
+			line := fmt.Sprintf("- Value %s = %s, shown in %s", oneLine(v.Name), v.Value, v.File)
+			if v.Measure != nil && v.Field != nil {
+				line += fmt.Sprintf(", measure %s at JSON Pointer %q", *v.Measure, *v.Field)
+			}
+			lines = append(lines, line)
 		}
 	}
 	return lines
 }
 
-type valueRecord struct {
-	Name      string `json:"name"`
-	Value     string `json:"value"`
-	File      string `json:"file"`
-	ScriptRun bool   `json:"script_run,omitempty"`
-	// Cites are the script runs of File, written run:KEY.
-	Cites []string `json:"cites"`
-}
+type valueRecord = review.ValueBody
 
 func valueOf(r db.Record) valueRecord { return records.Body[valueRecord](r) }
 
@@ -196,6 +193,9 @@ func hypothesisLine(b review.HypothesisBody, ids []string) string {
 		if p.Low != nil && p.High != nil {
 			fmt.Fprintf(&s, " Predicts %s to %s (%s).", strconv.FormatFloat(*p.Low, 'g', -1, 64), strconv.FormatFloat(*p.High, 'g', -1, 64), p.Uncertainty)
 		}
+	}
+	if b.Measure != nil && b.Measure.Valid() {
+		fmt.Fprintf(&s, " Measure %s: %s (%s).", b.Measure.ID, oneLine(b.Measure.Name), oneLine(b.Measure.Unit))
 	}
 	if b.Control.Text != "" {
 		fmt.Fprintf(&s, " Control: %s.", oneLine(b.Control.Text))

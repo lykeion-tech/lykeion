@@ -717,3 +717,29 @@ it.each(['score', 'outcome'])(
     expect(textOf(root)).toContain('Relevance — Mostly');
   },
 );
+
+it('shows structured server checks beside the declared measurement', async () => {
+  const a = grounding();
+  a.column = 'experimentation';
+  a.items = [
+    {
+      ...a.items[0]!,
+      label: 'Untrusted name',
+      value: '0.0150',
+      measure: { id: 'difference', name: 'Mean difference', unit: 'seconds' },
+      output: 'o1',
+      checks: [{ id: 'bound', by: 'server', status: 'pass', detail: 'Matches the saved field.' }],
+    },
+    {
+      ...a.items[0]!,
+      label: 'Legacy value',
+      checks: [{ id: 'unbound', by: 'server', status: 'unclear', warning: true }],
+    },
+  ];
+  const { root } = setup([{ column: 'experimentation', attempts: [a] }]);
+  await nextTick();
+  expect(textOf(root)).toContain('Mean difference: 0.0150 seconds');
+  expect(textOf(root)).toContain('Open verified output');
+  expect(textOf(root)).toContain('Legacy value');
+  expect(textOf(root)).toContain('warning only');
+});

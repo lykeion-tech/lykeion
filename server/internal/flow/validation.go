@@ -433,8 +433,20 @@ func measured(values []db.Record, rerun db.Record) map[string]review.Measured {
 	for _, r := range values {
 		v := valueOf(r)
 		n, err := strconv.ParseFloat(strings.TrimSpace(v.Value), 64)
-		m[v.Name] = review.Measured{Value: n, Number: err == nil, Text: v.Value, FromScript: len(v.Cites) > 0, Reproduced: rb.Reproduced[v.Name],
+		measured := review.Measured{Value: n, Number: err == nil, Text: v.Value, FromScript: len(v.Cites) > 0, Reproduced: rb.Reproduced[v.Name],
 			RerunNote: rb.Notes[v.Name], Key: r.Key, RerunKey: rerun.Key}
+		if hasBinding(v) {
+			measured.Bound = true
+			measured.BoundValue = rb.BoundValues[r.Key]
+			if v.Measure != nil {
+				measured.MeasureID = *v.Measure
+			}
+			if measured.BoundValue == "" && measured.Reproduced {
+				measured.Reproduced = false
+				measured.RerunNote = "the replay has no verified value at the declared field"
+			}
+		}
+		m[v.Name] = measured
 	}
 	return m
 }

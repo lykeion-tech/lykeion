@@ -292,7 +292,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		var output, errText string
 		status := -1
-		before := rerunOutputHashes(root, s.OutputPaths)
+		before := scriptOutputHashes(root, s.OutputPaths)
 		if err != nil {
 			errText = "the script could not be written: " + err.Error()
 		} else if output, errText, status, err = door.execScript(runCtx, door.Study, s.Path, s.Language, s.Script); err != nil {
@@ -303,7 +303,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		fitBody(body, share)
 		step := rerunStep{Key: s.Key, ExitStatus: status, Output: body["output"].(string), Error: body["error"].(string)}
 		if status == 0 && len(s.OutputPaths) > 0 {
-			hashes := rerunOutputHashes(root, s.OutputPaths)
+			hashes := scriptOutputHashes(root, s.OutputPaths)
 			maps.DeleteFunc(hashes, func(name, hash string) bool { return before[name] == hash })
 			step.OutputHashes = &hashes
 		}
@@ -367,8 +367,8 @@ func restoreReplayInputs(ctx context.Context, role *apiclient.Client, root *os.R
 	return nil
 }
 
-// Only a measured output changed by this script can attest to its replay.
-func rerunOutputHashes(root *os.Root, paths []string) map[string]string {
+// scriptOutputHashes snapshots bounded regular output files for an execution.
+func scriptOutputHashes(root *os.Root, paths []string) map[string]string {
 	const maxEvidenceBytes = 8 << 20
 	hashes := make(map[string]string, len(paths))
 	for _, name := range paths {

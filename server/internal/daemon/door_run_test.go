@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -246,6 +247,70 @@ func TestRunScriptRecordsTheScriptItsOutputAndPackages(t *testing.T) {
 		if b[k] != v {
 			t.Errorf("%s = %#v, want %#v", k, b[k], v)
 		}
+	}
+}
+
+func TestRunScriptRecordsOnlyChangedDeclaredJSONOutputs(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.Mkdir(filepath.Join(dir, "outputs"), 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "outputs/changed.json"), []byte("1"), 0o644))
+	must(t, os.WriteFile(filepath.Join(dir, "outputs/unchanged.json"), []byte("2"), 0o644))
+	script := "printf 3 >outputs/changed.json\nprintf 2 >outputs/unchanged.json\nprintf 4 >outputs/new.json\nprintf 5 >outputs/unlisted.json\n"
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte(script), 0o644))
+	in := map[string]any{"path": "a.py", "outputs": []string{
+		"outputs/changed.json", "outputs/unchanged.json", "outputs/new.json", "outputs/missing.json",
+	}}
+	got, err := useTool(t, d, "run_script", in)
+	if err != nil || !strings.HasPrefix(got, "run:x1\n") || !strings.Contains(got, "outputs/new.json") {
+		t.Fatalf("answer %q, error %v", got, err)
+	}
+	runs, _ := l.recorded()
+	if len(runs) != 1 {
+		t.Fatalf("recorded %d executions", len(runs))
+	}
+	hashes, ok := runs[0]["output_hashes"].(map[string]any)
+	if !ok || len(hashes) != 2 ||
+		hashes["outputs/changed.json"] != fmt.Sprintf("%x", sha256.Sum256([]byte("3"))) ||
+		hashes["outputs/new.json"] != fmt.Sprintf("%x", sha256.Sum256([]byte("4"))) {
+		t.Fatalf("output manifest = %v", runs[0]["output_hashes"])
+	}
+
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("printf 6 >outputs/changed.json\nexit 3\n"), 0o644))
+	if _, err := useTool(t, d, "run_script", in); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ = l.recorded()
+	if len(runs) != 2 || runs[1]["exit_status"] != float64(3) || runs[1]["output_hashes"] != nil {
+		t.Fatalf("failed script recorded provenance: %+v", runs)
+	}
+}
+
+func TestRunScriptRejectsInvalidDeclaredOutputPaths(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("printf ran >executed\n"), 0o644))
+	for _, names := range [][]string{
+		{"not-an-output.json"},
+		{"outputs/../result.json"},
+		{"outputs/result.csv"},
+		{"outputs/result.json", "outputs/result.json"},
+	} {
+		if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py", "outputs": names}); err == nil {
+			t.Fatalf("accepted outputs %q", names)
+		}
+	}
+	tooMany := make([]string, 17)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("outputs/%d.json", i)
+	}
+	if _, err := useTool(t, d, "run_script", map[string]any{"path": "a.py", "outputs": tooMany}); err == nil {
+		t.Fatal("accepted 17 outputs")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "executed")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid input reached script execution: %v", err)
 	}
 }
 

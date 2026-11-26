@@ -26,16 +26,6 @@ type NewRecord struct {
 	Body any
 }
 
-// valueBody is the record a reported value becomes: the file that shows it, and
-// the script runs of that file, if it is a script.
-type valueBody struct {
-	Name      string   `json:"name"`
-	Value     string   `json:"value"`
-	File      string   `json:"file"`
-	Cites     []string `json:"cites"`
-	ScriptRun bool     `json:"script_run,omitempty"`
-}
-
 type declinedBody struct {
 	Item   string `json:"item"` // the missed paper's id
 	Reason string `json:"reason"`
@@ -226,7 +216,7 @@ func (c *converter) experimentation(h HandIn) {
 		c.problem("a done Experimentation hand-in needs at least one value or output")
 	}
 	for i, o := range h.Outputs {
-		if !c.ev.Saved(o) {
+		if !c.ev.Saved(o) && !slices.ContainsFunc(h.Values, func(v Value) bool { return v.hasBinding() && v.File == o }) {
 			c.problem("output %d: %s was not saved in this study", i+1, o)
 		}
 	}
@@ -235,6 +225,18 @@ func (c *converter) experimentation(h HandIn) {
 		c.item("outputs", 1, review.KindOutputs, review.OutputsBody{Files: h.Outputs})
 	}
 	for i, v := range h.Values {
+		if v.hasBinding() {
+			// Keep the claim as supplied. The review checks the exact run,
+			// file and field together and can send back a failed binding.
+			cites := []string{}
+			if run := strings.TrimSpace(deref(v.Run)); run != "" {
+				cites = append(cites, run)
+			}
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: review.ValueBody{
+				Name: v.Name, Value: v.Value, File: v.File, Cites: cites, Field: v.Field, Measure: v.Measure,
+			}})
+			continue
+		}
 		file := v.File
 		runs := c.ev.Scripts(file)
 		scriptRun := false
@@ -259,7 +261,7 @@ func (c *converter) experimentation(h HandIn) {
 			if runs == nil {
 				runs = []string{}
 			}
-			c.recs = append(c.recs, NewRecord{Kind: "value", Body: valueBody{Name: v.Name, Value: v.Value, File: file, Cites: runs, ScriptRun: scriptRun}})
+			c.recs = append(c.recs, NewRecord{Kind: "value", Body: review.ValueBody{Name: v.Name, Value: v.Value, File: file, Cites: runs, ScriptRun: scriptRun}})
 		}
 	}
 }
@@ -390,7 +392,7 @@ func (c *converter) replies(rs []Reply, prev Review) {
 			// same value by its displayed label or earlier identity.
 			if c.column == board.Experimentation && failed[id] != "" {
 				matched := slices.ContainsFunc(c.recs, func(rec NewRecord) bool {
-					v, ok := rec.Body.(valueBody)
+					v, ok := rec.Body.(review.ValueBody)
 					return ok && failed[identity(v.Name)] == failed[id]
 				})
 				if matched {

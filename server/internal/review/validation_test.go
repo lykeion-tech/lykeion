@@ -432,3 +432,23 @@ func TestOpenDoubtsNamesAnUnclearVerdict(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestBoundDirectionUsesExactReplayedFields(t *testing.T) {
+	h := dirHyp("increase")
+	h.Measure = &Measure{ID: "delta", Name: "Difference", Unit: "fraction"}
+	measurement, control := good(1), good(1)
+	measurement.Bound, measurement.BoundValue, measurement.MeasureID = true, "1.00000000000000000002", "delta"
+	control.Bound, control.BoundValue, control.MeasureID = true, "1.00000000000000000001", "delta"
+	a := &Assessment{Hypothesis: "h", Measurement: "m", Control: sp("c"), Test: sigT()}
+	check := func(want string) {
+		t.Helper()
+		if result := run(t, h, a, map[string]Measured{"m": measurement, "c": control}); result.Status != want {
+			t.Fatalf("wanted %s, got %+v", want, result)
+		}
+	}
+	check(Supported)
+	measurement.BoundValue = "1.00000000000000000000"
+	check(Refuted)
+	measurement.MeasureID = "another"
+	check(Invalid)
+}

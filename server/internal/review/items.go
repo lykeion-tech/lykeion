@@ -55,15 +55,36 @@ type Control struct {
 	Text string `json:"text,omitempty"` // the control or baseline
 	None string `json:"none,omitempty"` // the reason there is none
 }
+
+// Measure names the quantity that an accepted hypothesis predicts.
+type Measure struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Unit string `json:"unit"`
+}
+
 type HypothesisBody struct {
 	Text       string     `json:"text"`
 	Prediction Prediction `json:"prediction"`
 	Control    Control    `json:"control"`
 	Cites      []string   `json:"cites"` // at least one
+	Measure    *Measure   `json:"measure,omitempty"`
 }
 type OutputsBody struct {
 	Files []string `json:"files"` // names of the study's saved output files
 }
+
+// ValueBody is a reported value and the evidence it names.
+type ValueBody struct {
+	Name      string   `json:"name"`
+	Value     string   `json:"value"`
+	File      string   `json:"file"`
+	Cites     []string `json:"cites"`
+	ScriptRun bool     `json:"script_run,omitempty"`
+	Field     *string  `json:"field,omitempty"`
+	Measure   *string  `json:"measure,omitempty"`
+}
+
 type VerdictBody struct {
 	Claim   string `json:"claim"`
 	Verdict string `json:"verdict"` // "supported" | "refuted" | "not_enough_info"
@@ -94,6 +115,14 @@ var columns = map[string]string{
 // withdrawnIn are the columns reviewed item by item, where an item may be withdrawn.
 var withdrawnIn = []string{board.Grounding, board.Hypotheses, board.Experimentation, board.Validation}
 
+var measureID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+// ValidMeasureID reports whether id can name a measure.
+func ValidMeasureID(id string) bool { return measureID.MatchString(id) }
+
+// Valid reports whether the declaration can be used in a value binding.
+func (m Measure) Valid() bool { return measureProblem(&m) == "" }
+
 var itemKey = regexp.MustCompile(`^r[0-9]+$`)
 
 var paperID = regexp.MustCompile(`^(arxiv:\d{4}\.\d{4,5}|arxiv:[a-z-]+/\d{7}|doi:10\.\d{4,9}/\S+|pmid:\d{1,9})$`)
@@ -104,11 +133,21 @@ func ColumnOf(kind string) (column string, ok bool) {
 	return
 }
 
-// Validate refuses a malformed item body, or an item written outside its
-// column; kinds that are not items pass unchecked. It returns service.Invalid.
+// Validate refuses a malformed item body or an item written outside its column.
+// Structured values can only be written through hand-ins. It returns service.Invalid.
 func Validate(kind, column string, body []byte) error {
 	want, ok := ColumnOf(kind)
 	switch {
+	case kind == "value":
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(body, &fields) == nil {
+			for key, raw := range fields {
+				if (strings.EqualFold(key, "field") || strings.EqualFold(key, "measure")) && !bytes.Equal(raw, []byte("null")) {
+					return service.Invalid("submit structured values through an Experimentation hand-in")
+				}
+			}
+		}
+		return nil
 	case kind == KindWithdrawn:
 		if !slices.Contains(withdrawnIn, column) {
 			return service.Invalid("withdrawn records are written in the Grounding, Hypotheses, Experimentation or Validation column")
@@ -139,7 +178,8 @@ func Validate(kind, column string, body []byte) error {
 	case KindHypothesis:
 		var b HypothesisBody
 		if msg = decode(dec, &b); msg == "" {
-			msg = all(text(b.Text), prediction(b.Prediction), control(b.Control), check(len(b.Cites) >= 1, "a hypothesis cites at least one record"))
+			msg = all(text(b.Text), prediction(b.Prediction), control(b.Control),
+				check(len(b.Cites) >= 1, "a hypothesis cites at least one record"), measureProblem(b.Measure))
 		}
 	case KindOutputs:
 		var b OutputsBody
@@ -204,6 +244,17 @@ func all(msgs ...string) string {
 func text(s string) string {
 	n := utf8.RuneCountInString(s)
 	return check(n >= 1 && n <= 2000, "text must be 1 to 2000 characters")
+}
+
+func measureProblem(m *Measure) string {
+	if m == nil {
+		return ""
+	}
+	return all(
+		check(ValidMeasureID(m.ID), "measure id must be 1 to 64 lowercase letters, digits, hyphens or underscores and start with a letter"),
+		check(m.Name != "" && strings.TrimSpace(m.Name) == m.Name && utf8.RuneCountInString(m.Name) <= 120, "measure name must be 1 to 120 characters without surrounding whitespace"),
+		check(m.Unit != "" && strings.TrimSpace(m.Unit) == m.Unit && utf8.RuneCountInString(m.Unit) <= 64, "measure unit must be 1 to 64 characters without surrounding whitespace"),
+	)
 }
 
 func prediction(p Prediction) string {

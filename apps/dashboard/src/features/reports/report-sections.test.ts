@@ -509,3 +509,42 @@ it('tabRows lists the whole report, then only what lies near the focus', () => {
   expect(focused.findings.some((x) => x.id === hypothesis.id)).toBe(true);
   expect(focused.sources.length).toBeLessThanOrEqual(all.sources.length);
 });
+
+it('shows a declared measure and links only the exact output record', () => {
+  const r = report();
+  const finding = r.nodes.find((n) => n.id === 'rec:r5')!;
+  r.nodes.push(
+    node({ id: 'rec:o1', kind: 'output', label: 'o1 · outputs/result.json' }),
+    node({ id: 'rec:o2', kind: 'output', label: 'o2 · outputs/result.json' }),
+  );
+  finding.measurements = [
+    {
+      record: 'v1',
+      name: 'treated',
+      value: '0.0150',
+      field: '/difference/value',
+      measure: { id: 'difference', name: 'Mean difference', unit: 'seconds' },
+      output: 'o1',
+    },
+  ];
+  const fold = sectionFor(r, finding.id).folds.find((f) => f.title === 'Recorded measurements')!;
+  expect(fold.rows).toEqual([
+    {
+      kind: 'detail',
+      label: 'Mean difference: 0.0150 seconds',
+      detail: [
+        { label: 'Recorded as', text: 'treated' },
+        { label: 'JSON field', text: '/difference/value' },
+        { label: 'Verified output', text: 'o1 · outputs/result.json', nodeId: 'rec:o1' },
+      ],
+    },
+  ]);
+  finding.measurements[0]!.measure.unit = '';
+  expect(sectionFor(r, finding.id).folds.some((f) => f.title === 'Recorded measurements')).toBe(
+    false,
+  );
+  delete finding.measurements;
+  expect(sectionFor(r, finding.id).folds.some((f) => f.title === 'Recorded measurements')).toBe(
+    false,
+  );
+});

@@ -356,6 +356,8 @@ For a directional hypothesis such as “the filter reduces mean error,” plan a
 
 For a deterministic check, specify a named outcome or numeric range in Hypotheses and have the script record the result. Validation checks that the recorded result reproduces and matches the prediction.
 
+For a numeric hypothesis, declare a measure with an ID, a name and a unit. Save the number in a JSON output from the experiment script, then cite that script execution and the exact JSON field in the hand-in. The server checks the binding without TypeSafe. Review labels values without a binding as unbound and still checks their existing execution evidence.
+
 ## Check evidence before continuing
 
 Compare the study's outputs with its question and scope. Use [evidence and results](/docs/evidence-and-results/) to inspect files, notebook records and review. The demonstration study in these guides has Grounding hand-ins and is waiting for scoring.

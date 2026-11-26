@@ -86,6 +86,19 @@ export interface ReportLink {
   node: string;
   p: number;
 }
+export interface HypothesisMeasure {
+  id: string;
+  name: string;
+  unit: string;
+}
+export interface ReportMeasurement {
+  record: string;
+  name: string;
+  value: string;
+  field: string;
+  measure: HypothesisMeasure;
+  output: string;
+}
 export interface ReportNode {
   id: string;
   kind: ReportNodeKind;
@@ -103,6 +116,7 @@ export interface ReportNode {
   agent: string;
   column: string;
   content_type?: string;
+  measurements?: ReportMeasurement[];
   facts?: ReportFact[];
   novelty?: 'contradicts' | 'confirms' | 'new';
 }
@@ -165,6 +179,9 @@ export interface ReviewItem {
   identity?: string;
   status: CheckStatus | ValidationStatus;
   carried?: boolean;
+  measure?: HypothesisMeasure;
+  value?: string;
+  output?: string;
   checks: ReviewCheck[];
   quote: string;
   cites: string[];

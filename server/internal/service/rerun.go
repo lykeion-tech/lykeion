@@ -95,7 +95,9 @@ func NewStanding(study []db.Record) Standing {
 			continue
 		}
 		v := valueOf(r)
-		v.Cites = st.ValueRuns(v.File, v.Cites)
+		if v.Field == nil && v.Measure == nil {
+			v.Cites = st.ValueRuns(v.File, v.Cites)
+		}
 		if v.Cites == nil {
 			v.Cites = []string{}
 		}
@@ -113,6 +115,8 @@ type standingValue struct {
 	File      string   `json:"file"`
 	Cites     []string `json:"cites"`
 	ScriptRun bool     `json:"script_run,omitempty"`
+	Field     *string  `json:"field,omitempty"`
+	Measure   *string  `json:"measure,omitempty"`
 }
 
 func valueOf(r db.Record) standingValue {

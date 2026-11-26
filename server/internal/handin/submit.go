@@ -204,16 +204,23 @@ func (s *HandIns) SubmitWithEnvironment(ctx context.Context, user uuid.UUID, ref
 			probs = append(probs, p...)
 		}
 		var prev Review
-		if lead && s.SentBack != nil {
+		binding := k == Experimentation && h.Status == "done" && slices.ContainsFunc(h.Values, Value.hasBinding)
+		if binding || lead && s.SentBack != nil {
 			c, err := tx.Q.GetCard(ctx, db.GetCardParams{WorkspaceID: tx.WS, ID: w.Card})
 			if err != nil {
 				return err
 			}
-			// The review a run answers is the one before its own round, even
-			// when the study has moved on since.
-			c.BoardColumn, c.Round = t.BoardColumn, t.Round
-			if prev, err = s.SentBack(ctx, tx, c); err != nil {
-				return err
+			if binding && c.LegacyColumn == t.BoardColumn {
+				probs = append(probs, "this Experimentation round uses legacy scoring and cannot check structured bindings. Set field and measure to null for this round")
+				return nil
+			}
+			if lead && s.SentBack != nil {
+				// The review a run answers is the one before its own round, even
+				// when the study has moved on since.
+				c.BoardColumn, c.Round = t.BoardColumn, t.Round
+				if prev, err = s.SentBack(ctx, tx, c); err != nil {
+					return err
+				}
 			}
 		}
 		ev := NewEvidence(study)
