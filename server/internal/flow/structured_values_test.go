@@ -20,7 +20,7 @@ import (
 
 func TestStructuredValueChecksUseAttestedField(t *testing.T) {
 	const path = "outputs/metrics.json"
-	const contents = `{"effect":{"value":0.1245,"measure":"effect","unit":"fraction"},"other":0.987,"reversed":-0.1245}`
+	const contents = `{"decoy":10.1245,"effect":{"value":0.1245,"measure":"effect","unit":"fraction"},"other":0.987,"reversed":-0.1245}`
 	producer := uuid.New()
 	runBody := fmt.Appendf(nil, `{"tool":"run_script","exit_status":0,"output_hashes":{"%s":"%x"}}`, path, sha256.Sum256([]byte(contents)))
 	outputBody := fmt.Appendf(nil, `{"name":"%s","sha256":"%x"}`, path, sha256.Sum256([]byte(contents)))
@@ -56,6 +56,9 @@ func TestStructuredValueChecksUseAttestedField(t *testing.T) {
 			if tc.fail == "" {
 				if item.Status != review.Pass || item.Output != "o1" || item.Measure == nil {
 					t.Fatalf("expected clean binding: %+v", item)
+				}
+				if got := values[0].Context; !strings.Contains(got, `"/effect/value"`) || !strings.Contains(got, "0.1245") || strings.Contains(got, "decoy") {
+					t.Fatalf("Jev context should describe the resolved field: %q", got)
 				}
 			} else if item.Status != review.Fail || !slices.ContainsFunc(item.Checks, func(c review.Check) bool {
 				return c.ID == tc.fail && c.Status == review.Fail && c.By == "server"

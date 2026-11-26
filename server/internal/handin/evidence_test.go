@@ -2,17 +2,51 @@ package handin
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/records"
+	"lykeion/server/internal/review"
 	db "lykeion/server/pkg/db/generated"
 )
 
 func rec(col, kind, key string, body map[string]any) db.Record {
 	b, _ := json.Marshal(body)
 	return db.Record{BoardColumn: col, Kind: kind, Key: key, Body: b}
+}
+
+func TestStandingHypothesesKeepTheAcceptedTypedDeclaration(t *testing.T) {
+	original := rec(board.Hypotheses, review.KindHypothesis, "h1", map[string]any{
+		"text": "Accuracy exceeds the target", "measure": review.Measure{ID: "accuracy", Name: "Accuracy", Unit: "fraction"},
+		"comparison": map[string]any{"threshold": 0.5},
+	})
+	original.Role, original.Round = "leader", 1
+	replacement := rec(board.Hypotheses, review.KindHypothesis, "h2", map[string]any{
+		"text": "Accuracy  exceeds the target", "comparison": map[string]any{"threshold": 0.4},
+	})
+	replacement.Role, replacement.Round = "leader", 2
+	newTyped := rec(board.Hypotheses, review.KindHypothesis, "h3", map[string]any{
+		"text": "Recall exceeds the target", "comparison": map[string]any{"threshold": 0.5},
+	})
+	newTyped.Role, newTyped.Round = "leader", 2
+	legacy := rec(board.Hypotheses, review.KindHypothesis, "h4", map[string]any{"text": "Accuracy increases"})
+	legacy.Role, legacy.Round = "leader", 2
+	result := rec(board.Hypotheses, "review", "review", map[string]any{
+		"items": []review.Item{{Kind: review.KindHypothesis, Key: original.Key, Status: review.Pass, Carried: true}},
+	})
+	result.Role, result.Round = "server", 2
+	outcome := rec(board.Hypotheses, "outcome", "outcome", map[string]any{"verdict": review.DecidePass})
+	outcome.Role, outcome.Round = "server", 2
+	study := []db.Record{original, replacement, newTyped, legacy, result, outcome}
+	var keys []string
+	for _, r := range NewEvidence(study).Standing() {
+		keys = append(keys, r.Key)
+	}
+	if !slices.Equal(keys, []string{original.Key, legacy.Key}) {
+		t.Fatalf("standing hypotheses = %v, want the accepted typed and legacy records", keys)
+	}
 }
 
 func TestEvidenceMatchesSpellings(t *testing.T) {

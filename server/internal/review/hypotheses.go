@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"lykeion/server/internal/board"
@@ -44,7 +45,7 @@ func predictionLine(p Prediction) string {
 }
 
 // Hypotheses reviews a Hypotheses column: the server's cite check, Jev's
-// three questions on each hypothesis, and Jev's pick of the weakest.
+// questions on each hypothesis, and Jev's pick of the weakest.
 func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error) {
 	r := Result{Column: board.Hypotheses, Attempt: in.Attempt}
 	var asked []Item
@@ -74,16 +75,32 @@ func Hypotheses(ctx context.Context, a Asker, in HypothesesInput) (Result, error
 			r.AwaitJudgment(&it)
 		} else if cite.Status == Pass {
 			text := b.Text + "\n" + predictionLine(b.Prediction)
-			ps, err := a.Noul(ctx, ItemState("Hypotheses", text, evidence, MaxState), hypothesisQuestions)
+			questions := hypothesisQuestions
+			ids := []string{"falsifiable", "supported", "lookup"}
+			if c := b.Comparison; c != nil {
+				questions = maps.Clone(questions)
+				questions["comparison"] = "Do the measure, threshold or control, and outcome labels of the frozen comparison agree with the written prediction?"
+				ids = append(ids, "comparison")
+				if b.Measure != nil {
+					text += fmt.Sprintf("\nMeasure: %q (ID %q, unit %q)", b.Measure.Name, b.Measure.ID, b.Measure.Unit)
+				}
+				if c.Threshold != nil {
+					text += "\nFrozen threshold: " + c.Threshold.String()
+				} else if c.Control != nil {
+					text += fmt.Sprintf("\nFrozen control value: %q (%s)", *c.Control, b.Control.Text)
+				}
+				text += fmt.Sprintf("\nFrozen outcome labels (measure compared with threshold or control), less: %q, equal: %q, greater: %q", c.Less, c.Equal, c.Greater)
+			}
+			ps, err := a.Noul(ctx, ItemState("Hypotheses", text, evidence, MaxState), questions)
 			if err != nil {
 				return Result{}, err
 			}
-			for _, id := range []string{"falsifiable", "supported", "lookup"} {
+			for _, id := range ids {
 				p, ok := ps[id]
 				if !ok {
 					return Result{}, fmt.Errorf("jev gave no answer for %s", id)
 				}
-				c := Check{ID: id, By: "jev", Question: hypothesisQuestions[id]}
+				c := Check{ID: id, By: "jev", Question: questions[id]}
 				if id == "lookup" {
 					p = 1 - p
 					c.Inverted = true

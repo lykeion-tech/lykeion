@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -18,8 +20,8 @@ import (
 // EnqueueRerun queues the job that replays a study's Experimentation round
 // for its Validation round. It runs no agent CLI, so it names no harness and
 // no agent; it runs where the study's runs run.
-func (s *AgentRuns) EnqueueRerun(ctx context.Context, tx *store.Tx, owner, card uuid.UUID, round int32) (db.AgentRun, error) {
-	return s.Enqueue(ctx, tx, owner, NewAgentRun{Card: card, Column: board.Validation, Round: round, Role: "rerun", kind: "rerun"})
+func (s *AgentRuns) EnqueueRerun(ctx context.Context, tx *store.Tx, owner, card uuid.UUID, round int32, requiresOutputAttestation bool) (db.AgentRun, error) {
+	return s.Enqueue(ctx, tx, owner, NewAgentRun{Card: card, Column: board.Validation, Round: round, Role: "rerun", kind: "rerun", RequiresOutputAttestation: requiresOutputAttestation})
 }
 
 // OnRerun is OnAttempt for a rerun; any other run is not found.
@@ -200,6 +202,12 @@ func (st Standing) RerunSteps() []RerunStep {
 		steps[i].OutputPaths = outputs[steps[i].Key]
 	}
 	return steps
+}
+
+// ReplayOutputName identifies a JSON snapshot from a particular replay step
+// without reusing the shared scratch path where that step wrote it.
+func ReplayOutputName(key, name string) string {
+	return fmt.Sprintf("outputs/.lyk-replay/%x.json", sha256.Sum256([]byte(key+"\x00"+name)))
 }
 
 // ReplayInputs restores published files from the runs that produced cited

@@ -14,6 +14,7 @@ import (
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/service"
 	"lykeion/server/internal/statcheck"
+	"lykeion/server/internal/storage"
 	"lykeion/server/internal/store"
 	db "lykeion/server/pkg/db/generated"
 )
@@ -30,6 +31,48 @@ func TestRerunPreservesFailedStderr(t *testing.T) {
 	if got.ExitStatus != 1 || !strings.HasPrefix(got.Stderr, "FileNotFoundError") || !strings.HasSuffix(got.Stderr, "[stderr truncated]") ||
 		len(got.Stderr) >= 5000 || result.Steps[1].Stderr != "" {
 		t.Fatalf("unexpected stderr capture, %d bytes for failure and %q for success", len(got.Stderr), result.Steps[1].Stderr)
+	}
+}
+
+func TestRerunReproducesEachBoundValueAtTheSamePath(t *testing.T) {
+	const name = "outputs/metrics.json"
+	field, id := "/effect", "effect"
+	blobs := storage.Local{Dir: t.TempDir()}
+	e := Engine{Blobs: blobs}
+	var exp, saved []db.Record
+	var in RerunResult
+	for _, tc := range []struct{ key, number, upload string }{
+		{"x1", "0.12", "outputs/.lyk-replay/04208dc9a15aaf21695f9a0b0efedbb8aafd90600cd62d6321edeef6a377f4bd.json"},
+		{"x2", "0.24", "outputs/.lyk-replay/46301a014331ef58250077a2a0095eb0fa221a44c7f24b63b6e2446a1b5d54aa.json"},
+	} {
+		body, err := json.Marshal(review.ValueBody{Name: tc.key, File: name, Value: tc.number, Field: &field, Measure: &id, Cites: []string{"run:" + tc.key}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp = append(exp, db.Record{Kind: "value", Key: tc.key, Body: body})
+		text := `{"effect":` + tc.number + `}`
+		hash := hashText(text)
+		if err := blobs.Put(t.Context(), tc.upload, strings.NewReader(text), int64(len(text))); err != nil {
+			t.Fatal(err)
+		}
+		meta, err := json.Marshal(service.SavedOutput{Name: tc.upload, Sha256: hash})
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved = append(saved, db.Record{Kind: "rerun_output", Key: "output-" + tc.key, BlobKey: tc.upload, Body: meta})
+		in.Outputs = append(in.Outputs, RerunOutput{Name: tc.upload, TextSHA256: hash})
+		in.Steps = append(in.Steps, RerunStepResult{Key: tc.key, OutputHashes: map[string]string{name: hash}})
+	}
+	measures := map[string]review.Measure{id: {ID: id, Unit: "fraction"}}
+	body, err := e.rerunRecord(t.Context(), exp, saved, in, 0, measures)
+	if err != nil || !body.Reproduced["x1"] || !body.Reproduced["x2"] ||
+		body.BoundValues["x1"] != "0.12" || body.BoundValues["x2"] != "0.24" {
+		t.Fatalf("both per-execution values should reproduce: %+v, %v", body, err)
+	}
+	in.Steps[0].OutputHashes[name] = in.Steps[1].OutputHashes[name]
+	body, err = e.rerunRecord(t.Context(), exp, saved, in, 0, measures)
+	if err != nil || body.Reproduced["x1"] || !body.Reproduced["x2"] {
+		t.Fatalf("an execution must not borrow another execution's output: %+v, %v", body, err)
 	}
 }
 

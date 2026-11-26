@@ -8,6 +8,8 @@ export function composerAvailability(
     runtime_id: string | null;
     cancel_reason?: string | null;
     queue_reason?: string | null;
+    requires_output_attestation?: boolean;
+    waiting?: string;
   }[],
   runtimes: readonly { id: string; status: string }[],
 ): string {
@@ -16,6 +18,8 @@ export function composerAvailability(
   if (runs.some((run) => run.status === 'running' || run.status === 'dispatched')) return '';
   const latest = [...runs].reverse().find((run) => run.status === 'queued') ?? runs.at(-1);
   if (!latest) return '';
+  if (latest.status === 'queued' && latest.requires_output_attestation && latest.waiting)
+    return latest.waiting;
   if (
     latest.status === 'queued' &&
     (latest.queue_reason === 'runtime_offline' ||

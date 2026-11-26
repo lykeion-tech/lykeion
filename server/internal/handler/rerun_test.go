@@ -72,7 +72,7 @@ func (l *rerunLab) enqueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := l.s.H.Store.InWorkspace(t.Context(), uuid.MustParse(l.ws), l.owner, func(tx *store.Tx) error {
-		_, err := l.s.H.AgentRuns.EnqueueRerun(t.Context(), tx, l.owner, l.card, 1)
+		_, err := l.s.H.AgentRuns.EnqueueRerun(t.Context(), tx, l.owner, l.card, 1, false)
 		return err
 	}); err != nil {
 		t.Fatal(err)

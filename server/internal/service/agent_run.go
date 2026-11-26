@@ -175,8 +175,9 @@ type NewAgentRun struct {
 	// the prompt without Lykeion's own framing.
 	Assignment string
 	// ContinuityScope is computed by internal callers before any terminal snapshot.
-	ContinuityScope string `json:"-"`
-	kind            string // empty is a role run
+	ContinuityScope           string `json:"-"`
+	kind                      string // empty is a role run
+	RequiresOutputAttestation bool
 }
 
 type WorkspaceConnectorClaim struct {
@@ -227,11 +228,12 @@ type ReplayInput struct {
 // version, with the study's attachments and saved inputs in place. Saved are the outputs an
 // earlier attempt of the rerun already saved, which are not saved again.
 type ClaimedRerun struct {
-	Steps       []RerunStep         `json:"steps"`
-	Python      string              `json:"python"`
-	Attachments []ClaimedAttachment `json:"attachments"`
-	Inputs      []ReplayInput       `json:"inputs,omitempty"`
-	Saved       []SavedOutput       `json:"saved"`
+	Steps         []RerunStep         `json:"steps"`
+	Python        string              `json:"python"`
+	Attachments   []ClaimedAttachment `json:"attachments"`
+	Inputs        []ReplayInput       `json:"inputs,omitempty"`
+	Saved         []SavedOutput       `json:"saved"`
+	ScopedOutputs bool                `json:"scoped_outputs,omitempty"`
 }
 
 type Claimed struct {
@@ -461,7 +463,7 @@ func (s *AgentRuns) Enqueue(ctx context.Context, tx *store.Tx, owner uuid.UUID, 
 		WorkspaceID: tx.WS, CardID: &n.Card, ResponsibleUserID: owner, BoardColumn: n.Column, Round: n.Round, Role: n.Role,
 		Harness: n.Harness, Prompt: n.Prompt, Skill: n.Skill, MaxAttempts: n.MaxAttempts,
 		ContinuityScope: scope, RequestedModel: n.Model,
-		AgentID: n.Agent, Assignment: n.Assignment, Kind: n.kind,
+		AgentID: n.Agent, Assignment: n.Assignment, Kind: n.kind, RequiresOutputAttestation: n.RequiresOutputAttestation,
 	})
 	if err != nil {
 		return t, err
@@ -854,7 +856,8 @@ func withMemberWork(ctx context.Context, tx *store.Tx, t db.AgentRun) (string, e
 type ClaimOptions struct {
 	CoresearchOnly bool
 
-	GuestIsolation string
+	GuestIsolation    string
+	OutputAttestation string
 }
 
 // Claim fills up to slots agent runs across the caller's runtimes, one run per
@@ -865,6 +868,7 @@ type ClaimOptions struct {
 func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef, slots int, options ...ClaimOptions) ([]Claimed, error) {
 	coresearchOnly := len(options) > 0 && options[0].CoresearchOnly
 	guestIsolation := len(options) > 0 && options[0].GuestIsolation == agent.GuestIsolationProtocol
+	outputAttestation := len(options) > 0 && options[0].OutputAttestation == agent.OutputAttestationProtocol
 	var out []Claimed
 	var refused []db.AgentRun
 	teams := map[uuid.UUID]TeamClaim{}
@@ -941,7 +945,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 					if !coresearchOnly && runtime.MaxConcurrent != nil && active >= int(*runtime.MaxConcurrent) {
 						return nil
 					}
-					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation, CoresearchOnly: coresearchOnly})
+					claim, err := tx.Q.ClaimAgentRun(ctx, db.ClaimAgentRunParams{RuntimeID: &ref.RuntimeID, WorkspaceID: ref.WorkspaceID, GuestIsolation: guestIsolation, CoresearchOnly: coresearchOnly, OutputAttestation: outputAttestation})
 					if errors.Is(err, pgx.ErrNoRows) {
 						return nil
 					}
@@ -1235,7 +1239,7 @@ func (s *AgentRuns) Claim(ctx context.Context, user uuid.UUID, refs []RuntimeRef
 							}
 						}
 						steps := st.RerunSteps()
-						rerun = &ClaimedRerun{Steps: steps, Python: python, Attachments: files, Inputs: st.ReplayInputs(steps), Saved: saved}
+						rerun = &ClaimedRerun{Steps: steps, Python: python, Attachments: files, Inputs: st.ReplayInputs(steps), Saved: saved, ScopedOutputs: outputAttestation}
 						rerunPackages[t.ID] = ref.WorkspaceID.String() + "/" + t.CardID.String() + "/"
 					}
 					if t.Kind == "aristotle" {

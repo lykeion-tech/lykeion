@@ -46,6 +46,7 @@ const card = () => props.cardId ?? '';
 const hypotheses = useKindRecords(card, 'hypothesis', wantsMeasures);
 const review = useCardReview(card, wantsMeasures);
 const outcomes = useKindRecords(card, 'outcome', wantsMeasures);
+const withdrawals = useKindRecords(card, 'withdrawn', wantsMeasures);
 const needsSnapshot = computed(
   () =>
     wantsMeasures.value &&
@@ -60,6 +61,7 @@ const measures = computed(() =>
     review.data.value?.find((c) => c.column === 'hypotheses')?.attempts ?? [],
     outcomes.data.value ?? [],
     snapshots.data.value ?? [],
+    withdrawals.data.value ?? [],
   ),
 );
 

@@ -231,6 +231,55 @@ func TestRerunRestoresSavedInputs(t *testing.T) {
 	}
 }
 
+func TestRerunPreservesEachExecutionsOutputAtTheSamePath(t *testing.T) {
+	const name = "outputs/metrics.json"
+	const first = "{\"effect\":0.12}"
+	const second = "{\"effect\":0.24}"
+	rc := newRerun(t, fakePackages, []service.RerunStep{
+		{Key: "x1", Path: "a.py", Language: envs.Python, OutputPaths: []string{name},
+			Script: "mkdir -p outputs; printf '%s' '" + first + "' > " + name},
+		{Key: "x2", Path: "a.py", Language: envs.Python, OutputPaths: []string{name},
+			Script: "printf '%s' '" + second + "' > " + name},
+	}, nil)
+	must(t, json.Unmarshal([]byte(`{"scoped_outputs":true}`), rc.c.Rerun))
+	rc.run(t)
+	if rc.srv.result == nil {
+		t.Fatalf("no replay result: %v", rc.srv.fail)
+	}
+	var result rerunResult
+	raw, err := json.Marshal(rc.srv.result)
+	must(t, err)
+	must(t, json.Unmarshal(raw, &result))
+	if len(result.Outputs) != 2 || len(result.Steps) != 2 {
+		t.Fatalf("both executions should retain their own output: %+v", result)
+	}
+	for i, content := range []string{first, second} {
+		want := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+		if hashes := result.Steps[i].OutputHashes; hashes == nil || (*hashes)[name] != want {
+			t.Fatalf("missing execution attestation for %q: %+v", content, result.Steps[i])
+		}
+		if !slices.ContainsFunc(result.Outputs, func(out rerunOutput) bool {
+			return out.TextSHA256 == want && rc.srv.outputs[out.Name] == content
+		}) {
+			t.Fatalf("missing saved bytes %q: %v", content, rc.srv.outputs)
+		}
+	}
+}
+
+func TestScriptOutputHashesRejectLinkedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	must(t, os.Mkdir(filepath.Join(dir, "outputs"), 0o700))
+	must(t, os.Mkdir(filepath.Join(dir, "private"), 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "private", "metric.json"), []byte("12"), 0o600))
+	must(t, os.Symlink("../private", filepath.Join(dir, "outputs", "link")))
+	root, err := os.OpenRoot(dir)
+	must(t, err)
+	defer root.Close()
+	if hashes := scriptOutputHashes(root, []string{"outputs/link/metric.json"}); len(hashes) != 0 {
+		t.Fatalf("a linked directory redirected an output snapshot: %v", hashes)
+	}
+}
+
 func TestRerunRejectsChangedSavedInput(t *testing.T) {
 	rc := newRerun(t, fakePackages, []service.RerunStep{{
 		Key: "x1", Path: "score.py", Language: envs.Python,

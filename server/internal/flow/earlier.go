@@ -10,6 +10,7 @@ import (
 
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
+	"lykeion/server/internal/handin"
 	"lykeion/server/internal/records"
 	"lykeion/server/internal/review"
 	"lykeion/server/internal/store"
@@ -47,7 +48,13 @@ func earlierWork(ctx context.Context, tx *store.Tx, c db.Card) (string, error) {
 	}
 	var lines []string
 	for k, col := range board.Stages[i:j] {
-		if ls := handedIn(cols[k], standing(cols[k]), grounding); len(ls) > 0 {
+		var items []db.Record
+		if col == board.Hypotheses {
+			items = handin.StandingHypotheses(cols[k])
+		} else {
+			items = standing(cols[k])
+		}
+		if ls := handedIn(cols[k], items, grounding); len(ls) > 0 {
 			lines = append(lines, title(col)+":")
 			lines = append(lines, ls...)
 		}

@@ -418,7 +418,7 @@ it('shows Validation statuses with the objections upheld against them', async ()
         {
           hypothesis: 'Seedlings grow taller',
           status: 'caveated',
-          reasons: ['Small sample', 'Second reason'],
+          reasons: ['Small sample', 'The reported outcome disagrees with the comparison'],
           cites: ['r9'],
         },
       ],
@@ -437,7 +437,7 @@ it('shows Validation statuses with the objections upheld against them', async ()
   expect(textOf(row!)).toContain('caveated');
   expect(textOf(row!)).toContain('Small sample');
   expect(textOf(row!)).toContain('wrong test: p');
-  expect(textOf(row!)).not.toContain('Second reason');
+  expect(textOf(row!)).toContain('The reported outcome disagrees with the comparison');
   expect(textOf(row!)).not.toContain('dropped objection');
   expect(textOf(row!)).not.toContain('unrelated objection');
   expect(textOf(root)).toContain('Sent back to Experimentation once');

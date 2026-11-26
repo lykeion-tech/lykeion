@@ -120,7 +120,7 @@ func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testP
 				s += ": " + v.RerunNote
 			}
 			bad = append(bad, s)
-		case h.Prediction.Shape == "direction" && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
+		case (h.Prediction.Shape == "direction" || h.Prediction.Shape == "range") && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
 			bad = append(bad, fmt.Sprintf("the %s %q is bound to a different hypothesis measure", role, names[role]))
 		case !v.Number && h.Prediction.Shape != "outcomes":
 			bad = append(bad, fmt.Sprintf("the %s %q is %q, which is not a number", role, names[role], strings.TrimSpace(v.Text)))
@@ -164,10 +164,21 @@ func byShape(h HypothesisBody, a Assessment, m map[string]Measured) (string, []s
 		if p.Low == nil || p.High == nil {
 			return Inconclusive, []string{"the predicted range has no bounds"}
 		}
-		if meas >= *p.Low && meas <= *p.High {
-			return Supported, []string{fmt.Sprintf("measured %g is inside the predicted range %g–%g", meas, *p.Low, *p.High)}
+		inside, shown := meas >= *p.Low && meas <= *p.High, fmt.Sprint(meas)
+		if measurement := m[a.Measurement]; measurement.Bound {
+			value, ok := new(big.Rat).SetString(measurement.BoundValue)
+			// The registered bounds use float64. Compare their shortest decimal forms to the replayed decimal.
+			low, lowOK := new(big.Rat).SetString(fmt.Sprint(*p.Low))
+			high, highOK := new(big.Rat).SetString(fmt.Sprint(*p.High))
+			if !ok || !lowOK || !highOK {
+				return Invalid, []string{"the bound measurement or its predicted range could not be read as a number"}
+			}
+			inside, shown = value.Cmp(low) >= 0 && value.Cmp(high) <= 0, measurement.BoundValue
 		}
-		return Refuted, []string{fmt.Sprintf("measured %g is outside the predicted range %g–%g", meas, *p.Low, *p.High)}
+		if inside {
+			return Supported, []string{fmt.Sprintf("measured %s is inside the predicted range %g–%g", shown, *p.Low, *p.High)}
+		}
+		return Refuted, []string{fmt.Sprintf("measured %s is outside the predicted range %g–%g", shown, *p.Low, *p.High)}
 	case "outcomes":
 		if h.Comparison != nil {
 			return byNumericOutcome(h, a, m)

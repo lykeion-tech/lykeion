@@ -218,6 +218,9 @@ func TestGuestIsolationCapabilityRequest(t *testing.T) {
 				fmt.Fprint(w, `{"cells":[],"runs":[],"setups":[],"controls":[]}`)
 				return
 			}
+			if got := r.URL.Query().Get("output_attestation"); got != agent.OutputAttestationProtocol {
+				t.Errorf("output attestation protocol = %q, want %q", got, agent.OutputAttestationProtocol)
+			}
 			calls++
 			var body map[string]any
 			must(t, json.NewDecoder(r.Body).Decode(&body))

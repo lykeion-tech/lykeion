@@ -177,7 +177,11 @@ func (e *Engine) startRerun(ctx context.Context, tx *store.Tx, c db.Card) error 
 				}
 			}
 		}
-		run, err := e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round)
+		requiresOutputAttestation, err := frozenComparisonRequiresAttestation(ctx, tx, c.ID)
+		if err != nil {
+			return err
+		}
+		run, err := e.AgentRuns.EnqueueRerun(ctx, tx, c.OwnerID, c.ID, c.Round, requiresOutputAttestation)
 		if err != nil {
 			return err
 		}
@@ -479,6 +483,18 @@ func reproduce(recs []db.Record, steps map[string]RerunStepResult, files map[str
 	return ok, notes, bound
 }
 
+// replayedOutput accepts the saved bytes only when the execution attested them.
+func replayedOutput(files map[string]string, key, name, hash string) (string, bool) {
+	if hash == "" {
+		return "", false
+	}
+	text, ok := files[service.ReplayOutputName(key, name)]
+	if !ok {
+		text, ok = files[name] // Older daemons saved the final file at its original path.
+	}
+	return text, ok && hashText(text) == hash
+}
+
 // reproduced checks one value. When it was not reproduced, the note names
 // the number the rerun printed nearest to it. ponytail: nearest, not the
 // number at the value's place in the original output; match by position if
@@ -491,17 +507,19 @@ func reproduced(v valueRecord, steps map[string]RerunStepResult, files map[strin
 	if len(v.Cites) == 0 {
 		return false, noScriptNote
 	}
-	step, ok := steps[strings.TrimPrefix(v.Cites[0], "run:")]
+	key := strings.TrimPrefix(v.Cites[0], "run:")
+	step, ok := steps[key]
 	if !ok {
 		return false, noScriptNote
 	}
 	if step.ExitStatus != 0 {
 		return false, fmt.Sprintf("rerun exited with status %d before reproducing %s", step.ExitStatus, v.Value)
 	}
-	if text, found := files[v.File]; found && !v.ScriptRun {
-		sum := sha256.Sum256([]byte(text))
-		// Older daemons can identify a file's producer only when one step ran.
-		if step.OutputHashes[v.File] == hex.EncodeToString(sum[:]) || step.OutputHashes == nil && len(steps) == 1 {
+	if !v.ScriptRun {
+		if text, found := replayedOutput(files, key, v.File, step.OutputHashes[v.File]); found {
+			texts = append(texts, text)
+		} else if text, found := files[v.File]; found && step.OutputHashes == nil && len(steps) == 1 {
+			// Daemons without hashes can identify a producer only when one step ran.
 			texts = append(texts, text)
 		}
 	}

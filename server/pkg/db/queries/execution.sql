@@ -42,8 +42,8 @@ WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 DELETE FROM runtime WHERE id = @id AND workspace_id = @workspace_id AND owner_id = @owner_id;
 
 -- name: EnqueueAgentRun :one
-INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment, kind)
-VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @requested_model, sqlc.narg(agent_id), @assignment, COALESCE(NULLIF(@kind::text, ''), 'role'))
+INSERT INTO agent_run (workspace_id, card_id, responsible_user_id, board_column, round, role, harness, prompt, skill, max_attempts, continuity_scope, requested_model, agent_id, assignment, kind, requires_output_attestation)
+VALUES (@workspace_id, @card_id, @responsible_user_id, @board_column, @round, @role, @harness, @prompt, @skill, @max_attempts, @continuity_scope, @requested_model, sqlc.narg(agent_id), @assignment, COALESCE(NULLIF(@kind::text, ''), 'role'), @requires_output_attestation)
 RETURNING *;
 
 -- name: ClaimAgentRun :one
@@ -57,6 +57,7 @@ WHERE id = (
   LEFT JOIN coresearch_project cp ON cp.id=cc.project_id AND cp.workspace_id=t.workspace_id
   LEFT JOIN agent_run_laboratory(t.workspace_id, t.id) la ON true
   WHERE t.workspace_id = @workspace_id AND t.status = 'queued'
+    AND (NOT t.requires_output_attestation OR @output_attestation::boolean)
  AND ((@coresearch_only::boolean AND t.kind='coresearch') OR (NOT @coresearch_only::boolean AND t.kind IN ('role','autoresearch','rerun','aristotle','report')))
     -- a rerun runs no agent CLI, so any of the machine's runtimes may take it
     AND (t.harness = r.harness OR t.kind = 'rerun') AND (t.kind NOT IN ('role', 'autoresearch', 'coresearch') OR t.harness NOT IN ('cursor', 'antigravity')) AND r.status = 'online' AND r.unhealthy_reason IS NULL

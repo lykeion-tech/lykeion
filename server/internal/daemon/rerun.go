@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,6 +27,7 @@ import (
 
 	"lykeion/server/internal/apiclient"
 	"lykeion/server/internal/daemon/envs"
+	"lykeion/server/internal/records"
 	"lykeion/server/internal/service"
 	"lykeion/server/pkg/agent"
 )
@@ -277,6 +279,23 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		}
 		return nil
 	}
+	// An earlier attempt's outputs are kept as it saved them.
+	for _, o := range c.Rerun.Saved {
+		saved[o.Name], sums[o.Name] = true, o.Sha256
+	}
+	scoped := c.Rerun.ScopedOutputs
+	// Pass only attested JSON files through the scoped upload. The final scan
+	// still saves other outputs by their ordinary paths.
+	if scoped {
+		for _, s := range c.Rerun.Steps {
+			for _, name := range s.OutputPaths {
+				if records.ValidScriptOutputPath(name) {
+					saved[name] = true
+				}
+			}
+		}
+	}
+	outputsFull := false
 	// ponytail: each step gets an even share of the body limit, cut from its
 	// tail; share by need if one step's output crowds out the others.
 	share := maxRunBody / max(len(c.Rerun.Steps), 1)
@@ -303,15 +322,41 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		fitBody(body, share)
 		step := rerunStep{Key: s.Key, ExitStatus: status, Output: body["output"].(string), Error: body["error"].(string)}
 		if status == 0 && len(s.OutputPaths) > 0 {
-			hashes := scriptOutputHashes(root, s.OutputPaths)
-			maps.DeleteFunc(hashes, func(name, hash string) bool { return before[name] == hash })
+			hashes := map[string]string{}
+			for _, name := range s.OutputPaths {
+				if !scoped || !records.ValidScriptOutputPath(name) {
+					if hash := scriptOutputHash(root, name, nil); hash != "" && before[name] != hash {
+						hashes[name] = hash
+					}
+					continue
+				}
+				upload := service.ReplayOutputName(s.Key, name)
+				var data bytes.Buffer
+				hash := scriptOutputHash(root, name, &data)
+				if hash != "" && before[name] != hash && !saved[upload] && !outputsFull {
+					sum, err := saveReplayOutput(runCtx, role, upload, &data)
+					if err != nil {
+						fail(err)
+						if retryableControlLoss(err) {
+							r.FailureReason = agent.ReasonRuntimeOffline
+						}
+						return nil
+					}
+					outputsFull = sum == ""
+					if sum == hash {
+						sums[upload] = sum
+					}
+				}
+				// A retry can use a previously saved snapshot only when its
+				// bytes agree with what this execution wrote.
+				saved[upload] = true
+				if hash != "" && before[name] != hash && sums[upload] == hash {
+					hashes[name] = hash
+				}
+			}
 			step.OutputHashes = &hashes
 		}
 		result.Steps = append(result.Steps, step)
-	}
-	// An earlier attempt's outputs are kept as it saved them.
-	for _, o := range c.Rerun.Saved {
-		saved[o.Name], sums[o.Name] = true, o.Sha256
 	}
 	// A file the server's limits refuse is left out: a value only it held is
 	// not reproduced.
@@ -327,11 +372,26 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 	}
 	for i := range result.Steps {
 		if hashes := result.Steps[i].OutputHashes; hashes != nil {
-			maps.DeleteFunc(*hashes, func(name, hash string) bool { return sums[name] != hash })
+			maps.DeleteFunc(*hashes, func(name, hash string) bool {
+				if scoped && records.ValidScriptOutputPath(name) {
+					name = service.ReplayOutputName(result.Steps[i].Key, name)
+				}
+				return sums[name] != hash
+			})
 		}
 	}
 	settle("")
 	return nil
+}
+
+func saveReplayOutput(ctx context.Context, role *apiclient.Client, name string, data io.Reader) (string, error) {
+	var took struct{ Sha256 string }
+	err := role.Upload(ctx, "/api/role/outputs", map[string]string{"path": name}, "file", path.Base(name), data, &took)
+	var refusal *apiclient.HTTPError
+	if errors.As(err, &refusal) && (refusal.Status == http.StatusBadRequest || refusal.Status == http.StatusRequestEntityTooLarge) {
+		return "", nil
+	}
+	return took.Sha256, err
 }
 
 func restoreReplayInputs(ctx context.Context, role *apiclient.Client, root *os.Root, inputs []service.ReplayInput, saved map[string]bool) error {
@@ -369,33 +429,68 @@ func restoreReplayInputs(ctx context.Context, role *apiclient.Client, root *os.R
 
 // scriptOutputHashes snapshots bounded regular output files for an execution.
 func scriptOutputHashes(root *os.Root, paths []string) map[string]string {
-	const maxEvidenceBytes = 8 << 20
 	hashes := make(map[string]string, len(paths))
 	for _, name := range paths {
-		if !strings.HasPrefix(name, "outputs/") || !fs.ValidPath(name) {
-			continue
-		}
-		info, err := root.Lstat(name)
-		if err != nil || !info.Mode().IsRegular() || info.Size() > maxEvidenceBytes || linkCount(info) > 1 {
-			continue
-		}
-		f, err := root.Open(name)
-		if err != nil {
-			continue
-		}
-		now, err := f.Stat()
-		if err != nil || !os.SameFile(now, info) {
-			f.Close()
-			continue
-		}
-		hash := sha256.New()
-		n, err := io.Copy(hash, io.LimitReader(f, maxEvidenceBytes+1))
-		f.Close()
-		if err == nil && n <= maxEvidenceBytes {
-			hashes[name] = hex.EncodeToString(hash.Sum(nil))
+		if hash := scriptOutputHash(root, name, nil); hash != "" {
+			hashes[name] = hash
 		}
 	}
 	return hashes
+}
+
+func scriptOutputHash(root *os.Root, name string, copyTo io.Writer) string {
+	const maxEvidenceBytes = 8 << 20
+	if !strings.HasPrefix(name, "outputs/") || !fs.ValidPath(name) || strings.ContainsAny(name, "\\\x00") {
+		return ""
+	}
+	// Anchor each directory before opening the next so symlinks cannot
+	// redirect a snapshot to another part of the run folder.
+	var dir *os.Root
+	defer func() {
+		if dir != nil {
+			dir.Close()
+		}
+	}()
+	for part := range strings.SplitSeq(path.Dir(name), "/") {
+		info, err := root.Lstat(part)
+		if err != nil || !info.IsDir() {
+			return ""
+		}
+		next, err := root.OpenRoot(part)
+		if err != nil {
+			return ""
+		}
+		if dir != nil {
+			dir.Close()
+		}
+		dir, root = next, next
+		if opened, err := root.Stat("."); err != nil || !os.SameFile(info, opened) {
+			return ""
+		}
+	}
+	base := path.Base(name)
+	info, err := root.Lstat(base)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxEvidenceBytes || linkCount(info) > 1 {
+		return ""
+	}
+	f, err := root.Open(base)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if now, err := f.Stat(); err != nil || !os.SameFile(now, info) || linkCount(now) > 1 {
+		return ""
+	}
+	hash := sha256.New()
+	var writer io.Writer = hash
+	if copyTo != nil {
+		writer = io.MultiWriter(hash, copyTo)
+	}
+	n, err := io.Copy(writer, io.LimitReader(f, maxEvidenceBytes+1))
+	if err != nil || n > maxEvidenceBytes {
+		return ""
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // protectedStep refuses a script path the rerun keeps for itself: its

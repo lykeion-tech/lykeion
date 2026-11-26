@@ -483,7 +483,7 @@ func (d *daemon) claimTurns(ctx context.Context, currentRefs []runtimeRef, free 
 		if runtime.GOOS == "linux" {
 			body["guest_isolation"] = agent.GuestIsolationProtocol
 		}
-		if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/claim", body, &got); err != nil {
+		if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/claim?output_attestation="+agent.OutputAttestationProtocol, body, &got); err != nil {
 			slog.Warn("claim failed", "err", err)
 			var he *apiclient.HTTPError
 			if errors.As(err, &he) && he.Status == 404 {

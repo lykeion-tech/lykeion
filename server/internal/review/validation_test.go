@@ -91,6 +91,25 @@ func TestStatusesRange(t *testing.T) {
 	}
 }
 
+func TestStatusesBoundRangeUsesVerifiedMeasureAndExactValue(t *testing.T) {
+	h := HypothesisBody{Text: "h", Prediction: Prediction{Shape: "range", Low: fp(0.1), High: fp(0.12)}, Control: Control{Text: "c"}, Measure: &Measure{ID: "accuracy"}}
+	for _, tt := range []struct{ name, value, measure, want, detail string }{
+		{"inclusive bound", "0.1200", "accuracy", Supported, "0.1200"},
+		{"outside before rounding", "0.124", "accuracy", Refuted, "0.124"},
+		{"outside at higher precision", "0.12000000000000000001", "accuracy", Refuted, "0.12000000000000000001"},
+		{"different hypothesis measure", "0.11", "recall", Invalid, "different hypothesis measure"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v := good(0.12)
+			v.Bound, v.BoundValue, v.MeasureID = true, tt.value, tt.measure
+			got := run(t, h, &Assessment{Hypothesis: h.Text, Measurement: "m"}, map[string]Measured{"m": v})
+			if got.Status != tt.want || !strings.Contains(got.Reasons[0], tt.detail) {
+				t.Fatalf("expected %s with %q, got %+v", tt.want, tt.detail, got)
+			}
+		})
+	}
+}
+
 func TestStatusesDirection(t *testing.T) {
 	cases := []struct {
 		dir  string

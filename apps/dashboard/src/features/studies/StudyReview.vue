@@ -295,7 +295,7 @@ const validationStatuses = computed(() =>
   (validation.value?.statuses ?? []).map((status) => ({
     hypothesis: String(status.hypothesis ?? '').slice(0, 80),
     status: String(status.status ?? ''),
-    reason: Array.isArray(status.reasons) ? String(status.reasons[0] ?? '') : '',
+    reasons: Array.isArray(status.reasons) ? status.reasons : [],
     objections: upheldObjections.value
       .filter((objection) => citesObjection(status, objection))
       .map(objectionText),
@@ -559,7 +559,7 @@ const unlinkedObjections = computed(() =>
               <div>
                 <b>{{ status.hypothesis }}</b> <span class="review-tag">{{ status.status }}</span>
               </div>
-              <p>{{ status.reason }}</p>
+              <p v-for="(reason, j) in status.reasons" :key="j">{{ reason }}</p>
               <p v-for="(objection, j) in status.objections" :key="j" class="validation-objection">
                 {{ objection }}
               </p>

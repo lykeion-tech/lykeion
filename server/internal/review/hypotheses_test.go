@@ -49,6 +49,40 @@ func TestHypothesesQuestions(t *testing.T) {
 	}
 }
 
+func TestHypothesesChecksFrozenComparisonAgainstPrediction(t *testing.T) {
+	for _, tt := range []struct{ name, comparison, baseline string }{
+		{"threshold", `{"threshold":0.50,"less":"above","equal":"equal","greater":"below"}`, "0.50"},
+		{"control", `{"control":"baseline accuracy","less":"above","equal":"equal","greater":"below"}`, "baseline accuracy"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &fakeAsker{p: func(_, k string) float64 {
+				if k == "comparison" || k == "lookup" {
+					return 0.1
+				}
+				return 0.9
+			}}
+			h := numericOutcomeHypothesis(t, tt.comparison)
+			r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q",
+				Items: []db.Record{rec(t, "h1", KindHypothesis, h)}, Cited: citedPaper(t, "r1")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := a.noul[0]
+			for _, fragment := range []string{h.Text, "accuracy", "fraction", tt.baseline, `less: "above"`, `equal: "equal"`, `greater: "below"`} {
+				if !strings.Contains(call.State, fragment) {
+					t.Errorf("Jev state missing %q: %s", fragment, call.State)
+				}
+			}
+			if !strings.Contains(call.Questions["comparison"], "agree with the written prediction") {
+				t.Errorf("comparison question: %v", call.Questions)
+			}
+			if got := checkOf(r.Items[0], "comparison"); got == nil || got.Status != Fail || Decide(r, 0) != DecideRedo {
+				t.Fatalf("contradicted comparison must fail review: %+v", r.Items[0])
+			}
+		})
+	}
+}
+
 func TestLookupIsInverted(t *testing.T) {
 	a := &fakeAsker{} // answers 0.9 to everything, lookup included
 	r, err := Hypotheses(context.Background(), a, HypothesesInput{Question: "q",

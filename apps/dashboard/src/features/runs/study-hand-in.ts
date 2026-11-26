@@ -85,17 +85,18 @@ export function memberResult(tool: string, output: string) {
   }
 }
 
-// Match accepted review items to the live declarations, including approvals
+// Match accepted review items to their exact live declarations, including approvals
 // whose deterministic checks were stored in a decision snapshot.
 export function acceptedMeasures(
   hypotheses: StudyRecord[],
   reviews: ReviewAttempt[],
   outcomes: StudyRecord[],
   snapshots: StudyRecord[],
+  withdrawals: StudyRecord[],
 ): Map<string, HypothesisMeasure> {
   const outcome = [...outcomes]
     .reverse()
-    .find((r) => r.board_column === 'hypotheses' && r.role === 'server');
+    .find((r) => r.board_column === 'hypotheses' && r.role === 'server' && !r.superseded_at);
   if (!outcome) return new Map();
   const verdict = outcome.body.verdict;
   let items: unknown;
@@ -110,6 +111,7 @@ export function acceptedMeasures(
         (r) =>
           r.board_column === 'hypotheses' &&
           r.role === 'server' &&
+          !r.superseded_at &&
           r.round === outcome.round &&
           r.body.complete === true &&
           r.body.approval_decision === outcome.body.decision_id,
@@ -122,20 +124,20 @@ export function acceptedMeasures(
       const item = objectFields(value);
       return item?.kind === 'hypothesis' &&
         typeof item.key === 'string' &&
+        item.key.length > 0 &&
         (item.status === 'pass' || item.status === 'unclear')
         ? [item.key]
         : [];
     }),
   );
+  for (const r of withdrawals) {
+    if (r.board_column === 'hypotheses' && !r.superseded_at && typeof r.body.item === 'string')
+      kept.delete(r.body.item);
+  }
   const measures = new Map<string, HypothesisMeasure>();
   const conflicts = new Set<string>();
-  const seen = new Set<string>();
-  for (const r of [...hypotheses].reverse()) {
-    if (r.board_column !== 'hypotheses' || r.superseded_at || typeof r.body.text !== 'string')
-      continue;
-    const identity = r.body.text.trim().replace(/\s+/g, ' ').toLowerCase();
-    if (seen.has(identity)) continue;
-    seen.add(identity);
+  for (const r of hypotheses) {
+    if (r.board_column !== 'hypotheses' || r.superseded_at) continue;
     if ((r.role !== 'agent' && r.role !== 'leader') || !kept.has(r.key)) continue;
     const measure = readMeasure(r.body.measure);
     if (!measure) continue;

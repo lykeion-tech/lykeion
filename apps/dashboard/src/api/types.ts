@@ -396,6 +396,7 @@ export interface AgentRun {
   // "Waiting for <machine>: <why>" while the run waits on a machine its owner
   // must fix; '' otherwise. GET /api/cards/:id/runs only.
   waiting?: string;
+  requires_output_attestation?: boolean;
 }
 
 export interface AttemptEnd {
