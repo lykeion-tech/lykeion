@@ -189,6 +189,14 @@ func hypothesisLine(b review.HypothesisBody, ids []string) string {
 		fmt.Fprintf(&s, " Predicts: %s.", strings.ReplaceAll(p.Direction, "_", " "))
 	case "outcomes":
 		fmt.Fprintf(&s, " Predicts %s, of %s.", p.Chosen, strings.Join(p.Outcomes, ", "))
+		if c := b.Comparison; c != nil {
+			if c.Threshold != nil {
+				fmt.Fprintf(&s, " Compare with frozen threshold %s.", c.Threshold)
+			} else if c.Control != nil {
+				fmt.Fprintf(&s, " Compare with bound control value %q.", *c.Control)
+			}
+			fmt.Fprintf(&s, " Outcome labels: less %q, equal %q, greater %q.", c.Less, c.Equal, c.Greater)
+		}
 	case "range":
 		if p.Low != nil && p.High != nil {
 			fmt.Fprintf(&s, " Predicts %s to %s (%s).", strconv.FormatFloat(*p.Low, 'g', -1, 64), strconv.FormatFloat(*p.High, 'g', -1, 64), p.Uncertainty)

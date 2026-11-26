@@ -354,7 +354,9 @@ A completed hand-in is not sufficient evidence that a stage passed. A study move
 
 For a directional hypothesis such as “the filter reduces mean error,” plan a statistical test before Experimentation and have the experiment script record the test statistic and p-value. Validation can reproduce a directional result and still mark it inconclusive when the test is missing.
 
-For a deterministic check, specify a named outcome or numeric range in Hypotheses and have the script record the result. Validation checks that the recorded result reproduces and matches the prediction.
+For a deterministic check, specify a named outcome or numeric range in Hypotheses and have the script record the result. Validation checks the replayed result against the prediction.
+
+For outcome labels defined by a numeric comparison, declare a threshold in the measure's unit or name the planned control value, and map less, equal and greater to the registered labels. Validation derives the outcome from the replayed bound measurement and this frozen comparison. A reported label that disagrees makes the assessment invalid. For named outcomes without a numeric comparison, Validation uses the reproduced label.
 
 For a numeric hypothesis, declare a measure with an ID, a name and a unit. Save the number in a JSON output from the experiment script, then cite that script execution and the exact JSON field in the hand-in. The server checks the binding without TypeSafe. Review labels values without a binding as unbound and still checks their existing execution evidence.
 

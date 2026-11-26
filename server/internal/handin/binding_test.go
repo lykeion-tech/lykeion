@@ -114,3 +114,43 @@ func TestBindingSchemaIsStrictAndNullable(t *testing.T) {
 		}
 	}
 }
+
+func TestOutcomeComparisonRoundTrip(t *testing.T) {
+	const hypothesis = `{"text":"Treatment improves accuracy","prediction_shape":"outcomes","outcomes":["higher","no gain"],"chosen":"higher","control":"baseline","cites":["doi:10.1001/a"],"measure":{"id":"accuracy","name":"Accuracy","unit":"fraction"}`
+	const comparison = `"comparison":{"threshold":0.50000000000000000001,"control":null,"less":"no gain","equal":"no gain","greater":"higher"}`
+	wrap := func(h string) string {
+		return `{"status":"done","answer":"A testable prediction.","hypotheses":[` + h + `}]}`
+	}
+	raw := wrap(hypothesis + "," + comparison)
+	h := parsed(t, Hypotheses, raw)
+	recs, probs := Convert(Hypotheses, true, h, studyEvidence(), Review{})
+	if len(probs) != 0 || !slices.Equal(kinds(recs), []string{"hypothesis", "summary"}) {
+		t.Fatalf("records %v, problems %v", kinds(recs), probs)
+	}
+	var stored struct {
+		Comparison struct {
+			Threshold json.Number `json:"threshold"`
+			Equal     string      `json:"equal"`
+		} `json:"comparison"`
+	}
+	encoded, err := json.Marshal(recs[0].Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &stored); err != nil || stored.Comparison.Threshold != "0.50000000000000000001" || stored.Comparison.Equal != "no gain" {
+		t.Fatalf("frozen comparison changed during conversion: %+v (%v)", stored, err)
+	}
+	for _, tc := range []struct{ before, after, want string }{
+		{`"control":null`, `"control":"baseline value"`, "exactly one of threshold or control"},
+		{`0.50000000000000000001`, `1e99999999`, "finite decimal number"},
+		{`"equal":"no gain"`, `"equal":"unknown"`, "registered outcomes"},
+		{`"prediction_shape":"outcomes"`, `"prediction_shape":"direction","direction":"increase"`, "needs an outcomes prediction"},
+	} {
+		_, probs := Parse(Hypotheses, []byte(strings.Replace(raw, tc.before, tc.after, 1)))
+		if !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+			t.Fatalf("problems %q, want %q", probs, tc.want)
+		}
+	}
+	parsed(t, Hypotheses, wrap(hypothesis))
+	parsed(t, Hypotheses, wrap(hypothesis+`,"comparison":null`))
+}

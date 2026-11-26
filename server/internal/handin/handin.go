@@ -93,18 +93,19 @@ type NoQualifying struct {
 	Reason string `json:"reason"`
 }
 type Hypothesis struct {
-	Text            string          `json:"text"`
-	PredictionShape string          `json:"prediction_shape"`
-	Direction       *string         `json:"direction"`
-	Outcomes        []string        `json:"outcomes"`
-	Chosen          *string         `json:"chosen"`
-	Low             *float64        `json:"low"`
-	High            *float64        `json:"high"`
-	Uncertainty     *string         `json:"uncertainty"`
-	Control         *string         `json:"control"`
-	NoControl       *string         `json:"no_control"` // the reason there is no control
-	Cites           []string        `json:"cites"`
-	Measure         *review.Measure `json:"measure,omitempty"`
+	Text            string                    `json:"text"`
+	PredictionShape string                    `json:"prediction_shape"`
+	Direction       *string                   `json:"direction"`
+	Outcomes        []string                  `json:"outcomes"`
+	Chosen          *string                   `json:"chosen"`
+	Low             *float64                  `json:"low"`
+	High            *float64                  `json:"high"`
+	Uncertainty     *string                   `json:"uncertainty"`
+	Control         *string                   `json:"control"`
+	NoControl       *string                   `json:"no_control"` // the reason there is no control
+	Cites           []string                  `json:"cites"`
+	Measure         *review.Measure           `json:"measure,omitempty"`
+	Comparison      *review.OutcomeComparison `json:"comparison,omitempty"`
 }
 type Value struct {
 	Name    string  `json:"name"`
@@ -358,7 +359,7 @@ func (h Hypothesis) Body(cites []string) review.HypothesisBody {
 		p.Outcomes = nil
 	}
 	c := review.Control{Text: deref(h.Control), None: deref(h.NoControl)}
-	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites, Measure: h.Measure}
+	return review.HypothesisBody{Text: h.Text, Prediction: p, Control: c, Cites: cites, Measure: h.Measure, Comparison: h.Comparison}
 }
 
 func deref(s *string) string {

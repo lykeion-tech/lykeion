@@ -169,6 +169,9 @@ func byShape(h HypothesisBody, a Assessment, m map[string]Measured) (string, []s
 		}
 		return Refuted, []string{fmt.Sprintf("measured %g is outside the predicted range %g–%g", meas, *p.Low, *p.High)}
 	case "outcomes":
+		if h.Comparison != nil {
+			return byNumericOutcome(h, a, m)
+		}
 		// The outcome is a recorded value the rerun reproduced, never the
 		// lead's own words.
 		if a.Observed == nil {

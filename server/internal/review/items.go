@@ -64,11 +64,12 @@ type Measure struct {
 }
 
 type HypothesisBody struct {
-	Text       string     `json:"text"`
-	Prediction Prediction `json:"prediction"`
-	Control    Control    `json:"control"`
-	Cites      []string   `json:"cites"` // at least one
-	Measure    *Measure   `json:"measure,omitempty"`
+	Text       string             `json:"text"`
+	Prediction Prediction         `json:"prediction"`
+	Control    Control            `json:"control"`
+	Cites      []string           `json:"cites"` // at least one
+	Measure    *Measure           `json:"measure,omitempty"`
+	Comparison *OutcomeComparison `json:"comparison,omitempty"`
 }
 type OutputsBody struct {
 	Files []string `json:"files"` // names of the study's saved output files
@@ -179,7 +180,7 @@ func Validate(kind, column string, body []byte) error {
 		var b HypothesisBody
 		if msg = decode(dec, &b); msg == "" {
 			msg = all(text(b.Text), prediction(b.Prediction), control(b.Control),
-				check(len(b.Cites) >= 1, "a hypothesis cites at least one record"), measureProblem(b.Measure))
+				check(len(b.Cites) >= 1, "a hypothesis cites at least one record"), measureProblem(b.Measure), comparisonProblem(b))
 		}
 	case KindOutputs:
 		var b OutputsBody
