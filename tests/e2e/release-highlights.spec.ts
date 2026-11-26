@@ -37,13 +37,15 @@ for (const { renderer, previous } of [
     expect(bounds.x + bounds.width / 2).toBeCloseTo(viewport.width / 2, 0);
     expect(bounds.y + bounds.height / 2).toBeCloseTo(viewport.height / 2, 0);
 
-    await expect(dialog.getByRole('heading', { name: 'Turn a Coresearch chat into a study' })).toBeVisible();
-    await dialog.getByRole('button', { name: 'Next' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Create and organize To-dos' })).toBeVisible();
-    await dialog.getByRole('button', { name: 'Next' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Filter chats in a project' })).toBeVisible();
-    await dialog.getByRole('button', { name: 'Next' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Find public sources with web search' })).toBeVisible();
+    const titles = [
+      'Trace a measurement to its exact field',
+      'Check outcomes against a frozen comparison',
+      'Preserve each replay’s measurements',
+    ];
+    for (const [index, title] of titles.entries()) {
+      await expect(dialog.getByRole('heading', { name: title })).toBeVisible();
+      if (index < titles.length - 1) await dialog.getByRole('button', { name: 'Next' }).click();
+    }
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toBeHidden();
     expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(version);
