@@ -36,7 +36,8 @@ const (
 	runCodeDescription = "Run code in a live session (language: python, r or julia) that keeps its variables between calls, in this study's environment. " +
 		"For exploring; a reported result must come from run_script. " +
 		"Pass restart: true to restart the session first, clearing its variables; with no code, only the restart happens."
-	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment. List JSON result paths in outputs to bind values to this execution."
+	runScriptDescription = "Run a saved script (.py, .R or .jl, a path inside your working folder) from start to finish in a fresh process, in this study's environment."
+	runScriptAttestation = " List JSON result paths in outputs to bind values to this execution."
 	// runCodeCite and runScriptCite tell a run that cites by hand how.
 	runCodeCite   = " The answer starts with run:<key>, which you may cite as run:<key>."
 	runScriptCite = " Cite the result's numbers as run:<key>, the first line of the answer."
@@ -70,6 +71,10 @@ const installNote = "If the new package doesn't load, restart the session with r
 // installs finds a package install in a cell, written as a command or as a
 // list of arguments such as ["pip", "install", ...].
 var installs = regexp.MustCompile(`(?i)pip3?\s+install|%pip|!pip|install\.packages\(|BiocManager::install\(|Pkg\.add\(|pip3?['"]\s*,\s*['"]install`)
+
+type runScriptLegacyIn struct {
+	Path string `json:"path" jsonschema:"the script's path, relative to your working folder"`
+}
 
 type runScriptIn struct {
 	Path    string   `json:"path" jsonschema:"the script's path, relative to your working folder"`
@@ -520,7 +525,14 @@ func (d *Door) liveSessions(ctx context.Context) (*kernels.Sessions, error) {
 	return s, nil
 }
 
+func (d *Door) runScriptLegacy(ctx context.Context, req *mcp.CallToolRequest, in runScriptLegacyIn) (*mcp.CallToolResult, any, error) {
+	return d.runScript(ctx, req, runScriptIn{Path: in.Path})
+}
+
 func (d *Door) runScript(ctx context.Context, _ *mcp.CallToolRequest, in runScriptIn) (*mcp.CallToolResult, any, error) {
+	if !d.OutputAttestation {
+		in.Outputs = nil
+	}
 	if len(in.Outputs) > records.MaxScriptOutputPaths {
 		return nil, nil, fmt.Errorf("run_script accepts at most %d JSON output paths", records.MaxScriptOutputPaths)
 	}

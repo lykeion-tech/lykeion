@@ -87,6 +87,7 @@ type runtimeRef struct {
 	RuntimeID   uuid.UUID `json:"runtime_id"`
 }
 type claimed struct {
+	OutputAttestation  string                     `json:"output_attestation,omitempty"`
 	HasCommentSnapshot bool                       `json:"has_comment_snapshot,omitempty"`
 	ReservedCommentIDs []uuid.UUID                `json:"reserved_comment_ids,omitempty"`
 	Coresearch         *service.ClaimedCoresearch `json:"coresearch,omitempty"`
@@ -633,8 +634,14 @@ func (d *daemon) send(ctx context.Context, r Report) error {
 		}
 	}
 	if r.Kind == "rerun" {
-		return d.api.Do(ctx, "POST", "/api/daemon/reruns/"+r.AgentRunID.String()+"/result", map[string]any{"workspace_id": r.WorkspaceID, "runtime_id": r.RuntimeID, "attempt": r.Attempt,
-			"steps": r.Rerun.Steps, "outputs": r.Rerun.Outputs, "failure": r.Rerun.Failure}, nil)
+		body := struct {
+			service.RuntimeRef
+			*rerunResult
+		}{
+			RuntimeRef:  service.RuntimeRef{WorkspaceID: r.WorkspaceID, RuntimeID: r.RuntimeID, Attempt: r.Attempt},
+			rerunResult: r.Rerun,
+		}
+		return d.api.Do(ctx, "POST", "/api/daemon/reruns/"+r.AgentRunID.String()+"/result", body, nil)
 	}
 	if err := d.api.Do(ctx, "POST", "/api/daemon/agent-runs/"+r.AgentRunID.String()+"/"+r.Kind, reportBody(r), nil); err != nil {
 		return err

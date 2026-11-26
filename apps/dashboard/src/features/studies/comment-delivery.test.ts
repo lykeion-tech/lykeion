@@ -79,7 +79,7 @@ it('prioritizes an active lead over a newer member failure without claiming deli
 
 it('shows the server upgrade message for a queued frozen comparison', () => {
   const waiting =
-    'Waiting for a daemon with output attestation. Upgrade the daemon for this frozen comparison.';
+    'Waiting for a daemon with output attestation. Upgrade if the daemon does not support frozen comparisons.';
   const run = { status: 'queued', runtime_id: null, requires_output_attestation: true, waiting };
   expect(composerAvailability('working', [run], [])).toBe(waiting);
   expect(composerAvailability('working', [{ ...run, requires_output_attestation: false }], [])).toBe('');

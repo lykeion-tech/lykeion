@@ -30,9 +30,10 @@ import (
 )
 
 const (
-	noScriptNote    = "no recorded script run produced this value"
-	environmentNote = "the saved package list could not be rebuilt"
-	rerunFailedNote = "the rerun failed before reporting a result"
+	noScriptNote             = "no recorded script run produced this value"
+	environmentNote          = "the saved package list could not be rebuilt"
+	rerunFailedNote          = "the rerun failed before reporting a result"
+	missingBoundReplayOutput = "the replayed script did not produce the cited JSON output"
 )
 
 // RerunStepResult is one replayed script as the daemon reports it, under the
@@ -56,9 +57,10 @@ type RerunOutput struct {
 // step ran, "environment" when the saved package list could not be rebuilt,
 // or an infrastructure failure, which the harness retries.
 type RerunResult struct {
-	Steps   []RerunStepResult `json:"steps"`
-	Outputs []RerunOutput     `json:"outputs"`
-	Failure *string           `json:"failure"`
+	Steps         []RerunStepResult `json:"steps"`
+	Outputs       []RerunOutput     `json:"outputs"`
+	Failure       *string           `json:"failure"`
+	ScopedOutputs bool              `json:"scoped_outputs,omitempty"`
 }
 
 // rerunBody is the server's `rerun` record: what each replayed step did;
@@ -66,13 +68,15 @@ type RerunResult struct {
 // assessed hypothesis's text, trimmed, whether the rerun printed the test
 // its assessment reports.
 type rerunBody struct {
-	Steps       []rerunStep       `json:"steps"`
-	Outputs     []RerunOutput     `json:"outputs"`
-	Reproduced  map[string]bool   `json:"reproduced"`
-	Notes       map[string]string `json:"notes"`
-	BoundValues map[string]string `json:"bound_values,omitempty"`
-	Printed     []string          `json:"printed"` // every number the rerun printed, as exact fractions
-	Failure     *string           `json:"failure"`
+	Steps         []rerunStep       `json:"steps"`
+	Outputs       []RerunOutput     `json:"outputs"`
+	Reproduced    map[string]bool   `json:"reproduced"`
+	Notes         map[string]string `json:"notes"`
+	Unavailable   map[string]bool   `json:"unavailable,omitempty"`
+	ScopedOutputs bool              `json:"scoped_outputs,omitempty"`
+	BoundValues   map[string]string `json:"bound_values,omitempty"`
+	Printed       []string          `json:"printed"` // every number the rerun printed, as exact fractions
+	Failure       *string           `json:"failure"`
 }
 
 type rerunStep struct {
@@ -122,6 +126,8 @@ func replayEvidence(rec db.Record) string {
 	for _, name := range slices.Sorted(maps.Keys(body.Reproduced)) {
 		if body.Reproduced[name] {
 			lines = append(lines, fmt.Sprintf("Measurement %q was reproduced", name))
+		} else if body.Unavailable[name] {
+			lines = append(lines, fmt.Sprintf("Measurement %q could not be checked: %s", name, body.Notes[name]))
 		} else {
 			lines = append(lines, fmt.Sprintf("Measurement %q was not reproduced: %s", name, body.Notes[name]))
 		}
@@ -264,7 +270,7 @@ func (e *Engine) RerunResult(ctx context.Context, user uuid.UUID, ref service.Ru
 		in.Steps = slices.DeleteFunc(in.Steps, func(s RerunStepResult) bool {
 			return !slices.ContainsFunc(claimed, func(c service.RerunStep) bool { return c.Key == s.Key })
 		})
-		body, err := e.rerunRecord(ctx, exp, saved, in, tolerance, measures)
+		body, err := e.rerunRecord(ctx, exp, saved, claimed, in, tolerance, measures)
 		if err != nil {
 			return err
 		}
@@ -322,8 +328,8 @@ func (e *Engine) afterRerun(ctx context.Context, t db.AgentRun) error {
 // values in exp and keeping every number it printed, for the tests the
 // lead's assessments report, which may come later. The saved files it names
 // must be outputs this rerun uploaded, with the text it names.
-func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in RerunResult, tolerance float64, measures map[string]review.Measure) (rerunBody, error) {
-	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Printed: []string{}, Failure: in.Failure}
+func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, plan []service.RerunStep, in RerunResult, tolerance float64, measures map[string]review.Measure) (rerunBody, error) {
+	body := rerunBody{Steps: []rerunStep{}, Outputs: []RerunOutput{}, Printed: []string{}, Failure: in.Failure, ScopedOutputs: in.ScopedOutputs}
 	steps := map[string]RerunStepResult{}
 	for _, s := range in.Steps {
 		steps[s.Key] = s
@@ -368,21 +374,70 @@ func (e *Engine) rerunRecord(ctx context.Context, exp, saved []db.Record, in Rer
 		}
 	}
 	body.Reproduced, body.Notes, body.BoundValues = reproduce(exp, steps, files, tolerance, measures)
+	if !in.ScopedOutputs {
+		body.markLegacyReplayUnavailable(exp, plan, steps, files)
+	}
 	body.Printed = printedNumbers(steps, files)
 	return body, nil
 }
 
-// printedNumbers is every number the steps that succeeded and the saved
-// files printed, once each, as exact fractions.
+// markLegacyReplayUnavailable distinguishes a lost intermediate artifact from
+// a replay that attested the measured field and produced a different result.
+func (body *rerunBody) markLegacyReplayUnavailable(exp []db.Record, plan []service.RerunStep, steps map[string]RerunStepResult, files map[string]string) {
+	lastWriter := map[string]string{}
+	for _, planned := range plan {
+		if step, ok := steps[planned.Key]; ok && step.ExitStatus == 0 {
+			for _, path := range planned.OutputPaths {
+				lastWriter[path] = planned.Key
+			}
+		}
+	}
+	for _, r := range exp {
+		v := valueOf(r)
+		if r.Kind != "value" || !hasBinding(v) || len(v.Cites) != 1 || body.Notes[v.Name] != missingBoundReplayOutput {
+			continue
+		}
+		key, cited := strings.CutPrefix(v.Cites[0], "run:")
+		step, ran := steps[key]
+		_, final := files[v.File]
+		_, scoped := files[service.ReplayOutputName(key, v.File)]
+		if cited && ran && step.ExitStatus == 0 && final && !scoped && lastWriter[v.File] != "" && lastWriter[v.File] != key {
+			if body.Unavailable == nil {
+				body.Unavailable = map[string]bool{}
+			}
+			body.Unavailable[v.Name] = true
+			body.Notes[v.Name] = fmt.Sprintf("the older replay saved only the final copy of %s, so the cited execution's output could not be verified", v.File)
+		}
+	}
+}
+
+// printedNumbers returns the replay's recorded numbers as exact fractions.
+// If a script failed, saved file bytes need an attestation from a successful step.
 func printedNumbers(steps map[string]RerunStepResult, files map[string]string) []string {
 	var texts []string
+	failed := false
 	for _, s := range steps {
 		if s.ExitStatus == 0 {
 			texts = append(texts, s.Output)
+		} else {
+			failed = true
 		}
 	}
-	for _, f := range files {
-		texts = append(texts, f)
+	if failed {
+		for key, s := range steps {
+			if s.ExitStatus != 0 {
+				continue
+			}
+			for name, hash := range s.OutputHashes {
+				if text, ok := replayedOutput(files, key, name, hash); ok {
+					texts = append(texts, text)
+				}
+			}
+		}
+	} else {
+		for _, f := range files {
+			texts = append(texts, f)
+		}
 	}
 	seen := map[string]bool{}
 	for _, text := range texts {

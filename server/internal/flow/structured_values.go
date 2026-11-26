@@ -114,7 +114,6 @@ func checkBoundValue(r db.Record, executions, work []db.Record, files map[string
 	if reported.r.Cmp(roundAsReported(saved.r, reported.precision())) == 0 {
 		add("bound", fmt.Sprintf("Matches %s at JSON Pointer %q.", v.File, *v.Field), true)
 		result.Output, result.Where = key, "output:"+key
-		result.Context = fmt.Sprintf("JSON Pointer %q resolves to %s.", *v.Field, field.number)
 	} else {
 		add("bound", fmt.Sprintf("The reported value differs from the saved field in %s at JSON Pointer %q.", v.File, *v.Field), false)
 		if saved.r.Sign() != 0 {
@@ -139,6 +138,10 @@ func checkBoundValue(r db.Record, executions, work []db.Record, files map[string
 		}
 	}
 	result.Found = review.ItemStatus(result.Binding) == review.Pass
+	if result.Found {
+		m := result.Measure
+		result.Context = fmt.Sprintf("JSON Pointer %q resolves to %s. Accepted hypothesis measure %q (ID %q, unit %q).", *v.Field, field.number, m.Name, m.ID, m.Unit)
+	}
 	return result
 }
 
@@ -313,7 +316,7 @@ func replayBound(v valueRecord, steps map[string]RerunStepResult, files map[stri
 	step, found := steps[runKey]
 	text, saved := replayedOutput(files, runKey, v.File, step.OutputHashes[v.File])
 	if !cited || !found || step.ExitStatus != 0 || !saved {
-		return "", "the replayed script did not produce the cited JSON output"
+		return "", missingBoundReplayOutput
 	}
 	doc, err := decodeOutput(text)
 	if err != nil {

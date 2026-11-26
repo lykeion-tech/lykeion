@@ -34,17 +34,18 @@ type Assessment struct {
 // Measured is a value recomputed by a script run, keyed by value name.
 // Number says whether its text is a number, read into Value.
 type Measured struct {
-	Bound      bool
-	BoundValue string // exact text of the verified numeric field in the replay output
-	MeasureID  string
-	Value      float64
-	Number     bool
-	Text       string
-	FromScript bool
-	Reproduced bool
-	RerunNote  string
-	Key        string // the value record's key
-	RerunKey   string // the rerun record's key
+	Bound             bool
+	BoundValue        string // exact text of the verified numeric field in the replay output
+	MeasureID         string
+	Value             float64
+	Number            bool
+	Text              string
+	FromScript        bool
+	Reproduced        bool
+	RerunNote         string
+	ReplayUnavailable bool   // an older replay could not preserve this execution's artifact
+	Key               string // the value record's key
+	RerunKey          string // the rerun record's key
 }
 
 // StatusResult is one hypothesis's status with plain-sentence reasons and the
@@ -74,9 +75,13 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured, tests
 			out = append(out, r)
 			continue
 		}
-		if bad := invalidReasons(h, a, m, tests[strings.TrimSpace(h.Text)]); len(bad) > 0 {
+		bad, unavailable := assessmentProblems(h, a, m, tests[strings.TrimSpace(h.Text)])
+		switch {
+		case len(bad) > 0:
 			r.Status, r.Reasons = Invalid, bad
-		} else {
+		case len(unavailable) > 0:
+			r.Status, r.Reasons = Inconclusive, unavailable
+		default:
 			r.Status, r.Reasons = byShape(h, a, m)
 		}
 		if none := strings.TrimSpace(h.Control.None); r.Status == Supported && none != "" {
@@ -99,8 +104,7 @@ func Statuses(hs []HypothesisBody, as []Assessment, m map[string]Measured, tests
 	return out
 }
 
-func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testPrinted bool) []string {
-	var bad []string
+func assessmentProblems(h HypothesisBody, a Assessment, m map[string]Measured, testPrinted bool) (bad, unavailable []string) {
 	names := map[string]string{"measurement": a.Measurement}
 	order := []string{"measurement"}
 	if a.Control != nil {
@@ -114,14 +118,18 @@ func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testP
 			bad = append(bad, fmt.Sprintf("the %s %q has no recorded value", role, names[role]))
 		case !v.FromScript:
 			bad = append(bad, fmt.Sprintf("the %s %q was not computed by a script run", role, names[role]))
+		case (h.Prediction.Shape == "direction" || h.Prediction.Shape == "range") && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
+			bad = append(bad, fmt.Sprintf("the %s %q is bound to a different hypothesis measure", role, names[role]))
 		case !v.Reproduced:
 			s := fmt.Sprintf("the %s %q was not reproduced", role, names[role])
+			if v.ReplayUnavailable && h.Comparison == nil {
+				unavailable = append(unavailable, fmt.Sprintf("the %s %q could not be checked: %s", role, names[role], v.RerunNote))
+				continue
+			}
 			if v.RerunNote != "" {
 				s += ": " + v.RerunNote
 			}
 			bad = append(bad, s)
-		case (h.Prediction.Shape == "direction" || h.Prediction.Shape == "range") && v.Bound && (h.Measure == nil || h.Measure.ID != v.MeasureID):
-			bad = append(bad, fmt.Sprintf("the %s %q is bound to a different hypothesis measure", role, names[role]))
 		case !v.Number && h.Prediction.Shape != "outcomes":
 			bad = append(bad, fmt.Sprintf("the %s %q is %q, which is not a number", role, names[role], strings.TrimSpace(v.Text)))
 		}
@@ -142,7 +150,7 @@ func invalidReasons(h HypothesisBody, a Assessment, m map[string]Measured, testP
 			bad = append(bad, fmt.Sprintf("reported p %g does not match %s(%s)=%g, p≈%.2g", t.P, t.Kind, df, t.Statistic, p))
 		}
 	}
-	return bad
+	return bad, unavailable
 }
 
 // significant reports whether a consistent reported test has p < 0.05.

@@ -11,13 +11,13 @@ import (
 	"lykeion/server/internal/review"
 )
 
-// Review is what the column's last review sent back: each failed item's
-// identity with the key of the record that declared it, bounded retry aliases
-// with their identities, and the ids of papers it found missing.
+// Review records the preceding round's failed items, retry aliases, missing
+// papers and the measure definitions that carry forward.
 type Review struct {
-	Failed  map[string]string
-	Missed  []string
-	Aliases map[string]string
+	Failed          map[string]string
+	Missed          []string
+	Aliases         map[string]string
+	CarriedMeasures []review.Measure
 }
 
 // NewRecord is one record a hand-in becomes, written on the run's behalf.
@@ -81,7 +81,7 @@ func Convert(k Kind, lead bool, h HandIn, ev Evidence, prev Review) ([]NewRecord
 	case Grounding:
 		c.grounding(h)
 	case Hypotheses:
-		c.hypotheses(h)
+		c.hypotheses(h, prev.CarriedMeasures)
 	case Experimentation:
 		c.experimentation(h)
 	case Validation:
@@ -175,8 +175,13 @@ func (c *converter) grounding(h HandIn) {
 // hypotheses cite the study's Grounding items by their record key, the
 // study's attached files by the calls that read them, and other recorded
 // sources by the calls that returned them.
-func (c *converter) hypotheses(h HandIn) {
+func (c *converter) hypotheses(h HandIn, carried []review.Measure) {
 	for i, x := range h.Hypotheses {
+		if m := x.Measure; m != nil && slices.ContainsFunc(carried, func(old review.Measure) bool {
+			return old.ID == m.ID && old != *m
+		}) {
+			c.problem("hypothesis %d: measure id %q already stands from the previous review with a different name or unit", i+1, m.ID)
+		}
 		cites, ok := []string{}, true
 		for _, id := range x.Cites {
 			if key, g := c.ev.Grounding(id); g {

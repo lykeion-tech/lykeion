@@ -250,10 +250,50 @@ func TestRunScriptRecordsTheScriptItsOutputAndPackages(t *testing.T) {
 	}
 }
 
-func TestRunScriptRecordsOnlyChangedDeclaredJSONOutputs(t *testing.T) {
+func TestUnconfirmedRunScriptUsesLegacySchemaAndRecording(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()
 	d := runDoor(t, l, dir, envs.Python)
+	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("printf '42\n'\n"), 0o600))
+	ctx := t.Context()
+	client := mcp.NewClient(&mcp.Implementation{Name: "cli", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: d.URL, HTTPClient: &http.Client{Transport: bearer(d.Token)}, DisableStandaloneSSE: true,
+	}, nil)
+	must(t, err)
+	defer session.Close()
+	found := false
+	for tool, err := range session.Tools(ctx, nil) {
+		must(t, err)
+		if tool.Name == "run_script" {
+			found = true
+			schema, err := json.Marshal(tool.InputSchema)
+			must(t, err)
+			if strings.Contains(string(schema), `"outputs"`) || strings.Contains(tool.Description, "bind values") {
+				t.Errorf("unconfirmed server advertised attestation: %s %s", tool.Description, schema)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("legacy run_script was unavailable")
+	}
+	got, err := useTool(t, d, "run_script", map[string]any{"path": "a.py"})
+	if err != nil || got != "run:x1\n42\n" {
+		t.Fatalf("legacy script did not return its run key and stdout: %q %v", got, err)
+	}
+	runs, _ := l.recorded()
+	if len(runs) != 1 || runs[0]["output_hashes"] != nil {
+		t.Fatalf("legacy run sent unexpected fields: %+v", runs)
+	}
+}
+
+func TestRunScriptRecordsOnlyChangedDeclaredJSONOutputs(t *testing.T) {
+	l := newLykeion(t)
+	dir := t.TempDir()
+	d := newRunDoor(t, l, dir, func(d *Door) {
+		d.OutputAttestation = true
+		d.wrap = stubSandbox(&sandboxed{})
+	}, envs.Python)
 	must(t, os.Mkdir(filepath.Join(dir, "outputs"), 0o755))
 	must(t, os.WriteFile(filepath.Join(dir, "outputs/changed.json"), []byte("1"), 0o644))
 	must(t, os.WriteFile(filepath.Join(dir, "outputs/unchanged.json"), []byte("2"), 0o644))
@@ -290,7 +330,10 @@ func TestRunScriptRecordsOnlyChangedDeclaredJSONOutputs(t *testing.T) {
 func TestRunScriptRejectsInvalidDeclaredOutputPaths(t *testing.T) {
 	l := newLykeion(t)
 	dir := t.TempDir()
-	d := runDoor(t, l, dir, envs.Python)
+	d := newRunDoor(t, l, dir, func(d *Door) {
+		d.OutputAttestation = true
+		d.wrap = stubSandbox(&sandboxed{})
+	}, envs.Python)
 	must(t, os.WriteFile(filepath.Join(dir, "a.py"), []byte("printf ran >executed\n"), 0o644))
 	for _, names := range [][]string{
 		{"not-an-output.json"},

@@ -35,9 +35,10 @@ import (
 // rerunResult is what a rerun posts: each replayed step, the files its
 // scripts saved, and why it could not replay, when it could not.
 type rerunResult struct {
-	Steps   []rerunStep   `json:"steps"`
-	Outputs []rerunOutput `json:"outputs"`
-	Failure *string       `json:"failure"`
+	Steps         []rerunStep   `json:"steps"`
+	Outputs       []rerunOutput `json:"outputs"`
+	Failure       *string       `json:"failure"`
+	ScopedOutputs bool          `json:"scoped_outputs,omitempty"`
 }
 
 type rerunStep struct {
@@ -166,7 +167,11 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		cancel()
 		<-watched
 	}()
-	result := &rerunResult{Steps: []rerunStep{}, Outputs: []rerunOutput{}}
+	result := &rerunResult{
+		Steps: []rerunStep{}, Outputs: []rerunOutput{},
+		// Older servers may request snapshots without accepting the result flag.
+		ScopedOutputs: c.Rerun.ScopedOutputs && c.OutputAttestation == agent.OutputAttestationProtocol,
+	}
 	settle := func(failure string) {
 		if failure != "" {
 			result.Failure = &failure
@@ -284,17 +289,7 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 		saved[o.Name], sums[o.Name] = true, o.Sha256
 	}
 	scoped := c.Rerun.ScopedOutputs
-	// Pass only attested JSON files through the scoped upload. The final scan
-	// still saves other outputs by their ordinary paths.
-	if scoped {
-		for _, s := range c.Rerun.Steps {
-			for _, name := range s.OutputPaths {
-				if records.ValidScriptOutputPath(name) {
-					saved[name] = true
-				}
-			}
-		}
-	}
+	snapshots := map[string][]string{}
 	outputsFull := false
 	// ponytail: each step gets an even share of the body limit, cut from its
 	// tail; share by need if one step's output crowds out the others.
@@ -352,11 +347,18 @@ func (d *daemon) runRerun(ctx context.Context, c claimed) (localErr error) {
 				saved[upload] = true
 				if hash != "" && before[name] != hash && sums[upload] == hash {
 					hashes[name] = hash
+					snapshots[name] = append(snapshots[name], hash)
 				}
 			}
 			step.OutputHashes = &hashes
 		}
 		result.Steps = append(result.Steps, step)
+	}
+	// Skip a second upload only when a scoped snapshot holds the final bytes.
+	for name, hashes := range snapshots {
+		if slices.Contains(hashes, scriptOutputHash(root, name, nil)) {
+			saved[name] = true
+		}
 	}
 	// A file the server's limits refuse is left out: a value only it held is
 	// not reproduced.

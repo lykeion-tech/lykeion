@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"lykeion/server/internal/board"
 	"lykeion/server/internal/fence"
 	"lykeion/server/internal/handin"
@@ -113,7 +115,6 @@ func handedIn(recs, items, grounding []db.Record) []string {
 // itemLines renders items in plain language. recs are the column's records,
 // whose lead hand-ins hold the ids a hypothesis was handed in with.
 func itemLines(items, recs, grounding []db.Record) []string {
-	cites := handedInCites(recs)
 	var lines []string
 	for _, r := range items {
 		switch r.Kind {
@@ -127,7 +128,7 @@ func itemLines(items, recs, grounding []db.Record) []string {
 			lines = append(lines, "- Nothing qualifies: "+oneLine(records.Body[review.NoQualifyingBody](r).Text))
 		case review.KindHypothesis:
 			b := records.Body[review.HypothesisBody](r)
-			ids, ok := cites[review.IdentityOf(r)]
+			ids, ok := handedInCites(recs, r)
 			if !ok {
 				ids = groundingIDs(b.Cites, grounding)
 			}
@@ -151,7 +152,8 @@ type valueRecord = review.ValueBody
 func valueOf(r db.Record) valueRecord { return records.Body[valueRecord](r) }
 
 type leadHandIn struct {
-	HandIn struct {
+	ConvertedRecords []uuid.UUID `json:"converted_records"`
+	HandIn           struct {
 		Hypotheses []struct {
 			Text  string   `json:"text"`
 			Cites []string `json:"cites"`
@@ -159,19 +161,37 @@ type leadHandIn struct {
 	} `json:"hand_in"`
 }
 
-// handedInCites maps each hypothesis a lead handed in, by identity, to the
-// ids it cited.
-func handedInCites(recs []db.Record) map[string][]string {
-	out := map[string][]string{}
+// handedInCites reads the raw citation identifiers from the hand-in that
+// created this declaration. Legacy hand-ins may lack a record link.
+func handedInCites(recs []db.Record, hypothesis db.Record) ([]string, bool) {
+	identity := review.IdentityOf(hypothesis)
+	var legacy []string
+	legacyMatches := 0
 	for _, r := range recs {
-		if r.Kind != "hand_in" || !slices.Contains([]string{"leader", "agent"}, r.Role) {
+		if r.Kind != "hand_in" || !handin.Leads(r.Role) || r.Round != hypothesis.Round || r.Role != hypothesis.Role ||
+			r.BoardColumn != hypothesis.BoardColumn || !sameRun(r.AgentRunID, hypothesis.AgentRunID) {
 			continue
 		}
-		for _, h := range records.Body[leadHandIn](r).HandIn.Hypotheses {
-			out[strings.ToLower(strings.Join(strings.Fields(h.Text), " "))] = h.Cites
+		h := records.Body[leadHandIn](r)
+		if h.ConvertedRecords != nil {
+			// A Hypotheses hand-in writes its declarations in order before replies and summary.
+			i := slices.Index(h.ConvertedRecords, hypothesis.ID)
+			if i >= 0 && i < len(h.HandIn.Hypotheses) && strings.ToLower(oneLine(h.HandIn.Hypotheses[i].Text)) == identity {
+				return h.HandIn.Hypotheses[i].Cites, true
+			}
+			continue
+		}
+		for _, item := range h.HandIn.Hypotheses {
+			if strings.ToLower(oneLine(item.Text)) == identity {
+				legacy, legacyMatches = item.Cites, legacyMatches+1
+			}
 		}
 	}
-	return out
+	return legacy, legacyMatches == 1
+}
+
+func sameRun(a, b *uuid.UUID) bool {
+	return a == b || a != nil && b != nil && *a == *b
 }
 
 // groundingIDs are the ids of the Grounding papers and datasets among keys;

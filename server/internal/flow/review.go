@@ -425,9 +425,8 @@ func lastReview(recs []db.Record, round int32) (review.Result, error) {
 }
 
 // SentBack is what the review before the study's round sent back in its
-// column: the failed items a reply may answer, by identity, and the papers
-// it found missing. Outputs are checked afresh each attempt, so they are
-// never sent back to answer.
+// column, plus the measure definitions that carry forward. Outputs are
+// checked afresh each attempt, so they are never sent back to answer.
 func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.Review, error) {
 	out := handin.Review{Failed: map[string]string{}, Aliases: map[string]string{}}
 	recs, err := tx.Q.ListRecords(ctx, db.ListRecordsParams{WorkspaceID: tx.WS, CardID: c.ID, BoardColumn: c.BoardColumn})
@@ -446,6 +445,11 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 		}
 	}
 	for _, it := range prev.Items {
+		if it.Kind == review.KindHypothesis && it.Key != "" && !it.Unjudged && (it.Status == review.Pass || it.Status == review.Unclear) {
+			if m := carriedHypothesisMeasure(recs, it.Key); m != nil {
+				out.CarriedMeasures = append(out.CarriedMeasures, *m)
+			}
+		}
 		if it.Status == review.Fail && it.Kind != review.KindOutputs {
 			id := it.Identity
 			if id == "" {
@@ -478,6 +482,23 @@ func (e *Engine) SentBack(ctx context.Context, tx *store.Tx, c db.Card) (handin.
 		out.Missed = append(out.Missed, it.Label)
 	}
 	return out, nil
+}
+
+func carriedHypothesisMeasure(recs []db.Record, key string) *review.Measure {
+	if slices.ContainsFunc(recs, func(r db.Record) bool {
+		return r.Kind == review.KindWithdrawn && records.Body[review.WithdrawnBody](r).Item == key
+	}) {
+		return nil
+	}
+	for _, r := range recs {
+		if r.Key == key && r.Kind == review.KindHypothesis && handin.Leads(r.Role) {
+			if m := records.Body[review.HypothesisBody](r).Measure; m != nil && m.Valid() {
+				return m
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func needsRetryAlias(it review.Item) bool {

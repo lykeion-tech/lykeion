@@ -20,15 +20,16 @@ import (
 
 func TestStructuredValueChecksUseAttestedField(t *testing.T) {
 	const path = "outputs/metrics.json"
-	const contents = `{"decoy":10.1245,"effect":{"value":0.1245,"measure":"effect","unit":"fraction"},"other":0.987,"reversed":-0.1245}`
+	const contents = `{"decoy":{"value":0.1245,"measure":"decoy","unit":"percent"},"effect":{"value":0.1245,"measure":"effect","unit":"fraction"},"scalar":0.1245,"other":0.987,"reversed":-0.1245}`
 	producer := uuid.New()
 	runBody := fmt.Appendf(nil, `{"tool":"run_script","exit_status":0,"output_hashes":{"%s":"%x"}}`, path, sha256.Sum256([]byte(contents)))
 	outputBody := fmt.Appendf(nil, `{"name":"%s","sha256":"%x"}`, path, sha256.Sum256([]byte(contents)))
-	measure := review.Measure{ID: "effect", Name: "Effect", Unit: "fraction"}
+	measure := review.Measure{ID: "effect", Name: "Treatment effect", Unit: "fraction"}
 	for _, tc := range []struct {
 		name, field, value, id, cite, fail string
 	}{
 		{"clean", "/effect/value", "0.125", "effect", "run:x1", ""},
+		{"untagged field", "/scalar", "0.125", "effect", "run:x1", ""},
 		{"wrong field", "/other", "0.125", "effect", "run:x1", "bound"},
 		{"wrong value", "/effect/value", "0.987", "effect", "run:x1", "bound"},
 		{"missing field", "/missing", "0.125", "effect", "run:x1", "bound"},
@@ -57,8 +58,9 @@ func TestStructuredValueChecksUseAttestedField(t *testing.T) {
 				if item.Status != review.Pass || item.Output != "o1" || item.Measure == nil {
 					t.Fatalf("expected clean binding: %+v", item)
 				}
-				if got := values[0].Context; !strings.Contains(got, `"/effect/value"`) || !strings.Contains(got, "0.1245") || strings.Contains(got, "decoy") {
-					t.Fatalf("Jev context should describe the resolved field: %q", got)
+				want := fmt.Sprintf(`JSON Pointer %q resolves to 0.1245. Accepted hypothesis measure "Treatment effect" (ID "effect", unit "fraction").`, tc.field)
+				if got := values[0].Context; got != want {
+					t.Fatalf("Jev context = %q, want %q", got, want)
 				}
 			} else if item.Status != review.Fail || !slices.ContainsFunc(item.Checks, func(c review.Check) bool {
 				return c.ID == tc.fail && c.Status == review.Fail && c.By == "server"

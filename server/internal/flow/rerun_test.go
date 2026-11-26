@@ -20,7 +20,7 @@ import (
 )
 
 func TestRerunPreservesFailedStderr(t *testing.T) {
-	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, RerunResult{Steps: []RerunStepResult{
+	result, err := (&Engine{}).rerunRecord(context.Background(), nil, nil, nil, RerunResult{Steps: []RerunStepResult{
 		{Key: "failed", ExitStatus: 1, Error: "FileNotFoundError\n" + strings.Repeat("abc", 2000)},
 		{Key: "passed", Error: "a warning"},
 	}}, 0, nil)
@@ -64,15 +64,77 @@ func TestRerunReproducesEachBoundValueAtTheSamePath(t *testing.T) {
 		in.Steps = append(in.Steps, RerunStepResult{Key: tc.key, OutputHashes: map[string]string{name: hash}})
 	}
 	measures := map[string]review.Measure{id: {ID: id, Unit: "fraction"}}
-	body, err := e.rerunRecord(t.Context(), exp, saved, in, 0, measures)
+	body, err := e.rerunRecord(t.Context(), exp, saved, nil, in, 0, measures)
 	if err != nil || !body.Reproduced["x1"] || !body.Reproduced["x2"] ||
 		body.BoundValues["x1"] != "0.12" || body.BoundValues["x2"] != "0.24" {
 		t.Fatalf("both per-execution values should reproduce: %+v, %v", body, err)
 	}
 	in.Steps[0].OutputHashes[name] = in.Steps[1].OutputHashes[name]
-	body, err = e.rerunRecord(t.Context(), exp, saved, in, 0, measures)
+	body, err = e.rerunRecord(t.Context(), exp, saved, nil, in, 0, measures)
 	if err != nil || body.Reproduced["x1"] || !body.Reproduced["x2"] {
 		t.Fatalf("an execution must not borrow another execution's output: %+v, %v", body, err)
+	}
+}
+
+func TestLegacyReplayCollisionLeavesOrdinaryAssessmentInconclusive(t *testing.T) {
+	const path, early, final = "outputs/result.json", `{"value":0.2}`, `{"value":0.8}`
+	pointer, id := "/value", "accuracy"
+	blobs := storage.Local{Dir: t.TempDir()}
+	if err := blobs.Put(t.Context(), path, strings.NewReader(final), int64(len(final))); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(service.SavedOutput{Name: path, Sha256: hashText(final)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := []db.Record{{Kind: "rerun_output", Key: "o1", BlobKey: path, Body: meta}}
+	var exp []db.Record
+	for _, v := range []struct{ key, text string }{{"early", "0.2"}, {"later", "0.8"}} {
+		body, err := json.Marshal(review.ValueBody{Name: v.key, File: path, Value: v.text, Field: &pointer, Measure: &id, Cites: []string{"run:" + v.key}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp = append(exp, db.Record{Kind: "value", Key: v.key, Body: body})
+	}
+	measure := review.Measure{ID: id, Name: "Accuracy", Unit: "fraction"}
+	lo, hi := 0.1, 0.3
+	hyp := review.HypothesisBody{Text: "Accuracy is between 0.1 and 0.3", Measure: &measure,
+		Prediction: review.Prediction{Shape: "range", Low: &lo, High: &hi}, Control: review.Control{Text: "baseline"}}
+	plan := []service.RerunStep{{Key: "early", OutputPaths: []string{path}}, {Key: "later", OutputPaths: []string{path}}}
+	for _, tc := range []struct {
+		name, digest, want, reason string
+		exit                       int
+		scoped                     bool
+	}{
+		{"legacy manifest lost earlier file", hashText(early), review.Inconclusive, "saved only the final copy", 0, false},
+		{"legacy replay without earlier manifest", "", review.Inconclusive, "saved only the final copy", 0, false},
+		{"failed execution", "", review.Invalid, "was not reproduced", 1, false},
+		{"own verified final bytes with wrong field value", hashText(final), review.Invalid, "replayed field holds", 0, false},
+		{"missing scoped output", hashText(early), review.Invalid, "was not reproduced", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := RerunResult{Steps: []RerunStepResult{
+				{Key: "early", ExitStatus: tc.exit, OutputHashes: map[string]string{path: tc.digest}},
+				{Key: "later", OutputHashes: map[string]string{path: hashText(final)}},
+			}, Outputs: []RerunOutput{{Name: path, TextSHA256: hashText(final)}}, ScopedOutputs: tc.scoped}
+			body, err := (&Engine{Blobs: blobs}).rerunRecord(t.Context(), exp, saved, plan, in, 0, map[string]review.Measure{id: measure})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := db.Record{Key: "rerun", Body: raw}
+			if tc.want == review.Inconclusive && !strings.Contains(replayEvidence(r), `Measurement "early" could not be checked`) {
+				t.Fatalf("replay evidence should describe the missing artifact: %s", replayEvidence(r))
+			}
+			m := measured(exp, r)
+			got := review.Statuses([]review.HypothesisBody{hyp}, []review.Assessment{{Hypothesis: hyp.Text, Measurement: "early"}}, m, nil)[0]
+			if got.Status != tc.want || !strings.Contains(strings.Join(got.Reasons, " "), tc.reason) || m["early"].BoundValue != "" || m["later"].BoundValue != "0.8" {
+				t.Fatalf("assessment = %+v, measures = %+v", got, m)
+			}
+		})
 	}
 }
 
@@ -269,6 +331,26 @@ func TestAReportedTestIsFoundOnlyByTheDigitRule(t *testing.T) {
 	failed := printedNumbers(map[string]RerunStepResult{"x1": {Key: "x1", ExitStatus: 1, Output: "t = 8.698, p = 1.83e-10"}}, nil)
 	if got := testsPrinted(test(8.698, 3), failed); got["h"] {
 		t.Fatal("a test printed only by a failed step was found")
+	}
+}
+
+func TestFailedReplayCannotSupplyStatisticsFromSavedFiles(t *testing.T) {
+	const path, good, overwritten = "outputs/metrics.json", `{"statistic":12}`, `{"statistic":32}`
+	const legacyPath, legacy = "outputs/summary.txt", "statistic 42"
+	steps := map[string]RerunStepResult{
+		"x1": {Key: "x1", Output: "statistic 22", OutputHashes: map[string]string{path: hashText(good), legacyPath: hashText(legacy)}},
+		"x2": {Key: "x2", ExitStatus: 1, Output: "statistic 52", OutputHashes: map[string]string{path: hashText(overwritten)}},
+	}
+	files := map[string]string{service.ReplayOutputName("x1", path): good, path: overwritten, legacyPath: legacy}
+	printed := printedNumbers(steps, files)
+	for _, tc := range []struct {
+		statistic float64
+		want      bool
+	}{{12, true}, {22, true}, {32, false}, {42, true}, {52, false}} {
+		assessments := []review.Assessment{{Hypothesis: "h", Test: &statcheck.Test{Statistic: tc.statistic, PBound: "<"}}}
+		if got := testsPrinted(assessments, printed)["h"]; got != tc.want {
+			t.Errorf("statistic %g counted = %t, want %t; printed = %v", tc.statistic, got, tc.want, printed)
+		}
 	}
 }
 
